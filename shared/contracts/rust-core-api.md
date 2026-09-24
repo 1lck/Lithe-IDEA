@@ -1242,9 +1242,13 @@ project files JDT LS maintains (`.project`, `.classpath`, `.factorypath`, and
 modules. Before launch, Core removes such files that earlier versions left in a
 Maven or Gradle module directory when the enclosing Git repository does not
 track them; tracked files and workspaces outside Git are left alone because JDT
-LS keeps honoring files that already exist at a module root. When any file is
-removed, Core also deletes the current state directory so the launch imports
-the modules afresh instead of reusing a model that points at the removed files.
+LS keeps honoring files that already exist at a module root. Tracking is decided
+by the repository that owns each module, located through its `.git` entry, with
+one batched `git ls-files` query per repository; modules outside Git start no Git
+process. When any file is removed, Core also deletes the current state directory
+so the launch imports the modules afresh instead of reusing a model that points
+at the removed files, and records the removed workspace-relative paths in the
+session's `info` log event.
 
 `java.jdtWorkspaceFingerprint` accepts
 `{ buildFiles, directMavenModules, jdtlsVersion }`. Each build-file observation

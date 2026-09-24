@@ -10,6 +10,7 @@
 
 use crate::lsp::languages::java_workspace::IGNORED_DIRECTORIES;
 use crate::protocol::{CoreError, ErrorCode};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -23,18 +24,28 @@ const SETTINGS_DIRECTORY_NAME: &str = ".settings";
 /// Extension of the preference files JDT LS redirects together with the files above.
 const PREFERENCES_EXTENSION: &str = "prefs";
 
+/// Outcome of removing legacy metadata before one JDT LS launch.
+#[derive(Debug, Default, Eq, PartialEq)]
+pub(crate) struct LegacyMetadataCleanup {
+    /// Removed files as sorted workspace-relative paths with `/` separators.
+    pub removed_files: Vec<String>,
+    /// Whether an existing JDT LS state directory was deleted so the launch
+    /// imports the workspace afresh.
+    pub state_reset: bool,
+}
+
 /// Removes legacy metadata before JDT LS starts for `workspace_root`.
 ///
 /// When any file was removed, the JDT LS state in `data_directory` still
 /// describes those projects at their old location, so it is deleted and the
-/// launch imports the workspace afresh. Returns the removed files as sorted
-/// workspace-relative paths with `/` separators.
+/// launch imports the workspace afresh.
 pub(crate) fn prepare_workspace(
     workspace_root: &Path,
     data_directory: &Path,
-) -> Result<Vec<String>, CoreError> {
-    let removed = remove_untracked_metadata(workspace_root);
-    if !removed.is_empty() && data_directory.exists() {
+) -> Result<LegacyMetadataCleanup, CoreError> {
+    let removed_files = remove_untracked_metadata(workspace_root);
+    let state_reset = !removed_files.is_empty() && data_directory.exists();
+    if state_reset {
         fs::remove_dir_all(data_directory).map_err(|error| {
             CoreError::new(
                 ErrorCode::ProcessStartFailed,
@@ -43,33 +54,100 @@ pub(crate) fn prepare_workspace(
             .with_details(error.to_string())
         })?;
     }
-    Ok(removed)
+    Ok(LegacyMetadataCleanup {
+        removed_files,
+        state_reset,
+    })
+}
+
+/// One metadata file of one module, keyed for the repository that owns it.
+struct Candidate {
+    module: PathBuf,
+    /// Path relative to `module` with `/` separators.
+    name: String,
+    /// Path relative to the owning repository root with `/` separators, the
+    /// form `git ls-files` reports.
+    repository_path: String,
 }
 
 fn remove_untracked_metadata(workspace_root: &Path) -> Vec<String> {
-    let mut removed = Vec::new();
+    // Group candidates by repository so each repository answers with one Git
+    // query. The repository is located from its `.git` entry without starting a
+    // process, so modules outside Git — whose files are kept anyway — cost no
+    // Git invocation on any launch.
+    let mut repositories: BTreeMap<PathBuf, Vec<Candidate>> = BTreeMap::new();
     for module in module_directories(workspace_root) {
-        let candidates = metadata_candidates(&module);
-        // Removal is best effort: a file that cannot be queried or deleted keeps
-        // working for JDT LS exactly as before, so it never blocks the launch.
-        let Some(untracked) = crate::git::untracked_candidates(&module, &candidates) else {
+        let names = metadata_candidates(&module);
+        if names.is_empty() {
+            continue;
+        }
+        let Some(repository) = enclosing_repository(&module) else {
             continue;
         };
-        let mut removed_preferences = false;
-        for candidate in untracked {
-            if fs::remove_file(module.join(&candidate)).is_err() {
+        let module_path = relative_path(&repository, &module);
+        let candidates = repositories.entry(repository).or_default();
+        for name in names {
+            let repository_path = if module_path.is_empty() {
+                name.clone()
+            } else {
+                format!("{module_path}/{name}")
+            };
+            candidates.push(Candidate {
+                module: module.clone(),
+                name,
+                repository_path,
+            });
+        }
+    }
+
+    let mut removed = Vec::new();
+    let mut emptied_settings = BTreeSet::new();
+    for (repository, candidates) in repositories {
+        let paths = candidates
+            .iter()
+            .map(|candidate| candidate.repository_path.clone())
+            .collect::<Vec<_>>();
+        // Removal is best effort: a file that cannot be queried or deleted keeps
+        // working for JDT LS exactly as before, so it never blocks the launch.
+        let Some(untracked) = crate::git::untracked_candidates(&repository, &paths) else {
+            continue;
+        };
+        let untracked = untracked.into_iter().collect::<BTreeSet<_>>();
+        for candidate in candidates {
+            if !untracked.contains(&candidate.repository_path)
+                || fs::remove_file(candidate.module.join(&candidate.name)).is_err()
+            {
                 continue;
             }
-            removed_preferences |= candidate.starts_with(SETTINGS_DIRECTORY_NAME);
-            removed.push(workspace_relative(workspace_root, &module, &candidate));
+            if candidate.name.starts_with(SETTINGS_DIRECTORY_NAME) {
+                emptied_settings.insert(candidate.module.join(SETTINGS_DIRECTORY_NAME));
+            }
+            let module_path = relative_path(workspace_root, &candidate.module);
+            removed.push(if module_path.is_empty() {
+                candidate.name
+            } else {
+                format!("{module_path}/{}", candidate.name)
+            });
         }
-        if removed_preferences {
-            // Fails, as intended, while the directory still holds other files.
-            let _ = fs::remove_dir(module.join(SETTINGS_DIRECTORY_NAME));
-        }
+    }
+    for settings in emptied_settings {
+        // Fails, as intended, while the directory still holds other files.
+        let _ = fs::remove_dir(settings);
     }
     removed.sort();
     removed
+}
+
+/// Nearest ancestor of `directory` (itself included) holding a `.git` entry.
+///
+/// `.git` is a directory in a regular checkout and a file in linked worktrees
+/// and submodules; both mark the repository whose index decides tracking, so a
+/// module inside a nested repository is answered by that nested repository.
+fn enclosing_repository(directory: &Path) -> Option<PathBuf> {
+    directory
+        .ancestors()
+        .find(|ancestor| fs::symlink_metadata(ancestor.join(".git")).is_ok())
+        .map(Path::to_path_buf)
 }
 
 /// Directories below `workspace_root` that declare a Maven or Gradle module.
@@ -141,17 +219,12 @@ fn is_regular_file(path: &Path) -> bool {
     fs::symlink_metadata(path).is_ok_and(|metadata| metadata.file_type().is_file())
 }
 
-fn workspace_relative(workspace_root: &Path, module: &Path, candidate: &str) -> String {
-    let module = module
-        .strip_prefix(workspace_root)
-        .unwrap_or(module)
+/// `path` relative to `base` with `/` separators; empty when they are equal.
+fn relative_path(base: &Path, path: &Path) -> String {
+    path.strip_prefix(base)
+        .unwrap_or(path)
         .to_string_lossy()
-        .replace('\\', "/");
-    if module.is_empty() {
-        candidate.to_string()
-    } else {
-        format!("{module}/{candidate}")
-    }
+        .replace('\\', "/")
 }
 
 #[cfg(test)]
@@ -236,9 +309,11 @@ mod tests {
         scratch.git(&["init", "-q"]);
         let data_directory = scratch.data_directory();
 
-        let removed = prepare_workspace(&scratch.workspace(), &data_directory)
+        let cleanup = prepare_workspace(&scratch.workspace(), &data_directory)
             .expect("preparation should succeed");
+        let removed = &cleanup.removed_files;
 
+        assert!(cleanup.state_reset);
         assert_eq!(removed.len(), 15, "{removed:?}");
         assert_eq!(removed.first().map(String::as_str), Some(".classpath"));
         assert!(removed
@@ -275,15 +350,49 @@ mod tests {
     }
 
     #[test]
+    fn asks_the_nested_repository_that_owns_a_module() {
+        let scratch = Scratch::new();
+        scratch.write("pom.xml");
+        scratch.write(".project");
+        scratch.write("vendor-lib/pom.xml");
+        scratch.write("vendor-lib/.classpath");
+        scratch.write("vendor-lib/.project");
+        scratch.git(&["init", "-q"]);
+        // The outer index never lists files of a nested repository, so asking the
+        // outer repository would report the inner tracked `.classpath` as untracked.
+        let status = Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(scratch.workspace().join("vendor-lib"))
+            .status()
+            .expect("git should run");
+        assert!(status.success());
+        let status = Command::new("git")
+            .args(["add", ".classpath"])
+            .current_dir(scratch.workspace().join("vendor-lib"))
+            .status()
+            .expect("git should run");
+        assert!(status.success());
+
+        let cleanup = prepare_workspace(&scratch.workspace(), &scratch.data_directory())
+            .expect("preparation should succeed");
+
+        assert_eq!(
+            cleanup.removed_files,
+            vec![".project", "vendor-lib/.project"]
+        );
+        assert!(scratch.exists("vendor-lib/.classpath"));
+    }
+
+    #[test]
     fn leaves_workspaces_outside_git_and_their_jdt_state_untouched() {
         let scratch = Scratch::new();
         write_reactor_with_legacy_metadata(&scratch);
         let data_directory = scratch.data_directory();
 
-        let removed = prepare_workspace(&scratch.workspace(), &data_directory)
+        let cleanup = prepare_workspace(&scratch.workspace(), &data_directory)
             .expect("preparation should succeed");
 
-        assert!(removed.is_empty(), "{removed:?}");
+        assert_eq!(cleanup, LegacyMetadataCleanup::default());
         assert!(scratch.exists(".project"));
         assert!(scratch.exists("infrastructure/sdk/.settings/org.eclipse.m2e.core.prefs"));
         assert!(data_directory.join(".metadata").is_dir());
@@ -303,10 +412,10 @@ mod tests {
         scratch.git(&["init", "-q"]);
         let data_directory = scratch.data_directory();
 
-        let removed = prepare_workspace(&scratch.workspace(), &data_directory)
+        let cleanup = prepare_workspace(&scratch.workspace(), &data_directory)
             .expect("preparation should succeed");
 
-        assert!(removed.is_empty(), "{removed:?}");
+        assert_eq!(cleanup, LegacyMetadataCleanup::default());
         assert!(scratch.exists("tools/.project"));
         assert!(scratch.exists("node_modules/dep/.project"));
         assert!(scratch.exists("target/nested/.classpath"));

@@ -6410,6 +6410,12 @@ fn tracking_counts(repository_root: &Path) -> (usize, usize) {
     (ahead, behind)
 }
 
+/// Upper bound on the pathspec bytes passed to one `git ls-files` call.
+///
+/// Windows limits a whole command line to 32,767 UTF-16 units; batching well
+/// below it keeps large reactors from failing to start the query.
+const LS_FILES_PATHSPEC_BUDGET: usize = 16 * 1024;
+
 /// Returns the entries of `candidates` that the Git repository enclosing
 /// `directory` does not track.
 ///
@@ -6418,21 +6424,22 @@ fn tracking_counts(repository_root: &Path) -> (usize, usize) {
 /// repository is unreadable, or Git is unavailable — and callers must treat
 /// every candidate as possibly owned by the user.
 pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> Option<Vec<String>> {
-    if candidates.is_empty() {
-        return Some(Vec::new());
+    let mut tracked = HashSet::new();
+    for batch in pathspec_batches(candidates, LS_FILES_PATHSPEC_BUDGET) {
+        let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
+        arguments.extend(batch.iter().map(String::as_str));
+        let output = run_git(directory, &arguments).ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        tracked.extend(
+            output
+                .stdout
+                .split(|byte| *byte == 0)
+                .filter(|record| !record.is_empty())
+                .map(|record| String::from_utf8_lossy(record).into_owned()),
+        );
     }
-    let mut arguments = vec!["--literal-pathspecs", "ls-files", "-z", "--"];
-    arguments.extend(candidates.iter().map(String::as_str));
-    let output = run_git(directory, &arguments).ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let tracked = output
-        .stdout
-        .split(|byte| *byte == 0)
-        .filter(|record| !record.is_empty())
-        .map(|record| String::from_utf8_lossy(record).into_owned())
-        .collect::<HashSet<_>>();
     Some(
         candidates
             .iter()
@@ -6440,6 +6447,26 @@ pub(crate) fn untracked_candidates(directory: &Path, candidates: &[String]) -> O
             .cloned()
             .collect(),
     )
+}
+
+/// Splits `paths` into consecutive non-empty batches whose summed byte length
+/// stays within `budget`; a single longer path forms its own batch.
+fn pathspec_batches(paths: &[String], budget: usize) -> Vec<&[String]> {
+    let mut batches = Vec::new();
+    let mut start = 0;
+    let mut used = 0;
+    for (index, path) in paths.iter().enumerate() {
+        if index > start && used + path.len() > budget {
+            batches.push(&paths[start..index]);
+            start = index;
+            used = 0;
+        }
+        used += path.len();
+    }
+    if start < paths.len() {
+        batches.push(&paths[start..]);
+    }
+    batches
 }
 
 fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output, CoreError> {
@@ -6517,8 +6544,8 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 mod tests {
     use super::{
         annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
-        simplified_canonical_path, structured_diff_from_output, DiffEntry, GitCommandInvocation,
-        GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        pathspec_batches, simplified_canonical_path, structured_diff_from_output, DiffEntry,
+        GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
         CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
@@ -7160,5 +7187,20 @@ mod tests {
                 .as_u64()
                 .expect("fixture count should be a number") as usize
         );
+    }
+
+    #[test]
+    fn pathspec_batches_stay_within_the_budget_and_keep_every_path() {
+        let paths = ["aaaa", "bbbb", "cc", "dddddddddd", "e"]
+            .map(String::from)
+            .to_vec();
+
+        let batches = pathspec_batches(&paths, 8);
+
+        assert_eq!(
+            batches,
+            vec![&paths[0..2], &paths[2..3], &paths[3..4], &paths[4..5]]
+        );
+        assert!(pathspec_batches(&[], 8).is_empty());
     }
 }

@@ -36,13 +36,20 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
    - 遍历工作区，跳过隐藏目录、符号链接和 `java_workspace::IGNORED_DIRECTORIES`，
      只看含 `pom.xml`、`build.gradle`、`build.gradle.kts` 的模块目录。JDT LS 只会在这些
      目录生成文件。
-   - 通过 `git::untracked_candidates`（`git ls-files`）只删除 Git **没有跟踪**的文件。
-     Git 答不上来时（不在仓库里、仓库不可读、没有 Git）一律不删。
+   - 只删除 Git **没有跟踪**的文件。每个模块向上找最近的 `.git`（目录或文件）确定所属
+     仓库，不需要起进程；同一仓库的候选文件合并成一次 `git::untracked_candidates`
+     （`git ls-files`，按 16 KiB 分批，避开 Windows 命令行长度上限）。不在仓库里的模块
+     直接跳过，不调用 Git；Git 查询失败时整批不删。
+   - 不能只在工作区根目录查一次：嵌套仓库或子模块的文件不在外层索引里，会被误判为
+     未跟踪而删掉。
    - `.settings` 里只删 `*.prefs`，其他文件保留；目录清空了才删除目录本身。
    - 删掉了任何文件，就同时删除当前工作区的 `-data` 状态目录，让这次启动重新导入。
      旧状态里记着“`.project` 在模块根目录”，继续用它会指向已删除的文件。
    - 删除是尽力而为。单个文件删除失败只意味着 JDT LS 继续用它，不阻止启动；
      只有状态目录重置失败才返回启动错误。
+   - 删过文件时，会话日志记一条 `info`：“Removed Java project files that earlier versions
+     left in the workspace”，detail 里列出删除的相对路径和是否重置了状态目录。Lithe 删了
+     用户项目里的文件，必须能查到删了什么。
 3. 两端共用引擎（`lsp/interface/engine.rs` 的 `start_server`），macOS 和 Windows 同时生效，
    平台代码不需要改。
 4. 删除 macOS 设置“隐藏路径”里的“添加/移除推荐规则”按钮及其整条链路：
@@ -75,7 +82,8 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
 - 收益：打开项目不再往用户目录写 Eclipse 文件；老项目升级后第一次打开即变干净，
   无需手动操作，两端一致。
 - 代价：删过旧文件的工作区会完整重新导入一次 Java 项目。每次启动 Java 服务都会遍历一次
-  工作区目录，并为每个带旧文件的模块调用一次 `git ls-files`。
+  工作区目录；仍留有这些文件的仓库（例如团队提交了 `.classpath`）每次启动多一次
+  `git ls-files`，非 Git 项目不产生 Git 调用。
 - 例外：Git 跟踪的这些文件、非 Git 项目里的旧文件会保留，JDT LS 继续使用它们。
   被 `.gitignore` 忽略的文件也属于未跟踪，会被删除。
 - 被遗弃的旧状态目录不需要额外代码，两端的 `java.jdtCacheRetention` 会在 30 天后清掉。
@@ -89,8 +97,10 @@ JDT LS 自带一个文件系统插件 `org.eclipse.jdt.ls.filesystem`。它根�
 - `./scripts/test-macos.sh`
 
 `jdt_project_metadata` 的测试覆盖：多层模块的未跟踪文件被删除且状态目录被重置；Git 跟踪的
-文件和 `.settings` 里的非 prefs 文件保留；非 Git 工作区不删除、不重置；无构建描述符的目录
-和 `node_modules`、`target` 下的副本不受影响。`jdt.rs` 的启动参数测试覆盖两条启动路径都
+文件和 `.settings` 里的非 prefs 文件保留；嵌套仓库里被内层仓库跟踪的文件保留；非 Git 工作区
+不删除、不重置；无构建描述符的目录和 `node_modules`、`target` 下的副本不受影响。
+`git::tests::pathspec_batches_stay_within_the_budget_and_keep_every_path` 覆盖分批。
+`engine::tests::java_start_logs_legacy_project_files_it_removed` 覆盖从启动到日志的完整链路。`jdt.rs` 的启动参数测试覆盖两条启动路径都
 带 `false`，并替换外部传入的 `true`。
 
 ## 适用范围

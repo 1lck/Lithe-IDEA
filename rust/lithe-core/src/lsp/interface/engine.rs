@@ -1043,11 +1043,14 @@ impl LspEngine {
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
-        if let Some(directory) = &adaptation.data_directory {
-            // Runs before the cache disposition is read: a reset state directory
-            // is reported as `new`, which is what the following import will be.
-            prepare_jdt_workspace(&workspace_root, directory)?;
-        }
+        // Runs before the cache disposition is read: a reset state directory is
+        // reported as `new`, which is what the following import will be.
+        let legacy_metadata_cleanup = adaptation
+            .data_directory
+            .as_ref()
+            .map(|directory| prepare_jdt_workspace(&workspace_root, directory))
+            .transpose()?
+            .filter(|cleanup| !cleanup.removed_files.is_empty());
         let java_cache_disposition = adaptation.data_directory.as_ref().map(|directory| {
             if directory.join(".metadata").is_dir() {
                 "reused"
@@ -1173,6 +1176,21 @@ impl LspEngine {
                 "info",
                 "Java language service process started",
                 Some(detail),
+            );
+        }
+        if let Some(cleanup) = legacy_metadata_cleanup {
+            // Lithe deleted files from the user's project; keep a trace of which
+            // ones and why the following import starts from scratch.
+            session.log(
+                "info",
+                "Removed Java project files that earlier versions left in the workspace",
+                Some(
+                    json!({
+                        "removedFiles": cleanup.removed_files,
+                        "stateReset": cleanup.state_reset,
+                    })
+                    .to_string(),
+                ),
             );
         }
         if let Some(detail) = maven_settings_warning {
@@ -6386,6 +6404,49 @@ mod tests {
             "the data directory must exist before the server starts"
         );
         let _ = std::fs::remove_dir_all(&cache);
+    }
+
+    /// Lithe deletes files from the user's project before JDT LS starts; the
+    /// session log is the only place a user or support can see which ones.
+    #[test]
+    fn java_start_logs_legacy_project_files_it_removed() {
+        let root =
+            std::env::temp_dir().join(format!("lithe-core-legacy-metadata-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let workspace = root.join("workspace");
+        std::fs::create_dir_all(&workspace).expect("workspace should be creatable");
+        std::fs::write(workspace.join("pom.xml"), "<project/>").expect("pom should be writable");
+        std::fs::write(workspace.join(".classpath"), "legacy")
+            .expect("classpath should be writable");
+        let initialized = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(&workspace)
+            .status()
+            .expect("git should run");
+        assert!(initialized.success());
+
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+            request.working_directory = workspace.to_string_lossy().into_owned();
+            request.cache_directory = Some(root.join("cache").to_string_lossy().into_owned());
+        });
+        let detail = harness
+            .await_event(|event| {
+                event.kind == "log"
+                    && event.message.as_deref()
+                        == Some("Removed Java project files that earlier versions left in the workspace")
+            })
+            .detail
+            .clone()
+            .expect("the log must name the removed files");
+        let removed_on_disk = !workspace.join(".classpath").exists();
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(removed_on_disk);
+        assert_eq!(
+            serde_json::from_str::<Value>(&detail).expect("detail should be JSON"),
+            json!({ "removedFiles": [".classpath"], "stateReset": false })
+        );
     }
 
     #[test]
