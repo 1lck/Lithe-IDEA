@@ -13,6 +13,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useProjectStore } from "@/features/window/stores/project.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useGitLogController } from "../../hooks/use-git-log-controller";
+import { useGitWorkspaceReferences } from "../../hooks/use-git-workspace-references";
 import { useGitDiffActions } from "../../hooks/use-git-diff-actions";
 import {
   checkoutGitReference,
@@ -32,6 +33,7 @@ import {
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
 import { deleteRemoteBranch, fetchChanges } from "../../api/git-remotes-api";
+import { normalizeRepositoryPath } from "../../api/git-repo-api";
 import { showGitRebaseDialog } from "../../services/git-rebase-dialog-service";
 import { showGitWorktreeDialog } from "../../services/git-worktree-dialog-service";
 import { useGitLogPreferencesStore } from "../../stores/git-log-preferences.store";
@@ -79,6 +81,8 @@ export function GitLogToolWindow() {
   const { t } = useTranslation();
   const [panel, setPanel] = useState<"log" | "console">("log");
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
+  const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
+  const { selectRepository } = useRepositoryStore.use.actions();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
   const repoPath = activeRepoPath ?? rootFolderPath ?? null;
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
@@ -94,6 +98,7 @@ export function GitLogToolWindow() {
     refresh,
     loadMore,
   } = useGitLogController(repoPath);
+  const { referencesByRepository } = useGitWorkspaceReferences(availableRepoPaths);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
@@ -102,6 +107,7 @@ export function GitLogToolWindow() {
   const [showRemoteManager, setShowRemoteManager] = useState(false);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
+  const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
   const { setFilterQuery, setMainPanelLayout, renameMarkedReference } =
     useGitLogPreferencesStore.use.actions();
@@ -127,6 +133,21 @@ export function GitLogToolWindow() {
     selectionAnchorRef.current = null;
     setShowFetchOptions(false);
   }, [repoPath]);
+
+  useEffect(() => {
+    const pendingReference = pendingReferenceSelectionRef.current;
+    if (!pendingReference) return;
+    if (
+      !repoPath ||
+      !pendingReference.repositoryPath ||
+      normalizeRepositoryPath(repoPath) !==
+        normalizeRepositoryPath(pendingReference.repositoryPath)
+    ) {
+      return;
+    }
+    pendingReferenceSelectionRef.current = null;
+    selectReference(pendingReference);
+  }, [repoPath, selectReference]);
 
   const clearHistorySelection = useCallback(async () => {
     setSelectedCommitHashes(new Set());
@@ -623,9 +644,21 @@ export function GitLogToolWindow() {
             <GitReferenceTree
               repoPath={repoPath}
               references={history.references}
+              referencesByRepository={referencesByRepository}
+              repositoryPaths={availableRepoPaths}
+              activeRepoPath={repoPath}
               selectedReference={selectedReference}
               onSelect={(reference) => {
                 setSelectedCommit(null);
+                if (
+                  reference?.repositoryPath &&
+                  normalizeRepositoryPath(reference.repositoryPath) !==
+                    normalizeRepositoryPath(repoPath)
+                ) {
+                  pendingReferenceSelectionRef.current = reference;
+                  selectRepository(reference.repositoryPath);
+                  return;
+                }
                 selectReference(reference);
               }}
               isMutating={isReferenceMutationPending}
