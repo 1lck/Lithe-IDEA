@@ -68,10 +68,13 @@ pub struct QuickOpenModal {
     pub query: String,
     pub mode: QuickOpenMode,
     pub files: Vec<String>,
-    /// 命中筛选的文件路径，保持 `files` 的原始顺序。
+    /// 命中筛选的文件路径，保持已打开、最近、其他三分组的扁平顺序
+    /// （对齐 Tauri `openBufferFiles`、`recentFilesInResults`、`otherFiles`）。
     pub filtered: Vec<String>,
     pub selected_index: usize,
     pub focus_handle: FocusHandle,
+    /// 已打开的编辑器标签页路径，用于优先分组展示（对齐 Tauri `openBufferFiles`）。
+    pub open_files: Vec<String>,
     /// 最近打开的文件，用于优先分组展示。
     pub recent: Vec<String>,
 }
@@ -87,6 +90,7 @@ impl QuickOpenModal {
             filtered: Vec::new(),
             selected_index: 0,
             focus_handle: cx.focus_handle(),
+            open_files: Vec::new(),
             recent: Vec::new(),
         }
     }
@@ -94,6 +98,22 @@ impl QuickOpenModal {
     /// 替换候选文件列表并重算筛选结果。
     pub fn set_files(&mut self, files: Vec<String>, cx: &mut Context<Self>) {
         self.files = files;
+        self.recompute_filtered();
+        cx.notify();
+    }
+
+    /// 同步已打开的编辑器标签页路径（打开分组置顶，对齐 Tauri `openBufferFiles`）。
+    pub fn set_open_files(&mut self, open: Vec<String>, cx: &mut Context<Self>) {
+        self.open_files = open;
+        self.recompute_filtered();
+        cx.notify();
+    }
+
+    /// 记录最近打开的文件（去重、前置、上限 20，对齐 Tauri `recentFilesInResults`）。
+    pub fn push_recent(&mut self, path: String, cx: &mut Context<Self>) {
+        self.recent.retain(|r| *r != path);
+        self.recent.insert(0, path);
+        self.recent.truncate(20);
         self.recompute_filtered();
         cx.notify();
     }
@@ -150,15 +170,34 @@ impl QuickOpenModal {
         }
     }
 
-    /// 按有效查询串重算命中列表。
+    /// 按有效查询串重算命中列表：已打开优先、最近其次、其余最后
+    /// （对齐 Tauri `useFileSearch` 的三段分组与全局选中下标）。
     fn recompute_filtered(&mut self) {
         let q = self.effective_query();
-        self.filtered = self
-            .files
-            .iter()
-            .filter(|path| q.is_empty() || path.to_lowercase().contains(&q))
-            .cloned()
-            .collect();
+        let matches = |path: &str| q.is_empty() || path.to_lowercase().contains(&q);
+        let mut seen = std::collections::HashSet::new();
+        let mut ordered = Vec::new();
+        // 已打开分组：保持传入的标签页顺序。
+        for path in &self.open_files {
+            if matches(path) && seen.insert(path.clone()) {
+                ordered.push(path.clone());
+            }
+        }
+        // 最近分组：保持最近优先顺序，排除已计入的已打开项。
+        for path in &self.recent {
+            if self.files.iter().any(|f| f == path) || self.open_files.iter().any(|f| f == path) {
+                if matches(path) && seen.insert(path.clone()) {
+                    ordered.push(path.clone());
+                }
+            }
+        }
+        // 其余文件：保持 `files` 的原始顺序。
+        for path in &self.files {
+            if matches(path) && seen.insert(path.clone()) {
+                ordered.push(path.clone());
+            }
+        }
+        self.filtered = ordered;
         if self.selected_index >= self.filtered.len() {
             self.selected_index = self.filtered.len().saturating_sub(1);
         }
@@ -326,10 +365,16 @@ impl Render for QuickOpenModal {
                                         div().w(px(2.0)).h(px(16.0)).bg(ThemeColors::primary()),
                                     ),
                             )
+                            .child(count_badge(
+                                self.filtered.len(),
+                                self.files.len(),
+                                !self.query.is_empty(),
+                                cx,
+                            ))
                             .child(shortcut_badge("Esc")),
                     )
                     .child(
-                        // 2. 结果列表：按 recent / other 分组，路径分段着色
+                        // 2. 结果列表：已打开优先、最近其次、其余最后，路径分段着色
                         div()
                             .flex_1()
                             .w_full()
@@ -429,5 +474,33 @@ fn shortcut_badge(label: &str) -> AnyElement {
         .text_xs()
         .text_color(ThemeColors::muted_foreground())
         .child(label.to_string())
+        .into_any_element()
+}
+
+/// 文件计数徽标：有查询时 `命中 / 总数`，无查询时 `N 个文件`
+/// （对齐 Tauri `FileCountBadge`）。
+fn count_badge(matched: usize, total: usize, has_query: bool, cx: &gpui_kit::App) -> AnyElement {
+    if total == 0 {
+        return div().into_any_element();
+    }
+    let text = if has_query {
+        format!("{matched} / {total}")
+    } else if total == 1 {
+        crate::i18n::menu_text(cx, "quickOpen.fileCountOne").to_string()
+    } else {
+        crate::i18n::menu_text(cx, "quickOpen.filesCount")
+            .to_string()
+            .replace("{count}", &total.to_string())
+    };
+    div()
+        .px_1p5()
+        .py(px(1.0))
+        .rounded_sm()
+        .bg(ThemeColors::accent())
+        .border_1()
+        .border_color(ThemeColors::border())
+        .text_xs()
+        .text_color(ThemeColors::muted_foreground())
+        .child(text)
         .into_any_element()
 }

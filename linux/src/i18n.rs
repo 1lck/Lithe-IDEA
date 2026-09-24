@@ -210,6 +210,8 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "quickOpen.noMatch" => ("未找到匹配的文件", "No matching files found"),
         "quickOpen.noSymbols" => ("未找到符号", "No symbols found"),
         "quickOpen.searching" => ("正在搜索...", "Searching..."),
+        "quickOpen.filesCount" => ("{count} 个文件", "{count} files"),
+        "quickOpen.fileCountOne" => ("1 个文件", "1 file"),
         "commandPalette.placeholder" => ("输入命令...", "Type a command..."),
         "search.noResults" => ("未找到结果", "No results found"),
         // ---- Welcome 屏（与 Tauri locale.ts welcome.* 对齐） ----

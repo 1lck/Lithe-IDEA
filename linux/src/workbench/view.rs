@@ -231,6 +231,19 @@ impl WorkbenchView {
                     qo.set_files(file_list, cx);
                 });
             }
+            // 已打开标签页同步给快速打开置顶分组（对齐 Tauri `openBufferFiles`）。
+            let open_files: Vec<String> = this
+                .editor
+                .read(cx)
+                .tabs
+                .iter()
+                .map(|tab| tab.path.clone())
+                .collect();
+            if !open_files.is_empty() {
+                let _ = quick_open_sync.update(cx, |qo, cx| {
+                    qo.set_open_files(open_files, cx);
+                });
+            }
 
             // 同步 Maven 可用性：有 pom 项目时右侧插件栏才显示 Maven 入口。
             let has_maven = this.maven.read(cx).has_projects();
@@ -499,6 +512,7 @@ impl WorkbenchView {
 
         // 7. 订阅快速打开事件
         let status_bar_quick = status_bar.clone();
+        let quick_open_recent = quick_open.clone();
         let sub_quick_open = cx.subscribe(
             &quick_open,
             move |this, _qo, event: &QuickOpenEvent, cx| match event {
@@ -512,6 +526,11 @@ impl WorkbenchView {
                             EditorView::language_name(path).to_string(),
                             cx,
                         );
+                    });
+                    // 记录最近打开（对齐 Tauri `addOrUpdateRecentFile`）。
+                    let recent_path = path.clone();
+                    let _ = quick_open_recent.update(cx, |qo, cx| {
+                        qo.push_recent(recent_path, cx);
                     });
                     this.show_quick_open = false;
                     cx.notify();
@@ -1476,12 +1495,25 @@ fn this_sync_files(this: &WorkbenchView, cx: &mut Context<WorkbenchView>) {
     if let Some(root_node) = &this.sidebar.read(cx).root_node {
         WorkbenchView::collect_all_file_paths(root_node, &mut file_list);
     }
+    // 已打开标签页路径同步给快速打开的置顶分组（对齐 Tauri `openBufferFiles`）。
+    let open_files: Vec<String> = this
+        .editor
+        .read(cx)
+        .tabs
+        .iter()
+        .map(|tab| tab.path.clone())
+        .collect();
     if !file_list.is_empty() {
         let _ = this.search_everywhere.update(cx, |search, cx| {
             search.set_files(file_list.clone(), cx);
         });
         let _ = this.quick_open.update(cx, |qo, cx| {
             qo.set_files(file_list, cx);
+        });
+    }
+    if !open_files.is_empty() {
+        let _ = this.quick_open.update(cx, |qo, cx| {
+            qo.set_open_files(open_files, cx);
         });
     }
 }

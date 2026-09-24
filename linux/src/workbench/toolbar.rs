@@ -823,7 +823,7 @@ impl Render for ToolbarView {
                             .small()
                             .ghost()
                             .icon(IconName::Search)
-                            .tooltip(crate::i18n::menu_text(cx, "menu.quickOpen"))
+                            .tooltip(crate::i18n::menu_text(cx, "workbench.search"))
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(ToolbarEvent::QuickOpen);
                             })),
