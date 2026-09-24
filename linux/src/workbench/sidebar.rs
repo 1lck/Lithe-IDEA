@@ -800,6 +800,7 @@ impl SidebarView {
         let show_hidden = s.show_hidden_files_in_file_tree;
         let indent_size = s.file_tree_indent_size;
         let show_icons = s.show_file_icons_in_file_tree;
+        let is_dark = !crate::theme::ThemePalette::is_light(&settings::resolved_theme_id(s, false));
         let query = self.tree_filter.trim().to_lowercase();
 
         let mut visible_items = Vec::new();
@@ -895,9 +896,24 @@ impl SidebarView {
                                         .text_color(ThemeColors::text_muted()),
                                 )
                                 .child(
-                                    Icon::new(IconName::FolderOpen)
-                                        .size(px(14.0))
-                                        .text_color(ThemeColors::accent_blue()),
+                                    if let Some(arc) = crate::workbench::file_icon::folder_image(
+                                        &item.name,
+                                        item.is_expanded,
+                                        is_dark,
+                                    ) {
+                                        div()
+                                            .size(px(14.0))
+                                            .child(
+                                                gpui_kit::img(gpui_kit::ImageSource::Image(arc))
+                                                    .size_full(),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        Icon::new(IconName::FolderOpen)
+                                            .size(px(14.0))
+                                            .text_color(ThemeColors::accent_blue())
+                                            .into_any_element()
+                                    },
                                 )
                                 .into_any_element()
                         } else {
@@ -910,27 +926,55 @@ impl SidebarView {
                                         .text_color(ThemeColors::text_muted()),
                                 )
                                 .child(
-                                    Icon::new(IconName::Folder)
-                                        .size(px(14.0))
-                                        .text_color(ThemeColors::accent_blue()),
+                                    if let Some(arc) = crate::workbench::file_icon::folder_image(
+                                        &item.name,
+                                        item.is_expanded,
+                                        is_dark,
+                                    ) {
+                                        div()
+                                            .size(px(14.0))
+                                            .child(
+                                                gpui_kit::img(gpui_kit::ImageSource::Image(arc))
+                                                    .size_full(),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        Icon::new(IconName::Folder)
+                                            .size(px(14.0))
+                                            .text_color(ThemeColors::accent_blue())
+                                            .into_any_element()
+                                    },
                                 )
                                 .into_any_element()
                         }
                     } else {
-                        let icon_name = if is_code_file(&item.name) {
-                            IconName::FileCode
-                        } else {
-                            IconName::FileText
-                        };
                         h_flex()
                             .items_center()
                             .gap_1()
                             .child(div().w(px(12.0)))
                             .when(show_icons, |row| {
                                 row.child(
-                                    Icon::new(icon_name)
-                                        .size(px(14.0))
-                                        .text_color(ThemeColors::text_muted()),
+                                    if let Some(arc) =
+                                        crate::workbench::file_icon::file_image(&item.name, is_dark)
+                                    {
+                                        div()
+                                            .size(px(14.0))
+                                            .child(
+                                                gpui_kit::img(gpui_kit::ImageSource::Image(arc))
+                                                    .size_full(),
+                                            )
+                                            .into_any_element()
+                                    } else {
+                                        let icon_name = if is_code_file(&item.name) {
+                                            IconName::FileCode
+                                        } else {
+                                            IconName::FileText
+                                        };
+                                        Icon::new(icon_name)
+                                            .size(px(14.0))
+                                            .text_color(ThemeColors::text_muted())
+                                            .into_any_element()
+                                    },
                                 )
                             })
                             .into_any_element()

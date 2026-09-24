@@ -882,6 +882,10 @@ impl Render for EditorView {
         let active_tab = self
             .active_tab_index
             .and_then(|idx| self.tabs.get(idx).cloned());
+        let is_dark = {
+            let s = settings::get(cx);
+            !crate::theme::ThemePalette::is_light(&settings::resolved_theme_id(s, false))
+        };
 
         let editor_state = self.editor_state.clone();
 
@@ -902,11 +906,6 @@ impl Render for EditorView {
                         let is_active = self.active_tab_index == Some(idx);
                         let title = tab.title.clone();
                         let is_dirty = tab.is_dirty;
-                        let icon_name = if is_code_file(&title) {
-                            IconName::FileCode
-                        } else {
-                            IconName::FileText
-                        };
 
                         h_flex()
                             .id(idx)
@@ -926,13 +925,31 @@ impl Render for EditorView {
                                 cx.notify();
                             }))
                             .child(
-                                Icon::new(icon_name)
-                                    .size(px(14.0))
-                                    .text_color(if is_active {
-                                        ThemeColors::accent_blue()
+                                if let Some(arc) =
+                                    crate::workbench::file_icon::file_image(&title, is_dark)
+                                {
+                                    div()
+                                        .size(px(14.0))
+                                        .child(
+                                            gpui_kit::img(gpui_kit::ImageSource::Image(arc))
+                                                .size_full(),
+                                        )
+                                        .into_any_element()
+                                } else {
+                                    let icon_name = if is_code_file(&title) {
+                                        IconName::FileCode
                                     } else {
-                                        ThemeColors::text_muted()
-                                    }),
+                                        IconName::FileText
+                                    };
+                                    Icon::new(icon_name)
+                                        .size(px(14.0))
+                                        .text_color(if is_active {
+                                            ThemeColors::accent_blue()
+                                        } else {
+                                            ThemeColors::text_muted()
+                                        })
+                                        .into_any_element()
+                                },
                             )
                             .child(
                                 div()

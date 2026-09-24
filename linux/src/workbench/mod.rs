@@ -4,6 +4,7 @@ pub mod branch_manager;
 pub mod command_palette;
 pub mod editor;
 pub mod extensions_panel;
+pub mod file_icon;
 pub mod go_to_line;
 pub mod maven;
 pub mod notifications;
@@ -32,6 +33,8 @@ pub use command_palette::{CommandPaletteEvent, CommandPaletteModal};
 pub use editor::EditorView;
 #[allow(unused_imports)]
 pub use extensions_panel::{ExtensionsEvent, ExtensionsView};
+#[allow(unused_imports)]
+pub use file_icon::{file_image, folder_image};
 #[allow(unused_imports)]
 pub use go_to_line::{GoToLineEvent, GoToLineModal};
 #[allow(unused_imports)]

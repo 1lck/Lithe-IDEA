@@ -239,6 +239,10 @@ impl Render for QuickOpenModal {
         let rows = self.build_rows();
         let current_index = self.current_index();
         let mode = self.mode;
+        let is_dark = {
+            let s = crate::settings::get(cx);
+            !crate::theme::ThemePalette::is_light(&crate::settings::resolved_theme_id(s, false))
+        };
 
         // 全屏半透明遮罩：点击空白处关闭
         div()
@@ -412,13 +416,30 @@ impl Render for QuickOpenModal {
                                             row.hover(|h| h.bg(ThemeColors::accent()))
                                         })
                                         .child(
-                                            Icon::new(IconName::FileText)
-                                                .size(px(14.0))
-                                                .text_color(if is_selected {
-                                                    ThemeColors::primary()
-                                                } else {
-                                                    ThemeColors::muted_foreground()
-                                                }),
+                                            if let Some(arc) =
+                                                crate::workbench::file_icon::file_image(
+                                                    &name, is_dark,
+                                                )
+                                            {
+                                                div()
+                                                    .size(px(14.0))
+                                                    .child(
+                                                        gpui_kit::img(
+                                                            gpui_kit::ImageSource::Image(arc),
+                                                        )
+                                                        .size_full(),
+                                                    )
+                                                    .into_any_element()
+                                            } else {
+                                                Icon::new(IconName::FileText)
+                                                    .size(px(14.0))
+                                                    .text_color(if is_selected {
+                                                        ThemeColors::primary()
+                                                    } else {
+                                                        ThemeColors::muted_foreground()
+                                                    })
+                                                    .into_any_element()
+                                            },
                                         )
                                         .child(
                                             div()
