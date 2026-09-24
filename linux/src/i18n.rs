@@ -131,6 +131,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "titleProject.cloneRepository" => ("克隆仓库…", "Clone Repository…"),
         "titleProject.openProjects" => ("打开的项目", "Open Projects"),
         "titleProject.recentProjects" => ("最近项目", "Recent Projects"),
+        "titleProject.noRecentProjects" => ("没有最近项目", "No recent projects"),
         // ---- 侧边栏 explorer 头部 ----
         "workbench.project" => ("项目", "Project"),
         "workbench.changes" => ("更改", "Changes"),
@@ -196,6 +197,12 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "search.noResults" => ("未找到结果", "No results found"),
         // ---- Welcome 屏（与 Tauri locale.ts welcome.* 对齐） ----
         "welcome.searchProjects" => ("搜索项目", "Search projects"),
+        "welcome.recentProjects" => ("最近项目", "Recent Projects"),
+        "welcome.openFolderHint" => ("打开文件夹以开始使用。", "Open a folder to get started."),
+        "welcome.title" => ("欢迎使用 Lithe", "Welcome to Lithe"),
+        "welcome.projects" => ("项目", "Projects"),
+        "welcome.open" => ("打开", "Open"),
+        "welcome.clone" => ("克隆", "Clone"),
         "welcome.noRecentProjects" => ("暂无最近项目", "No recent projects"),
         "welcome.removeRecent" => (
             "从最近项目中移除 {name}",

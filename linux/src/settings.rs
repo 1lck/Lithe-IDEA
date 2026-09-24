@@ -37,6 +37,17 @@ pub const SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS: &[&str] = &[
 /// 状态栏左侧项顺序，对应 Tauri `FOOTER_LEADING_ITEM_IDS`。
 pub const FOOTER_LEADING_ITEM_IDS: &[&str] = &["filePath", "branch"];
 
+/// 最近项目上限，对齐 Tauri `MAX_RECENT_PROJECTS`（`recent-folders.ts`）。
+pub const MAX_RECENT_PROJECTS: usize = 12;
+
+/// 取路径末段目录名用于展示（兼容 `/` 与 `\` 分隔）。
+pub fn project_dir_name(path: &str) -> &str {
+    path.rsplit(&['/', '\\'][..])
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(path)
+}
+
 /// 状态栏右侧项顺序，对应 Tauri `FOOTER_TRAILING_ITEM_IDS`。
 pub const FOOTER_TRAILING_ITEM_IDS: &[&str] = &[
     "cursor",
@@ -164,6 +175,12 @@ pub struct Settings {
     // Projects
     pub open_folders_in_new_window: bool,
     pub ask_where_to_open_projects: bool,
+    /// 最近打开的项目绝对路径，首位最新。
+    ///
+    /// 对齐 Tauri `recent-folders.ts`：去重（已有移到首位）、按打开倒序、
+    /// 过滤不存在的路径、上限 [`MAX_RECENT_PROJECTS`]（Linux 无 pin，只做倒序）。
+    /// 结构体级 `#[serde(default)]` 已覆盖，兼容缺少该键的老配置。
+    pub recent_projects: Vec<String>,
     // File tree
     pub hidden_file_patterns: Vec<String>,
     pub hidden_directory_patterns: Vec<String>,
@@ -248,6 +265,7 @@ impl Default for Settings {
             semantic_tokens: true,
             open_folders_in_new_window: true,
             ask_where_to_open_projects: true,
+            recent_projects: Vec::new(),
             hidden_file_patterns: DEFAULT_HIDDEN_FILE_PATTERNS
                 .iter()
                 .map(|s| s.to_string())
@@ -355,6 +373,17 @@ pub fn update(cx: &mut App, f: impl FnOnce(&mut Settings)) {
     let snapshot = get(cx).clone();
     persist(&snapshot);
     cx.refresh_windows();
+}
+
+/// 记录最近项目（对齐 Tauri upsert）：去重移到首位 → 过滤不存在 → 截断上限 → 落盘。
+pub fn record_recent_project(cx: &mut App, path: &str) {
+    update(cx, |s| {
+        s.recent_projects.retain(|p| p != path);
+        s.recent_projects.insert(0, path.to_string());
+        s.recent_projects
+            .retain(|p| std::path::Path::new(p).exists());
+        s.recent_projects.truncate(MAX_RECENT_PROJECTS);
+    });
 }
 
 /// 解析当前应生效的主题 id：跟随系统时按外观取 `autoTheme*`，否则取 `theme`。

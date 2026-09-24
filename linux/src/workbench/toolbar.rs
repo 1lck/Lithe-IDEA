@@ -7,7 +7,7 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
-use gpui_kit::component::{h_flex, Icon, Selectable as _, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, Anchor, AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement,
@@ -48,6 +48,10 @@ pub enum ToolbarEvent {
     OpenProject,
     CloneRepository,
     OpenRecent,
+    /// 打开最近项目中的指定路径（项目胶囊“最近项目”分组条目）。
+    OpenRecentProject(String),
+    /// 检出指定本地分支（分支胶囊下拉条目，对齐 Tauri 分支管理器检出）。
+    CheckoutBranch(String),
 }
 
 /// 应用图标：与 Tauri 端 `public/logo.png` 同一文件，编译期嵌入。
@@ -56,6 +60,8 @@ const APP_LOGO_PNG: &[u8] = include_bytes!("../../assets/logo.png");
 pub struct ToolbarView {
     pub workspace_name: String,
     pub git_branch: Option<String>,
+    /// 本地分支列表（view 侧由 core `git.references` 同步，供分支胶囊下拉切换）。
+    pub branches: Vec<String>,
     /// 紧凑菜单条是否展开（对齐 Tauri `isCompactMenuVisible`）。
     compact_menu_open: bool,
     /// 解码后的应用图标，项目菜单触发器左侧的徽标（对齐 Tauri 的 `logo.png`）。
@@ -74,6 +80,7 @@ impl ToolbarView {
         Self {
             workspace_name: name,
             git_branch: None,
+            branches: Vec::new(),
             compact_menu_open: false,
             app_logo: std::sync::Arc::new(gpui_kit::Image::from_bytes(
                 gpui_kit::ImageFormat::Png,
@@ -84,6 +91,11 @@ impl ToolbarView {
 
     pub fn set_git_branch(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
         self.git_branch = branch;
+        cx.notify();
+    }
+
+    pub fn set_branches(&mut self, branches: Vec<String>, cx: &mut Context<Self>) {
+        self.branches = branches;
         cx.notify();
     }
 }
@@ -409,6 +421,47 @@ fn event_item(
     })
 }
 
+/// 最近项目条目：目录名主行 + 全路径副行，对齐 Tauri `ProjectMenuRow`。
+fn recent_project_item(
+    name: String,
+    path: String,
+    view: &gpui_kit::Entity<ToolbarView>,
+) -> PopupMenuItem {
+    let v = view.clone();
+    let open_path = path.clone();
+    // element 闭包是 Fn，多次调用时 clone 使用。
+    PopupMenuItem::element(move |_window, _cx| {
+        let name = name.clone();
+        let path = path.clone();
+        v_flex()
+            .w_full()
+            .min_w_0()
+            .child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .text_xs()
+                    .text_color(ThemeColors::foreground())
+                    .child(name),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .truncate()
+                    .text_xs()
+                    .text_color(ThemeColors::subtle_foreground())
+                    .child(path),
+            )
+    })
+    .on_click(move |_, _, cx| {
+        let path = open_path.clone();
+        v.update(cx, |this, cx| {
+            this.compact_menu_open = false;
+            cx.emit(ToolbarEvent::OpenRecentProject(path));
+        });
+    })
+}
+
 /// 按分组把菜单项灌入 `PopupMenu`，分组之间自动插入分隔线。
 ///
 /// 文案在 builder 内用 `cx`（`&mut Context<PopupMenu>`）实时解析；
@@ -486,6 +539,15 @@ impl Render for ToolbarView {
         let t_clone = crate::i18n::menu_text(cx, "titleProject.cloneRepository").to_string();
         let t_open_projects = crate::i18n::menu_text(cx, "titleProject.openProjects").to_string();
         let t_recent = crate::i18n::menu_text(cx, "titleProject.recentProjects").to_string();
+        let t_no_recent = crate::i18n::menu_text(cx, "titleProject.noRecentProjects").to_string();
+        // 最近项目（首位最新，过滤不存在的路径，上限与持久化数组一致）。
+        let recents: Vec<(String, String)> = settings::get(cx)
+            .recent_projects
+            .iter()
+            .filter(|p| std::path::Path::new(p).exists())
+            .take(settings::MAX_RECENT_PROJECTS)
+            .map(|p| (settings::project_dir_name(p).to_string(), p.clone()))
+            .collect();
 
         // 九个顶层菜单标题：render 入口处一次性翻译成 owned String，
         // 后续 move 闭包只搬运字符串，不再借用 cx（避免 cx 被 move 后再借用）。
@@ -630,40 +692,51 @@ impl Render for ToolbarView {
                                     .size(px(14.0))
                                     .text_color(ThemeColors::subtle_foreground()),
                             )
-                            .dropdown_menu(move |menu, _window, _cx| {
-                                menu.item(event_item(
-                                    t_new_project.clone(),
-                                    || ToolbarEvent::NewProject,
-                                    &v,
-                                ))
-                                .item(event_item(t_open.clone(), || ToolbarEvent::OpenProject, &v))
-                                .item(event_item(
-                                    t_clone.clone(),
-                                    || ToolbarEvent::CloneRepository,
-                                    &v,
-                                ))
-                                .separator()
-                                // 打开的项目分组标签：只展示，不可点。
-                                .item(PopupMenuItem::label(t_open_projects.clone()))
-                                .separator()
-                                .item(event_item(
-                                    t_recent.clone(),
-                                    || ToolbarEvent::OpenRecent,
-                                    &v,
-                                ))
+                            .dropdown_menu(move |mut menu, _window, _cx| {
+                                menu = menu
+                                    .item(event_item(
+                                        t_new_project.clone(),
+                                        || ToolbarEvent::NewProject,
+                                        &v,
+                                    ))
+                                    .item(event_item(
+                                        t_open.clone(),
+                                        || ToolbarEvent::OpenProject,
+                                        &v,
+                                    ))
+                                    .item(event_item(
+                                        t_clone.clone(),
+                                        || ToolbarEvent::CloneRepository,
+                                        &v,
+                                    ))
+                                    .separator()
+                                    // 打开的项目分组标签：只展示，不可点。
+                                    .item(PopupMenuItem::label(t_open_projects.clone()))
+                                    .separator()
+                                    .item(PopupMenuItem::label(t_recent.clone()));
+                                if recents.is_empty() {
+                                    menu = menu.item(PopupMenuItem::label(t_no_recent.clone()));
+                                } else {
+                                    for (name, path) in &recents {
+                                        menu = menu.item(recent_project_item(
+                                            name.clone(),
+                                            path.clone(),
+                                            &v,
+                                        ));
+                                    }
+                                }
+                                menu
                             })
                     })
-                    .child(
-                        // 分支胶囊：只展示当前分支，不接真实切换
-                        h_flex()
-                            .items_center()
-                            .gap_1p5()
-                            .px_2()
-                            .py(px(3.0))
-                            .rounded_md()
-                            .bg(ThemeColors::surface())
-                            .border_1()
-                            .border_color(ThemeColors::border())
+                    .child({
+                        // 分支胶囊：点击展开本地分支下拉（对齐 Tauri 分支管理器），
+                        // 当前分支打勾并禁用，点击其他分支发射 CheckoutBranch 由 view 侧检出。
+                        let v = view.clone();
+                        let current = branch.clone();
+                        let branches = self.branches.clone();
+                        Button::new("tb-branch-selector")
+                            .small()
+                            .ghost()
                             .child(
                                 Icon::new(IconName::GitBranch)
                                     .size(px(13.0))
@@ -671,16 +744,53 @@ impl Render for ToolbarView {
                             )
                             .child(
                                 div()
+                                    .max_w(px(160.0))
+                                    .truncate()
                                     .text_xs()
                                     .text_color(ThemeColors::success())
-                                    .child(branch),
+                                    .child(branch.clone()),
                             )
                             .child(
                                 Icon::new(IconName::ChevronDown)
                                     .size(px(12.0))
                                     .text_color(ThemeColors::subtle_foreground()),
-                            ),
-                    ),
+                            )
+                            .dropdown_menu(move |mut menu, _window, _cx| {
+                                if branches.is_empty() {
+                                    menu = menu.item(
+                                        PopupMenuItem::new(current.clone())
+                                            .icon(IconName::Check)
+                                            .disabled(true),
+                                    );
+                                } else {
+                                    for name in &branches {
+                                        if *name == current {
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name.clone())
+                                                    .icon(IconName::Check)
+                                                    .disabled(true),
+                                            );
+                                        } else {
+                                            let v = v.clone();
+                                            let target = name.clone();
+                                            menu = menu.item(
+                                                PopupMenuItem::new(name.clone()).on_click(
+                                                    move |_, _, cx| {
+                                                        let target = target.clone();
+                                                        v.update(cx, |_this, cx| {
+                                                            cx.emit(ToolbarEvent::CheckoutBranch(
+                                                                target,
+                                                            ));
+                                                        });
+                                                    },
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+                                menu
+                            })
+                    }),
             )
             // 右侧：全局搜索图标按钮 + 窗口控件（对齐 Tauri `quickOpenAction` + `WindowControls`）
             .child(

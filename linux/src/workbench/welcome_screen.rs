@@ -11,22 +11,12 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnyElement, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
-    Styled as _, Window,
+    div, px, AnyElement, App, Context, EventEmitter, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::theme::ThemeColors;
-
-/// 最近项目条目。
-///
-/// `last_opened` 为展示用的相对时间文案，由上层决定格式，本模块不解析时间。
-#[derive(Debug, Clone)]
-pub struct RecentProject {
-    pub name: String,
-    pub path: String,
-    pub last_opened: String,
-}
 
 /// 欢迎页对外事件。
 #[derive(Debug, Clone)]
@@ -58,8 +48,10 @@ impl WelcomeEvent {
 }
 
 /// 整屏欢迎页：左侧导航栏 + 右侧项目区。
+///
+/// 最近项目直接读 `settings::get(cx).recent_projects`（首位最新），展示时过滤
+/// 不存在的路径；打开与删除都经 `settings::update` 落盘，与 `view.rs` 共用同一数组。
 pub struct WelcomeScreenView {
-    pub recent_projects: Vec<RecentProject>,
     pub selected_index: usize,
     pub query: String,
     pub focus_handle: FocusHandle,
@@ -70,29 +62,31 @@ impl EventEmitter<WelcomeEvent> for WelcomeScreenView {}
 impl WelcomeScreenView {
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            recent_projects: default_recent_projects(),
             selected_index: 0,
             query: String::new(),
             focus_handle: cx.focus_handle(),
         }
     }
 
-    /// 当前查询过滤后的最近项目。
-    fn visible_projects(&self) -> Vec<&RecentProject> {
+    /// 当前查询过滤后的最近项目路径（首位最新，不存在的路径已滤除）。
+    fn visible_projects(&self, cx: &App) -> Vec<String> {
         let q = self.query.trim().to_lowercase();
-        self.recent_projects
+        crate::settings::get(cx)
+            .recent_projects
             .iter()
+            .filter(|p| std::path::Path::new(p).exists())
             .filter(|p| {
-                q.is_empty()
-                    || p.name.to_lowercase().contains(&q)
-                    || p.path.to_lowercase().contains(&q)
+                q.is_empty() || {
+                    let name = crate::settings::project_dir_name(p).to_lowercase();
+                    name.contains(&q) || p.to_lowercase().contains(&q)
+                }
             })
+            .cloned()
             .collect()
     }
 
     /// 当前有效选中下标（对空列表安全）。
-    fn current_index(&self) -> usize {
-        let total = self.visible_projects().len();
+    fn current_index(&self, total: usize) -> usize {
         if total == 0 {
             0
         } else {
@@ -102,16 +96,22 @@ impl WelcomeScreenView {
 
     /// 打开可见列表中第 `position` 个项目。
     fn open_at(&self, position: usize, cx: &mut Context<Self>) {
-        let visible = self.visible_projects();
-        if let Some(project) = visible.get(position) {
-            cx.emit(WelcomeEvent::OpenProject(project.path.clone()));
+        let visible = self.visible_projects(cx);
+        if let Some(path) = visible.get(position) {
+            cx.emit(WelcomeEvent::OpenProject(path.clone()));
         }
     }
 
-    /// 从最近列表移除指定路径，并夹紧选中下标。
+    /// 从最近列表移除指定路径（同步落盘），并夹紧选中下标。
     fn remove_recent(&mut self, path: &str, cx: &mut Context<Self>) {
-        self.recent_projects.retain(|p| p.path != path);
-        let total = self.visible_projects().len();
+        crate::settings::update(cx, |s| {
+            s.recent_projects.retain(|p| p != path);
+        });
+        let total = crate::settings::get(cx)
+            .recent_projects
+            .iter()
+            .filter(|p| std::path::Path::new(p).exists())
+            .count();
         if self.selected_index >= total {
             self.selected_index = total.saturating_sub(1);
         }
@@ -180,7 +180,7 @@ impl WelcomeScreenView {
                             .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .text_color(ThemeColors::foreground())
-                            .child("Projects"),
+                            .child(crate::i18n::menu_text(cx, "welcome.projects")),
                     ),
             )
             .child(div().flex_1())
@@ -203,7 +203,11 @@ impl WelcomeScreenView {
                             .size(px(15.0))
                             .text_color(ThemeColors::subtle_foreground()),
                     )
-                    .child(div().text_sm().child("Settings"))
+                    .child(
+                        div()
+                            .text_sm()
+                            .child(crate::i18n::menu_text(cx, "workbench.settings")),
+                    )
                     .on_click(cx.listener(|_this, _event, _window, cx| {
                         cx.emit(WelcomeEvent::OpenSettings);
                     })),
@@ -213,8 +217,8 @@ impl WelcomeScreenView {
 
     /// 右侧项目区：标题、搜索与操作按钮、最近项目列表。
     fn render_main(&self, cx: &mut Context<Self>) -> AnyElement {
-        let visible = self.visible_projects();
-        let current_index = self.current_index();
+        let visible = self.visible_projects(cx);
+        let current_index = self.current_index(visible.len());
 
         v_flex()
             .flex_1()
@@ -229,7 +233,7 @@ impl WelcomeScreenView {
                         .text_xl()
                         .font_weight(FontWeight::BOLD)
                         .text_color(ThemeColors::foreground())
-                        .child("Welcome to Lithe"),
+                        .child(crate::i18n::menu_text(cx, "welcome.title")),
                 ),
             )
             .child(
@@ -237,7 +241,7 @@ impl WelcomeScreenView {
                     div()
                         .text_sm()
                         .text_color(ThemeColors::subtle_foreground())
-                        .child("Open a project to get started"),
+                        .child(crate::i18n::menu_text(cx, "welcome.openFolderHint")),
                 ),
             )
             .child(
@@ -288,7 +292,7 @@ impl WelcomeScreenView {
                         Button::new("welcome-clone")
                             .small()
                             .icon(IconName::GitBranch)
-                            .label("Clone")
+                            .label(crate::i18n::menu_text(cx, "welcome.clone"))
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(WelcomeEvent::CloneRepository);
                             })),
@@ -298,11 +302,22 @@ impl WelcomeScreenView {
                             .small()
                             .primary()
                             .icon(IconName::FolderOpen)
-                            .label("Open")
+                            .label(crate::i18n::menu_text(cx, "welcome.open"))
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(WelcomeEvent::OpenFolder);
                             })),
                     ),
+            )
+            .child(
+                // 最近项目分组头（对齐 Tauri `welcome.recentProjects`）
+                div()
+                    .w_full()
+                    .pt_4()
+                    .pb_1()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(ThemeColors::foreground())
+                    .child(crate::i18n::menu_text(cx, "welcome.recentProjects")),
             )
             .child(
                 // 最近项目列表或空态
@@ -338,16 +353,17 @@ impl WelcomeScreenView {
                                     div()
                                         .text_xs()
                                         .text_color(ThemeColors::subtle_foreground())
-                                        .child("Open a folder to start working"),
+                                        .child(crate::i18n::menu_text(
+                                            cx,
+                                            "welcome.openFolderHint",
+                                        )),
                                 ),
                         )
                     })
-                    .children(visible.into_iter().enumerate().map(|(position, project)| {
+                    .children(visible.into_iter().enumerate().map(|(position, path)| {
                         let is_selected = position == current_index;
-                        let name = project.name.clone();
-                        let path = project.path.clone();
-                        let last_opened = project.last_opened.clone();
-                        let remove_path = project.path.clone();
+                        let name = crate::settings::project_dir_name(&path).to_string();
+                        let remove_path = path.clone();
                         let badge = project_badge(&name, &path);
                         // 每行使用独立的 hover group，避免兄弟行共享 group 名互相影响
                         let group_name = format!("welcome-recent-group-{position}");
@@ -380,20 +396,10 @@ impl WelcomeScreenView {
                                             .child(name),
                                     )
                                     .child(
-                                        h_flex()
-                                            .gap_2()
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(ThemeColors::subtle_foreground())
-                                                    .child(path),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .text_color(ThemeColors::subtle_foreground())
-                                                    .child(last_opened),
-                                            ),
+                                        div()
+                                            .text_xs()
+                                            .text_color(ThemeColors::subtle_foreground())
+                                            .child(path),
                                     ),
                             )
                             .child(
@@ -410,10 +416,9 @@ impl WelcomeScreenView {
                                                 crate::i18n::menu_text(cx, "welcome.removeRecent")
                                                     .replace(
                                                         "{name}",
-                                                        remove_path
-                                                            .rsplit('/')
-                                                            .next()
-                                                            .unwrap_or(&remove_path),
+                                                        crate::settings::project_dir_name(
+                                                            &remove_path,
+                                                        ),
                                                     ),
                                             )
                                             .on_click(cx.listener(
@@ -455,14 +460,15 @@ impl Render for WelcomeScreenView {
                         }
                     }
                     "down" | "arrowdown" => {
-                        let total = this.visible_projects().len();
+                        let total = this.visible_projects(cx).len();
                         if total > 0 && this.selected_index + 1 < total {
                             this.selected_index += 1;
                             cx.notify();
                         }
                     }
                     "enter" => {
-                        let idx = this.current_index();
+                        let total = this.visible_projects(cx).len();
+                        let idx = this.current_index(total);
                         this.open_at(idx, cx);
                     }
                     "backspace" => {
@@ -501,24 +507,6 @@ impl Render for WelcomeScreenView {
                     .child(self.render_main(cx)),
             )
     }
-}
-
-/// 默认示例最近项目。
-///
-/// 使用当前工作目录派生的占位路径，避免写入任何真实用户目录。
-fn default_recent_projects() -> Vec<RecentProject> {
-    let base = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let sample = |name: &str, last_opened: &str| RecentProject {
-        name: name.to_string(),
-        path: base.join(name).to_string_lossy().to_string(),
-        last_opened: last_opened.to_string(),
-    };
-
-    vec![
-        sample("lithe-sandbox", "2 hours ago"),
-        sample("example-project", "yesterday"),
-        sample("gpui-playground", "last week"),
-    ]
 }
 
 /// 按名称首字母从语义色板中取色，生成圆角首字母徽标。

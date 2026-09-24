@@ -192,6 +192,43 @@ impl WorkbenchView {
                 sb.set_git_changes(sidebar.read(cx).git_changes.len(), cx);
             });
 
+            // 同步本地分支列表：core `git.references` 取 kind == local 的 shortName，
+            // 供顶栏分支胶囊下拉切换（对齐 Tauri 分支管理器列表）。
+            let toolbar_branches_sync = toolbar_branch_sync.clone();
+            let branch_client = this.client.clone();
+            let branch_root = this.workspace_root.clone();
+            cx.spawn(async move |_this, cx| {
+                let task = branch_client.execute::<serde_json::Value, serde_json::Value>(
+                    &cx,
+                    "git.references",
+                    serde_json::json!({ "root": branch_root }),
+                );
+                if let Ok(val) = task.await {
+                    let mut branches: Vec<String> = val
+                        .get("references")
+                        .and_then(|r| r.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter(|item| {
+                                    item.get("kind").and_then(|k| k.as_str()) == Some("local")
+                                })
+                                .filter_map(|item| {
+                                    item.get("shortName")
+                                        .and_then(|n| n.as_str())
+                                        .map(|s| s.to_string())
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    branches.sort();
+                    branches.dedup();
+                    let _ = toolbar_branches_sync.update(cx, |tb, cx| {
+                        tb.set_branches(branches, cx);
+                    });
+                }
+            })
+            .detach();
+
             // 收集所有文件供全局搜索与快速打开
             let mut file_list = Vec::new();
             if let Some(root_node) = &sidebar.read(cx).root_node {
@@ -414,6 +451,29 @@ impl WorkbenchView {
                     ToolbarEvent::OpenRecent => {
                         this.show_welcome = true;
                         cx.notify();
+                    }
+                    ToolbarEvent::OpenRecentProject(path) => {
+                        this.open_project_path(path.clone(), cx);
+                    }
+                    ToolbarEvent::CheckoutBranch(branch) => {
+                        // 分支检出走底部 Terminal（分支名双引号包裹防空格/特殊字符），
+                        // 检出异步执行，2 秒后重读 sidebar git 状态刷新分支与变更。
+                        let _ = this.bottom_panel.update(cx, |bp, cx| {
+                            bp.set_tab(BottomTab::Terminal, cx);
+                            let _ = bp.terminal.update(cx, |term, cx| {
+                                term.send_command(&format!("git checkout \"{branch}\""), cx);
+                            });
+                        });
+                        let sidebar = this.sidebar.clone();
+                        cx.spawn(async move |_this, cx| {
+                            cx.background_executor()
+                                .timer(std::time::Duration::from_secs(2))
+                                .await;
+                            let _ = sidebar.update(cx, |sb, cx| {
+                                sb.refresh_git(cx);
+                            });
+                        })
+                        .detach();
                     }
                 },
             );
@@ -651,6 +711,8 @@ impl WorkbenchView {
             !crate::theme::ThemePalette::is_light(&settings::resolved_theme_id(s, false))
         };
         view.apply_resolved_theme(is_dark, cx);
+        // 启动目录同样记入最近项目（对齐 Tauri 打开即记录）。
+        settings::record_recent_project(cx, &view.workspace_root.clone());
         // 构造后初始化 Maven 入口可用性，避免无 pom 目录首次打开仍显示入口。
         let maven_has_projects = view.maven.read(cx).has_projects();
         let _ = view.plugin_rail.update(cx, |r, cx| {
@@ -732,13 +794,15 @@ impl WorkbenchView {
         cx.notify();
     }
 
-    /// 切换到指定项目根路径：同步侧边栏、Maven 与欢迎页状态。
+    /// 切换到指定项目根路径：同步侧边栏、Maven 与欢迎页状态，并记录最近项目。
     fn open_project_path(&mut self, path: String, cx: &mut Context<Self>) {
         if self.show_project_dialog {
             self.show_project_dialog = false;
         }
         self.workspace_root = path.clone();
         self.show_welcome = false;
+        // 记录最近项目（对齐 Tauri upsert）。
+        settings::record_recent_project(cx, &path);
         let _ = self.sidebar.update(cx, |sb, cx| {
             sb.root_path = path.clone();
             sb.refresh(cx);
