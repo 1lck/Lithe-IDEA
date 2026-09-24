@@ -14,10 +14,10 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 
 采用“源数据 + 生成视图 + 轻量校验”的流程：
 
-- `shared/platform-feature-matrix.json` 是唯一源数据，使用稳定的功能 ID，并分别保存 `macos`、`windows` 的 `implementationStatus`、`verificationStatus` 和证据路径。状态的 label、icon、description 也由 JSON 提供。
+- `shared/platform-feature-matrix.json` 是唯一源数据，使用稳定的功能 ID，并分别保存 `macos`、`windows` 的 `implementationStatus`、`verificationStatus` 和证据路径。状态的 label、icon、description 也由 JSON 提供；已知缺口或外部 Issue 写在可选的 `notes` 字段中。
 - `scripts/generate-platform-feature-matrix.mjs` 校验两套状态定义、ID 和证据路径，并生成 `docs/development/platform-parity-matrix.md` 和 `docs/development/platform-parity-matrix.csv`。
 - `scripts/verify-platform-feature-matrix.sh` 重新生成后检查生成文件没有漂移，适合作为本地和 PR gate。
-- `docs/development/platform-parity.md` 和仓库根目录 `AGENTS.md` 说明更新规则；功能 PR 必须更新源数据，不得直接手改生成视图。
+- `docs/development/platform-parity.md` 说明矩阵的使用规则；仓库根目录 `AGENTS.md` 只负责把贡献者引到 `develop-lithe` Skill，避免规则正文出现第二份副本。功能 PR 必须更新源数据，不得直接手改生成视图。
 - `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
 - `scripts/verify-platform-feature-matrix-change.sh` 检查平台实现路径变更是否同时更新矩阵；纯重构可通过 reviewer 添加 `matrix-exempt` label 显式豁免。
 - 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；实现状态不是实机验收结论，能力点的 `verificationStatus` 仍需后续跨平台验证推进。

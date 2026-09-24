@@ -38,6 +38,9 @@ for (const feature of features) {
   if (!feature.area || !feature.group || !feature.capability || !feature.owner || !feature.verification) {
     throw new Error(`missing capability metadata for ${feature.id}`);
   }
+  if (feature.notes !== undefined && (typeof feature.notes !== "string" || !feature.notes)) {
+    throw new Error(`invalid notes for ${feature.id}`);
+  }
   ids.add(feature.id);
   for (const platform of ["macos", "windows"]) {
     const entry = feature[platform];
@@ -76,13 +79,13 @@ for (const feature of features) {
   }
   areaGroup.features.push(feature);
 }
-const renderFeatureRow = (feature) => `| ${feature.group} | **${feature.capability}**<br><sub>${feature.id}</sub> | ${renderStatus(feature.macos)}<br><sub>${renderEvidence(feature.macos)}</sub> | ${renderStatus(feature.windows)}<br><sub>${renderEvidence(feature.windows)}</sub> | ${feature.owner} | ${feature.verification} |`;
+const renderFeatureRow = (feature) => `| ${feature.group} | **${feature.capability}**<br><sub>${feature.id}</sub> | ${renderStatus(feature.macos)}<br><sub>${renderEvidence(feature.macos)}</sub> | ${renderStatus(feature.windows)}<br><sub>${renderEvidence(feature.windows)}</sub> | ${feature.owner} | ${feature.verification} | ${feature.notes ?? ""} |`;
 const areaSections = areaGroups.flatMap(({ area, features: areaFeatures }) => [
   "<details>",
   `<summary><strong>${area}</strong> · ${areaFeatures.length} 个能力点</summary>`,
   "",
-  "| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |",
-  "| --- | --- | --- | --- | --- | --- |",
+  "| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |",
+  "| --- | --- | --- | --- | --- | --- | --- |",
   ...areaFeatures.map(renderFeatureRow),
   "",
   "</details>",
@@ -127,7 +130,7 @@ const escapeCsv = (value) => {
   const text = String(value ?? "");
   return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
 };
-const csvHeader = ["id", "area", "feature group", "capability", "macOS implementation", "macOS verification", "Windows implementation", "Windows verification", "owner", "verification", "macOS evidence", "Windows evidence"];
+const csvHeader = ["id", "area", "feature group", "capability", "macOS implementation", "macOS verification", "Windows implementation", "Windows verification", "owner", "verification", "notes", "macOS evidence", "Windows evidence"];
 const csvRows = features.map((feature) => [
   feature.id,
   feature.area,
@@ -139,6 +142,7 @@ const csvRows = features.map((feature) => [
   verificationDefinitions[feature.windows.verificationStatus].label,
   feature.owner,
   feature.verification,
+  feature.notes ?? "",
   feature.macos.evidence.join("; "),
   feature.windows.evidence.join("; ")
 ]);

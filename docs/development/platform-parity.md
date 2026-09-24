@@ -13,7 +13,7 @@ macOS 和 Windows 的功能状态以 `shared/platform-feature-matrix.json` 为�
 ## 开发者怎么更新
 
 1. 新增功能时，先在 `shared/platform-feature-matrix.json` 增加一个稳定的 `id`；一行只描述一个可以单独验收的用户能力，不要把“Git”或“数据库”这样的总模块作为一行。
-2. 填写 `area`、`group` 和 `capability` 进行导航，再为 `macos` 和 `windows` 各填 `implementationStatus`、`verificationStatus` 与 `evidence`。代码存在但没有运行时证据时保留实现状态，并将验证状态写成 `pending`。
+2. 填写 `area`、`group` 和 `capability` 进行导航，再为 `macos` 和 `windows` 各填 `implementationStatus`、`verificationStatus` 与 `evidence`。代码存在但没有运行时证据时保留实现状态，并将验证状态写成 `pending`；已知 Issue 或范围限制写在可选的 `notes` 字段。
 3. 在 `verification` 中写出两端都能执行的验证动作；如果行为刻意只属于一个平台，将实现状态写成 `platform-specific` 并说明原因。
 4. 运行 `node scripts/generate-platform-feature-matrix.mjs` 生成 Markdown 和 CSV 表格，再运行 `./scripts/verify-platform-feature-matrix.sh` 检查证据路径和生成结果。
 5. 功能 PR 必须同时包含源数据变更；不要直接编辑生成的 `docs/development/platform-parity-matrix.md` 或 `docs/development/platform-parity-matrix.csv`。
