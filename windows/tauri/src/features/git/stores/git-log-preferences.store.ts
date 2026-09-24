@@ -16,6 +16,7 @@ interface GitLogPreferencesStore {
   filterScope: GitLogFilterScope;
   showDecorations: boolean;
   showMyBranchesOnly: boolean;
+  showWorktreeRepositories: boolean;
   mainPanelLayout: GitLogPanelLayout;
   inspectorPanelLayout: GitLogPanelLayout;
   collapsedReferenceSections: GitReferenceKind[];
@@ -26,6 +27,7 @@ interface GitLogPreferencesStore {
     setFilterScope: (scope: GitLogFilterScope) => void;
     setShowDecorations: (show: boolean) => void;
     setShowMyBranchesOnly: (show: boolean) => void;
+    setShowWorktreeRepositories: (show: boolean) => void;
     setMainPanelLayout: (layout: GitLogPanelLayout) => void;
     setInspectorPanelLayout: (layout: GitLogPanelLayout) => void;
     toggleReferenceSection: (kind: GitReferenceKind) => void;
@@ -62,6 +64,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       filterScope: "text",
       showDecorations: true,
       showMyBranchesOnly: false,
+      showWorktreeRepositories: true,
       mainPanelLayout: DEFAULT_MAIN_LAYOUT,
       inspectorPanelLayout: DEFAULT_INSPECTOR_LAYOUT,
       collapsedReferenceSections: [],
@@ -72,6 +75,8 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
         setFilterScope: (filterScope) => set({ filterScope }),
         setShowDecorations: (showDecorations) => set({ showDecorations }),
         setShowMyBranchesOnly: (showMyBranchesOnly) => set({ showMyBranchesOnly }),
+        setShowWorktreeRepositories: (showWorktreeRepositories) =>
+          set({ showWorktreeRepositories }),
         setMainPanelLayout: (mainPanelLayout) => set({ mainPanelLayout }),
         setInspectorPanelLayout: (inspectorPanelLayout) => set({ inspectorPanelLayout }),
         toggleReferenceSection: (kind) =>
@@ -142,6 +147,7 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
           ...persistedPreferences,
           markedReferenceFullNamesByRepository:
             persistedPreferences.markedReferenceFullNamesByRepository ?? {},
+          showWorktreeRepositories: persistedPreferences.showWorktreeRepositories ?? true,
           actions: currentState.actions,
         };
       },
