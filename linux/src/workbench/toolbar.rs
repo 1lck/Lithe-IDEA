@@ -10,9 +10,8 @@ use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
 use gpui_kit::component::{h_flex, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, Anchor, AnyElement, Context, EventEmitter, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
-    Styled as _, Window,
+    div, px, Anchor, AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::settings;
@@ -293,17 +292,7 @@ impl Render for ToolbarView {
         let project_name = self.workspace_name.clone();
 
         // 读取渲染所需的设置快照，随后立刻释放对 cx 的只读借用。
-        let (compact_menu, theme_icon) = {
-            let s = settings::get(cx);
-            let icon = if s.sync_system_theme {
-                IconName::Moon
-            } else if s.theme == "lithe-light" {
-                IconName::Sun
-            } else {
-                IconName::Moon
-            };
-            (s.compact_menu_bar, icon)
-        };
+        let compact_menu = settings::get(cx).compact_menu_bar;
 
         let view = cx.entity();
 
@@ -389,63 +378,53 @@ impl Render for ToolbarView {
         h_flex()
             .h(px(40.0))
             .w_full()
-            .bg(ThemeColors::background())
+            .bg(ThemeColors::surface())
             .border_b_1()
             .border_color(ThemeColors::border())
             .items_center()
-            .pl_3()
-            // 1. 左侧：应用菜单 + 品牌 + 项目胶囊 + 分支胶囊
+            .justify_between()
+            .px_3()
+            // 左侧：应用菜单 + 项目菜单 + 分支胶囊（对齐 Tauri `title-bar.tsx` 的左侧组）
             .child(
                 h_flex()
-                    .flex_1()
                     .min_w_0()
                     .items_center()
                     .gap_2()
                     .child(app_menu)
-                    .child(
-                        // Lithe 品牌标识
-                        h_flex()
-                            .items_center()
-                            .gap_1p5()
-                            .pl_1()
-                            .child(
-                                Icon::new(IconName::Zap)
-                                    .size(px(16.0))
-                                    .text_color(ThemeColors::primary()),
-                            )
-                            .child(
-                                div()
-                                    .font_weight(FontWeight::BOLD)
-                                    .text_sm()
-                                    .text_color(ThemeColors::foreground())
-                                    .child("Lithe"),
-                            ),
-                    )
                     .child({
-                        // 项目选择器胶囊：Folder 图标 + 项目名 + ChevronDown，点击展开项目菜单
+                        // 项目菜单：logo + 项目名 + ChevronDown，点击展开项目列表
                         let v = view.clone();
                         let name = project_name.clone();
                         Button::new("tb-project-selector")
                             .small()
                             .ghost()
-                            .rounded_md()
-                            .bg(ThemeColors::surface())
-                            .border_1()
-                            .border_color(ThemeColors::border())
                             .child(
-                                Icon::new(IconName::Folder)
-                                    .size(px(13.0))
-                                    .text_color(ThemeColors::muted_foreground()),
+                                // 项目徽标：Tauri 用 public/logo.png，这里以同尺寸圆角方块承载品牌色。
+                                div()
+                                    .size(px(20.0))
+                                    .flex_shrink_0()
+                                    .rounded(px(6.0))
+                                    .bg(ThemeColors::primary())
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        Icon::new(IconName::Zap)
+                                            .size(px(12.0))
+                                            .text_color(ThemeColors::background()),
+                                    ),
                             )
                             .child(
                                 div()
+                                    .max_w(px(224.0))
+                                    .truncate()
                                     .text_xs()
                                     .text_color(ThemeColors::foreground())
                                     .child(name.clone()),
                             )
                             .child(
                                 Icon::new(IconName::ChevronDown)
-                                    .size(px(12.0))
+                                    .size(px(14.0))
                                     .text_color(ThemeColors::subtle_foreground()),
                             )
                             .dropdown_menu(move |menu, _window, _cx| {
@@ -454,21 +433,24 @@ impl Render for ToolbarView {
                                     || ToolbarEvent::NewProject,
                                     &v,
                                 ))
-                                .item(event_item("Open Project", || ToolbarEvent::OpenProject, &v))
+                                .item(event_item("Open", || ToolbarEvent::OpenProject, &v))
                                 .item(event_item(
                                     "Clone Repository",
                                     || ToolbarEvent::CloneRepository,
                                     &v,
                                 ))
-                                .item(event_item("Open Recent", || ToolbarEvent::OpenRecent, &v))
+                                .separator()
                                 .item(event_item(
                                     "Open Projects",
                                     || ToolbarEvent::OpenProject,
                                     &v,
                                 ))
                                 .separator()
-                                // 当前项目打勾标记，仅展示
-                                .item(PopupMenuItem::new(name.clone()).icon(IconName::CircleCheck))
+                                .item(event_item(
+                                    "Open Recent",
+                                    || ToolbarEvent::OpenRecent,
+                                    &v,
+                                ))
                             })
                     })
                     .child(
@@ -500,167 +482,51 @@ impl Render for ToolbarView {
                             ),
                     ),
             )
-            // 2. 中间：全局搜索条
-            .child(
-                div()
-                    .id("search-everywhere-bar")
-                    .w(px(280.0))
-                    .h(px(28.0))
-                    .flex_shrink_0()
-                    .bg(ThemeColors::surface())
-                    .border_1()
-                    .border_color(ThemeColors::border())
-                    .rounded(px(6.0))
-                    .px_2()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .cursor_pointer()
-                    .hover(|h| h.border_color(ThemeColors::primary()))
-                    .on_click(cx.listener(|_this, _event, _window, cx| {
-                        cx.emit(ToolbarEvent::QuickOpen);
-                    }))
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                Icon::new(IconName::Search)
-                                    .size(px(13.0))
-                                    .text_color(ThemeColors::subtle_foreground()),
-                            )
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child("Search files, symbols..."),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(ThemeColors::subtle_foreground())
-                            .px_1p5()
-                            .py(px(1.0))
-                            .bg(ThemeColors::background())
-                            .border_1()
-                            .border_color(ThemeColors::border())
-                            .rounded(px(4.0))
-                            .child("Ctrl+P"),
-                    ),
-            )
-            // 3. 右侧工具组：运行目标、运行/调试/停止、主题、设置
-            .child(
-                h_flex()
-                    .flex_1()
-                    .min_w_0()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        // 运行目标胶囊
-                        h_flex()
-                            .items_center()
-                            .gap_1p5()
-                            .px_2()
-                            .py(px(3.0))
-                            .rounded_md()
-                            .bg(ThemeColors::surface())
-                            .border_1()
-                            .border_color(ThemeColors::border())
-                            .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::foreground())
-                                    .child("[Project] Default"),
-                            )
-                            .child(
-                                Icon::new(IconName::ChevronDown)
-                                    .size(px(12.0))
-                                    .text_color(ThemeColors::subtle_foreground()),
-                            ),
-                    )
-                    .child(
-                        Button::new("tb-run")
-                            .small()
-                            .primary()
-                            .icon(IconName::Play)
-                            .label("Run")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::Run);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-debug")
-                            .small()
-                            .ghost()
-                            .icon(IconName::Bug)
-                            .label("Debug")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::Debug);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-stop")
-                            .small()
-                            .ghost()
-                            .icon(IconName::Square)
-                            .tooltip("Stop")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::Stop);
-                            })),
-                    )
-                    .child(
-                        // 主题切换：跟随系统时恒显示 Moon，否则按当前主题显示 Sun/Moon
-                        Button::new("tb-theme-toggle")
-                            .small()
-                            .ghost()
-                            .icon(theme_icon)
-                            .tooltip("Toggle Theme")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::ToggleTheme);
-                            })),
-                    )
-                    .child(
-                        Button::new("tb-settings")
-                            .small()
-                            .ghost()
-                            .icon(IconName::Settings)
-                            .tooltip("Settings")
-                            .on_click(cx.listener(|_this, _event, _window, cx| {
-                                cx.emit(ToolbarEvent::OpenSettings);
-                            })),
-                    ),
-            )
-            // 4. 窗口控件：46x40 直角按钮，Close 悬停使用 destructive
+            // 右侧：全局搜索图标按钮 + 窗口控件（对齐 Tauri `quickOpenAction` + `WindowControls`）
             .child(
                 h_flex()
                     .items_center()
                     .flex_shrink_0()
-                    .child(window_control(
-                        "tb-window-minimize",
-                        IconName::Minus,
-                        false,
-                        cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.emit(ToolbarEvent::WindowMinimize);
-                        }),
-                    ))
-                    .child(window_control(
-                        "tb-window-maximize",
-                        IconName::Square,
-                        false,
-                        cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.emit(ToolbarEvent::WindowMaximize);
-                        }),
-                    ))
-                    .child(window_control(
-                        "tb-window-close",
-                        IconName::Close,
-                        true,
-                        cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                            cx.emit(ToolbarEvent::WindowClose);
-                        }),
-                    )),
+                    .gap_1()
+                    .child(
+                        Button::new("tb-quick-open")
+                            .small()
+                            .ghost()
+                            .icon(IconName::Search)
+                            .tooltip("Search")
+                            .on_click(cx.listener(|_this, _event, _window, cx| {
+                                cx.emit(ToolbarEvent::QuickOpen);
+                            })),
+                    )
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .flex_shrink_0()
+                            .child(window_control(
+                                "tb-window-minimize",
+                                IconName::Minus,
+                                false,
+                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
+                                    cx.emit(ToolbarEvent::WindowMinimize);
+                                }),
+                            ))
+                            .child(window_control(
+                                "tb-window-maximize",
+                                IconName::Square,
+                                false,
+                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
+                                    cx.emit(ToolbarEvent::WindowMaximize);
+                                }),
+                            ))
+                            .child(window_control(
+                                "tb-window-close",
+                                IconName::Close,
+                                true,
+                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
+                                    cx.emit(ToolbarEvent::WindowClose);
+                                }),
+                            )),
+                    ),
             )
     }
 }
