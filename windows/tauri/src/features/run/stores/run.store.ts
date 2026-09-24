@@ -180,9 +180,9 @@ export interface RunStoreDependencies {
   writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
-// The Maven settings own the project-wide Maven paths. The run feature's legacy
-// per-project toolchain values migrate into them so both surfaces report and use
-// the same configuration.
+// Explicit import of a legacy run toolchain into blank Maven settings. Load and
+// launch do not call it: a per-configuration override stays on the run document,
+// and project settings are written only when the user saves them.
 function seedMavenLocalConfiguration(
   workspaceId: string,
   settings: Partial<MavenSettings>,
@@ -312,22 +312,18 @@ function flushStampedOutput(sessionId: string, existing: string): string {
   return trimOutput(existing + stamperFor(sessionId).flush());
 }
 
-// A loaded Maven project owns the executable and JDK, including a blank value
-// that means automatic. The run configuration's copy is only for projects that
-// have no Maven settings document.
+// A value written on the run configuration wins. An empty field falls back to
+// the Maven project context, matching macOS RunService.effectiveOptions.
 function mavenProcessPaths(
   mavenContext: MavenLaunchContext | null,
   configuration: { mavenExecutablePath: string; mavenJavaHomePath: string },
 ) {
-  if (mavenContext) {
-    return {
-      mavenExecutablePath: mavenContext.mavenExecutablePath ?? "",
-      mavenJavaHomePath: mavenContext.javaHomePath ?? "",
-    };
-  }
+  const configuredExecutable = configuration.mavenExecutablePath.trim();
+  const configuredJavaHome = configuration.mavenJavaHomePath.trim();
   return {
-    mavenExecutablePath: configuration.mavenExecutablePath || "",
-    mavenJavaHomePath: configuration.mavenJavaHomePath || "",
+    mavenExecutablePath:
+      configuredExecutable || mavenContext?.mavenExecutablePath || "",
+    mavenJavaHomePath: configuredJavaHome || mavenContext?.javaHomePath || "",
   };
 }
 
@@ -570,14 +566,6 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
-          // Migrate any legacy per-project Maven paths into the shared Maven
-          // settings so the settings page shows the values already in effect.
-          // Fingerprint checking below still owns freshness; this only copies
-          // paths, and a saved Maven document keeps its own blank fields.
-          dependencies.seedMavenLocalConfiguration(workspaceId, {
-            mavenExecutablePath: snapshot.globalToolchain.mavenExecutablePath,
-            javaHomePath: snapshot.globalToolchain.mavenJavaHomePath,
-          });
           const ownsSnapshot = () => revision === projectLoadRevision &&
             get().root === root && get().configurations === snapshot.configurations;
           try {
@@ -817,15 +805,6 @@ export const createRunStore = (
           }
           await save;
           if (!isCurrent()) return null;
-          // The Maven settings own the project-wide Maven paths. Seed them from
-          // the run project before reading the shared context, so the launch
-          // resolves the values this feature already had in effect.
-          if (configurationUsesMaven(configuration)) {
-            dependencies.seedMavenLocalConfiguration(workspaceId, {
-              mavenExecutablePath: state.globalToolchain.mavenExecutablePath,
-              javaHomePath: state.globalToolchain.mavenJavaHomePath,
-            });
-          }
           const mavenContext = configurationUsesMaven(configuration)
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;

@@ -144,7 +144,9 @@ pub fn maven_resolve_effective_configuration(
     let selected_java = if args.java_home_path.trim().is_empty() {
         detected_java.clone()
     } else {
-        resolve_java_home(&root, &args.java_home_path).ok().flatten()
+        resolve_java_home(&root, &args.java_home_path)
+            .ok()
+            .flatten()
     };
     Ok(assemble_effective_configuration(
         &args.settings_path,
@@ -186,18 +188,12 @@ fn assemble_effective_configuration(
         selected_java
     };
     let detected_settings_path = effective_settings_path("", home, detected_maven.as_deref());
-    let settings_path = effective_settings_path(
-        configured_settings,
-        home,
-        maven_executable_path.as_deref(),
-    );
+    let settings_path =
+        effective_settings_path(configured_settings, home, maven_executable_path.as_deref());
     let detected_local_repository_path =
         effective_local_repository_path("", detected_settings_path.as_deref(), home);
-    let local_repository_path = effective_local_repository_path(
-        configured_repository,
-        settings_path.as_deref(),
-        home,
-    );
+    let local_repository_path =
+        effective_local_repository_path(configured_repository, settings_path.as_deref(), home);
     MavenEffectiveConfiguration {
         settings_path,
         local_repository_path,
@@ -265,7 +261,7 @@ fn effective_local_repository_path(
     if let Some(settings_path) = settings_path {
         let contents = fs::read_to_string(settings_path).unwrap_or_default();
         if let Some(repository) = parse_local_repository(&contents) {
-            return Some(repository);
+            return Some(expand_user_home(&repository, home));
         }
     }
     home.map(|home| {
@@ -280,17 +276,48 @@ fn effective_local_repository_path(
 ///
 /// Hand-parsed rather than regex-matched: the element is a single tag with no
 /// nested markup, and a missing closing tag must stay undetected instead of
-/// being reported as a repository path.
+/// being reported as a repository path. Comments are removed first because
+/// Maven's bundled `conf/settings.xml` documents the element inside an example
+/// comment.
 fn parse_local_repository(settings: &str) -> Option<String> {
     const OPENING_TAG: &str = "<localRepository>";
     const CLOSING_TAG: &str = "</localRepository>";
-    let remainder = &settings[settings.find(OPENING_TAG)? + OPENING_TAG.len()..];
+    let visible = without_xml_comments(settings);
+    let remainder = &visible[visible.find(OPENING_TAG)? + OPENING_TAG.len()..];
     let value = remainder
         .split_once(CLOSING_TAG)
         .map(|(value, _)| value)
         .unwrap_or(remainder)
         .trim();
     (!value.is_empty()).then(|| value.to_string())
+}
+
+/// Drops `<!-- ... -->` regions. An unclosed comment hides the rest of the
+/// document, which is how an XML parser would treat it.
+fn without_xml_comments(settings: &str) -> String {
+    let mut output = String::with_capacity(settings.len());
+    let mut rest = settings;
+    while let Some(start) = rest.find("<!--") {
+        output.push_str(&rest[..start]);
+        rest = &rest[start + 4..];
+        match rest.find("-->") {
+            Some(end) => rest = &rest[end + 3..],
+            None => return output,
+        }
+    }
+    output.push_str(rest);
+    output
+}
+
+/// Maven's default settings use `${user.home}` for the repository. Other
+/// unresolved properties stay literal; inventing a path for them would hide
+/// the value the file actually contains.
+fn expand_user_home(value: &str, home: Option<&Path>) -> String {
+    const TOKEN: &str = "${user.home}";
+    match home {
+        Some(home) if value.contains(TOKEN) => value.replace(TOKEN, &home.to_string_lossy()),
+        _ => value.to_string(),
+    }
 }
 
 fn validate_versions(
@@ -413,6 +440,46 @@ mod tests {
         );
         assert_eq!(parse_local_repository("<settings></settings>"), None);
         assert_eq!(parse_local_repository("<settings/>"), None);
+        // Maven's bundled conf/settings.xml documents the element inside a
+        // comment. That example must not become the detected repository, and
+        // a later real element still does.
+        let bundled = "\
+<!-- localRepository
+ | Default: ${user.home}/.m2/repository
+<localRepository>/path/to/local/repo</localRepository>
+-->
+<settings>
+  <localRepository>${user.home}/.m2/repository</localRepository>
+</settings>";
+        assert_eq!(
+            parse_local_repository(bundled).as_deref(),
+            Some("${user.home}/.m2/repository")
+        );
+        assert_eq!(
+            parse_local_repository(
+                "<!-- <localRepository>/path/to/local/repo</localRepository> -->"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn local_repository_expands_user_home_and_ignores_the_bundled_example() {
+        let home = temp_directory();
+        let settings = home.join("settings.xml");
+        fs::write(
+            &settings,
+            "<!-- <localRepository>/path/to/local/repo</localRepository> -->\n\
+             <settings><localRepository>${user.home}/.m2/repository</localRepository></settings>",
+        )
+        .expect("write settings");
+        let settings_path = settings.to_string_lossy();
+        let expected = format!("{}/.m2/repository", home.to_string_lossy());
+        assert_eq!(
+            effective_local_repository_path("", Some(&settings_path), Some(&home)).as_deref(),
+            Some(expected.as_str())
+        );
+        fs::remove_dir_all(home).ok();
     }
 
     #[test]
