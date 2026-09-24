@@ -905,8 +905,8 @@ impl WorkbenchView {
         let _ = self.maven.update(cx, |m, cx| {
             m.set_root(path.clone(), cx);
         });
-        let _ = self.bottom_panel.update(cx, |bp, _cx| {
-            bp.working_dir = path.clone();
+        let _ = self.bottom_panel.update(cx, |bp, cx| {
+            bp.set_working_dir(path.clone(), cx);
         });
         // 右侧通知中心投递项目打开事件（对齐 Tauri 系统事件通知）。
         let _ = self.notifications.update(cx, |n, cx| {

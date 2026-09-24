@@ -1863,12 +1863,84 @@ impl SettingsDialog {
             .child(
                 self.render_group(
                     crate::i18n::menu_text(cx, "settings.mac.detectedServers").to_string(),
-                    self.render_note(
-                        crate::i18n::menu_text(cx, "settings.mac.detectedServersDescription")
-                            .to_string(),
-                    ),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(
+                            self.render_note(
+                                crate::i18n::menu_text(
+                                    cx,
+                                    "settings.mac.detectedServersDescription",
+                                )
+                                .to_string(),
+                            ),
+                        )
+                        .children(Self::detected_language_servers().into_iter().map(
+                            |(name, path)| {
+                                self.render_row(
+                                    name.to_string(),
+                                    None,
+                                    self.render_value(path.unwrap_or_else(|| "未安装".to_string())),
+                                )
+                            },
+                        ))
+                        .child(self.render_note(Self::lsp_status_note())),
                 ),
             )
+    }
+
+    /// PATH 中探测语言服务器可执行文件，`OnceLock` 缓存避免每次渲染重复遍历。
+    /// 只做存在性展示，不触发任何启动。
+    fn detected_language_servers() -> Vec<(&'static str, Option<String>)> {
+        static CACHE: std::sync::OnceLock<Vec<(&'static str, Option<String>)>> =
+            std::sync::OnceLock::new();
+        CACHE
+            .get_or_init(|| {
+                ["jdtls", "clangd", "rust-analyzer", "pyright"]
+                    .into_iter()
+                    .map(|name| (name, Self::find_in_path(name)))
+                    .collect()
+            })
+            .clone()
+    }
+
+    /// 在 `PATH` 中查找可执行文件，返回完整路径。
+    fn find_in_path(name: &str) -> Option<String> {
+        let path = std::env::var_os("PATH")?;
+        for dir in std::env::split_paths(&path) {
+            let candidate = dir.join(name);
+            if !candidate.is_file() {
+                continue;
+            }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let executable = std::fs::metadata(&candidate)
+                    .map(|m| m.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false);
+                if !executable {
+                    continue;
+                }
+            }
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+        None
+    }
+
+    /// 诚实状态说明：JDTLS 缺失则不伪造启动，仅说明缺失项。
+    fn lsp_status_note() -> String {
+        let servers = Self::detected_language_servers();
+        let jdtls_missing = servers
+            .iter()
+            .any(|(name, path)| *name == "jdtls" && path.is_none());
+        if jdtls_missing {
+            "JDTLS 未安装：lsp.startServer 要求 executablePath/rootUri/workingDirectory，\
+            Java 还需 jdtlsLaunchResources（launcher jar/配置目录/lombok），本机均缺失，\
+            故不启动；编辑器暂无诊断/悬停/补全接入。"
+                .to_string()
+        } else {
+            "已检测到服务器但尚未接入：编辑器暂无诊断/悬停/补全客户端，未自动启动。".to_string()
+        }
     }
 
     /// AI 聊天与编辑：提供商/模型/自动补全开关，全部落盘
