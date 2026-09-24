@@ -28,6 +28,10 @@ final class WorkbenchFeatureModel: ObservableObject {
     }
     @Published var isSettingsPresented = false
     @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
+    /// Increments with every request, so an open Settings window moves to the
+    /// category again even when the same one was requested before and the user
+    /// has since navigated away.
+    @Published private(set) var settingsCategoryRequest = 0
     @Published var isCloneRepositoryPresented = false
     @Published private(set) var activeToolWindow: ToolWindow?
     @Published private(set) var isMavenDockVisible = false
@@ -78,6 +82,7 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func presentSettings(category: SettingsCategory) {
         requestedSettingsCategory = category
+        settingsCategoryRequest += 1
         isSettingsPresented = true
     }
 

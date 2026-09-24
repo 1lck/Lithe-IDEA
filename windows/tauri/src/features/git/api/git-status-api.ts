@@ -82,6 +82,22 @@ function normalizeStatusRepoPaths(repoPaths: readonly string[]): string[] {
   return [...new Set(repoPaths.map((repoPath) => repoPath.trim()).filter(Boolean))];
 }
 
+// Bootstrap must await every repository without changing the root-relative
+// snapshot consumed by the file tree and the workspace footer.
+export async function getWorkspaceRootGitStatus(
+  workspacePath: string,
+  repoPaths: readonly string[],
+): Promise<GitStatus | null> {
+  const [rootStatus] = await Promise.all([
+    queryGitStatus(workspacePath),
+    ...normalizeStatusRepoPaths(repoPaths).map(async (repoPath) => {
+      const status = await queryGitStatus(repoPath);
+      if (!status) throw new Error("Git status query returned no snapshot");
+    }),
+  ]);
+  return rootStatus;
+}
+
 function getRepoLabel(repoPath: string): string {
   const normalized = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
   return normalized.split("/").pop() || normalized || "repository";

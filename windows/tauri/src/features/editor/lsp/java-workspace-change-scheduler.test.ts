@@ -96,6 +96,71 @@ test("debounces and coalesces watcher changes into one Core policy operation", a
   ]);
 });
 
+test("drops workspace-root events before resolving the Core file policy", async () => {
+  const timer = new ManualTimer();
+  const notify = mock(async () => undefined);
+  const resolvePolicy = mock(async (_workspacePaths: string[], changedPaths: string[]) =>
+    policyFor(changedPaths, "source"),
+  );
+  const operations = operationRecorder();
+  const scheduler = new JavaWorkspaceChangeScheduler({
+    resolvePolicy,
+    notify,
+    createOperationLog: operations.factory,
+    setTimer: timer.set,
+    clearTimer: timer.clear,
+  });
+
+  scheduler.schedule("workspace-1", "C:/work", {
+    path: "C:/work",
+    kind: "changed",
+    includeSource: true,
+  });
+  scheduler.schedule("workspace-1", "C:/work", {
+    path: "C:/work/src/Main.java",
+    kind: "changed",
+    includeSource: true,
+  });
+
+  await timer.fireNext();
+
+  expect(resolvePolicy).toHaveBeenCalledWith([], ["src/Main.java"]);
+  expect(notify).toHaveBeenCalledWith("C:/work", [
+    { path: "C:/work/src/Main.java", kind: "changed" },
+  ]);
+  expect(operations.records).toEqual([
+    expect.objectContaining({ outcome: "succeeded" }),
+  ]);
+});
+
+test("finishes a root-only watcher batch without calling Core", async () => {
+  const timer = new ManualTimer();
+  const resolvePolicy = mock(async () => policyFor([], "source"));
+  const notify = mock(async () => undefined);
+  const operations = operationRecorder();
+  const scheduler = new JavaWorkspaceChangeScheduler({
+    resolvePolicy,
+    notify,
+    createOperationLog: operations.factory,
+    setTimer: timer.set,
+    clearTimer: timer.clear,
+  });
+
+  scheduler.schedule("workspace-1", "C:/work/", {
+    path: "C:\\work",
+    kind: "changed",
+    includeSource: true,
+  });
+
+  await timer.fireNext();
+
+  expect(resolvePolicy).not.toHaveBeenCalled();
+  expect(notify).not.toHaveBeenCalled();
+  expect(operations.records).toEqual([
+    expect.objectContaining({ outcome: "cancelled", details: "no-workspace-contained-paths" }),
+  ]);
+});
+
 test("cancels a scheduled timer when its workspace closes", () => {
   const timer = new ManualTimer();
   const operations = operationRecorder();
@@ -222,4 +287,65 @@ test("records a failed terminal outcome when notification fails", async () => {
   expect(operations.records).toEqual([
     expect.objectContaining({ outcome: "failed" }),
   ]);
+});
+
+// Regression: every other test injects `clearTimer`, so the production default
+// was never exercised. Assigning the bare `clearTimeout` reference to an
+// instance field makes WebView2 receive the scheduler as `this` and reject the
+// call with "Illegal invocation", which aborted `schedule` before it recorded
+// the change or re-armed the debounce timer.
+test("clears the debounce timer without passing the scheduler as the receiver", async () => {
+  const timer = new ManualTimer();
+  const notify = mock(async () => undefined);
+  const operations = operationRecorder();
+  const originalClearTimeout = globalThis.clearTimeout;
+  const receivers: unknown[] = [];
+  // Mimics WebView2, which throws unless the receiver is the window.
+  globalThis.clearTimeout = function replacedClearTimeout(
+    this: unknown,
+    handle?: ReturnType<typeof setTimeout>,
+  ) {
+    receivers.push(this);
+    if (this !== undefined && this !== globalThis) {
+      throw new TypeError("Illegal invocation");
+    }
+    timer.clear(handle as ReturnType<typeof setTimeout>);
+  } as typeof globalThis.clearTimeout;
+
+  try {
+    const scheduler = new JavaWorkspaceChangeScheduler({
+      resolvePolicy: async (_workspacePaths, changedPaths) =>
+        policyFor(changedPaths, "buildConfiguration"),
+      notify,
+      createOperationLog: operations.factory,
+      setTimer: timer.set,
+      // `clearTimer` is intentionally left to the production default.
+    });
+
+    scheduler.schedule("workspace-1", "C:/work", {
+      path: "C:/work/pom.xml",
+      kind: "created",
+      includeSource: false,
+    });
+    // The second call takes the branch that clears the armed timer.
+    scheduler.schedule("workspace-1", "C:/work", {
+      path: "C:/work/ruoyi-admin/pom.xml",
+      kind: "changed",
+      includeSource: false,
+    });
+
+    expect(receivers).toEqual([undefined]);
+    expect(timer.size).toBe(1);
+
+    await timer.fireNext();
+
+    // Both paths survive, proving `schedule` was not aborted mid-way.
+    expect(notify).toHaveBeenCalledWith("C:/work", [
+      { path: "C:/work/pom.xml", kind: "created" },
+      { path: "C:/work/ruoyi-admin/pom.xml", kind: "changed" },
+    ]);
+    expect(operations.records).toEqual([expect.objectContaining({ outcome: "succeeded" })]);
+  } finally {
+    globalThis.clearTimeout = originalClearTimeout;
+  }
 });

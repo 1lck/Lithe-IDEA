@@ -86,7 +86,9 @@ export class JavaWorkspaceChangeScheduler {
       dependencies.setTimer ??
       ((callback, delayMilliseconds) =>
         setTimeout(() => void callback(), delayMilliseconds));
-    this.clearTimer = dependencies.clearTimer ?? clearTimeout;
+    // WebView2 rejects `clearTimeout` invoked with any receiver other than the
+    // window, so the default stays a closure instead of a bare reference.
+    this.clearTimer = dependencies.clearTimer ?? ((timer) => clearTimeout(timer));
   }
 
   schedule(
@@ -186,7 +188,8 @@ export class JavaWorkspaceChangeScheduler {
         .map((change) => ({
           ...change,
           relativePath: getRelativePath(change.path, owner.workspacePath),
-        }));
+        }))
+        .filter((change) => change.relativePath.length > 0);
       if (relativeChanges.length === 0) {
         this.complete(owner, { kind: "cancelled", reason: "no-workspace-contained-paths" });
         return;

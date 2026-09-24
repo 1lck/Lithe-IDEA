@@ -1,7 +1,7 @@
 //! Run-configuration schemas, layered overrides, and deterministic generation.
 
-use super::types::{Confidence, Execution};
-use crate::languages::JavaRunConfigurationsRequest;
+use super::types::{Confidence, Execution, RunCategory};
+use crate::languages::{JavaEntrypointFact, JavaEntrypointFacts};
 use crate::protocol::{invalid_relative_path, CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -12,20 +12,35 @@ use std::path::{Component, Path, PathBuf};
 
 const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
-const GENERATOR_REVISION: &str = "4";
+// Bumped when generation changes what a workspace should contain: existing
+// workspaces regenerate instead of keeping a stale `generated.json`.
+const GENERATOR_REVISION: &str = "8";
 /// Toolchain requirements and `project.json` are separate documents that happen
 /// to live under `.lithe`. Their schema did not change with run-config v2, so
 /// they keep their own version and must not be validated against `VERSION`.
 const SIDECAR_VERSION: u32 = 1;
+/// Recorded in `generator.inputs` instead of a content hash for a Java source
+/// whose bytes generation never reads: only its presence feeds the Java path
+/// set. Launchable classes come from JDT, so hashing every source would scan
+/// the whole project on each inspection without detecting anything more.
+const PATH_ONLY_INPUT: &str = "path";
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Request to validate the layered configuration documents for a workspace.
 pub struct InspectRequest {
     pub root: String,
+    /// Settings-only reads may skip source hashing; omitted preserves full inspection.
+    #[serde(default)]
+    pub check_fingerprint: Option<bool>,
     /// Host-owned local layer. When present, Core validates it instead of `.lithe/run/local.json`.
     #[serde(default)]
     pub local_document: Option<Value>,
+    /// JDT's current launchable classes (`lsp.request` operation
+    /// `javaEntrypoints`). When present, Core reports whether the generated
+    /// Java entries still match them; omitted while JDT is not ready.
+    #[serde(default)]
+    pub java_entrypoints: Option<JavaEntrypointFacts>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -37,6 +52,12 @@ pub struct GenerateRequest {
     pub paths: Vec<String>,
     #[serde(default)]
     pub module_paths: Vec<String>,
+    /// Launchable classes from the Java language service (`lsp.request`
+    /// operation `javaEntrypoints`). Absent while that service is not ready:
+    /// the previous generation's Java entries are carried forward instead of
+    /// being dropped, so the Run list does not empty during a cold start.
+    #[serde(default)]
+    pub java_entrypoints: Option<JavaEntrypointFacts>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -258,6 +279,9 @@ fn migrate_configuration_value(item: &mut Value) {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Fingerprint and inputs used to decide whether generated output is stale.
+///
+/// `inputs` maps each workspace-relative input to `sha256:<hex>` of its bytes,
+/// or to `path` for a Java source that only counts by presence.
 pub struct GeneratorMetadata {
     pub fingerprint: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -283,6 +307,10 @@ pub struct RunConfiguration {
     pub provider: String,
     #[serde(default)]
     pub execution: Execution,
+    /// Whether the entry runs this project or the infrastructure it depends on.
+    /// Omitted for project entries so existing documents stay byte-identical.
+    #[serde(default, skip_serializing_if = "RunCategory::is_project")]
+    pub category: RunCategory,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default)]
@@ -409,15 +437,22 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
         validate_sidecar_version(document.version)?;
     }
     let mut diagnostics = Vec::new();
-    if let Some(metadata) = generated
+    let local = local_layer_document(&root, request.local_document.clone())?;
+    if let Some((document, metadata)) = generated
         .as_ref()
-        .and_then(|document| document.generator.as_ref())
+        .and_then(|document| Some((document, document.generator.as_ref()?)))
+        .filter(|_| request.check_fingerprint != Some(false))
     {
-        let current_inputs = project_inputs(&root)?;
+        let current_inputs = project_inputs(&root, &java_entry_sources(&document.configurations))?;
         if metadata.fingerprint != fingerprint_from_inputs(&current_inputs) {
+            // Stored inputs that no longer reproduce the stored fingerprint were
+            // recorded by another generator revision, whose input rules (such
+            // as which sources are hashed) may differ from today's.
+            let generator_changed =
+                fingerprint_from_inputs(&metadata.inputs) != metadata.fingerprint;
             let message = if metadata.inputs.is_empty() {
                 "Project inputs changed after run configuration generation".to_string()
-            } else if metadata.inputs == current_inputs {
+            } else if generator_changed || metadata.inputs == current_inputs {
                 "Run configuration generator changed; regenerate configurations".to_string()
             } else {
                 input_change_summary(&metadata.inputs, &current_inputs)
@@ -428,11 +463,29 @@ pub fn inspect(request: InspectRequest) -> Result<Value, CoreError> {
             }));
         }
     }
+    if let (Some(document), Some(current)) = (generated.as_ref(), request.java_entrypoints.as_ref())
+    {
+        // Source hashing no longer notices a main method added to an existing
+        // class; JDT's answer does, and is cheaper than reading every source.
+        let recorded = java_entrypoint_keys(&java_entrypoints_from_document(&root, document));
+        let current = java_entrypoint_keys(current);
+        if recorded != current {
+            let added = current.difference(&recorded).count();
+            let removed = recorded.difference(&current).count();
+            diagnostics.push(json!({
+                "code": "staleFingerprint",
+                "message": format!(
+                    "Java entry points changed: {added} added, {removed} removed"
+                )
+            }));
+        }
+    }
     Ok(json!({
         "status": if generated.is_some() { "ready" } else { "missing" },
         "generated": generated,
         "toolchainRequirements": requirements,
         "localToolchains": local_toolchains,
+        "toolchain": local.get("toolchain"),
         "diagnostics": diagnostics,
         "paths": { "generated": ".lithe/run/generated.json", "configurations": ".lithe/run/configurations.json", "local": ".lithe/run/local.json" }
     }))
@@ -470,11 +523,21 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         .map(|path| workspace_maven_path(maven_relative_path, &path))
         .collect();
     let module_paths = inferred_maven_module_paths(&root, &paths, configured_module_paths);
-    let scanned = crate::languages::run_configurations(JavaRunConfigurationsRequest {
-        root: request.root.clone(),
-        paths,
-        module_paths,
-    })?;
+    // Note: entry-point ownership is recorded in .agents/notes/implemented/architecture/2026-09-21-java-entrypoints-owned-by-jdt.md
+    let (mut java_entrypoints, java_entrypoints_origin) = match request.java_entrypoints {
+        Some(facts) => (facts, "languageService"),
+        None => (previous_java_entrypoints(&root)?, "previousGeneration"),
+    };
+    // JDT imports nested checkouts such as `.worktree/*` as projects of their
+    // own; they are excluded here exactly as their source paths are above.
+    java_entrypoints
+        .entries
+        .retain(|entry| !is_nested_checkout_path(&entry.source_path));
+    let scanned = crate::languages::run_configurations_from_entrypoints(
+        &root,
+        &java_entrypoints,
+        &module_paths,
+    )?;
     let annotated_main_classes = scanned
         .main_classes
         .iter()
@@ -540,6 +603,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
                     "java.main" | "java.current-file" => Execution::Application,
                     _ => Execution::Task,
                 },
+                category: RunCategory::Project,
                 command: None,
                 args: Vec::new(),
                 cwd: if provider == "java.current-file" {
@@ -568,6 +632,7 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             name: "Current File".to_string(),
             provider: "java.current-file".to_string(),
             execution: Execution::Application,
+            category: RunCategory::Project,
             command: None,
             args: Vec::new(),
             cwd: ".".to_string(),
@@ -587,7 +652,6 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
             source: None,
         });
     }
-    let inputs = project_inputs(&root)?;
     // Detectors run after the Java scan so a Java configuration always keeps its
     // id: `detected_configurations` skips ids the Java pass already claimed
     // rather than overwriting them, which would detach team and local overrides.
@@ -606,6 +670,8 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
     // say so, while a detected npm service correctly reports one.
     let entry_count = java_entry_count + detected.len();
     configurations.extend(detected);
+    disambiguate_configuration_names(&mut configurations);
+    let inputs = project_inputs(&root, &java_entry_sources(&configurations))?;
     let requirements = detect_requirements(
         &root,
         maven_root.as_ref().map(|(path, _)| path.as_path()),
@@ -620,9 +686,150 @@ pub fn generate(request: GenerateRequest) -> Result<Value, CoreError> {
         }),
         configurations,
     };
-    Ok(
-        json!({ "generated": generated, "toolchainRequirements": requirements, "entryCount": entry_count }),
+    Ok(json!({
+        "generated": generated,
+        "toolchainRequirements": requirements,
+        "entryCount": entry_count,
+        "javaEntrypointsOrigin": java_entrypoints_origin
+    }))
+}
+
+/// Java entry points recorded by the previous generation.
+///
+/// Used only while the Java language service has not answered yet. The
+/// entries were JDT's answer last time; replaying them keeps ids and user
+/// overrides attached until a fresh answer replaces them. Entries whose source
+/// was deleted since are dropped, and an unreadable previous document simply
+/// contributes nothing because this generation overwrites it.
+fn previous_java_entrypoints(root: &Path) -> Result<JavaEntrypointFacts, CoreError> {
+    let Ok(Some(document)) = read_document_value(root, "run/generated.json") else {
+        return Ok(empty_java_entrypoints());
+    };
+    let Ok(document) = serde_json::from_value::<RunConfigurationDocument>(document) else {
+        return Ok(empty_java_entrypoints());
+    };
+    Ok(java_entrypoints_from_document(root, &document))
+}
+
+fn empty_java_entrypoints() -> JavaEntrypointFacts {
+    JavaEntrypointFacts {
+        schema_version: 1,
+        entries: Vec::new(),
+    }
+}
+
+/// Java entry points a generated document was built from, in the shape JDT
+/// reports them. Entries whose source no longer exists are dropped.
+fn java_entrypoints_from_document(
+    root: &Path,
+    document: &RunConfigurationDocument,
+) -> JavaEntrypointFacts {
+    let mut facts = empty_java_entrypoints();
+    for configuration in &document.configurations {
+        if !is_java_entry_configuration(configuration) {
+            continue;
+        }
+        let (Some(source_path), Some(main_class)) = (
+            configuration.extension_string("java", "source"),
+            configuration.main_class(),
+        ) else {
+            continue;
+        };
+        if invalid_relative_path(&source_path) || !root.join(&source_path).is_file() {
+            continue;
+        }
+        facts.entries.push(JavaEntrypointFact {
+            source_path,
+            main_class,
+            project_name: None,
+        });
+    }
+    facts.entries.sort_by(|left, right| {
+        (&left.source_path, &left.main_class).cmp(&(&right.source_path, &right.main_class))
+    });
+    facts.entries.dedup();
+    facts
+}
+
+fn is_java_entry_configuration(configuration: &RunConfiguration) -> bool {
+    matches!(
+        configuration.provider.as_str(),
+        "java.main" | "spring-boot.maven"
     )
+}
+
+/// Java sources whose bytes generation reads (it labels Spring Boot entries
+/// from them). Derived from the generated entries, so generation and
+/// inspection hash exactly the same files.
+fn java_entry_sources(configurations: &[RunConfiguration]) -> BTreeSet<String> {
+    configurations
+        .iter()
+        .filter(|configuration| is_java_entry_configuration(configuration))
+        .filter_map(|configuration| configuration.extension_string("java", "source"))
+        .collect()
+}
+
+/// Comparable `(source, class)` pairs for entry points. JDT may prefix a
+/// modular class with `module/`; generated entries store the class alone, and
+/// nested checkouts are excluded exactly as generation excludes them.
+fn java_entrypoint_keys(facts: &JavaEntrypointFacts) -> BTreeSet<(String, String)> {
+    facts
+        .entries
+        .iter()
+        .filter(|entry| !is_nested_checkout_path(&entry.source_path))
+        .map(|entry| {
+            let source = entry
+                .source_path
+                .trim()
+                .replace('\\', "/")
+                .trim_matches('/')
+                .to_string();
+            let class = entry
+                .main_class
+                .rsplit_once('/')
+                .map_or(entry.main_class.as_str(), |(_, class)| class)
+                .to_string();
+            (source, class)
+        })
+        .collect()
+}
+
+/// Qualifies display names that repeat across directories or modules.
+///
+/// Ids already carry the directory, but the Run list shows only the name: three
+/// Compose files each contributing `compose up`, or two modules each declaring
+/// `Application`, are otherwise indistinguishable. The qualifier is the first
+/// candidate that separates every entry in the group, so the shortest useful
+/// label wins and unique names are never decorated.
+fn disambiguate_configuration_names(configurations: &mut [RunConfiguration]) {
+    let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    for (index, configuration) in configurations.iter().enumerate() {
+        groups
+            .entry(configuration.name.to_lowercase())
+            .or_default()
+            .push(index);
+    }
+    for indexes in groups.into_values().filter(|indexes| indexes.len() > 1) {
+        let candidates: [fn(&RunConfiguration) -> Option<String>; 3] = [
+            |configuration| configuration.module().filter(|module| module != "."),
+            |configuration| Some(configuration.cwd.clone()).filter(|cwd| cwd != "."),
+            |configuration| configuration.source.clone(),
+        ];
+        let Some(qualifier) = candidates.into_iter().find(|candidate| {
+            let values = indexes
+                .iter()
+                .map(|index| candidate(&configurations[*index]))
+                .collect::<Option<BTreeSet<_>>>();
+            values.is_some_and(|values| values.len() == indexes.len())
+        }) else {
+            continue;
+        };
+        for index in indexes {
+            if let Some(value) = qualifier(&configurations[index]) {
+                configurations[index].name = format!("{} ({value})", configurations[index].name);
+            }
+        }
+    }
 }
 
 fn workspace_maven_path(maven_root: Option<&str>, path: &str) -> String {
@@ -792,6 +999,7 @@ fn detected_configurations(
             name: item.name,
             provider: item.provider,
             execution: item.execution,
+            category: item.category,
             command: item.command,
             args: item.args,
             cwd: item.cwd,
@@ -936,13 +1144,20 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             }));
             continue;
         }
-        if let Some(main_class) = configuration.main_class() {
-            if !main_class_exists(&root, &main_class)? {
+        // Whether the class is launchable is JDT's answer at launch time; here
+        // only the source file the entry was generated from must still exist.
+        // `extensions.java.source` is the Java file the entry came from;
+        // `configuration.source` names a layer or detector manifest instead.
+        let entry_source = configuration
+            .extension_string("java", "source")
+            .filter(|_| configuration.main_class().is_some());
+        if let Some(source) = entry_source {
+            if invalid_relative_path(&source) || !root.join(&source).is_file() {
                 configuration.disabled = true;
                 diagnostics.push(json!({
                     "id": configuration.id,
                     "code": "missingMainClass",
-                    "message": format!("Main class source no longer exists: {main_class}")
+                    "message": format!("Main class source no longer exists: {source}")
                 }));
             }
         }
@@ -1356,13 +1571,6 @@ pub fn create_user_configuration(
                 ErrorCode::InvalidRequest,
                 "Spring Boot main class is required",
             ));
-        }
-        if !main_class_exists(&root, main_class)? {
-            return Err(CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Spring Boot main class source does not exist",
-            )
-            .with_details(main_class));
         }
     }
     let mut existing_ids = std::collections::BTreeSet::new();
@@ -2568,10 +2776,13 @@ fn detect_requirements(
     let maven_root = maven_root.unwrap_or(root);
     let pom = maven_root.join("pom.xml");
     if let Ok(text) = fs::read_to_string(pom) {
-        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+)").unwrap();
+        let re = regex::Regex::new(r"(?:maven.compiler.release|maven.compiler.source|maven.compiler.target|java.version)\s*>?\s*[:=]?\s*([0-9]+(?:\.[0-9]+)?)").unwrap();
+        // Java 8 projects commonly declare `1.8`; keep the feature version
+        // instead of the legacy `1` prefix.
         jdk.minimum_version = re
             .captures(&text)
-            .and_then(|c| c.get(1).map(|m| m.as_str().to_string()));
+            .and_then(|c| c.get(1))
+            .and_then(|m| major_version(m.as_str()));
     }
     if let Some((version, vendor)) =
         declared_java_version(maven_root).or_else(|| declared_java_version(root))
@@ -2672,7 +2883,12 @@ fn toolchain_diagnostics(
             // documents do not block newer system Maven installs.
             let treat_as_minimum = requirement.minimum_version.is_some()
                 || (requirement.kind == "maven" && requirement.version.is_some());
-            if !version_satisfies(&candidate.version, required, treat_as_minimum) {
+            if !version_satisfies(
+                &requirement.kind,
+                &candidate.version,
+                required,
+                treat_as_minimum,
+            ) {
                 append_toolchain_diagnostics(
                     &mut diagnostics,
                     &consumer_ids,
@@ -2723,9 +2939,13 @@ fn append_toolchain_diagnostics(
     }
 }
 
-fn version_satisfies(actual: &str, required: &str, minimum: bool) -> bool {
-    let actual_parts = version_parts(actual);
-    let required_parts = version_parts(required);
+fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) -> bool {
+    let mut actual_parts = version_parts(actual);
+    let mut required_parts = version_parts(required);
+    if kind == "java" {
+        actual_parts = java_feature_version_parts(actual_parts);
+        required_parts = java_feature_version_parts(required_parts);
+    }
     if actual_parts.is_empty() || required_parts.is_empty() {
         return false;
     }
@@ -2744,7 +2964,22 @@ fn version_parts(value: &str) -> Vec<u32> {
         .collect()
 }
 
-fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
+/// Drops the legacy `1.` prefix Java 8 and earlier report (`1.8.0_504`), so
+/// those runtimes compare on the same feature-version scale as `8` or `17.0.12`.
+fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
+    if parts.len() > 1 && parts[0] == 1 {
+        parts[1..].to_vec()
+    } else {
+        parts
+    }
+}
+
+/// Collects generation inputs. Java sources count by path unless generation
+/// reads their content (`content_sources`); every other input is hashed.
+fn project_inputs(
+    root: &Path,
+    content_sources: &BTreeSet<String>,
+) -> Result<BTreeMap<String, String>, CoreError> {
     let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
     while let Some(dir) = stack.pop() {
@@ -2765,6 +3000,10 @@ fn project_inputs(root: &Path) -> Result<BTreeMap<String, String>, CoreError> {
     files.sort();
     let mut result = BTreeMap::new();
     for relative in files {
+        if relative.ends_with(".java") && !content_sources.contains(&relative) {
+            result.insert(relative, PATH_ONLY_INPUT.to_string());
+            continue;
+        }
         if let Ok(bytes) = fs::read(root.join(&relative)) {
             result.insert(relative, format!("sha256:{:x}", Sha256::digest(bytes)));
         }
@@ -2987,38 +3226,6 @@ fn maven_wrapper_version(root: &Path) -> Option<String> {
         .captures(&text)
         .and_then(|capture| capture.get(1))
         .map(|value| value.as_str().to_string())
-}
-
-fn main_class_exists(root: &Path, main_class: &str) -> Result<bool, CoreError> {
-    let (package_name, simple_name) = main_class
-        .rsplit_once('.')
-        .map_or(("", main_class), |(package, name)| (package, name));
-    let file_name = format!("{simple_name}.java");
-    let package_expression =
-        regex::Regex::new(r"(?m)^\s*package\s+([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\s*;")
-            .map_err(|error| CoreError::new(ErrorCode::Unknown, error.to_string()))?;
-    let mut stack = vec![root.to_path_buf()];
-    while let Some(directory) = stack.pop() {
-        for entry in fs::read_dir(directory)? {
-            let path = entry?.path();
-            if path.is_dir() {
-                if !ignored_directory(&path) {
-                    stack.push(path);
-                }
-            } else if path.file_name().and_then(|name| name.to_str()) == Some(file_name.as_str()) {
-                let source = fs::read_to_string(&path)?;
-                let declared_package = package_expression
-                    .captures(&source)
-                    .and_then(|capture| capture.get(1))
-                    .map(|value| value.as_str())
-                    .unwrap_or("");
-                if declared_package == package_name {
-                    return Ok(true);
-                }
-            }
-        }
-    }
-    Ok(false)
 }
 
 fn existing_root(value: &str) -> Result<PathBuf, CoreError> {

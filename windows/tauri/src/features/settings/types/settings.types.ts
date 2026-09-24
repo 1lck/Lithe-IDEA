@@ -1,4 +1,5 @@
 import type { CoreFeaturesState } from "./feature.types";
+import type { CommitAISettings } from "@/features/git/types/ai-commit";
 import type { DisplayLanguage } from "@/i18n/locale";
 import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
@@ -20,6 +21,8 @@ type EditorCursorStyle =
 type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
 type TerminalCursorInactiveStyle = "outline" | "block" | "bar" | "underline" | "none";
 export type TabCloseButtonVisibility = "active" | "hover" | "always";
+// Matches the macOS EditorTabLayoutMode raw values.
+export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
 export type FileTreeSortOrder = "folders-first" | "name";
 export type SettingsSection =
@@ -34,6 +37,7 @@ export type SettingsSection =
   | "file-explorer";
 
 export interface Settings {
+  aiCommit: CommitAISettings;
   // General
   autoSave: boolean;
   quickOpenPreview: boolean;
@@ -83,6 +87,7 @@ export interface Settings {
   showStatusBar: boolean;
   showTabIcons: boolean;
   tabCloseButtonVisibility: TabCloseButtonVisibility;
+  editorTabLayoutMode: EditorTabLayoutMode;
   windowChromeDensity: WindowChromeDensity;
   // Theme
   theme: Theme;
@@ -169,7 +174,6 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
-  horizontalTabScroll: boolean;
   //// File tree
   fileTreeSortOrder: FileTreeSortOrder;
   fileTreeIndentSize: number;

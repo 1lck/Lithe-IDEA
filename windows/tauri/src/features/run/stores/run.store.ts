@@ -11,11 +11,9 @@ import {
   createLaunchPlan,
   generateRunConfiguration,
   inspectRunConfiguration,
-  resolveRunConfiguration,
   saveRunConfigurationEditorChanges,
 } from "../api/run-core-api";
 import {
-  discoverRunToolchains,
   executePreLaunchStep,
   listJavaSources,
   resolveRunLaunch,
@@ -46,27 +44,60 @@ import {
 import {
   defaultGeneratedConfigurationId,
   blockingToolchainDiagnosticForConfiguration,
-  effectiveRuntimeExecutablePaths,
-  mapCoreConfiguration,
-  mapCoreToolchain,
   mapDiagnostics,
+  mapCoreToolchain,
   mergeLaunchEnvironment,
   recoveryActionForError,
   recoveryPathFromMessage,
-  selectedToolchainCandidates,
   configurationUsesMaven,
 } from "../utils/run-configuration";
 import { editorSaveFailureMessage, runEditorSaveWorkflow } from "../services/run-editor-save";
-import { prepareJavaRunLaunch } from "../services/java-run-launch";
-import { createOutputStamper, trimRunOutput, type OutputStamper } from "../utils/output-timestamper";
+import { prepareJavaRunLaunch, usesJavaProjectPreparation } from "../services/java-run-launch";
+import {
+  discoverJavaEntrypoints,
+  whenJavaProjectPrepared,
+} from "../services/java-entrypoint-discovery";
+import { rebuildJavaIndexForWorkspace } from "@/features/editor/lsp/java-index-recovery";
+import type { JavaBuildFailure } from "@/platform/java-launch-readiness";
+import {
+  javaBuildFailurePolicyForWorkspace,
+  useRunPreferencesStore,
+} from "./run-preferences.store";
+import {
+  createOutputStamper,
+  trimRunOutput,
+  type OutputStamper,
+} from "../utils/output-timestamper";
+import { resolveConfigurations, type ResolvedRunProject } from "../services/resolve-run-project";
+import { frontendTrace } from "@/utils/frontend-trace";
+import { openRunDecisionPane } from "../actions/run-tool-window-actions";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
 const sessionWorkspaces = new Map<string, string>();
 const outputStampers = new Map<string, OutputStamper>();
 const workspaceSaveInFlight = new Map<string, Promise<void>>();
 
+export interface JavaLaunchDecision {
+  decisionId: string;
+  sessionId: string;
+  configurationId: string;
+  configurationName: string;
+  failure: JavaBuildFailure;
+}
+
+/**
+ * Where the Java entries in the Run list come from.
+ *
+ * `ready` is JDT's current answer; `stale` shows the previous answer while the
+ * Java service prepares the project; `loading` has no previous answer yet;
+ * `failed` keeps the previous list and reports why it could not refresh.
+ */
+export type JavaDiscoveryStatus = "idle" | "loading" | "ready" | "stale" | "failed";
+
 interface RunState {
   root: string | null;
+  javaDiscovery: JavaDiscoveryStatus;
+  javaDiscoveryMessage: string | null;
   status: RunConfigurationStatus;
   isLoading: boolean;
   isGenerating: boolean;
@@ -84,7 +115,10 @@ interface RunState {
   sessions: RunSession[];
   selectedSessionId: string | null;
   saveError: string | null;
+  /** Configuration whose editor is open, requested from the Run pane or the editor gutter. */
+  editingConfigurationId: string | null;
   generationNotice: string | null;
+  javaLaunchDecisions: Record<string, JavaLaunchDecision>;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
@@ -95,6 +129,7 @@ interface RunState {
     generate: (root: string) => Promise<void>;
     selectConfiguration: (id: string | null) => void;
     selectSession: (id: string | null) => void;
+    editConfiguration: (id: string | null) => void;
     runConfiguration: (
       id: string,
       currentFile?: string,
@@ -105,6 +140,9 @@ interface RunState {
       currentFile?: string,
       debugPort?: number,
     ) => Promise<RunProcessInstance | null>;
+    continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
+    cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
+    rebuildJavaIndex: (sessionId: string, decisionId: string) => Promise<void>;
     stop: (sessionId?: string, executionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
@@ -120,6 +158,8 @@ interface RunState {
 }
 
 export interface RunStoreDependencies {
+  inspectRunConfiguration?: typeof inspectRunConfiguration;
+  resolveConfigurations?: typeof resolveConfigurations;
   createLaunchPlan: typeof createLaunchPlan;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
   resolveRunLaunch: typeof resolveRunLaunch;
@@ -129,6 +169,15 @@ export interface RunStoreDependencies {
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
   prepareJavaRunLaunch: typeof prepareJavaRunLaunch;
+  rebuildJavaIndexForWorkspace?: typeof rebuildJavaIndexForWorkspace;
+  javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
+  setJavaBuildFailurePolicy?: (workspace: string, policy: "ask" | "alwaysProceed") => void;
+  presentJavaLaunchDecision?: (workspaceId: string) => void;
+  discoverJavaEntrypoints?: typeof discoverJavaEntrypoints;
+  whenJavaProjectPrepared?: typeof whenJavaProjectPrepared;
+  listJavaSources?: typeof listJavaSources;
+  generateRunConfiguration?: typeof generateRunConfiguration;
+  writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
 // The Maven settings own the project-wide Maven paths. The run feature's legacy
@@ -151,12 +200,36 @@ const defaultRunStoreDependencies: RunStoreDependencies = {
   startRunProcess,
   stopRunProcess,
   prepareJavaRunLaunch,
+  rebuildJavaIndexForWorkspace,
+  javaBuildFailurePolicyForWorkspace,
+  setJavaBuildFailurePolicy: (workspace, policy) =>
+    useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy),
+  presentJavaLaunchDecision: openRunDecisionPane,
 };
 
 // Classpath joining is the host's job: Rust emits a platform-neutral list and
 // the host joins it with `;` on Windows. JVM options may precede the main class
 // in any order.
+/// Reads the failure the host reported.
+///
+/// A Tauri command that fails rejects with the plain string its Rust handler
+/// returned, so an `instanceof Error` check alone discards the operating
+/// system's reason, such as a command line refused for its length.
+function launchFailureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === "string" && error.trim()) return error;
+  const message = (error as { message?: unknown } | null)?.message;
+  if (typeof message === "string" && message.trim()) return message;
+  return "Unable to start the run configuration.";
+}
+
 const CLASSPATH_SEPARATOR = ";";
+// Core may first wait for JDT Maven project updates and an earlier build, which
+// can take minutes on a cold multi-module project.
+const JAVA_PREPARATION_NOTICE =
+  "Preparing the Java launch: waiting for the Java language service to update and build the project...\n";
+const JAVA_BUILD_CONTINUE_NOTICE =
+  "Continuing with the Java output currently available on disk.\n\n";
 const CLASSPATH_FLAGS = new Set(["-cp", "-classpath", "--class-path"]);
 // Merges the launch classpath into `args`. When the user already passes a
 // `-cp`/`-classpath`/`--class-path`, our entries are prepended into that same
@@ -190,17 +263,6 @@ function mergeJavaPath(
     }
   }
   return [defaultFlag, joined, ...args];
-}
-
-interface ResolvedRunProject {
-  configurations: RunConfiguration[];
-  diagnostics: RunDiagnostic[];
-  defaultConfigurationId: string | null;
-  discoveredJava: JavaRuntime[];
-  discoveredMaven: MavenRuntime[];
-  discoveredRuntimes: GenericRuntime[];
-  globalToolchain: GlobalToolchain;
-  effectiveRuntimeExecutablePaths: Record<string, string>;
 }
 
 type RunProjectSnapshot =
@@ -282,63 +344,36 @@ function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
   };
 }
 
-async function resolveConfigurations(root: string): Promise<ResolvedRunProject> {
-  const automatic = await discoverRunToolchains(root);
-  const automaticRuntimePaths = effectiveRuntimeExecutablePaths(automatic.runtimes, {});
-  const preliminary = await resolveRunConfiguration(
-    root,
-    selectedToolchainCandidates(automatic, {
-      ...EMPTY_GLOBAL_TOOLCHAIN,
-      runtimeExecutablePaths: automaticRuntimePaths,
-    }),
-  );
-  const globalToolchain = mapCoreToolchain(
-    preliminary.toolchain,
-    preliminary.localToolchains,
-  );
-  const hasSelectedToolchain = Boolean(
-    globalToolchain.javaHomePath ||
-      globalToolchain.mavenExecutablePath ||
-      Object.values(globalToolchain.runtimeExecutablePaths).some(Boolean),
-  );
-  const discovered = hasSelectedToolchain
-    ? await discoverRunToolchains(root, globalToolchain)
-    : automatic;
-  const effectiveRuntimePaths = effectiveRuntimeExecutablePaths(
-    discovered.runtimes,
-    globalToolchain.runtimeExecutablePaths,
-  );
-  const candidates = selectedToolchainCandidates(discovered, {
-    ...globalToolchain,
-    runtimeExecutablePaths: effectiveRuntimePaths,
-  });
-  const resolved = hasSelectedToolchain
-    ? await resolveRunConfiguration(root, candidates)
-    : preliminary;
-  return {
-    configurations: (resolved.configurations ?? []).map(mapCoreConfiguration),
-    diagnostics: mapDiagnostics(resolved.diagnostics),
-    defaultConfigurationId: resolved.defaultRunConfiguration ?? null,
-    discoveredJava: discovered.java,
-    discoveredMaven: discovered.maven,
-    discoveredRuntimes: discovered.runtimes,
-    globalToolchain,
-    effectiveRuntimeExecutablePaths: effectiveRuntimePaths,
-  };
-}
-
-async function readRunProjectSnapshot(root: string): Promise<RunProjectSnapshot> {
-  const inspection = await inspectRunConfiguration(root);
+async function readRunProjectSnapshot(
+  root: string,
+  workspaceId: string,
+  dependencies: RunStoreDependencies,
+  checkFingerprint = true,
+): Promise<RunProjectSnapshot> {
+  const inspection = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, checkFingerprint);
   const inspectionDiagnostics = mapDiagnostics(inspection.diagnostics);
   if (inspection.status !== "ready") {
     return { status: "missing", diagnostics: inspectionDiagnostics };
   }
-  const resolved = await resolveConfigurations(root);
+  const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
   return {
     status: "ready",
     ...resolved,
     diagnostics: [...inspectionDiagnostics, ...resolved.diagnostics],
   };
+}
+
+/** Diagnostics from `incoming` that `existing` does not already show. */
+function newDiagnostics(existing: RunDiagnostic[], incoming: RunDiagnostic[]): RunDiagnostic[] {
+  return incoming.filter((diagnostic) =>
+    !existing.some((shown) => shown.code === diagnostic.code &&
+      shown.message === diagnostic.message && shown.id === diagnostic.id &&
+      shown.toolchain === diagnostic.toolchain));
+}
+
+/** Java entries and the Current File fallback exist only for Java projects. */
+function isJavaConfiguration(configuration: RunConfiguration): boolean {
+  return configuration.provider.startsWith("java.");
 }
 
 function readyRunState(
@@ -372,11 +407,97 @@ function readyRunState(
 
 export const createRunStore = (
   workspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId(),
-  dependencies: RunStoreDependencies = defaultRunStoreDependencies,
+  overrides: Partial<RunStoreDependencies> = {},
 ) => {
+  const dependencies = { ...defaultRunStoreDependencies, ...overrides };
+  const buildFailurePolicy =
+    dependencies.javaBuildFailurePolicyForWorkspace ?? javaBuildFailurePolicyForWorkspace;
+  const setBuildFailurePolicy =
+    dependencies.setJavaBuildFailurePolicy ??
+    ((workspace, policy) =>
+      useRunPreferencesStore.getState().actions.setJavaBuildFailurePolicy(workspace, policy));
+  const rebuildJavaIndex =
+    dependencies.rebuildJavaIndexForWorkspace ?? rebuildJavaIndexForWorkspace;
+  const presentJavaLaunchDecision =
+    dependencies.presentJavaLaunchDecision ?? openRunDecisionPane;
   const executions = new Map<string, string>();
+  const pendingJavaLaunchDecisions = new Map<
+    string,
+    { decisionId: string; executionId: string; resolve: (proceed: boolean) => void }
+  >();
+  let projectLoadRevision = 0;
+  // At most one pending refresh: a newer generation or project load replaces it.
+  let stopWaitingForJavaProject: (() => void) | null = null;
+  // The identification currently allowed to publish; a same-project reload waits for it.
+  let activeGeneration: { root: string; task: Promise<void> } | null = null;
+  // Stale-result guards do not stop native file reads. Keep their actual promises
+  // until settlement so identification cannot overlap an earlier content scan.
+  const fingerprintChecks = new Map<string, Set<Promise<unknown>>>();
+  const checkFingerprint = async (root: string) => {
+    const checks = fingerprintChecks.get(root) ?? new Set<Promise<unknown>>();
+    fingerprintChecks.set(root, checks);
+    const task = (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(root, true);
+    checks.add(task);
+    try {
+      return await task;
+    } finally {
+      checks.delete(task);
+      if (checks.size === 0) fingerprintChecks.delete(root);
+    }
+  };
+  const cancelJavaRefresh = () => {
+    stopWaitingForJavaProject?.();
+    stopWaitingForJavaProject = null;
+  };
+  // Generation hashes only the Java sources it reads, so a main method added to
+  // an existing class is found by comparing JDT's answer with the generated
+  // entries. The check waits for JDT outside the load task and never starts it.
+  let stopWaitingForEntrypointCheck: (() => void) | null = null;
+  const cancelEntrypointCheck = () => {
+    stopWaitingForEntrypointCheck?.();
+    stopWaitingForEntrypointCheck = null;
+  };
+  const checkJavaEntrypoints = async (
+    root: string,
+    owns: () => boolean,
+    publish: (diagnostics: RunDiagnostic[]) => void,
+  ): Promise<void> => {
+    const discovery = await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+      { workspaceId, root },
+      [],
+    );
+    if (!owns()) return;
+    if (discovery.kind === "pending") {
+      stopWaitingForEntrypointCheck = (dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared)(
+        root,
+        () => {
+          stopWaitingForEntrypointCheck = null;
+          if (owns()) void checkJavaEntrypoints(root, owns, publish);
+        },
+      );
+      return;
+    }
+    // A failed Java service has no answer to compare; generation reports it.
+    if (discovery.kind !== "discovered") return;
+    try {
+      const inspected = await (dependencies.inspectRunConfiguration ?? inspectRunConfiguration)(
+        root,
+        false,
+        discovery.entrypoints,
+      );
+      if (!owns()) return;
+      publish(mapDiagnostics(inspected.diagnostics));
+    } catch (error) {
+      if (!owns()) return;
+      frontendTrace("warn", "run.entrypointCheck", root, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  };
   return createStore<RunState>()((set, get) => ({
     root: null,
+    javaDiscovery: "idle",
+    javaDiscoveryMessage: null,
     status: "missing",
     isLoading: false,
     isGenerating: false,
@@ -392,7 +513,9 @@ export const createRunStore = (
     sessions: [],
     selectedSessionId: null,
     saveError: null,
+    editingConfigurationId: null,
     generationNotice: null,
+    javaLaunchDecisions: {},
     discoveredJava: [],
     discoveredMaven: [],
     discoveredRuntimes: [],
@@ -400,14 +523,42 @@ export const createRunStore = (
     effectiveRuntimeExecutablePaths: {},
     actions: {
       loadProject: async (root) => {
+        cancelEntrypointCheck();
+        const sameProject = get().root === root;
+        if (sameProject) {
+          // Reloading the same project only refreshes its documents and toolchains.
+          // Keep the refresh waiting for JDT and any launch awaiting a build-failure
+          // decision, and let an in-flight identification publish instead of
+          // discarding its result.
+          for (
+            let generation = activeGeneration;
+            generation?.root === root;
+            generation = activeGeneration
+          ) {
+            await generation.task;
+          }
+          // A load or identification of another project superseded this request.
+          if (get().root !== root) return;
+        } else {
+          cancelJavaRefresh();
+          for (const pending of pendingJavaLaunchDecisions.values()) pending.resolve(false);
+          pendingJavaLaunchDecisions.clear();
+        }
+        const revision = ++projectLoadRevision;
         set({
           root,
           isLoading: true,
+          isGenerating: false,
           saveError: null,
+          editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
+          ...(sameProject ? {} : { javaLaunchDecisions: {} }),
         });
         try {
-          const snapshot = await readRunProjectSnapshot(root);
+          // Show validated documents before the potentially expensive content scan.
+          // Fingerprint checking still runs below and never trusts file timestamps.
+          const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies, false);
+          if (revision !== projectLoadRevision || get().root !== root) return;
           if (snapshot.status === "missing") {
             set({
               status: "missing",
@@ -419,13 +570,43 @@ export const createRunStore = (
             return;
           }
           set(readyRunState(snapshot, get().selectedConfigurationId));
-          // Migrate any legacy per-project Maven paths into the shared Maven
-          // settings so the settings page shows the values already in effect.
-          dependencies.seedMavenLocalConfiguration(workspaceId, {
-            mavenExecutablePath: snapshot.globalToolchain.mavenExecutablePath,
-            javaHomePath: snapshot.globalToolchain.mavenJavaHomePath,
-          });
+          const ownsSnapshot = () => revision === projectLoadRevision &&
+            get().root === root && get().configurations === snapshot.configurations;
+          try {
+            const checked = await checkFingerprint(root);
+            if (!ownsSnapshot()) return;
+            if (checked.status !== "ready") {
+              throw new Error("Run configuration documents changed during inspection. Reload the project.");
+            }
+            const additionalDiagnostics = newDiagnostics(
+              snapshot.diagnostics,
+              mapDiagnostics(checked.diagnostics),
+            );
+            set({ diagnostics: [...snapshot.diagnostics, ...additionalDiagnostics] });
+          } catch (error) {
+            if (!ownsSnapshot()) return;
+            // A freshness-check timeout must not discard usable configurations.
+            // Keep the failure visible instead of implying the fingerprint matched.
+            const detail = error instanceof Error ? error.message : "Unknown inspection failure";
+            set({ diagnostics: [...snapshot.diagnostics, {
+              code: "fingerprintCheckFailed",
+              message: `Could not check run configuration freshness: ${detail}`,
+            }] });
+          }
+          // A regeneration already waiting for JDT will replace the Java entries.
+          if (
+            stopWaitingForJavaProject === null &&
+            ownsSnapshot() &&
+            snapshot.configurations.some(isJavaConfiguration)
+          ) {
+            void checkJavaEntrypoints(root, ownsSnapshot, (incoming) => {
+              const current = get().diagnostics;
+              const added = newDiagnostics(current, incoming);
+              if (added.length > 0) set({ diagnostics: [...current, ...added] });
+            });
+          }
         } catch (error) {
+          if (revision !== projectLoadRevision || get().root !== root) return;
           const message =
             error instanceof Error ? error.message : "Project run configuration is invalid";
           const code =
@@ -441,58 +622,128 @@ export const createRunStore = (
         }
       },
 
-      generate: async (root) => {
-        set({ isGenerating: true, isLoading: true, generationNotice: null, saveError: null });
-        try {
-          const paths = await listJavaSources(root);
-          const generated = await generateRunConfiguration(root, paths);
-          await writeGeneratedRunDocuments({
-            root,
-            generated: generated.generated,
-            toolchainRequirements: generated.toolchainRequirements,
-            defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
-          });
-          const resolved = await resolveConfigurations(root);
-          const notice =
-            generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
+      generate: (root) => {
+        const task = (async () => {
+          cancelJavaRefresh();
+          cancelEntrypointCheck();
+          const revision = ++projectLoadRevision;
+          const isCurrent = () => revision === projectLoadRevision && get().root === root;
           set({
             root,
-            status: "ready",
-            recoveryAction: "none",
-            recoveryPath: undefined,
-            invalidMessage: undefined,
-            diagnostics: resolved.diagnostics,
-            configurations: resolved.configurations,
-            selectedConfigurationId:
-              resolved.defaultConfigurationId ??
-              resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
-                ?.id ??
-              null,
-            defaultConfigurationId: resolved.defaultConfigurationId,
-            discoveredJava: resolved.discoveredJava,
-            discoveredMaven: resolved.discoveredMaven,
-            discoveredRuntimes: resolved.discoveredRuntimes,
-            globalToolchain: resolved.globalToolchain,
-            effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
-            generationNotice: notice,
-            isGenerating: false,
-            isLoading: false,
+            isGenerating: true,
+            isLoading: true,
+            generationNotice: null,
+            saveError: null,
           });
-        } catch (error) {
-          const message = error instanceof Error ? error.message : "Project identification failed";
-          set({
-            status: "invalid",
-            invalidMessage: message,
-            recoveryAction: "fixPermissions",
-            generationNotice: `failed:${message}`,
-            isGenerating: false,
-            isLoading: false,
-          });
-        }
+          try {
+            // A failed freshness check must not prevent explicit regeneration.
+            // Same-project loads wait for activeGeneration, so no new scan can
+            // enter while this generation waits for the already-running checks.
+            const checks = fingerprintChecks.get(root);
+            if (checks?.size) await Promise.allSettled([...checks]);
+            if (!isCurrent()) return;
+            const paths = await (dependencies.listJavaSources ?? listJavaSources)(root);
+            if (!isCurrent()) return;
+            // JDT decides which classes are launchable. Until it has prepared
+            // the project, Core keeps the previous generation's Java entries.
+            const discovery =
+              paths.length === 0
+                ? null
+                : await (dependencies.discoverJavaEntrypoints ?? discoverJavaEntrypoints)(
+                    { workspaceId, root },
+                    paths,
+                  );
+            if (!isCurrent()) return;
+            const generated = await (dependencies.generateRunConfiguration ?? generateRunConfiguration)(
+              root,
+              paths,
+              [],
+              discovery?.kind === "discovered" ? discovery.entrypoints : undefined,
+            );
+            if (!isCurrent()) return;
+            await (dependencies.writeGeneratedRunDocuments ?? writeGeneratedRunDocuments)({
+              root,
+              generated: generated.generated,
+              toolchainRequirements: generated.toolchainRequirements,
+              defaultRunConfiguration: defaultGeneratedConfigurationId(generated.generated),
+            });
+            if (!isCurrent()) return;
+            const resolved = await (dependencies.resolveConfigurations ?? resolveConfigurations)(root, workspaceId);
+            if (!isCurrent()) return;
+            const notice =
+              generated.entryCount === 0 ? "no-entries" : `generated:${generated.entryCount}`;
+            const hasJavaEntries = resolved.configurations.some(
+              (configuration) => configuration.provider === "java.main",
+            );
+            const javaDiscovery: JavaDiscoveryStatus =
+              discovery === null
+                ? "idle"
+                : discovery.kind === "discovered"
+                  ? "ready"
+                  : discovery.kind === "failed"
+                    ? "failed"
+                    : hasJavaEntries
+                      ? "stale"
+                      : "loading";
+            if (discovery?.kind === "pending") {
+              stopWaitingForJavaProject = (
+                dependencies.whenJavaProjectPrepared ?? whenJavaProjectPrepared
+              )(root, () => {
+                stopWaitingForJavaProject = null;
+                if (get().root === root) void get().actions.generate(root);
+              });
+            }
+            set({
+              root,
+              javaDiscovery,
+              javaDiscoveryMessage: discovery?.kind === "failed" ? discovery.message : null,
+              status: "ready",
+              recoveryAction: "none",
+              recoveryPath: undefined,
+              invalidMessage: undefined,
+              diagnostics: resolved.diagnostics,
+              configurations: resolved.configurations,
+              selectedConfigurationId:
+                resolved.defaultConfigurationId ??
+                resolved.configurations.find((configuration) => configuration.id !== CURRENT_FILE_ID)
+                  ?.id ??
+                null,
+              defaultConfigurationId: resolved.defaultConfigurationId,
+              discoveredJava: resolved.discoveredJava,
+              discoveredMaven: resolved.discoveredMaven,
+              discoveredRuntimes: resolved.discoveredRuntimes,
+              globalToolchain: resolved.globalToolchain,
+              effectiveRuntimeExecutablePaths: resolved.effectiveRuntimeExecutablePaths,
+              generationNotice: notice,
+              isGenerating: false,
+              isLoading: false,
+            });
+          } catch (error) {
+            if (!isCurrent()) return;
+            const message = error instanceof Error ? error.message : "Project identification failed";
+            set({
+              status: "invalid",
+              invalidMessage: message,
+              recoveryAction: "fixPermissions",
+              generationNotice: `failed:${message}`,
+              isGenerating: false,
+              isLoading: false,
+            });
+          }
+        })();
+        const generation = {
+          root,
+          task: task.finally(() => {
+            if (activeGeneration === generation) activeGeneration = null;
+          }),
+        };
+        activeGeneration = generation;
+        return generation.task;
       },
 
       selectConfiguration: (id) => set({ selectedConfigurationId: id, selectedSessionId: id }),
       selectSession: (id) => set({ selectedSessionId: id }),
+      editConfiguration: (id) => set({ editingConfigurationId: id }),
 
       runConfiguration: async (id, currentFile, debugPort) => {
         const instance = await get().actions.runConfigurationInstance(id, currentFile, debugPort);
@@ -528,6 +779,16 @@ export const createRunStore = (
         }
         const sessionId =
           configuration.execution === "service" ? configuration.id : PRIMARY_SESSION_ID;
+        const previousDecision = pendingJavaLaunchDecisions.get(sessionId);
+        if (previousDecision) {
+          pendingJavaLaunchDecisions.delete(sessionId);
+          previousDecision.resolve(false);
+          set((current) => {
+            const javaLaunchDecisions = { ...current.javaLaunchDecisions };
+            delete javaLaunchDecisions[sessionId];
+            return { javaLaunchDecisions };
+          });
+        }
         const executionId = crypto.randomUUID();
         // Reserve ownership before yielding so old Debug callbacks cannot stop a replacement.
         executions.set(sessionId, executionId);
@@ -561,11 +822,89 @@ export const createRunStore = (
             ? await dependencies.mavenLaunchContextForWorkspace(root, [], workspaceId)
             : null;
           if (!isCurrent()) return null;
-          const javaLaunch = await dependencies.prepareJavaRunLaunch(
+          if (usesJavaProjectPreparation(configuration)) {
+            // Show the wait in the session panel so a long first build does not
+            // look like an unresponsive Run action. The launch replaces this
+            // text with its command line; a failure is appended after it.
+            if (sessionId === PRIMARY_SESSION_ID) {
+              set({
+                primaryTitle: configuration.name,
+                primaryExitCode: null,
+                primaryOutput: JAVA_PREPARATION_NOTICE,
+                selectedSessionId: null,
+              });
+            } else {
+              set((current) => ({
+                selectedSessionId: sessionId,
+                sessions: [
+                  ...current.sessions.filter((session) => session.id !== sessionId),
+                  {
+                    id: sessionId,
+                    configurationId: configuration.id,
+                    title: configuration.name,
+                    output: JAVA_PREPARATION_NOTICE,
+                    isRunning: false,
+                    exitCode: null,
+                  },
+                ],
+              }));
+            }
+          }
+          const javaPreparation = await dependencies.prepareJavaRunLaunch(
             { workspaceId, root },
             configuration,
           );
           if (!isCurrent()) return null;
+          const javaLaunch = javaPreparation?.target ?? null;
+          let javaBuildWarning = "";
+          if (javaPreparation?.kind === "buildFailed") {
+            const { failure } = javaPreparation;
+            const buildMessage = `${failure.message}\n`;
+            if (sessionId === PRIMARY_SESSION_ID) {
+              set((current) => ({
+                primaryOutput: trimOutput(`${current.primaryOutput}${buildMessage}`),
+              }));
+            } else {
+              set((current) => ({
+                sessions: current.sessions.map((session) =>
+                  session.id === sessionId
+                    ? { ...session, output: trimOutput(`${session.output}${buildMessage}`) }
+                    : session,
+                ),
+              }));
+            }
+
+            const policy = buildFailurePolicy(root);
+            if (policy !== "alwaysProceed") {
+              const decisionId = crypto.randomUUID();
+              const decision = new Promise<boolean>((resolve) => {
+                pendingJavaLaunchDecisions.set(sessionId, {
+                  decisionId,
+                  executionId,
+                  resolve,
+                });
+              });
+              set((current) => ({
+                javaLaunchDecisions: {
+                  ...current.javaLaunchDecisions,
+                  [sessionId]: {
+                    decisionId,
+                    sessionId,
+                    configurationId: configuration.id,
+                    configurationName: configuration.name,
+                    failure,
+                  },
+                },
+              }));
+              presentJavaLaunchDecision(workspaceId);
+              const proceed = await decision;
+              if (!isCurrent() || !proceed) {
+                if (isCurrent()) executions.delete(sessionId);
+                return null;
+              }
+            }
+            javaBuildWarning = `${buildMessage}${JAVA_BUILD_CONTINUE_NOTICE}`;
+          }
           const plan = await dependencies.createLaunchPlan(
             root,
             configuration.id,
@@ -592,7 +931,7 @@ export const createRunStore = (
               primaryRunning: true,
               primaryTitle: configuration.name,
               primaryExitCode: null,
-              primaryOutput: commandLine,
+              primaryOutput: trimOutput(`${commandLine}${javaBuildWarning}`),
               selectedSessionId: null,
             });
           } else {
@@ -604,7 +943,7 @@ export const createRunStore = (
                   id: sessionId,
                   configurationId: configuration.id,
                   title: configuration.name,
-                  output: commandLine,
+                  output: trimOutput(`${commandLine}${javaBuildWarning}`),
                   isRunning: true,
                   exitCode: null,
                 },
@@ -700,8 +1039,16 @@ export const createRunStore = (
           return { sessionId, executionId };
         } catch (error) {
           if (!isCurrent()) return null;
-          const message =
-            error instanceof Error ? error.message : "Unable to start the run configuration.";
+          const message = launchFailureMessage(error);
+          // The reason used to be dropped whenever it was not an Error, which
+          // is every failure the Tauri host reports, so neither the panel nor
+          // the log said why a launch was refused.
+          frontendTrace("error", "run.launch", "launchFailed", {
+            configurationId: configuration.id,
+            provider: configuration.provider,
+            sessionId,
+            reason: message,
+          });
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,
@@ -735,8 +1082,73 @@ export const createRunStore = (
         }
       },
 
+      continueJavaLaunch: (sessionId, decisionId, remember) => {
+        const pending = pendingJavaLaunchDecisions.get(sessionId);
+        const decision = get().javaLaunchDecisions[sessionId];
+        if (
+          !pending ||
+          !decision ||
+          pending.decisionId !== decision.decisionId ||
+          decisionId !== decision.decisionId
+        )
+          return;
+        const root = get().root;
+        if (remember && root) {
+          setBuildFailurePolicy(root, "alwaysProceed");
+        }
+        pendingJavaLaunchDecisions.delete(sessionId);
+        set((current) => {
+          const javaLaunchDecisions = { ...current.javaLaunchDecisions };
+          delete javaLaunchDecisions[sessionId];
+          return { javaLaunchDecisions };
+        });
+        pending.resolve(true);
+      },
+
+      cancelJavaLaunch: (sessionId, decisionId) => {
+        const pending = pendingJavaLaunchDecisions.get(sessionId);
+        if (!pending || (decisionId !== undefined && pending.decisionId !== decisionId)) return;
+        pendingJavaLaunchDecisions.delete(sessionId);
+        set((current) => {
+          const javaLaunchDecisions = { ...current.javaLaunchDecisions };
+          delete javaLaunchDecisions[sessionId];
+          return { javaLaunchDecisions };
+        });
+        pending.resolve(false);
+      },
+
+      rebuildJavaIndex: async (sessionId, decisionId) => {
+        const pending = pendingJavaLaunchDecisions.get(sessionId);
+        if (!pending || pending.decisionId !== decisionId) return;
+        get().actions.cancelJavaLaunch(sessionId, decisionId);
+        const root = get().root;
+        if (!root) return;
+        let message: string;
+        try {
+          await rebuildJavaIndex(root);
+          message =
+            "Java index cleared. Run the configuration again after project import finishes.\n";
+        } catch (error) {
+          message = `Failed to rebuild the Java index: ${launchFailureMessage(error)}\n`;
+        }
+        if (sessionId === PRIMARY_SESSION_ID) {
+          set((current) => ({
+            primaryOutput: trimOutput(`${current.primaryOutput}${message}`),
+          }));
+        } else {
+          set((current) => ({
+            sessions: current.sessions.map((session) =>
+              session.id === sessionId
+                ? { ...session, output: trimOutput(`${session.output}${message}`) }
+                : session,
+            ),
+          }));
+        }
+      },
+
       stop: async (sessionId, executionId) => {
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
+        get().actions.cancelJavaLaunch(target);
         const ownedExecution = executions.get(target);
         const ownsSlot = !executionId || executionId === ownedExecution;
         if (ownsSlot) executions.delete(target);
@@ -786,8 +1198,16 @@ export const createRunStore = (
           return false;
         }
         const result = await runEditorSaveWorkflow({
-          prepare: () =>
-            saveRunConfigurationEditorChanges(root, configuration.id, scope, options, toolchain),
+          prepare: async () => {
+            // This editor no longer edits Java/Maven project defaults. Read them
+            // at save time so an older service dialog cannot undo settings edits.
+            const inspected = await inspectRunConfiguration(root, false);
+            const current = mapCoreToolchain(inspected.toolchain, inspected.localToolchains);
+            return saveRunConfigurationEditorChanges(root, configuration.id, scope, options, {
+              ...current,
+              runtimeExecutablePaths: toolchain.runtimeExecutablePaths,
+            });
+          },
           write: (mutation) => {
             const documents = [
               { relativePath: "run/local.json", contents: mutation.localDocument },
@@ -807,7 +1227,7 @@ export const createRunStore = (
             return writeRunDocuments(root, documents);
           },
           reload: async () => {
-            const snapshot = await readRunProjectSnapshot(root);
+            const snapshot = await readRunProjectSnapshot(root, workspaceId, dependencies);
             if (snapshot.status === "missing") {
               throw new Error(
                 snapshot.diagnostics[0]?.message ?? "Run configuration is not ready.",

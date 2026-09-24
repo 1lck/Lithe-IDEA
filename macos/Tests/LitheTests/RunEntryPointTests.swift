@@ -1,4 +1,5 @@
 import Foundation
+import LitheCoreContracts
 import Testing
 @testable import Lithe
 
@@ -9,6 +10,52 @@ import Testing
 @Suite("Run entry points", .serialized)
 @MainActor
 struct RunEntryPointTests {
+    @Test
+    func javaBuildDecisionResumesTheSamePreparedTargetAndPersistsWorkspaceChoice() async throws {
+        let workspace = try JavaWorkspaceFixture()
+        defer { workspace.remove() }
+        let model = makeAppModel(workspaceOperations: SequencedWorkspaceOperations(snapshots: [workspace.snapshot]))
+        model.openProjectDirectly(workspace.root)
+        let identity = try #require(model.currentWorkspaceIdentity)
+        let target = JavaDebugLaunchTarget(
+            mainClass: "demo.App",
+            projectName: "demo",
+            classPaths: ["/fixture/classes"]
+        )
+        let failure = JavaLaunchBuildFailure(
+            code: "javaBuildFailed",
+            message: "The Java builder failed.",
+            report: JavaBuildReport(
+                markerScope: .launchTarget,
+                builderFailedEarlier: false,
+                elapsedMilliseconds: 5_012,
+                recovery: .rebuildJavaIndex
+            )
+        )
+
+        let decisionTask = Task {
+            try await model.resolveJavaLaunchPreparation(
+                .buildFailed(target: target, failure: failure),
+                identity: identity
+            )
+        }
+        let presented = await awaitChange(on: model) {
+            model.pendingJavaLaunchDecision?.failure == failure
+        }
+        #expect(presented)
+        model.completeJavaLaunchDecision(.alwaysContinue)
+
+        #expect(try await decisionTask.value == target)
+        #expect(model.settings.javaBuildFailurePolicy(for: workspace.root) == .alwaysContinue)
+
+        let automatic = try await model.resolveJavaLaunchPreparation(
+            .buildFailed(target: target, failure: failure),
+            identity: identity
+        )
+        #expect(automatic == target)
+        #expect(model.pendingJavaLaunchDecision == nil)
+    }
+
     /// Run activates the execution module on demand, so it can reach a run
     /// feature before the workspace snapshot has been applied. Binding the
     /// workspace there is not enough: generation scans the file inventory the
@@ -830,7 +877,12 @@ private final class ReadyRunConfigurationOperations: RunConfigurationOperations,
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
 
@@ -968,7 +1020,12 @@ private final class InspectionGatedRunConfigurationOperations: RunConfigurationO
         return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
 
@@ -1093,7 +1150,12 @@ private final class InventoryRecordingGatedRunConfigurationOperations: RunConfig
         return ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
 
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         lock.lock()
         inventories.append(files)
         lock.unlock()

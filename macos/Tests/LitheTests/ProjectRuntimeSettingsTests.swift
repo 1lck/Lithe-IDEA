@@ -139,14 +139,17 @@ struct ProjectRuntimeSettingsTests {
     }
 
     @Test
-    func settingsCategoryIncludesProjectBetweenKeymapAndTerminal() {
+    func settingsCategoryPlacesProjectAndRunBetweenKeymapAndTerminal() {
+        // Run configurations sit next to the project environment they inherit.
         let titles = SettingsCategory.allCases.map(\.rawValue)
         let keymap = titles.firstIndex(of: "Keymap")
         let project = titles.firstIndex(of: "Project")
+        let run = titles.firstIndex(of: "Run configurations")
         let terminal = titles.firstIndex(of: "Terminal")
-        #expect(keymap != nil && project != nil && terminal != nil)
+        #expect(keymap != nil && project != nil && run != nil && terminal != nil)
         #expect(project == keymap.map { $0 + 1 })
-        #expect(terminal == project.map { $0 + 1 })
+        #expect(run == project.map { $0 + 1 })
+        #expect(terminal == run.map { $0 + 1 })
     }
 
     @Test

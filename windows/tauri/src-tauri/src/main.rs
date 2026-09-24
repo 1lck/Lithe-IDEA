@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_commit;
 mod core;
 mod debug;
 mod diagnostics;
@@ -181,8 +182,10 @@ fn main() {
             run::run_write_generated,
             run::run_write_documents,
             run::run_write_stdin,
+            run::maven_resolve_installation,
             run::run_discover_toolchains,
             run::run_resolve_launch,
+            run::run_resolve_toolchains,
             run::run_execute_prelaunch,
             run::run_start_process,
             run::run_stop_process,

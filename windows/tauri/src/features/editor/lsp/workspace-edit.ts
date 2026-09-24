@@ -1,3 +1,5 @@
+import { requireLoadedBufferContent } from "../utils/buffer-load-state";
+
 export interface LspPosition {
   line: number;
   character: number;
@@ -174,6 +176,7 @@ async function readEditableSource(
   );
 
   if (openBuffer?.type === "editor") {
+    requireLoadedBufferContent(openBuffer);
     return { bufferId: openBuffer.id, content: openBuffer.content };
   }
 
@@ -204,12 +207,18 @@ async function writeEditableSource(filePath: string, bufferId: string | null, co
 export async function applyWorkspaceEdit(edit: WorkspaceEdit): Promise<WorkspaceEditApplyResult> {
   const editsByFile = collectWorkspaceTextEdits(edit);
 
-  await Promise.all(
+  // Validate/read every target before applying any edit. A restoring tab must
+  // not cause a rename to partially modify the other documents.
+  const prepared = await Promise.all(
     Array.from(editsByFile, async ([filePath, edits]) => {
       const source = await readEditableSource(filePath);
       const nextContent = applyTextEditsToContent(source.content, edits);
-      await writeEditableSource(filePath, source.bufferId, nextContent);
+      return { filePath, bufferId: source.bufferId, nextContent };
     }),
+  );
+  await Promise.all(
+    prepared.map(({ filePath, bufferId, nextContent }) =>
+      writeEditableSource(filePath, bufferId, nextContent)),
   );
 
   return { editedFiles: editsByFile.size };

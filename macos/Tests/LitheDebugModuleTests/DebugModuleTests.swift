@@ -30,6 +30,32 @@ struct DebugModuleTests {
     }
 
     @Test
+    func debugConsolePresentationCoalescesChattyOutputUntilOneFlush() {
+        let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+
+        feature.appendDebuggeeOutput("first")
+        feature.appendDebuggeeOutput(" second")
+
+        #expect(feature.output == "first second")
+        #expect(feature.hasOutput)
+        #expect(feature.outputPresentation.text.isEmpty)
+        feature.outputPresentation.flush()
+        #expect(feature.outputPresentation.text == "first second")
+    }
+
+    @Test
+    func clearingDebugOutputDiscardsAPendingPresentationBatch() {
+        let presentation = GenericDebugOutputPresentation(flushDelay: .seconds(60))
+        presentation.schedule { "obsolete" }
+
+        presentation.replace(with: "replacement")
+        presentation.flush()
+
+        #expect(presentation.text == "replacement")
+    }
+
+    @Test
     func springPortConflictOutputProducesAnActionableDiagnostic() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
@@ -319,6 +345,7 @@ struct DebugModuleTests {
         #expect(feature.activeSessionID == firstID)
         #expect(feature.targetTitle == "First")
         #expect(feature.output == "first\n")
+        #expect(feature.outputPresentation.text == "first\n")
         #expect(feature.state == .paused)
         #expect(feature.errorMessage == nil)
         #expect(manager.activeSessionIDs == [firstID])
@@ -2504,6 +2531,30 @@ struct DebugModuleTests {
     }
 
     @Test
+    func protocolSessionPreservesUTF8ErrorOutputSplitAcrossTransportReads() throws {
+        let transport = RecordingTransport()
+        let session = DebugAdapterProtocolSession(
+            adapterID: "test-adapter",
+            transport: transport
+        )
+        var output = ""
+        session.onEvent = { event in
+            if case .output(_, let value) = event {
+                output += value
+            }
+        }
+        try session.start(rootURL: URL(fileURLWithPath: "/tmp/debug-utf8"))
+
+        for byte in Data("调试🙂\n".utf8) {
+            transport.emitErrorOutput(Data([byte]))
+        }
+
+        #expect(output == "调试🙂\n")
+        #expect(!output.contains("�"))
+        session.stop()
+    }
+
+    @Test
     func protocolSessionDisconnectTerminatesOnlyLaunchedDebuggees() throws {
         let launchArguments = try disconnectArguments(for: .launch)
         #expect(launchArguments["restart"] as? Bool == false)
@@ -2834,6 +2885,10 @@ private final class RecordingTransport: DebugAdapterTransport, DebugAdapterChild
 
     func emitData(_ data: Data) {
         onData?(data)
+    }
+
+    func emitErrorOutput(_ data: Data) {
+        onErrorOutput?(data)
     }
 
     func request(named command: String) -> [String: Any]? {

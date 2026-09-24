@@ -1,9 +1,12 @@
 export type SettingsTab =
+  | "run"
+  | "project"
   | "general"
   | "editor"
   | "git"
   | "appearance"
   | "ai"
+  | "ai-commit"
   | "keyboard"
   | "language"
   | "logs"

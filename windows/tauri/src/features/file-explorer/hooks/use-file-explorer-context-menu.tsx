@@ -185,15 +185,8 @@ export function useFileExplorerContextMenu({
     e.preventDefault();
     e.stopPropagation();
 
-    let x = e.pageX;
-    let y = e.pageY;
-    const menuWidth = 250;
-    const menuHeight = 400;
-
-    if (x + menuWidth > window.innerWidth) x = window.innerWidth - menuWidth;
-    if (y + menuHeight > window.innerHeight) y = window.innerHeight - menuHeight;
-
-    setContextMenu({ x, y, path: filePath, isDir });
+    // Dropdown owns viewport collision handling using the actual menu size.
+    setContextMenu({ x: e.clientX, y: e.clientY, path: filePath, isDir });
   }, []);
 
   const contextMenuItems = useMemo<MenuItem[]>(() => {

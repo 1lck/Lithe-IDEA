@@ -12,8 +12,6 @@ import { isEditorKeyboardTarget } from "@/features/keymaps/utils/editor-keyboard
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { stageHunk, unstageHunk } from "@/features/git/api/git-status-api";
 import type { GitHunk } from "@/features/git/types/git.types";
-import { useGitHubStore } from "@/features/github/stores/github.store";
-import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
 import { openSidebarResourceBuffer } from "@/features/sidebar/utils/open-sidebar-resource";
 import {
   hasSidebarResourceDragData,
@@ -28,7 +26,6 @@ import {
 } from "@/features/workspace/stores/create-workspace-scoped-store";
 import TabBar from "@/features/tabs/components/tab-bar";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
-import Badge from "@/ui/badge";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
 import {
   clearInternalTabDragData,
@@ -36,15 +33,13 @@ import {
   getInternalTabDragHover,
   resolveDropTarget,
 } from "@/features/tabs/utils/internal-tab-drag";
-import { cn } from "@/utils/cn";
 import { activateBufferInPaneAndSync, activatePaneAndSyncBuffer } from "../utils/pane-activation";
 import { reconcileMountedEditorBuffers } from "../utils/mounted-editor-buffers";
 import { EmptyEditorState } from "./empty-editor-state";
 import { BOTTOM_PANE_ID } from "../constants/pane";
-import { getSingletonToolBufferTitleKey } from "../constants/tool-buffers";
 import { usePaneStore } from "../stores/pane.store";
 import type { PaneGroup } from "../types/pane.types";
-import type { EditorContent, NewTabContent, PullRequestContent } from "../types/pane-content.types";
+import type { EditorContent, NewTabContent } from "../types/pane-content.types";
 import {
   ensureBufferInPaneDropTarget,
   getOrCreatePaneDropTarget,
@@ -131,9 +126,6 @@ interface PaneContainerProps {
   pane: PaneGroup;
 }
 
-const DEFAULT_CAROUSEL_CARD_WIDTH = 640;
-const MIN_CAROUSEL_CARD_WIDTH = 320;
-const CAROUSEL_OUTER_GAP_PX = 160;
 const MAX_MOUNTED_EDITOR_BUFFERS = 8;
 
 type EditorBufferShell = Pick<EditorContent, "id" | "path" | "name" | "type" | "readOnly">;
@@ -179,126 +171,6 @@ const EMPTY_PANE_RENDER_STATE: PaneRenderState = {
   paneBuffers: [],
 };
 
-function BufferPreviewCard({ buffer }: { buffer: PaneRenderBuffer }) {
-  const { t } = useTranslation();
-  const previewText =
-    "content" in buffer && typeof buffer.content === "string"
-      ? buffer.content.split("\n").slice(0, 14).join("\n").trim()
-      : "";
-  const singletonTitleKey = getSingletonToolBufferTitleKey(buffer.type);
-
-  const summary =
-    buffer.type === "terminal"
-      ? t("panes.terminalSession")
-      : buffer.type === "webViewer"
-        ? buffer.url || t("panes.webView")
-        : buffer.type === "pullRequest"
-          ? t("panes.pullRequestNumber", { number: buffer.prNumber })
-          : buffer.type === "githubIssue"
-            ? t("panes.issueNumber", { number: buffer.issueNumber })
-            : buffer.type === "githubAction"
-              ? t("panes.workflowRunNumber", { number: buffer.runId })
-              : buffer.type === "diff"
-                ? t("panes.diffPreview")
-                : buffer.type === "image"
-                  ? t("panes.imagePreview")
-                  : buffer.type === "pdf"
-                    ? t("panes.pdfPreview")
-                    : buffer.type === "binary"
-                      ? t("panes.binaryFilePreview")
-                      : buffer.type === "database"
-                        ? t("panes.databaseViewer", { type: buffer.databaseType })
-                        : buffer.type === "externalEditor"
-                          ? t("panes.externalEditorSession")
-                          : singletonTitleKey
-                            ? t(singletonTitleKey)
-                            : previewText || t("panes.noPreviewAvailable");
-
-  const previewLines = summary.split("\n").slice(0, 12);
-  const title =
-    buffer.type === "diff"
-      ? formatDiffBufferLabel(buffer.name, buffer.path, t)
-      : singletonTitleKey
-        ? t(singletonTitleKey)
-        : buffer.name;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="pointer-events-none flex min-h-0 flex-1 overflow-hidden">
-        <div className="flex w-12 shrink-0 flex-col items-end gap-1 border-r border-border/60 bg-surface/80 px-2 py-4 ui-text-sm leading-5 text-subtle-foreground">
-          {previewLines.map((_, index) => (
-            <span key={`${buffer.id}-line-${index + 1}`}>{index + 1}</span>
-          ))}
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden p-4">
-          <pre className="h-full overflow-hidden whitespace-pre-wrap wrap-break-word ui-text-sm leading-5 text-subtle-foreground">
-            {summary}
-          </pre>
-        </div>
-      </div>
-
-      <div className="border-t border-border/60 bg-surface/80 px-4 py-2">
-        <div className="truncate ui-text-sm font-medium text-foreground">{title}</div>
-        <div className="truncate ui-text-sm text-subtle-foreground">{buffer.path}</div>
-      </div>
-    </div>
-  );
-}
-
-function PullRequestPreviewCard({ buffer }: { buffer: PullRequestContent }) {
-  const { t } = useTranslation();
-  const selectedPRDetails = useGitHubStore.use.selectedPRDetails();
-  const selectedPRComments = useGitHubStore.use.selectedPRComments();
-  const details = selectedPRDetails?.number === buffer.prNumber ? selectedPRDetails : null;
-  const fileCount = details ? details.changedFiles : null;
-  const commentCount = details ? selectedPRComments.length : null;
-  const commitCount = details ? details.commits.length : null;
-  const authorLogin = details ? details.author.login : null;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <div className="shrink-0 bg-surface/60 px-3 py-3">
-        <div className="flex min-w-0 items-start gap-2">
-          <div className="mt-0.5 size-4 shrink-0 rounded-lg bg-success/80" />
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge size="compact" className="font-mono">
-                #{buffer.prNumber ?? "--"}
-              </Badge>
-              <div className="min-w-0 truncate font-medium ui-text-sm text-foreground">
-                {buffer.name}
-              </div>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 ui-text-sm text-subtle-foreground">
-              <span className="font-medium text-muted-foreground">
-                {authorLogin ? `@${authorLogin}` : t("panes.pullRequest")}
-              </span>
-              <span>{t("panes.filesCount", { count: fileCount ?? "--" })}</span>
-              <span>{t("panes.commitsCount", { count: commitCount ?? "--" })}</span>
-              <span>{t("panes.commentsCount", { count: commentCount ?? "--" })}</span>
-            </div>
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 ui-text-sm">
-              <Badge>{t("panes.description")}</Badge>
-              <Badge>{t("panes.files")}</Badge>
-              <Badge>{t("panes.comments")}</Badge>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 bg-background/40 px-3 py-3">
-        <div className="rounded-lg bg-surface/35 px-3 py-2">
-          <div className="line-clamp-5 ui-text-sm leading-6 text-subtle-foreground">
-            {details?.body?.trim() ? details.body : t("panes.pullRequestPreviewFallback")}
-          </div>
-        </div>
-        <div className="mt-3 rounded-lg bg-surface/35 px-3 py-2 ui-text-sm text-subtle-foreground">
-          {buffer.path}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function WebViewerDisabledState() {
   const { t } = useTranslation();
 
@@ -319,29 +191,20 @@ function isStandardEditorBuffer(buffer: PaneRenderBuffer): buffer is EditorBuffe
 export function PaneContainer({ pane }: PaneContainerProps) {
   const { t } = useTranslation();
   const activePaneId = usePaneStore.use.activePaneId();
-  const { reorderPaneBuffers } = usePaneStore.use.actions();
   const { closeBufferForce, openTerminalBuffer } = useBufferStore.use.actions();
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.();
   const handleFileOpen = useFileSystemStore.use.handleFileOpen?.();
-  const horizontalBufferCarousel = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const webViewerEnabled = useSettingsStore((state) => state.settings.coreFeatures.webViewer);
 
   const [isDragOver, setIsDragOver] = useState(false);
   const [isTabDragOver, setIsTabDragOver] = useState(false);
   const [internalHoverZone, setInternalHoverZone] = useState<DropZone>(null);
-  const [carouselCardWidth, setCarouselCardWidth] = useState(DEFAULT_CAROUSEL_CARD_WIDTH);
-  const [isCarouselResizing, setIsCarouselResizing] = useState(false);
-  const [draggedCarouselBufferId, setDraggedCarouselBufferId] = useState<string | null>(null);
-  const [carouselDropBufferId, setCarouselDropBufferId] = useState<string | null>(null);
   const [mountedEditorBufferIds, setMountedEditorBufferIds] = useState<readonly string[]>([]);
   const mountedEditorBufferStateRef = useRef({
     recentIds: [] as readonly string[],
     mountedIds: [] as readonly string[],
   });
   const containerRef = useRef<HTMLDivElement>(null);
-  const carouselViewportRef = useRef<HTMLDivElement>(null);
-  const lastCarouselBufferIdRef = useRef<string | null>(null);
-  const suppressAutoCenterRef = useRef(false);
   const workspaceScopeId = useWorkspaceStoreScopeId();
   const activeWorkspaceId = useActiveWorkspaceId();
   const isWorkspaceSurfaceActive = !workspaceScopeId || workspaceScopeId === activeWorkspaceId;
@@ -490,93 +353,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     },
     [isWorkspaceSurfaceActive, pane.id],
   );
-
-  const getCarouselWidthBounds = useCallback(() => {
-    const viewportWidth = carouselViewportRef.current?.clientWidth ?? window.innerWidth;
-    return {
-      min: MIN_CAROUSEL_CARD_WIDTH,
-      max: Math.max(MIN_CAROUSEL_CARD_WIDTH, viewportWidth - CAROUSEL_OUTER_GAP_PX),
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!horizontalBufferCarousel) return;
-
-    const clampWidth = () => {
-      const { min, max } = getCarouselWidthBounds();
-      setCarouselCardWidth((current) => Math.max(min, Math.min(current, max)));
-    };
-
-    clampWidth();
-    window.addEventListener("resize", clampWidth);
-    return () => window.removeEventListener("resize", clampWidth);
-  }, [getCarouselWidthBounds, horizontalBufferCarousel]);
-
-  const handleCarouselResizeStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const startX = e.clientX;
-      const startWidth = carouselCardWidth;
-      setIsCarouselResizing(true);
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const delta = moveEvent.clientX - startX;
-        const { min, max } = getCarouselWidthBounds();
-        setCarouselCardWidth(Math.max(min, Math.min(startWidth + delta, max)));
-      };
-
-      const handleMouseUp = () => {
-        setIsCarouselResizing(false);
-        document.removeEventListener("mousemove", handleMouseMove);
-        document.removeEventListener("mouseup", handleMouseUp);
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-      };
-
-      document.addEventListener("mousemove", handleMouseMove);
-      document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
-    },
-    [carouselCardWidth, getCarouselWidthBounds],
-  );
-
-  const scrollBufferCardIntoView = useCallback(
-    (bufferId: string, behavior: ScrollBehavior = "smooth") => {
-      const viewport = carouselViewportRef.current;
-      if (!viewport) return;
-
-      const card = viewport.querySelector<HTMLElement>(`[data-buffer-card-id="${bufferId}"]`);
-      if (!card) return;
-
-      const viewportRect = viewport.getBoundingClientRect();
-      const cardRect = card.getBoundingClientRect();
-      const targetLeft = card.offsetLeft - (viewportRect.width - cardRect.width) / 2;
-
-      viewport.scrollTo({
-        left: Math.max(0, targetLeft),
-        behavior,
-      });
-    },
-    [],
-  );
-
-  useEffect(() => {
-    if (!horizontalBufferCarousel || !pane.activeBufferId || paneBuffers.length <= 1) return;
-    if (suppressAutoCenterRef.current) {
-      suppressAutoCenterRef.current = false;
-      return;
-    }
-    scrollBufferCardIntoView(pane.activeBufferId, "smooth");
-  }, [horizontalBufferCarousel, pane.activeBufferId, paneBuffers.length, scrollBufferCardIntoView]);
-
-  useEffect(() => {
-    if (pane.activeBufferId !== lastCarouselBufferIdRef.current) {
-      lastCarouselBufferIdRef.current = pane.activeBufferId;
-    }
-  }, [pane.activeBufferId]);
 
   const handleStageHunk = useCallback(
     async (hunk: GitHunk) => {
@@ -821,100 +597,6 @@ export function PaneContainer({ pane }: PaneContainerProps) {
     [pane.id, handleFileOpen, openSidebarResourceInPane],
   );
 
-  const handleCarouselWheel = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      if (!horizontalBufferCarousel) return;
-
-      const viewport = carouselViewportRef.current;
-      if (!viewport) return;
-
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest("[data-buffer-card-id]")) {
-        return;
-      }
-
-      if (e.ctrlKey || e.metaKey) return;
-
-      const delta =
-        Math.abs(e.deltaX) > 0
-          ? e.deltaX
-          : e.shiftKey || Math.abs(e.deltaY) > Math.abs(e.deltaX)
-            ? e.deltaY
-            : 0;
-      if (delta === 0) return;
-
-      const maxScrollLeft = viewport.scrollWidth - viewport.clientWidth;
-      if (maxScrollLeft <= 0) return;
-
-      const nextScrollLeft = Math.max(0, Math.min(viewport.scrollLeft + delta, maxScrollLeft));
-      if (nextScrollLeft === viewport.scrollLeft) return;
-
-      e.preventDefault();
-      viewport.scrollTo({ left: nextScrollLeft, behavior: "auto" });
-    },
-    [horizontalBufferCarousel],
-  );
-
-  const handleCarouselCardActivate = useCallback(
-    (bufferId: string) => {
-      if (draggedCarouselBufferId || isCarouselResizing) return;
-      if (bufferId === pane.activeBufferId) return;
-      suppressAutoCenterRef.current = true;
-      handleTabClick(bufferId);
-    },
-    [draggedCarouselBufferId, handleTabClick, isCarouselResizing, pane.activeBufferId],
-  );
-
-  const handleCarouselCardDragStart = useCallback(
-    (e: React.DragEvent<HTMLDivElement>, bufferId: string) => {
-      setDraggedCarouselBufferId(bufferId);
-      setCarouselDropBufferId(bufferId);
-      e.dataTransfer.effectAllowed = "move";
-      e.dataTransfer.setData("application/x-lithe-carousel-buffer", bufferId);
-    },
-    [],
-  );
-
-  const handleCarouselCardDragOver = useCallback(
-    (e: React.DragEvent<HTMLDivElement>, bufferId: string) => {
-      if (!draggedCarouselBufferId || draggedCarouselBufferId === bufferId) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      setCarouselDropBufferId(bufferId);
-    },
-    [draggedCarouselBufferId],
-  );
-
-  const handleCarouselCardDrop = useCallback(
-    (e: React.DragEvent<HTMLDivElement>, targetBufferId: string) => {
-      e.preventDefault();
-
-      const sourceBufferId =
-        draggedCarouselBufferId || e.dataTransfer.getData("application/x-lithe-carousel-buffer");
-      if (!sourceBufferId || sourceBufferId === targetBufferId) {
-        setDraggedCarouselBufferId(null);
-        setCarouselDropBufferId(null);
-        return;
-      }
-
-      const sourceIndex = pane.bufferIds.indexOf(sourceBufferId);
-      const targetIndex = pane.bufferIds.indexOf(targetBufferId);
-      if (sourceIndex !== -1 && targetIndex !== -1 && sourceIndex !== targetIndex) {
-        reorderPaneBuffers(pane.id, sourceIndex, targetIndex);
-      }
-
-      setDraggedCarouselBufferId(null);
-      setCarouselDropBufferId(null);
-    },
-    [draggedCarouselBufferId, pane.bufferIds, pane.id, reorderPaneBuffers],
-  );
-
-  const handleCarouselCardDragEnd = useCallback(() => {
-    setDraggedCarouselBufferId(null);
-    setCarouselDropBufferId(null);
-  }, []);
-
-  const shouldRenderCarousel = horizontalBufferCarousel && paneBuffers.length > 1;
   const mountedEditorBuffers = paneBuffers.filter(
     (buffer): buffer is EditorBufferShell =>
       isStandardEditorBuffer(buffer) &&
@@ -1097,200 +779,78 @@ export function PaneContainer({ pane }: PaneContainerProps) {
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />
       <div className="relative min-h-0 flex-1 overflow-hidden">
-        {!activeBuffer && !shouldRenderCarousel && <EmptyEditorState />}
+        {!activeBuffer && <EmptyEditorState />}
 
         <Suspense fallback={null}>
-          {shouldRenderCarousel ? (
-            <div
-              ref={carouselViewportRef}
-              className="scrollbar-hidden flex h-full items-stretch gap-4 overflow-x-auto overflow-y-hidden px-4 py-4 overscroll-x-contain"
-              onWheelCapture={handleCarouselWheel}
-            >
-              {paneBuffers.map((buffer) => {
-                const isActiveBuffer = buffer.id === pane.activeBufferId;
-                const isDropTarget =
-                  draggedCarouselBufferId !== null &&
-                  carouselDropBufferId === buffer.id &&
-                  draggedCarouselBufferId !== buffer.id;
-
+          <>
+            {/* Keep terminal and webviewer buffers always mounted to preserve
+                PTY sessions and embedded webview state. */}
+            {paneBuffers
+              .filter(
+                (
+                  b,
+                ): b is
+                  | import("../types/pane-content.types").TerminalContent
+                  | import("../types/pane-content.types").WebViewerContent =>
+                  b.type === "terminal" || (webViewerEnabled && b.type === "webViewer"),
+              )
+              .map((b) => {
+                const isActive = b.id === activeBuffer?.id;
                 return (
                   <div
-                    key={buffer.id}
-                    data-buffer-card-id={buffer.id}
-                    className={cn(
-                      "relative h-full shrink-0 overflow-hidden rounded-2xl border text-left transition-[transform,opacity,border-color,box-shadow] duration-(--app-duration-normal) ease-(--app-ease-smooth)",
-                      isActiveBuffer
-                        ? "border-primary/50 bg-background shadow-[0_0_0_1px_rgba(99,102,241,0.15)]"
-                        : "border-border/70 bg-background hover:border-border/90",
-                      isDropTarget && "border-primary shadow-[0_0_0_1px_rgba(99,102,241,0.25)]",
-                      draggedCarouselBufferId === buffer.id && "opacity-70",
-                      isCarouselResizing && "transition-none",
-                    )}
-                    style={{
-                      width: `${carouselCardWidth}px`,
-                    }}
-                    draggable={!isCarouselResizing}
-                    onDragStart={(e) => handleCarouselCardDragStart(e, buffer.id)}
-                    onDragOver={(e) => handleCarouselCardDragOver(e, buffer.id)}
-                    onDrop={(e) => handleCarouselCardDrop(e, buffer.id)}
-                    onDragEnd={handleCarouselCardDragEnd}
-                    onMouseEnter={() => handleCarouselCardActivate(buffer.id)}
-                    onClick={
-                      isActiveBuffer
-                        ? undefined
-                        : () => {
-                            suppressAutoCenterRef.current = false;
-                            handleTabClick(buffer.id);
-                            scrollBufferCardIntoView(buffer.id, "smooth");
-                          }
-                    }
-                    role={isActiveBuffer ? undefined : "button"}
-                    tabIndex={isActiveBuffer ? undefined : 0}
-                    onKeyDown={
-                      isActiveBuffer
-                        ? undefined
-                        : (e) => {
-                            if (e.key === "Enter" || e.key === " ") {
-                              e.preventDefault();
-                              suppressAutoCenterRef.current = false;
-                              handleTabClick(buffer.id);
-                              scrollBufferCardIntoView(buffer.id, "smooth");
-                            }
-                          }
-                    }
-                  >
-                    <div className="size-full">
-                      {isStandardEditorBuffer(buffer) ? (
-                        <CodeEditor
-                          paneId={pane.id}
-                          bufferId={buffer.id}
-                          isActiveSurface={isActivePane && isActiveBuffer}
-                          readOnly={buffer.readOnly}
-                          showToolbar={false}
-                          className={isActiveBuffer ? undefined : "pointer-events-none"}
-                        />
-                      ) : buffer.type === "terminal" ? (
-                        <div
-                          className={isActiveBuffer ? "size-full" : "pointer-events-none size-full"}
-                        >
-                          <TerminalTab
-                            sessionId={buffer.sessionId}
-                            bufferId={buffer.id}
-                            paneId={pane.id}
-                            shell={buffer.shell}
-                            initialCommand={buffer.initialCommand}
-                            workingDirectory={buffer.workingDirectory}
-                            remoteConnectionId={buffer.remoteConnectionId}
-                            isActive={isActivePane && isActiveBuffer}
-                            isVisible={true}
-                          />
-                        </div>
-                      ) : buffer.type === "webViewer" && isActiveBuffer ? (
-                        <div className="size-full">
-                          {webViewerEnabled ? (
-                            <WebViewer
-                              url={buffer.url}
-                              bufferId={buffer.id}
-                              profileKey={buffer.profileKey}
-                              history={buffer.history}
-                              historyIndex={buffer.historyIndex}
-                              isActive={isActivePane && isActiveBuffer}
-                              isVisible={true}
-                            />
-                          ) : (
-                            <WebViewerDisabledState />
-                          )}
-                        </div>
-                      ) : buffer.type === "pullRequest" ? (
-                        <PullRequestPreviewCard buffer={buffer} />
-                      ) : isActiveBuffer ? (
-                        renderActiveBuffer(buffer)
-                      ) : (
-                        <BufferPreviewCard buffer={buffer} />
-                      )}
-                    </div>
-                    <div
-                      className="absolute top-0 right-0 z-20 h-full w-2 cursor-col-resize transition-colors hover:bg-primary/20"
-                      onMouseDown={handleCarouselResizeStart}
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label={t("panes.resizeBufferCarouselCards")}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <>
-              {/* Keep terminal and webviewer buffers always mounted to preserve
-                  PTY sessions and embedded webview state. */}
-              {paneBuffers
-                .filter(
-                  (
-                    b,
-                  ): b is
-                    | import("../types/pane-content.types").TerminalContent
-                    | import("../types/pane-content.types").WebViewerContent =>
-                    b.type === "terminal" || (webViewerEnabled && b.type === "webViewer"),
-                )
-                .map((b) => {
-                  const isActive = b.id === activeBuffer?.id;
-                  return (
-                    <div
-                      key={b.id}
-                      className="absolute inset-0"
-                      style={isActive ? undefined : { visibility: "hidden" }}
-                    >
-                      {b.type === "terminal" ? (
-                        <TerminalTab
-                          sessionId={b.sessionId}
-                          bufferId={b.id}
-                          paneId={pane.id}
-                          shell={b.shell}
-                          initialCommand={b.initialCommand}
-                          workingDirectory={b.workingDirectory}
-                          remoteConnectionId={b.remoteConnectionId}
-                          isActive={isActive && isActivePane}
-                          isVisible={isActive}
-                        />
-                      ) : (
-                        <WebViewer
-                          url={b.url}
-                          bufferId={b.id}
-                          profileKey={b.profileKey}
-                          history={b.history}
-                          historyIndex={b.historyIndex}
-                          isActive={isActive && isActivePane}
-                          isVisible={isActive}
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              {mountedEditorBuffers.map((buffer) => {
-                const isActive = buffer.id === activeBuffer?.id;
-                return (
-                  <div
-                    key={buffer.id}
+                    key={b.id}
                     className="absolute inset-0"
                     style={isActive ? undefined : { visibility: "hidden" }}
                   >
-                    <CodeEditor
-                      paneId={pane.id}
-                      bufferId={buffer.id}
-                      isActiveSurface={isActive && isActivePane}
-                      readOnly={buffer.readOnly}
-                    />
+                    {b.type === "terminal" ? (
+                      <TerminalTab
+                        sessionId={b.sessionId}
+                        bufferId={b.id}
+                        paneId={pane.id}
+                        shell={b.shell}
+                        initialCommand={b.initialCommand}
+                        workingDirectory={b.workingDirectory}
+                        remoteConnectionId={b.remoteConnectionId}
+                        isActive={isActive && isActivePane}
+                        isVisible={isActive}
+                      />
+                    ) : (
+                      <WebViewer
+                        url={b.url}
+                        bufferId={b.id}
+                        profileKey={b.profileKey}
+                        history={b.history}
+                        historyIndex={b.historyIndex}
+                        isActive={isActive && isActivePane}
+                        isVisible={isActive}
+                      />
+                    )}
                   </div>
                 );
               })}
-              {activeBuffer &&
-                activeBuffer.type !== "terminal" &&
-                (activeBuffer.type !== "webViewer" || !webViewerEnabled) &&
-                !isStandardEditorBuffer(activeBuffer) &&
-                renderActiveBuffer(activeBuffer)}
-            </>
-          )}
+            {mountedEditorBuffers.map((buffer) => {
+              const isActive = buffer.id === activeBuffer?.id;
+              return (
+                <div
+                  key={buffer.id}
+                  className="absolute inset-0"
+                  style={isActive ? undefined : { visibility: "hidden" }}
+                >
+                  <CodeEditor
+                    paneId={pane.id}
+                    bufferId={buffer.id}
+                    isActiveSurface={isActive && isActivePane}
+                    readOnly={buffer.readOnly}
+                  />
+                </div>
+              );
+            })}
+            {activeBuffer &&
+              activeBuffer.type !== "terminal" &&
+              (activeBuffer.type !== "webViewer" || !webViewerEnabled) &&
+              !isStandardEditorBuffer(activeBuffer) &&
+              renderActiveBuffer(activeBuffer)}
+          </>
         </Suspense>
       </div>
     </div>

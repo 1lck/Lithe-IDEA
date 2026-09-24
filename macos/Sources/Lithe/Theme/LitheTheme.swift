@@ -230,9 +230,11 @@ enum LitheTheme {
         case editor
         case sidebar
         case toolHeader
+        case popupBackground
         case primaryText
         case secondaryText
         case accent
+        case link
         case success
         case warning
         case error
@@ -252,9 +254,11 @@ enum LitheTheme {
         case .editor: palette.editor.nsColor
         case .sidebar: palette.sidebar.nsColor
         case .toolHeader: palette.toolHeader.nsColor
+        case .popupBackground: palette.popupBackground.nsColor
         case .primaryText: palette.primaryText.nsColor
         case .secondaryText: palette.secondaryText.nsColor
         case .accent: palette.accent.nsColor
+        case .link: palette.link.nsColor
         case .success: palette.success.nsColor
         case .warning: palette.warning.nsColor
         case .error: palette.error.nsColor

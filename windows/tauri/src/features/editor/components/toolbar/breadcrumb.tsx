@@ -1,11 +1,13 @@
 import { type ReactNode, useRef, useState } from "react";
-import { DotsThreeIcon as MoreHorizontal } from "@/ui/icons";
+import { DotsThreeIcon as MoreHorizontal, ArrowSquareOutIcon as ExternalLink } from "@/ui/icons";
 import { useShallow } from "zustand/react/shallow";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-toolbar.store";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { hasTextContent } from "@/features/panes/types/pane-content.types";
+import { isLocalDocumentPath } from "@/platform/document-files";
+import { invoke } from "@/platform/tauri-core";
 import { useExtensionActions } from "@/extensions/ui/hooks/use-extension-actions";
 import { ExtensionToolbarAction } from "@/extensions/ui/components/extension-toolbar-action";
 import { isMarkdownPreviewableFile } from "@/features/editor/markdown/previewable";
@@ -14,6 +16,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button, type ButtonProps } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
 import { cn } from "@/utils/cn";
+import { toast } from "sonner";
 import { FilePathBreadcrumb } from "./file-path-breadcrumb";
 import { SymbolBreadcrumb } from "./symbol-breadcrumb";
 
@@ -64,6 +67,7 @@ export default function Breadcrumb({
             path: buffer.path,
             name: buffer.name,
             type: buffer.type,
+            sourcePath: buffer.type === "htmlPreview" ? buffer.sourceFilePath : buffer.path,
           }
         : null;
     }),
@@ -88,9 +92,25 @@ export default function Breadcrumb({
   };
 
   const isHtmlFile = () => {
-    if (!activeBuffer) return false;
-    const extension = activeBuffer.path.split(".").pop()?.toLowerCase();
+    if (!activeBuffer?.sourcePath) return false;
+    const extension = activeBuffer.sourcePath.split(".").pop()?.toLowerCase();
     return extension === "html" || extension === "htm";
+  };
+
+  const canOpenHtmlInBrowser =
+    isHtmlFile() &&
+    Boolean(activeBuffer?.sourcePath && isLocalDocumentPath(activeBuffer.sourcePath));
+
+  const handleOpenHtmlInBrowser = async () => {
+    const sourcePath = activeBuffer?.sourcePath;
+    if (!sourcePath || !canOpenHtmlInBrowser) return;
+
+    try {
+      await invoke("open_file_external", { path: sourcePath });
+    } catch (error) {
+      console.error("Failed to open HTML in browser:", error);
+      toast.error(t("editor.openHtmlInBrowserFailed"));
+    }
   };
 
   const isCsvFile = () => {
@@ -221,6 +241,15 @@ export default function Breadcrumb({
           {extraLeftContent}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {canOpenHtmlInBrowser ? (
+            <BreadcrumbActionButton
+              onClick={() => void handleOpenHtmlInBrowser()}
+              tooltip={t("editor.openHtmlInBrowser")}
+              tooltipSide="bottom"
+            >
+              <ExternalLink />
+            </BreadcrumbActionButton>
+          ) : null}
           {defaultActions}
           {defaultActions && rightContent ? <div className="mx-1 h-3.5 w-px bg-border/70" /> : null}
           {rightContent}

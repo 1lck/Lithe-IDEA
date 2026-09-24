@@ -16,6 +16,8 @@
 
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://trendshift.io/repositories/124763?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/124763/weekly?language=Swift" alt="Lithe-IDEA | Trendshift 周榜" width="250" height="55"></a>
   </p>
 
   <p>
@@ -168,20 +170,27 @@ macOS 是当前参考产品，Windows 是独立的 React/Tauri 实现。两端�
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit 工作台"] --> MacApp["应用模型与服务"]
-        MacApp --> MacAdapters["macOS 适配器"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel 与界面模型"]
+        MacModel --> MacFeatures["Application 功能模型"]
+        MacFeatures --> MacServices["AppServices 与 Swift Services"]
+        MacServices --> MacRust["类型化 Rust 操作"]
+        MacServices --> MacPorts["平台无关端口"]
+        MacPorts --> MacAdapters["macOS 适配器"]
     end
 
     subgraph Shared["共享行为"]
+        Editor["共享 Monaco 编辑器"]
         Contracts["JSON 契约与 Fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React 工作台"] --> WinFeatures["TypeScript Features 与 Stores"]
-        WinFeatures --> Tauri["Tauri 2 Host 与 Windows 适配器"]
+        WinUI["React 工作台与功能状态"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri 组合根与 Windows 适配器"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -189,7 +198,7 @@ flowchart LR
 <summary><strong>如何开发</strong></summary>
 
 
-开发环境需要 Swift 6.2 或更高版本。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要 Command Line Tools。
+开发环境和 CI 使用 `.swift-version` 固定的 Swift 6.3.3 与 Xcode 26.6。运行完整测试需要 Xcode；基础 SwiftPM 构建只需要匹配的 Command Line Tools。使用 Xcode 27 的开发者也可以在本地构建，构建脚本会自动识别 macOS 27 SDK 的兼容路径。`Package.swift` 仍保留 Swift 6.2 的 manifest API 下限，这不会选择编译器版本。
 
 在项目根目录运行开发版本：
 
@@ -294,6 +303,25 @@ open dist/Lithe.app
     </td>
   </tr>
 </table>
+
+### ☕ 支持 Lithe
+
+如果 Lithe 对你有帮助，欢迎请项目喝一杯咖啡。收到的每一笔支持都会继续投入 Lithe 的开发与维护。
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center">
+      <img src="./docs/assets/donation/wechat.png" width="280" alt="微信收款码"><br>
+      <strong>微信</strong>
+    </td>
+    <td align="center">
+      <img src="./docs/assets/donation/alipay.png" width="280" alt="支付宝收款码"><br>
+      <strong>支付宝</strong>
+    </td>
+  </tr>
+</table>
+</div>
 
 ### ⭐ 特别鸣谢
 

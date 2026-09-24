@@ -16,15 +16,16 @@ struct RunView: View {
     private enum ContentTab { case console, details }
     @AppStorage("lithe.run.pinnedConfigurationIDs") private var pinnedConfigurationTokens = ""
     @AppStorage("lithe.run.configurationListCollapsed") private var isConfigurationListCollapsed = false
+    /// Soft wrap for every run console. Off by default: macOS run output has
+    /// always kept long lines on one row with horizontal scrolling.
+    @AppStorage("lithe.run.wrapOutputLines") private var wrapsOutputLines = false
     @State private var pinnedConfigurationCache = RunConfigurationTokenCache()
-    /// The configuration whose editor popover is open. Held separately from the list
-    /// selection so opening an editor does not switch which log is shown.
-    @State private var editingConfigurationID: String?
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("RunView")
         VStack(spacing: 0) {
             toolWindowHeader
+            ProjectPreparationStatusView()
 
             if !feature.portConflicts.isEmpty {
                 portConflictBanner
@@ -43,7 +44,9 @@ struct RunView: View {
                     output: feature.output,
                     searchRoots: feature.sourceSearchRoots,
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: String(localized: "Run a configuration to see process output.")
+                    emptyMessage: String(localized: "Run a configuration to see process output."),
+                    wrapsLines: wrapsOutputLines,
+                    onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
@@ -68,16 +71,7 @@ struct RunView: View {
         .onChange(of: model.workspaceFeature.workspaceGeneration) { _ in
             selectionWorkspacePath = nil
             browser = RunBrowserState()
-            editingConfigurationID = nil
             contentTab = .console
-        }
-        .popover(isPresented: Binding(
-            get: { editingConfigurationID != nil },
-            set: { if !$0 { editingConfigurationID = nil } }
-        )) {
-            if let configuration = feature.configurations.first(where: { $0.id == editingConfigurationID }) {
-                RunConfigurationEditorView(feature: feature, configuration: configuration)
-            }
         }
     }
 
@@ -157,6 +151,24 @@ struct RunView: View {
                 "info.circle.fill"
             )
         }
+        switch feature.javaDiscoveryStatus {
+        case .loading:
+            return (
+                String(localized: "Waiting for the Java language service"),
+                String(localized: "Java entries appear after the Java language service lists runnable classes."),
+                "clock.fill"
+            )
+        case .stale:
+            return (
+                String(localized: "Refreshing Java entries"),
+                String(localized: "Showing the previous Java entries while the Java language service prepares the project."),
+                "clock.fill"
+            )
+        case .failed(let message):
+            return (String(localized: "Java entries could not be refreshed"), message, "exclamationmark.triangle.fill")
+        case .idle, .ready:
+            break
+        }
         switch feature.generationState {
         case .projectNotReady:
             return (
@@ -209,8 +221,8 @@ struct RunView: View {
                 }
                 .controlSize(.small)
             } else if feature.blockingToolchainDiagnostic != nil {
-                Button("Edit Service") {
-                    openJavaServiceEditor()
+                Button("Project · JDK & Maven") {
+                    model.showSettings(category: .project)
                 }
                 .controlSize(.small)
             }
@@ -335,6 +347,17 @@ struct RunView: View {
             .help("Rescan services")
 
             Button {
+                toggleOutputWrapping()
+            } label: {
+                Image(systemName: "text.word.spacing")
+            }
+            .litheIconButton()
+            .foregroundStyle(wrapsOutputLines ? LitheTheme.accent : LitheTheme.secondaryText)
+            .help("Use soft wraps")
+            .accessibilityLabel(Text("Use soft wraps"))
+            .accessibilityValue(Text(wrapsOutputLines ? LocalizedStringKey("On") : LocalizedStringKey("Off")))
+
+            Button {
                 if let session = selectedModuleSession {
                     feature.clearModuleOutput(session)
                 } else if selectedSessionID == nil {
@@ -348,6 +371,10 @@ struct RunView: View {
             .disabled(selectedSessionID != nil && selectedModuleSession == nil)
 
         }
+    }
+
+    private func toggleOutputWrapping() {
+        wrapsOutputLines.toggle()
     }
 
     private var runnableConfigurations: [RunConfiguration] {
@@ -404,7 +431,9 @@ struct RunView: View {
                 output: selectedOutput,
                 searchRoots: feature.sourceSearchRoots,
                 fileExists: { model.fileExists(at: $0) },
-                emptyMessage: String(localized: "Select a run configuration to see its output.")
+                emptyMessage: String(localized: "Select a run configuration to see its output."),
+                wrapsLines: wrapsOutputLines,
+                onToggleWrapsLines: toggleOutputWrapping
             ) { url, line, column in
                 model.openSourceLocation(url: url, line: line, column: column)
             }
@@ -676,7 +705,7 @@ struct RunView: View {
             isSelected: selectedSessionID == configuration.id,
             isPinned: isPinned(configuration),
             onPin: { togglePinned(configuration) },
-            onEdit: { editingConfigurationID = configuration.id },
+            onEdit: { editInSettings(configuration) },
             checkedConfiguration: configuration,
             onToggle: {
                 if let session, session.isRunning {
@@ -723,11 +752,6 @@ struct RunView: View {
                     .help(configuration.name)
                 Spacer(minLength: 8)
                 statusLabel(for: session)
-                Button { editingConfigurationID = configuration.id } label: {
-                    Image(systemName: "gearshape")
-                }
-                .litheIconButton()
-                .help("Edit run configuration")
             }
             .padding(.horizontal, 12)
             .frame(height: 34)
@@ -750,7 +774,9 @@ struct RunView: View {
                     output: session?.output ?? "",
                     searchRoots: feature.sourceSearchRoots,
                     fileExists: { model.fileExists(at: $0) },
-                    emptyMessage: String(localized: "Start this configuration to see its output here.")
+                    emptyMessage: String(localized: "Start this configuration to see its output here."),
+                    wrapsLines: wrapsOutputLines,
+                    onToggleWrapsLines: toggleOutputWrapping
                 ) { url, line, column in
                     model.openSourceLocation(url: url, line: line, column: column)
                 }
@@ -775,6 +801,13 @@ struct RunView: View {
         .accessibilityAddTraits(contentTab == tab ? .isSelected : [])
     }
 
+    /// The editor lives in Settings; open it on this configuration in one step
+    /// without changing which session's output the Run tool window shows.
+    private func editInSettings(_ configuration: RunConfiguration) {
+        feature.editingConfigurationID = configuration.id
+        model.showSettings(category: .run)
+    }
+
     private func configurationDetail(
         _ configuration: RunConfiguration,
         session: RunSession?
@@ -795,13 +828,14 @@ struct RunView: View {
                         .font(.system(size: 11.5, weight: .semibold))
                     Spacer(minLength: 8)
                     Button {
-                        editingConfigurationID = configuration.id
+                        editInSettings(configuration)
                     } label: {
-                        Label("Edit Service", systemImage: "gearshape")
+                        Label("Edit Configuration…", systemImage: "gearshape")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
                     .lithePointer()
+                    .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
 
                 VStack(spacing: 8) {
@@ -874,22 +908,6 @@ struct RunView: View {
         }
     }
 
-    private func openJavaServiceEditor() {
-        let selected = feature.configurations.first { configuration in
-            configuration.id == selectedSessionID
-                && configuration.kind.capabilities.contains(.javaRuntime)
-        }
-        let javaService = selected ?? feature.configurations.first { configuration in
-            configuration.kind.capabilities.contains(.javaRuntime)
-                && configuration.execution == .service
-        } ?? feature.configurations.first { configuration in
-            configuration.kind.capabilities.contains(.javaRuntime)
-        }
-        if let javaService {
-            selectedSessionID = javaService.id
-            editingConfigurationID = javaService.id
-        }
-    }
 
     private func configurationDetailRow(
         _ label: LocalizedStringKey,
@@ -1069,9 +1087,9 @@ struct RunView: View {
                     }
                     .litheIconButton()
                     .foregroundStyle(LitheTheme.secondaryText)
-                    .help("Edit run configuration")
+                    .help("Edit Configuration…")
+                    .accessibilityLabel("Edit Configuration…")
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
-
                 }
                 if let onToggle {
                     Button(action: onToggle) {

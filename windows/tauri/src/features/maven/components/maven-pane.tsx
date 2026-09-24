@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { ensureRunProcessListeners } from "@/features/run/hooks/use-run-process-events";
@@ -18,6 +18,7 @@ import {
   ArrowsInIcon,
   CaretDownIcon,
   CaretRightIcon,
+  FileTextIcon,
   FolderIcon,
   GearIcon,
   PackageIcon,
@@ -26,7 +27,6 @@ import {
   SlidersHorizontalIcon,
   StopIcon,
   TerminalIcon,
-  TrashIcon,
   WarningIcon,
   XIcon,
 } from "@/ui/icons";
@@ -48,10 +48,10 @@ import {
   type MavenDependency,
   type MavenLifecyclePhase,
   type MavenModule,
-  type MavenSettings,
 } from "../types/maven.types";
 import { MavenDetectedValue } from "./maven-detected-value";
 import { MavenSourceRootRows } from "./maven-source-root-rows";
+import { MavenIcon } from "./maven-icon";
 import {
   MavenLifecycleContextMenu,
   MavenModuleContextMenu,
@@ -137,137 +137,6 @@ function TreeNode({
   );
 }
 
-function MavenSettingsDialog({
-  initial,
-  error,
-  onClose,
-  onSave,
-}: {
-  initial: MavenSettings;
-  error: string | null;
-  onClose: () => void;
-  onSave: (settings: MavenSettings) => void;
-}) {
-  const { t } = useTranslation();
-  const effectiveConfiguration = useMavenStore((state) => state.effectiveConfiguration);
-  const effectiveConfigurationStatus = useMavenStore(
-    (state) => state.effectiveConfigurationStatus,
-  );
-  const [draft, setDraft] = useState(initial);
-
-  const choosePath = async (field: keyof MavenSettings, directory: boolean) => {
-    const selected = await open({
-      directory,
-      multiple: false,
-      ...(field === "settingsPath"
-        ? { filters: [{ name: "Maven settings", extensions: ["xml"] }] }
-        : {}),
-    });
-    if (typeof selected === "string") setDraft((current) => ({ ...current, [field]: selected }));
-  };
-
-  const fields: Array<{
-    id: string;
-    field: keyof MavenSettings;
-    label: string;
-    directory: boolean;
-  }> = [
-    { id: "maven-settings-xml", field: "settingsPath", label: "settings.xml", directory: false },
-    {
-      id: "maven-local-repository",
-      field: "localRepositoryPath",
-      label: t("maven.localRepository"),
-      directory: true,
-    },
-    {
-      id: "maven-executable",
-      field: "mavenExecutablePath",
-      label: t("maven.mavenExecutable"),
-      directory: true,
-    },
-    {
-      id: "maven-jdk-home",
-      field: "javaHomePath",
-      label: t("maven.javaHome"),
-      directory: true,
-    },
-  ];
-
-  return (
-    <Dialog
-      title={t("maven.settings")}
-      icon={SlidersHorizontalIcon}
-      onClose={onClose}
-      size="lg"
-      footer={
-        <>
-          {error ? (
-            <span className="min-w-0 flex-1 truncate text-destructive ui-text-sm">{error}</span>
-          ) : (
-            <span />
-          )}
-          <Button variant="ghost" onClick={onClose}>
-            {t("ui.cancel")}
-          </Button>
-          <Button
-            onClick={() => {
-              onSave(draft);
-              onClose();
-            }}
-          >
-            {t("ui.save")}
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-4">
-        {fields.map(({ id, field, label, directory }) => (
-          <label key={field} htmlFor={id} className="block space-y-1.5">
-            <span className="font-medium ui-text-sm">{label}</span>
-            <div className="flex gap-2">
-              <Input
-                id={id}
-                value={draft[field]}
-                placeholder={t("maven.automatic")}
-                onChange={(event) =>
-                  setDraft((current) => ({ ...current, [field]: event.target.value }))
-                }
-              />
-              <Tooltip content={t("ui.clear")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => setDraft((current) => ({ ...current, [field]: "" }))}
-                  aria-label={t("ui.clear")}
-                >
-                  <TrashIcon />
-                </Button>
-              </Tooltip>
-              <Tooltip content={t("ui.browse")}>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => void choosePath(field, directory)}
-                  aria-label={t("ui.browse")}
-                >
-                  <FolderIcon />
-                </Button>
-              </Tooltip>
-            </div>
-            <MavenDetectedValue
-              field={field}
-              value={draft[field]}
-              effective={effectiveConfiguration}
-              status={effectiveConfigurationStatus}
-            />
-          </label>
-        ))}
-      </div>
-    </Dialog>
-  );
-}
 
 export default function MavenPane({ onClose }: MavenPaneProps) {
   const { t } = useTranslation();
@@ -281,10 +150,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const selectedProfiles = useMavenStore((state) => state.selectedProfiles);
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
-  const settingsPath = useMavenStore((state) => state.settingsPath);
-  const localRepositoryPath = useMavenStore((state) => state.localRepositoryPath);
-  const mavenExecutablePath = useMavenStore((state) => state.mavenExecutablePath);
-  const javaHomePath = useMavenStore((state) => state.javaHomePath);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
   const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
@@ -303,7 +168,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const [selectedPhase, setSelectedPhase] = useState<MavenLifecyclePhase>("compile");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
-  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const [profileDialogOpen, setProfileDialogOpen] = useState(false);
   const [customGoal, setCustomGoal] = useState("");
   const [customProfile, setCustomProfile] = useState("");
@@ -316,6 +180,13 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     [customProfiles, project],
   );
   const isRunning = taskStatus === "running" || taskStatus === "stopping";
+  const hasMavenOutput =
+    taskStatus !== "idle" ||
+    runningTitle !== null ||
+    taskError !== null ||
+    output.length > 0 ||
+    issues.length > 0 ||
+    lastExitCode !== null;
   const isDebugging =
     activeDebugSession?.status === "running" || activeDebugSession?.status === "paused";
   const isModuleOperationBusy = isRunning || moduleOperationPending;
@@ -734,7 +605,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     <section aria-label={t("maven.title")} className="flex h-full min-h-0 flex-col bg-background">
       <div className="shrink-0 border-border/70 border-b">
         <div className="flex h-8 min-w-0 items-center gap-2 overflow-hidden px-3">
-          <PackageIcon className="size-4 shrink-0 text-primary" />
+          <MavenIcon className="size-4 shrink-0 text-primary" />
           <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
             {t("maven.title")}
             {project ? ` · ${project.artifactId}` : ""}
@@ -783,6 +654,17 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
                 <TerminalIcon />
               </Button>
             </Tooltip>
+            <Tooltip content={t("maven.buildOutput")}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={!hasMavenOutput}
+                onClick={openMavenRunPane}
+                aria-label={t("maven.buildOutput")}
+              >
+                <FileTextIcon />
+              </Button>
+            </Tooltip>
             <Tooltip content={t("maven.reloadProjects")}>
               <Button
                 variant="ghost"
@@ -818,7 +700,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
                 variant="ghost"
                 size="icon-xs"
                 disabled={!project}
-                onClick={() => setSettingsDialogOpen(true)}
+                onClick={() => useUIState.getState().openSettingsDialog("project")}
                 aria-label={t("maven.settings")}
               >
                 <SlidersHorizontalIcon />
@@ -1002,14 +884,6 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
             onChange={(event) => setCustomProfile(event.target.value)}
           />
         </Dialog>
-      ) : null}
-      {settingsDialogOpen ? (
-        <MavenSettingsDialog
-          initial={{ settingsPath, localRepositoryPath, mavenExecutablePath, javaHomePath }}
-          error={configurationSaveError}
-          onClose={() => setSettingsDialogOpen(false)}
-          onSave={actions.updateLocalConfiguration}
-        />
       ) : null}
     </section>
   );

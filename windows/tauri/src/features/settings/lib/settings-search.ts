@@ -1,8 +1,23 @@
 import type { SettingsTab } from "@/features/window/stores/ui-state.store";
-import { compactSearchText, normalizeSearchText } from "@/utils/search-match";
 import type { SettingSearchRecord } from "../types/search.types";
 
+// Settings labels and keywords are localized; keep non-Latin letters searchable.
+function normalizeSearchText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function compactSearchText(value: string) {
+  return normalizeSearchText(value).replace(/\s+/g, "");
+}
+
 export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
+  run: "Run configurations 运行配置 服务 启动参数 环境变量",
+  project: "Project JDK Maven 项目环境",
   general: "General",
   appearance: "Appearance",
   editor: "Editor",
@@ -14,6 +29,7 @@ export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   maven: "Maven",
   keyboard: "Keybindings",
   ai: "Agent",
+  "ai-commit": "AI & Commit",
   advanced: "Advanced",
 };
 

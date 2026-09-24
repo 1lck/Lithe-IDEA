@@ -7,7 +7,7 @@ client-embedded key, and the asset-retention tradeoffs are recorded in
 This document is the operational runbook: how to configure secrets, how the
 release workflows behave step by step, and how to verify a release.
 
-Lithe uses Sparkle 2.9.6 for in-app updates. The existing menu, welcome screen,
+Lithe uses Sparkle 2.10.0 for in-app updates. The existing menu, welcome screen,
 and settings entry points keep Lithe's non-modal update offers, release details,
 Later and Skip Version actions. Sparkle's standard windows handle downloads and
 installation after the user chooses Install. Sparkle owns
@@ -206,6 +206,7 @@ Run the focused Swift timing harness, the full macOS suite, and package checks:
 
 ```sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)

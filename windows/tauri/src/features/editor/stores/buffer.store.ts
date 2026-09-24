@@ -10,7 +10,12 @@ import { createStore } from "zustand/vanilla";
 import type { DatabaseType } from "@/features/database/types/provider.types";
 import { EDITOR_CONSTANTS } from "@/features/editor/config/constants";
 import { evictLeastRecentAutoClosableBuffer } from "@/features/editor/stores/buffer-eviction";
-import { createPaneContent } from "@/features/editor/stores/buffer-content-factory";
+import {
+  createPaneContent,
+  createRestoredEditorPlaceholder,
+} from "@/features/editor/stores/buffer-content-factory";
+import { restorePersistedEditorViewState } from "@/features/editor/stores/editor-session-state";
+import type { PersistedEditorViewState } from "@/features/editor/types/editor-session.types";
 import {
   handleExternalDocumentChange,
   resolveExternalDocumentConflict,
@@ -228,6 +233,24 @@ interface BufferActions {
   getActiveBuffer: () => PaneContent | null;
   setMaxOpenTabs: (max: number) => void;
   reloadBufferFromDisk: (bufferId: string) => Promise<void>;
+  createRestoredBufferMetadata: (options: {
+    path: string;
+    name: string;
+    isPinned: boolean;
+    isPreview: boolean;
+    editorState?: PersistedEditorViewState;
+  }) => string;
+  markBufferLoading: (bufferId: string) => void;
+  markBufferUnloaded: (bufferId: string, expectedPath: string) => void;
+  replaceRestoredBufferContent: (
+    bufferId: string,
+    content: string,
+    language: string | undefined,
+    editorState?: PersistedEditorViewState,
+  ) => void;
+  markBufferLoadFailed: (bufferId: string, error: string) => void;
+  retryBufferLoad: (bufferId: string) => void;
+  setSessionRestorePromoter: (promoter: ((bufferId: string) => void) | null) => void;
   handleExternalBufferChange: (
     bufferId: string,
     operationId: string,
@@ -393,6 +416,26 @@ const withActiveBufferState = (
 const deactivateBuffers = (buffers: PaneContent[]): PaneContent[] =>
   withActiveBufferState(buffers, null);
 
+/**
+ * Trigger an on-demand load when a restored-but-unloaded (or previously failed)
+ * buffer is activated, via the promoter registered by the file-system store.
+ */
+const promoteBufferLoad = (
+  buffers: PaneContent[],
+  bufferId: string,
+  promoter: ((bufferId: string) => void) | null,
+) => {
+  if (!promoter) return;
+  const buffer = getBufferById(buffers, bufferId);
+  if (
+    buffer &&
+    isEditorContent(buffer) &&
+    (buffer.loadState === "unloaded" || buffer.loadState === "error")
+  ) {
+    promoter(bufferId);
+  }
+};
+
 const activateBufferInState = (state: BufferState, bufferId: string | null): PaneContent | null => {
   state.activeBufferId = bufferId;
 
@@ -543,6 +586,7 @@ const scheduleExtensionSupportCheck = (path: string) => {
 
 const createBufferStore = (workspaceId: string) => {
   const paneStore = usePaneStore.getStore(workspaceId);
+  let restorePromoter: ((bufferId: string) => void) | null = null;
   const applyAutoEviction = (
     buffers: PaneContent[],
     maxOpenTabs: number,
@@ -1467,6 +1511,7 @@ const createBufferStore = (workspaceId: string) => {
         },
 
         setActiveBuffer: (bufferId: string) => {
+          promoteBufferLoad(get().buffers, bufferId, restorePromoter);
           if (get().activeBufferId === bufferId) {
             syncAndFocusBufferInPane(bufferId);
             return;
@@ -1808,6 +1853,7 @@ const createBufferStore = (workspaceId: string) => {
           const currentIndex = cyclableIds.indexOf(activeBufferId ?? "");
           const nextIndex = (currentIndex + 1) % cyclableIds.length;
           const nextBufferId = cyclableIds[nextIndex];
+          promoteBufferLoad(get().buffers, nextBufferId, restorePromoter);
 
           if (activePane) {
             ensureBufferInPane(activePane.id, nextBufferId, true);
@@ -1831,6 +1877,7 @@ const createBufferStore = (workspaceId: string) => {
           const currentIndex = cyclableIds.indexOf(activeBufferId ?? "");
           const prevIndex = (currentIndex - 1 + cyclableIds.length) % cyclableIds.length;
           const prevBufferId = cyclableIds[prevIndex];
+          promoteBufferLoad(get().buffers, prevBufferId, restorePromoter);
 
           if (activePane) {
             ensureBufferInPane(activePane.id, prevBufferId, true);
@@ -1872,6 +1919,100 @@ const createBufferStore = (workspaceId: string) => {
               error,
             );
           }
+        },
+
+        createRestoredBufferMetadata: (options: {
+          path: string;
+          name: string;
+          isPinned: boolean;
+          isPreview: boolean;
+          editorState?: PersistedEditorViewState;
+        }): string => {
+          const id = generateBufferId(options.path);
+          const placeholder = createRestoredEditorPlaceholder(id, options);
+          restorePersistedEditorViewState(placeholder, options.editorState);
+          set((state) => {
+            state.buffers = [...state.buffers, placeholder];
+          });
+          return id;
+        },
+
+        markBufferLoading: (bufferId: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((b) => b.id === bufferId);
+            if (buffer && isEditorContent(buffer)) {
+              buffer.loadState = "loading";
+            }
+          });
+        },
+
+        markBufferUnloaded: (bufferId: string, expectedPath: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((candidate) => candidate.id === bufferId);
+            if (buffer && isEditorContent(buffer) && buffer.path !== expectedPath) {
+              buffer.loadState = "unloaded";
+              buffer.loadError = undefined;
+            }
+          });
+        },
+
+        replaceRestoredBufferContent: (
+          bufferId: string,
+          content: string,
+          language: string | undefined,
+          editorState?: PersistedEditorViewState,
+        ) => {
+          const buffer = getBufferById(get().buffers, bufferId);
+          if (!buffer || !isEditorContent(buffer)) return;
+          // A disk reload or another edit may have populated this placeholder
+          // while the restore read was pending. Preserve that newer revision.
+          if (buffer.isDirty || (buffer.contentRevision ?? 0) > 0) {
+            set((state) => {
+              const current = state.buffers.find((item) => item.id === bufferId);
+              if (current && isEditorContent(current)) {
+                current.loadState = "loaded";
+                current.loadError = undefined;
+              }
+            });
+            return;
+          }
+          restorePersistedEditorViewState(buffer, editorState);
+          set((state) => {
+            const buf = state.buffers.find((b) => b.id === bufferId);
+            if (!buf || !isEditorContent(buf)) return;
+            buf.content = content;
+            buf.savedContent = content;
+            // Monaco reads store content through contentRevision. Restored tabs can
+            // become active before their asynchronous read finishes, so the completed
+            // read must use the same observable revision boundary as a disk reload.
+            buf.contentRevision = (buf.contentRevision ?? 0) + 1;
+            buf.loadState = "loaded";
+            buf.loadError = undefined;
+            if (language) buf.language = language;
+            buf.documentLifecycle = { status: "clean", revision: buf.contentRevision };
+          });
+        },
+
+        markBufferLoadFailed: (bufferId: string, error: string) => {
+          set((state) => {
+            const buffer = state.buffers.find((b) => b.id === bufferId);
+            if (buffer && isEditorContent(buffer)) {
+              buffer.loadState = "error";
+              buffer.loadError = error;
+            }
+          });
+          const buffer = getBufferById(get().buffers, bufferId);
+          if (buffer && isEditorContent(buffer)) {
+            logger.error("Editor", `[SessionRestore] Failed to restore ${buffer.name}:`, error);
+          }
+        },
+
+        retryBufferLoad: (bufferId: string) => {
+          restorePromoter?.(bufferId);
+        },
+
+        setSessionRestorePromoter: (promoter) => {
+          restorePromoter = promoter;
         },
 
         handleExternalBufferChange: async (

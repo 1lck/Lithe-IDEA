@@ -1,4 +1,6 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { bufferNotLoadedMessage, isBufferContentLoaded } from "@/features/editor/utils/buffer-load-state";
+import { toast } from "sonner";
 import { useEditorAppStore } from "@/features/editor/stores/editor-app.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { openLocalHistoryForActiveFile } from "@/features/local-history/utils/open-local-history";
@@ -26,6 +28,10 @@ export async function saveActiveFileAs(): Promise<void> {
   const activeBuffer = bufferStore.buffers.find((b) => b.id === bufferStore.activeBufferId);
 
   if (!activeBuffer || (activeBuffer.type === "editor" && activeBuffer.readOnly)) return;
+  if (activeBuffer.type === "editor" && !isBufferContentLoaded(activeBuffer)) {
+    toast.error(bufferNotLoadedMessage(activeBuffer.name));
+    return;
+  }
 
   const result = await save({
     title: "Save As",

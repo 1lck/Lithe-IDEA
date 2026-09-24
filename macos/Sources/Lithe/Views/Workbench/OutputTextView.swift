@@ -8,11 +8,18 @@ import SwiftUI
 /// - Maven 错误行 `[ERROR] path:[line,col]` 与 Java 堆栈行 `at x.y.Foo.bar(Foo.java:42)` 可点击跳转源码
 /// - 智能滚动:用户上翻后不强制拉底,并显示 "Jump to latest" 按钮
 /// - 右上角一键复制全部输出
+/// - 可选自动换行:调用方提供切换回调时,右键菜单附带「自动换行」勾选项
 struct OutputTextView: View {
     let output: String
     let searchRoots: [URL]
     let fileExists: (URL) -> Bool
     let emptyMessage: String
+    /// Wraps lines to the pane width; off keeps each line on one row with
+    /// horizontal scrolling, the historical behavior of every output pane.
+    var wrapsLines = false
+    /// Adds a soft-wrap toggle to the context menu. Callers that do not own a
+    /// wrap preference leave it nil and keep the plain text menu.
+    var onToggleWrapsLines: (() -> Void)?
     let onOpenLocation: (URL, Int, Int?) -> Void
 
     @State private var isAtBottom = true
@@ -27,6 +34,8 @@ struct OutputTextView: View {
             fileExists: fileExists,
             emptyMessage: emptyMessage,
             theme: LitheTheme.activeTheme,
+            wrapsLines: wrapsLines,
+            onToggleWrapsLines: onToggleWrapsLines,
             scrollToLatestRequest: scrollToLatestRequest,
             bottomThreshold: Self.bottomThreshold,
             render: Self.renderOutput,
@@ -352,11 +361,18 @@ enum OutputTextUpdate: Equatable {
     case unchanged
     case append(String)
     case replaceTail(length: Int, with: String)
+    case trimPrefix(length: Int, append: String)
+    case trimPrefixAndReplaceTail(prefixLength: Int, tailLength: Int, with: String)
     case replace
+
+    private static let minimumSlidingOverlapBytes = 4_096
 
     static func plan(previous: String, next: String, previousHadANSI: Bool) -> Self {
         guard previous != next else { return .unchanged }
-        guard !previous.isEmpty, !previousHadANSI, next.hasPrefix(previous) else { return .replace }
+        guard !previous.isEmpty, !previousHadANSI else { return .replace }
+        guard next.hasPrefix(previous) else {
+            return slidingWindowUpdate(previous: previous, next: next) ?? .replace
+        }
         guard !previous.hasSuffix("\n") else {
             return .append(String(next.dropFirst(previous.count)))
         }
@@ -365,6 +381,86 @@ enum OutputTextUpdate: Equatable {
         let nextTail = String(next[tailStart...])
         let cleanTailLength = ANSIOutputRenderer.parse(previousTail).cleanText.utf16.count
         return .replaceTail(length: cleanTailLength, with: nextTail)
+    }
+
+    /// Recognizes a bounded console moving forward: `next` begins with a long
+    /// suffix of `previous`, followed by newly appended output. KMP keeps the
+    /// overlap search linear even when a log contains highly repetitive text.
+    private static func slidingWindowUpdate(previous: String, next: String) -> Self? {
+        let previousByteCount = previous.utf8.count
+        let nextBytes = Array(next.utf8)
+        guard previousByteCount >= minimumSlidingOverlapBytes,
+              nextBytes.count >= minimumSlidingOverlapBytes else { return nil }
+
+        var prefixLengths = Array(repeating: 0, count: nextBytes.count)
+        for index in 1..<nextBytes.count {
+            var candidate = prefixLengths[index - 1]
+            while candidate > 0, nextBytes[index] != nextBytes[candidate] {
+                candidate = prefixLengths[candidate - 1]
+            }
+            if nextBytes[index] == nextBytes[candidate] {
+                candidate += 1
+            }
+            prefixLengths[index] = candidate
+        }
+
+        var overlapByteCount = 0
+        for byte in previous.utf8 {
+            while overlapByteCount > 0,
+                  overlapByteCount == nextBytes.count || byte != nextBytes[overlapByteCount] {
+                overlapByteCount = prefixLengths[overlapByteCount - 1]
+            }
+            if byte == nextBytes[overlapByteCount] {
+                overlapByteCount += 1
+            }
+        }
+        guard overlapByteCount >= minimumSlidingOverlapBytes,
+              overlapByteCount < previousByteCount else { return nil }
+
+        let removedByteCount = previousByteCount - overlapByteCount
+        let removedUTF8End = previous.utf8.index(
+            previous.utf8.startIndex,
+            offsetBy: removedByteCount
+        )
+        let appendedUTF8Start = next.utf8.index(
+            next.utf8.startIndex,
+            offsetBy: overlapByteCount
+        )
+        guard let removedEnd = String.Index(removedUTF8End, within: previous),
+              let appendedStart = String.Index(appendedUTF8Start, within: next) else { return nil }
+        let removedLength = ANSIOutputRenderer.parse(String(previous[..<removedEnd]))
+            .cleanText.utf16.count
+        if !previous.hasSuffix("\n") {
+            let previousTailStart = previous.lastIndex(of: "\n")
+                .map { previous.index(after: $0) }
+                ?? previous.startIndex
+            let rerenderStart = previousTailStart > removedEnd ? previousTailStart : removedEnd
+            guard let rerenderUTF8Start = rerenderStart.samePosition(in: previous.utf8) else {
+                return nil
+            }
+            let retainedTailOffset = previous.utf8.distance(
+                from: removedUTF8End,
+                to: rerenderUTF8Start
+            )
+            let nextTailUTF8Start = next.utf8.index(
+                next.utf8.startIndex,
+                offsetBy: retainedTailOffset
+            )
+            guard let nextTailStart = String.Index(nextTailUTF8Start, within: next) else {
+                return nil
+            }
+            let retainedTailLength = ANSIOutputRenderer.parse(String(previous[rerenderStart...]))
+                .cleanText.utf16.count
+            return .trimPrefixAndReplaceTail(
+                prefixLength: removedLength,
+                tailLength: retainedTailLength,
+                with: String(next[nextTailStart...])
+            )
+        }
+        return .trimPrefix(
+            length: removedLength,
+            append: String(next[appendedStart...])
+        )
     }
 }
 
@@ -375,6 +471,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
     let fileExists: (URL) -> Bool
     let emptyMessage: String
     let theme: AppColorTheme
+    let wrapsLines: Bool
+    let onToggleWrapsLines: (() -> Void)?
     let scrollToLatestRequest: Int
     let bottomThreshold: CGFloat
     let render: (String, [URL], @escaping (URL) -> Bool, Bool, AppColorTheme) -> NSAttributedString
@@ -416,8 +514,9 @@ private struct OutputTextStorageView: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        LitheTextViewportLayout.applyUnwrappedScrolling(to: textView, in: scrollView)
         scrollView.documentView = textView
+        LitheTextViewportLayout.apply(to: textView, in: scrollView, softWrap: wrapsLines)
+        context.coordinator.appliedWrapsLines = wrapsLines
         scrollView.contentView.postsBoundsChangedNotifications = true
         context.coordinator.attach(scrollView: scrollView, textView: textView)
         return scrollView
@@ -427,6 +526,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         context.coordinator.onOpenLocation = onOpenLocation
         context.coordinator.onBottomStateChange = onBottomStateChange
         context.coordinator.bottomThreshold = bottomThreshold
+        context.coordinator.onToggleWrapsLines = onToggleWrapsLines
+        context.coordinator.applyWrapsLines(wrapsLines)
         context.coordinator.apply(
             output: output,
             emptyMessage: emptyMessage,
@@ -450,6 +551,8 @@ private struct OutputTextStorageView: NSViewRepresentable {
         var onBottomStateChange: (@MainActor (Bool) -> Void)?
         var bottomThreshold: CGFloat = 80
         var scrollToLatestRequest = 0
+        var onToggleWrapsLines: (() -> Void)?
+        var appliedWrapsLines = false
         private var source = ""
         private var sourceHadANSI = false
         private var showingEmptyMessage = false
@@ -513,6 +616,33 @@ private struct OutputTextStorageView: NSViewRepresentable {
                     )
                     storage.replaceCharacters(in: replacementRange, with: rendered)
                     sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case let .trimPrefix(length, suffix):
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    storage.beginEditing()
+                    storage.deleteCharacters(in: NSRange(
+                        location: 0,
+                        length: min(length, storage.length)
+                    ))
+                    storage.append(rendered)
+                    storage.endEditing()
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
+                case let .trimPrefixAndReplaceTail(prefixLength, tailLength, suffix):
+                    let rendered = render(suffix, searchRoots, fileExists, isDark, theme)
+                    storage.beginEditing()
+                    storage.deleteCharacters(in: NSRange(
+                        location: 0,
+                        length: min(prefixLength, storage.length)
+                    ))
+                    let replacementLength = min(tailLength, storage.length)
+                    storage.replaceCharacters(
+                        in: NSRange(
+                            location: storage.length - replacementLength,
+                            length: replacementLength
+                        ),
+                        with: rendered
+                    )
+                    storage.endEditing()
+                    sourceHadANSI = suffix.unicodeScalars.contains { $0.value == 27 }
                 case .replace:
                     let rendered = render(output, searchRoots, fileExists, isDark, theme)
                     storage.setAttributedString(rendered)
@@ -530,6 +660,34 @@ private struct OutputTextStorageView: NSViewRepresentable {
         func scrollToBottom() {
             textView?.scrollToEndOfDocument(nil)
             isAtBottom = true
+        }
+
+        /// Switches the viewport geometry only when the mode changes, so an
+        /// ordinary output append never triggers a full relayout. A reader who
+        /// was following the tail stays on it after the lines rewrap.
+        func applyWrapsLines(_ wrapsLines: Bool) {
+            guard wrapsLines != appliedWrapsLines,
+                  let scrollView, let textView else { return }
+            let wasAtBottom = isAtBottom
+            appliedWrapsLines = wrapsLines
+            LitheTextViewportLayout.apply(to: textView, in: scrollView, softWrap: wrapsLines)
+            if wasAtBottom { scrollToBottom() }
+            reportBottomState()
+        }
+
+        func textView(_ view: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
+            guard let onToggleWrapsLines else { return menu }
+            // AppKit may hand back a reused menu; drop an earlier toggle and its
+            // separator so repeated right-clicks never stack duplicate entries.
+            if let index = menu.items.firstIndex(where: { $0 is OutputSoftWrapMenuItem }) {
+                menu.removeItem(at: index)
+                if index > 0, menu.items[index - 1].isSeparatorItem {
+                    menu.removeItem(at: index - 1)
+                }
+            }
+            menu.addItem(.separator())
+            menu.addItem(OutputSoftWrapMenuItem(isOn: appliedWrapsLines, onToggle: onToggleWrapsLines))
+            return menu
         }
 
         func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
@@ -551,6 +709,32 @@ private struct OutputTextStorageView: NSViewRepresentable {
         deinit {
             if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
         }
+    }
+}
+
+/// The checkable soft-wrap entry appended to an output pane's context menu. It
+/// carries its own action so the text view's standard menu items are untouched.
+final class OutputSoftWrapMenuItem: NSMenuItem {
+    private let onToggle: () -> Void
+
+    init(isOn: Bool, onToggle: @escaping () -> Void) {
+        self.onToggle = onToggle
+        super.init(
+            title: String(localized: "Use soft wraps"),
+            action: #selector(toggle),
+            keyEquivalent: ""
+        )
+        target = self
+        state = isOn ? .on : .off
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    @objc private func toggle() {
+        onToggle()
     }
 }
 

@@ -63,6 +63,11 @@
       "fileExtensions": ["go"],
       "fileNames": [],
       "projectFileNames": ["go.mod", "go.work"],
+      "dependencies": {
+        "managementFileNames": ["go.mod", "go.sum", "go.work", "go.work.sum", "vendor/modules.txt"],
+        "projectDependencyPaths": ["vendor"],
+        "projectBinaryPaths": []
+      },
       "languageServerModuleID": "dev.lithe.language.go.language-server",
       "executionModuleID": "dev.lithe.language.go.execution",
       "testingModuleID": "dev.lithe.language.go.execution"

@@ -1,12 +1,20 @@
+import {
+  beginProjectPreparation,
+  updateProjectPreparation,
+  projectPreparationStore,
+} from "../stores/project-preparation.store";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import type { RunConfiguration } from "../types/run.types";
 
 const prewarm = mock(async () => ({ kind: "ready" as const }));
 const invokeLsp = mock(async () => ({
-  mainClass: "com.ruoyi.RuoYiApplication",
-  projectName: "ruoyi-admin",
-  classPaths: ["D:/work/RuoYi/ruoyi-admin/target/classes"],
-  modulePaths: [],
+  kind: "ready" as const,
+  target: {
+    mainClass: "com.ruoyi.RuoYiApplication",
+    projectName: "ruoyi-admin",
+    classPaths: ["D:/work/RuoYi/ruoyi-admin/target/classes"],
+    modulePaths: [],
+  },
 }));
 
 mock.module("@/features/editor/lsp/java-workspace-language-server", () => ({
@@ -22,6 +30,7 @@ function configuration(provider: string): RunConfiguration {
     name: "ruoyi-admin",
     provider,
     kindTitle: "Spring Boot",
+    category: "project" as const,
     execution: "service",
     toolchains: { java: "project-jdk", maven: "project-maven" },
     mavenReactorPath: ".",
@@ -43,6 +52,7 @@ function configuration(provider: string): RunConfiguration {
 }
 
 beforeEach(() => {
+  projectPreparationStore.setState({ entries: {} });
   prewarm.mockClear();
   invokeLsp.mockClear();
 });
@@ -63,7 +73,7 @@ describe("Java project launch preparation", () => {
       sourcePath: "D:/work/RuoYi/ruoyi-admin/src/main/java/com/ruoyi/RuoYiApplication.java",
       mainClass: "com.ruoyi.RuoYiApplication",
     });
-    expect(target?.mainClass).toBe("com.ruoyi.RuoYiApplication");
+    expect(target?.target.mainClass).toBe("com.ruoyi.RuoYiApplication");
   });
 
   test("leaves non-Java framework services on their own launcher", async () => {
@@ -76,4 +86,18 @@ describe("Java project launch preparation", () => {
     expect(prewarm).not.toHaveBeenCalled();
     expect(invokeLsp).not.toHaveBeenCalled();
   });
+});
+
+test("Core owns the bounded wait when project configuration is still syncing", async () => {
+  beginProjectPreparation("D:/work/RuoYi", "java");
+  updateProjectPreparation("D:/work/RuoYi", "java", {
+    phase: "configuring",
+    status: "loading",
+    blocksRun: true,
+  });
+  await prepareJavaRunLaunch(
+    { workspaceId: "workspace", root: "D:/work/RuoYi" },
+    configuration("spring-boot.maven"),
+  );
+  expect(invokeLsp).toHaveBeenCalledTimes(1);
 });

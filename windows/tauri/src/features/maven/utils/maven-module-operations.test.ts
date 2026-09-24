@@ -14,6 +14,7 @@ function configuration(
     name: overrides.id,
     provider: "java.main",
     kindTitle: "Java Application",
+    category: "project" as const,
     execution: "application",
     cwd: "",
     mavenReactorPath: ".",

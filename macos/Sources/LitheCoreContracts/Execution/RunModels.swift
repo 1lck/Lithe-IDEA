@@ -243,6 +243,11 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
 
+    /// Only launches backed by a JDT project wait for workspace preparation.
+    package var usesJavaProjectPreparation: Bool {
+        (kind == .javaMain || kind == .springBoot) && mavenReactorPath != nil
+    }
+
     package init(
         id: String,
         name: String,

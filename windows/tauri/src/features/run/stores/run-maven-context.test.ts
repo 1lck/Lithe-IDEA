@@ -31,6 +31,7 @@ const configuration: RunConfiguration = {
   name: "Spring Boot",
   provider: "spring-boot.maven",
   kindTitle: "Spring Boot",
+  category: "project" as const,
   execution: "service",
   cwd: "",
   args: [],

@@ -1272,7 +1272,9 @@ fn file_path_for_uri(uri: &str) -> Option<String> {
     Some(percent_decode(path))
 }
 
-fn percent_decode(value: &str) -> String {
+/// Decodes `%XX` escapes in a URI component, keeping the input when the
+/// decoded bytes are not UTF-8.
+pub(crate) fn percent_decode(value: &str) -> String {
     let mut decoded = Vec::with_capacity(value.len());
     let bytes = value.as_bytes();
     let mut index = 0;

@@ -16,6 +16,7 @@ const configuration: RunConfiguration = {
   name: "backend",
   provider: "spring-boot.maven",
   kindTitle: "Spring Boot",
+  category: "project" as const,
   execution: "service",
   modulePath: "backend",
   cwd: ".",

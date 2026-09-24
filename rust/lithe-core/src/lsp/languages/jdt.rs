@@ -7,9 +7,11 @@
 
 #![allow(dead_code)] // This module is an engine adapter seam; integration is intentionally separate.
 
+use crate::lsp::JavaRuntimeCandidate;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use url::Url;
 
@@ -22,6 +24,14 @@ const LANGUAGE_STATUS_METHOD: &str = "language/status";
 const WORK_DONE_PROGRESS_METHOD: &str = "$/progress";
 const SERVICE_READY_STATUS: &str = "ServiceReady";
 const ERROR_STATUS: &str = "Error";
+/// JVM system property read by JDT LS's `org.eclipse.jdt.ls.filesystem` bundle.
+///
+/// When the property is absent, JDT LS writes `.project`, `.classpath`,
+/// `.factorypath`, and `.settings/*.prefs` into every imported module directory.
+/// `false` redirects them to the `-data` metadata area, so opening a project
+/// never adds Eclipse files to the user's tree. Files that already exist at a
+/// module root still take precedence; `jdt_project_metadata` removes those.
+const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -94,12 +104,82 @@ pub(crate) struct JdtStartContext {
 pub(crate) struct JdtMavenConfiguration {
     /// Optional machine-local Maven settings file consumed by JDT LS.
     pub settings_path: Option<String>,
+    /// Optional `conf/settings.xml` of the Maven installation this workspace
+    /// runs. It carries the local repository and mirrors that the command line
+    /// already uses, so JDT LS must resolve artifacts through the same file.
+    pub global_settings_path: Option<String>,
     /// Sorted, de-duplicated Maven profile IDs selected for this workspace.
     pub profiles: Vec<String>,
     /// Deterministically ordered reactor and recursive-module directory URIs.
     pub project_uris: Vec<String>,
     /// Workspace-relative Java source directories discovered from Maven POMs.
     pub source_paths: Vec<String>,
+}
+
+/// A JDK JDT LS may bind a project to, keyed by its execution environment.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(crate) struct JdtJavaRuntime {
+    /// Execution-environment name such as `JavaSE-25` or `JavaSE-1.8`; JDT LS
+    /// matches it against the release a project compiles for.
+    pub name: String,
+    /// JDK home directory.
+    pub path: String,
+}
+
+/// Values Lithe owns in JDT LS's `settings.java`, borrowed from one session.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct JdtSettings<'a> {
+    pub maven: Option<&'a JdtMavenConfiguration>,
+    /// JDKs installed on this machine, at most one per execution environment.
+    pub java_runtimes: &'a [JdtJavaRuntime],
+}
+
+/// Picks one JDK per Java major version for `java.configuration.runtimes`.
+///
+/// Without these, JDT LS knows only the JDK it runs on, so a project that
+/// compiles for a newer release fails with "release N is not found in the
+/// system" even though that JDK is installed. The first JDK the platform lists
+/// for a major version wins, so platforms order their candidates by
+/// preference. Versions that do not parse are skipped, not guessed.
+pub(crate) fn jdt_java_runtimes(candidates: &[JavaRuntimeCandidate]) -> Vec<JdtJavaRuntime> {
+    let mut by_major = BTreeMap::new();
+    for candidate in candidates {
+        let Some(major) = java_major_version(&candidate.version) else {
+            continue;
+        };
+        if candidate.home_path.trim().is_empty() {
+            continue;
+        }
+        by_major
+            .entry(major)
+            .or_insert_with(|| candidate.home_path.trim().to_string());
+    }
+    by_major
+        .into_iter()
+        .map(|(major, path)| JdtJavaRuntime {
+            name: if major == 8 {
+                "JavaSE-1.8".to_string()
+            } else {
+                format!("JavaSE-{major}")
+            },
+            path,
+        })
+        .collect()
+}
+
+/// Major version of a `java -version` string: `25.0.4` → 25, `1.8.0_402` → 8.
+/// Versions before 8 have no JDT execution environment Lithe supports.
+fn java_major_version(version: &str) -> Option<u32> {
+    let mut parts = version
+        .trim()
+        .split(|character: char| !character.is_ascii_digit());
+    let first = parts.next()?.parse::<u32>().ok()?;
+    let major = if first == 1 {
+        parts.next()?.parse::<u32>().ok()?
+    } else {
+        first
+    };
+    (major >= 8).then_some(major)
 }
 
 /// Lifecycle of the post-ServiceReady Maven profile task.
@@ -134,6 +214,7 @@ pub(crate) fn maven_profile_fingerprint(
     let configuration = configuration?;
     let payload = serde_json::to_vec(&json!({
         "settingsPath": configuration.settings_path,
+        "globalSettingsPath": configuration.global_settings_path,
         "profiles": configuration.profiles,
         "projectUris": configuration.project_uris,
         "sourcePaths": configuration.source_paths,
@@ -271,6 +352,7 @@ pub(crate) fn adapt_initialization_options(
     provider_id: &str,
     initialization_options: Option<Value>,
     java_extension_bundle_paths: &[PathBuf],
+    settings: JdtSettings<'_>,
 ) -> Option<Value> {
     if !is_java_provider(provider_id) {
         return initialization_options;
@@ -309,7 +391,46 @@ pub(crate) fn adapt_initialization_options(
         }
     }
 
+    // JDT LS configures its Maven embedder from `initializationOptions` while it
+    // handles `initialize`, and the project import starts immediately after.
+    // The same values sent later through `didChangeConfiguration` would arrive
+    // after that import already resolved every artifact against the embedded
+    // defaults, so the repository and mirrors must be present here as well.
+    merge_java_settings(&mut options, java_settings(settings));
+
     Some(Value::Object(options))
+}
+
+/// Overlays the provider-owned `settings.java` values onto catalog-provided
+/// initialization options.
+///
+/// Catalog keys that the provider does not own are preserved, while the Maven,
+/// build, and code-lens values Lithe depends on stay authoritative.
+fn merge_java_settings(options: &mut Map<String, Value>, provider_settings: Value) {
+    let settings = options.entry("settings").or_insert_with(|| json!({}));
+    if !settings.is_object() {
+        *settings = json!({});
+    }
+    let settings = settings
+        .as_object_mut()
+        .expect("the settings value was normalized to an object");
+    let java = settings.entry("java").or_insert_with(|| json!({}));
+    if !java.is_object() {
+        *java = json!({});
+    }
+    let java = java
+        .as_object_mut()
+        .expect("the java settings were normalized to an object");
+    let Some(provider_java) = provider_settings
+        .get("java")
+        .and_then(Value::as_object)
+        .cloned()
+    else {
+        return;
+    };
+    for (key, value) in provider_java {
+        java.insert(key, value);
+    }
 }
 
 /// Returns JDT LS configuration values in the same order as the requested
@@ -318,7 +439,7 @@ pub(crate) fn adapt_initialization_options(
 pub(crate) fn workspace_configuration(
     provider_id: &str,
     items: &[WorkspaceConfigurationItem],
-    maven_configuration: Option<&JdtMavenConfiguration>,
+    settings: JdtSettings<'_>,
 ) -> Option<Vec<Value>> {
     if !is_java_provider(provider_id) {
         return None;
@@ -326,9 +447,7 @@ pub(crate) fn workspace_configuration(
     Some(
         items
             .iter()
-            .map(|item| {
-                java_configuration_for_section(item.section.as_deref(), maven_configuration)
-            })
+            .map(|item| java_configuration_for_section(item.section.as_deref(), settings))
             .collect(),
     )
 }
@@ -336,12 +455,12 @@ pub(crate) fn workspace_configuration(
 /// Notification the engine sends after the generic `initialized` handshake.
 pub(crate) fn initialized_notification(
     provider_id: &str,
-    maven_configuration: Option<&JdtMavenConfiguration>,
+    settings: JdtSettings<'_>,
 ) -> Option<ProviderNotification> {
     is_java_provider(provider_id).then(|| ProviderNotification {
         method: DID_CHANGE_CONFIGURATION_METHOD.to_string(),
         params: json!({
-            "settings": java_settings(maven_configuration)
+            "settings": java_settings(settings)
         }),
     })
 }
@@ -581,6 +700,7 @@ fn wrapper_arguments(
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
         "--jvm-arg=-Xmx1024m".to_string(),
+        format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
     ]);
@@ -609,6 +729,7 @@ fn direct_java_arguments(
         "-Dosgi.bundles.defaultStartLevel=4".to_string(),
         "-Dlog.protocol=true".to_string(),
         "-Dlog.level=ALL".to_string(),
+        format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
     ];
     adapted.extend(custom_jvm_arguments);
     adapted.extend([
@@ -714,7 +835,14 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
         || argument.starts_with("-Dlog.level=")
+        || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
+}
+
+fn is_metadata_location_argument(argument: &str) -> bool {
+    argument
+        .strip_prefix(METADATA_AT_PROJECT_ROOT_PROPERTY)
+        .is_some_and(|rest| rest.starts_with('='))
 }
 
 fn is_lombok_agent_argument(argument: &str) -> bool {
@@ -742,7 +870,10 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
         let owns_inline_value = argument.starts_with("--java-executable=")
             || argument.starts_with("-data=")
             || argument.starts_with("--jvm-arg=-Xms")
-            || argument.starts_with("--jvm-arg=-Xmx");
+            || argument.starts_with("--jvm-arg=-Xmx")
+            || argument
+                .strip_prefix("--jvm-arg=")
+                .is_some_and(is_metadata_location_argument);
         if owns_following_value {
             index += usize::from(index + 1 < arguments.len()) + 1;
         } else {
@@ -755,8 +886,9 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
     retained
 }
 
-fn java_settings(maven_configuration: Option<&JdtMavenConfiguration>) -> Value {
-    let mut settings = json!({
+fn java_settings(settings: JdtSettings<'_>) -> Value {
+    let maven_configuration = settings.maven;
+    let mut java = json!({
         "java": {
             "eclipse": {
                 "downloadSources": false
@@ -782,24 +914,49 @@ fn java_settings(maven_configuration: Option<&JdtMavenConfiguration>) -> Value {
             }
         }
     });
-    if let Some(settings_path) = maven_configuration.and_then(|value| value.settings_path.as_ref())
-    {
-        settings["java"]["configuration"]["maven"] = json!({
-            "userSettings": settings_path
-        });
+    if let Some(section) = maven_settings_section(maven_configuration) {
+        java["java"]["configuration"]["maven"] = section;
     }
     if let Some(configuration) = maven_configuration {
-        settings["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
+        java["java"]["project"]["sourcePaths"] = json!(configuration.source_paths);
     }
-    settings
+    if !settings.java_runtimes.is_empty() {
+        java["java"]["configuration"]["runtimes"] = java_runtimes_value(settings.java_runtimes);
+    }
+    java
 }
 
-fn java_configuration_for_section(
-    section: Option<&str>,
-    maven_configuration: Option<&JdtMavenConfiguration>,
-) -> Value {
+fn java_runtimes_value(runtimes: &[JdtJavaRuntime]) -> Value {
+    Value::Array(
+        runtimes
+            .iter()
+            .map(|runtime| json!({ "name": runtime.name, "path": runtime.path }))
+            .collect(),
+    )
+}
+
+/// Builds the `java.configuration.maven` section for the resolved context.
+///
+/// `globalSettings` carries the local repository and mirrors of the Maven
+/// installation the workspace runs. Omitting it leaves JDT LS on its embedded
+/// defaults, which resolves artifacts against a different repository than the
+/// Maven command line uses for the same project.
+fn maven_settings_section(maven_configuration: Option<&JdtMavenConfiguration>) -> Option<Value> {
+    let configuration = maven_configuration?;
+    let mut section = Map::new();
+    if let Some(path) = &configuration.settings_path {
+        section.insert("userSettings".to_string(), json!(path));
+    }
+    if let Some(path) = &configuration.global_settings_path {
+        section.insert("globalSettings".to_string(), json!(path));
+    }
+    (!section.is_empty()).then_some(Value::Object(section))
+}
+
+fn java_configuration_for_section(section: Option<&str>, settings: JdtSettings<'_>) -> Value {
+    let maven_configuration = settings.maven;
     match section {
-        Some("java") => java_settings(maven_configuration)["java"].clone(),
+        Some("java") => java_settings(settings)["java"].clone(),
         Some("java.inlayHints") => json!({
             "parameterNames": {
                 "enabled": "all"
@@ -811,16 +968,17 @@ fn java_configuration_for_section(
         Some("java.eclipse.downloadSources") => json!(false),
         Some("java.maven") => json!({ "downloadSources": false }),
         Some("java.maven.downloadSources") => json!(false),
-        Some("java.configuration") => {
-            java_settings(maven_configuration)["java"]["configuration"].clone()
-        }
+        Some("java.configuration") => java_settings(settings)["java"]["configuration"].clone(),
         Some("java.configuration.updateBuildConfiguration") => json!("automatic"),
-        Some("java.configuration.maven") => maven_configuration
-            .and_then(|value| value.settings_path.as_ref())
-            .map(|path| json!({ "userSettings": path }))
-            .unwrap_or(Value::Null),
+        Some("java.configuration.runtimes") => java_runtimes_value(settings.java_runtimes),
+        Some("java.configuration.maven") => {
+            maven_settings_section(maven_configuration).unwrap_or(Value::Null)
+        }
         Some("java.configuration.maven.userSettings") => maven_configuration
             .and_then(|value| value.settings_path.as_ref())
+            .map_or(Value::Null, |path| json!(path)),
+        Some("java.configuration.maven.globalSettings") => maven_configuration
+            .and_then(|value| value.global_settings_path.as_ref())
             .map_or(Value::Null, |path| json!(path)),
         Some("java.project") => maven_configuration
             .map(|value| json!({ "sourcePaths": value.source_paths }))
@@ -985,6 +1143,93 @@ fn hex_value(value: u8) -> Option<u8> {
 mod tests {
     use super::*;
 
+    fn runtime(home_path: &str, version: &str) -> JavaRuntimeCandidate {
+        JavaRuntimeCandidate {
+            home_path: home_path.to_string(),
+            version: version.to_string(),
+        }
+    }
+
+    #[test]
+    fn one_jdk_per_major_version_becomes_a_jdt_execution_environment() {
+        // A Java 25 project only builds when JDT LS knows a JavaSE-25 JDK; the
+        // bundled JDK 21 it runs on is not enough (#769).
+        let runtimes = jdt_java_runtimes(&[
+            runtime("/jdks/temurin-25", "25.0.4.1"),
+            runtime("/jdks/corretto-25", "25.0.1"),
+            runtime("/jdks/jdk8", "1.8.0_402"),
+            runtime("/jdks/unknown", "not-a-version"),
+            runtime("", "17.0.9"),
+            runtime("/jdks/temurin-21", "21"),
+        ]);
+        assert_eq!(
+            runtimes,
+            vec![
+                JdtJavaRuntime {
+                    name: "JavaSE-1.8".to_string(),
+                    path: "/jdks/jdk8".to_string()
+                },
+                JdtJavaRuntime {
+                    name: "JavaSE-21".to_string(),
+                    path: "/jdks/temurin-21".to_string()
+                },
+                JdtJavaRuntime {
+                    name: "JavaSE-25".to_string(),
+                    path: "/jdks/temurin-25".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn java_runtimes_reach_jdt_at_initialize_and_on_configuration_requests() {
+        let runtimes = [JdtJavaRuntime {
+            name: "JavaSE-25".to_string(),
+            path: "C:/Program Files/Java/jdk-25".to_string(),
+        }];
+        let settings = JdtSettings {
+            maven: None,
+            java_runtimes: &runtimes,
+        };
+        let expected = json!([{ "name": "JavaSE-25", "path": "C:/Program Files/Java/jdk-25" }]);
+        let options = adapt_initialization_options("java", None, &[], settings).unwrap();
+        assert_eq!(
+            options["settings"]["java"]["configuration"]["runtimes"],
+            expected
+        );
+        let items = ["java", "java.configuration", "java.configuration.runtimes"].map(|section| {
+            WorkspaceConfigurationItem {
+                scope_uri: None,
+                section: Some(section.to_string()),
+            }
+        });
+        let values = workspace_configuration("java", &items, settings).unwrap();
+        assert_eq!(values[0]["configuration"]["runtimes"], expected);
+        assert_eq!(values[1]["runtimes"], expected);
+        assert_eq!(values[2], expected);
+        let notification = initialized_notification("java", settings).unwrap();
+        assert_eq!(
+            notification.params["settings"]["java"]["configuration"]["runtimes"],
+            expected
+        );
+    }
+
+    #[test]
+    fn no_known_jdks_leaves_jdt_on_its_own_runtime() {
+        let options =
+            adapt_initialization_options("java", None, &[], JdtSettings::default()).unwrap();
+        assert!(options["settings"]["java"]["configuration"]
+            .get("runtimes")
+            .is_none());
+    }
+
+    fn maven_settings(configuration: &JdtMavenConfiguration) -> JdtSettings<'_> {
+        JdtSettings {
+            maven: Some(configuration),
+            java_runtimes: &[],
+        }
+    }
+
     #[test]
     fn maven_profile_project_results_have_stable_wire_shape() {
         let result = MavenProfileProjectResult {
@@ -1093,6 +1338,7 @@ mod tests {
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
                 "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
             ]
@@ -1108,6 +1354,8 @@ mod tests {
             "--jvm-arg=-Xms2g".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            // A catalog or user override must not put metadata back into the project.
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data".to_string(),
             "/old/data".to_string(),
         ];
@@ -1121,6 +1369,14 @@ mod tests {
             .contains(&"--jvm-arg=-Duser.language=en".to_string()));
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
+        assert_eq!(
+            first
+                .arguments
+                .iter()
+                .filter(|argument| argument.contains("generatesMetadataFilesAtProjectRoot"))
+                .collect::<Vec<_>>(),
+            vec!["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
+        );
     }
 
     #[test]
@@ -1141,6 +1397,7 @@ mod tests {
             "--java-executable=/old/java".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data=/old/data".to_string(),
         ];
 
@@ -1165,6 +1422,7 @@ mod tests {
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Dlog.protocol=true",
                 "-Dlog.level=ALL",
+                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Duser.language=en",
                 "-jar",
                 "/jdtls/plugins/equinox.jar",
@@ -1244,11 +1502,16 @@ mod tests {
 
         assert_eq!(adapted.arguments, context.arguments);
         assert_eq!(adapted.data_directory, None);
-        assert!(workspace_configuration("rust", &[], None).is_none());
-        assert!(initialized_notification("rust", None).is_none());
+        assert!(workspace_configuration("rust", &[], JdtSettings::default()).is_none());
+        assert!(initialized_notification("rust", JdtSettings::default()).is_none());
         assert!(virtual_source_resolve_params("rust", "jdt://contents/A.class").is_none());
         assert_eq!(
-            adapt_initialization_options("rust", Some(json!({ "custom": true })), &[]),
+            adapt_initialization_options(
+                "rust",
+                Some(json!({ "custom": true })),
+                &[],
+                JdtSettings::default()
+            ),
             Some(json!({ "custom": true }))
         );
         let location = ProviderLocation {
@@ -1277,6 +1540,7 @@ mod tests {
                     "/jdtls/java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar",
                 ),
             ],
+            JdtSettings::default(),
         )
         .unwrap();
 
@@ -1300,6 +1564,60 @@ mod tests {
     }
 
     #[test]
+    fn java_initialization_options_carry_maven_settings_before_the_first_import() {
+        // JDT LS configures its Maven embedder while handling `initialize`, and
+        // the project import starts right after. A repository or mirror sent
+        // only through `didChangeConfiguration` would arrive once that import
+        // had already resolved every artifact against the embedded defaults.
+        let configuration = JdtMavenConfiguration {
+            settings_path: None,
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
+            profiles: Vec::new(),
+            project_uris: Vec::new(),
+            source_paths: vec!["src/main/java".to_string()],
+        };
+
+        let options = adapt_initialization_options(
+            "java",
+            Some(json!({
+                "workspace": { "custom": true },
+                "settings": { "java": { "custom": true } }
+            })),
+            &[],
+            maven_settings(&configuration),
+        )
+        .unwrap();
+
+        assert_eq!(
+            options["settings"]["java"]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(
+            options["settings"]["java"]["project"]["sourcePaths"],
+            json!(["src/main/java"])
+        );
+        // Catalog values outside the provider-owned keys survive the overlay.
+        assert_eq!(options["settings"]["java"]["custom"], true);
+        assert_eq!(options["workspace"]["custom"], true);
+    }
+
+    #[test]
+    fn java_initialization_options_carry_settings_without_a_maven_context() {
+        let options =
+            adapt_initialization_options("java", None, &[], JdtSettings::default()).unwrap();
+
+        assert_eq!(
+            options["settings"]["java"]["maven"]["downloadSources"],
+            false
+        );
+        // Without a resolved context JDT LS keeps its own Maven defaults rather
+        // than receiving an empty or null settings section.
+        assert!(options["settings"]["java"]["configuration"]
+            .get("maven")
+            .is_none());
+    }
+
+    #[test]
     fn java_workspace_configuration_matches_each_section_shape() {
         let items = [
             "java",
@@ -1318,7 +1636,7 @@ mod tests {
             scope_uri: Some("file:///workspace/project".to_string()),
             section: Some(section.to_string()),
         });
-        let values = workspace_configuration("java", &items, None).unwrap();
+        let values = workspace_configuration("java", &items, JdtSettings::default()).unwrap();
 
         assert_eq!(values[0]["inlayHints"]["parameterNames"]["enabled"], "all");
         assert_eq!(values[0]["eclipse"]["downloadSources"], false);
@@ -1339,7 +1657,7 @@ mod tests {
 
     #[test]
     fn java_initialized_notification_publishes_inlay_settings() {
-        let notification = initialized_notification("JAVA", None).unwrap();
+        let notification = initialized_notification("JAVA", JdtSettings::default()).unwrap();
 
         assert_eq!(notification.method, "workspace/didChangeConfiguration");
         assert_eq!(
@@ -1368,6 +1686,7 @@ mod tests {
     fn java_configuration_and_profile_updates_consume_the_maven_context() {
         let configuration = JdtMavenConfiguration {
             settings_path: Some("/local/settings.xml".to_string()),
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
             profiles: vec!["dev".to_string(), "enterprise".to_string()],
             project_uris: vec![
                 "file:///workspace/reactor/".to_string(),
@@ -1384,13 +1703,15 @@ mod tests {
             "java.configuration",
             "java.configuration.maven",
             "java.configuration.maven.userSettings",
+            "java.configuration.maven.globalSettings",
         ]
         .map(|section| WorkspaceConfigurationItem {
             scope_uri: Some("file:///workspace/reactor/".to_string()),
             section: Some(section.to_string()),
         });
 
-        let values = workspace_configuration("java", &items, Some(&configuration)).unwrap();
+        let values =
+            workspace_configuration("java", &items, maven_settings(&configuration)).unwrap();
         assert_eq!(
             values[0]["configuration"]["maven"]["userSettings"],
             "/local/settings.xml"
@@ -1398,6 +1719,18 @@ mod tests {
         assert_eq!(values[1]["maven"]["userSettings"], "/local/settings.xml");
         assert_eq!(values[2]["userSettings"], "/local/settings.xml");
         assert_eq!(values[3], "/local/settings.xml");
+        // The installation settings carry the local repository and mirrors that
+        // the Maven command line already uses for this workspace.
+        assert_eq!(
+            values[0]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(
+            values[1]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
+        );
+        assert_eq!(values[2]["globalSettings"], "/opt/maven/conf/settings.xml");
+        assert_eq!(values[4], "/opt/maven/conf/settings.xml");
         assert_eq!(
             values[0]["project"]["sourcePaths"],
             json!(["src/main/java", "module-a/src/main/java"])
@@ -1414,7 +1747,7 @@ mod tests {
                     section: Some("java.project.sourcePaths".to_string()),
                 },
             ],
-            Some(&configuration),
+            maven_settings(&configuration),
         )
         .unwrap();
         assert_eq!(
@@ -1425,10 +1758,15 @@ mod tests {
             ]
         );
 
-        let notification = initialized_notification("java", Some(&configuration)).unwrap();
+        let notification =
+            initialized_notification("java", maven_settings(&configuration)).unwrap();
         assert_eq!(
             notification.params["settings"]["java"]["configuration"]["maven"]["userSettings"],
             "/local/settings.xml"
+        );
+        assert_eq!(
+            notification.params["settings"]["java"]["configuration"]["maven"]["globalSettings"],
+            "/opt/maven/conf/settings.xml"
         );
         assert_eq!(
             notification.params["settings"]["java"]["project"]["sourcePaths"],
@@ -1474,13 +1812,22 @@ mod tests {
     fn maven_profile_fingerprint_changes_when_selected_inputs_change() {
         let mut configuration = JdtMavenConfiguration {
             settings_path: Some("/settings.xml".to_string()),
+            global_settings_path: Some("/opt/maven/conf/settings.xml".to_string()),
             profiles: vec!["dev".to_string()],
             project_uris: vec!["file:///workspace".to_string()],
             source_paths: vec!["src/main/java".to_string()],
         };
         let first = maven_profile_fingerprint(Some(&configuration));
         configuration.profiles.push("test".to_string());
-        assert_ne!(first, maven_profile_fingerprint(Some(&configuration)));
+        let after_profiles = maven_profile_fingerprint(Some(&configuration));
+        assert_ne!(first, after_profiles);
+        // Switching Maven installations changes the repository and mirrors the
+        // import resolves through, so a warm session must not skip the update.
+        configuration.global_settings_path = Some("/opt/other-maven/conf/settings.xml".to_string());
+        assert_ne!(
+            after_profiles,
+            maven_profile_fingerprint(Some(&configuration))
+        );
     }
 
     #[test]

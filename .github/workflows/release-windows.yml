@@ -23,6 +23,8 @@ jobs:
     name: Build and publish Lithe for Windows
     if: github.actor == github.repository_owner
     runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     permissions:
       contents: write
 
@@ -278,3 +280,12 @@ jobs:
           )
           gh release upload $env:RELEASE_TAG @assets `
             --repo $env:GITHUB_REPOSITORY --clobber
+
+  sync-atomgit:
+    name: Sync Windows release to AtomGit
+    needs: release
+    uses: ./.github/workflows/sync-atomgit-release.yml
+    with:
+      tag: ${{ needs.release.outputs.tag }}
+    secrets:
+      ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}

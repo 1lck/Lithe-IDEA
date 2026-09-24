@@ -132,9 +132,10 @@ extension AppModel {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
+        guard runFeature.recoveryAction != .upgradeApplication else { return }
         switch await ensureRunProjectReady(runFeature, for: identity) {
         case .ready:
-            await runFeature.generateRunConfigurations()
+            await generateFromJavaEntrypoints(runFeature, for: identity)
         case .waitingForSnapshot:
             // Report the pending workspace through the generation state when the
             // snapshot has not arrived, which the run panel surfaces as a notice.
@@ -223,6 +224,8 @@ extension AppModel {
             snapshotID: snapshotID
         )
         guard isCurrentWorkspace(identity) else { return }
+        adoptSavedProjectToolchain(from: execution.runFeature, workspace: target)
+        checkJavaEntrypointFreshness(execution.runFeature, for: identity, files: files)
         guard resumesDeferredRunAction else { return }
         runWorkflowCoordinator.resumeDeferredAction(
             runFeature: execution.runFeature,
@@ -331,6 +334,8 @@ extension AppModel {
                 for: configuration,
                 identity: identity
             )
+        } catch is CancellationError {
+            return
         } catch {
             guard isCurrentWorkspace(identity) else { return }
             showNotification(error.localizedDescription)
@@ -382,6 +387,8 @@ extension AppModel {
                     for: configuration,
                     identity: identity
                 )
+            } catch is CancellationError {
+                return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
                 showNotification(error.localizedDescription)
@@ -430,6 +437,8 @@ extension AppModel {
                     )
                     preparedConfigurations.append((configuration, target))
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
                 showNotification(error.localizedDescription)
@@ -471,6 +480,8 @@ extension AppModel {
         let javaLaunch: JavaDebugLaunchTarget?
         do {
             javaLaunch = try await prepareJavaRunLaunch(for: configuration, identity: identity)
+        } catch is CancellationError {
+            return
         } catch {
             guard isCurrentWorkspace(identity) else { return }
             showNotification(error.localizedDescription)
@@ -485,8 +496,7 @@ extension AppModel {
         for configuration: RunConfiguration,
         identity: WorkspaceIdentity
     ) async throws -> JavaDebugLaunchTarget? {
-        guard (configuration.kind == .javaMain || configuration.kind == .springBoot),
-              configuration.mavenReactorPath != nil else { return nil }
+        guard configuration.usesJavaProjectPreparation else { return nil }
         guard let workspaceURL,
               let sourceURL = runWorkflowCoordinator.sourceURLForDebug(
                 configuration: configuration,
@@ -502,10 +512,11 @@ extension AppModel {
         guard isCurrentWorkspace(identity), !Task.isCancelled else {
             throw CancellationError()
         }
-        return try await sessions.prepareJavaRunLaunchTarget(
+        let preparation = try await sessions.prepareJavaRunLaunchTarget(
             fileURL: sourceURL,
             rootURL: workspaceURL
         )
+        return try await resolveJavaLaunchPreparation(preparation, identity: identity)
     }
 
     func startRunConfigurations(_ configurationIDs: [String]) {
@@ -553,6 +564,8 @@ extension AppModel {
                 )
                 guard isCurrentWorkspace(identity) else { return }
                 runFeature.startConfiguration(current, javaLaunch: javaLaunch)
+            } catch is CancellationError {
+                return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
                 showNotification(error.localizedDescription)
@@ -596,6 +609,8 @@ extension AppModel {
                     }
                     guard isCurrentWorkspace(identity) else { return }
                 }
+            } catch is CancellationError {
+                return
             } catch {
                 guard isCurrentWorkspace(identity) else { return }
                 showNotification(error.localizedDescription)

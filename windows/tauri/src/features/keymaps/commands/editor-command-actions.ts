@@ -65,6 +65,9 @@ function shouldUseEditorModelCommand(): boolean {
 }
 
 function getSelectedEditorText(): string | null {
+  const activeSelectionText = editorAPI.getActiveSelectionText();
+  if (activeSelectionText !== undefined) return activeSelectionText;
+
   const selection = getNormalizedEditorSelection();
   if (selection) {
     return editorAPI.getContent().slice(selection.start.offset, selection.end.offset);

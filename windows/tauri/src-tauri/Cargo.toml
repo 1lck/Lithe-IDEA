@@ -44,6 +44,7 @@ tauri-plugin-single-instance = "2"
 tauri-plugin-store = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
+tokio = { version = "1", features = ["sync", "macros", "time"] }
 url = "2"
 windows-sys = { version = "0.61", features = [
     "Win32_Foundation",
@@ -56,3 +57,8 @@ windows-sys = { version = "0.61", features = [
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# lithe-core's Discourse sign-in generates a 2048-bit RSA key; the rsa crate
+# documents that this is extremely slow unless num-bigint-dig is optimized.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3

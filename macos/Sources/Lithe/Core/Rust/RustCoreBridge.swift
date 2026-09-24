@@ -386,6 +386,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let passed: Int
         let success: Bool
         let failureDetails: [Failure]
+        /// Absent from older Core builds; treated as no recorded outcomes.
+        let testCases: [MavenTestCaseOutcome]?
+    }
+
+    struct JavaRunMarkersPayload: Decodable, Sendable {
+        let markers: [JavaRunMarker]
     }
 
     struct MavenLaunchPlanPayload: Decodable, Sendable {
@@ -468,26 +474,6 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 dependencies: try dependencies.map { try $0.makeModel() }
             )
         }
-    }
-
-    struct JavaRunConfigurationsPayload: Decodable, Sendable {
-        struct MainClass: Decodable, Sendable {
-            let path: String
-            let qualifiedName: String
-            let simpleName: String
-            let isSpringBoot: Bool
-        }
-
-        struct Configuration: Decodable, Sendable {
-            let id: String
-            let name: String
-            let kind: String
-            let modulePath: String?
-            let mainClass: String?
-        }
-
-        let mainClasses: [MainClass]
-        let configurations: [Configuration]
     }
 
     struct SpringIndexPayload: Decodable, Sendable {
@@ -672,6 +658,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let generated: RunConfigurationPayload?
         let toolchainRequirements: ToolchainRequirementsPayload?
         let diagnostics: [[String: String]]?
+        /// Machine-local project defaults; `nil` when the local layer has never saved any.
+        let toolchain: RunConfigurationPayload.Toolchain?
     }
 
     struct LaunchPlanPayload: Codable, Sendable {
@@ -1788,9 +1776,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let cacheDirectory: String?
         let workspaceFingerprint: String?
         let mavenContext: MavenLaunchContext?
+        let javaRuntimes: [LspJavaRuntimeRequest]
         let initializeTimeoutMilliseconds: Int
         let requestTimeoutMilliseconds: Int
         let shutdownTimeoutMilliseconds: Int
+    }
+
+    private struct LspJavaRuntimeRequest: Encodable {
+        let homePath: String
+        let version: String
     }
 
     private struct LspJdtlsLaunchResourcesRequest: Encodable {
@@ -1957,6 +1951,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let message: String
         let underlyingMessage: String?
         let processExitCode: Int?
+        let javaBuildReport: JavaBuildReport?
     }
 
     struct LspServerInfoPayload: Decodable, Sendable {
@@ -1972,6 +1967,13 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private struct MavenTestResultsRequest: Encodable {
         let root: String
         let output: String
+        let reports: MavenTestReportRequest?
+    }
+
+    private struct JavaRunMarkersRequest: Encodable {
+        let mainMethods: [JavaMainMethod]
+        let testItems: [JavaTestItem]
+        let testCases: [MavenTestCaseOutcome]
     }
 
     private struct MavenDependenciesRequest: Encodable {
@@ -1979,17 +1981,20 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let output: String
     }
 
-    private struct JavaRunConfigurationsRequest: Encodable {
+    private struct RunConfigurationInspectRequest: Encodable {
         let root: String
-        let paths: [String]
-        let modulePaths: [String]
+        /// Omitted means full inspection, including the input fingerprint.
+        let checkFingerprint: Bool?
+        /// JDT's current answer; omitted while the Java service is not ready.
+        let javaEntrypoints: JavaEntrypoints?
     }
-
-    private struct RunConfigurationInspectRequest: Encodable { let root: String }
     private struct RunConfigurationGenerateRequest: Encodable {
         let root: String
         let paths: [String]
         let modulePaths: [String]
+        /// Omitted while JDT has not answered; Core then keeps the previous
+        /// generation's Java entries.
+        let javaEntrypoints: JavaEntrypoints?
     }
     private struct RunConfigurationResolveRequest: Encodable {
         let root: String
@@ -2783,50 +2788,63 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     func mavenTestResults(
         at rootURL: URL,
-        output: String
+        output: String,
+        reports: MavenTestReportRequest? = nil
     ) -> Result<MavenTestResultsPayload, CoreCallError> {
         executeResult(
             command: "maven.testResults",
             payload: MavenTestResultsRequest(
                 root: rootURL.standardizedFileURL.path,
-                output: output
+                output: output,
+                reports: reports
             )
         )
     }
 
-    func scanJavaRunConfigurations(
+    /// Combines JDT main/test discovery and recorded outcomes into gutter markers.
+    func javaRunMarkers(
+        mainMethods: [JavaMainMethod],
+        testItems: [JavaTestItem],
+        testCases: [MavenTestCaseOutcome]
+    ) -> Result<JavaRunMarkersPayload, CoreCallError> {
+        executeResult(
+            command: "java.runMarkers",
+            payload: JavaRunMarkersRequest(
+                mainMethods: mainMethods,
+                testItems: testItems,
+                testCases: testCases
+            )
+        )
+    }
+
+    func inspectRunConfiguration(
         at rootURL: URL,
-        paths: [String],
-        modulePaths: [String]
-    ) -> JavaRunConfigurationsPayload? {
-        execute(
-            command: "java.runConfigurations",
-            payload: JavaRunConfigurationsRequest(
-                root: rootURL.standardizedFileURL.path,
-                paths: paths,
-                modulePaths: modulePaths
-            )
-        )
-    }
-
-    func inspectRunConfiguration(at rootURL: URL) -> Result<RunConfigurationInspectPayload, CoreCallError> {
+        checkFingerprint: Bool? = nil,
+        javaEntrypoints: JavaEntrypoints? = nil
+    ) -> Result<RunConfigurationInspectPayload, CoreCallError> {
         executeResult(
             command: "runConfig.inspect",
-            payload: RunConfigurationInspectRequest(root: rootURL.standardizedFileURL.path)
+            payload: RunConfigurationInspectRequest(
+                root: rootURL.standardizedFileURL.path,
+                checkFingerprint: checkFingerprint,
+                javaEntrypoints: javaEntrypoints
+            )
         )
     }
 
     func generateRunConfiguration(
         at rootURL: URL,
         paths: [String],
-        modulePaths: [String]
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints? = nil
     ) -> Result<RunConfigurationGeneratePayload, CoreCallError> {
         executeResult(
             command: "runConfig.generate",
             payload: RunConfigurationGenerateRequest(
                 root: rootURL.standardizedFileURL.path,
                 paths: paths,
-                modulePaths: modulePaths
+                modulePaths: modulePaths,
+                javaEntrypoints: javaEntrypoints
             )
         )
     }
@@ -2877,7 +2895,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         at rootURL: URL,
         configurationID: String,
         scope: RunConfigurationSaveScope,
-        options: RunOptions
+        options: RunOptions,
+        toolchain: ProjectToolchainSelection? = nil
     ) -> Result<RunConfigurationMutationPayload, CoreCallError> {
         executeResult(
             command: "runConfig.updateOptions",
@@ -2894,7 +2913,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 javaHomePath: options.javaHomePath,
                 mavenExecutablePath: options.mavenExecutablePath,
                 mavenJavaHomePath: options.mavenJavaHomePath,
-                toolchain: nil
+                toolchain: toolchain
             )
         )
     }
@@ -3653,6 +3672,9 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 cacheDirectory: cacheDirectoryURL?.standardizedFileURL.path,
                 workspaceFingerprint: workspaceFingerprint,
                 mavenContext: mavenContext,
+                javaRuntimes: (jdtlsLaunchResources?.javaRuntimes ?? []).map {
+                    LspJavaRuntimeRequest(homePath: $0.homePath, version: $0.version)
+                },
                 initializeTimeoutMilliseconds: Self.milliseconds(initializeTimeout),
                 requestTimeoutMilliseconds: Self.milliseconds(requestTimeout),
                 shutdownTimeoutMilliseconds: Self.milliseconds(shutdownTimeout)

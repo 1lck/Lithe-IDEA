@@ -5,6 +5,7 @@ pub(crate) mod files;
 mod history;
 mod markdown;
 mod maven;
+mod maven_test_reports;
 mod search_index;
 
 pub(crate) use document_lifecycle::*;

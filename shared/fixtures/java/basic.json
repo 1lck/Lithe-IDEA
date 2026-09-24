@@ -1,20 +1,6 @@
 {
-  "name": "Java structure and run configuration scan",
+  "name": "Java structure",
   "requests": [
-    {
-      "command": "java.runConfigurations",
-      "payload": {
-        "paths": ["src/main/java/com/example/App.java"],
-        "modulePaths": ["src"]
-      },
-      "expected": {
-        "mainClass": "com.example.App",
-        "kind": "springBoot",
-        "modulePath": "src",
-        "sourcePath": "src/main/java/com/example/App.java",
-        "sourceSet": "main"
-      }
-    },
     {
       "command": "java.structure",
       "payload": {
@@ -22,7 +8,13 @@
       },
       "expected": {
         "foldKind": "imports",
-        "syntaxRoles": ["functionDeclaration", "keyword", "parameter", "punctuation", "type"]
+        "syntaxRoles": [
+          "functionDeclaration",
+          "keyword",
+          "parameter",
+          "punctuation",
+          "type"
+        ]
       }
     }
   ]

@@ -1,5 +1,7 @@
 //! Native local document persistence. Disk checks and replacement share one write gate.
 use serde::Serialize;
+#[cfg(windows)]
+use std::time::Duration;
 use std::{
     fs::{self, OpenOptions},
     io::{self, Read, Write},
@@ -11,6 +13,13 @@ use std::{
 };
 
 const MAX_DOCUMENT_BYTES: u64 = 32 * 1024 * 1024;
+#[cfg(windows)]
+const WINDOWS_REPLACE_RETRY_DELAYS: [Duration; 4] = [
+    Duration::from_millis(10),
+    Duration::from_millis(25),
+    Duration::from_millis(50),
+    Duration::from_millis(100),
+];
 static WRITE_GATE: Mutex<()> = Mutex::new(());
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -165,10 +174,13 @@ fn save_with_precommit(
     if expected.is_none() {
         // Creation must never replace a file created after the missing-file check.
         create_without_replacing(&temporary.0, path)?;
-    } else {
-        replace(&temporary.0, path)?;
+        return Ok(SaveOutcome::Saved);
     }
-    Ok(SaveOutcome::Saved)
+    replace(
+        &temporary.0,
+        path,
+        expected.expect("existing documents have a baseline"),
+    )
 }
 
 // Same-directory publication must reject a concurrently created destination.
@@ -192,18 +204,29 @@ fn create_without_replacing(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 #[cfg(not(windows))]
-fn replace(from: &Path, to: &Path) -> io::Result<()> {
-    fs::rename(from, to)
+fn replace(from: &Path, to: &Path, _expected: &str) -> io::Result<SaveOutcome> {
+    fs::rename(from, to)?;
+    Ok(SaveOutcome::Saved)
 }
 
 #[cfg(windows)]
-fn replace(from: &Path, to: &Path) -> io::Result<()> {
+fn replace(from: &Path, to: &Path, expected: &str) -> io::Result<SaveOutcome> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
-    let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
-    let to: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
+    let from_wide: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
+    let to_wide: Vec<u16> = to.as_os_str().encode_wide().chain(Some(0)).collect();
     // ReplaceFile preserves the destination's ACL and metadata. Fail instead of
     // falling back to a rename that could lose permissions or target a new file.
+    retry_windows_replace(
+        || replace_file_once(&from_wide, &to_wide),
+        || read_document(to),
+        expected,
+        std::thread::sleep,
+    )
+}
+
+#[cfg(windows)]
+fn replace_file_once(from: &[u16], to: &[u16]) -> io::Result<()> {
+    use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
     if unsafe {
         ReplaceFileW(
             to.as_ptr(),
@@ -219,6 +242,48 @@ fn replace(from: &Path, to: &Path) -> io::Result<()> {
     } else {
         Ok(())
     }
+}
+
+#[cfg(windows)]
+fn retry_windows_replace(
+    mut replace_once: impl FnMut() -> io::Result<()>,
+    mut read_current: impl FnMut() -> io::Result<Option<String>>,
+    expected: &str,
+    mut wait: impl FnMut(Duration),
+) -> io::Result<SaveOutcome> {
+    for (retry_index, retry_delay) in WINDOWS_REPLACE_RETRY_DELAYS.iter().enumerate() {
+        match replace_once() {
+            Ok(()) => return Ok(SaveOutcome::Saved),
+            Err(error) if is_transient_windows_replace_error(&error) => {
+                log::debug!(
+                    "Retrying Windows document replacement after transient error ({}/{} in {} ms): {error}",
+                    retry_index + 1,
+                    WINDOWS_REPLACE_RETRY_DELAYS.len(),
+                    retry_delay.as_millis()
+                );
+                wait(*retry_delay);
+                let current = read_current()?;
+                if current.as_deref() != Some(expected) {
+                    return Ok(SaveOutcome::Conflict { content: current });
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    replace_once().map(|()| SaveOutcome::Saved)
+}
+
+#[cfg(windows)]
+fn is_transient_windows_replace_error(error: &io::Error) -> bool {
+    use windows_sys::Win32::Foundation::{
+        ERROR_LOCK_VIOLATION, ERROR_SHARING_VIOLATION, ERROR_UNABLE_TO_REMOVE_REPLACED,
+    };
+    error.raw_os_error().is_some_and(|code| {
+        matches!(
+            code as u32,
+            ERROR_SHARING_VIOLATION | ERROR_LOCK_VIOLATION | ERROR_UNABLE_TO_REMOVE_REPLACED
+        )
+    })
 }
 
 #[cfg(test)]
@@ -310,5 +375,164 @@ mod tests {
             SaveOutcome::Conflict { .. }
         ));
         assert_eq!(fs::read_to_string(&path).unwrap(), "new mine");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replace_retries_transient_errors_without_real_waits() {
+        use windows_sys::Win32::Foundation::{
+            ERROR_SHARING_VIOLATION, ERROR_UNABLE_TO_REMOVE_REPLACED,
+        };
+        let mut attempts = 0;
+        let mut checks = 0;
+        let mut waits = Vec::new();
+        let outcome = retry_windows_replace(
+            || {
+                attempts += 1;
+                match attempts {
+                    1 => Err(io::Error::from_raw_os_error(
+                        ERROR_UNABLE_TO_REMOVE_REPLACED as i32,
+                    )),
+                    2 => Err(io::Error::from_raw_os_error(ERROR_SHARING_VIOLATION as i32)),
+                    _ => Ok(()),
+                }
+            },
+            || {
+                checks += 1;
+                Ok(Some("old".to_owned()))
+            },
+            "old",
+            |delay| waits.push(delay),
+        )
+        .unwrap();
+
+        assert!(matches!(outcome, SaveOutcome::Saved));
+        assert_eq!(attempts, 3);
+        assert_eq!(checks, 2);
+        assert_eq!(
+            waits,
+            WINDOWS_REPLACE_RETRY_DELAYS[..2].to_vec(),
+            "the injected waiter makes retry timing deterministic"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replace_recovers_after_a_non_delete_sharing_handle_closes() {
+        use std::os::windows::{ffi::OsStrExt, fs::OpenOptionsExt};
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+        let directory = Directory::new();
+        let target = directory.0.join("locked.txt");
+        let staging = directory.0.join("staging.tmp");
+        fs::write(&target, "old").unwrap();
+        fs::write(&staging, "mine").unwrap();
+        let mut held = Some(
+            OpenOptions::new()
+                .read(true)
+                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                .open(&target)
+                .unwrap(),
+        );
+        let from_wide: Vec<u16> = staging.as_os_str().encode_wide().chain(Some(0)).collect();
+        let to_wide: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut waits = 0;
+
+        let outcome = retry_windows_replace(
+            || replace_file_once(&from_wide, &to_wide),
+            || read_document(&target),
+            "old",
+            |_| {
+                waits += 1;
+                drop(held.take());
+            },
+        )
+        .unwrap();
+
+        assert!(matches!(outcome, SaveOutcome::Saved));
+        assert_eq!(waits, 1);
+        assert_eq!(fs::read_to_string(&target).unwrap(), "mine");
+        assert!(!staging.exists());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replace_recheck_preserves_an_external_change() {
+        use windows_sys::Win32::Foundation::ERROR_UNABLE_TO_REMOVE_REPLACED;
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let outcome = retry_windows_replace(
+            || {
+                attempts += 1;
+                Err(io::Error::from_raw_os_error(
+                    ERROR_UNABLE_TO_REMOVE_REPLACED as i32,
+                ))
+            },
+            || Ok(Some("external".to_owned())),
+            "old",
+            |delay| waits.push(delay),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            outcome,
+            SaveOutcome::Conflict {
+                content: Some(ref content)
+            } if content == "external"
+        ));
+        assert_eq!(attempts, 1);
+        assert_eq!(waits, WINDOWS_REPLACE_RETRY_DELAYS[..1].to_vec());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replace_retry_budget_is_bounded() {
+        use windows_sys::Win32::Foundation::ERROR_LOCK_VIOLATION;
+        let mut attempts = 0;
+        let mut checks = 0;
+        let mut waits = Vec::new();
+        let error = retry_windows_replace(
+            || {
+                attempts += 1;
+                Err(io::Error::from_raw_os_error(ERROR_LOCK_VIOLATION as i32))
+            },
+            || {
+                checks += 1;
+                Ok(Some("old".to_owned()))
+            },
+            "old",
+            |delay| waits.push(delay),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.raw_os_error(), Some(ERROR_LOCK_VIOLATION as i32));
+        assert_eq!(attempts, WINDOWS_REPLACE_RETRY_DELAYS.len() + 1);
+        assert_eq!(checks, WINDOWS_REPLACE_RETRY_DELAYS.len());
+        assert_eq!(waits, WINDOWS_REPLACE_RETRY_DELAYS);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_replace_does_not_retry_permanent_errors() {
+        let mut attempts = 0;
+        let mut checks = 0;
+        let mut waits = Vec::new();
+        let error = retry_windows_replace(
+            || {
+                attempts += 1;
+                Err(io::Error::from_raw_os_error(5))
+            },
+            || {
+                checks += 1;
+                Ok(Some("old".to_owned()))
+            },
+            "old",
+            |delay| waits.push(delay),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.raw_os_error(), Some(5));
+        assert_eq!(attempts, 1);
+        assert_eq!(checks, 0);
+        assert!(waits.is_empty());
     }
 }

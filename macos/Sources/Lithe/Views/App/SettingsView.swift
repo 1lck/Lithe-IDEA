@@ -28,6 +28,8 @@ struct SettingsView: View {
     @ObservedObject var viewState: SettingsViewState
     @State private var missingTerminalShellPath: String?
     let initialCategory: SettingsCategory
+    /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
+    let categoryRequest: Int
     private let onDismiss: (() -> Void)?
     private static let footerActionLabelWidth: CGFloat = 52
 
@@ -35,11 +37,13 @@ struct SettingsView: View {
         settings: AppSettings,
         viewState: SettingsViewState,
         initialCategory: SettingsCategory = .general,
+        categoryRequest: Int = 0,
         onDismiss: (() -> Void)? = nil
     ) {
         self.settings = settings
         self.viewState = viewState
         self.initialCategory = initialCategory
+        self.categoryRequest = categoryRequest
         self.onDismiss = onDismiss
     }
 
@@ -69,6 +73,10 @@ struct SettingsView: View {
         .onChange(of: initialCategory) { category in
             viewState.searchQuery = ""
             viewState.selection = category
+        }
+        .onChange(of: categoryRequest) { _ in
+            viewState.searchQuery = ""
+            viewState.selection = initialCategory
         }
         .onChange(of: viewState.searchQuery) { _ in
             guard !filteredCategories.contains(viewState.selection),
@@ -139,7 +147,7 @@ struct SettingsView: View {
                 Image(systemName: category.icon)
                     .font(.system(size: 12.5, weight: .medium))
                     .frame(width: 18)
-                Text(LocalizedStringKey(category.rawValue))
+                Text(LocalizedStringKey(category.title))
                     .font(.system(size: 12.5, weight: .regular))
                 Spacer(minLength: 8)
             }
@@ -169,13 +177,15 @@ struct SettingsView: View {
     private func searchTerms(for category: SettingsCategory) -> [String] {
         switch category {
         case .general:
-            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths", "LSP generated", "recommended rules"]
+            ["General", "Appearance", "Color theme", "Appearance mode", "Language", "Projects", "Files", "Version control", "Logs", "Log directory", "Hidden paths"]
         case .editor:
             ["Editor", "Display", "Editor tabs", "Font size", "File tree row height", "Show minimap", "Minimap", "Indentation", "Tab width"]
         case .keymap:
             ["Keymap", "Keyboard shortcuts", "Shortcuts", "Actions"]
         case .project:
             ["Project", "Java SDK", "JDK", "Project JDK", "Maven", "Maven Home", "Maven Wrapper", "Maven JDK"]
+        case .run:
+            ["Run configurations", "Program arguments", "VM options", "Environment variables", "Working directory", "Services"]
         case .terminal:
             ["Terminal", "Shell", "Default shell"]
         case .lsp:
@@ -215,6 +225,9 @@ struct SettingsView: View {
         } else if viewState.selection == .lsp {
             LSPControlCenterView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewState.selection == .run {
+            RunConfigurationSettingsView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .project {
             ProjectRuntimeSettingsView(feature: model.runtimeFeature)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -227,7 +240,7 @@ struct SettingsView: View {
         } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(viewState.selection.rawValue))
+                    Text(LocalizedStringKey(viewState.selection.title))
                         .font(.system(size: 22, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.bottom, 8)
@@ -239,6 +252,7 @@ struct SettingsView: View {
                     case .terminal: terminalSettings
                     case .lsp: EmptyView()
                     case .project: EmptyView()
+                    case .run: EmptyView()
                     case .ai: aiSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
@@ -441,33 +455,7 @@ struct SettingsView: View {
                             .stroke(LitheTheme.inputBorder, lineWidth: 1)
                     }
 
-                Text("LSP generated artifacts")
-                    .font(.system(size: 11.5, weight: .medium))
-                Text("Adds or removes the recommended LSP generated artifact rules from Hidden paths. When the current workspace is a Git repository, the same rules are also written to the Git local exclude list. Lithe does not keep managing those rules afterward.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if hasUnappliedHiddenPathsDraft {
-                    Text("Apply Hidden paths changes before adding or removing recommended rules.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.warning)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
                 HStack(spacing: 8) {
-                    Button("Add recommended rules") {
-                        applyLSPGeneratedArtifactRules(adding: true)
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(!canApplyLSPGeneratedArtifactRules)
-
-                    Button("Remove recommended rules") {
-                        applyLSPGeneratedArtifactRules(adding: false)
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle())
-                    .disabled(!canApplyLSPGeneratedArtifactRules)
-
                     Spacer()
                     Button("Apply") { applyVisibilityDrafts() }
                         .buttonStyle(LithePrimaryButtonStyle(
@@ -1444,26 +1432,6 @@ struct SettingsView: View {
     private func applyVisibilityDrafts() {
         settings.hiddenDirectoryNames = entries(from: viewState.hiddenDirectoriesDraft)
         settings.hiddenFilePatterns = entries(from: viewState.hiddenFilePatternsDraft)
-    }
-
-    private var hasUnappliedHiddenPathsDraft: Bool {
-        entries(from: viewState.hiddenDirectoriesDraft) != settings.hiddenDirectoryNames
-            || entries(from: viewState.hiddenFilePatternsDraft) != settings.hiddenFilePatterns
-    }
-
-    private var canApplyLSPGeneratedArtifactRules: Bool {
-        !hasUnappliedHiddenPathsDraft && !model.isApplyingLSPGeneratedArtifactRules
-    }
-
-    /// One-shot shortcut against persisted Hidden paths only; requires a clean draft.
-    private func applyLSPGeneratedArtifactRules(adding: Bool) {
-        guard canApplyLSPGeneratedArtifactRules else { return }
-        let updated = adding
-            ? LSPGeneratedArtifactVisibility.inserting(into: settings.hiddenFilePatterns)
-            : LSPGeneratedArtifactVisibility.removing(from: settings.hiddenFilePatterns)
-        settings.hiddenFilePatterns = updated
-        viewState.hiddenFilePatternsDraft = updated.joined(separator: "\n")
-        model.applyLSPGeneratedArtifactGitExcludeRules(adding: adding)
     }
 
     private func entries(from text: String) -> [String] {

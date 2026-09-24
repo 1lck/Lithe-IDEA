@@ -1,6 +1,10 @@
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { SINGLETON_TOOL_BUFFER_METADATA } from "@/features/panes/constants/tool-buffers";
-import type { OpenContentSpec, PaneContent } from "@/features/panes/types/pane-content.types";
+import type {
+  EditorContent,
+  OpenContentSpec,
+  PaneContent,
+} from "@/features/panes/types/pane-content.types";
 
 export const createPaneContent = (id: string, spec: OpenContentSpec): PaneContent => {
   const base = {
@@ -251,3 +255,29 @@ export const createPaneContent = (id: string, spec: OpenContentSpec): PaneConten
       };
   }
 };
+
+/**
+ * Build a restored editor buffer placeholder that carries only metadata until
+ * its file content is read back by the session-restore queue. Content is empty,
+ * `loadState` is `unloaded`, and `isDirty` is false so it renders as a clean tab.
+ */
+export const createRestoredEditorPlaceholder = (
+  id: string,
+  options: { path: string; name: string; isPinned: boolean; isPreview: boolean },
+): EditorContent => ({
+  id,
+  type: "editor",
+  path: options.path,
+  name: options.name,
+  isPinned: options.isPinned,
+  isPreview: options.isPreview,
+  isActive: false,
+  content: "",
+  savedContent: "",
+  isDirty: false,
+  documentLifecycle: { status: "clean", revision: 0 },
+  isVirtual: false,
+  language: detectLanguageFromFileName(options.name),
+  tokens: [],
+  loadState: "unloaded",
+});

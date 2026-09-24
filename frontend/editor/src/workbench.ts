@@ -11,17 +11,22 @@ import { toMonacoLanguageId } from "./language";
 import { SourceText } from "./source-text";
 import { toMonacoModelValue } from "./line-endings";
 import { acquireMonacoModel } from "./model-lifecycle";
-import { installThemes } from "./theme";
+import { defineWorkbenchTheme, installThemes, type WorkbenchThemeInput } from "./theme";
 import { installJavaTextMate } from "./textmate";
 import { Emitter } from "monaco-editor/esm/vs/base/common/event.js";
 import { MONACO_SEMANTIC_TOKEN_LEGEND, encodeMonacoSemanticTokens } from "./semantic-tokens";
 import { CancellationError, isCancellationError } from "monaco-editor/esm/vs/base/common/errors.js";
 import { isMacintosh } from "monaco-editor/esm/vs/base/common/platform.js";
+import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { Action, Separator, type IAction } from "monaco-editor/esm/vs/base/common/actions.js";
+import { normalizeRunMarkers, runMarkerForLine, runMarkerIcon, type RunMarker, type RunMarkerIcon } from "./run-markers";
 
 export interface WorkbenchHost {
   request(payload: object): Promise<any>;
   palette: { defaults: Record<string, { light: string; dark: string }> };
   javaNavigationIcons?: Record<"up-interface" | "up-inheritance" | "down-interface" | "down-inheritance", string>;
+  /** IDEA test-state SVGs for Java Run markers. */
+  javaRunIcons?: Record<RunMarkerIcon, string>;
   keybindings?: { command: string; label: string; keybinding: number }[];
 }
 
@@ -172,7 +177,52 @@ export function mountWorkbench(host: WorkbenchHost) {
     Object.assign(state, { markers, version, revision });
     for (const view of allEditors()) navigationContexts.get(view)?.();
   }
+  // Java Run markers: the host answers which `main` methods and tests exist and
+  // their last outcomes; the editor only draws them and routes actions back.
+  type RunMarkerState = { generation: number; version: number; revision: number; markers: RunMarker[];
+    canDebug: boolean; decorations: string[]; timer?: ReturnType<typeof setTimeout> };
+  const runMarkerStates = new WeakMap<Entry, RunMarkerState>();
+  const runMarkerContexts = new WeakMap<monaco.editor.IStandaloneCodeEditor, () => void>();
+  async function refreshRunMarkers(id: string, entry: Entry) {
+    let state = runMarkerStates.get(entry);
+    if (!state) {
+      state = { generation: 0, version: 0, revision: 0, markers: [], canDebug: false, decorations: [] };
+      runMarkerStates.set(entry, state);
+      entry.model.onWillDispose(() => { clearTimeout(state!.timer); state!.generation++; });
+    }
+    clearTimeout(state.timer);
+    const current = documentCheckpoint(id, entry);
+    const generation = ++state.generation, version = entry.model.getVersionId();
+    await entry.chain;
+    const valid = () => current() && entries.get(id) === entry && !entry.model.isDisposed() &&
+      entry.model.getVersionId() === version && state!.generation === generation;
+    if (!valid()) return;
+    const revision = entry.revision, language = entry.model.getLanguageId();
+    const reply = language === "java"
+      ? await languageRequest({ type: "javaRunMarkers", id, revision }) : { markers: [] };
+    if (!valid() || entry.revision !== revision || entry.model.getLanguageId() !== language || reply.cancelled) return;
+    const markers = normalizeRunMarkers(reply.markers, entry.model.getLineCount());
+    state.decorations = entry.model.deltaDecorations(state.decorations, markers.map(marker => ({
+      range: new monaco.Range(marker.line, 1, marker.line, 1), options: {
+        glyphMarginClassName: `lithe-java-run lithe-java-run-${runMarkerIcon(marker)}`,
+        // Left holds implementation markers and the default lane breakpoints;
+        // the right lane is shared only with the paused-frame arrow.
+        glyphMargin: { position: monaco.editor.GlyphMarginLane.Right },
+        glyphMarginHoverMessage: { value: `Run '${marker.label}'`, isTrusted: false },
+      } })));
+    Object.assign(state, { markers, version, revision, canDebug: reply.canDebug === true });
+    for (const view of allEditors()) runMarkerContexts.get(view)?.();
+  }
+  function scheduleRunMarkers(id: string, entry: Entry) {
+    if (entry.model.getLanguageId() !== "java" && !runMarkerStates.has(entry)) return;
+    const state = runMarkerStates.get(entry);
+    if (!state) { void refreshRunMarkers(id, entry).catch(console.error); return; }
+    clearTimeout(state.timer);
+    state.generation++;
+    state.timer = setTimeout(() => { void refreshRunMarkers(id, entry).catch(console.error); }, 180);
+  }
   function scheduleNavigation(id: string, entry: Entry) {
+    scheduleRunMarkers(id, entry);
     if (entry.model.getLanguageId() !== "java" && !navigationStates.has(entry)) return;
     const state = navigationStates.get(entry);
     if (!state) { void refreshNavigation(id, entry).catch(console.error); return; }
@@ -514,6 +564,68 @@ export function mountWorkbench(host: WorkbenchHost) {
     });
   }
 
+  function attachRunInteractions(view: monaco.editor.IStandaloneCodeEditor) {
+    const context = (line = view.getPosition()?.lineNumber) => {
+      const pair = [...entries].find(([, entry]) => entry.model === view.getModel());
+      if (!pair || line === undefined) return;
+      const [id, entry] = pair, state = runMarkerStates.get(entry);
+      if (!state || entry.model.isDisposed() || entry.model.getLanguageId() !== "java" ||
+          state.version !== entry.model.getVersionId() || state.revision !== entry.revision ||
+          entry.frozen || entry.closingHolds || failed) return;
+      return { id, state };
+    };
+    const perform = (id: string, state: RunMarkerState, marker: RunMarker, action: "run" | "debug" | "editConfiguration") =>
+      languageRequest({ type: "javaRunMarkerAction", id, revision: state.revision, marker: marker.id, action });
+    // Monaco action labels are fixed, so the caret's target is re-registered
+    // whenever it changes, giving IDEA's "Run 'OrderTest.creates'" wording.
+    let registered: { key: string; actions: monaco.IDisposable[] } | undefined;
+    const refresh = () => {
+      const value = context();
+      const marker = value && runMarkerForLine(value.state.markers, view.getPosition()!.lineNumber);
+      const key = value && marker ? `${value.id}:${value.state.revision}:${marker.id}:${value.state.canDebug}` : "";
+      if (registered?.key === key) return;
+      registered?.actions.forEach(action => action.dispose());
+      registered = undefined;
+      if (!value || !marker) return;
+      const actions = [view.addAction({
+        id: "lithe.javaRun.run", label: `Run '${marker.label}'`, contextMenuGroupId: "1_run", contextMenuOrder: 1,
+        keybindings: [isMacintosh ? monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.KeyR
+          : monaco.KeyMod.CtrlCmd | monaco.KeyMod.Shift | monaco.KeyCode.F10],
+        run: () => perform(value.id, value.state, marker, "run"),
+      })];
+      if (value.state.canDebug) actions.push(view.addAction({
+        id: "lithe.javaRun.debug", label: `Debug '${marker.label}'`, contextMenuGroupId: "1_run", contextMenuOrder: 2,
+        keybindings: [isMacintosh ? monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.KeyD
+          : monaco.KeyMod.Shift | monaco.KeyCode.F9],
+        run: () => perform(value.id, value.state, marker, "debug"),
+      }));
+      registered = { key, actions };
+    };
+    runMarkerContexts.set(view, refresh);
+    view.onDidChangeCursorPosition(refresh); view.onDidChangeModel(refresh); view.onDidChangeModelContent(refresh);
+    view.onMouseDown(event => {
+      const element = event.target.element?.closest(".lithe-java-run");
+      if (!element || !event.target.position || !event.event.leftButton) return;
+      event.event.preventDefault(); event.event.stopPropagation();
+      const line = event.target.position.lineNumber, value = context(line);
+      const marker = value?.state.markers.find(candidate => candidate.line === line);
+      if (!value || !marker) return;
+      // IDEA opens a Run/Debug popup from the icon instead of launching, so a
+      // stray click never starts a process.
+      const items: IAction[] = [new Action("lithe.javaRun.popup.run", `Run '${marker.label}'`, undefined, true,
+        () => perform(value.id, value.state, marker, "run"))];
+      if (value.state.canDebug) items.push(new Action("lithe.javaRun.popup.debug", `Debug '${marker.label}'`, undefined, true,
+        () => perform(value.id, value.state, marker, "debug")));
+      if (marker.kind === "main") items.push(new Separator(), new Action("lithe.javaRun.popup.edit",
+        "Modify Run Configuration…", undefined, true, () => perform(value.id, value.state, marker, "editConfiguration")));
+      StandaloneServices.get(IContextMenuService).showContextMenu({
+        getAnchor: () => ({ x: event.event.posx, y: event.event.posy }),
+        getActions: () => items,
+      });
+    });
+    refresh();
+  }
+
   function attachDebugInteractions(view: monaco.editor.IStandaloneCodeEditor) {
     const navigationKeys = { up: view.createContextKey("litheJava.up", false), down: view.createContextKey("litheJava.down", false) };
     const navigation = (line = view.getPosition()?.lineNumber) => {
@@ -555,6 +667,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     attachGitInteractions(view);
     attachImagePaste(view);
     attachDefinitionNavigation(view);
+    attachRunInteractions(view);
     debugRunContexts.set(view, view.createContextKey("litheCanRunToCursor", false));
     function request(type: "toggleBreakpoint" | "editBreakpoint" | "runToCursor", line: number, column = 1) {
       const model = view.getModel();
@@ -582,7 +695,7 @@ export function mountWorkbench(host: WorkbenchHost) {
     if (attached) scheduleNavigation(...attached);
     refresh();
     return view.onMouseDown(event => {
-      if (event.target.element?.closest(".lithe-java-navigation")) return;
+      if (event.target.element?.closest(".lithe-java-navigation, .lithe-java-run")) return;
       if (event.target.type !== monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN || !event.target.position ||
           (!event.event.leftButton && !event.event.rightButton)) return;
       event.event.preventDefault();
@@ -604,6 +717,11 @@ export function mountWorkbench(host: WorkbenchHost) {
         editor.setScrollTop(Math.min(1, Math.max(0, payload.ratio!)) * extent, monaco.editor.ScrollType.Immediate);
         lastMarkdownRatio = Math.min(1, Math.max(0, payload.ratio!));
       } finally { applyingMarkdownScroll = false; }
+    },
+    async refreshJavaRunMarkers() {
+      await activation;
+      await Promise.all([...entries].filter(([, entry]) => allEditors().some(view => view.getModel() === entry.model))
+        .map(([id, entry]) => refreshRunMarkers(id, entry)));
     },
     async refreshJavaNavigation() {
       await activation;
@@ -836,14 +954,20 @@ export function mountWorkbench(host: WorkbenchHost) {
       } finally { updating = false; }
     },
     configure(payload: any) {
-      monaco.editor.setTheme(payload.dark ? "lithe-dark" : "lithe-light");
+      const theme = payload.theme as WorkbenchThemeInput | undefined;
+      const name = theme ? defineWorkbenchTheme(theme, host.palette)
+        : payload.dark ? "lithe-dark" : "lithe-light";
       Object.assign(displayOptions, {
+        // Standalone updateOptions and newly created split editors both apply
+        // this construction theme globally, so it must track the host theme.
+        theme: name,
         fontFamily: payload.fontFamily,
         fontSize: payload.fontSize,
         wordWrap: payload.wrap ? "on" : "off",
         minimap: { enabled: payload.minimap !== false },
       });
       for (const view of allEditors()) view.updateOptions(displayOptions);
+      monaco.editor.setTheme(name);
     },
     async debugState(id: string, state: { breakpoints: { line: number; enabled: boolean; verified: boolean; logpoint: boolean; conditional?: boolean; message?: string }[]; muted: boolean; paused?: boolean; canRunToCursor?: boolean; executionLine?: number; revision?: number; variables?: { name: string; value: string }[] }) {
       await activation;
@@ -994,8 +1118,13 @@ export function mountWorkbench(host: WorkbenchHost) {
     window.MonacoEnvironment = { getWorker() { const worker = new Worker(url); workers.push(worker); return worker; } };
     await ensureMonacoLanguageTokenizer("java");
     installThemes(host.palette);
+    const bootstrapTheme = defineWorkbenchTheme({
+      id: "bootstrap",
+      dark: true,
+      colors: { background: "#00000000" },
+    }, host.palette);
     displayOptions = {
-      model: null, automaticLayout: true, minimap: { enabled: true }, theme: "lithe-dark", fontSize: 13,
+      model: null, automaticLayout: true, minimap: { enabled: true }, theme: bootstrapTheme, fontSize: 13,
       glyphMargin: true, scrollBeyondLastLine: false, fixedOverflowWidgets: true, "semanticHighlighting.enabled": true,
     };
     editor = monaco.editor.create(document.querySelector("#editor") as HTMLElement, displayOptions);
@@ -1018,6 +1147,8 @@ export function mountWorkbench(host: WorkbenchHost) {
       }, 33);
     });
     const debugStyle = document.createElement("style");
+    const runIconStyles = Object.entries(host.javaRunIcons ?? {}).map(([icon, svg]) =>
+      `.monaco-editor .lithe-java-run-${icon}{background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
     const navigationIconStyles = Object.entries(host.javaNavigationIcons ?? {}).map(([kind, svg]) =>
       `.monaco-editor .lithe-java-navigation-${kind}:${kind.startsWith("up-") ? "before" : "after"}{content:"";background-image:url("data:image/svg+xml,${encodeURIComponent(svg)}")}`).join("\n");
     debugStyle.textContent = `.monaco-editor .lithe-java-navigation{cursor:pointer;font-family:monospace;font-size:12px;display:flex!important;align-items:center;justify-content:center}
@@ -1026,6 +1157,9 @@ export function mountWorkbench(host: WorkbenchHost) {
       .monaco-editor .lithe-java-navigation-down:after,.monaco-editor .lithe-java-navigation-both:after{content:'↓'}
       .monaco-editor .lithe-java-navigation-both:before,.monaco-editor .lithe-java-navigation-both:after{width:50%;max-width:12px}
       ${navigationIconStyles}
+      .monaco-editor .lithe-java-run{cursor:pointer;background-size:12px 12px;background-repeat:no-repeat;background-position:center;opacity:.9}
+      .monaco-editor .lithe-java-run:hover{opacity:1}
+      ${runIconStyles}
       .monaco-editor .lithe-blame{display:inline-block;max-width:calc(100% - 5ch);float:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;text-align:left}
       .monaco-editor .lithe-blame-line{display:inline-block;min-width:4ch;text-align:right}
       .monaco-editor .lithe-git-marker{width:3px!important;margin-left:2px;cursor:pointer}

@@ -237,6 +237,66 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     }
 }
 
+/// One repository's references when a workspace aggregates several Git
+/// repositories. Only references are aggregated here; history, diff, and the
+/// console stay scoped to the active repository.
+package struct GitRepositoryReferences: Hashable, Sendable {
+    package let repositoryRoot: URL
+    package let references: [GitReference]
+    package let recentReferences: [GitReference]
+
+    package init(
+        repositoryRoot: URL,
+        references: [GitReference],
+        recentReferences: [GitReference] = []
+    ) {
+        self.repositoryRoot = repositoryRoot
+        self.references = references
+        self.recentReferences = recentReferences
+    }
+}
+
+/// Pure helpers that reason about the repository roots a workspace discovered.
+package enum GitRepositoryHierarchy {
+    /// A repository is a linked worktree when another discovered root is a
+    /// strict ancestor of it. Comparing standardized path components keeps a
+    /// sibling such as `op-platform-extra` out of `op-platform`, which a plain
+    /// string prefix test would wrongly treat as nested.
+    package static func isLinkedWorktreeRepository(
+        _ repositoryRoot: URL,
+        among repositoryRoots: [URL]
+    ) -> Bool {
+        let candidate = pathComponents(of: repositoryRoot)
+        return repositoryRoots.contains { other in
+            let otherComponents = pathComponents(of: other)
+            guard otherComponents.count < candidate.count else { return false }
+            return Array(candidate.prefix(otherComponents.count)) == otherComponents
+        }
+    }
+
+    /// Repository roots the reference pane groups by. Hiding linked worktrees
+    /// drops the nested roots while always keeping the active repository, so
+    /// selecting a worktree never removes it from the grouping.
+    package static func visibleRepositoryRoots(
+        _ repositoryRoots: [URL],
+        activeRoot: URL?,
+        showWorktreeRepositories: Bool
+    ) -> [URL] {
+        guard repositoryRoots.count > 1, !showWorktreeRepositories else {
+            return repositoryRoots
+        }
+        let active = activeRoot?.standardizedFileURL
+        return repositoryRoots.filter { root in
+            root.standardizedFileURL == active
+                || !isLinkedWorktreeRepository(root, among: repositoryRoots)
+        }
+    }
+
+    private static func pathComponents(of url: URL) -> [String] {
+        url.standardizedFileURL.pathComponents
+    }
+}
+
 package struct GitStash: Identifiable, Hashable, Sendable {
     package let reference: String
     package let message: String

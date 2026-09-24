@@ -107,6 +107,16 @@ export interface MavenTestFailureDetail {
   column?: number | null;
 }
 
+/** One method's outcome read from the run's Surefire/Failsafe XML reports. */
+export interface MavenTestCase {
+  /** Binary class name, such as `demo.OrderTest$Refunds`. */
+  className: string;
+  method: string;
+  status: "passed" | "failed" | "error" | "skipped";
+  message?: string | null;
+  invocations: number;
+}
+
 export interface MavenTestResults {
   testsRun: number;
   failures: number;
@@ -115,6 +125,16 @@ export interface MavenTestResults {
   passed: number;
   success: boolean;
   failureDetails: MavenTestFailureDetail[];
+  /** Per-method outcomes; empty when the run wrote no readable reports. */
+  testCases?: MavenTestCase[];
+}
+
+/** Which XML reports belong to a finished test run. */
+export interface MavenTestReportsRequest {
+  /** Workspace-relative module directory; `null` for the workspace root. */
+  module: string | null;
+  classes: string[];
+  notBeforeMillis: number;
 }
 
 export interface JavaTestMethod {
@@ -127,6 +147,8 @@ export interface MavenTestRun {
   module: string | null;
   selector: string;
   title: string;
+  /** Binary name of the selected test class; its reports carry the outcomes. */
+  className?: string;
 }
 
 export interface MavenPortableConfiguration {

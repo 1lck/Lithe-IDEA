@@ -24,7 +24,7 @@ struct GenericDebugView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             debugToolbar
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            if feature.isSessionActive || !feature.output.isEmpty || feature.errorMessage != nil {
+            if feature.isSessionActive || feature.hasOutput || feature.errorMessage != nil {
                 VStack(spacing: 0) {
                     contentTabs
                     Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -539,7 +539,7 @@ struct GenericDebugView: View {
             Button("Connect to Running JVM…") { isJavaAttachPresented = true }
                 .disabled(feature.isSessionActive)
             Button("Clear Console") { feature.clearOutput() }
-                .disabled(feature.output.isEmpty)
+                .disabled(!feature.hasOutput)
         } label: {
             LitheIDEAIcon(
                 resourcePath: "actions/moreVertical.svg",
@@ -1144,64 +1144,68 @@ struct GenericDebugView: View {
     }
 
     private var debugConsole: some View {
-        GeometryReader { geometry in
-            VStack(spacing: 0) {
-                ScrollView([.vertical, .horizontal]) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if let stoppedReason = feature.stoppedReason {
-                            Label(stoppedReason, systemImage: "pause.circle.fill")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundStyle(LitheTheme.warning)
-                        }
-                        if let errorMessage = feature.errorMessage {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                                    .font(.system(size: 11.5))
-                                    .foregroundStyle(LitheTheme.error)
-
-                                HStack(spacing: 8) {
-                                    if feature.canRetry {
-                                        Button {
-                                            _ = feature.retry()
-                                        } label: {
-                                            Label("Retry Debug", systemImage: "arrow.clockwise")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                        .accessibilityIdentifier("debug-error-retry")
-                                    }
-
-                                    if !model.workbenchFeature.isVisible(.run) {
-                                        Button {
-                                            model.toggleRun()
-                                        } label: {
-                                            Label("Open Run Configuration", systemImage: "slider.horizontal.3")
-                                        }
-                                        .buttonStyle(.bordered)
-                                        .controlSize(.small)
-                                        .accessibilityIdentifier("debug-error-open-run-configuration")
-                                    }
-                                }
-                            }
-                        }
-                        Text(feature.output.isEmpty ? "Waiting for Debug Adapter output…" : feature.output)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .textSelection(.enabled)
-                    }
-                    .frame(
-                        minWidth: max(0, geometry.size.width - 24),
-                        minHeight: max(0, geometry.size.height - 97),
-                        alignment: .topLeading
-                    )
-                    .padding(12)
-                }
+        VStack(spacing: 0) {
+            if feature.stoppedReason != nil || feature.errorMessage != nil {
+                debugConsoleStatus
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                consoleInputRow
-                programInputRow
             }
+            DebugConsoleOutputView(
+                presentation: feature.outputPresentation,
+                searchRoots: model.runFeatureIfActive?.sourceSearchRoots
+                    ?? model.workspaceURL.map { [$0] }
+                    ?? [],
+                fileExists: { model.fileExists(at: $0) },
+                onOpenLocation: { url, line, column in
+                    model.openSourceLocation(url: url, line: line, column: column)
+                }
+            )
+            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            consoleInputRow
+            programInputRow
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .litheWorkbenchSurface(LitheTheme.editor)
+    }
+
+    private var debugConsoleStatus: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let stoppedReason = feature.stoppedReason {
+                Label(stoppedReason, systemImage: "pause.circle.fill")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(LitheTheme.warning)
+            }
+            if let errorMessage = feature.errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.error)
+
+                HStack(spacing: 8) {
+                    if feature.canRetry {
+                        Button {
+                            _ = feature.retry()
+                        } label: {
+                            Label("Retry Debug", systemImage: "arrow.clockwise")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("debug-error-retry")
+                    }
+
+                    if !model.workbenchFeature.isVisible(.run) {
+                        Button {
+                            model.toggleRun()
+                        } label: {
+                            Label("Open Run Configuration", systemImage: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("debug-error-open-run-configuration")
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
         .litheWorkbenchSurface(LitheTheme.editor)
     }
 
@@ -2556,6 +2560,23 @@ private struct DataBreakpointEditorView: View {
     private func optionalDataText(_ value: String) -> String? {
         let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalized.isEmpty ? nil : normalized
+    }
+}
+
+private struct DebugConsoleOutputView: View {
+    @ObservedObject var presentation: GenericDebugOutputPresentation
+    let searchRoots: [URL]
+    let fileExists: (URL) -> Bool
+    let onOpenLocation: (URL, Int, Int?) -> Void
+
+    var body: some View {
+        OutputTextView(
+            output: presentation.text,
+            searchRoots: searchRoots,
+            fileExists: fileExists,
+            emptyMessage: "Waiting for Debug Adapter output…",
+            onOpenLocation: onOpenLocation
+        )
     }
 }
 
