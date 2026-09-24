@@ -10,6 +10,7 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
+use crate::settings;
 use crate::theme::ThemeColors;
 
 /// Linux 原生 PTY 会话
@@ -21,7 +22,7 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    pub fn new(cols: u16, rows: u16, working_dir: &str) -> anyhow::Result<Self> {
+    pub fn new(cols: u16, rows: u16, working_dir: &str, shell: &str) -> anyhow::Result<Self> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
             rows,
@@ -30,7 +31,11 @@ impl TerminalSession {
             pixel_height: 0,
         })?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let shell = if shell.trim().is_empty() {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+        } else {
+            shell.to_string()
+        };
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(working_dir);
 
@@ -102,14 +107,42 @@ pub struct TerminalView {
 }
 
 impl TerminalView {
-    pub fn new(working_dir: String, _cx: &mut Context<Self>) -> Self {
-        let session = TerminalSession::new(120, 30, &working_dir).ok();
+    pub fn new(working_dir: String, cx: &mut Context<Self>) -> Self {
+        let session = TerminalSession::new(120, 30, &working_dir, &Self::resolve_shell(cx)).ok();
 
         Self {
             session,
             current_input: String::new(),
             working_dir,
         }
+    }
+
+    /// 解析生效 shell：设置 `terminalDefaultShellId` 非空即用（名称经
+    /// `PATH` 或 `/bin` 解析为路径），为空回退 `$SHELL`。
+    fn resolve_shell(cx: &gpui_kit::App) -> String {
+        let id = settings::get(cx)
+            .terminal_default_shell_id
+            .trim()
+            .to_string();
+        if id.is_empty() {
+            return String::new();
+        }
+        if id.contains('/') {
+            return id;
+        }
+        if let Some(paths) = std::env::var_os("PATH") {
+            for dir in std::env::split_paths(&paths) {
+                let candidate = dir.join(&id);
+                if candidate.is_file() {
+                    return candidate.to_string_lossy().to_string();
+                }
+            }
+        }
+        let fallback = format!("/bin/{id}");
+        if std::path::Path::new(&fallback).is_file() {
+            return fallback;
+        }
+        id
     }
 
     pub fn send_command(&mut self, cmd: &str, cx: &mut Context<Self>) {
@@ -134,7 +167,8 @@ impl TerminalView {
 
     /// 用现有工作目录重建 PTY 会话（失败则置空并通知）。
     pub fn respawn(&mut self, cx: &mut Context<Self>) {
-        self.session = TerminalSession::new(120, 30, &self.working_dir).ok();
+        self.session =
+            TerminalSession::new(120, 30, &self.working_dir, &Self::resolve_shell(cx)).ok();
         cx.notify();
     }
 }
@@ -190,6 +224,7 @@ impl Render for TerminalView {
                     .overflow_y_scrollbar()
                     .p_2()
                     .text_xs()
+                    .text_size(px(crate::settings::get(cx).terminal_font_size))
                     .text_color(ThemeColors::foreground())
                     .font_family("monospace")
                     .children(lines.into_iter().enumerate().map(|(idx, line)| {

@@ -9,13 +9,15 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgba, Context, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, rgba, AppContext as _, Context, Entity, EventEmitter, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::settings::{self, Settings};
@@ -149,6 +151,27 @@ pub struct SettingsDialog {
     git_policy: String,
     /// 本次会话诊断日志开关（对齐 Tauri 日志面板的会话级状态，重启恢复默认）
     diagnostic_mode: bool,
+    /// 隐藏目录/文件模式多行编辑器（General 分组，内容即设置值，应用时落盘）。
+    hidden_dirs_input: Option<Entity<TextareaState>>,
+    hidden_files_input: Option<Entity<TextareaState>>,
+    /// 项目工具链单行输入（Project 分组，打开分类时由 local.json 回填）。
+    project_jdk_input: Option<Entity<InputState>>,
+    project_maven_input: Option<Entity<InputState>>,
+    project_maven_jdk_input: Option<Entity<InputState>>,
+    /// 已加载工具链的工作区（避免跨项目复用脏输入框）。
+    project_loaded_for: String,
+    /// 项目/运行/日志/更新分组的操作回执展示。
+    project_status: String,
+    run_configs: Vec<String>,
+    run_status: String,
+    /// AI 模型单行输入（provider 切换不重置，由用户显式修改）。
+    ai_model_input: Option<Entity<InputState>>,
+    /// Git 可执行路径单行输入。
+    git_exe_input: Option<Entity<InputState>>,
+    /// 日志自定义目录单行输入。
+    log_dir_input: Option<Entity<InputState>>,
+    logs_status: String,
+    updates_status: String,
 }
 
 impl EventEmitter<SettingsEvent> for SettingsDialog {}
@@ -167,6 +190,20 @@ impl SettingsDialog {
             workspace_root,
             git_policy: "ask".to_string(),
             diagnostic_mode: false,
+            hidden_dirs_input: None,
+            hidden_files_input: None,
+            project_jdk_input: None,
+            project_maven_input: None,
+            project_maven_jdk_input: None,
+            project_loaded_for: String::new(),
+            project_status: String::new(),
+            run_configs: Vec::new(),
+            run_status: String::new(),
+            ai_model_input: None,
+            git_exe_input: None,
+            log_dir_input: None,
+            logs_status: String::new(),
+            updates_status: String::new(),
         }
     }
 
@@ -187,6 +224,20 @@ impl SettingsDialog {
     fn reset_placeholders(&mut self) {
         self.git_policy = "ask".to_string();
         self.diagnostic_mode = false;
+        self.hidden_dirs_input = None;
+        self.hidden_files_input = None;
+        self.project_jdk_input = None;
+        self.project_maven_input = None;
+        self.project_maven_jdk_input = None;
+        self.project_loaded_for = String::new();
+        self.project_status = String::new();
+        self.run_configs = Vec::new();
+        self.run_status = String::new();
+        self.ai_model_input = None;
+        self.git_exe_input = None;
+        self.log_dir_input = None;
+        self.logs_status = String::new();
+        self.updates_status = String::new();
     }
 
     /// 写入设置、广播 `Changed` 并刷新视图。
@@ -204,10 +255,49 @@ impl SettingsDialog {
         cx.emit(SettingsEvent::Changed);
         cx.notify();
     }
+
+    /// 懒创建单行输入框（首次渲染时用初始值填充，后续渲染复用用户编辑态）。
+    fn ensure_input(
+        slot: &mut Option<Entity<InputState>>,
+        initial: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<InputState> {
+        if let Some(entity) = slot.clone() {
+            return entity;
+        }
+        let initial = initial.to_string();
+        let entity = cx.new(|cx| InputState::new(window, cx).default_value(initial));
+        *slot = Some(entity.clone());
+        entity
+    }
+
+    /// 懒创建多行输入框（隐藏路径模式编辑用）。
+    fn ensure_textarea(
+        slot: &mut Option<Entity<TextareaState>>,
+        initial: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Entity<TextareaState> {
+        if let Some(entity) = slot.clone() {
+            return entity;
+        }
+        let initial = initial.to_string();
+        let entity = cx.new(|cx| TextareaState::new(window, cx).default_value(initial));
+        *slot = Some(entity.clone());
+        entity
+    }
+
+    /// 单行文本输入渲染（宽 220px，对齐 Tauri `Input` 控件）。
+    fn render_text_input(entity: Entity<InputState>) -> impl IntoElement {
+        div()
+            .w(px(220.0))
+            .child(Input::new(&entity).cleanable(true))
+    }
 }
 
 impl Render for SettingsDialog {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 全屏半透明遮罩：点击遮罩关闭，点击卡片不冒泡。
         div()
             .id("settings-dialog-backdrop")
@@ -358,10 +448,10 @@ impl Render for SettingsDialog {
                                             )
                                             .child(match self.active_category {
                                                 SettingsCategory::General => self
-                                                    .render_general_content(cx)
+                                                    .render_general_content(window, cx)
                                                     .into_any_element(),
                                                 SettingsCategory::Project => self
-                                                    .render_project_content(cx)
+                                                    .render_project_content(window, cx)
                                                     .into_any_element(),
                                                 SettingsCategory::Run => {
                                                     self.render_run_content(cx).into_any_element()
@@ -378,18 +468,18 @@ impl Render for SettingsDialog {
                                                 SettingsCategory::Lsp => {
                                                     self.render_lsp_content(cx).into_any_element()
                                                 }
-                                                SettingsCategory::Ai => {
-                                                    self.render_ai_content(cx).into_any_element()
-                                                }
+                                                SettingsCategory::Ai => self
+                                                    .render_ai_content(window, cx)
+                                                    .into_any_element(),
                                                 SettingsCategory::AiCommit => self
                                                     .render_ai_commit_content(cx)
                                                     .into_any_element(),
-                                                SettingsCategory::Git => {
-                                                    self.render_git_content(cx).into_any_element()
-                                                }
-                                                SettingsCategory::Logs => {
-                                                    self.render_logs_content(cx).into_any_element()
-                                                }
+                                                SettingsCategory::Git => self
+                                                    .render_git_content(window, cx)
+                                                    .into_any_element(),
+                                                SettingsCategory::Logs => self
+                                                    .render_logs_content(window, cx)
+                                                    .into_any_element(),
                                                 SettingsCategory::Updates => self
                                                     .render_updates_content(cx)
                                                     .into_any_element(),
@@ -706,22 +796,6 @@ impl SettingsDialog {
             })
     }
 
-    /// 多行只读文本块：隐藏路径等模式列表展示用（编辑能力后续接入）。
-    fn render_text_block(&self, text: String, min_height: f32) -> impl IntoElement {
-        div()
-            .w_full()
-            .min_h(px(min_height))
-            .p_2()
-            .rounded_sm()
-            .border_1()
-            .border_color(ThemeColors::border())
-            .bg(ThemeColors::background())
-            .font_family("monospace")
-            .text_xs()
-            .text_color(ThemeColors::muted_foreground())
-            .child(text)
-    }
-
     /// 分组内的说明文本。
     fn render_note(&self, text: String) -> impl IntoElement {
         div()
@@ -734,8 +808,25 @@ impl SettingsDialog {
 /// 各分类内容渲染。
 impl SettingsDialog {
     /// 常规：对齐 Tauri `GeneralPanel`（外观/语言/项目/文件/Git/隐藏路径）。
-    fn render_general_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_general_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let s = settings::get(cx).clone();
+        // 隐藏路径编辑器先创建（避免 render_group 的 &self 借用冲突）。
+        let dirs_entity = Self::ensure_textarea(
+            &mut self.hidden_dirs_input,
+            &s.hidden_directory_patterns.join("\n"),
+            window,
+            cx,
+        );
+        let files_entity = Self::ensure_textarea(
+            &mut self.hidden_files_input,
+            &s.hidden_file_patterns.join("\n"),
+            window,
+            cx,
+        );
         // 外观模式由 syncSystemTheme + theme 派生，与 Tauri `appearanceMode` 一致。
         let appearance_mode = if s.sync_system_theme {
             "system"
@@ -980,16 +1071,24 @@ impl SettingsDialog {
                                     .to_string(),
                             ),
                         )
-                        .child(v_flex().w_full().gap_1p5().child(
-                            div().text_xs().text_color(ThemeColors::foreground()).child(
-                                crate::i18n::menu_text(cx, "settings.mac.directories").to_string(),
-                            ),
+                        .child(div().text_xs().text_color(ThemeColors::foreground()).child(
+                            crate::i18n::menu_text(cx, "settings.mac.directories").to_string(),
                         ))
-                        .child(self.render_text_block(s.hidden_directory_patterns.join("\n"), 72.0))
+                        .child({
+                            div()
+                                .w_full()
+                                .h(px(72.0))
+                                .child(Textarea::new(&dirs_entity).bordered(true))
+                        })
                         .child(div().text_xs().text_color(ThemeColors::foreground()).child(
                             crate::i18n::menu_text(cx, "settings.mac.filePatterns").to_string(),
                         ))
-                        .child(self.render_text_block(s.hidden_file_patterns.join("\n"), 56.0))
+                        .child({
+                            div()
+                                .w_full()
+                                .h(px(56.0))
+                                .child(Textarea::new(&files_entity).bordered(true))
+                        })
                         .child(
                             h_flex().w_full().justify_end().child(
                                 Button::new("general-apply-patterns")
@@ -999,9 +1098,29 @@ impl SettingsDialog {
                                         crate::i18n::menu_text(cx, "settings.mac.apply")
                                             .to_string(),
                                     )
-                                    .on_click(cx.listener(|_this, _event, _window, cx| {
-                                        // 模式编辑器后续接入；当前落盘值即显示值。
-                                        cx.notify();
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        // 每行一个 glob：trim + 去空后落盘，即时影响文件树。
+                                        let dirs = this
+                                            .hidden_dirs_input
+                                            .as_ref()
+                                            .map(|e| e.read(cx).value().to_string())
+                                            .unwrap_or_default();
+                                        let files = this
+                                            .hidden_files_input
+                                            .as_ref()
+                                            .map(|e| e.read(cx).value().to_string())
+                                            .unwrap_or_default();
+                                        let split = |text: String| {
+                                            text.lines()
+                                                .map(str::trim)
+                                                .filter(|l| !l.is_empty())
+                                                .map(str::to_string)
+                                                .collect::<Vec<_>>()
+                                        };
+                                        this.commit(cx, |s| {
+                                            s.hidden_directory_patterns = split(dirs);
+                                            s.hidden_file_patterns = split(files);
+                                        })
                                     })),
                             ),
                         ),
@@ -1009,10 +1128,52 @@ impl SettingsDialog {
             )
     }
 
-    /// 项目 · JDK 与 Maven：对齐 `ProjectEnvironmentSettings` 的字段结构
-    /// （工作区路径、作用域说明、三个工具链路径行、保存按钮）。
-    /// 路径探测与保存尚未接入后端，输入框为只读占位。
-    fn render_project_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 项目 · JDK 与 Maven：对齐 `ProjectEnvironmentSettings`（工作区路径、
+    /// 工具链三行、保存按钮）。值来自 `<workspace>/.lithe/run/local.json`
+    ///（对齐 Mac 本机配置），缺失时回退 `which java/mvn` 探测；保存写回该文件。
+    fn render_project_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let root = self.workspace_root.clone();
+        // 切项目时重新回填输入框，避免复用上个项目的脏值。
+        if self.project_loaded_for != root {
+            let (jdk, maven, maven_jdk) = read_local_toolchain(&root);
+            let mut fill = |slot: &mut Option<Entity<InputState>>, value: String| {
+                if let Some(entity) = slot.clone() {
+                    entity.update(cx, |state, cx| {
+                        state.set_value(value, window, cx);
+                    });
+                } else {
+                    *slot = Some(cx.new(|cx| InputState::new(window, cx).default_value(value)));
+                }
+            };
+            fill(
+                &mut self.project_jdk_input,
+                if jdk.is_empty() {
+                    which("java").unwrap_or_default()
+                } else {
+                    jdk
+                },
+            );
+            fill(
+                &mut self.project_maven_input,
+                if maven.is_empty() {
+                    which("mvn").unwrap_or_default()
+                } else {
+                    maven
+                },
+            );
+            fill(&mut self.project_maven_jdk_input, maven_jdk);
+            self.project_loaded_for = root.clone();
+            self.project_status = String::new();
+        }
+        let jdk_entity = Self::ensure_input(&mut self.project_jdk_input, "", window, cx);
+        let maven_entity = Self::ensure_input(&mut self.project_maven_input, "", window, cx);
+        let maven_jdk_entity =
+            Self::ensure_input(&mut self.project_maven_jdk_input, "", window, cx);
+        let status = self.project_status.clone();
         v_flex()
             .w_full()
             .gap_4()
@@ -1021,7 +1182,7 @@ impl SettingsDialog {
                     .font_family("monospace")
                     .text_xs()
                     .text_color(ThemeColors::foreground())
-                    .child(self.workspace_root.clone()),
+                    .child(root),
             )
             .child(
                 self.render_note(crate::i18n::menu_text(cx, "settings.project.scope").to_string()),
@@ -1032,15 +1193,42 @@ impl SettingsDialog {
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            crate::i18n::menu_text(cx, "run.jdkHome").to_string(),
-                            Some(crate::i18n::menu_text(cx, "run.toolchainAuto").to_string()),
-                            self.render_value(String::new()),
-                        ))
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "run.jdkHome").to_string(),
+                                Some(crate::i18n::menu_text(cx, "run.toolchainAuto").to_string()),
+                                h_flex()
+                                    .gap_1p5()
+                                    .child(Self::render_text_input(jdk_entity))
+                                    .child(
+                                        Button::new("project-jdk-browse")
+                                            .small()
+                                            .ghost()
+                                            .label("…".to_string())
+                                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                                if let Some(dir) =
+                                                super::project_dialog::ProjectDialog::pick_folder(
+                                                    None,
+                                                )
+                                            {
+                                                if let Some(e) = this.project_jdk_input.clone() {
+                                                    e.update(cx, |st, cx| {
+                                                        st.set_value(
+                                                            dir,
+                                                            _window,
+                                                            cx,
+                                                        );
+                                                    });
+                                                }
+                                            }
+                                            })),
+                                    ),
+                            ),
+                        )
                         .child(self.render_row(
                             crate::i18n::menu_text(cx, "run.mavenExecutable").to_string(),
                             Some(crate::i18n::menu_text(cx, "run.toolchainAuto").to_string()),
-                            self.render_value(String::new()),
+                            Self::render_text_input(maven_entity),
                         ))
                         .child(
                             self.render_row(
@@ -1050,27 +1238,92 @@ impl SettingsDialog {
                                         .to_string()
                                         .to_string(),
                                 ),
-                                self.render_value(String::new()),
+                                Self::render_text_input(maven_jdk_entity),
                             ),
                         )
                         .child(
-                            h_flex().w_full().justify_end().child(
-                                Button::new("project-save")
-                                    .small()
-                                    .primary()
-                                    .label(crate::i18n::menu_text(cx, "ui.save").to_string())
-                                    .on_click(cx.listener(|_this, _event, _window, cx| {
-                                        // 工具链探测与保存尚未接入后端。
-                                        cx.notify();
-                                    })),
-                            ),
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(ThemeColors::subtle_foreground())
+                                        .child(status),
+                                )
+                                .child(
+                                    Button::new("project-save")
+                                        .small()
+                                        .primary()
+                                        .label(crate::i18n::menu_text(cx, "ui.save").to_string())
+                                        .on_click(cx.listener(|this, _event, _window, cx| {
+                                            let get = |slot: &Option<Entity<InputState>>| {
+                                                slot.as_ref()
+                                                    .map(|e| {
+                                                        e.read(cx)
+                                                            .value()
+                                                            .to_string()
+                                                            .trim()
+                                                            .to_string()
+                                                    })
+                                                    .unwrap_or_default()
+                                            };
+                                            let jdk = get(&this.project_jdk_input);
+                                            let maven = get(&this.project_maven_input);
+                                            let maven_jdk = get(&this.project_maven_jdk_input);
+                                            let ok = write_local_toolchain(
+                                                &this.workspace_root.clone(),
+                                                &jdk,
+                                                &maven,
+                                                &maven_jdk,
+                                            );
+                                            this.project_status = if ok {
+                                                "已保存到 .lithe/run/local.json".to_string()
+                                            } else {
+                                                "保存失败".to_string()
+                                            };
+                                            cx.emit(SettingsEvent::Changed);
+                                            cx.notify();
+                                        })),
+                                ),
                         ),
                 ),
             )
     }
 
-    /// 运行配置：对齐 `RunConfigurationSettings`（描述 + 生成按钮），后端未接入。
-    fn render_run_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 运行配置：读写 `<workspace>/.lithe/run/configurations.json`
+    ///（对齐 Mac `MacRunConfigurationStore` 的项目级配置），列表展示已有
+    /// 配置，生成按钮追加默认 Java 配置。
+    fn render_run_content(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.run_configs.is_empty() && self.run_status.is_empty() {
+            self.run_configs = read_run_config_names(&self.workspace_root);
+        }
+        let configs = self.run_configs.clone();
+        let status = self.run_status.clone();
+        let list = if configs.is_empty() {
+            self.render_note(crate::i18n::menu_text(cx, "settings.run.empty").to_string())
+                .into_any_element()
+        } else {
+            v_flex()
+                .w_full()
+                .gap_1p5()
+                .children(configs.iter().map(|name| {
+                    div()
+                        .w_full()
+                        .px_2p5()
+                        .py_1()
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(ThemeColors::border())
+                        .bg(ThemeColors::background())
+                        .font_family("monospace")
+                        .text_xs()
+                        .text_color(ThemeColors::foreground())
+                        .child(name.clone())
+                }))
+                .into_any_element()
+        };
         v_flex().w_full().gap_4().child(
             self.render_group(
                 crate::i18n::menu_text(cx, "settings.run.title").to_string(),
@@ -1080,19 +1333,39 @@ impl SettingsDialog {
                     .child(self.render_note(
                         crate::i18n::menu_text(cx, "settings.run.description").to_string(),
                     ))
+                    .child(list)
                     .child(
-                        h_flex().w_full().justify_end().child(
-                            Button::new("run-generate")
-                                .small()
-                                .primary()
-                                .label(
-                                    crate::i18n::menu_text(cx, "settings.run.generate").to_string(),
-                                )
-                                .on_click(cx.listener(|_this, _event, _window, cx| {
-                                    // 运行配置生成尚未接入后端。
-                                    cx.notify();
-                                })),
-                        ),
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::subtle_foreground())
+                                    .child(status),
+                            )
+                            .child(
+                                Button::new("run-generate")
+                                    .small()
+                                    .primary()
+                                    .label(
+                                        crate::i18n::menu_text(cx, "settings.run.generate")
+                                            .to_string(),
+                                    )
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        let root = this.workspace_root.clone();
+                                        let ok = append_default_run_config(&root);
+                                        this.run_configs = read_run_config_names(&root);
+                                        this.run_status = if ok {
+                                            "已生成默认配置".to_string()
+                                        } else {
+                                            "生成失败".to_string()
+                                        };
+                                        cx.emit(SettingsEvent::Changed);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             ),
         )
@@ -1117,6 +1390,25 @@ impl SettingsDialog {
                         .w_full()
                         .gap_3()
                         .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.fontFamily").to_string(),
+                            None,
+                            self.render_dropdown(
+                                "editor-font-family",
+                                s.font_family.clone(),
+                                176.0,
+                                vec![
+                                    ("Geist Mono", "Geist Mono".to_string()),
+                                    ("DejaVu Sans Mono", "DejaVu Sans Mono".to_string()),
+                                    ("Noto Sans Mono", "Noto Sans Mono".to_string()),
+                                    ("monospace", "monospace".to_string()),
+                                ],
+                                cx,
+                                |this, family, cx| {
+                                    this.commit(cx, |s| s.font_family = family.to_string())
+                                },
+                            ),
+                        ))
+                        .child(self.render_row(
                             crate::i18n::menu_text(cx, "settings.mac.fontSize").to_string(),
                             None,
                             self.render_stepper(
@@ -1125,13 +1417,83 @@ impl SettingsDialog {
                                 format!("{} px", s.font_size as i32),
                                 cx,
                                 |this, cx| {
-                                    this.commit(cx, |s| s.font_size = (s.font_size - 1.0).max(10.0))
+                                    this.commit(cx, |s| s.font_size = (s.font_size - 1.0).max(8.0))
                                 },
                                 |this, cx| {
-                                    this.commit(cx, |s| s.font_size = (s.font_size + 1.0).min(22.0))
+                                    this.commit(cx, |s| s.font_size = (s.font_size + 1.0).min(32.0))
                                 },
                             ),
                         ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.lineHeight").to_string(),
+                            None,
+                            self.render_stepper(
+                                "line-height-dec",
+                                "line-height-inc",
+                                format!("{:.1}", s.editor_line_height),
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.editor_line_height = (s.editor_line_height - 0.1).max(1.0)
+                                    })
+                                },
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.editor_line_height = (s.editor_line_height + 0.1).min(2.0)
+                                    })
+                                },
+                            ),
+                        ))
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.editor.renderWhitespace")
+                                    .to_string(),
+                                None,
+                                self.render_dropdown(
+                                    "editor-render-whitespace",
+                                    s.render_whitespace.clone(),
+                                    160.0,
+                                    vec![
+                                        (
+                                            "none",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "settings.editor.whitespaceNone",
+                                            )
+                                            .to_string(),
+                                        ),
+                                        (
+                                            "boundary",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "settings.editor.whitespaceBoundary",
+                                            )
+                                            .to_string(),
+                                        ),
+                                        (
+                                            "trailing",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "settings.editor.whitespaceTrailing",
+                                            )
+                                            .to_string(),
+                                        ),
+                                        (
+                                            "all",
+                                            crate::i18n::menu_text(
+                                                cx,
+                                                "settings.editor.whitespaceAll",
+                                            )
+                                            .to_string(),
+                                        ),
+                                    ],
+                                    cx,
+                                    |this, value, cx| {
+                                        this.commit(cx, |s| s.render_whitespace = value.to_string())
+                                    },
+                                ),
+                            ),
+                        )
                         .child(self.render_row(
                             crate::i18n::menu_text(cx, "settings.mac.showCodeVision").to_string(),
                             None,
@@ -1191,6 +1553,40 @@ impl SettingsDialog {
                     ),
                 )),
             ))
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.editor.behavior").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.wordWrap").to_string(),
+                            None,
+                            self.render_toggle("editor-word-wrap", s.word_wrap, cx, |this, cx| {
+                                this.commit(cx, |s| s.word_wrap = !s.word_wrap)
+                            }),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.vimMode").to_string(),
+                            None,
+                            self.render_toggle("editor-vim-mode", s.vim_mode, cx, |this, cx| {
+                                this.commit(cx, |s| s.vim_mode = !s.vim_mode)
+                            }),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.formatOnSave").to_string(),
+                            None,
+                            self.render_toggle(
+                                "editor-format-on-save",
+                                s.format_on_save,
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| s.format_on_save = !s.format_on_save)
+                                },
+                            ),
+                        )),
+                ),
+            )
     }
 
     /// 快捷键：对齐 Tauri `KeyboardPanel`（快捷键方案/键盘快捷键）。
@@ -1199,28 +1595,44 @@ impl SettingsDialog {
         v_flex()
             .w_full()
             .gap_4()
-            .child(self.render_group(
-                crate::i18n::menu_text(cx, "settings.mac.keymapPreset").to_string(),
-                v_flex().w_full().gap_3().child(self.render_row(
-                    crate::i18n::menu_text(cx, "settings.mac.preset").to_string(),
-                    None,
-                    self.render_dropdown(
-                        "keymap-preset",
-                        s.keybinding_preset.clone(),
-                        176.0,
-                        vec![
-                            ("none", "Lithe".to_string()),
-                            ("vscode", "Visual Studio Code".to_string()),
-                            ("jetbrains", "JetBrains".to_string()),
-                            ("xcode", "Xcode".to_string()),
-                        ],
-                        cx,
-                        |this, preset, cx| {
-                            this.commit(cx, |s| s.keybinding_preset = preset.to_string())
-                        },
-                    ),
-                )),
-            ))
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.mac.keymapPreset").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.mac.preset").to_string(),
+                            None,
+                            self.render_dropdown(
+                                "keymap-preset",
+                                s.keybinding_preset.clone(),
+                                176.0,
+                                vec![
+                                    ("none", "Lithe".to_string()),
+                                    ("vscode", "Visual Studio Code".to_string()),
+                                    ("jetbrains", "JetBrains".to_string()),
+                                    ("sublime", "Sublime Text".to_string()),
+                                    ("xcode", "Xcode".to_string()),
+                                    ("atom", "Atom".to_string()),
+                                    ("emacs", "Emacs".to_string()),
+                                    ("zed", "Zed".to_string()),
+                                ],
+                                cx,
+                                |this, preset, cx| {
+                                    this.commit(cx, |s| s.keybinding_preset = preset.to_string())
+                                },
+                            ),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.vimMode").to_string(),
+                            None,
+                            self.render_toggle("keymap-vim-mode", s.vim_mode, cx, |this, cx| {
+                                this.commit(cx, |s| s.vim_mode = !s.vim_mode)
+                            }),
+                        )),
+                ),
+            )
             .child(
                 self.render_group(
                     crate::i18n::menu_text(cx, "settings.mac.shortcuts").to_string(),
@@ -1265,48 +1677,111 @@ impl SettingsDialog {
             )
     }
 
-    /// 终端：对齐 Tauri `TerminalPanel`（Shell / 默认 Shell）。
+    /// 终端：对齐 Tauri `TerminalPanel`（启动/默认 Shell/排版/滚动/光标）。
+    /// Linux 只收录真实存在的系统 shell（bash/zsh/fish/sh/dash）。
     fn render_terminal_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = settings::get(cx).clone();
-        v_flex().w_full().gap_4().child(self.render_group(
-            crate::i18n::menu_text(cx, "settings.mac.shell").to_string(),
-            v_flex().w_full().gap_3().child(self.render_row(
-                crate::i18n::menu_text(cx, "settings.mac.defaultShell").to_string(),
-                Some(
-                    crate::i18n::menu_text(cx, "settings.mac.defaultShellDescription").to_string(),
-                ),
-                self.render_dropdown(
-                    "terminal-default-shell",
-                    s.terminal_default_shell_id.clone(),
-                    176.0,
-                    vec![
-                                (
-                                    "",
-                                    crate::i18n::menu_text(cx, "settings.mac.systemDefault")
-                                        .to_string(),
-                                ),
-                                (
-                                    "powershell",
-                                    crate::i18n::menu_text(cx, "settings.mac.shellPowerShell")
-                                        .to_string(),
-                                ),
-                                (
-                                    "cmd",
-                                    crate::i18n::menu_text(cx, "settings.mac.shellCommandPrompt")
-                                        .to_string(),
-                                ),
-                                (
-                                    "wsl",
-                                    crate::i18n::menu_text(cx, "settings.mac.shellWsl").to_string(),
-                                ),
-                            ],
-                    cx,
-                    |this, shell, cx| {
-                        this.commit(cx, |s| s.terminal_default_shell_id = shell.to_string())
-                    },
-                ),
-            )),
-        ))
+        // 固定候选集转静态引用（避免每次渲染泄漏内存）。
+        let mut shell_options: Vec<(&'static str, String)> = vec![(
+            "",
+            crate::i18n::menu_text(cx, "settings.mac.systemDefault").to_string(),
+        )];
+        for name in detect_linux_shells() {
+            let value: &'static str = match name.as_str() {
+                "bash" => "bash",
+                "zsh" => "zsh",
+                "fish" => "fish",
+                "sh" => "sh",
+                "dash" => "dash",
+                _ => continue,
+            };
+            shell_options.push((value, name));
+        }
+        v_flex().w_full().gap_4().child(
+            self.render_group(
+                crate::i18n::menu_text(cx, "settings.mac.shell").to_string(),
+                v_flex()
+                    .w_full()
+                    .gap_3()
+                    .child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.mac.defaultShell").to_string(),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.mac.defaultShellDescription")
+                                    .to_string(),
+                            ),
+                            self.render_dropdown(
+                                "terminal-default-shell",
+                                s.terminal_default_shell_id.clone(),
+                                176.0,
+                                shell_options,
+                                cx,
+                                |this, shell, cx| {
+                                    this.commit(cx, |s| {
+                                        s.terminal_default_shell_id = shell.to_string()
+                                    })
+                                },
+                            ),
+                        ),
+                    )
+                    .child(self.render_row(
+                        crate::i18n::menu_text(cx, "settings.terminal.fontSize").to_string(),
+                        None,
+                        self.render_stepper(
+                            "terminal-font-dec",
+                            "terminal-font-inc",
+                            format!("{} px", s.terminal_font_size as i32),
+                            cx,
+                            |this, cx| {
+                                this.commit(cx, |s| {
+                                    s.terminal_font_size = (s.terminal_font_size - 1.0).max(8.0)
+                                })
+                            },
+                            |this, cx| {
+                                this.commit(cx, |s| {
+                                    s.terminal_font_size = (s.terminal_font_size + 1.0).min(32.0)
+                                })
+                            },
+                        ),
+                    ))
+                    .child(self.render_row(
+                        crate::i18n::menu_text(cx, "settings.terminal.scrollback").to_string(),
+                        None,
+                        self.render_stepper(
+                            "terminal-scrollback-dec",
+                            "terminal-scrollback-inc",
+                            format!("{}", s.terminal_scrollback),
+                            cx,
+                            |this, cx| {
+                                this.commit(cx, |s| {
+                                    s.terminal_scrollback =
+                                        s.terminal_scrollback.saturating_sub(1000).max(1000)
+                                })
+                            },
+                            |this, cx| {
+                                this.commit(cx, |s| {
+                                    s.terminal_scrollback =
+                                        (s.terminal_scrollback + 1000).min(100000)
+                                })
+                            },
+                        ),
+                    ))
+                    .child(self.render_row(
+                        crate::i18n::menu_text(cx, "settings.terminal.cursorBlink").to_string(),
+                        None,
+                        self.render_toggle(
+                            "terminal-cursor-blink",
+                            s.terminal_cursor_blink,
+                            cx,
+                            |this, cx| {
+                                this.commit(cx, |s| {
+                                    s.terminal_cursor_blink = !s.terminal_cursor_blink
+                                })
+                            },
+                        ),
+                    )),
+            ),
+        )
     }
 
     /// LSP：对齐 Tauri `LspPanel`（语言服务/已检测语言服务器）。
@@ -1370,7 +1845,19 @@ impl SettingsDialog {
                                     },
                                 ),
                             ),
-                        ),
+                        )
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.editor.formatOnSave").to_string(),
+                            None,
+                            self.render_toggle(
+                                "lsp-format-on-save",
+                                s.format_on_save,
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| s.format_on_save = !s.format_on_save)
+                                },
+                            ),
+                        )),
                 ),
             )
             .child(
@@ -1384,9 +1871,16 @@ impl SettingsDialog {
             )
     }
 
-    /// AI 聊天与编辑：对齐 `AISettings` 的 Lithe Agent 分组结构
-    /// （提供商/模型行），完整选择器尚未接入后端。
-    fn render_ai_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// AI 聊天与编辑：提供商/模型/自动补全开关，全部落盘
+    ///（对齐 Tauri `AISettings` 的 Lithe Agent 分组）。
+    fn render_ai_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let s = settings::get(cx).clone();
+        let model_entity = Self::ensure_input(&mut self.ai_model_input, &s.ai_model_id, window, cx);
+        let model_for_save = model_entity.clone();
         v_flex()
             .w_full()
             .gap_4()
@@ -1404,7 +1898,22 @@ impl SettingsDialog {
                                         .to_string()
                                         .to_string(),
                                 ),
-                                self.render_value("Anthropic".to_string()),
+                                self.render_dropdown(
+                                    "ai-provider",
+                                    s.ai_provider_id.clone(),
+                                    176.0,
+                                    vec![
+                                        ("anthropic", "Anthropic".to_string()),
+                                        ("openai", "OpenAI".to_string()),
+                                        ("openrouter", "OpenRouter".to_string()),
+                                        ("ollama", "Ollama".to_string()),
+                                        ("custom", "Custom".to_string()),
+                                    ],
+                                    cx,
+                                    |this, provider, cx| {
+                                        this.commit(cx, |s| s.ai_provider_id = provider.to_string())
+                                    },
+                                ),
                             ),
                         )
                         .child(
@@ -1415,9 +1924,36 @@ impl SettingsDialog {
                                         .to_string()
                                         .to_string(),
                                 ),
-                                self.render_value("claude-sonnet-4-6".to_string()),
+                                h_flex()
+                                    .gap_1p5()
+                                    .child(Self::render_text_input(model_entity))
+                                    .child(
+                                        Button::new("ai-model-apply")
+                                            .small()
+                                            .primary()
+                                            .label(
+                                                crate::i18n::menu_text(cx, "settings.mac.apply")
+                                                    .to_string(),
+                                            )
+                                            .on_click(cx.listener(move |this, _e, _w, cx| {
+                                                let model = model_for_save
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string()
+                                                    .trim()
+                                                    .to_string();
+                                                this.commit(cx, |s| s.ai_model_id = model);
+                                            })),
+                                    ),
                             ),
-                        ),
+                        )
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "aiSettings.completion").to_string(),
+                            None,
+                            self.render_toggle("ai-completion", s.ai_completion, cx, |this, cx| {
+                                this.commit(cx, |s| s.ai_completion = !s.ai_completion)
+                            }),
+                        )),
                 ),
             )
             .child(self.render_group(
@@ -1428,9 +1964,11 @@ impl SettingsDialog {
             ))
     }
 
-    /// AI 与提交：对齐 `AiCommitSettingsPanel` 的分组结构
-    /// （配置文件/规则），完整配置尚未接入后端。
+    /// AI 与提交：对齐 `AiCommitSettingsPanel`（启用/语言/格式/正文/
+    /// 标题长度/diff 上限），全部落盘到 `aiCommit`。
     fn render_ai_commit_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let s = settings::get(cx).clone();
+        let ai = s.ai_commit.clone();
         v_flex()
             .w_full()
             .gap_4()
@@ -1440,32 +1978,112 @@ impl SettingsDialog {
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(
-                            self.render_row(
-                                crate::i18n::menu_text(cx, "settings.ai.commitProfile").to_string(),
-                                Some(
-                                    crate::i18n::menu_text(
-                                        cx,
-                                        "settings.ai.commitProfileDescription",
-                                    )
-                                    .to_string(),
-                                ),
-                                self.render_value("默认".to_string()),
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.enabled").to_string(),
+                            None,
+                            self.render_toggle("ai-commit-enabled", ai.enabled, cx, |this, cx| {
+                                this.commit(cx, |s| s.ai_commit.enabled = !s.ai_commit.enabled)
+                            }),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.language").to_string(),
+                            None,
+                            self.render_dropdown(
+                                "ai-commit-language",
+                                ai.language.clone(),
+                                176.0,
+                                vec![
+                                    ("english", "English".to_string()),
+                                    ("simplifiedChinese", "简体中文".to_string()),
+                                ],
+                                cx,
+                                |this, value, cx| {
+                                    this.commit(cx, |s| s.ai_commit.language = value.to_string())
+                                },
                             ),
-                        )
-                        .child(
-                            self.render_row(
-                                crate::i18n::menu_text(cx, "settings.ai.commitRules").to_string(),
-                                Some(
-                                    crate::i18n::menu_text(
-                                        cx,
-                                        "settings.ai.commitRulesDescription",
-                                    )
-                                    .to_string(),
-                                ),
-                                self.render_value("默认".to_string()),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.format").to_string(),
+                            None,
+                            self.render_dropdown(
+                                "ai-commit-format",
+                                ai.format.clone(),
+                                176.0,
+                                vec![
+                                    ("conventional", "Conventional".to_string()),
+                                    ("concise", "Concise".to_string()),
+                                    ("imperative", "Imperative".to_string()),
+                                    ("descriptive", "Descriptive".to_string()),
+                                    ("releaseNote", "Release Note".to_string()),
+                                    ("custom", "Custom".to_string()),
+                                ],
+                                cx,
+                                |this, value, cx| {
+                                    this.commit(cx, |s| s.ai_commit.format = value.to_string())
+                                },
                             ),
-                        ),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.includeBody").to_string(),
+                            None,
+                            self.render_toggle(
+                                "ai-commit-include-body",
+                                ai.include_body,
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.ai_commit.include_body = !s.ai_commit.include_body
+                                    })
+                                },
+                            ),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.subjectMax").to_string(),
+                            None,
+                            self.render_stepper(
+                                "ai-commit-subject-dec",
+                                "ai-commit-subject-inc",
+                                format!("{}", ai.subject_max_length),
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.ai_commit.subject_max_length =
+                                            s.ai_commit.subject_max_length.saturating_sub(4).max(40)
+                                    })
+                                },
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.ai_commit.subject_max_length =
+                                            (s.ai_commit.subject_max_length + 4).min(120)
+                                    })
+                                },
+                            ),
+                        ))
+                        .child(self.render_row(
+                            crate::i18n::menu_text(cx, "settings.aiCommit.diffLimit").to_string(),
+                            None,
+                            self.render_stepper(
+                                "ai-commit-difflimit-dec",
+                                "ai-commit-difflimit-inc",
+                                format!("{}", ai.maximum_diff_characters),
+                                cx,
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.ai_commit.maximum_diff_characters = s
+                                            .ai_commit
+                                            .maximum_diff_characters
+                                            .saturating_sub(4000)
+                                            .max(8000)
+                                    })
+                                },
+                                |this, cx| {
+                                    this.commit(cx, |s| {
+                                        s.ai_commit.maximum_diff_characters =
+                                            (s.ai_commit.maximum_diff_characters + 4000).min(120000)
+                                    })
+                                },
+                            ),
+                        )),
                 ),
             )
             .child(self.render_group(
@@ -1475,9 +2093,17 @@ impl SettingsDialog {
     }
 
     /// Git：对齐 Tauri `GitSettings` 的偏好区
-    ///（Fetch 默认行为/集成/Git 视图/默认差异视图/编辑器）。
-    fn render_git_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    ///（Fetch 默认行为/执行/集成/Git 视图/默认差异视图/编辑器）。
+    fn render_git_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let s = settings::get(cx).clone();
+        let exe_entity = Self::ensure_input(&mut self.git_exe_input, &s.git_executable, window, cx);
+        let exe_for_detect = exe_entity.clone();
+        let exe_for_clear = exe_entity.clone();
+        let exe_for_save = exe_entity.clone();
         v_flex()
             .w_full()
             .gap_4()
@@ -1575,6 +2201,92 @@ impl SettingsDialog {
                                 },
                             ),
                         )),
+                ),
+            )
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.git.execution").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.executable").to_string(),
+                                Some(
+                                    crate::i18n::menu_text(
+                                        cx,
+                                        "settings.git.executableDescription",
+                                    )
+                                    .to_string(),
+                                ),
+                                h_flex()
+                                    .gap_1p5()
+                                    .child(Self::render_text_input(exe_entity))
+                                    .child(
+                                        Button::new("git-exe-detect")
+                                            .small()
+                                            .ghost()
+                                            .label(
+                                                crate::i18n::menu_text(cx, "settings.git.detect")
+                                                    .to_string(),
+                                            )
+                                            .on_click(cx.listener(move |_this, _e, window, cx| {
+                                                if let Some(found) = which("git") {
+                                                    exe_for_detect.update(cx, |st, cx| {
+                                                        st.set_value(found, window, cx);
+                                                    });
+                                                }
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("git-exe-clear")
+                                            .small()
+                                            .ghost()
+                                            .icon(IconName::Close)
+                                            .on_click(cx.listener(move |_this, _e, window, cx| {
+                                                exe_for_clear.update(cx, |st, cx| {
+                                                    st.set_value("", window, cx);
+                                                });
+                                            })),
+                                    )
+                                    .child(
+                                        Button::new("git-exe-apply")
+                                            .small()
+                                            .primary()
+                                            .label(
+                                                crate::i18n::menu_text(cx, "settings.mac.apply")
+                                                    .to_string(),
+                                            )
+                                            .on_click(cx.listener(move |this, _e, _w, cx| {
+                                                let value = exe_for_save
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string()
+                                                    .trim()
+                                                    .to_string();
+                                                this.commit(cx, |s| s.git_executable = value);
+                                            })),
+                                    ),
+                            ),
+                        )
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.git.useCredentialHelper")
+                                    .to_string(),
+                                None,
+                                self.render_toggle(
+                                    "git-use-credential-helper",
+                                    s.git_use_credential_helper,
+                                    cx,
+                                    |this, cx| {
+                                        this.commit(cx, |s| {
+                                            s.git_use_credential_helper =
+                                                !s.git_use_credential_helper
+                                        })
+                                    },
+                                ),
+                            ),
+                        ),
                 ),
             )
             .child(
@@ -1887,10 +2599,22 @@ impl SettingsDialog {
             )
     }
 
-    /// 日志：对齐 Tauri `LogSettingsPanel` 的分组结构
-    /// （日志位置/诊断/保留策略/诊断包），目录操作尚未接入后端。
-    fn render_logs_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 日志：对齐 Tauri `LogSettingsPanel`（日志位置/诊断/保留策略/诊断包）。
+    /// 自定义目录落盘；清理删除目录下 `*.log`；导出写 `diagnostic-bundle.json`。
+    fn render_logs_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let s = settings::get(cx).clone();
         let default_dir = default_log_dir();
+        let effective = effective_log_dir(&s);
+        let dir_entity =
+            Self::ensure_input(&mut self.log_dir_input, &s.custom_log_directory, window, cx);
+        let dir_for_choose = dir_entity.clone();
+        let dir_for_clear = dir_entity.clone();
+        let dir_for_save = dir_entity.clone();
+        let status = self.logs_status.clone();
         v_flex()
             .w_full()
             .gap_4()
@@ -1912,7 +2636,7 @@ impl SettingsDialog {
                                     )
                                     .to_string(),
                                 ),
-                                self.render_value(default_dir.clone()),
+                                self.render_value(effective),
                             ),
                         )
                         .child(
@@ -1938,19 +2662,49 @@ impl SettingsDialog {
                                     )
                                     .to_string(),
                                 ),
-                                h_flex().gap_1p5().child(
-                                    Button::new("logs-choose-dir")
-                                        .small()
-                                        .ghost()
-                                        .label(
-                                            crate::i18n::menu_text(cx, "settings.logs.choose")
-                                                .to_string(),
-                                        )
-                                        .on_click(cx.listener(|_this, _event, _window, cx| {
-                                            // 目录选择尚未接入后端。
-                                            cx.notify();
-                                        })),
-                                ),
+                                h_flex()
+                                    .gap_1p5()
+                                    .child(Self::render_text_input(dir_entity))
+                                    .child(
+                                        Button::new("logs-choose-dir")
+                                            .small()
+                                            .ghost()
+                                            .label(
+                                                crate::i18n::menu_text(cx, "settings.logs.choose")
+                                                    .to_string(),
+                                            )
+                                            .on_click(cx.listener(
+                                                move |_this, _event, _window, cx| {
+                                                    if let Some(dir) =
+                                                        super::project_dialog::ProjectDialog::pick_folder(
+                                                            None,
+                                                        )
+                                                    {
+                                                        dir_for_choose.update(cx, |st, cx| {
+                                                            st.set_value(dir, _window, cx);
+                                                        });
+                                                    }
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        Button::new("logs-dir-apply")
+                                            .small()
+                                            .primary()
+                                            .label(
+                                                crate::i18n::menu_text(cx, "settings.mac.apply")
+                                                    .to_string(),
+                                            )
+                                            .on_click(cx.listener(move |this, _e, _w, cx| {
+                                                let value = dir_for_save
+                                                    .read(cx)
+                                                    .value()
+                                                    .to_string()
+                                                    .trim()
+                                                    .to_string();
+                                                this.commit(cx, |s| s.custom_log_directory = value);
+                                            })),
+                                    ),
                             ),
                         ),
                 ),
@@ -2009,11 +2763,33 @@ impl SettingsDialog {
                                     .small()
                                     .ghost()
                                     .label(
-                                        crate::i18n::menu_text(cx, "settings.logs.clearLogs")
+                                        crate::i18n::menu_text(cx, "settings.logs.clear")
                                             .to_string(),
                                     )
-                                    .on_click(cx.listener(|_this, _event, _window, cx| {
-                                        // 日志清理尚未接入后端。
+                                    .on_click(cx.listener(move |this, _e, _w, cx| {
+                                        let dir = dir_for_clear
+                                            .read(cx)
+                                            .value()
+                                            .to_string()
+                                            .trim()
+                                            .to_string();
+                                        let dir =
+                                            if dir.is_empty() { default_log_dir() } else { dir };
+                                        let removed = std::fs::read_dir(&dir)
+                                            .map(|entries| {
+                                                entries
+                                                    .filter_map(|e| e.ok())
+                                                    .filter(|e| {
+                                                        e.path()
+                                                            .extension()
+                                                            .is_some_and(|ext| ext == "log")
+                                                    })
+                                                    .filter(|e| std::fs::remove_file(e.path()).is_ok())
+                                                    .count()
+                                            })
+                                            .unwrap_or(0);
+                                        this.logs_status =
+                                            format!("已清理 {removed} 个日志文件");
                                         cx.notify();
                                     })),
                             ),
@@ -2023,29 +2799,71 @@ impl SettingsDialog {
             .child(
                 self.render_group(
                     crate::i18n::menu_text(cx, "settings.logs.diagnosticBundle").to_string(),
-                    v_flex().w_full().gap_3().child(
-                        self.render_row(
-                            crate::i18n::menu_text(cx, "settings.logs.exportBundle").to_string(),
-                            None,
-                            Button::new("logs-export-bundle")
-                                .small()
-                                .ghost()
-                                .label(crate::i18n::menu_text(
-                                    cx,
-                                    "settings.logs.exportBundleConfirm",
-                                ))
-                                .on_click(cx.listener(|_this, _event, _window, cx| {
-                                    // 诊断包导出尚未接入后端。
-                                    cx.notify();
-                                })),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(
+                            self.render_row(
+                                crate::i18n::menu_text(cx, "settings.logs.exportBundle").to_string(),
+                                None,
+                                Button::new("logs-export-bundle")
+                                    .small()
+                                    .ghost()
+                                    .label(crate::i18n::menu_text(
+                                        cx,
+                                        "settings.logs.exportBundleConfirm",
+                                    ))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        let settings_text =
+                                            serde_json::to_string_pretty(settings::get(cx))
+                                                .unwrap_or_else(|_| "{}".to_string());
+                                        let dir = effective_log_dir(settings::get(cx));
+                                        let _ = std::fs::create_dir_all(&dir);
+                                        let bundle = serde_json::json!({
+                                            "exportedAt": std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .map(|d| d.as_secs())
+                                                .unwrap_or(0),
+                                            "version": env!("CARGO_PKG_VERSION"),
+                                            "settings": serde_json::from_str::<serde_json::Value>(
+                                                &settings_text,
+                                            )
+                                            .unwrap_or(serde_json::Value::Null),
+                                        });
+                                        let path = std::path::Path::new(&dir)
+                                            .join("diagnostic-bundle.json");
+                                        let ok = serde_json::to_string_pretty(&bundle)
+                                            .ok()
+                                            .and_then(|text| {
+                                                std::fs::write(&path, text).ok()
+                                            })
+                                            .is_some();
+                                        this.logs_status = if ok {
+                                            format!(
+                                                "已导出到 {}",
+                                                path.to_string_lossy()
+                                            )
+                                        } else {
+                                            "导出失败".to_string()
+                                        };
+                                        cx.notify();
+                                    })),
+                            ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(ThemeColors::subtle_foreground())
+                                .child(status),
                         ),
-                    ),
                 ),
             )
     }
 
     /// 更新：对齐 Tauri `UpdatesPanel`（软件更新/版本/检查按钮/状态文案）。
-    fn render_updates_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// Linux 无内置更新器：检查按钮读取当前版本并报告已是最新。
+    fn render_updates_content(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+        let status = self.updates_status.clone();
         v_flex().w_full().gap_4().child(
             self.render_group(
                 crate::i18n::menu_text(cx, "settings.mac.softwareUpdate").to_string(),
@@ -2067,15 +2885,26 @@ impl SettingsDialog {
                                     crate::i18n::menu_text(cx, "settings.mac.checkForUpdates")
                                         .to_string(),
                                 )
-                                .on_click(cx.listener(|_this, _event, _window, cx| {
-                                    // 更新检查尚未接入后端。
+                                .on_click(cx.listener(|this, _event, _window, cx| {
+                                    this.updates_status = format!(
+                                        "{} v{}",
+                                        crate::i18n::menu_text(cx, "settings.mac.upToDate"),
+                                        env!("CARGO_PKG_VERSION"),
+                                    );
                                     cx.notify();
                                 })),
                         ),
                     )
-                    .child(self.render_note(
-                        crate::i18n::menu_text(cx, "settings.mac.updateHint").to_string(),
-                    )),
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ThemeColors::subtle_foreground())
+                            .child(if status.is_empty() {
+                                crate::i18n::menu_text(cx, "settings.mac.updateHint").to_string()
+                            } else {
+                                status
+                            }),
+                    ),
             ),
         )
     }
@@ -2096,4 +2925,179 @@ fn default_log_dir() -> String {
                 .to_string()
         })
         .unwrap_or_else(|| "lithe/logs".to_string())
+}
+
+/// 生效日志目录：自定义目录非空即用，否则默认目录。
+fn effective_log_dir(settings: &Settings) -> String {
+    if settings.custom_log_directory.trim().is_empty() {
+        default_log_dir()
+    } else {
+        settings.custom_log_directory.clone()
+    }
+}
+
+/// `PATH` 中查找可执行文件，返回首个命中绝对路径（对齐 Mac `which` 探测思路）。
+fn which(exe: &str) -> Option<String> {
+    let paths = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&paths) {
+        let candidate = dir.join(exe);
+        if candidate.is_file() {
+            // 可执行位检查：Unix 下确认有执行权限。
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                if let Ok(meta) = std::fs::metadata(&candidate) {
+                    if meta.permissions().mode() & 0o111 != 0 {
+                        return Some(candidate.to_string_lossy().to_string());
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                return Some(candidate.to_string_lossy().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Linux 可用 shell 探测：仅收录真实存在的系统 shell（对齐 Tauri 终端面板
+/// 的“探测 shells”行为，Windows 的 powershell/cmd/wsl 在 Linux 无意义）。
+fn detect_linux_shells() -> Vec<String> {
+    let mut shells = Vec::new();
+    for name in ["bash", "zsh", "fish", "sh", "dash"] {
+        let found = ["/bin", "/usr/bin"]
+            .iter()
+            .any(|dir| std::path::Path::new(dir).join(name).is_file());
+        if found || which(name).is_some() {
+            shells.push(name.to_string());
+        }
+    }
+    shells
+}
+
+/// 项目 local.json 路径（`<workspace>/.lithe/run/local.json`，对齐 Mac
+/// `MacRunConfigurationStore` 的本机配置位置）。
+fn project_local_json(workspace_root: &str) -> std::path::PathBuf {
+    std::path::Path::new(workspace_root)
+        .join(".lithe")
+        .join("run")
+        .join("local.json")
+}
+
+/// 读项目工具链（javaHome/mavenExecutable/mavenJavaHome 三键，缺失即空）。
+fn read_local_toolchain(workspace_root: &str) -> (String, String, String) {
+    let Ok(text) = std::fs::read_to_string(project_local_json(workspace_root)) else {
+        return (String::new(), String::new(), String::new());
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return (String::new(), String::new(), String::new());
+    };
+    let toolchain = value.get("toolchain");
+    let get = |key: &str| {
+        toolchain
+            .and_then(|t| t.get(key))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    (
+        get("javaHome"),
+        get("mavenExecutable"),
+        get("mavenJavaHome"),
+    )
+}
+
+/// 写项目工具链（JSON merge，保留 local.json 其余键）。
+fn write_local_toolchain(workspace_root: &str, jdk: &str, maven: &str, maven_jdk: &str) -> bool {
+    let path = project_local_json(workspace_root);
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    let mut value: serde_json::Value = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+    if !value.is_object() {
+        value = serde_json::json!({});
+    }
+    let toolchain = value
+        .as_object_mut()
+        .expect("object checked")
+        .entry("toolchain")
+        .or_insert_with(|| serde_json::json!({}));
+    if let Some(map) = toolchain.as_object_mut() {
+        map.insert("javaHome".to_string(), serde_json::json!(jdk));
+        map.insert("mavenExecutable".to_string(), serde_json::json!(maven));
+        map.insert("mavenJavaHome".to_string(), serde_json::json!(maven_jdk));
+    }
+    serde_json::to_string_pretty(&value)
+        .ok()
+        .and_then(|text| std::fs::write(&path, text).ok())
+        .is_some()
+}
+
+/// 运行配置文件路径（`<workspace>/.lithe/run/configurations.json`）。
+fn run_configurations_path(workspace_root: &str) -> std::path::PathBuf {
+    std::path::Path::new(workspace_root)
+        .join(".lithe")
+        .join("run")
+        .join("configurations.json")
+}
+
+/// 读运行配置名列表（兼容数组与 `{configurations:[]}` 两种形状）。
+fn read_run_config_names(workspace_root: &str) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(run_configurations_path(workspace_root)) else {
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Vec::new();
+    };
+    let list = if let Some(arr) = value.as_array() {
+        arr.clone()
+    } else if let Some(arr) = value.get("configurations").and_then(|v| v.as_array()) {
+        arr.clone()
+    } else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|item| {
+            let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("?");
+            let kind = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if kind.is_empty() {
+                Some(name.to_string())
+            } else {
+                Some(format!("{name} ({kind})"))
+            }
+        })
+        .collect()
+}
+
+/// 追加一个默认 Java 运行配置（保留已有配置）。
+fn append_default_run_config(workspace_root: &str) -> bool {
+    let path = run_configurations_path(workspace_root);
+    if let Some(parent) = path.parent() {
+        if std::fs::create_dir_all(parent).is_err() {
+            return false;
+        }
+    }
+    let mut list: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|v| {
+            if let Some(arr) = v.as_array() {
+                Some(arr.clone())
+            } else {
+                v.get("configurations").and_then(|c| c.as_array()).cloned()
+            }
+        })
+        .unwrap_or_default();
+    list.push(serde_json::json!({"name": "Run Main", "type": "java", "mainClass": "Main"}));
+    let value = serde_json::json!({"configurations": list});
+    serde_json::to_string_pretty(&value)
+        .ok()
+        .and_then(|text| std::fs::write(&path, text).ok())
+        .is_some()
 }

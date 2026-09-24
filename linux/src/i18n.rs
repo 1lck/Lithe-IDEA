@@ -323,6 +323,17 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "在主视图中将打开的缓冲区显示为可横向滚动的轮播",
             "Show open buffers as a horizontally scrollable carousel in the main view",
         ),
+        "settings.editor.fontFamily" => ("编辑器字体", "Editor Font Family"),
+        "settings.editor.lineHeight" => ("行高", "Line Height"),
+        "settings.editor.renderWhitespace" => ("显示空白字符", "Render Whitespace"),
+        "settings.editor.whitespaceNone" => ("无", "None"),
+        "settings.editor.whitespaceBoundary" => ("边界", "Boundary"),
+        "settings.editor.whitespaceTrailing" => ("行尾", "Trailing"),
+        "settings.editor.whitespaceAll" => ("全部", "All"),
+        "settings.editor.vimMode" => ("Vim 模式", "Vim Mode"),
+        "settings.editor.formatOnSave" => ("保存时格式化", "Format on Save"),
+        "settings.editor.wordWrap" => ("自动换行", "Word Wrap"),
+        "settings.editor.behavior" => ("行为", "Behavior"),
         "settings.mac.keymapPreset" => ("快捷键方案", "Keymap"),
         "settings.mac.preset" => ("预设", "Preset"),
         "settings.mac.shortcuts" => ("键盘快捷键", "Keyboard shortcuts"),
@@ -341,6 +352,9 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "settings.mac.shellPowerShell" => ("PowerShell", "PowerShell"),
         "settings.mac.shellCommandPrompt" => ("命令提示符", "Command Prompt"),
         "settings.mac.shellWsl" => ("WSL", "WSL"),
+        "settings.terminal.fontSize" => ("字体大小", "Font Size"),
+        "settings.terminal.cursorBlink" => ("光标闪烁", "Blinking Cursor"),
+        "settings.terminal.scrollback" => ("回滚缓冲区", "Scrollback"),
         "settings.mac.languageServices" => ("语言服务", "Language services"),
         "settings.mac.autoCompletion" => ("自动补全", "Auto completion"),
         "settings.mac.autoCompletionDescription" => (
@@ -365,6 +379,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "选择 Lithe Agent 使用的模型",
             "Choose the model used by Lithe Agent",
         ),
+        "aiSettings.completion" => ("AI 自动补全", "AI Autocomplete"),
         "settings.mac.commitMessage" => ("提交信息", "Commit messages"),
         // ---- 设置对话框内容：Git（与 Tauri tabs/git-settings.tsx 对齐） ----
         "settings.git.integration" => ("集成", "Integration"),
@@ -432,6 +447,11 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "在编辑器中显示当前行的 Git Blame 元数据",
             "Show inline Git blame metadata for the current line in the editor",
         ),
+        "settings.git.executable" => ("Git 可执行文件", "Git executable"),
+        "settings.git.executableDescription" => ("留空则使用 PATH 中的 Git", "Use Git from PATH"),
+        "settings.git.execution" => ("Git 执行", "Git execution"),
+        "settings.git.detect" => ("探测", "Detect"),
+        "settings.git.useCredentialHelper" => ("使用凭据助手", "Use credential helper"),
         // ---- 设置对话框内容：Git Fetch 默认行为（与 Tauri git-execution-settings 对齐） ----
         "git.fetch.defaults" => ("Fetch 默认行为", "Fetch defaults"),
         "git.fetch.prune" => (
@@ -477,6 +497,8 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "Choose a parent directory; Lithe writes to its Lithe/logs subdirectory.",
         ),
         "settings.logs.choose" => ("选择…", "Choose…"),
+        "settings.logs.clear" => ("清除日志", "Clear Logs"),
+        "settings.logs.export" => ("导出", "Export"),
         "settings.logs.diagnostics" => ("诊断", "Diagnostics"),
         "settings.logs.diagnosticMode" => (
             "本次会话启用诊断日志",
@@ -508,6 +530,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "settings.mac.softwareUpdate" => ("软件更新", "Software Update"),
         "settings.mac.currentVersion" => ("当前版本：{version}", "Current version: {version}"),
         "settings.mac.checkForUpdates" => ("检查更新", "Check for Updates"),
+        "settings.mac.upToDate" => ("Lithe 当前已是最新版本。", "Lithe is up to date."),
         "settings.mac.updateHint" => (
             "Lithe 可以检查新的预览版和稳定版。",
             "Lithe can check for new preview and stable releases.",
@@ -515,6 +538,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         // ---- 设置对话框内容：项目工具链 / 运行生成 / AI 占位（Linux-frame） ----
         "settings.project.toolchain" => ("工具链", "Toolchain"),
         "settings.run.generate" => ("生成运行配置", "Generate Run Configuration"),
+        "settings.run.empty" => ("暂无运行配置", "No run configurations"),
         "settings.ai.noteTitle" => ("说明", "Note"),
         "settings.ai.providerNote" => (
             "完整提供商与模型选择尚未接入，后续版本提供。",
@@ -535,6 +559,15 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
             "Rules applied when generating commit messages",
         ),
         "settings.ai.defaultValue" => ("默认", "Default"),
+        "settings.aiCommit.enabled" => ("启用 AI 提交信息", "Enable AI commit messages"),
+        "settings.aiCommit.language" => ("输出语言", "Output language"),
+        "settings.aiCommit.format" => ("格式", "Format"),
+        "settings.aiCommit.includeBody" => (
+            "有必要时包含简短正文",
+            "Include a short body when useful",
+        ),
+        "settings.aiCommit.subjectMax" => ("标题最大长度", "Maximum subject length"),
+        "settings.aiCommit.diffLimit" => ("Diff 字符限制", "Diff character budget"),
         // ---- 新建项目对话框（与 Tauri locale.ts newProject.* 逐字对齐） ----
         "newProject.backToStarters" => ("返回项目模板", "Back to project starters"),
         "newProject.repositoryUrl" => ("仓库 URL", "Repository URL"),

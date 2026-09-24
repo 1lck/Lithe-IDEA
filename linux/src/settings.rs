@@ -123,6 +123,31 @@ pub const DEFAULT_HIDDEN_FILE_PATTERNS: &[&str] = &[
     "vssver2.scc",
 ];
 
+/// AI 提交信息生成设置，对应 Tauri `CommitAISettings` 的持久化子集。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AiCommitSettings {
+    pub enabled: bool,
+    pub language: String,
+    pub format: String,
+    pub include_body: bool,
+    pub subject_max_length: usize,
+    pub maximum_diff_characters: usize,
+}
+
+impl Default for AiCommitSettings {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            language: "english".to_string(),
+            format: "conventional".to_string(),
+            include_body: false,
+            subject_max_length: 72,
+            maximum_diff_characters: 32000,
+        }
+    }
+}
+
 /// 应用设置真源，字段名与 Tauri `defaultSettings` 的 camelCase 键一一对应。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -131,16 +156,24 @@ pub struct Settings {
     pub auto_save: bool,
     pub quick_open_preview: bool,
     // Editor
+    pub font_family: String,
     pub font_size: f32,
+    pub editor_line_height: f32,
     pub tab_size: usize,
     pub word_wrap: bool,
     pub line_numbers: bool,
+    pub render_whitespace: String,
+    pub render_indent_guides: bool,
+    pub highlight_occurrences: bool,
     pub show_minimap: bool,
     pub code_lens: bool,
     // Terminal
+    pub terminal_font_size: f32,
+    pub terminal_cursor_blink: bool,
     pub terminal_scrollback: usize,
     pub terminal_default_shell_id: String,
     // UI
+    pub ui_font_size: f32,
     pub display_language: String,
     pub reduce_motion: bool,
     pub show_status_bar: bool,
@@ -168,7 +201,9 @@ pub struct Settings {
     pub horizontal_tab_scroll: bool,
     // Keyboard
     pub keybinding_preset: String,
+    pub vim_mode: bool,
     // Language
+    pub format_on_save: bool,
     pub auto_completion: bool,
     pub parameter_hints: bool,
     pub semantic_tokens: bool,
@@ -210,6 +245,15 @@ pub struct Settings {
     pub git_fetch_prune: bool,
     pub git_fetch_submodules: String,
     pub git_fetch_tags: String,
+    pub git_executable: String,
+    pub git_use_credential_helper: bool,
+    // AI
+    pub ai_provider_id: String,
+    pub ai_model_id: String,
+    pub ai_completion: bool,
+    pub ai_commit: AiCommitSettings,
+    // Logs
+    pub custom_log_directory: String,
     // Advanced
     pub last_settings_tab: String,
     pub core_features: CoreFeatures,
@@ -220,14 +264,22 @@ impl Default for Settings {
         Self {
             auto_save: true,
             quick_open_preview: true,
-            font_size: 13.0,
+            font_family: "Geist Mono".to_string(),
+            font_size: 14.0,
+            editor_line_height: 1.4,
             tab_size: 2,
             word_wrap: false,
             line_numbers: true,
+            render_whitespace: "none".to_string(),
+            render_indent_guides: true,
+            highlight_occurrences: true,
             show_minimap: true,
             code_lens: true,
+            terminal_font_size: 14.0,
+            terminal_cursor_blink: true,
             terminal_scrollback: 10000,
             terminal_default_shell_id: String::new(),
+            ui_font_size: 13.0,
             display_language: "zh-CN".to_string(),
             reduce_motion: false,
             show_status_bar: true,
@@ -260,6 +312,8 @@ impl Default for Settings {
             max_open_tabs: 100,
             horizontal_tab_scroll: true,
             keybinding_preset: "none".to_string(),
+            vim_mode: false,
+            format_on_save: false,
             auto_completion: true,
             parameter_hints: true,
             semantic_tokens: true,
@@ -299,6 +353,13 @@ impl Default for Settings {
             git_fetch_prune: true,
             git_fetch_submodules: "inherit".to_string(),
             git_fetch_tags: "inherit".to_string(),
+            git_executable: String::new(),
+            git_use_credential_helper: true,
+            ai_provider_id: "anthropic".to_string(),
+            ai_model_id: "claude-sonnet-4-6".to_string(),
+            ai_completion: true,
+            ai_commit: AiCommitSettings::default(),
+            custom_log_directory: String::new(),
             last_settings_tab: "general".to_string(),
             core_features: CoreFeatures::default(),
         }

@@ -852,6 +852,32 @@ fn is_code_file(name: &str) -> bool {
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_active_editor(window, cx);
+        // 设置弹窗可直接改 word_wrap/line_numbers/render_whitespace：每帧对齐
+        // 全局设置（菜单 toggle 已同步，此处覆盖对话框路径）。
+        {
+            let s = settings::get(cx);
+            let wrap = s.word_wrap;
+            let show_numbers = s.line_numbers;
+            let show_ws = s.render_whitespace.as_str() != "none";
+            if wrap != self.soft_wrap {
+                self.soft_wrap = wrap;
+                self.editor_state.update(cx, |editor, cx| {
+                    editor.set_soft_wrap(wrap, window, cx);
+                });
+            }
+            if show_numbers != self.show_line_numbers {
+                self.show_line_numbers = show_numbers;
+                self.editor_state.update(cx, |editor, cx| {
+                    editor.set_line_number(show_numbers, window, cx);
+                });
+            }
+            if show_ws != self.show_whitespace {
+                self.show_whitespace = show_ws;
+                self.editor_state.update(cx, |editor, cx| {
+                    editor.set_show_whitespaces(show_ws, window, cx);
+                });
+            }
+        }
 
         let active_tab = self
             .active_tab_index
