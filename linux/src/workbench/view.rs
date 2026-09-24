@@ -1723,12 +1723,22 @@ impl WorkbenchView {
             })
             .child(
                 resizable_panel().child(
-                    div()
-                        .flex_1()
+                    v_flex()
                         .h_full()
+                        .w_full()
                         .min_w_0()
-                        .bg(ThemeColors::background())
-                        .child(self.editor.clone()),
+                        .child(
+                            div()
+                                .flex_1()
+                                .w_full()
+                                .min_h_0()
+                                .bg(ThemeColors::background())
+                                .child(self.editor.clone()),
+                        )
+                        .when(bottom_visible, |layout| layout.child(bottom_splitter))
+                        .when(bottom_visible, |layout| {
+                            layout.child(self.bottom_panel.clone())
+                        }),
                 ),
             );
         if let Some(panel) = right_panel {
@@ -1772,10 +1782,6 @@ impl WorkbenchView {
                     .child(div().flex_1().h_full().min_w_0().child(center))
                     .child(self.plugin_rail.clone()),
             )
-            .when(bottom_visible, |layout| layout.child(bottom_splitter))
-            .when(bottom_visible, |layout| {
-                layout.child(self.bottom_panel.clone())
-            })
             .when(show_status_bar, |layout| {
                 layout.child(self.status_bar.clone())
             })
