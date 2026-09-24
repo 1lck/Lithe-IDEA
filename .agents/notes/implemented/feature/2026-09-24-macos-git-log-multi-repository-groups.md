@@ -12,6 +12,9 @@ Local / Remote / Tags。只有一个仓库时，渲染和以前完全一样，�
 `gitRepositoryReferences` 里逐个仓库聚合，不改 Rust Core 的引用 / 历史契约。引用面板
 工具栏新增一个开关控制是否显示链接工作树（`git worktree`）仓库，默认显示。
 
+只有“活动仓库”那一个分组可以执行分支写操作。其它仓库的分组是**只读**的：可以点选
+某一行把它切成活动仓库，但右键不再弹出任何菜单，避免在 B 仓库的行上误操作 A 仓库。
+
 ## 问题
 
 工作区下可以有多个并列仓库，其中主仓库还常带一批链接工作树（位于主仓库目录内的
@@ -37,8 +40,11 @@ macOS 自己完成：`GitFeatureModel` 新增
 
 `GitRepositoryReferences` 是一个纯值类型，保存一个仓库的 `repositoryRoot` 和它的
 `references` / `recentReferences`（定义在 `macos/Sources/LitheGitModule/Models/GitModels.swift`）。
-`refreshGitHistory()` 在成功拿到活动仓库引用之后，遍历 `availableRepositoryRoots` 逐个调用
-现有的 `service.references(at:operationID:)`，按发现顺序写入列表。
+`refreshGitHistory()` 遍历 `availableRepositoryRoots`，逐个调用现有的
+`service.references(at:operationID:)`，按发现顺序写入列表。这一步用独立的 `async let`
+与提交图（`refreshGitRepositoryGraph`）并行发起，只在函数末尾 `await`——**不占用提交
+列表的关键路径**。否则每个仓库的引用读取都会挡在“过期结果校验”和“发布提交页”之间：
+提交列表要等所有仓库读完才显示，而且期间用户切分支时旧刷新会越过校验继续发布过期页。
 
 这样做的理由是：分组是**呈现层**能力，历史分页、游标、diff、控制台都属于活动仓库。把
 “列出所有仓库的引用”做成 Core 新命令，会把仓库身份这一呈现概念塞进稳定契约。macOS 保持
@@ -81,6 +87,23 @@ Local / Remote / Tags 单仓库布局。选中某个非活动仓库的行时，�
 切换活动仓库，再 `selectGitReference(reference)` 加载该分支历史，历史仍是单仓库语义。
 只有活动仓库会高亮选中行。
 
+### 非活动仓库组只读
+
+历史、diff、控制台以及所有分支写操作（checkout / merge / rebase / push / update /
+rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRepositoryRoot` 取参数。如果
+非活动仓库的行也弹出同一套菜单，在 B 仓库的分支上点“删除分支”实际删的是 A 仓库——
+这是数据安全问题。
+
+因此：**非活动仓库的行不显示右键菜单**。`GitLogView` 把“是否只读”传给引用行，
+`GitReferenceRowMenu.entries(...)` 在只读时直接返回空数组，`LitheContextMenuPresenter.show`
+对空数组不弹菜单。只读判断依赖的 `isReadOnly` 纳入 `GitReferenceRowView` 的相等比较，
+否则切换活动仓库后旧行不会重建、仍带着旧菜单。行本身的点击行为不变：先切仓库再选引用。
+
+菜单“有哪些项”被抽成纯函数（`GitReferenceRowMenu.entries(kind:isCurrent:...) ->
+[GitReferenceMenuEntry]`，定义在 `macos/Sources/Lithe/Views/Git/GitReferenceRows.swift`），
+与标题、闭包和本地化解耦，因此“只读仓库不提供任何条目”这条规则可以在没有 SwiftUI
+宿主的情况下直接单元测试。视图只负责把每个条目映射成真实的 `LitheContextMenuItem`。
+
 ## 考虑过的备选方案
 
 - **在 Core 增加“聚合所有仓库引用”的新命令**：被否。把呈现层的仓库身份引入稳定契约，还要
@@ -92,25 +115,38 @@ Local / Remote / Tags 单仓库布局。选中某个非活动仓库的行时，�
 - **用字符串前缀判断工作树祖先**：被否。会把 `op-platform-extra` 误判为 `op-platform` 的子目录。
 - **把开关放进 `AppSettings` 设置模型**：被否。现有 Git Log 开关都不在 `AppSettings` 里，为一个
   布尔量扩大设置模型和其 `restoreDefaults()` 维护面不划算。
+- **让非活动仓库的行执行写操作时先切仓库再执行**：被否。写操作要读分支、改动工作树，
+  “先隐式切仓库”会让一次点击产生用户没预期的活动仓库变更，失败时更难回滚；只读更简单也更安全。
+- **给写操作闭包传入目标 `repositoryRoot`**：被否。写操作链路上游（对话框、待处理请求）都以活动
+  仓库为上下文，逐个改签名会把仓库身份扩散到调用链各处；在菜单层直接不提供更集中。
 
 ## 后果
 
 - 多仓库工作区一次看到所有仓库的分支，并知道每条属于哪个仓库；工作树作为独立仓库照常出现。
-- 单仓库工作区不出现仓库层，行为与改动前一致。
+- 单仓库工作区不出现仓库层，行为与改动前一致；活动仓库（含单仓库）保留完整右键菜单。
 - 每轮历史刷新会为每个仓库多一次只读引用读取，仓库越多总耗时越长；换来的是完整的仓库视图。
+  这些读取与提交图并行且不挡提交页，所以提交列表不会等全部仓库读完。
+- 非活动仓库的引用行没有右键菜单，只能点选切换活动仓库；要对该仓库做写操作，先切过去。
 - 只在可见仓库数 `> 1` 时走分组渲染；开关关闭时被隐藏的是工作树仓库，活动仓库始终保留。
 - 引用面板的 Local / Remote / Tags 展开状态在所有仓库间共享（与 Windows 一致），同名分组
   （如 `feature`）的折叠状态在不同仓库间也是共享的——这是对 Windows 行为的对齐，非缺陷。
 
 ## 验证
 
-- `node scripts/verify-agent-notes.mjs`：本笔记格式与路径校验通过。
+- `node scripts/verify-agent-notes.mjs`：本笔记格式与路径校验统一走这个入口。
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 新增测试：
   - `linkedWorktreeDetectionUsesPathComponentBoundaries`（含 `op-platform` vs `op-platform-extra`
     边界）；
   - `visibleRepositoryRootsHideWorktreesButAlwaysKeepActive`；
   - `gitRepositoryReferencesAggregateAcrossWorkspaceRepositories`（多仓库聚合与顺序）；
-  - `gitRepositoryReferencesHoldOneEntryForSingleRepositoryWorkspace`（单仓库一条）。
+  - `gitRepositoryReferencesHoldOneEntryForSingleRepositoryWorkspace`（单仓库一条）；
+  - `visibleHistoryPublishesBeforeRepositoryReferencesLoad`（某个仓库引用读取被卡住时，
+    提交列表仍先发布）；
+  - `supersededRepositoryReferencesLoadDoesNotPublishAStalePage`（仓库引用读取期间切分支，
+    旧刷新返回后不能覆盖新页）。
+- `macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift` 的 `Git reference row menu` 套件
+  校验菜单策略：只读行返回空条目，活动行的本地 / 远程 / 标签菜单项与启用状态符合预期，
+  分支操作进行中时写操作项被禁用。
 - git 控件本地化词条（含新增的两个开关文案）纳入
   `macos/Tests/LitheTests/AppLocalizationTests.swift` 的英 / 中对照校验。
 - 完整 macOS 编译与测试需要在 macOS 上运行：`./scripts/test-macos.sh`。
@@ -123,9 +159,11 @@ Local / Remote / Tags 单仓库布局。选中某个非活动仓库的行时，�
 - `macos/Sources/LitheGitModule/Models/GitModels.swift`
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
+- `macos/Sources/Lithe/Views/Git/GitReferenceRows.swift`
 - `macos/Resources/en.lproj/Localizable.strings`
 - `macos/Resources/zh-Hans.lproj/Localizable.strings`
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`
+- `macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
 
 不改变 `git.references`、`git.historyPage`、`workspace.repositories` 的 JSON 契约；不改提交图，

@@ -861,6 +861,7 @@ struct GitLogView: View {
                             isPerformingBranchOperation: feature.isPerformingBranchOperation,
                             currentReferenceID: currentReference?.id,
                             comparisonSourceID: comparisonSourceReference?.id,
+                            isReadOnly: !isActiveRepository,
                             actions: actions
                         )
                         .equatable()
@@ -894,7 +895,10 @@ struct GitLogView: View {
 
     /// Selecting a reference in another repository first switches the active
     /// repository, then loads that reference's history, so history keeps its
-    /// single-repository semantics.
+    /// single-repository semantics. The row is read-only — the write closures
+    /// stay populated but unreachable, because `GitReferenceRowView` shows a
+    /// non-active repository's rows with `isReadOnly == true` and the menu
+    /// builder then returns no entries.
     private func repoRowActions(
         for repositoryRoot: URL,
         isActive: Bool
@@ -2879,6 +2883,10 @@ private struct GitReferenceRowView: View, Equatable {
     let isPerformingBranchOperation: Bool
     let currentReferenceID: String?
     let comparisonSourceID: String?
+    /// A row of a repository group that is not active. Read-only rows show no
+    /// context menu, so this participates in equality to force a re-render when
+    /// the active repository changes.
+    let isReadOnly: Bool
     let actions: GitReferenceRowActions
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -2887,6 +2895,7 @@ private struct GitReferenceRowView: View, Equatable {
             && lhs.isPerformingBranchOperation == rhs.isPerformingBranchOperation
             && lhs.currentReferenceID == rhs.currentReferenceID
             && lhs.comparisonSourceID == rhs.comparisonSourceID
+            && lhs.isReadOnly == rhs.isReadOnly
     }
 
     var body: some View {
@@ -2958,90 +2967,114 @@ private struct GitReferenceRowView: View, Equatable {
         .buttonStyle(.plain)
         .lithePointer()
         .litheContextMenu {
-            var items: [LitheContextMenuItem] = []
-            items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
+            referenceMenuItems(for: reference)
+        }
+    }
+
+    /// Maps the pure menu policy to localized items. A read-only row — a
+    /// repository group the user has not selected — resolves to an empty list,
+    /// which the context-menu presenter treats as "no menu". That keeps any
+    /// checkout, merge, rebase, push, update, rename, delete, or compare entry
+    /// from silently running against the active repository.
+    private func referenceMenuItems(for reference: GitReference) -> [LitheContextMenuItem] {
+        GitReferenceRowMenu.entries(
+            kind: reference.kind,
+            isCurrent: reference.isCurrent,
+            showsCompareWithCurrent: currentReferenceID != nil
+                && currentReferenceID != reference.id,
+            showsCompareWithSource: comparisonSourceID != nil
+                && comparisonSourceID != reference.id
+                && actions.comparisonSourceName != nil,
+            isPerformingBranchOperation: isPerformingBranchOperation,
+            isReadOnly: isReadOnly
+        ).map { entry -> LitheContextMenuItem in
+            switch entry {
+            case .separator:
+                return .separator
+            case .action(let action, let isEnabled, let isDestructive):
+                return menuItem(
+                    for: action,
+                    reference: reference,
+                    isEnabled: isEnabled,
+                    isDestructive: isDestructive
+                )
+            }
+        }
+    }
+
+    private func menuItem(
+        for action: GitReferenceMenuAction,
+        reference: GitReference,
+        isEnabled: Bool,
+        isDestructive: Bool
+    ) -> LitheContextMenuItem {
+        let role: LitheContextMenuItem.Role = isDestructive ? .destructive : .standard
+        switch action {
+        case .newBranch:
+            return .action(gitNewBranchMenuTitle(reference.shortName, locale: locale), role: role, isEnabled: isEnabled) {
                 actions.newBranch(reference)
-            }))
-
-            items.append(.action("Show Diff with Working Tree", action: {
+            }
+        case .showDiffWithWorkingTree:
+            return .action("Show Diff with Working Tree", role: role, isEnabled: isEnabled) {
                 actions.showDiffWithWorkingTree(reference)
-            }))
-
-            if let currentReferenceID, currentReferenceID != reference.id {
-                items.append(.action("Compare with Current Branch", action: {
-                    actions.compareWithCurrent(reference)
-                }))
             }
-
-            if let comparisonSourceID, comparisonSourceID != reference.id,
-               let sourceName = actions.comparisonSourceName {
-                items.append(.action(gitLocalizedFormat("Compare '%@' with '%@'", sourceName, reference.shortName, locale: locale), action: {
-                    actions.compareWithSelectedSource(reference)
-                }))
-            } else {
-                items.append(.action("Select for Compare", action: {
-                    actions.selectForCompare(reference)
-                }))
+        case .compareWithCurrent:
+            return .action("Compare with Current Branch", role: role, isEnabled: isEnabled) {
+                actions.compareWithCurrent(reference)
             }
-
-            if !reference.isCurrent {
-                items.append(.separator)
-
-                items.append(.action("Checkout", isEnabled: !(isPerformingBranchOperation), action: {
-                    actions.checkout(reference)
-                }))
-
-                if reference.kind != .tag {
-                    items.append(.action("Checkout and Rebase onto Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
-                        actions.branchOperation(.checkoutAndRebase, reference)
-                    }))
-
-                    items.append(.action("Merge into Current Branch", isEnabled: !(isPerformingBranchOperation), action: {
-                        actions.branchOperation(.merge, reference)
-                    }))
-
-                    items.append(.action("Rebase Current Branch onto…", isEnabled: !(isPerformingBranchOperation), action: {
-                        actions.branchOperation(.rebase, reference)
-                    }))
-                }
+        case .compareWithSelectedSource:
+            let sourceName = actions.comparisonSourceName ?? ""
+            return .action(
+                gitLocalizedFormat("Compare '%@' with '%@'", sourceName, reference.shortName, locale: locale),
+                role: role,
+                isEnabled: isEnabled
+            ) {
+                actions.compareWithSelectedSource(reference)
             }
-
-            if reference.kind == .remote {
-                items.append(.separator)
-
-                items.append(.action("Pull with Rebase", isEnabled: !(isPerformingBranchOperation), action: {
-                    actions.branchOperation(.pullRebase, reference)
-                }))
-
-                items.append(.action("Pull with Merge", isEnabled: !(isPerformingBranchOperation), action: {
-                    actions.branchOperation(.pullMerge, reference)
-                }))
+        case .selectForCompare:
+            return .action("Select for Compare", role: role, isEnabled: isEnabled) {
+                actions.selectForCompare(reference)
             }
-
-            if reference.kind == .local {
-                items.append(.separator)
-
-                items.append(.action("Update", isEnabled: !(!reference.isCurrent || isPerformingBranchOperation), action: {
-                    actions.updateCurrentBranch(reference)
-                }))
-
-                items.append(.action("Push…", isEnabled: !(isPerformingBranchOperation), action: {
-                    actions.push(reference)
-                }))
-
-                if !reference.isCurrent {
-                    items.append(.action("Delete Branch", role: .destructive, isEnabled: !(isPerformingBranchOperation), action: {
-                        actions.branchOperation(.delete, reference)
-                    }))
-                }
-
-                items.append(.separator)
-
-                items.append(.action("Rename…", isEnabled: !(isPerformingBranchOperation), action: {
-                    actions.renameBranch(reference)
-                }))
+        case .checkout:
+            return .action("Checkout", role: role, isEnabled: isEnabled) {
+                actions.checkout(reference)
             }
-            return items
+        case .checkoutAndRebase:
+            return .action("Checkout and Rebase onto Current Branch", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.checkoutAndRebase, reference)
+            }
+        case .merge:
+            return .action("Merge into Current Branch", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.merge, reference)
+            }
+        case .rebase:
+            return .action("Rebase Current Branch onto…", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.rebase, reference)
+            }
+        case .pullRebase:
+            return .action("Pull with Rebase", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.pullRebase, reference)
+            }
+        case .pullMerge:
+            return .action("Pull with Merge", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.pullMerge, reference)
+            }
+        case .update:
+            return .action("Update", role: role, isEnabled: isEnabled) {
+                actions.updateCurrentBranch(reference)
+            }
+        case .push:
+            return .action("Push…", role: role, isEnabled: isEnabled) {
+                actions.push(reference)
+            }
+        case .delete:
+            return .action("Delete Branch", role: role, isEnabled: isEnabled) {
+                actions.branchOperation(.delete, reference)
+            }
+        case .rename:
+            return .action("Rename…", role: role, isEnabled: isEnabled) {
+                actions.renameBranch(reference)
+            }
         }
     }
 

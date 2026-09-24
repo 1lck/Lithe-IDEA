@@ -91,6 +91,99 @@ enum GitReferenceRowsBuilder {
     }
 }
 
+/// One entry of a reference row's context menu, stripped of closures and
+/// localization so the menu's *policy* is testable without a SwiftUI host. The
+/// view maps every entry to a `LitheContextMenuItem` and supplies the closure.
+enum GitReferenceMenuEntry: Equatable {
+    case action(GitReferenceMenuAction, isEnabled: Bool, isDestructive: Bool)
+    case separator
+}
+
+/// Actions a reference row can offer through its context menu.
+enum GitReferenceMenuAction: Equatable {
+    case newBranch
+    case showDiffWithWorkingTree
+    case compareWithCurrent
+    case compareWithSelectedSource
+    case selectForCompare
+    case checkout
+    case checkoutAndRebase
+    case merge
+    case rebase
+    case pullRebase
+    case pullMerge
+    case update
+    case push
+    case delete
+    case rename
+}
+
+/// Builds the context menu a reference row shows.
+///
+/// The Git Log groups references by repository, but history and every branch
+/// workflow still run against the single active repository. A row of a
+/// repository the user has not selected therefore gets no context menu at all:
+/// selecting the row switches the active repository first, while any checkout,
+/// merge, rebase, push, update, rename, delete, or compare entry would silently
+/// target the wrong repository. Extracted from the view so that read-only rule
+/// is directly testable.
+enum GitReferenceRowMenu {
+    static func entries(
+        kind: GitReferenceKind,
+        isCurrent: Bool,
+        showsCompareWithCurrent: Bool,
+        showsCompareWithSource: Bool,
+        isPerformingBranchOperation: Bool,
+        isReadOnly: Bool
+    ) -> [GitReferenceMenuEntry] {
+        guard !isReadOnly else { return [] }
+
+        var entries: [GitReferenceMenuEntry] = []
+        entries.append(.action(.newBranch, isEnabled: true, isDestructive: false))
+        entries.append(.action(.showDiffWithWorkingTree, isEnabled: true, isDestructive: false))
+        if showsCompareWithCurrent {
+            entries.append(.action(.compareWithCurrent, isEnabled: true, isDestructive: false))
+        }
+        if showsCompareWithSource {
+            entries.append(.action(.compareWithSelectedSource, isEnabled: true, isDestructive: false))
+        } else {
+            entries.append(.action(.selectForCompare, isEnabled: true, isDestructive: false))
+        }
+
+        if !isCurrent {
+            entries.append(.separator)
+            entries.append(.action(.checkout, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+
+            if kind != .tag {
+                entries.append(.action(.checkoutAndRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+                entries.append(.action(.merge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+                entries.append(.action(.rebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            }
+        }
+
+        if kind == .remote {
+            entries.append(.separator)
+            entries.append(.action(.pullRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.pullMerge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+        }
+
+        if kind == .local {
+            entries.append(.separator)
+            entries.append(.action(.update, isEnabled: isCurrent && !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.push, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+
+            if !isCurrent {
+                entries.append(.action(.delete, isEnabled: !isPerformingBranchOperation, isDestructive: true))
+            }
+
+            entries.append(.separator)
+            entries.append(.action(.rename, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+        }
+
+        return entries
+    }
+}
+
 /// Intermediate tree used only to group references by their `/`-separated path
 /// before flattening.
 struct GitReferenceTreeNode: Identifiable {

@@ -129,3 +129,99 @@ struct GitReferenceRowsBuilderTests {
         #expect(remote.count == 2, "a local collapse key must not collapse the remote group")
     }
 }
+
+/// The Git Log groups references by repository, but every branch write still
+/// runs against the single active repository. These tests pin that a repository
+/// group the user has not selected offers no context menu at all, so no entry
+/// can silently mutate or compare against the wrong repository.
+@Suite("Git reference row menu")
+struct GitReferenceRowMenuTests {
+    private func entries(
+        kind: GitReferenceKind = .local,
+        isCurrent: Bool = false,
+        showsCompareWithCurrent: Bool = false,
+        showsCompareWithSource: Bool = false,
+        isPerforming: Bool = false,
+        isReadOnly: Bool = false
+    ) -> [GitReferenceMenuEntry] {
+        GitReferenceRowMenu.entries(
+            kind: kind,
+            isCurrent: isCurrent,
+            showsCompareWithCurrent: showsCompareWithCurrent,
+            showsCompareWithSource: showsCompareWithSource,
+            isPerformingBranchOperation: isPerforming,
+            isReadOnly: isReadOnly
+        )
+    }
+
+    @Test
+    func readOnlyRowsOfferNoContextMenuAtAll() {
+        #expect(entries(isReadOnly: true).isEmpty)
+        #expect(entries(kind: .remote, isReadOnly: true).isEmpty)
+        #expect(entries(kind: .tag, isReadOnly: true).isEmpty)
+        #expect(entries(isCurrent: true, isReadOnly: true).isEmpty)
+    }
+
+    @Test
+    func activeRowsOfferTheFullLocalBranchMenu() {
+        let result = entries()
+        #expect(result.contains(.action(.newBranch, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.checkout, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.merge, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.push, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.delete, isEnabled: true, isDestructive: true)))
+        #expect(result.contains(.action(.rename, isEnabled: true, isDestructive: false)))
+        // Update applies only to the checked-out branch.
+        #expect(result.contains(.action(.update, isEnabled: false, isDestructive: false)))
+    }
+
+    @Test
+    func currentBranchEnablesUpdateAndHidesDelete() {
+        let result = entries(isCurrent: true)
+        #expect(result.contains(.action(.update, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.delete, isEnabled: true, isDestructive: true)))
+        // A checked-out branch cannot be checked out again.
+        #expect(!result.contains(.action(.checkout, isEnabled: true, isDestructive: false)))
+    }
+
+    @Test
+    func tagRowsOfferNoBranchRebaseEntries() {
+        let result = entries(kind: .tag)
+        #expect(result.contains(.action(.checkout, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.merge, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.rebase, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.checkoutAndRebase, isEnabled: true, isDestructive: false)))
+    }
+
+    @Test
+    func remoteRowsOfferPullEntries() {
+        let result = entries(kind: .remote)
+        #expect(result.contains(.action(.pullRebase, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.pullMerge, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.push, isEnabled: true, isDestructive: false)))
+    }
+
+    @Test
+    func branchOperationInProgressDisablesBranchWrites() {
+        let result = entries(isPerforming: true)
+        for entry in result {
+            guard case .action(let action, let isEnabled, _) = entry else { continue }
+            switch action {
+            case .checkout, .checkoutAndRebase, .merge, .rebase,
+                 .pullRebase, .pullMerge, .update, .push, .delete, .rename:
+                #expect(!isEnabled)
+            case .newBranch, .showDiffWithWorkingTree, .compareWithCurrent,
+                 .compareWithSelectedSource, .selectForCompare:
+                break
+            }
+        }
+    }
+
+    @Test
+    func compareEntriesFollowTheAvailableComparisonContext() {
+        let result = entries(showsCompareWithCurrent: true, showsCompareWithSource: true)
+        #expect(result.contains(.action(.compareWithCurrent, isEnabled: true, isDestructive: false)))
+        #expect(result.contains(.action(.compareWithSelectedSource, isEnabled: true, isDestructive: false)))
+        #expect(!result.contains(.action(.selectForCompare, isEnabled: true, isDestructive: false)))
+    }
+}

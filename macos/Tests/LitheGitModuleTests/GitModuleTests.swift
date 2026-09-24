@@ -745,6 +745,155 @@ struct GitModuleTests {
     }
 
     @Test
+    func visibleHistoryPublishesBeforeRepositoryReferencesLoad() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let firstRoot = workspace.appendingPathComponent("service-a", isDirectory: true)
+        let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
+        let main = GitReference(
+            fullName: "refs/heads/main", shortName: "main", kind: .local,
+            isCurrent: true, upstreamShortName: nil
+        )
+        let develop = GitReference(
+            fullName: "refs/heads/develop", shortName: "develop", kind: .local,
+            isCurrent: true, upstreamShortName: nil
+        )
+        let probe = GitReferencesLoadProbe(blocking: secondRoot)
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                firstRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: firstRoot, branch: "main", changes: []
+                ),
+                secondRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: secondRoot, branch: "develop", changes: []
+                )
+            ],
+            repositoryRoots: [firstRoot, secondRoot],
+            referencesByRoot: [
+                firstRoot.standardizedFileURL.path: GitReferenceSnapshot(references: [main]),
+                secondRoot.standardizedFileURL.path: GitReferenceSnapshot(references: [develop])
+            ],
+            referencesProbe: probe,
+            historyPageValues: [
+                "": GitHistoryPage(
+                    commits: [makeTestCommit(hash: "visible", subject: "Visible")],
+                    nextCursor: nil,
+                    hasMore: false
+                )
+            ]
+        ))
+        let featureModel = GitFeatureModel(service: service)
+        featureModel.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { true },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+        let visiblePublished = GitModuleTestGate()
+        let observation = featureModel.$gitCommits.sink { commits in
+            if commits.map(\.hash) == ["visible"] { visiblePublished.open() }
+        }
+        let refresh = Task { await featureModel.refreshGit() }
+        defer {
+            observation.cancel()
+            probe.release.open()
+            refresh.cancel()
+            featureModel.reset()
+        }
+
+        // A blocked reference read in another repository must not hold back the
+        // active repository's commit list.
+        #expect(await probe.started.waitUntilOpen())
+        #expect(await visiblePublished.waitUntilOpen())
+        #expect(featureModel.gitCommits.map(\.hash) == ["visible"])
+        #expect(!featureModel.isLoadingGitHistory)
+
+        probe.release.open()
+        await refresh.value
+        #expect(!probe.didTimeOut)
+        #expect(featureModel.gitRepositoryReferences.map(\.repositoryRoot) == [firstRoot, secondRoot])
+    }
+
+    @Test
+    func supersededRepositoryReferencesLoadDoesNotPublishAStalePage() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let firstRoot = workspace.appendingPathComponent("service-a", isDirectory: true)
+        let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
+        let main = GitReference(
+            fullName: "refs/heads/main", shortName: "main", kind: .local,
+            isCurrent: true, upstreamShortName: nil
+        )
+        let releaseBranch = GitReference(
+            fullName: "refs/heads/release", shortName: "release", kind: .local,
+            isCurrent: false, upstreamShortName: nil
+        )
+        let develop = GitReference(
+            fullName: "refs/heads/develop", shortName: "develop", kind: .local,
+            isCurrent: true, upstreamShortName: nil
+        )
+        let probe = GitReferencesLoadProbe(blocking: secondRoot)
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                firstRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: firstRoot, branch: "main", changes: []
+                ),
+                secondRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: secondRoot, branch: "develop", changes: []
+                )
+            ],
+            repositoryRoots: [firstRoot, secondRoot],
+            referencesByRoot: [
+                firstRoot.standardizedFileURL.path: GitReferenceSnapshot(references: [main, releaseBranch]),
+                secondRoot.standardizedFileURL.path: GitReferenceSnapshot(references: [develop])
+            ],
+            referencesProbe: probe,
+            historyPageByReferenceHandler: { reference, _ in
+                let hash = reference?.shortName == releaseBranch.shortName ? "current-page" : "stale-page"
+                return GitHistoryPage(
+                    commits: [makeTestCommit(hash: hash, subject: hash)],
+                    nextCursor: nil,
+                    hasMore: false
+                )
+            }
+        ))
+        let featureModel = GitFeatureModel(service: service)
+        featureModel.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { true },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+        let stalePublished = GitModuleTestGate()
+        let observation = featureModel.$gitCommits.sink { commits in
+            if commits.map(\.hash) == ["stale-page"] { stalePublished.open() }
+        }
+        let refresh = Task { await featureModel.refreshGit() }
+        defer {
+            observation.cancel()
+            probe.release.open()
+            refresh.cancel()
+            featureModel.reset()
+        }
+
+        // The first refresh publishes its page, then blocks reading the other
+        // repository's references.
+        #expect(await probe.started.waitUntilOpen())
+        #expect(await stalePublished.waitUntilOpen())
+        #expect(featureModel.gitCommits.map(\.hash) == ["stale-page"])
+
+        // Switching branch supersedes the first refresh; its reference read is
+        // not blocked and must own the published page.
+        await featureModel.selectGitReference(releaseBranch)
+        #expect(featureModel.gitCommits.map(\.hash) == ["current-page"])
+
+        // The stale read now returns with an older generation. It must not
+        // republish the page it fetched before the switch.
+        probe.release.open()
+        await refresh.value
+        #expect(!probe.didTimeOut)
+        #expect(featureModel.gitCommits.map(\.hash) == ["current-page"])
+    }
+
+    @Test
     func gitServiceRecordsElapsedTimeForHistoryOperations() async {
         let root = URL(fileURLWithPath: "/workspace")
         let logger = GitPerformanceLogRecorder()
@@ -3362,6 +3511,39 @@ private final class GitGraphHistoryProbe: @unchecked Sendable {
     }
 }
 
+/// Blocks the first `references(at:)` read for one repository, then lets later
+/// reads pass. Used to hold a stale per-repository reference load open while a
+/// superseding refresh completes.
+private final class GitReferencesLoadProbe: @unchecked Sendable {
+    let started = GitModuleTestGate()
+    let release = GitModuleTestGate()
+    private let lock = NSLock()
+    private let blockedRootPath: String
+    private var blockedCalls = 0
+    private var timedOut = false
+
+    init(blocking root: URL) {
+        blockedRootPath = root.standardizedFileURL.path
+    }
+
+    var didTimeOut: Bool { lock.withLock { timedOut } }
+
+    func references(at rootURL: URL, resolved: GitReferenceSnapshot?) -> GitReferenceSnapshot? {
+        guard rootURL.standardizedFileURL.path == blockedRootPath else { return resolved }
+        let shouldBlock = lock.withLock {
+            blockedCalls += 1
+            return blockedCalls == 1
+        }
+        guard shouldBlock else { return resolved }
+        started.open()
+        guard release.waitSynchronously() else {
+            lock.withLock { timedOut = true }
+            return nil
+        }
+        return resolved
+    }
+}
+
 private struct TestGitOperations: GitOperations {
     private let snapshotValue: GitSnapshot?
     private let snapshotsByRoot: [String: GitSnapshot]
@@ -3375,8 +3557,10 @@ private struct TestGitOperations: GitOperations {
     private let historyValue: GitHistorySnapshot?
     private let referencesValue: GitReferenceSnapshot?
     private let referencesByRoot: [String: GitReferenceSnapshot]?
+    private let referencesProbe: GitReferencesLoadProbe?
     private let historyPageValues: [String: GitHistoryPage]?
     private let historyPageHandler: (@Sendable () -> GitHistoryPage?)?
+    private let historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)?
     private let graphHistoryProbe: GitGraphHistoryProbe?
     private let historyController: GitHistoryLoadController?
     private let snapshotGate: GitModuleTestGate?
@@ -3410,8 +3594,10 @@ private struct TestGitOperations: GitOperations {
         historyValue: GitHistorySnapshot? = nil,
         referencesValue: GitReferenceSnapshot? = nil,
         referencesByRoot: [String: GitReferenceSnapshot]? = nil,
+        referencesProbe: GitReferencesLoadProbe? = nil,
         historyPageValues: [String: GitHistoryPage]? = nil,
         historyPageHandler: (@Sendable () -> GitHistoryPage?)? = nil,
+        historyPageByReferenceHandler: (@Sendable (GitReference?, String?) -> GitHistoryPage?)? = nil,
         graphHistoryProbe: GitGraphHistoryProbe? = nil,
         historyController: GitHistoryLoadController? = nil,
         filesValue: [GitCommitFile]? = nil,
@@ -3448,8 +3634,10 @@ private struct TestGitOperations: GitOperations {
         self.historyValue = historyValue
         self.referencesValue = referencesValue
         self.referencesByRoot = referencesByRoot
+        self.referencesProbe = referencesProbe
         self.historyPageValues = historyPageValues
         self.historyPageHandler = historyPageHandler
+        self.historyPageByReferenceHandler = historyPageByReferenceHandler
         self.graphHistoryProbe = graphHistoryProbe
         self.historyController = historyController
         self.filesValue = filesValue
@@ -3523,14 +3711,22 @@ private struct TestGitOperations: GitOperations {
         return historyValue
     }
     func references(at rootURL: URL, operationID: String) -> GitReferenceSnapshot? {
-        if let referencesValue { return referencesValue }
-        if let perRoot = referencesByRoot?[rootURL.standardizedFileURL.path] { return perRoot }
-        guard let historyValue else { return nil }
-        return GitReferenceSnapshot(
-            references: historyValue.references,
-            recentReferences: historyValue.recentReferences,
-            identity: historyValue.identity
-        )
+        let resolved: GitReferenceSnapshot?
+        if let referencesValue {
+            resolved = referencesValue
+        } else if let perRoot = referencesByRoot?[rootURL.standardizedFileURL.path] {
+            resolved = perRoot
+        } else if let historyValue {
+            resolved = GitReferenceSnapshot(
+                references: historyValue.references,
+                recentReferences: historyValue.recentReferences,
+                identity: historyValue.identity
+            )
+        } else {
+            resolved = nil
+        }
+        guard let referencesProbe else { return resolved }
+        return referencesProbe.references(at: rootURL, resolved: resolved)
     }
     func historyPage(
         at rootURL: URL,
@@ -3541,6 +3737,9 @@ private struct TestGitOperations: GitOperations {
     ) -> GitHistoryPage? {
         if let graphHistoryProbe {
             return graphHistoryProbe.page(reference: reference, cursor: cursor, limit: limit, operationID: operationID)
+        }
+        if let historyPageByReferenceHandler {
+            return historyPageByReferenceHandler(reference, cursor)
         }
         if let historyPageHandler { return historyPageHandler() }
         if let historyPageValues { return historyPageValues[cursor ?? ""] }

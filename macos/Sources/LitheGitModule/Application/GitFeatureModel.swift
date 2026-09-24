@@ -1754,6 +1754,12 @@ package final class GitFeatureModel: ObservableObject {
         // Enrich the graph independently: the visible page and its cursor must
         // become usable even while a much larger repository walk is pending.
         async let repositoryGraph: Void = refreshGitRepositoryGraph(at: gitRepositoryRoot, generation: generation)
+        // Load the per-repository reference lists alongside the graph, never on
+        // the visible page's critical path. The commit list must render without
+        // waiting for every repository's references, and a slow reference read
+        // must not sit between the stale-result guard and the publish, where it
+        // could let a superseded page through after the guard already passed.
+        async let repositoryReferences: Void = refreshGitRepositoryReferences(generation: generation)
         let (referenceSnapshot, historyPage) = await (references, page)
         activeGitHistoryOperationIDs.subtract([referencesOperationID, pageOperationID])
         guard gitHistoryGeneration == generation,
@@ -1766,8 +1772,11 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
         isLoadingGitHistory = false
-        await refreshGitRepositoryReferences(generation: generation)
-        guard let historyPage else { return }
+        guard let historyPage else {
+            await repositoryGraph
+            await repositoryReferences
+            return
+        }
 
         if let referenceSnapshot {
             gitReferences = referenceSnapshot.references
@@ -1797,6 +1806,7 @@ package final class GitFeatureModel: ObservableObject {
             selectedGitCommitDiffContext = nil
         }
         await repositoryGraph
+        await repositoryReferences
     }
 
     private func refreshGitRepositoryGraph(at root: URL, generation: UUID) async {
