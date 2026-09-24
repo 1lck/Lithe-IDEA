@@ -214,7 +214,6 @@ struct WorkbenchView: View {
     @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
-        let closeConfirmationID = model.pendingCloseConfirmationID
         let encodingRequest = model.pendingEncodingReopen
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
@@ -341,10 +340,7 @@ struct WorkbenchView: View {
         }
         .confirmationDialog(
             "Save changes before closing?",
-            isPresented: Binding(
-                get: { model.pendingCloseDocument != nil },
-                set: { if !$0 { model.dismissPendingCloseConfirmation(closeConfirmationID) } }
-            ),
+            isPresented: pendingCloseConfirmationBinding,
             titleVisibility: .visible
         ) {
             Button("Save") { model.closePendingDocument(discardingChanges: false) }
@@ -358,10 +354,7 @@ struct WorkbenchView: View {
         }
         .confirmationDialog(
             "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
-            isPresented: Binding(
-                get: { encodingRequest != nil },
-                set: { if !$0 { model.dismissPendingEncodingReopen(encodingRequest?.id) } }
-            ),
+            isPresented: pendingEncodingReopenBinding,
             titleVisibility: .visible
         ) {
             Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
@@ -959,6 +952,28 @@ struct WorkbenchView: View {
         Binding(
             get: { isProjectSwitcherPresented },
             set: { updateSwitcherPresentation(project: $0) }
+        )
+    }
+
+    private var pendingCloseConfirmationBinding: Binding<Bool> {
+        let confirmationID = model.pendingCloseConfirmationID
+        return Binding(
+            get: { model.pendingCloseDocument != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingCloseConfirmation(confirmationID)
+            }
+        )
+    }
+
+    private var pendingEncodingReopenBinding: Binding<Bool> {
+        let requestID = model.pendingEncodingReopen?.id
+        return Binding(
+            get: { model.pendingEncodingReopen != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingEncodingReopen(requestID)
+            }
         )
     }
 
