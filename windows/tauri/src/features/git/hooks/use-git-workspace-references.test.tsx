@@ -53,9 +53,12 @@ let referencesByRepository: Record<string, GitReference[]> = {
   "C:/repo-b": [referenceFor("develop"), referenceFor("feature/x")],
 };
 
-const getGitReferences = mock(
+const failedRepositories = new Set<string>();
+
+const getGitReferencesAtRoot = mock(
   async (repoPath: string): Promise<GitReferenceSnapshot> => {
     const key = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    if (failedRepositories.has(key)) throw new Error(`failed to load ${key}`);
     return {
       references: referencesByRepository[key] ?? [],
       recentReferences: [],
@@ -78,11 +81,12 @@ beforeEach(() => {
     "C:/repo-a": [referenceFor("main")],
     "C:/repo-b": [referenceFor("develop"), referenceFor("feature/x")],
   };
-  getGitReferences.mockClear();
+  failedRepositories.clear();
+  getGitReferencesAtRoot.mockClear();
   cancelGitHistoryOperation.mockClear();
   spies.push(
     spyOn(historyApi, "cancelGitHistoryOperation").mockImplementation(cancelGitHistoryOperation),
-    spyOn(historyApi, "getGitReferences").mockImplementation(getGitReferences),
+    spyOn(historyApi, "getGitReferencesAtRoot").mockImplementation(getGitReferencesAtRoot),
   );
 });
 
@@ -186,7 +190,7 @@ describe("Git workspace references", () => {
     const harness = mountHook(timer.scheduler);
     try {
       await harness.render(["C:/repo-a", "C:/repo-b"]);
-      getGitReferences.mockClear();
+      getGitReferencesAtRoot.mockClear();
       referencesByRepository["C:/repo-a"] = [referenceFor("main"), referenceFor("release")];
 
       await act(async () => {
@@ -198,10 +202,39 @@ describe("Git workspace references", () => {
         timer.fireNext();
       });
 
-      expect(getGitReferences.mock.calls.map(([repoPath]) => repoPath)).toEqual(["C:/repo-a"]);
+      expect(getGitReferencesAtRoot.mock.calls.map(([repoPath]) => repoPath)).toEqual([
+        "C:/repo-a",
+      ]);
       expect(
         harness.read().referencesByRepository.get("C:/repo-a")?.map((reference) => reference.shortName),
       ).toEqual(["main", "release"]);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("records a per-repository error and retries without showing a false empty group", async () => {
+    failedRepositories.add("C:/repo-b");
+    const harness = mountHook();
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"]);
+
+      expect(harness.read().errorsByRepository.get("C:/repo-b")).toBe(
+        "failed to load C:/repo-b",
+      );
+      expect(harness.read().referencesByRepository.has("C:/repo-b")).toBe(false);
+
+      failedRepositories.delete("C:/repo-b");
+      await act(async () => {
+        harness.read().retryRepository("C:/repo-b");
+      });
+
+      expect(harness.read().errorsByRepository.has("C:/repo-b")).toBe(false);
+      expect(
+        harness.read().referencesByRepository.get("C:/repo-b")?.map((reference) => reference.shortName),
+      ).toEqual(["develop", "feature/x"]);
     } finally {
       await act(async () => {
         harness.root.unmount();

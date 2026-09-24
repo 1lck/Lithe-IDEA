@@ -98,7 +98,8 @@ export function GitLogToolWindow() {
     refresh,
     loadMore,
   } = useGitLogController(repoPath);
-  const { referencesByRepository } = useGitWorkspaceReferences(availableRepoPaths);
+  const { referencesByRepository, errorsByRepository, retryRepository } =
+    useGitWorkspaceReferences(availableRepoPaths);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
@@ -645,6 +646,8 @@ export function GitLogToolWindow() {
               repoPath={repoPath}
               references={history.references}
               referencesByRepository={referencesByRepository}
+              referenceErrorsByRepository={errorsByRepository}
+              onRetryRepository={retryRepository}
               repositoryPaths={availableRepoPaths}
               activeRepoPath={repoPath}
               selectedReference={selectedReference}

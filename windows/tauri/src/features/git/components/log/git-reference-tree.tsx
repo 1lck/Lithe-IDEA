@@ -99,6 +99,8 @@ interface GitReferenceTreeProps {
   onNavigateToHead: () => void;
   canNavigateToHead?: boolean;
   referencesByRepository?: Map<string, GitReference[]>;
+  referenceErrorsByRepository?: Map<string, string>;
+  onRetryRepository?: (repositoryPath: string) => void;
   repositoryPaths?: string[];
   activeRepoPath?: string;
 }
@@ -608,6 +610,7 @@ function ReferenceNode({
   markedReferenceFullNames,
   isMutating,
   isPullLocked,
+  actionsEnabled,
   onToggleGroup,
   onSelect,
   onReferenceAction,
@@ -623,6 +626,7 @@ function ReferenceNode({
   markedReferenceFullNames: Set<string>;
   isMutating: boolean;
   isPullLocked: boolean;
+  actionsEnabled: boolean;
   onToggleGroup: (id: string) => void;
   onSelect: (reference: GitReference) => void;
   onReferenceAction: (action: GitReferenceAction, reference: GitReference) => void;
@@ -641,6 +645,7 @@ function ReferenceNode({
         node.reference?.isCurrent && "font-semibold text-amber-300",
       )}
       style={{ paddingLeft: left }}
+      data-reference-actions={actionsEnabled ? "enabled" : "disabled"}
       onContextMenu={() => {
         if (node.reference) onSelect(node.reference);
       }}
@@ -704,7 +709,11 @@ function ReferenceNode({
     <>
       <ContextMenu>
         <ContextMenuTrigger>{row}</ContextMenuTrigger>
-        {node.reference && actions.length > 0 ? (
+        {!actionsEnabled ? (
+          <ContextMenuContent>
+            <ContextMenuItem disabled>{t("git.log.switchToRepositoryFirst")}</ContextMenuItem>
+          </ContextMenuContent>
+        ) : node.reference && actions.length > 0 ? (
           <ReferenceActionMenu
             reference={node.reference}
             currentReference={currentReference}
@@ -734,6 +743,7 @@ function ReferenceNode({
             markedReferenceFullNames={markedReferenceFullNames}
             isMutating={isMutating}
             isPullLocked={isPullLocked}
+            actionsEnabled={actionsEnabled}
             onToggleGroup={onToggleGroup}
             onSelect={onSelect}
             onReferenceAction={onReferenceAction}
@@ -759,6 +769,8 @@ export function GitReferenceTree({
   onNavigateToHead,
   canNavigateToHead = false,
   referencesByRepository,
+  referenceErrorsByRepository,
+  onRetryRepository,
   repositoryPaths,
   activeRepoPath,
 }: GitReferenceTreeProps) {
@@ -889,7 +901,7 @@ export function GitReferenceTree({
     return bindScrollContainerWheel(element);
   }, []);
 
-  const renderSections = (group: GitReferenceRepositoryGroup) => (
+  const renderSections = (group: GitReferenceRepositoryGroup, actionsEnabled: boolean) => (
     <>
       {SECTION_KEYS.map(({ kind, titleKey }) => {
         const collapsed = collapsedSections.has(kind);
@@ -912,7 +924,7 @@ export function GitReferenceTree({
                   {countGitReferencesByKind(group.visibleReferences, kind)}
                 </span>
               </ContextMenuTrigger>
-              {kind === "remote" ? (
+              {actionsEnabled && kind === "remote" ? (
                 <ContextMenuContent>
                   <ContextMenuItem onClick={onManageRemotes}>
                     <NetworkIcon />
@@ -936,6 +948,7 @@ export function GitReferenceTree({
                     markedReferenceFullNames={group.markedLocalReferenceFullNames}
                     isMutating={isMutating}
                     isPullLocked={isPullLocked}
+                    actionsEnabled={actionsEnabled}
                     onToggleGroup={toggleReferenceGroup}
                     onSelect={onSelect}
                     onReferenceAction={onReferenceAction}
@@ -1027,6 +1040,13 @@ export function GitReferenceTree({
                 const repositoryCollapseId = `repo:${group.repositoryKey}`;
                 const repositoryCollapsed = collapsedGroups.has(repositoryCollapseId);
                 const repositoryName = getBaseName(group.repositoryPath);
+                // Only the active repository may run reference actions; every
+                // other group is read-only and can be acted on after selecting
+                // it as the active repository.
+                const actionsEnabled = group.repositoryKey === activeRepositoryKey;
+                const repositoryError = actionsEnabled
+                  ? undefined
+                  : referenceErrorsByRepository?.get(group.repositoryKey);
                 return (
                   <div key={group.repositoryKey} className="mb-1">
                     <button
@@ -1046,17 +1066,36 @@ export function GitReferenceTree({
                       )}
                       <FolderIcon className="size-3.5 shrink-0 text-amber-400" />
                       <span className="truncate">{repositoryName}</span>
-                      <span className="ml-auto text-subtle-foreground tabular-nums">
-                        {group.visibleReferences.length}
-                      </span>
+                      {repositoryError ? null : (
+                        <span className="ml-auto text-subtle-foreground tabular-nums">
+                          {group.visibleReferences.length}
+                        </span>
+                      )}
                     </button>
                     {!repositoryCollapsed ? (
-                      <div className="pl-1">{renderSections(group)}</div>
+                      repositoryError ? (
+                        <div className="flex items-center gap-2 px-1.5 py-1 font-sans ui-text-sm text-destructive">
+                          <span className="min-w-0 flex-1 truncate" title={repositoryError}>
+                            {t("git.log.referencesLoadFailed")}
+                          </span>
+                          {onRetryRepository ? (
+                            <button
+                              type="button"
+                              className="shrink-0 font-medium hover:underline"
+                              onClick={() => onRetryRepository(group.repositoryPath)}
+                            >
+                              {t("git.log.retry")}
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <div className="pl-1">{renderSections(group, actionsEnabled)}</div>
+                      )
                     ) : null}
                   </div>
                 );
               })
-            : renderSections(activeGroup)}
+            : renderSections(activeGroup, true)}
         </div>
       </div>
     </div>

@@ -63,6 +63,28 @@ test("multiple repositories group each section set under a repository header", (
   expect(markup).toContain("develop");
 });
 
+test("exposes reference actions only for the active repository group", () => {
+  const repoA = { ...localReference("main", true), repositoryPath: "C:/repo-a" };
+  const repoB = { ...localReference("develop"), repositoryPath: "C:/repo-b" };
+  const markup = renderTree({
+    repoPath: "C:/repo-a",
+    references: [repoA],
+    repositoryPaths: ["C:/repo-a", "C:/repo-b"],
+    activeRepoPath: "C:/repo-a",
+    referencesByRepository: new Map([
+      ["C:/repo-a", [repoA]],
+      ["C:/repo-b", [repoB]],
+    ]),
+  });
+
+  const activeSection = markup.slice(0, markup.indexOf("C:/repo-b"));
+  const inactiveSection = markup.slice(markup.indexOf("C:/repo-b"));
+
+  expect(activeSection).toContain('data-reference-actions="enabled"');
+  expect(inactiveSection).toContain('data-reference-actions="disabled"');
+  expect(inactiveSection).not.toContain('data-reference-actions="enabled"');
+});
+
 const PRIMARY_REPO_PATH = "C:/root/op-platform";
 const WORKTREE_REPO_PATH = "C:/root/op-platform/.worktrees/apps-sealed";
 

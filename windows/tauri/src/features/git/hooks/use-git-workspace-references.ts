@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { cancelGitHistoryOperation, getGitReferences } from "../api/git-commits-api";
+import { cancelGitHistoryOperation, getGitReferencesAtRoot } from "../api/git-commits-api";
 import { normalizeRepositoryPath } from "../api/git-repo-api";
 import { subscribeToGitChanges } from "../events/git-events";
 import type { GitReference } from "../types/git.types";
@@ -7,12 +7,14 @@ import { shouldRefreshGitLogForChange } from "../utils/git-log-refresh";
 
 interface GitWorkspaceReferencesState {
   referencesByRepository: Map<string, GitReference[]>;
+  errorsByRepository: Map<string, string>;
   isLoading: boolean;
   error: string | null;
 }
 
 const EMPTY_STATE: GitWorkspaceReferencesState = {
   referencesByRepository: new Map(),
+  errorsByRepository: new Map(),
   isLoading: false,
   error: null,
 };
@@ -66,7 +68,7 @@ export function useGitWorkspaceReferences(
       activeOperationIdsRef.current.add(operationId);
 
       try {
-        const snapshot = await getGitReferences(repositoryPath, operationId);
+        const snapshot = await getGitReferencesAtRoot(repositoryPath, operationId);
         if (generationsRef.current.get(repositoryKey) !== generation) return;
         if (!isTrackedRepository(repositoryKey)) return;
         const references = (snapshot?.references ?? []).map((reference) => ({
@@ -76,15 +78,22 @@ export function useGitWorkspaceReferences(
         setState((current) => {
           const referencesByRepository = new Map(current.referencesByRepository);
           referencesByRepository.set(repositoryKey, references);
-          return { ...current, referencesByRepository, error: null };
+          const errorsByRepository = new Map(current.errorsByRepository);
+          errorsByRepository.delete(repositoryKey);
+          return { ...current, referencesByRepository, errorsByRepository, error: null };
         });
       } catch (error) {
         if (generationsRef.current.get(repositoryKey) !== generation) return;
         if (!isTrackedRepository(repositoryKey)) return;
-        setState((current) => ({
-          ...current,
-          error: error instanceof Error ? error.message : String(error),
-        }));
+        const message = error instanceof Error ? error.message : String(error);
+        setState((current) => {
+          // Drop any stale references so a failed load cannot surface as "0 references".
+          const referencesByRepository = new Map(current.referencesByRepository);
+          referencesByRepository.delete(repositoryKey);
+          const errorsByRepository = new Map(current.errorsByRepository);
+          errorsByRepository.set(repositoryKey, message);
+          return { ...current, referencesByRepository, errorsByRepository, error: message };
+        });
       } finally {
         activeOperationIdsRef.current.delete(operationId);
       }
@@ -125,6 +134,14 @@ export function useGitWorkspaceReferences(
 
   const repositoryPathsKey = [...new Set(repositoryPaths.map(normalizeRepositoryPath))].join("\0");
 
+  const retryRepository = useCallback(
+    (repositoryPath: string) => {
+      if (!isTrackedRepository(normalizeRepositoryPath(repositoryPath))) return;
+      void loadRepository(repositoryPath);
+    },
+    [isTrackedRepository, loadRepository],
+  );
+
   useEffect(() => {
     cancelScheduledRefresh();
     cancelActiveOperations();
@@ -140,17 +157,25 @@ export function useGitWorkspaceReferences(
         const references = current.referencesByRepository.get(key);
         if (references) referencesByRepository.set(key, references);
       }
-      if (referencesByRepository.size === current.referencesByRepository.size) return current;
-      return { ...current, referencesByRepository };
+      const errorsByRepository = new Map<string, string>();
+      for (const key of keys) {
+        const error = current.errorsByRepository.get(key);
+        if (error) errorsByRepository.set(key, error);
+      }
+      if (
+        referencesByRepository.size === current.referencesByRepository.size &&
+        errorsByRepository.size === current.errorsByRepository.size
+      ) {
+        return current;
+      }
+      return { ...current, referencesByRepository, errorsByRepository };
     });
 
     if (keys.length === 0) return;
     let cancelled = false;
     setState((current) => ({ ...current, isLoading: true, error: null }));
-    // Resolve repositories one at a time. Resolving a path runs a Git command
-    // that holds a repository-wide lease keyed by the shared Git common
-    // directory, so fetching linked worktrees of one repository concurrently
-    // would fail each other with "another Git write operation is running".
+    // Load repositories one at a time so a large workspace does not fan out one
+    // native reference read per repository at the same moment.
     void (async () => {
       for (const key of keys) {
         if (cancelled) return;
@@ -191,7 +216,9 @@ export function useGitWorkspaceReferences(
 
   return {
     referencesByRepository: state.referencesByRepository,
+    errorsByRepository: state.errorsByRepository,
     isLoading: state.isLoading,
     error: state.error,
+    retryRepository,
   };
 }

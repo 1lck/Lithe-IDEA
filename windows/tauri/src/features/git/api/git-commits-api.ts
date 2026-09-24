@@ -157,6 +157,32 @@ export const getGitReferences = async (
   }
 };
 
+/**
+ * Reads references for an already-discovered repository root, skipping
+ * `git_discover_repo`. Discovery runs a Core Git command that takes the shared
+ * common-dir write lease, which would race the user's fetch/pull/commit when the
+ * workspace already knows its repository roots.
+ */
+export const getGitReferencesAtRoot = async (
+  repoPath: string,
+  operationId: string,
+): Promise<GitReferenceSnapshot | null> => {
+  try {
+    return await runGitRead(repoPath, `references:${operationId}`, () =>
+      tauriInvoke<GitReferenceSnapshot>("git_references", {
+        repoPath,
+        operationId,
+      }),
+    );
+  } catch (error) {
+    if (isCancelledGitHistoryRequest(error)) return null;
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to get git references:", error);
+    }
+    throw error;
+  }
+};
+
 export const getGitHistoryPage = async (
   repoPath: string,
   cursor: string | undefined,
