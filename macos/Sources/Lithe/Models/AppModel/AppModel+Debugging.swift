@@ -127,9 +127,13 @@ extension AppModel {
             }
             return
         }
+        let activeDocumentIsLaunchable = selectedConfiguration.usesCurrentEditorFile
+            ? await isLaunchableJavaEntrypoint(activeDocument, in: workspaceURL)
+            : false
+        guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
         let configuration = runWorkflowCoordinator.debugConfiguration(
             selected: selectedConfiguration,
-            activeDocumentText: activeDocument?.text,
+            activeDocumentIsLaunchable: activeDocumentIsLaunchable,
             configurations: runFeature.configurations
         )
         runFeature.select(configuration)
@@ -410,12 +414,18 @@ extension AppModel {
                 resolveJavaTarget: { [weak self] in
                     guard let self else { return nil }
                     let sessions = try await self.languageSessionsForWorkspaceMaintenance()
-                    return try await sessions.resolveJavaDebugLaunchTarget(
+                    let preparation = try await sessions.prepareJavaRunLaunchTarget(
                         fileURL: fileURL,
                         rootURL: workspaceURL
                     )
+                    return try await self.resolveJavaLaunchPreparation(
+                        preparation,
+                        identity: identity
+                    )
                 }
             )
+        } catch is CancellationError {
+            return
         } catch {
             guard isCurrentWorkspace(identity), !Task.isCancelled else { return }
             showNotification(error.localizedDescription)

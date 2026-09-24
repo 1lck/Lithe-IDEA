@@ -16,6 +16,7 @@ const configuration: RunConfiguration = {
   name: "backend",
   provider: "spring-boot.maven",
   kindTitle: "Spring Boot",
+  category: "project" as const,
   execution: "service",
   modulePath: "backend",
   cwd: ".",
@@ -233,6 +234,7 @@ for (const execution of ["service", "application"] as const) {
           processes.set(sessionId, executionId!);
         },
         stopRunProcess,
+        prepareJavaRunLaunch: async () => null,
       };
       const selected = { ...configuration, execution };
       const store = createRunStore(`debug-cleanup-${execution}`, runDependencies);

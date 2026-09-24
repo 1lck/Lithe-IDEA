@@ -1,6 +1,7 @@
 use serde_json::{json, Map, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::Manager;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -12,6 +13,9 @@ pub async fn platform_invoke(
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    if command.starts_with("ai_commit_") {
+        return crate::ai_commit::dispatch(webview.app_handle().clone(), &command, args).await;
+    }
     let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"

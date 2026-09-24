@@ -22,6 +22,7 @@ export async function runMavenTestAction(
   filePath: string,
   method?: string,
   workspaceId = useActiveWorkspaceId(),
+  className?: string,
 ): Promise<void> {
   const root = useFileSystemStore.getStore(workspaceId).getState().rootFolderPath;
   if (!root) throw new Error("Open a workspace before running a Maven test.");
@@ -30,8 +31,8 @@ export async function runMavenTestAction(
   await loadMavenProjectForWorkspace(root, [getRelativePath(filePath, root)], workspaceId);
   const store = useMavenStore.getStore(workspaceId);
   if (method) {
-    await store.getState().actions.runTestMethod(filePath, method);
+    await store.getState().actions.runTestMethod(filePath, method, undefined, className);
   } else {
-    await store.getState().actions.runTestClass(filePath);
+    await store.getState().actions.runTestClass(filePath, undefined, className);
   }
 }

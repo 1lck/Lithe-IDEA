@@ -272,7 +272,24 @@ final class MacServiceContainer {
                             guard descriptor.id == "java" else { return .notRequired }
                             switch jdtlsLaunchResourceResolver.resolve(for: executableURL) {
                             case .direct(let resources):
-                                return .available(resources)
+                                // JDT LS binds each project to the installed JDK that
+                                // matches its release; the bundled JDK 21 it runs on
+                                // cannot build a Java 25 project.
+                                let discovered = runtimeService.javaRuntimes.isEmpty
+                                    ? MacRuntimeDiscovery.discover(
+                                        environment: ProcessInfo.processInfo.environment
+                                    ).javaRuntimes
+                                    : runtimeService.javaRuntimes
+                                return .available(JDTLSLaunchResources(
+                                    launcherJarURL: resources.launcherJarURL,
+                                    configurationDirectoryURL: resources.configurationDirectoryURL,
+                                    lombokAgentURL: resources.lombokAgentURL,
+                                    javaExtensionBundleURLs: resources.javaExtensionBundleURLs,
+                                    javaTestRunnerURL: resources.javaTestRunnerURL,
+                                    javaRuntimes: discovered.map {
+                                        JavaLanguageServiceRuntime(homePath: $0.homePath, version: $0.version)
+                                    }
+                                ))
                             case .wrapperFallback:
                                 return .notRequired
                             case .unavailable(let message):
@@ -363,7 +380,9 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             languageProviderCatalog: languagePackRegistry.catalog,
                             languageRunProviders: languagePackRegistry.runProviders,
-                            extensionRequiredLanguageIDs: pluginLanguageIDs
+                            extensionRequiredLanguageIDs: pluginLanguageIDs,
+                            languageSupports: installedLanguageSupports,
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
@@ -371,14 +390,42 @@ final class MacServiceContainer {
                             executableResolver: executableResolver,
                             processFactory: { MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution) },
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
-                            resultParser: { output, rootURL in
+                            resultParser: { output, rootURL, reports in
                                 javaMavenOperations.mavenTestResults(
                                     output: output,
-                                    projectRoot: rootURL
+                                    projectRoot: rootURL,
+                                    reports: reports
                                 )
                             }
                         )
                     )
+                    let mavenFeature = graph.mavenFeature
+                    graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, workspace, serviceID in
+                        let capabilityID: ModuleCapabilityID = languageID == "java"
+                            ? .languageIntelligence : .languageServerExtension(languageID)
+                        guard let provider = moduleRuntime.capability(capabilityID)
+                            as? any LanguageDependencyProviding else { return nil }
+                        let snapshot = provider.dependencySnapshot(workspaceURL: workspace, serviceID: serviceID)
+                        guard languageID == "java", snapshot?.dependencyRoots.isEmpty != false,
+                              let mavenFeature,
+                              let project = mavenFeature.project,
+                              project.rootURL.standardizedFileURL == workspace.standardizedFileURL,
+                              !mavenFeature.isProjectReloadRequired else { return snapshot }
+                        let modules = ["."] + project.allModules.map(\.relativePath)
+                        let roots = modules.flatMap {
+                            mavenFeature.resolvedDependencyArtifactPaths(
+                                modulePath: $0,
+                                defaultRepositoryURL: mavenRepositoryURL
+                            )
+                        }.filter { fileStorage.fileExists(at: $0) }
+                        guard !roots.isEmpty else { return snapshot }
+                        return LanguageDependencySnapshot(
+                            sourceRoots: snapshot?.sourceRoots ?? [],
+                            binaryRoots: snapshot?.binaryRoots ?? [],
+                            dependencyRoots: Array(Set(roots)).sorted { $0.path < $1.path },
+                            virtualDocuments: snapshot?.virtualDocuments ?? []
+                        )
+                    }
                     return graph
                 })
             })

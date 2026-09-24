@@ -190,7 +190,9 @@ function parseDiffSection(lines: string[], fallbackFilePath: string): GitDiff {
 }
 
 export function parseRawDiffContent(content: string, filePath: string): GitDiff | MultiFileDiff {
-  const lines = content.split("\n");
+  // Imported patches may use CRLF separators. Normalize them for display
+  // without leaving a trailing carriage return in line content or metadata.
+  const lines = content.split(/\r?\n/);
   const fallbackFilePath = getFilenameFromPath(filePath).replace(/\.(diff|patch)$/i, "");
   const sections: string[][] = [];
   let currentSection: string[] = [];

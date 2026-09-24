@@ -23,6 +23,8 @@ import {
   mavenPomPaths,
   reconcileMavenPomWatches,
 } from "../services/maven-pom-watcher";
+import { resolveJavaTestClass } from "../services/java-test-launch-target";
+import { resolveEffectiveMavenExecutable } from "../services/resolve-maven-toolchain";
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
@@ -34,6 +36,8 @@ import type {
   MavenProjectStatus,
   MavenSettings,
   MavenStoredConfiguration,
+  MavenTestCase,
+  MavenTestReportsRequest,
   MavenTestResults,
   MavenTestRun,
   MavenTaskStatus,
@@ -65,7 +69,9 @@ export interface MavenStoreDependencies {
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
   parseMavenDependencies: typeof parseMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
+  resolveJavaTestClass: typeof resolveJavaTestClass;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
@@ -82,7 +88,9 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   parseMavenDiagnostics,
   parseMavenDependencies,
   parseMavenTestResults,
+  resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
+  resolveJavaTestClass,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -97,11 +105,14 @@ export interface MavenDependencyScheduler {
     milliseconds: number,
   ) => ReturnType<typeof setTimeout>;
   clearTimer: (timer: ReturnType<typeof setTimeout>) => void;
+  /** Wall clock in Unix milliseconds; stamps test runs so older reports are ignored. */
+  now?: () => number;
 }
 
 const defaultMavenDependencyScheduler: MavenDependencyScheduler = {
   setTimer: (callback, milliseconds) => setTimeout(() => void callback(), milliseconds),
   clearTimer: (timer) => clearTimeout(timer),
+  now: () => Date.now(),
 };
 
 export interface MavenState {
@@ -116,6 +127,12 @@ export interface MavenState {
   settingsPath: string;
   localRepositoryPath: string;
   mavenExecutablePath: string;
+  /**
+   * Maven resolved for this workspace when `mavenExecutablePath` is empty.
+   * Project import needs the same installation the command line uses, because
+   * its `conf/settings.xml` carries the local repository and mirrors.
+   */
+  resolvedMavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
   reloadRequired: boolean;
@@ -131,7 +148,14 @@ export interface MavenState {
   lastExitCode: number | null;
   testResults: MavenTestResults | null;
   activeTestRun: MavenTestRun | null;
+  /** When the active test run started, in Unix milliseconds. */
+  activeTestRunStartedAt: number | null;
   lastTestRun: MavenTestRun | null;
+  /**
+   * Latest recorded outcome of every test method run in this workspace. A new
+   * run replaces the outcomes of the classes it selected and keeps the rest.
+   */
+  testOutcomes: MavenTestCase[];
   dependencyLoads: Record<string, MavenDependencyLoad>;
   activeDependencySessionId: string | null;
   activeDependencyModulePath: string | null;
@@ -150,6 +174,7 @@ export interface MavenState {
     restoreDefaultProfiles: () => void;
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
+    saveLocalConfiguration: (settings: MavenSettings) => Promise<void>;
     acknowledgeReload: (revision?: number) => void;
     runGoals: (
       goals: string[],
@@ -157,11 +182,13 @@ export interface MavenState {
       title: string,
       testRun?: MavenTestRun,
     ) => Promise<void>;
-    runTestClass: (filePath: string, module?: string | null) => Promise<void>;
+    /** Runs a file class, or a specific class confirmed by JDT for that file. */
+    runTestClass: (filePath: string, module?: string | null, className?: string) => Promise<void>;
     runTestMethod: (
       filePath: string,
       method: string,
       module?: string | null,
+      className?: string,
     ) => Promise<void>;
     rerunLastTest: () => Promise<void>;
     stop: () => Promise<void>;
@@ -226,7 +253,8 @@ export function mavenLaunchContext(state: MavenState): MavenLaunchContext | null
     settingsPath: state.settingsPath || null,
     localRepositoryPath: state.localRepositoryPath || null,
     skipTests: state.skipTests,
-    mavenExecutablePath: state.mavenExecutablePath || null,
+    mavenExecutablePath:
+      state.mavenExecutablePath || state.resolvedMavenExecutablePath || null,
     javaHomePath: state.javaHomePath || null,
   };
 }
@@ -270,6 +298,46 @@ function cancelledOutput(output: string): string {
   return trimOutput(`${output}${separator}Maven task cancelled.\n`);
 }
 
+/**
+ * Names the reports a finished test run wrote. Module paths in the project
+ * model are reactor-relative, while Core expects a workspace-relative module.
+ */
+export function mavenTestReportsRequest(
+  testRun: MavenTestRun,
+  project: MavenProject | null,
+  startedAt: number | null,
+): MavenTestReportsRequest | undefined {
+  if (!testRun.className || startedAt === null) return undefined;
+  const segments = [project?.relativePath, testRun.module]
+    .map((segment) => segment?.replace(/\\/g, "/").replace(/^(\.\/)+/, "").replace(/\/+$/, "") ?? "")
+    .filter((segment) => segment && segment !== ".");
+  return {
+    module: segments.length > 0 ? segments.join("/") : null,
+    classes: [testRun.className],
+    notBeforeMillis: startedAt,
+  };
+}
+
+/** A method run replaces only that method; class runs replace the class and nested classes. */
+export function mergeMavenTestOutcomes(
+  previous: readonly MavenTestCase[],
+  ranClasses: readonly string[],
+  cases: readonly MavenTestCase[],
+  requestedMethod?: string,
+): MavenTestCase[] {
+  const ran = (className: string) =>
+    ranClasses.some(
+      (selected) => className === selected || className.startsWith(`${selected}$`),
+    );
+  return [
+    ...previous.filter((testCase) => requestedMethod
+      ? !ranClasses.includes(testCase.className) || testCase.method !== requestedMethod
+      : !ran(testCase.className)),
+    ...cases.filter((testCase) => !requestedMethod ||
+      (ranClasses.includes(testCase.className) && testCase.method === requestedMethod)),
+  ];
+}
+
 function mavenTestGoals(selector: string): string[] {
   // Keep the lifecycle goal first so the existing Core launch-plan validator
   // can continue rejecting arbitrary option-only tool-window invocations.
@@ -304,6 +372,7 @@ export const createMavenStore = (
   let configurationWriteTask = Promise.resolve();
   let pomWatchTask = Promise.resolve();
   let watchedPomPaths = new Set<string>();
+  const now = dependencyScheduler.now ?? (() => Date.now());
 
   return createStore<MavenState>()((set, get) => {
     const pomWatchOperations = dependencies.createMavenPomWatchOperations(workspaceId);
@@ -494,6 +563,7 @@ export const createMavenStore = (
       settingsPath: "",
       localRepositoryPath: "",
       mavenExecutablePath: "",
+      resolvedMavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
       reloadRequired: false,
@@ -509,7 +579,9 @@ export const createMavenStore = (
       lastExitCode: null,
       testResults: null,
       activeTestRun: null,
+      activeTestRunStartedAt: null,
       lastTestRun: null,
+      testOutcomes: [],
       dependencyLoads: {},
       activeDependencySessionId: null,
       activeDependencyModulePath: null,
@@ -557,6 +629,7 @@ export const createMavenStore = (
                   testResults: null,
                   activeTestRun: null,
                   lastTestRun: null,
+                  testOutcomes: [],
                 }
               : {}),
           });
@@ -575,11 +648,13 @@ export const createMavenStore = (
                 settingsPath: "",
                 localRepositoryPath: "",
                 mavenExecutablePath: "",
+                resolvedMavenExecutablePath: "",
                 javaHomePath: "",
                 reloadRequired: false,
                 testResults: null,
                 activeTestRun: null,
                 lastTestRun: null,
+                testOutcomes: [],
               });
               return;
             }
@@ -628,6 +703,13 @@ export const createMavenStore = (
             const selectedProfiles = normalizedProfiles(
               stored.portable?.selectedProfiles ?? defaultProfiles,
             ).filter((profile) => knownProfiles.has(profile));
+            const mavenExecutablePath = normalizedPath(stored.local?.mavenExecutablePath);
+            // Project import must follow the same installation the command line
+            // uses, so JDT LS reads its repository and mirrors instead of the
+            // embedded defaults.
+            const resolvedMavenExecutablePath =
+              await dependencies.resolveEffectiveMavenExecutable(root, mavenExecutablePath);
+            if (projectLoadRevision !== revision || get().root !== root) return;
             set({
               projectStatus: "ready",
               projectError: null,
@@ -637,7 +719,8 @@ export const createMavenStore = (
               skipTests: stored.portable?.skipTests ?? false,
               settingsPath: normalizedPath(stored.local?.settingsPath),
               localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-              mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+              mavenExecutablePath,
+              resolvedMavenExecutablePath,
               javaHomePath: normalizedPath(stored.local?.javaHomePath),
             });
           } catch (error) {
@@ -664,10 +747,12 @@ export const createMavenStore = (
               settingsPath: "",
               localRepositoryPath: "",
               mavenExecutablePath: "",
+              resolvedMavenExecutablePath: "",
               javaHomePath: "",
               testResults: null,
               activeTestRun: null,
               lastTestRun: null,
+              testOutcomes: [],
             });
           }
         },
@@ -755,8 +840,28 @@ export const createMavenStore = (
           ) {
             return;
           }
-          set(next);
+          set({
+            ...next,
+            // The previous resolution belongs to the previous Maven selection.
+            // Clearing it keeps a stale installation out of the launch context
+            // until the reload recomputes the fallback.
+            ...(next.mavenExecutablePath === state.mavenExecutablePath
+              ? {}
+              : { resolvedMavenExecutablePath: "" }),
+          });
           configurationDidChange();
+        },
+
+        saveLocalConfiguration: async (settings) => {
+          if (!get().root || !get().project) {
+            throw new Error("Open a Maven project before saving Maven settings.");
+          }
+          const previousRevision = configurationRevision;
+          get().actions.updateLocalConfiguration(settings);
+          // An explicit save must also retry a previous failed write when the
+          // form still matches the in-memory settings.
+          if (configurationRevision === previousRevision) persistConfiguration();
+          await configurationWriteTask;
         },
 
         acknowledgeReload: (revision) => {
@@ -789,6 +894,7 @@ export const createMavenStore = (
             lastExitCode: null,
             testResults: null,
             activeTestRun: testRun ?? null,
+            activeTestRunStartedAt: testRun ? now() : null,
             ...(testRun ? { lastTestRun: testRun } : {}),
           });
           if (testRun) {
@@ -864,13 +970,21 @@ export const createMavenStore = (
           }
         },
 
-        runTestClass: async (filePath, module) => {
+        runTestClass: async (filePath, module, className) => {
           const state = get();
           if (!state.root || !state.project) {
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const discoveredClass = className === undefined ? undefined
+            : await dependencies.resolveJavaTestClass(state.root, filePath, className);
+          // Discovery may outlive a workspace switch or a project reload.
+          if (get().root !== state.root || get().project !== state.project) return;
+          const fileTarget = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = discoveredClass === null ? null : fileTarget && {
+            ...fileTarget,
+            className: discoveredClass ?? fileTarget.className,
+          };
           const selector = target && createMavenTestSelector(target.className);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test class from this file.");
@@ -880,17 +994,26 @@ export const createMavenStore = (
             module: target.module,
             selector,
             title: selector,
+            className: target.className,
           };
           await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
         },
 
-        runTestMethod: async (filePath, method, module) => {
+        runTestMethod: async (filePath, method, module, className) => {
           const state = get();
           if (!state.root || !state.project) {
             reportTestLaunchFailure("No Maven project is loaded for this Java test.");
             return;
           }
-          const target = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const discoveredClass = className === undefined ? undefined
+            : await dependencies.resolveJavaTestClass(state.root, filePath, className);
+          // Discovery may outlive a workspace switch or a project reload.
+          if (get().root !== state.root || get().project !== state.project) return;
+          const fileTarget = resolveMavenTestTarget(filePath, state.root, state.project, module);
+          const target = discoveredClass === null ? null : fileTarget && {
+            ...fileTarget,
+            className: discoveredClass ?? fileTarget.className,
+          };
           const selector = target && createMavenTestSelector(target.className, method);
           if (!target || !selector) {
             reportTestLaunchFailure("Could not resolve the Java test method from this file.");
@@ -900,6 +1023,7 @@ export const createMavenStore = (
             module: target.module,
             selector,
             title: selector,
+            className: target.className,
           };
           await get().actions.runGoals(mavenTestGoals(selector), target.module, selector, testRun);
         },
@@ -1015,9 +1139,25 @@ export const createMavenStore = (
             });
           const testRun = state.activeTestRun;
           if (testRun) {
-            void dependencies
-              .parseMavenTestResults(root, output)
+            const reports = mavenTestReportsRequest(
+              testRun,
+              state.project,
+              state.activeTestRunStartedAt,
+            );
+            void (reports
+              ? dependencies.parseMavenTestResults(root, output, reports)
+              : dependencies.parseMavenTestResults(root, output))
               .then((testResults) => {
+                if (diagnosticsRevision === revision && get().root === root && reports) {
+                  set({
+                    testOutcomes: mergeMavenTestOutcomes(
+                      get().testOutcomes,
+                      reports.classes,
+                      testResults.testCases ?? [],
+                      testRun.selector.split("#")[1],
+                    ),
+                  });
+                }
                 if (diagnosticsRevision === revision && get().root === root) {
                   const noTestsMatched = exitCode === 0 && testResults.testsRun === 0;
                   if (noTestsMatched && testRun) {

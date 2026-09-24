@@ -1,4 +1,4 @@
-use super::support::temporary_root;
+use super::support::{jdt_entrypoints, temporary_root};
 use crate::execute_json;
 use serde_json::Value;
 use std::fs;
@@ -469,7 +469,11 @@ fn detectors_extend_a_java_project_without_disturbing_its_configurations() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["backend-api/src/main/java/com/demo/BackendApplication.java"]
+                "paths": ["backend-api/src/main/java/com/demo/BackendApplication.java"],
+                "javaEntrypoints": jdt_entrypoints(&[(
+                    "backend-api/src/main/java/com/demo/BackendApplication.java",
+                    "com.demo.BackendApplication"
+                )])
             }
         })
         .to_string(),
@@ -1467,7 +1471,11 @@ fn only_spring_boot_carries_a_main_class_into_its_goal() {
             "command": "runConfig.generate",
             "payload": {
                 "root": root,
-                "paths": ["api/src/main/java/com/demo/DemoApplication.java"]
+                "paths": ["api/src/main/java/com/demo/DemoApplication.java"],
+                "javaEntrypoints": jdt_entrypoints(&[(
+                    "api/src/main/java/com/demo/DemoApplication.java",
+                    "com.demo.DemoApplication"
+                )])
             }
         })
         .to_string(),
@@ -1493,6 +1501,175 @@ fn only_spring_boot_carries_a_main_class_into_its_goal() {
             .any(|item| item["id"] == "java-main:com.demo.DemoApplication"),
         "{configurations:?}"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Issue follow-up: a Java repository's Compose files declare the databases the
+/// project runs against. They stay runnable, but they are reported as
+/// infrastructure so hosts can keep them out of the project's service list.
+#[test]
+fn compose_detections_are_reported_as_infrastructure() {
+    let root = temporary_root("detect-compose-category");
+    fs::create_dir_all(root.join("script/docker")).unwrap();
+    fs::create_dir_all(root.join("sql/tools")).unwrap();
+    fs::write(
+        root.join("script/docker/docker-compose.yml"),
+        "services:\n  mysql:\n    image: mysql\n  server:\n    image: app\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("sql/tools/docker-compose.yaml"),
+        "services:\n  mysql:\n    image: mysql\n",
+    )
+    .unwrap();
+    fs::write(root.join("Makefile"), "run:\n\techo run\n").unwrap();
+
+    let configurations = generated_configurations(&root);
+    let category = |id: &str| {
+        configurations
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("{id} should be generated: {configurations:?}"))["category"]
+            .clone()
+    };
+    assert_eq!(
+        category("compose.service:script/docker/mysql"),
+        "infrastructure"
+    );
+    assert_eq!(
+        category("compose.stack:sql/tools/compose up"),
+        "infrastructure"
+    );
+    // Project entries keep the default category, which Core omits entirely so
+    // existing generated documents do not churn.
+    assert_eq!(category("make.target:run"), Value::Null);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Three Compose files each contribute `compose up`, and two of them declare
+/// `mysql`. Ids differ, but the Run list shows only names, so Core qualifies
+/// the repeated ones with the directory they run in.
+#[test]
+fn repeated_detection_names_are_qualified_by_directory() {
+    let root = temporary_root("detect-duplicate-names");
+    fs::create_dir_all(root.join("script/docker")).unwrap();
+    fs::create_dir_all(root.join("sql/tools")).unwrap();
+    for directory in ["script/docker", "sql/tools"] {
+        fs::write(
+            root.join(directory).join("docker-compose.yml"),
+            "services:\n  mysql:\n    image: mysql\n",
+        )
+        .unwrap();
+    }
+    fs::write(
+        root.join("script/docker/docker-compose.yml"),
+        "services:\n  mysql:\n    image: mysql\n  redis:\n    image: redis\n",
+    )
+    .unwrap();
+
+    let configurations = generated_configurations(&root);
+    let name = |id: &str| {
+        configurations
+            .iter()
+            .find(|item| item["id"] == id)
+            .unwrap_or_else(|| panic!("{id} should be generated: {configurations:?}"))["name"]
+            .as_str()
+            .unwrap()
+            .to_string()
+    };
+    assert_eq!(
+        name("compose.service:script/docker/mysql"),
+        "mysql (script/docker)"
+    );
+    assert_eq!(name("compose.service:sql/tools/mysql"), "mysql (sql/tools)");
+    assert_eq!(
+        name("compose.stack:script/docker/compose up"),
+        "compose up (script/docker)"
+    );
+    assert_eq!(
+        name("compose.stack:sql/tools/compose up"),
+        "compose up (sql/tools)"
+    );
+    // A name that appears once is never decorated.
+    assert_eq!(name("compose.service:script/docker/redis"), "redis");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Run entries are exactly the classes JDT reports. Test fixtures embed Java
+/// samples in string literals and comments; JDT does not report those, and
+/// Core must not add entries of its own by reading source text.
+#[test]
+fn java_entries_are_exactly_the_classes_jdt_reports() {
+    let root = temporary_root("detect-phantom-main");
+    let sample = "src/test/java/com/demo/TemplateTest.java";
+    let commented = "src/test/java/com/demo/CommentedTest.java";
+    let real = "src/test/java/com/demo/QueryTool.java";
+    fs::create_dir_all(root.join("src/test/java/com/demo")).unwrap();
+    fs::write(root.join("pom.xml"), "<project/>").unwrap();
+    fs::write(
+        root.join(sample),
+        concat!(
+            "package com.demo;\n",
+            "class TemplateTest {\n",
+            "    String content = \"<pre>public class Demo {\\n public static void main(String[] args) {}\\n}</pre>\";\n",
+            "}\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join(commented),
+        concat!(
+            "package com.demo;\n",
+            "class CommentedTest {\n",
+            "    // public static void main(String[] args) {}\n",
+            "}\n"
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join(real),
+        "package com.demo;\nclass QueryTool { public static void main(String[] args) {} }\n",
+    )
+    .unwrap();
+
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "generate",
+            "command": "runConfig.generate",
+            "payload": {
+                "root": root,
+                "paths": [sample, commented, real],
+                "javaEntrypoints": jdt_entrypoints(&[(real, "com.demo.QueryTool")])
+            }
+        })
+        .to_string(),
+    ))
+    .unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    let ids = response["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    assert!(
+        ids.contains(&"java-main:com.demo.QueryTool".to_string()),
+        "a declared main method is still runnable: {ids:?}"
+    );
+    for phantom in [
+        "java-main:com.demo.TemplateTest",
+        "java-main:com.demo.CommentedTest",
+    ] {
+        assert!(
+            !ids.contains(&phantom.to_string()),
+            "{phantom} must not be generated: {ids:?}"
+        );
+    }
+    // The count the UI reports must not include the phantom entries either.
+    assert_eq!(response["data"]["entryCount"], 1, "{response}");
 
     fs::remove_dir_all(root).unwrap();
 }

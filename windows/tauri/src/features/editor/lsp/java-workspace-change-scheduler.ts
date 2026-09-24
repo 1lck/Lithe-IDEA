@@ -187,7 +187,8 @@ export class JavaWorkspaceChangeScheduler {
         .map((change) => ({
           ...change,
           relativePath: getRelativePath(change.path, owner.workspacePath),
-        }));
+        }))
+        .filter((change) => change.relativePath.length > 0);
       if (relativeChanges.length === 0) {
         this.complete(owner, { kind: "cancelled", reason: "no-workspace-contained-paths" });
         return;

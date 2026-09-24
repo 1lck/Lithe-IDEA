@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+mkdir -p .artifacts/test-stability
+node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/rust-comment-checker.xml \
+    scripts/test-rust-core-comments.mjs
 scripts/verify-rust-core-comments.sh
 scripts/verify-rust-core-layout.sh
 cargo fmt --manifest-path rust/Cargo.toml -p lithe-core -- --check
@@ -26,7 +30,17 @@ if ! /usr/bin/xcrun ld -help 2>&1 | /usr/bin/grep -q -- '-no_warn_duplicate_libr
     SWIFT_LINKER_ARGS=(-Xswiftc "-ld-path=$ROOT_DIR/scripts/ld-macos13-compat.sh")
 fi
 
-swift build --disable-sandbox --triple "$TRIPLE" "${SWIFT_LINKER_ARGS[@]}" \
+SWIFT_BUILD_ARGS=(build --disable-sandbox --triple "$TRIPLE" "${SWIFT_LINKER_ARGS[@]}")
+SWIFT_BIN_PATH="$(swift build --show-bin-path --configuration debug --triple "$TRIPLE")"
+if [[ "$SWIFT_BIN_PATH" == */out/Products/* ]]; then
+    # Newer SwiftPM layouts put all --triple products below .build/out. Use a
+    # per-architecture scratch path only for that layout; older SwiftPM keeps
+    # the repository's original .build/<triple>/debug path.
+    SWIFT_BUILD_ROOT="$ROOT_DIR/.build/$TRIPLE"
+    SWIFT_BUILD_ARGS+=(--scratch-path "$SWIFT_BUILD_ROOT")
+    SWIFT_BIN_PATH="$SWIFT_BUILD_ROOT/debug"
+fi
+swift "${SWIFT_BUILD_ARGS[@]}" \
     -Xswiftc -Xfrontend \
     -Xswiftc -disable-round-trip-debug-types \
     -Xcc -include \
@@ -46,7 +60,7 @@ swiftc scripts/RustCoreBridgeVerification.swift \
     -o "$BRIDGE_BINARY"
 "$BRIDGE_BINARY"
 
-BINARY=".build/$TRIPLE/debug/Lithe"
+BINARY="$SWIFT_BIN_PATH/Lithe"
 if ! nm -gU "$BINARY" | grep -F "_lithe_core_execute_json" > /dev/null; then
     print -u2 -- "Rust Core symbols are missing from the macOS binary"
     exit 1

@@ -41,15 +41,13 @@ done
 if command -v rg >/dev/null 2>&1; then
     non_english_line_comments="$(rg -n '(^|[^:])//.*\p{Han}' "${rust_files[@]}" || true)"
 else
-    non_english_line_comments="$(grep -nE '(^|[^:])//.*[一-龥]' "${rust_files[@]}" || true)"
+    non_english_line_comments="$(ruby -E UTF-8 -ne 'puts "#{ARGF.filename}:#{ARGF.file.lineno}:#{$_}" if /(^|[^:])\/\/.*\p{Han}/u' "${rust_files[@]}")"
 fi
 non_english_block_comments="$(awk '
     FNR == 1 { in_block = 0 }
 
-    function emit_if_localized(value) {
-        if (value ~ /[一-龥]/) {
-            print FILENAME ":" FNR ":" value
-        }
+    function emit_comment(value) {
+        print FILENAME ":" FNR ":" value
     }
 
     {
@@ -58,10 +56,10 @@ non_english_block_comments="$(awk '
             if (in_block) {
                 end_position = index(remaining, "*/")
                 if (end_position == 0) {
-                    emit_if_localized(remaining)
+                    emit_comment(remaining)
                     break
                 }
-                emit_if_localized(substr(remaining, 1, end_position + 1))
+                emit_comment(substr(remaining, 1, end_position + 1))
                 remaining = substr(remaining, end_position + 2)
                 in_block = 0
             } else {
@@ -79,6 +77,11 @@ non_english_block_comments="$(awk '
         }
     }
 ' "${rust_files[@]}" || true)"
+# BSD awk can interpret a multibyte Han range as byte ranges and match ASCII.
+# Keep extraction in awk, but classify only the comment text with Unicode-aware
+# Ruby; explicitly select UTF-8 so the result is independent of the CI locale.
+non_english_block_comments="$(printf '%s\n' "$non_english_block_comments" |
+    ruby -E UTF-8 -ne 'print if $_.split(/:\d+:/, 2).last.match?(/\p{Han}/u)')"
 non_english_comments="$(printf '%s\n%s\n' "$non_english_line_comments" "$non_english_block_comments" | sed '/^$/d' | sort -u)"
 if [[ -n "$non_english_comments" ]]; then
     printf '%s\n' "Rust Core comments must be written in English:" >&2

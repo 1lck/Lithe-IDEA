@@ -31,6 +31,7 @@ const configuration: RunConfiguration = {
   name: "Spring Boot",
   provider: "spring-boot.maven",
   kindTitle: "Spring Boot",
+  category: "project" as const,
   execution: "service",
   cwd: "",
   args: [],
@@ -84,6 +85,7 @@ describe("Maven-backed Run context", () => {
       saveWorkspaceBeforeLaunch,
       startRunProcess,
       stopRunProcess,
+      prepareJavaRunLaunch: mock(async () => null),
     };
     const store = createRunStore("workspace", dependencies);
     store.setState({
@@ -113,6 +115,7 @@ describe("Maven-backed Run context", () => {
       undefined,
       mavenContext,
       5005,
+      null,
     );
     expect(resolveRunLaunch).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -143,6 +146,7 @@ describe("Maven-backed Run context", () => {
       executePreLaunchStep: mock(async () => ({ exitCode: 0, output: "" })),
       startRunProcess,
       stopRunProcess: mock(async () => undefined),
+      prepareJavaRunLaunch: mock(async () => null),
     };
     const store = createRunStore("workspace", dependencies);
     store.setState({

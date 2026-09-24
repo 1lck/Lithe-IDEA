@@ -213,8 +213,48 @@ struct ProjectRuntimeSettings: Codable, Hashable, Sendable {
     }
 }
 
+/// Where a resolved runtime came from, shown in place of "automatic".
+enum RuntimeChoiceSource: Equatable, Sendable {
+    /// The explicit path at the level being resolved.
+    case configured
+    /// The project default from Settings.
+    case projectSetting
+    case javaHomeEnvironment
+    case detected
+    /// A Maven JDK that inherits the project JDK.
+    case projectJDK
+    case mavenWrapper
+    case systemMaven
+}
+
+/// Outcome of one runtime selection chain in `ProjectRuntimeService`.
+indirect enum RuntimeChoice: Equatable, Sendable {
+    case found(URL, RuntimeChoiceSource)
+    /// A configured path that is not a usable runtime; a launch fails on it.
+    case invalid(String)
+    /// A configured path that is not usable, replaced by `to`.
+    case fallback(invalidPath: String, to: RuntimeChoice)
+    /// Nothing was configured and nothing usable was detected.
+    case notFound
+
+    var url: URL? {
+        switch self {
+        case .found(let url, _): url
+        case .fallback(_, let choice): choice.url
+        case .invalid, .notFound: nil
+        }
+    }
+
+    /// The same choice presented as inherited from the project JDK.
+    var inheritedAsProjectJDK: RuntimeChoice {
+        if case .found(let url, _) = self { return .found(url, .projectJDK) }
+        return self
+    }
+}
+
 struct JavaRuntimeCandidate: Identifiable, Hashable, Sendable {
-    static let minimumJDTLSMajorVersion = 17
+    /// JDT LS 1.44 and later refuse to start on an older Java runtime.
+    static let minimumJDTLSMajorVersion = 21
 
     let homePath: String
     let version: String

@@ -5,6 +5,10 @@ struct ProjectRuntimeSettingsView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: RuntimeSettingsFeatureModel
     @State private var selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
+    /// Editing waits until the form is seeded from this project's saved defaults.
+    /// An earlier edit could not reach `.lithe/run/local.json`, and adopting the
+    /// saved defaults afterwards would silently revert it.
+    @State private var isPrepared = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -18,6 +22,7 @@ struct ProjectRuntimeSettingsView: View {
                     Rectangle().fill(LitheTheme.divider).frame(width: 1)
                     detail
                 }
+                .disabled(!isPrepared)
             }
         }
         .background(LitheTheme.settingsSurface)
@@ -26,15 +31,19 @@ struct ProjectRuntimeSettingsView: View {
             if feature.subprojects.contains(where: { $0.id == selectedSubprojectID }) == false {
                 selectedSubprojectID = ProjectRuntimeInventory.projectDefaultsID
             }
+            isPrepared = true
         }
         .onDisappear {
+            // Before preparation the form holds unmerged values; persisting them
+            // would overwrite the saved project and Maven settings.
+            guard isPrepared else { return }
             model.persistProjectRuntimeSettings()
         }
     }
 
     private var header: some View {
         HStack {
-            Text("Project")
+            Text("Project · JDK & Maven")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
@@ -42,6 +51,12 @@ struct ProjectRuntimeSettingsView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Discovering…")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(LitheTheme.secondaryText)
+            } else if !isPrepared && model.workspaceURL != nil {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Loading project environment…")
                     .font(.system(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -168,7 +183,13 @@ struct ProjectRuntimeSettingsView: View {
                     title: "Choose a JDK directory",
                     help: "Choose JDK directory"
                 )
-                effectiveJDKRow(path: feature.settings.javaHomePath)
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.javaChoice(overridePath: nil) },
+                    kind: .java,
+                    mode: feature.settings.javaHomePath.isEmpty ? .automatic : .configured,
+                    requirements: requirementMessages(for: "project-jdk")
+                )
                 Text("Maven, Run, and Debug use this JDK unless a subproject or run configuration overrides it.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -196,8 +217,20 @@ struct ProjectRuntimeSettingsView: View {
                 Text("Automatic uses a project mvnw first, then the system Maven on PATH.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                if let detected = feature.mavenRuntimes.first {
-                    labeledValue("Detected Maven", detected.displayName + " — " + detected.homePath)
+                if let workspaceURL = model.workspaceURL {
+                    EffectiveRuntimeLabel(
+                        feature: feature,
+                        choice: {
+                            feature.mavenChoice(
+                                at: workspaceURL,
+                                overridePath: feature.settings.mavenExecutableOverride
+                            )
+                        },
+                        kind: .maven,
+                        // A custom source without a path still resolves automatically.
+                        mode: feature.settings.mavenExecutableOverride.isEmpty ? .automatic : .configured,
+                        requirements: requirementMessages(for: "project-maven")
+                    )
                 }
                 row("Maven JDK") {
                     runtimePicker(
@@ -211,6 +244,12 @@ struct ProjectRuntimeSettingsView: View {
                     value: mavenJavaHomeBinding,
                     title: "Choose a JDK directory",
                     help: "Choose Maven JDK"
+                )
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.mavenJavaChoice(overridePath: nil) },
+                    kind: .java,
+                    mode: feature.settings.mavenJavaHomePath.isEmpty ? .projectJDK : .configured
                 )
                 pathField(
                     title: "settings.xml",
@@ -232,11 +271,17 @@ struct ProjectRuntimeSettingsView: View {
             Text("Project runtime settings are saved locally for this project.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
+            if let error = model.runFeatureIfActive?.configurationSaveError {
+                Text(error)
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.error)
+            }
         }
     }
 
     private func javaSubprojectDetail(_ subproject: ProjectRuntimeSubproject) -> some View {
         let override = feature.settings.exactOverride(for: subproject.relativePath)
+        let effectiveJavaHome = feature.effectiveJavaHome(for: subproject)
         return VStack(alignment: .leading, spacing: 18) {
             group("Java SDK") {
                 row("Project JDK") {
@@ -252,7 +297,12 @@ struct ProjectRuntimeSettingsView: View {
                     title: "Choose a JDK directory",
                     help: "Choose JDK directory"
                 )
-                effectiveJDKRow(path: feature.effectiveJavaHome(for: subproject))
+                EffectiveRuntimeLabel(
+                    feature: feature,
+                    choice: { feature.javaChoice(overridePath: effectiveJavaHome.isEmpty ? nil : effectiveJavaHome) },
+                    kind: .java,
+                    mode: (override?.javaHomePath ?? "").isEmpty ? .inherited : .configured
+                )
                 Text("This subproject can use a different JDK from other backends in the same workspace.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -294,14 +344,8 @@ struct ProjectRuntimeSettingsView: View {
         }
     }
 
-    private func effectiveJDKRow(path: String) -> some View {
-        let resolved = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        let runtime = feature.javaRuntimes.first { $0.homePath == resolved } ?? feature.activeJavaRuntime()
-        return labeledValue(
-            "Effective JDK",
-            runtime.map { "\($0.displayName) — \($0.homePath)" }
-                ?? (resolved.isEmpty ? "Detected system JDK" : resolved)
-        )
+    private func requirementMessages(for toolchain: String) -> [String] {
+        model.runFeatureIfActive?.configurationDiagnostics.toolchainRequirementMessages(for: toolchain) ?? []
     }
 
     private func labeledValue(_ title: String, _ value: String) -> some View {
@@ -328,7 +372,8 @@ struct ProjectRuntimeSettingsView: View {
             options: options,
             width: 280,
             accessibilityLabel: accessibilityLabel,
-            title: title
+            title: title,
+            expandsToFitOptions: true
         )
     }
 

@@ -7,6 +7,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case editor = "Editor"
     case keymap = "Keymap"
     case project = "Project"
+    case run = "Run configurations"
     case terminal = "Terminal"
     case lsp = "LSP"
     case ai = "AI & Commit"
@@ -15,6 +16,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case diagnostics = "Diagnostics"
 
     var id: String { rawValue }
+    var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
 
     var icon: String {
         switch self {
@@ -22,6 +24,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .editor: "textformat"
         case .keymap: "keyboard"
         case .project: "shippingbox"
+        case .run: "play.rectangle"
         case .terminal: "terminal"
         case .lsp: "server.rack"
         case .ai: "wand.and.stars"
@@ -30,6 +33,19 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .diagnostics: "stethoscope"
         }
     }
+}
+
+enum JavaLaunchDecisionResolution: Equatable {
+    case runOnce
+    case alwaysContinue
+    case rebuildIndex
+    case cancel
+}
+
+struct PendingJavaLaunchDecision: Identifiable, Equatable {
+    let id: UUID
+    let workspaceURL: URL
+    let failure: JavaLaunchBuildFailure
 }
 
 /// Product-level availability switches for integrations that require external

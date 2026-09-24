@@ -4,9 +4,11 @@ import {
   DEFAULT_HIDDEN_FILE_PATTERNS,
 } from "@/features/settings/config/default-settings";
 import {
+  findRetiredSettingsKeys,
   HIDDEN_PATTERN_DEFAULTS_VERSION_KEY,
   migrateHiddenPatternDefaults,
 } from "./settings-migrations";
+import { defaultSettings } from "@/features/settings/config/default-settings";
 
 describe("hidden pattern default migration", () => {
   test("replaces the former pair of empty defaults", () => {
@@ -46,5 +48,26 @@ describe("hidden pattern default migration", () => {
     );
 
     expect(result.changes).toEqual([]);
+  });
+});
+
+describe("retired settings cleanup", () => {
+  test("finds the removed buffer carousel key in a persisted store", () => {
+    const entries = new Map<string, unknown>([
+      ["horizontalTabScroll", true],
+      ["wordWrap", false],
+    ]);
+
+    expect(findRetiredSettingsKeys(entries)).toEqual(["horizontalTabScroll"]);
+  });
+
+  test("ignores stores without retired keys", () => {
+    expect(findRetiredSettingsKeys(new Map([["wordWrap", false]]))).toEqual([]);
+  });
+
+  test("never retires a key that is still a live setting", () => {
+    const retired = findRetiredSettingsKeys(new Map(Object.entries(defaultSettings)));
+
+    expect(retired).toEqual([]);
   });
 });

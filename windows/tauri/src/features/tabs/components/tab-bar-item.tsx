@@ -36,6 +36,7 @@ interface TabBarItemProps {
   index: number;
   isActive: boolean;
   isDraggedTab: boolean;
+  isWrapped?: boolean;
   showDropIndicatorBefore?: boolean;
   tabRef?: RefCallback<HTMLDivElement>;
   onClick?: () => void;
@@ -57,6 +58,7 @@ const TabBarItem = memo(function TabBarItem({
   displayName,
   isActive,
   isDraggedTab,
+  isWrapped = false,
   showDropIndicatorBefore = false,
   tabRef,
   onClick,
@@ -130,7 +132,7 @@ const TabBarItem = memo(function TabBarItem({
   );
 
   return (
-    <div ref={tabRef} className="relative">
+    <div ref={tabRef} className={cn("relative", isWrapped && "min-w-0 flex-1")}>
       {showDropIndicatorBefore ? (
         <div className="drop-indicator absolute top-1 bottom-1 left-0 z-20 w-0.5 bg-primary" />
       ) : null}
@@ -141,6 +143,8 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
+        // The wrapped strip sizes the sortable wrapper; the tab fills it and may shrink.
+        className={isWrapped ? "w-full min-w-0" : undefined}
         onClick={isEditing ? undefined : onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={isEditing ? undefined : onDoubleClick}

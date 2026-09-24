@@ -14,7 +14,7 @@
         "inputs": {
           "type": "object",
           "propertyNames": { "type": "string", "minLength": 1 },
-          "additionalProperties": { "type": "string", "pattern": "^sha256:" }
+          "additionalProperties": { "type": "string", "pattern": "^(sha256:.+|path)$" }
         }
       },
       "additionalProperties": false
@@ -62,6 +62,7 @@
           "pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*$"
         },
         "execution": { "enum": ["application", "service", "task", "group"] },
+        "category": { "enum": ["project", "infrastructure"] },
         "command": { "type": "string", "minLength": 1 },
         "args": { "type": "array", "items": { "type": "string" } },
         "cwd": { "$ref": "#/$defs/relativePath" },

@@ -92,6 +92,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
     @Published var pendingTerminalCloseSessionID: UUID?
     var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
+    @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
+    var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
     @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
@@ -143,6 +145,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         get { workbenchFeature.isSettingsPresented }
         set { workbenchFeature.isSettingsPresented = newValue }
     }
+    var settingsCategoryRequest: Int { workbenchFeature.settingsCategoryRequest }
+
     var requestedSettingsCategory: SettingsCategory {
         workbenchFeature.requestedSettingsCategory
     }
@@ -344,6 +348,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     private var mybatisFeatureObservation: AnyCancellable?
     private var isObjectWillChangeRelayScheduled = false
     private var languageToolingObservation: AnyCancellable?
+    /// Regenerates the Run list once JDT has prepared the project, after a
+    /// generation that could only show the previous Java entries.
+    var javaEntrypointRefreshObservation: AnyCancellable?
+    /// Compares the generated Java entries with JDT once it has prepared the
+    /// project, after a load that found it still importing.
+    var javaEntrypointFreshnessObservation: AnyCancellable?
 
     func cachedModuleCapability<Capability: AnyObject>(
         _ id: ModuleCapabilityID,
@@ -381,6 +391,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         for ownership in services.pluginCatalog.languageSupports.values {
             let support = ownership.declaration
             if support.languageServerModuleID == moduleID {
+                (services.moduleRuntime.capability(.languageServerExtension(support.id))
+                    as? any LanguageDependencyProviding)?
+                    .setDependencySnapshotChangeHandler(nil)
+                runFeatureIfActive?.unregisterDependencySource(languageID: support.id)
                 languageToolingSessionsIfActive?.unregisterLanguageServerExtension(
                     languageID: support.id
                 )
@@ -864,51 +878,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         pendingProjectItemDeletion = nil
     }
 
-    /// One-shot add/remove of recommended LSP artifact rules in Git local exclude.
-    /// Requests are serialized so click order matches write order. The Core write
-    /// itself runs off the MainActor through GitService.
-    private let lspGeneratedArtifactGitExcludeQueue = SerialMainActorActionQueue()
-    var isApplyingLSPGeneratedArtifactRules: Bool {
-        lspGeneratedArtifactGitExcludeQueue.isBusy
-    }
-
-    func applyLSPGeneratedArtifactGitExcludeRules(adding: Bool) {
-        guard workspaceURL != nil else { return }
-        objectWillChange.send()
-        lspGeneratedArtifactGitExcludeQueue.enqueue { [weak self] in
-            guard let self else { return }
-            let result = await self.performLSPGeneratedArtifactGitExclude(adding: adding)
-            switch result {
-            case .updated:
-                await self.gitFeatureIfActive?.refreshGitFromMetadataChange()
-            case .noRepository:
-                self.showNotification(
-                    "Hidden paths updated. No Git repository detected, so the Git local exclude list was not changed."
-                )
-            case .failed:
-                self.showNotification(
-                    "Hidden paths updated. The Git local exclude list could not be changed. You can retry the recommended-rules action."
-                )
-            }
-            self.objectWillChange.send()
-        }
-    }
-
-    private func performLSPGeneratedArtifactGitExclude(adding: Bool) async -> LSPGeneratedArtifactGitExcludeResult {
-        guard let workspaceURL else { return .failed }
-        guard let gitFeature = await activateGitModule() else { return .failed }
-        let command = await gitFeature.mutateLiteralLocalExcludePatterns(
-            LSPGeneratedArtifactVisibility.filePatterns,
-            adding: adding,
-            at: workspaceURL
-        )
-        return LSPGeneratedArtifactGitExcludeOutcome.classify(
-            succeeded: command.succeeded,
-            output: command.output,
-            operationErrorMessage: command.operationErrorMessage
-        )
-    }
-
     func resumeGitObservationAfterActivation() async {
         await workspaceFeature.resumeObservationAfterActivation()
     }
@@ -1281,6 +1250,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
                 )
                 return false
             }
+            registerLanguageDependencySourceIfAvailable(support: support)
         }
         if let snapshot = try? services.moduleRuntime.snapshot(for: .languageIntelligence),
            snapshot.state != .active,

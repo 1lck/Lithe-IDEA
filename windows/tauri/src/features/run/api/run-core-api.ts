@@ -1,3 +1,4 @@
+import type { JavaEntrypoints } from "@/platform/lsp-core-adapter";
 import { executeCore } from "@/core/lithe-core-client";
 import type {
   CoreGenerateResult,
@@ -5,6 +6,7 @@ import type {
   CoreResolveResult,
   GlobalToolchain,
   LaunchPlan,
+  JavaLaunchTarget,
   RunOptions,
   RunSaveScope,
 } from "../types/run.types";
@@ -38,16 +40,48 @@ async function runCore<T>(
   return response.data;
 }
 
-export function inspectRunConfiguration(root: string) {
-  return runCore<CoreInspectResult>("runConfig.inspect", { root });
+/**
+ * Validates run documents. `javaEntrypoints` is JDT's current answer; when
+ * given, Core also reports whether the generated Java entries still match it.
+ */
+export function inspectRunConfiguration(
+  root: string,
+  checkFingerprint = true,
+  javaEntrypoints?: JavaEntrypoints,
+) {
+  return runCore<CoreInspectResult>("runConfig.inspect", {
+    root,
+    checkFingerprint,
+    ...(javaEntrypoints ? { javaEntrypoints } : {}),
+  });
 }
 
+/** Updates only machine-local project defaults, even before configurations exist. */
+export function updateProjectToolchain(root: string, toolchain: GlobalToolchain) {
+  return runCore<{ document: string }>("runConfig.updateOptions", {
+    root,
+    scope: "local",
+    configurationId: "",
+    toolchain,
+  });
+}
+
+/**
+ * Regenerates `.lithe/run/generated.json`. `javaEntrypoints` is JDT's current
+ * answer; omit it while the Java service is preparing the project and Core
+ * keeps the previous generation's Java entries.
+ */
 export function generateRunConfiguration(
   root: string,
   paths: string[],
   modulePaths: string[] = [],
+  javaEntrypoints?: JavaEntrypoints,
 ) {
-  return runCore<CoreGenerateResult>("runConfig.generate", { root, paths, modulePaths }, 60_000);
+  return runCore<CoreGenerateResult>(
+    "runConfig.generate",
+    javaEntrypoints ? { root, paths, modulePaths, javaEntrypoints } : { root, paths, modulePaths },
+    60_000,
+  );
 }
 
 export function resolveRunConfiguration(
@@ -63,6 +97,7 @@ export function createLaunchPlan(
   currentFile?: string,
   mavenContext?: MavenLaunchContext | null,
   debugPort?: number,
+  javaLaunch?: JavaLaunchTarget | null,
 ) {
   return runCore<LaunchPlan>("runConfig.createLaunchPlan", {
     root,
@@ -70,6 +105,13 @@ export function createLaunchPlan(
     currentFile,
     mavenContext: mavenContext ?? null,
     debugPort,
+    javaLaunch: javaLaunch
+      ? {
+          mainClass: javaLaunch.mainClass,
+          classPaths: javaLaunch.classPaths,
+          modulePaths: javaLaunch.modulePaths,
+        }
+      : null,
   });
 }
 

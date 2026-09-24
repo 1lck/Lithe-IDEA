@@ -10,6 +10,22 @@
     "services/alpha/src/main/java/example/Alpha.java",
     "services/beta/src/main/java/example/Beta.java"
   ],
+  "javaEntrypoints": {
+    "schemaVersion": 1,
+    "entries": [
+      {
+        "sourcePath": "services/alpha/src/main/java/example/Alpha.java",
+        "mainClass": "example.Alpha",
+        "projectName": "alpha"
+      },
+      {
+        "sourcePath": "services/beta/src/main/java/example/Beta.java",
+        "mainClass": "example.Beta",
+        "projectName": "beta"
+      }
+    ],
+    "diagnostics": []
+  },
   "local": {
     "version": 2,
     "configurations": [

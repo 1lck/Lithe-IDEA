@@ -67,6 +67,7 @@ const nativeCommands = new Set([
   "run_discover_toolchains",
   "run_list_java_sources",
   "run_resolve_launch",
+  "run_resolve_toolchains",
   "run_start_process",
   "run_stop_process",
   "run_write_documents",
@@ -158,6 +159,7 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "run_discover_toolchains" ||
     command === "run_list_java_sources" ||
     command === "run_resolve_launch" ||
+    command === "run_resolve_toolchains" ||
     command === "run_start_process" ||
     command === "run_stop_process" ||
     command === "run_write_documents" ||

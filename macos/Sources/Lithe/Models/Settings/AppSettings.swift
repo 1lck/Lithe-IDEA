@@ -3,6 +3,11 @@ import Foundation
 import LitheCoreContracts
 import LitheGitModule
 
+enum JavaBuildFailurePolicy: String, Codable {
+    case ask
+    case alwaysContinue
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     private enum Key {
@@ -31,6 +36,7 @@ final class AppSettings: ObservableObject {
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
+        static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
     }
 
     private struct KeyboardShortcutOverridesPayload: Codable {
@@ -133,6 +139,7 @@ final class AppSettings: ObservableObject {
     private var fileVisibilityRulesObservers: [UUID: () -> Void] = [:]
     private var logDirectoryObservers: [UUID: (URL) -> Void] = [:]
     private let workbenchBackgroundSourceDidChange = PassthroughSubject<Void, Never>()
+    private var javaBuildFailurePolicies: [String: JavaBuildFailurePolicy] = [:]
 
     init(
         store: any KeyValueStore,
@@ -190,12 +197,36 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
+           let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
+            javaBuildFailurePolicies = saved
+        }
         AppThemeRuntime.shared.activate(colorTheme)
         updateGitExecutionPreferences()
     }
 
     var terminalShellPath: String? {
         terminalShellPathOverride.isEmpty ? terminalShell.path : terminalShellPathOverride
+    }
+
+    func javaBuildFailurePolicy(for workspaceURL: URL) -> JavaBuildFailurePolicy {
+        javaBuildFailurePolicies[Self.javaWorkspacePreferenceKey(workspaceURL)] ?? .ask
+    }
+
+    func setJavaBuildFailurePolicy(_ policy: JavaBuildFailurePolicy, for workspaceURL: URL) {
+        let key = Self.javaWorkspacePreferenceKey(workspaceURL)
+        if policy == .ask {
+            javaBuildFailurePolicies[key] = nil
+        } else {
+            javaBuildFailurePolicies[key] = policy
+        }
+        if let data = try? JSONEncoder().encode(javaBuildFailurePolicies) {
+            defaults.set(data, forKey: Key.javaBuildFailurePolicies)
+        }
+    }
+
+    private static func javaWorkspacePreferenceKey(_ workspaceURL: URL) -> String {
+        workspaceURL.standardizedFileURL.resolvingSymlinksInPath().path
     }
 
     func selectTerminalShell(path: String) {
@@ -302,6 +333,8 @@ final class AppSettings: ObservableObject {
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
         setKeyboardShortcutOverrides([:])
+        javaBuildFailurePolicies = [:]
+        defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {

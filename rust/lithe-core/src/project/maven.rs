@@ -1,5 +1,6 @@
 //! Maven reactor inspection, profile discovery, and source diagnostics.
 
+use super::maven_test_reports::{self, MavenTestReportsRequest};
 use crate::protocol::{CoreError, ErrorCode};
 use crate::protocol::{
     MavenDependenciesResponse, MavenDependencyResolutionResponse, MavenDependencyResponse,
@@ -8,8 +9,8 @@ use crate::protocol::{
     MavenSourceRootKind, MavenSourceRootResponse, MavenTestFailureResponse,
     MavenTestResultsResponse,
 };
-use quick_xml::events::Event;
-use quick_xml::Reader;
+use quick_xml::events::{BytesEnd, BytesStart, BytesText, Event};
+use quick_xml::{Reader, Writer};
 use regex::Regex;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -40,6 +41,10 @@ pub struct MavenDiagnosticsRequest {
 pub struct MavenTestResultsRequest {
     pub root: String,
     pub output: String,
+    /// When present, per-method outcomes are also read from the XML reports
+    /// the run wrote; see [`MavenTestReportsRequest`].
+    #[serde(default)]
+    pub reports: Option<MavenTestReportsRequest>,
 }
 
 const MAVEN_CONTEXT_VERSION: u32 = 1;
@@ -108,7 +113,19 @@ pub struct MavenDependenciesRequest {
 /// Validated Maven import settings consumed by the JDT LS adapter.
 pub(crate) struct MavenJdtConfiguration {
     pub profiles: Vec<String>,
+    /// User-level Maven settings file, forwarded to JDT LS as `userSettings`.
     pub settings_path: Option<String>,
+    /// Installation-level `conf/settings.xml` belonging to the Maven this
+    /// workspace runs, forwarded to JDT LS as `globalSettings`.
+    ///
+    /// Maven reads this file whenever no user-level settings replace it, so the
+    /// language server must see it too. Without it JDT LS falls back to its
+    /// embedded defaults and resolves artifacts against a different local
+    /// repository and different mirrors than the command line uses.
+    pub global_settings_path: Option<String>,
+    /// Local repository override from Maven Settings. JDT LS has no preference
+    /// for it, so the caller materializes a settings document that carries it.
+    pub local_repository_path: Option<String>,
     /// Workspace-relative reactor and recursive module directories.
     pub project_paths: Vec<String>,
     /// Workspace-relative Java source directories imported by JDT LS.
@@ -260,9 +277,207 @@ pub(crate) fn jdt_configuration(
     Ok(MavenJdtConfiguration {
         profiles: validated.profiles,
         settings_path: validated.settings_path,
+        global_settings_path: installation_settings_path(
+            validated.maven_executable_path.as_deref(),
+        ),
+        local_repository_path: validated.local_repository_path,
         project_paths,
         source_paths: source_paths.into_iter().collect(),
     })
+}
+
+/// Rewrites `<localRepository>` in a Maven settings document, preserving every
+/// other element, comment, and attribute exactly as written.
+///
+/// The generated document replaces the user-level settings JDT LS reads, so it
+/// has to keep the mirrors, servers, and proxies the workspace already builds
+/// with. Dropping them would send project import to the default remote
+/// repositories instead of the ones Maven resolves through.
+pub(crate) fn settings_with_local_repository(
+    source: &str,
+    local_repository: &str,
+) -> Result<String, CoreError> {
+    let mut writer = Writer::new(Vec::new());
+    // `<localRepository>` is optional, and an absent element has to be inserted
+    // rather than rewritten. Detect it first so the writing pass stays linear.
+    let insert = !declares_local_repository(source)?;
+    let mut reader = Reader::from_reader(source.as_bytes());
+    // Comments and indentation are part of the document the user maintains.
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut depth = 0usize;
+    // Depth of the element whose original content is being replaced.
+    let mut replacing = None;
+    let mut done = false;
+
+    loop {
+        let event = reader
+            .read_event_into(&mut buffer)
+            .map_err(settings_parse_error)?;
+        match event {
+            Event::Eof => break,
+            Event::Start(start) => {
+                if replacing.is_some() {
+                    // Children of the replaced element belong to the discarded
+                    // content, so their end tags are dropped below as well.
+                    depth += 1;
+                    continue;
+                }
+                let name = local_name(start.name().as_ref());
+                if !done && depth == 1 && name == "localRepository" {
+                    write_settings_event(&mut writer, Event::Start(start.borrow()))?;
+                    write_local_repository_text(&mut writer, local_repository)?;
+                    replacing = Some(depth);
+                    done = true;
+                    depth += 1;
+                    continue;
+                }
+                write_settings_event(&mut writer, Event::Start(start.borrow()))?;
+                depth += 1;
+                if !done && insert && depth == 1 && name == "settings" {
+                    write_local_repository_element(&mut writer, local_repository)?;
+                    done = true;
+                }
+            }
+            Event::Empty(empty) => {
+                if replacing.is_some() {
+                    continue;
+                }
+                let name = local_name(empty.name().as_ref());
+                if !done && depth == 1 && name == "localRepository" {
+                    // An empty element carries no text node to rewrite, so it is
+                    // expanded into the explicit form.
+                    write_local_repository_element(&mut writer, local_repository)?;
+                    done = true;
+                    continue;
+                }
+                if !done && insert && depth == 0 && name == "settings" {
+                    // A self-closing root has to become an explicit element
+                    // before the repository can be added inside it.
+                    let qualified = String::from_utf8_lossy(empty.name().as_ref()).into_owned();
+                    write_settings_event(&mut writer, Event::Start(empty.borrow()))?;
+                    write_local_repository_element(&mut writer, local_repository)?;
+                    write_settings_event(&mut writer, Event::End(BytesEnd::new(qualified)))?;
+                    done = true;
+                    continue;
+                }
+                write_settings_event(&mut writer, Event::Empty(empty.borrow()))?;
+            }
+            Event::End(end) => {
+                depth = depth.saturating_sub(1);
+                if replacing == Some(depth) {
+                    replacing = None;
+                } else if replacing.is_some() {
+                    continue;
+                }
+                write_settings_event(&mut writer, Event::End(end.borrow()))?;
+            }
+            other => {
+                if replacing.is_none() {
+                    write_settings_event(&mut writer, other)?;
+                }
+            }
+        }
+        buffer.clear();
+    }
+
+    String::from_utf8(writer.into_inner()).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Generated Maven settings are not valid UTF-8",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+/// Reports whether the document already declares a top-level local repository.
+fn declares_local_repository(source: &str) -> Result<bool, CoreError> {
+    let mut reader = Reader::from_reader(source.as_bytes());
+    reader.config_mut().trim_text(false);
+    let mut buffer = Vec::new();
+    let mut depth = 0usize;
+    loop {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(settings_parse_error)?
+        {
+            Event::Eof => return Ok(false),
+            Event::Start(start) => {
+                if depth == 1 && local_name(start.name().as_ref()) == "localRepository" {
+                    return Ok(true);
+                }
+                depth += 1;
+            }
+            Event::Empty(empty) => {
+                if depth == 1 && local_name(empty.name().as_ref()) == "localRepository" {
+                    return Ok(true);
+                }
+            }
+            Event::End(_) => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        buffer.clear();
+    }
+}
+
+fn write_local_repository_element(
+    writer: &mut Writer<Vec<u8>>,
+    local_repository: &str,
+) -> Result<(), CoreError> {
+    write_settings_event(writer, Event::Start(BytesStart::new("localRepository")))?;
+    write_local_repository_text(writer, local_repository)?;
+    write_settings_event(writer, Event::End(BytesEnd::new("localRepository")))
+}
+
+/// Writes the repository path as escaped text so a path containing `&` or `<`
+/// cannot corrupt the generated document.
+fn write_local_repository_text(
+    writer: &mut Writer<Vec<u8>>,
+    local_repository: &str,
+) -> Result<(), CoreError> {
+    write_settings_event(writer, Event::Text(BytesText::new(local_repository)))
+}
+
+fn write_settings_event(writer: &mut Writer<Vec<u8>>, event: Event<'_>) -> Result<(), CoreError> {
+    writer.write_event(event).map_err(|error| {
+        CoreError::new(
+            ErrorCode::ParseFailed,
+            "Could not write the generated Maven settings",
+        )
+        .with_details(error.to_string())
+    })
+}
+
+fn settings_parse_error(error: quick_xml::Error) -> CoreError {
+    CoreError::new(ErrorCode::ParseFailed, "Could not read Maven settings.xml")
+        .with_details(error.to_string())
+}
+
+/// Resolves the `conf/settings.xml` of the configured Maven installation.
+///
+/// The stored value may be either a Maven home or a launcher inside its `bin`
+/// directory, because the platform settings accept both. A project wrapper such
+/// as `mvnw` sits outside an installation and therefore resolves to `None`,
+/// which matches the settings Maven itself would read when the wrapper runs.
+/// Returning `None` also covers installations that ship no global settings, so
+/// callers keep JDT LS on its own defaults instead of pointing it at a missing
+/// file.
+fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<String> {
+    let configured = Path::new(maven_executable_path?);
+    let home = if configured.is_dir() {
+        configured.to_path_buf()
+    } else {
+        // Only the `<home>/bin/mvn*` layout identifies an installation root.
+        let bin = configured.parent()?;
+        if !bin.file_name()?.to_str()?.eq_ignore_ascii_case("bin") {
+            return None;
+        }
+        bin.parent()?.to_path_buf()
+    };
+    let settings = home.join("conf").join("settings.xml");
+    settings
+        .is_file()
+        .then(|| settings.to_string_lossy().into_owned())
 }
 
 fn validated_maven_context(
@@ -458,6 +673,8 @@ struct Descriptor {
     version: Option<String>,
     packaging: String,
     build_directory: Option<String>,
+    /// `<reportsDirectory>` values configured for Surefire or Failsafe, raw.
+    test_report_directories: Vec<String>,
     module_paths: Vec<String>,
     profiles: Vec<MavenProfileResponse>,
     plugins: Vec<String>,
@@ -477,6 +694,7 @@ struct PendingBuildPlugin {
     compiler_generated_test_source_directories: Vec<String>,
     build_helper_source_directories: Vec<String>,
     build_helper_test_source_directories: Vec<String>,
+    reports_directories: Vec<String>,
 }
 
 /// One module of the declared build graph, flattened with the root first.
@@ -730,9 +948,10 @@ impl MavenTestFailureKind {
 
 /// Parses the common text reporter used by Maven Surefire and Failsafe.
 ///
-/// The parser deliberately consumes only bounded process output. XML report
-/// files remain platform-owned, while this command provides enough structure
-/// for both products to show counts and navigate the first useful stack frame.
+/// The summary and failure details come from bounded process output. When the
+/// request names the run's module and classes, per-method outcomes are also
+/// read from the XML reports that run wrote, because the text reporter names
+/// only failing tests.
 pub fn test_results(
     request: MavenTestResultsRequest,
 ) -> Result<MavenTestResultsResponse, CoreError> {
@@ -957,6 +1176,17 @@ pub fn test_results(
         (failures + errors, failures, errors, 0)
     };
     let passed = tests_run.saturating_sub(failures + errors + skipped);
+    let test_cases = match request.reports.as_ref() {
+        Some(reports) => {
+            let module_root = maven_test_reports::module_root(&workspace_root, reports)?;
+            maven_test_reports::read_test_cases(
+                &module_root,
+                &test_report_directories(&module_root)?,
+                reports,
+            )?
+        }
+        None => Vec::new(),
+    };
     Ok(MavenTestResultsResponse {
         tests_run,
         failures,
@@ -965,7 +1195,39 @@ pub fn test_results(
         passed,
         success: failures == 0 && errors == 0,
         failure_details,
+        test_cases,
     })
+}
+
+/// Module-relative directories that may hold this module's test reports.
+///
+/// Configured `<reportsDirectory>` values come first; the Surefire and
+/// Failsafe defaults under the build directory are always searched too,
+/// because configuring one plugin leaves the other on its default. Values
+/// that use properties Core cannot resolve are skipped rather than guessed.
+fn test_report_directories(module_root: &Path) -> Result<Vec<String>, CoreError> {
+    let descriptor = descriptor(&module_root.join("pom.xml"))?;
+    let build_directory = descriptor
+        .as_ref()
+        .and_then(|descriptor| descriptor.build_directory.as_deref());
+    let mut directories = descriptor
+        .as_ref()
+        .map(|descriptor| {
+            descriptor
+                .test_report_directories
+                .iter()
+                .filter_map(|directory| normalize_maven_source_path(directory, build_directory))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if let Some(build_directory) = normalize_build_directory(build_directory) {
+        directories.extend(maven_test_reports::default_report_directories(
+            &build_directory,
+        ));
+    }
+    let mut seen = std::collections::HashSet::new();
+    directories.retain(|directory| seen.insert(directory.clone()));
+    Ok(directories)
 }
 
 fn strip_maven_log_prefix(raw_line: &str) -> &str {
@@ -1946,6 +2208,14 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                             }
                         }
                     }
+                    "project/build/plugins/plugin/configuration/reportsDirectory"
+                    | "project/build/plugins/plugin/executions/execution/configuration/reportsDirectory" => {
+                        if let Some(directory) = non_empty(text.clone()) {
+                            if let Some(plugin) = pending_build_plugin.as_mut() {
+                                plugin.reports_directories.push(directory);
+                            }
+                        }
+                    }
                     "project/modules/module" => {
                         if let Some(module) = non_empty(text.clone()) {
                             value.module_paths.push(module);
@@ -1976,6 +2246,11 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                             .extend(plugin.build_helper_source_directories);
                                         value.generated_test_source_directories
                                             .extend(plugin.build_helper_test_source_directories);
+                                    }
+                                    "maven-surefire-plugin" | "maven-failsafe-plugin" => {
+                                        value
+                                            .test_report_directories
+                                            .extend(plugin.reports_directories);
                                     }
                                     _ => {}
                                 }

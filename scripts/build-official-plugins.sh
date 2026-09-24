@@ -30,8 +30,14 @@ case "$TRIPLE" in
 esac
 
 BUILD_DIR="$ROOT_DIR/.build/$TRIPLE/$CONFIGURATION"
-MODULE_DIR="$BUILD_DIR/Modules"
-if [[ ! -f "$MODULE_DIR/LitheModuleAPI.swiftmodule" || ! -f "$MODULE_DIR/LitheCoreContracts.swiftmodule" ]]; then
+if [[ -e "$BUILD_DIR/Modules/LitheModuleAPI.swiftmodule" && \
+      -e "$BUILD_DIR/Modules/LitheCoreContracts.swiftmodule" ]]; then
+    MODULE_DIR="$BUILD_DIR/Modules"
+else
+    # SwiftPM 6.4 places package modules directly beside the executable.
+    MODULE_DIR="$BUILD_DIR"
+fi
+if [[ ! -e "$MODULE_DIR/LitheModuleAPI.swiftmodule" || ! -e "$MODULE_DIR/LitheCoreContracts.swiftmodule" ]]; then
     print -u2 -- "Build Lithe for $TRIPLE ($CONFIGURATION) before packaging official plugins"
     exit 1
 fi

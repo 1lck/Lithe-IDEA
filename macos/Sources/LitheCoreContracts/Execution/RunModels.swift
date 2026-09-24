@@ -234,12 +234,19 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
     package let execution: RunConfigurationExecution
     package let modulePath: String?
     package let mainClass: String?
+    /// Workspace-relative Java source that owns this launch target, when known.
+    package let sourcePath: String?
     /// Detected ownership from Core, independent of an overridden working directory.
     package let mavenReactorPath: String?
     package let debugAdapter: String?
     package let disabled: Bool
 
     package var usesCurrentEditorFile: Bool { kind == .currentFile }
+
+    /// Only launches backed by a JDT project wait for workspace preparation.
+    package var usesJavaProjectPreparation: Bool {
+        (kind == .javaMain || kind == .springBoot) && mavenReactorPath != nil
+    }
 
     package init(
         id: String,
@@ -248,6 +255,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         execution: RunConfigurationExecution? = nil,
         modulePath: String?,
         mainClass: String?,
+        sourcePath: String? = nil,
         mavenReactorPath: String? = nil,
         debugAdapter: String? = nil,
         disabled: Bool = false
@@ -258,6 +266,7 @@ package struct RunConfiguration: Identifiable, Hashable, Sendable {
         self.execution = execution ?? Self.defaultExecution(for: kind)
         self.modulePath = modulePath
         self.mainClass = mainClass
+        self.sourcePath = sourcePath
         self.mavenReactorPath = mavenReactorPath
         self.debugAdapter = debugAdapter
         self.disabled = disabled

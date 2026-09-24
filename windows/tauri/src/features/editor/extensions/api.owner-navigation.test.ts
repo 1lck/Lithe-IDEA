@@ -5,10 +5,12 @@ const clearSelection = mock(() => undefined);
 const setCursorPosition = mock(() => undefined);
 const setSelection = mock(() => undefined);
 const setScroll = mock(() => undefined);
+const legacyCursorPosition = { line: 1, column: 2, offset: 3 };
 
 mock.module("../stores/state.store", () => ({
   useEditorStateStore: {
     getState: () => ({
+      cursorPosition: legacyCursorPosition,
       actions: {
         setCursorPosition,
         setSelection,
@@ -170,8 +172,49 @@ describe("owner-directed navigation", () => {
   });
 });
 
-
 describe("Monaco command ownership", () => {
+  test("reads the cursor position from the active editor adapter", () => {
+    const activeCursorPosition = { line: 12, column: 8, offset: 180 };
+    const getCursorPosition = mock(() => activeCursorPosition);
+    editorAPI.setActiveEditorAdapter({
+      ownerId: "pane-a:buffer-a",
+      getCursorPosition,
+      insertText: () => undefined,
+      deleteRange: () => undefined,
+      replaceRange: () => undefined,
+      selectAll: () => undefined,
+      clearSelection: () => undefined,
+      focus: () => undefined,
+      undo: () => undefined,
+      redo: () => undefined,
+    });
+
+    expect(editorAPI.getCursorPosition()).toEqual(activeCursorPosition);
+    expect(getCursorPosition).toHaveBeenCalledTimes(1);
+
+    editorAPI.clearActiveEditorAdapter("pane-a:buffer-a");
+    expect(editorAPI.getCursorPosition()).toEqual(legacyCursorPosition);
+  });
+
+  test("reads selected text from the active editor adapter", () => {
+    const getSelectedText = mock(() => "selected current line");
+    editorAPI.setActiveEditorAdapter({
+      ownerId: "pane-a:buffer-a",
+      getSelectedText,
+      insertText: () => undefined,
+      deleteRange: () => undefined,
+      replaceRange: () => undefined,
+      selectAll: () => undefined,
+      clearSelection: () => undefined,
+      focus: () => undefined,
+      undo: () => undefined,
+      redo: () => undefined,
+    });
+
+    expect(editorAPI.getActiveSelectionText()).toBe("selected current line");
+    expect(getSelectedText).toHaveBeenCalledTimes(1);
+  });
+
   test("routes editing and selection commands without reading legacy editor state", () => {
     const executeCommand = mock((_command: EditorCommand) => undefined);
     editorAPI.setActiveEditorAdapter({

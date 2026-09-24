@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { ProjectPreparationStatus } from "./project-preparation-status";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { WrapText } from "lucide-react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -8,6 +10,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowClockwiseIcon,
+  ArrowFatLineDownIcon,
   GearIcon,
   MinusIcon,
   PlayIcon,
@@ -18,29 +21,69 @@ import {
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
-import { runOptionsFor, useRunStore } from "../stores/run.store";
+import { useRunStore } from "../stores/run.store";
 import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
 import {
   configurationsForExecution,
+  infrastructureConfigurations,
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
-import { RunConfigurationEditor } from "./run-configuration-editor";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
 import { JavaCupIcon, RunIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
+import { JavaLaunchDecisionBanner } from "./java-launch-decision";
+import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useRunPreferencesStore } from "../stores/run-preferences.store";
+
+/** Explains when the Java entries shown are not JDT's current answer. */
+function JavaDiscoveryNotice() {
+  const status = useRunStore((state) => state.javaDiscovery);
+  const message = useRunStore((state) => state.javaDiscoveryMessage);
+  const { t } = useTranslation();
+  if (status === "idle" || status === "ready") return null;
+  return (
+    <div
+      className="flex items-center gap-1 border-border/70 border-b px-3 py-1.5 ui-text-sm"
+      aria-live="polite"
+    >
+      {status === "failed" ? (
+        <span className="text-destructive">
+          {t("run.javaDiscoveryFailed", { message: message ?? "" })}
+        </span>
+      ) : (
+        <>
+          <Spinner compact />
+          <span className="text-subtle-foreground">
+            {t(status === "stale" ? "run.javaDiscoveryStale" : "run.javaDiscoveryLoading")}
+          </span>
+        </>
+      )}
+    </div>
+  );
+}
 
 export default function RunPane() {
   const { t } = useTranslation();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
+  const openSettings = useUIState((state) => state.openSettingsDialog);
+  // The editor lives in Settings; open it on this configuration in one step.
+  const editInSettings = (id: string) => {
+    actions.editConfiguration(id);
+    openSettings("run");
+  };
   const activeFilePath = useBufferStore((state) => {
     const activeBuffer = getBufferById(state.buffers, state.activeBufferId);
     return activeBuffer?.type === "editor" && !activeBuffer.isVirtual ? activeBuffer.path : undefined;
   });
+  const mavenExecutablePath = useMavenStore((state) =>
+    state.root === rootFolderPath ? state.mavenExecutablePath : "",
+  );
   const status = useRunStore((state) => state.status);
   const isLoading = useRunStore((state) => state.isLoading);
   const isGenerating = useRunStore((state) => state.isGenerating);
@@ -55,18 +98,19 @@ export default function RunPane() {
   const primaryExitCode = useRunStore((state) => state.primaryExitCode);
   const recoveryAction = useRunStore((state) => state.recoveryAction);
   const invalidMessage = useRunStore((state) => state.invalidMessage);
-  const saveError = useRunStore((state) => state.saveError);
   const generationNotice = useRunStore((state) => state.generationNotice);
-  const discoveredJava = useRunStore((state) => state.discoveredJava);
-  const discoveredMaven = useRunStore((state) => state.discoveredMaven);
-  const discoveredRuntimes = useRunStore((state) => state.discoveredRuntimes);
-  const globalToolchain = useRunStore((state) => state.globalToolchain);
+  const javaLaunchDecisions = useRunStore((state) => state.javaLaunchDecisions);
   const actions = useRunStore((state) => state.actions);
   const selectedServiceIDsByWorkspace = useRunPreferencesStore((state) => state.selectedServiceIDsByWorkspace);
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const scrollOutputToEnd = useRunPreferencesStore((state) => state.scrollOutputToEnd);
+  const setScrollOutputToEnd = useRunPreferencesStore((state) => state.actions.setScrollOutputToEnd);
+  const wrapOutputLines = useRunPreferencesStore((state) => state.wrapOutputLines);
+  const setWrapOutputLines = useRunPreferencesStore((state) => state.actions.setWrapOutputLines);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
+  const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
+  const outputScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void ensureRunProcessListeners();
@@ -75,7 +119,7 @@ export default function RunPane() {
   useEffect(() => {
     if (!rootFolderPath || !isBackendCapabilityAvailable("run")) return;
     void actions.loadProject(rootFolderPath);
-  }, [actions, rootFolderPath]);
+  }, [actions, rootFolderPath, mavenExecutablePath]);
 
   const services = useMemo(() => configurationsForExecution(configurations, "service"), [configurations]);
   const applications = useMemo(
@@ -83,6 +127,10 @@ export default function RunPane() {
     [configurations],
   );
   const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
+  // Compose databases and caches are runnable, but they are not this project's
+  // services: keeping them in their own collapsed section stops nineteen
+  // containers from burying the one Spring Boot service.
+  const infrastructure = useMemo(() => infrastructureConfigurations(configurations), [configurations]);
   const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
@@ -91,13 +139,16 @@ export default function RunPane() {
     diagnostics,
     selectedConfiguration?.id,
   );
-  const staleDiagnostic = diagnostics.find((diagnostic) => diagnostic.code === "staleFingerprint");
+  const freshnessDiagnostic = diagnostics.find((diagnostic) =>
+    diagnostic.code === "staleFingerprint" || diagnostic.code === "fingerprintCheckFailed");
   const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
   const output = selectedSession ? selectedSession.output : primaryOutput;
   const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
+  const decisionSessionId = selectedSession?.id ?? PRIMARY_SESSION_ID;
+  const javaLaunchDecision =
+    javaLaunchDecisions[decisionSessionId] ?? Object.values(javaLaunchDecisions)[0];
   const projectName =
     rootFolderPath?.split(/[\\/]/).filter(Boolean).pop() ?? t("run.title");
-  const editingConfiguration = configurations.find((configuration) => configuration.id === editingId);
   const currentFile = activeFilePath && rootFolderPath
     ? workspaceRelativePath(rootFolderPath, activeFilePath)
     : undefined;
@@ -113,6 +164,8 @@ export default function RunPane() {
     }
     setSelectedServiceIDsLocal(services.slice(0, 1).map((service) => service.id));
   }, [rootFolderPath, selectedServiceIDsByWorkspace, services]);
+
+  useFollowOutputEnd(outputScrollRef, output, scrollOutputToEnd, isBottomPaneVisible);
 
   const updateSelectedServices = (ids: string[]) => {
     setSelectedServiceIDsLocal(ids);
@@ -140,6 +193,8 @@ export default function RunPane() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      <ProjectPreparationStatus />
+      <JavaDiscoveryNotice />
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <RunIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
@@ -154,7 +209,7 @@ export default function RunPane() {
           </span>
         ) : null}
         <Tooltip content={isSelectedRunning ? t("run.stop") : t("run.run")} side="bottom">
-          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading} aria-label={t("run.run")}>
+          <Button variant="ghost" size="icon-xs" onClick={runSelected} disabled={isLoading || Boolean(javaLaunchDecision)} aria-label={t("run.run")}>
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
@@ -177,6 +232,30 @@ export default function RunPane() {
             <ArrowClockwiseIcon />
           </Button>
         </Tooltip>
+        <Tooltip content={t("run.scrollToEnd")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={scrollOutputToEnd}
+            onClick={() => setScrollOutputToEnd(!scrollOutputToEnd)}
+            aria-label={t("run.scrollToEnd")}
+            aria-pressed={scrollOutputToEnd}
+          >
+            <ArrowFatLineDownIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("run.wrapOutputLines")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={wrapOutputLines}
+            onClick={() => setWrapOutputLines(!wrapOutputLines)}
+            aria-label={t("run.wrapOutputLines")}
+            aria-pressed={wrapOutputLines}
+          >
+            <WrapText className="size-3.5" />
+          </Button>
+        </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
           <Button variant="ghost" size="icon-xs" onClick={() => actions.clearOutput()} aria-label={t("run.clearOutput")}>
             <TrashIcon />
@@ -194,19 +273,26 @@ export default function RunPane() {
         </Tooltip>
       </div>
 
-      {blockingDiagnostic || staleDiagnostic ? (
+      {blockingDiagnostic || freshnessDiagnostic ? (
         <div className="flex items-start gap-2 border-warning/30 border-b bg-warning/10 px-3 py-2">
           <WarningIcon className="mt-0.5 size-3.5 text-warning" />
           <div className="min-w-0 flex-1">
             <div className="font-medium ui-text-sm">
-              {blockingDiagnostic ? t("run.toolchainNeedsAttention") : t("run.staleConfigurations")}
+              {blockingDiagnostic ? t("run.toolchainNeedsAttention") :
+                freshnessDiagnostic?.code === "fingerprintCheckFailed" ? t("run.freshnessCheckFailed") :
+                  t("run.staleConfigurations")}
             </div>
             <div className="text-subtle-foreground ui-text-sm">
-              {blockingDiagnostic?.message ?? staleDiagnostic?.message}
+              {blockingDiagnostic?.message ?? freshnessDiagnostic?.message}
             </div>
           </div>
           {blockingDiagnostic ? (
-            <Button size="xs" onClick={() => selectedConfiguration && setEditingId(selectedConfiguration.id)}>
+            <Button
+              size="xs"
+              onClick={() =>
+                selectedConfiguration ? editInSettings(selectedConfiguration.id) : openSettings("run")
+              }
+            >
               {t("run.editService")}
             </Button>
           ) : (
@@ -215,6 +301,20 @@ export default function RunPane() {
             </Button>
           )}
         </div>
+      ) : null}
+
+      {javaLaunchDecision ? (
+        <JavaLaunchDecisionBanner
+          decision={javaLaunchDecision}
+          onContinue={() => actions.continueJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId, false)}
+          onAlwaysContinue={() => actions.continueJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId, true)}
+          onRebuildIndex={() => void actions.rebuildJavaIndex(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId)}
+          onOpenLogs={() => {
+            setIsBottomPaneVisible(true);
+            openSettings("logs");
+          }}
+          onCancel={() => actions.cancelJavaLaunch(javaLaunchDecision.sessionId, javaLaunchDecision.decisionId)}
+        />
       ) : null}
 
       {status !== "ready" ? (
@@ -248,8 +348,28 @@ export default function RunPane() {
                   sessions={sessions}
                   onSelect={actions.selectConfiguration}
                   onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                  onEdit={setEditingId}
+                  onEdit={editInSettings}
                 />
+                {infrastructure.length > 0 ? <button
+                  type="button"
+                  aria-expanded={!infrastructureCollapsed}
+                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
+                  onClick={() => setInfrastructureCollapsed((collapsed) => !collapsed)}
+                >
+                  {t("run.infrastructure")}
+                  <span aria-hidden>{infrastructureCollapsed ? "▸" : "▾"}</span>
+                </button> : null}
+                {infrastructure.length > 0 && !infrastructureCollapsed ? (
+                  <ConfigurationSection
+                    title={t("run.infrastructure")}
+                    configurations={infrastructure}
+                    selectedId={selectedConfigurationId}
+                    sessions={sessions}
+                    onSelect={actions.selectConfiguration}
+                    onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+                    onEdit={editInSettings}
+                  />
+                ) : null}
                 {otherConfigurations.length > 0 ? <button
                   type="button"
                   aria-expanded={!otherConfigurationsCollapsed}
@@ -268,7 +388,7 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={setEditingId}
+                      onEdit={editInSettings}
                     />
                     <ConfigurationSection
                       title={t("run.tasks")}
@@ -277,7 +397,7 @@ export default function RunPane() {
                       sessions={sessions}
                       onSelect={actions.selectConfiguration}
                       onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={setEditingId}
+                      onEdit={editInSettings}
                     />
                   </>
                 ) : null}
@@ -303,11 +423,14 @@ export default function RunPane() {
                   <div className="mt-1 text-subtle-foreground ui-text-sm">{t("run.selectConfiguration")}</div>
                 )}
               </div>
-              <div className="min-h-0 flex-1 overflow-auto px-3 py-2">
+              <div ref={outputScrollRef} className="min-h-0 flex-1 overflow-auto px-3 py-2">
                 <RunOutputText
                   title={t("run.processOutput")}
                   source={output}
                   emptyLabel={t("run.emptyOutput")}
+                  wrapLines={wrapOutputLines}
+                  wrapLabel={t("run.wrapOutputLines")}
+                  onToggleWrapLines={() => setWrapOutputLines(!wrapOutputLines)}
                 />
               </div>
               {isSelectedRunning ? (
@@ -326,20 +449,6 @@ export default function RunPane() {
         />
       )}
 
-      {editingConfiguration ? (
-        <RunConfigurationEditor
-          configuration={editingConfiguration}
-          options={runOptionsFor(editingConfiguration)}
-          saveError={saveError}
-          discoveredJava={discoveredJava}
-          discoveredMaven={discoveredMaven}
-          discoveredRuntimes={discoveredRuntimes}
-          globalToolchain={globalToolchain}
-          onClose={() => setEditingId(null)}
-          onSave={(options, toolchain, scope) =>
-            actions.saveEditorChanges(editingConfiguration, options, toolchain, scope)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -393,6 +502,7 @@ function ConfigurationSection({
   sessions: Array<{ id: string; isRunning: boolean }>;
   onSelect: (id: string) => void;
   onRun: (configuration: RunConfiguration) => void;
+  /** Opens Settings → Run configurations on this configuration. */
   onEdit: (id: string) => void;
 }) {
   const { t } = useTranslation();
@@ -421,9 +531,9 @@ function ConfigurationSection({
             <Button
               variant="ghost"
               size="icon-xs"
-              className="opacity-0 group-hover:opacity-100"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
               onClick={() => onEdit(configuration.id)}
-              aria-label={t("ui.edit")}
+              aria-label={t("run.editService")}
             >
               <GearIcon />
             </Button>

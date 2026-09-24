@@ -29,43 +29,152 @@ struct ExecutionModuleTests {
         #expect(graph.run.moduleSessions.first?.exitCode == 1)
     }
 
-    @Test(arguments: ["pom-failure", "reload-failure", "reload-success"])
-    func mavenReloadInvalidatesAlreadyRunningInventory(outcome: String) async throws {
-        let gate = ReloadScanGate()
-        let graph = makeTestGraph(mavenOperations: ReloadMavenOperations(scanGate: gate))
-        let service = graph.maven
+    @Test
+    func mavenInventoryRefreshReusesAcceptedProject() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
         let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
-        await service.loadProject(at: root, files: [root.appendingPathComponent("old")])
-        let background = Task {
-            await service.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
-        }
-        let watchdog = Task {
-            // test-stability: allow(swift-real-sleep) reason: watchdog bounds the event wait if the background scan never enters the controlled synchronous port.
-            try? await Task.sleep(for: .seconds(2))
-            guard !Task.isCancelled else { return }
-            Issue.record("Background Maven scan did not reach its gate")
-            gate.entered.continuation.finish()
-            gate.release.signal()
-            background.cancel()
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("old")])
+        await graph.maven.loadProject(at: root, files: [root.appendingPathComponent("inventory")])
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
+    }
+
+    @Test
+    func mavenInventoryDescriptorChangeWaitsForExplicitReload() async {
+        let operations = ReloadMavenOperations()
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        defer { graph.maven.reset(); graph.run.reset() }
+
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("old"), pom]
+        )
+        await graph.maven.loadProject(
+            at: root,
+            files: [root.appendingPathComponent("new"), pom, root.appendingPathComponent("module/pom.xml")]
+        )
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.project?.artifactID == "old")
+        #expect(graph.maven.isProjectReloadRequired)
+        #expect(graph.maven.isReloadRequired)
+    }
+
+    @Test
+    func mavenInitialLoadCoalescesMatchingInventory() async throws {
+        let gate = ReloadScanGate()
+        let secondStarted = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let operations = ReloadMavenOperations(scanGate: gate)
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
         }
         defer {
-            watchdog.cancel()
-            background.cancel()
+            first.cancel()
+            secondStarted.continuation.finish()
             gate.entered.continuation.finish()
             gate.release.signal()
-            service.reset()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
         }
-        for await _ in gate.entered.stream { break }
-        if outcome == "pom-failure" { service.markPomChanged(root.appendingPathComponent("pom.xml")) }
-        await service.reloadProject(files: [root.appendingPathComponent("new")], rescan: true) {
-            if outcome != "reload-success" { throw ReloadTestError.failed }
+
+        try await awaitSignal(gate.entered.stream)
+        let second = Task { @MainActor in
+            secondStarted.continuation.yield(())
+            await graph.maven.loadProject(
+                at: root,
+                files: [root.appendingPathComponent("README.md"), pom]
+            )
         }
+        try await awaitSignal(secondStarted.stream)
         gate.release.signal()
-        await background.value
-        #expect(service.project?.artifactID == (outcome == "reload-success" ? "new" : "old"))
-        #expect(service.projectState == .ready)
-        #expect((service.reloadError != nil) == (outcome != "reload-success"))
-        #expect(!service.isReloading)
+        await first.value
+        await second.value
+
+        #expect(operations.scanCount == 1)
+        #expect(graph.maven.projectState == .ready)
+        #expect(!graph.maven.isLoadingProject)
+    }
+
+    @Test(arguments: ["changed", "coalesced", "unrelated", "reset", "workspace"])
+    func mavenInitialLoadRejectsChangedPomContents(outcome: String) async {
+        let gate = ReloadScanGate()
+        let operations = ReloadMavenOperations(scanGate: gate, scanArtifacts: ["old", "new"])
+        let graph = makeTestGraph(mavenOperations: operations)
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let pom = root.appendingPathComponent("pom.xml")
+        let first = Task { @MainActor in
+            await graph.maven.loadProject(at: root, files: [pom])
+        }
+        defer {
+            first.cancel()
+            gate.entered.continuation.finish()
+            gate.release.signal()
+            gate.release.signal()
+            graph.maven.reset()
+            graph.run.reset()
+        }
+        do {
+            try await awaitSignal(gate.entered.stream)
+        } catch {
+            Issue.record("Initial Maven scan did not reach its gate: \(error)")
+            graph.maven.reset()
+            gate.release.signal()
+            await first.value
+            return
+        }
+
+        #expect(graph.maven.project == nil)
+        if outcome == "unrelated" {
+            graph.maven.markPomChanged(URL(fileURLWithPath: "/workspace-copy/pom.xml"))
+            graph.maven.markPomChanged(root.appendingPathComponent("README.md"))
+        } else {
+            // The first scan has captured old contents. Multiple edits must
+            // invalidate that result without starting parallel replacement scans.
+            graph.maven.markPomChanged(pom)
+            graph.maven.markPomChanged(pom)
+        }
+        #expect(!graph.maven.isProjectReloadRequired)
+        if outcome == "reset" { graph.maven.reset() }
+        gate.release.signal()
+        gate.release.signal()
+        if outcome == "coalesced" {
+            // No MainActor suspension occurs between release and this call, so
+            // the matching request joins the first task before it can commit.
+            await graph.maven.loadProject(at: root, files: [pom])
+        } else if outcome == "workspace" {
+            let other = URL(fileURLWithPath: "/other", isDirectory: true)
+            await graph.maven.loadProject(at: other, files: [other.appendingPathComponent("pom.xml")])
+            #expect(graph.maven.project?.rootURL == other)
+        }
+        await first.value
+
+        if outcome == "reset" {
+            #expect(operations.scanCount == 1)
+            #expect(graph.maven.project == nil)
+            #expect(graph.maven.projectState == .idle)
+        } else {
+            #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            #expect(graph.maven.project?.artifactID == (outcome == "unrelated" ? "old" : "new"))
+            #expect(graph.maven.projectState == .ready)
+            #expect(!graph.maven.isReloadRequired)
+            // The fresh result must itself be reusable by later snapshots.
+            if outcome != "workspace" {
+                await graph.maven.loadProject(at: root, files: [pom])
+                #expect(operations.scanCount == (outcome == "unrelated" ? 1 : 2))
+            }
+        }
     }
 
     @Test(arguments: ["success", "failure", "new-pom", "workspace"])
@@ -463,6 +572,62 @@ struct ExecutionModuleTests {
         #expect(!feature.isSelectedConfigurationRunning)
     }
 
+    /// Issue #507: editing a run document changes no project input, so the
+    /// service must not re-read every input on the main actor, and the
+    /// freshness warning the load reported must stay visible.
+    @Test
+    func documentEditsKeepFreshnessWithoutRereadingProjectInputs() async {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let service = makeFreshnessRecordingService(operations)
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
+
+        let created = service.createConfiguration(RunConfigurationDraft(
+            name: "Custom", kind: .javaMain, modulePath: ".", mainClass: "demo.Custom", scope: .project
+        ))
+
+        #expect(created)
+        #expect(operations.fingerprintChecks == [true, false])
+        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
+    }
+
+    /// A main method added to an existing class is found by comparing JDT's
+    /// answer with the generated entries, once per distinct message.
+    @Test
+    func jdtFreshnessIsReportedOnceWithoutHashingInputs() async {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        operations.inputsChanged = false
+        let service = makeFreshnessRecordingService(operations)
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(service.configurationDiagnostics.isEmpty)
+
+        let entrypoints = JavaEntrypoints(entries: [])
+        await service.reportJavaEntrypointFreshness(entrypoints)
+        await service.reportJavaEntrypointFreshness(entrypoints)
+
+        #expect(operations.fingerprintChecks == [true, false, false])
+        #expect(operations.comparedEntrypoints == [entrypoints, entrypoints])
+        #expect(service.configurationDiagnostics.map(\.message) == [
+            "Java entry points changed: 1 added, 0 removed",
+        ])
+    }
+
+    private func makeFreshnessRecordingService(
+        _ operations: FreshnessRecordingRunConfigurationOperations
+    ) -> RunService {
+        RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+    }
+
     /// Once the project is bound, identification must behave exactly as before.
     @Test
     func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
@@ -672,6 +837,228 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func dependencyBrowserRequiresExplicitLanguageRegistration() async throws {
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [
+                URL(fileURLWithPath: "/workspace/go.mod"): "module example.dev/api"
+            ]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let goModule = root.appendingPathComponent("go.mod")
+        let main = root.appendingPathComponent("cmd/api/main.go")
+
+        await service.loadProject(at: root, files: [goModule, main], mavenProject: nil)
+
+        #expect(service.configurations.contains { $0.id == "go:api" })
+        #expect(service.dependencyServices.isEmpty)
+        #expect(try await service.resolveDependencies(serviceID: "go:api") == nil)
+        service.registerDependencySource(languageID: "go", displayName: "Go")
+        service.registerDependencySource(languageID: "go", displayName: "Go")
+        let dependencyService = try #require(service.dependencyServices.first)
+        #expect(service.dependencyServices.count == 1)
+        #expect(dependencyService.id == "language:go")
+        #expect(dependencyService.displayName == "Go")
+        #expect(dependencyService.providerID == "go")
+
+        service.updateDependencyPaths(
+            DependencyPathConfiguration(dependencyPaths: ["vendor/modules"]),
+            serviceID: dependencyService.id
+        )
+        let graph = try #require(
+            try await service.resolveDependencies(serviceID: dependencyService.id)
+        )
+        let rootNode = try #require(graph.roots.first)
+        #expect(rootNode.title == "Go")
+        #expect(rootNode.subtitle == "Go")
+        #expect(rootNode.children[0].children.isEmpty)
+        #expect(rootNode.children[2].children.map(\.id) == ["/workspace/vendor/modules"])
+
+        let revision = service.dependencyRevision
+        service.markDependencyFilesChanged([WorkspaceFileChange(fileURL: goModule, kind: .changed)])
+        #expect(service.dependencyRevision == revision + 1)
+        service.unregisterDependencySource(languageID: "go")
+        #expect(service.dependencyServices.isEmpty)
+        #expect(try await service.resolveDependencies(serviceID: dependencyService.id) == nil)
+    }
+
+    @Test(arguments: ["docker.compose", "node.script", "java.main"])
+    func runConfigurationsDoNotInjectDependencySources(provider: String) async {
+        let configuration = RunConfiguration(
+            id: "run:\(provider)", name: provider,
+            kind: .process(provider: provider), modulePath: ".", mainClass: nil
+        )
+        let service = makeRunService(
+            configuration: configuration,
+            options: RunOptions(),
+            fileAccess: TestRunFileAccess(),
+            serverPortParser: FixedServerPortParser(port: nil)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+
+        #expect(service.configurations.contains { $0.id == configuration.id })
+        #expect(service.dependencyServices.isEmpty)
+    }
+
+    @Test
+    func languagePluginContributesResolvedRootsAndVirtualDocuments() async throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let moduleFile = root.appendingPathComponent("go.mod")
+        let support = LanguageSupportDeclaration(
+            id: "go",
+            displayName: "Go",
+            fileExtensions: ["go"],
+            dependencies: LanguageDependencyDeclaration(
+                managementFileNames: ["go.mod", "go.sum", "vendor/modules.txt"],
+                projectDependencyPaths: ["vendor"]
+            ),
+            virtualDocumentSchemes: ["gopls"],
+            languageServerModuleID: .languageServerExtension("go")
+        )
+        let service = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(
+                contents: [moduleFile: "module example.dev/api"],
+                directories: [root.appendingPathComponent("vendor", isDirectory: true)]
+            ),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            languageSupports: [support]
+        )
+        defer { service.reset() }
+        let virtualURI = try #require(URL(string: "gopls://example.dev/api/external.go"))
+        var resolvedRoot = URL(fileURLWithPath: "/modules/example.dev/api", isDirectory: true)
+        service.configureLanguageDependencyProvider { languageID, workspace, serviceID in
+            guard languageID == "go", workspace == root, serviceID == "language:go" else { return nil }
+            return LanguageDependencySnapshot(
+                binaryRoots: [root.appendingPathComponent("bin", isDirectory: true)],
+                dependencyRoots: [resolvedRoot, root.appendingPathComponent("vendor", isDirectory: true),
+                                  URL(fileURLWithPath: "/workspace-other/valid", isDirectory: true), resolvedRoot],
+                virtualDocuments: [.init(title: "external.go", uri: virtualURI)]
+            )
+        }
+        await service.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        #expect(service.dependencyServices.isEmpty)
+        service.registerDependencySource(languageID: "go", displayName: "Go")
+        let graph = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        let groups = try #require(graph.roots.first?.children)
+        #expect(groups[1].children.isEmpty)
+        #expect(groups[2].children.map(\.id) == [
+            "/modules/example.dev/api", "/workspace-other/valid", virtualURI.absoluteString
+        ])
+        #expect(groups[2].children.last?.source == .virtualDocument(virtualURI))
+
+        service.updateDependencyPaths(
+            DependencyPathConfiguration(dependencyPaths: ["vendor"]), serviceID: "language:go"
+        )
+        let configured = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(configured.roots.first?.children[2].children.map(\.id) == [
+            "/modules/example.dev/api", "/workspace-other/valid", "/workspace/vendor", virtualURI.absoluteString
+        ])
+
+        let revision = service.dependencyRevision
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision)
+        resolvedRoot = URL(fileURLWithPath: "/modules/example.dev/new-api", isDirectory: true)
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision + 1)
+        let refreshed = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(refreshed.roots.first?.children[2].children.first?.id == resolvedRoot.path)
+        let repeatGraph = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(repeatGraph == refreshed)
+        service.configureLanguageDependencyProvider { _, _, _ in nil }
+        service.syncLanguageDependencyPaths(languageID: "go")
+        #expect(service.dependencyRevision == revision + 1)
+        let cached = try #require(try await service.resolveDependencies(serviceID: "language:go"))
+        #expect(cached == refreshed)
+
+        let refreshedRevision = service.dependencyRevision
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("package-lock.json"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision)
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("go.sum"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision + 1)
+        service.markDependencyFilesChanged([WorkspaceFileChange(
+            fileURL: root.appendingPathComponent("vendor/modules.txt"), kind: .created
+        )])
+        #expect(service.dependencyRevision == refreshedRevision + 2)
+        service.markDependencyFilesChanged([WorkspaceFileChange(fileURL: moduleFile, kind: .deleted)])
+        #expect(service.dependencyRevision == refreshedRevision + 3)
+    }
+
+    @Test
+    func dependencyIndexSurvivesRunConfigurationApplyAndReusesPersistedGraph() async throws {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let moduleFile = root.appendingPathComponent("go.mod")
+        let cachedDependency = URL(fileURLWithPath: "/external/cache/cached.jar")
+        let store = TestWorkspaceDependencyStore()
+
+        let firstService = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            dependencyStore: store
+        )
+        defer { firstService.reset() }
+        firstService.configureLanguageDependencyProvider { _, _, _ in
+            LanguageDependencySnapshot(dependencyRoots: [cachedDependency])
+        }
+        await firstService.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        firstService.registerDependencySource(languageID: "go", displayName: "Go")
+        _ = try await firstService.resolveDependencies(serviceID: "language:go")
+        #expect(store.indexes.services["language:go"] != nil)
+
+        let secondService = RunService(
+            runtime: TestRuntime(),
+            process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() },
+            fileAccess: TestRunFileAccess(contents: [moduleFile: "module example.dev/api"]),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: TestGoProjectRunConfigurationOperations(),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback),
+            dependencyStore: store
+        )
+        defer { secondService.reset() }
+        secondService.configureLanguageDependencyProvider { _, _, _ in nil }
+        await secondService.loadProject(at: root, files: [moduleFile], mavenProject: nil)
+        secondService.registerDependencySource(languageID: "go", displayName: "Go")
+
+        let graph = try #require(
+            try await secondService.resolveDependencies(serviceID: "language:go")
+        )
+        #expect(graph.roots.first?.children[2].children.map(\.id) == [cachedDependency.path])
+    }
+
+    @Test
     func goTestsRunThroughExtensionOwnedSession() throws {
         let builtInProcess = TestStreamingProcess()
         let extensionSession = TestLanguageExecutionSession()
@@ -751,7 +1138,8 @@ struct ExecutionModuleTests {
                 factoryCall += 1
                 return factoryCall == 1 ? firstProcess : secondProcess
             },
-            resultParser: parser.parse
+            resultParser: parser.parse,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
         )
 
         #expect(service.run(
@@ -771,6 +1159,11 @@ struct ExecutionModuleTests {
         #expect(service.results == parsedResults)
         #expect(parser.calls == 1)
         #expect(parser.output.contains("Tests run: 3"))
+        #expect(parser.reports == MavenTestReportRequest(
+            sourcePath: "src/test/java/com/example/CalculatorTest.java",
+            classes: [],
+            notBeforeMillis: 1_700_000_000_000
+        ))
         #expect(!parser.ranOnMainThread)
         #expect(service.canRerun)
 
@@ -836,6 +1229,58 @@ struct ExecutionModuleTests {
         #expect(mainRequest.executablePath == "/test/bin/java")
         #expect(mainRequest.arguments == ["-cp", outputDirectory, "Standalone"])
         #expect(service.isRunning)
+    }
+
+    @Test
+    func mavenJavaMainValidatesTheProjectJDKInsteadOfTheMavenJDK() async throws {
+        let moduleProcess = TestStreamingProcess()
+        let configuration = RunConfiguration(
+            id: "java-main:example.Main", name: "Main", kind: .javaMain,
+            execution: .application, modulePath: "app", mainClass: "example.Main",
+            mavenReactorPath: "."
+        )
+        let plan = SharedLaunchPlan(
+            executable: .toolchain("project-jdk"),
+            arguments: ["example.Main"],
+            workingDirectory: ".",
+            classpath: ["/workspace/app/target/classes"]
+        )
+        let service = RunService(
+            runtime: TestRuntime(javaHome: URL(fileURLWithPath: "/valid/project-jdk")),
+            process: TestStreamingProcess(),
+            processFactory: { moduleProcess },
+            fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(),
+            serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: FixedLaunchPlanRunConfigurationOperations(
+                configuration: configuration,
+                plan: plan,
+                options: RunOptions(
+                    javaHomePath: "/valid/project-jdk",
+                    mavenJavaHomePath: "/invalid/maven-jdk"
+                )
+            ),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+
+        await service.loadProject(
+            at: URL(fileURLWithPath: "/workspace", isDirectory: true),
+            files: [],
+            mavenProject: nil
+        )
+        service.startConfiguration(configuration, javaLaunch: JavaDebugLaunchTarget(
+            mainClass: "example.Main",
+            projectName: "app",
+            classPaths: ["/workspace/app/target/classes"]
+        ))
+
+        #expect(moduleProcess.startRequests.first?.arguments == [
+            "-cp", "/workspace/app/target/classes", "example.Main",
+        ])
+        #expect(service.moduleSessions.first?.isRunning == true)
     }
 
     @Test
@@ -950,7 +1395,7 @@ struct ExecutionModuleTests {
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in nil }
+            resultParser: { _, _, _ in nil }
         )
 
         #expect(service.run(
@@ -1028,7 +1473,7 @@ struct ExecutionModuleTests {
         let service = LanguageTestService(
             executableResolver: TestExecutableResolver(),
             processFactory: { process },
-            resultParser: { _, _ in
+            resultParser: { _, _, _ in
                 MavenTestResults(
                     testsRun: 1,
                     failures: 0,
@@ -1217,8 +1662,8 @@ struct ExecutionModuleTests {
         #expect(!service.isReloadRequired)
     }
 
-    @Test
-    func mavenServiceResolvesDependenciesOnTheSecondBoundedProcess() async throws {
+    @Test(arguments: [String?.none, "/custom/repository"])
+    func mavenServiceResolvesDependenciesOnTheSecondBoundedProcess(configuredRepository: String?) async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let module = MavenModule(
             relativePath: "service",
@@ -1257,7 +1702,18 @@ struct ExecutionModuleTests {
             scope: "compile",
             resolution: .resolved,
             selectedVersion: nil,
-            children: []
+            children: [MavenDependency(
+                modulePath: "service",
+                groupID: "org.example",
+                artifactID: "transitive",
+                version: "2.0",
+                type: "jar",
+                classifier: nil,
+                scope: "compile",
+                resolution: .resolved,
+                selectedVersion: nil,
+                children: []
+            )]
         )
         let operations = RecordingMavenOperations(
             project: project,
@@ -1274,6 +1730,14 @@ struct ExecutionModuleTests {
         )
 
         await service.loadProject(at: workspace, files: [project.pomURL, module.url])
+        if let configuredRepository {
+            service.updateLocalConfiguration(
+                settingsPath: nil,
+                localRepositoryPath: configuredRepository,
+                mavenExecutablePath: nil,
+                javaHomePath: nil
+            )
+        }
         service.loadDependencies(for: "service")
         let request = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
 
@@ -1291,6 +1755,80 @@ struct ExecutionModuleTests {
 
         #expect(state == .ready([dependency]))
         #expect(operations.lastDependencyOutput == "[INFO] dependency tree\n")
+        let projection = MavenFeatureModel(service: service)
+        #expect(projection.resolvedDependencyArtifactPaths(modulePath: "service").isEmpty
+            == (configuredRepository == nil))
+        let selectedRepository = configuredRepository ?? "/repository"
+        #expect(projection.resolvedDependencyArtifactPaths(
+            modulePath: "service",
+            defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+        ).map(\.path) == [
+            "\(selectedRepository)/org/example/library/1.0/library-1.0.jar",
+            "\(selectedRepository)/org/example/transitive/2.0/transitive-2.0.jar"
+        ])
+        #expect(projection.resolvedDependencyArtifactPaths(
+            modulePath: ".",
+            defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+        ).isEmpty)
+    }
+
+    @Test
+    func resolvedMavenTreeUpdatesAnAlreadyRegisteredJavaDependencySource() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace, pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "org.example", artifactID: "example", version: "1.0",
+            packaging: "jar", modules: [], profiles: [], hasWrapper: false
+        )
+        let dependency = MavenDependency(
+            modulePath: ".", groupID: "junit", artifactID: "junit", version: "4.12",
+            type: "jar", classifier: nil, scope: "compile", resolution: .resolved,
+            selectedVersion: nil, children: []
+        )
+        let operations = RecordingMavenOperations(
+            project: project,
+            plan: MavenLaunchPlan(
+                version: 1, toolchain: "project-maven", arguments: ["dependency:tree"],
+                workingDirectory: ".", configurationFingerprint: "sha256:dependency"
+            ),
+            dependencyTree: MavenDependencyTree(modulePath: ".", dependencies: [dependency])
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let maven = MavenService(
+            runtimeService: MavenRecordingRuntime(), process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess, mavenOperations: operations
+        )
+        let graph = makeTestGraph(mavenService: maven)
+        defer { graph.run.reset(); graph.maven.reset() }
+        let mavenFeature = graph.mavenFeature
+        graph.run.configureLanguageDependencyProvider { [weak mavenFeature] languageID, root, _ in
+            guard languageID == "java", root == workspace else { return nil }
+            let roots = mavenFeature?.resolvedDependencyArtifactPaths(
+                modulePath: ".",
+                defaultRepositoryURL: URL(fileURLWithPath: "/repository", isDirectory: true)
+            ) ?? []
+            return roots.isEmpty ? nil : LanguageDependencySnapshot(dependencyRoots: roots)
+        }
+        await graph.projectDevelopment.loadProject(
+            at: workspace, files: [project.pomURL], snapshotID: UUID()
+        )
+        graph.run.registerDependencySource(languageID: "java", displayName: "Java")
+        let initial = try #require(try await graph.run.resolveDependencies(serviceID: "language:java"))
+        #expect(initial.roots.first?.children[2].children.isEmpty == true)
+        let revision = graph.run.dependencyRevision
+
+        maven.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+        dependencyProcess.onTermination?(0)
+        _ = await dependencyState(
+            maven, modulePath: ".",
+            matching: { if case .ready = $0 { true } else { false } }
+        )
+        try await awaitTestValue(graph.run.$dependencyRevision, matching: { $0 > revision })
+        let updated = try #require(try await graph.run.resolveDependencies(serviceID: "language:java"))
+        #expect(updated.roots.first?.children[2].children.map(\.id) == [
+            "/repository/junit/junit/4.12/junit-4.12.jar"
+        ])
     }
 
     @Test
@@ -1414,7 +1952,12 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: configurations.count)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -1431,23 +1974,89 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
     func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
 }
 
+/// Records how the service inspects: a full check reads every project input,
+/// so only project loads may request it (issue #507).
+private final class FreshnessRecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var inputsChanged = true
+    private(set) var fingerprintChecks: [Bool] = []
+    private(set) var comparedEntrypoints: [JavaEntrypoints] = []
+    private let custom = RunConfiguration(
+        id: "Custom", name: "Custom", kind: .javaMain,
+        execution: .service, modulePath: nil, mainClass: "demo.Custom"
+    )
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: true, javaEntrypoints: nil)
+    }
+    func inspect(
+        at _: URL,
+        checkFingerprint: Bool,
+        javaEntrypoints: JavaEntrypoints?
+    ) -> ProjectRunConfigurationInspection {
+        fingerprintChecks.append(checkFingerprint)
+        var diagnostics: [RunConfigurationDiagnostic] = []
+        if checkFingerprint && inputsChanged {
+            diagnostics.append(RunConfigurationDiagnostic(
+                configurationID: nil, code: "staleFingerprint",
+                message: "Project inputs changed: 0 added, 0 removed, 1 modified"
+            ))
+        }
+        if let javaEntrypoints {
+            comparedEntrypoints.append(javaEntrypoints)
+            diagnostics.append(RunConfigurationDiagnostic(
+                configurationID: nil, code: "staleFingerprint",
+                message: "Java entry points changed: 1 added, 0 removed"
+            ))
+        }
+        return ProjectRunConfigurationInspection(status: .ready, diagnostics: diagnostics)
+    }
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [.currentFile, custom].map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            },
+            diagnostics: [],
+            defaultConfigurationID: nil
+        )
+    }
+    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
 /// Returns a fixed launch plan (optionally carrying pre-launch steps and a
 /// classpath) so a test can drive the compile-then-run orchestration without a
 /// real Rust core.
 private struct FixedLaunchPlanRunConfigurationOperations: RunConfigurationOperations {
     let configuration: RunConfiguration
     let plan: SharedLaunchPlan
+    var options = RunOptions()
 
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
         RunConfigurationResolution(
             configurations: [.currentFile, configuration].map {
-                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+                EffectiveRunConfiguration(configuration: $0, options: options)
             },
             diagnostics: [],
             defaultConfigurationID: configuration.id
@@ -1524,11 +2133,12 @@ private func makeRunService(
 @MainActor
 private func makeTestGraph(
     mavenOperations: any MavenProjectOperations = TestMavenOperations(),
+    mavenService: MavenService? = nil,
     runOperations: any RunConfigurationOperations = TestRunConfigurationOperations()
 ) -> ExecutionFeatureGraph {
     let runtime = TestRuntime()
     let resolver = TestExecutableResolver()
-    let maven = MavenService(
+    let maven = mavenService ?? MavenService(
         runtimeService: runtime,
         process: TestStreamingProcess(),
         dependencyProcess: TestStreamingProcess(),
@@ -1640,18 +2250,26 @@ private final class TestResultParserRecorder: @unchecked Sendable {
     private var recordedCalls = 0
     private var recordedOutput = ""
     private var recordedMainThread = false
+    private var recordedReports: MavenTestReportRequest?
 
     init(result: MavenTestResults?) {
         self.result = result
     }
 
-    func parse(output: String, rootURL: URL) -> MavenTestResults? {
+    func parse(output: String, rootURL: URL, reports: MavenTestReportRequest?) -> MavenTestResults? {
         lock.lock()
         recordedCalls += 1
         recordedOutput = output
+        recordedReports = reports
         recordedMainThread = Thread.isMainThread
         lock.unlock()
         return result
+    }
+
+    var reports: MavenTestReportRequest? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedReports
     }
 
     var calls: Int {
@@ -1675,11 +2293,19 @@ private final class TestResultParserRecorder: @unchecked Sendable {
 
 @MainActor
 private final class TestRuntime: MavenRuntimePort, RunRuntimePort {
+    private let javaHome: URL?
+    private let mavenJavaHome: URL?
+
+    init(javaHome: URL? = nil, mavenJavaHome: URL? = nil) {
+        self.javaHome = javaHome
+        self.mavenJavaHome = mavenJavaHome
+    }
+
     func mavenExecutable(for project: MavenProject, overridePath: String?) -> URL? { nil }
     func mavenProcessEnvironment(javaHomePath: String?) -> [String: String] { [:] }
     func setActiveServiceJavaHomePath(_ path: String) {}
-    func javaHomeURL(overridePath: String?) -> URL? { nil }
-    func mavenJavaHomeURL(overridePath: String?) -> URL? { nil }
+    func javaHomeURL(overridePath: String?) -> URL? { javaHome }
+    func mavenJavaHomeURL(overridePath: String?) -> URL? { mavenJavaHome }
     func runConfigurationToolchainCandidates(
         for project: MavenProject?,
         projectRoot: URL?,
@@ -1719,14 +2345,37 @@ private func makeReloadService() async -> (MavenService, URL) {
     return (service, root)
 }
 
-private struct ReloadMavenOperations: MavenProjectOperations {
-    var scanGate: ReloadScanGate? = nil
+private final class ReloadMavenOperations: MavenProjectOperations, @unchecked Sendable {
+    private let lock = NSLock()
+    private let scanGate: ReloadScanGate?
+    private let scanArtifacts: [String]
+    private var recordedScanCount = 0
+
+    init(scanGate: ReloadScanGate? = nil, scanArtifacts: [String] = []) {
+        self.scanGate = scanGate
+        self.scanArtifacts = scanArtifacts
+    }
+
+    var scanCount: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedScanCount
+    }
+
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
-        let name = files.first?.lastPathComponent ?? "old"
-        if name == "inventory", let scanGate {
+        lock.lock()
+        let scanIndex = recordedScanCount
+        recordedScanCount += 1
+        lock.unlock()
+        let name = scanArtifacts.indices.contains(scanIndex)
+            ? scanArtifacts[scanIndex]
+            : files.first?.lastPathComponent ?? "old"
+        if let scanGate {
             scanGate.entered.continuation.yield(())
-            guard scanGate.release.wait(timeout: .now() + 2) == .success else {
-                Issue.record("Background Maven scan was not released before its deadline")
+            // The full test lane can delay the main-actor release while many
+            // suites start; keep deadlocks bounded without treating that load as failure.
+            guard scanGate.release.wait(timeout: .now() + 10) == .success else {
+                Issue.record("Maven scan was not released before its deadline")
                 throw ReloadTestError.failed
             }
         }
@@ -1963,14 +2612,43 @@ private final class MavenRecordingProcess: StreamingProcess, @unchecked Sendable
 
 private struct TestRunFileAccess: RunFileAccess {
     let contents: [URL: String]
+    let directories: Set<URL>
 
-    init(contents: [URL: String] = [:]) {
+    init(contents: [URL: String] = [:], directories: Set<URL> = []) {
         self.contents = contents
+        self.directories = directories
     }
 
-    func isDirectory(at url: URL) -> Bool { false }
+    func isDirectory(at url: URL) -> Bool { directories.contains(url.standardizedFileURL) }
     func readData(from url: URL) throws -> Data {
         Data((contents[url.standardizedFileURL] ?? "").utf8)
+    }
+}
+
+private final class TestWorkspaceDependencyStore: WorkspaceDependencyStoring, @unchecked Sendable {
+    var configuration = WorkspaceDependencyConfiguration()
+    var indexes = WorkspaceDependencyIndexes()
+
+    func loadDependencyConfiguration(workspaceURL: URL) throws -> WorkspaceDependencyConfiguration? {
+        configuration
+    }
+
+    func saveDependencyConfiguration(
+        _ configuration: WorkspaceDependencyConfiguration,
+        workspaceURL: URL
+    ) throws {
+        self.configuration = configuration
+    }
+
+    func loadDependencyIndexes(workspaceURL: URL) throws -> WorkspaceDependencyIndexes? {
+        indexes
+    }
+
+    func saveDependencyIndexes(
+        _ indexes: WorkspaceDependencyIndexes,
+        workspaceURL: URL
+    ) throws {
+        self.indexes = indexes
     }
 }
 
@@ -2006,7 +2684,12 @@ private final class MavenContextRunOperations: RunConfigurationOperations, @unch
         RunConfigurationResolution(configurations: [EffectiveRunConfiguration(configuration: configuration, options: RunOptions())],
                                    diagnostics: [], defaultConfigurationID: configuration.id)
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func launchPlan(at _: URL, configurationID _: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
@@ -2031,7 +2714,12 @@ private struct SingleRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at _: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at _: URL, files _: [URL], modulePaths _: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2074,7 +2762,12 @@ private struct TestRunConfigurationOperations: RunConfigurationOperations {
         }
         return ProjectRunConfigurationInspection(status: .missing, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2101,7 +2794,12 @@ private final class RecordingRunConfigurationOperations: RunConfigurationOperati
             diagnostics: []
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         generatedInventories.append(files)
         return RunConfigurationGenerationResult(entryCount: 1)
     }
@@ -2131,7 +2829,12 @@ private struct FailingInspectionRunConfigurationOperations: RunConfigurationOper
             recoveryAction: .editConfiguration
         )
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 0)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2148,7 +2851,12 @@ private struct TestReadyRunConfigurationOperations: RunConfigurationOperations {
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2181,7 +2889,12 @@ private struct TestGoProjectRunConfigurationOperations: RunConfigurationOperatio
     func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
         ProjectRunConfigurationInspection(status: .ready, diagnostics: [])
     }
-    func generate(at projectURL: URL, files: [URL], modulePaths: [String]) throws -> RunConfigurationGenerationResult {
+    func generate(
+        at projectURL: URL,
+        files: [URL],
+        modulePaths: [String],
+        javaEntrypoints: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
         RunConfigurationGenerationResult(entryCount: 1)
     }
     func resolve(at projectURL: URL, toolchainCandidates: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
@@ -2288,4 +3001,70 @@ private final class TestLanguageExecutionSession: LanguageExecutionSession {
     func sleep() async {}
     func shutdown() async {}
     func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] { [:] }
+}
+
+/// Editor Run markers read per-method outcomes from the reports a Maven test
+/// run wrote; these pure helpers decide which reports and which outcomes.
+struct MavenTestOutcomeTests {
+    private let root = URL(fileURLWithPath: "/work/app")
+
+    @Test
+    func testCaseRunNamesItsClassAndSourceFile() {
+        let request = LanguageTestService.mavenReportRequest(
+            scope: .testCase(
+                identifier: "demo.OrderTest$Refunds#refunds()",
+                fileURL: root.appendingPathComponent("service/src/test/java/demo/OrderTest.java")
+            ),
+            workspaceURL: root,
+            startedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+
+        #expect(request == MavenTestReportRequest(
+            sourcePath: "service/src/test/java/demo/OrderTest.java",
+            classes: ["demo.OrderTest$Refunds"],
+            notBeforeMillis: 1_700_000_000_000
+        ))
+    }
+
+    @Test
+    func methodRerunPreservesFailuresOfOtherMethodsAndNestedClasses() {
+        let className = "demo.OrderTest"
+        let previous = [
+            MavenTestCaseOutcome(className: className, method: "creates", status: "failed"),
+            MavenTestCaseOutcome(className: className, method: "deletes", status: "failed"),
+            MavenTestCaseOutcome(className: className + "$Nested", method: "creates", status: "failed"),
+        ]
+        let passed = MavenTestCaseOutcome(className: className, method: "creates", status: "passed")
+        let scope = LanguageTestScope.testCase(identifier: className + "#creates()", fileURL: root.appendingPathComponent("OrderTest.java"))
+        let method = LanguageTestService.mavenTestMethod(in: scope)
+        #expect(method == "creates")
+        #expect(LanguageTestService.mergedOutcomes(
+            previous, requestedClasses: [className], requestedMethod: method, recorded: [passed]
+        ) == [previous[1], previous[2], passed])
+        #expect(LanguageTestService.mavenTestMethod(in: .workspace) == nil)
+        #expect(LanguageTestService.mavenTestMethod(in: .testCase(identifier: className, fileURL: nil)) == nil)
+    }
+
+    @Test
+    func runReplacesOnlyTheOutcomesOfClassesItCovered() {
+        let previous = [
+            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.OrderTest$Refunds", method: "refunds", status: "passed"),
+            MavenTestCaseOutcome(className: "demo.OtherTest", method: "other", status: "failed"),
+        ]
+        let recorded = [
+            MavenTestCaseOutcome(className: "demo.OrderTest", method: "creates", status: "failed", message: "boom"),
+        ]
+
+        #expect(LanguageTestService.mergedOutcomes(
+            previous,
+            requestedClasses: ["demo.OrderTest"],
+            recorded: recorded
+        ) == [previous[2], recorded[0]])
+        #expect(LanguageTestService.mergedOutcomes(
+            previous,
+            requestedClasses: [],
+            recorded: recorded
+        ) == [previous[2], recorded[0]])
+    }
 }

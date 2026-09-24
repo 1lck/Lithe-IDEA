@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "resources": [
+    {
+      "id": "cargo",
+      "path": ".artifacts/cargo-home/registry/cache",
+      "validator": "cargo"
+    },
+    {
+      "id": "swiftpm",
+      "path": ".artifacts/swiftpm-cache",
+      "validator": "swiftpm"
+    },
+    {
+      "id": "bun",
+      "path": ".artifacts/bun-cache",
+      "validator": "bun"
+    },
+    {
+      "id": "jdtls",
+      "path": ".artifacts/jdtls-downloads",
+      "validator": "jdtls"
+    },
+    {
+      "id": "jdk",
+      "path": ".artifacts/jdk-downloads",
+      "validator": "jdk"
+    }
+  ]
+}

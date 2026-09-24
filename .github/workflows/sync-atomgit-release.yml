@@ -1,0 +1,66 @@
+name: Sync AtomGit Release
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      ATOMGIT_TOKEN:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Published stable tag to sync, for example v0.4.10"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# Both platform publishers share the same lock, including manual retries.
+concurrency:
+  group: atomgit-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Check configuration
+        id: config
+        env:
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ -z "$ATOMGIT_TOKEN" ]]; then
+            if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+              echo "::error::Configure the ATOMGIT_TOKEN repository secret before retrying."
+              exit 1
+            fi
+            echo "::warning::AtomGit sync is disabled. Configure the ATOMGIT_TOKEN repository secret."
+            echo "AtomGit sync skipped: ATOMGIT_TOKEN is not configured." >> "$GITHUB_STEP_SUMMARY"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.config.outputs.enabled == 'true'
+
+      - uses: actions/setup-node@v6
+        if: steps.config.outputs.enabled == 'true'
+        with:
+          node-version: "24"
+
+      - name: Synchronize release and assets
+        if: steps.config.outputs.enabled == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATOMGIT_TOKEN: ${{ secrets.ATOMGIT_TOKEN }}
+          ATOMGIT_OWNER: ${{ vars.ATOMGIT_OWNER || 'lithe_IDEA' }}
+          ATOMGIT_REPO: ${{ vars.ATOMGIT_REPO || 'Lithe-IDEA' }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/sync-atomgit-release.mjs

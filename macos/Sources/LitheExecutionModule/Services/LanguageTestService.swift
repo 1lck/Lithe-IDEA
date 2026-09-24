@@ -18,6 +18,10 @@ package final class LanguageTestService: ObservableObject {
     @Published package private(set) var state: LanguageTestRunState = .idle
     @Published package private(set) var activePlan: LanguageTestPlan?
     @Published package private(set) var results: MavenTestResults?
+    /// Latest outcome of every Maven test method run in this workspace. A run
+    /// replaces the outcomes of the classes it produced and keeps the rest,
+    /// so editor Run markers survive unrelated runs.
+    @Published package private(set) var testOutcomes: [MavenTestCaseOutcome] = []
     @Published package private(set) var output = ""
     @Published package private(set) var errorMessage: String?
 
@@ -26,7 +30,9 @@ package final class LanguageTestService: ObservableObject {
     private let executableResolver: any RunExecutableResolving
     private let processFactory: () -> any StreamingProcess
     private let extensionRequiredLanguageIDs: Set<String>
-    private let resultParser: (@Sendable (String, URL) -> MavenTestResults?)?
+    private let resultParser: (@Sendable (String, URL, MavenTestReportRequest?) -> MavenTestResults?)?
+    private let now: () -> Date
+    private var activeReportRequest: MavenTestReportRequest?
     private var process: (any StreamingProcess)?
     private var extensionSession: (any LanguageExecutionSession)?
     private var languageTestExtensions: [String: RegisteredLanguageTestExtension] = [:]
@@ -44,7 +50,8 @@ package final class LanguageTestService: ObservableObject {
         executableResolver: any RunExecutableResolving,
         processFactory: @escaping () -> any StreamingProcess,
         extensionRequiredLanguageIDs: Set<String> = [],
-        resultParser: (@Sendable (String, URL) -> MavenTestResults?)? = nil
+        resultParser: (@Sendable (String, URL, MavenTestReportRequest?) -> MavenTestResults?)? = nil,
+        now: @escaping () -> Date = Date.init
     ) {
         self.catalog = catalog
         self.registry = registry ?? .standard(catalog: catalog)
@@ -52,6 +59,7 @@ package final class LanguageTestService: ObservableObject {
         self.processFactory = processFactory
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
         self.resultParser = resultParser
+        self.now = now
     }
 
     package var isRunning: Bool { state == .running }
@@ -191,6 +199,9 @@ package final class LanguageTestService: ObservableObject {
                 options: options
             )
             activePlan = plan
+            activeReportRequest = plan.frameworkID == "maven"
+                ? Self.mavenReportRequest(scope: scope, workspaceURL: root, startedAt: now())
+                : nil
             state = .running
             timedOutOperationID = nil
             append("$ \(resolved.executableURL.lastPathComponent) \(plan.launchPlan.arguments.joined(separator: " "))\n\n")
@@ -256,6 +267,8 @@ package final class LanguageTestService: ObservableObject {
         activeWorkspaceURL = nil
         lastRun = nil
         results = nil
+        testOutcomes = []
+        activeReportRequest = nil
         output = ""
         errorMessage = nil
         state = .idle
@@ -419,11 +432,13 @@ package final class LanguageTestService: ObservableObject {
         let capturedOutput = outputCapture?.snapshot() ?? output
         let parsedResults: MavenTestResults?
         let parsingWorkspaceURL = activeWorkspaceURL
+        let reportRequest = activeReportRequest
+        let requestedMethod = lastRun.flatMap { Self.mavenTestMethod(in: $0.scope) }
         if activePlan?.frameworkID == "maven",
            let resultParser,
            let parsingWorkspaceURL {
             parsedResults = await Task.detached(priority: .utility) {
-                resultParser(capturedOutput, parsingWorkspaceURL)
+                resultParser(capturedOutput, parsingWorkspaceURL, reportRequest)
             }.value
         } else {
             parsedResults = nil
@@ -433,6 +448,15 @@ package final class LanguageTestService: ObservableObject {
         guard activeOperationID == operationID,
               activeWorkspaceURL == parsingWorkspaceURL else { return }
         results = parsedResults
+        if let reportRequest, let testCases = parsedResults?.testCases {
+            testOutcomes = Self.mergedOutcomes(
+                testOutcomes,
+                requestedClasses: reportRequest.classes,
+                requestedMethod: requestedMethod,
+                recorded: testCases
+            )
+        }
+        activeReportRequest = nil
         state = timedOut ? .timedOut : (exitCode == 0 ? .passed : .failed(exitCode: exitCode))
         activeOperationID = nil
         timedOutOperationID = nil
@@ -452,6 +476,77 @@ package final class LanguageTestService: ObservableObject {
         case "maven", "junit": return mavenTestTimeoutMilliseconds
         default: return nil
         }
+    }
+
+    /// Names the reports a Maven run will write. Maven runs from the reactor
+    /// root, so Core locates the module from the test file; a test-case
+    /// identifier (`demo.OrderTest#creates()`) also names the class, while a
+    /// whole-file run lets the run's start time select its reports.
+    nonisolated static func mavenReportRequest(
+        scope: LanguageTestScope,
+        workspaceURL: URL,
+        startedAt: Date
+    ) -> MavenTestReportRequest {
+        let fileURL: URL?
+        var classes: [String] = []
+        switch scope {
+        case .workspace:
+            fileURL = nil
+        case .file(let url):
+            fileURL = url
+        case .testCase(let identifier, let url):
+            fileURL = url
+            let className = identifier.split(separator: "#", maxSplits: 1).first.map(String.init) ?? ""
+            if !className.isEmpty, !className.contains("(") { classes = [className] }
+        }
+        let rootPath = workspaceURL.standardizedFileURL.path
+        let sourcePath = fileURL.map(\.standardizedFileURL.path).flatMap { path -> String? in
+            guard path.hasPrefix(rootPath + "/") else { return nil }
+            return String(path.dropFirst(rootPath.count + 1))
+        }
+        return MavenTestReportRequest(
+            sourcePath: sourcePath,
+            classes: classes,
+            notBeforeMillis: UInt64(max(0, startedAt.timeIntervalSince1970 * 1000))
+        )
+    }
+
+    /// A method selector narrows the outcome replacement to that method;
+    /// a class or file run may replace the complete class report.
+    nonisolated static func mavenTestMethod(in scope: LanguageTestScope) -> String? {
+        guard case .testCase(let identifier, _) = scope,
+              let separator = identifier.firstIndex(of: "#") else { return nil }
+        let method = identifier[identifier.index(after: separator)...]
+            .split(separator: "(", maxSplits: 1).first.map(String.init)
+        return method?.isEmpty == false ? method : nil
+    }
+
+    /// Replaces only the selected method for a method run, or the classes
+    /// a class/file run covered, including nested classes. Without a requested
+    /// class list, only the classes present in the report are covered.
+    nonisolated static func mergedOutcomes(
+        _ previous: [MavenTestCaseOutcome],
+        requestedClasses: [String],
+        requestedMethod: String? = nil,
+        recorded: [MavenTestCaseOutcome]
+    ) -> [MavenTestCaseOutcome] {
+        let covered = requestedClasses.isEmpty
+            ? Array(Set(recorded.map(\.className)))
+            : requestedClasses
+        let isCovered: (String) -> Bool = { className in
+            covered.contains { className == $0 || className.hasPrefix($0 + "$") }
+        }
+        let retained = previous.filter { outcome in
+            if let requestedMethod {
+                return !covered.contains(outcome.className) || outcome.method != requestedMethod
+            }
+            return !isCovered(outcome.className)
+        }
+        let selected = recorded.filter { outcome in
+            guard let requestedMethod else { return true }
+            return covered.contains(outcome.className) && outcome.method == requestedMethod
+        }
+        return retained + selected
     }
 
     private func relativeProjectPaths(_ files: [URL], workspaceURL: URL) -> [String] {

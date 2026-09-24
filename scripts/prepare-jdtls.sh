@@ -35,6 +35,9 @@ lombok_version="$(manifest_value lombokVersion)"
 java_debug_extension_version="$(manifest_value javaDebugExtensionVersion)"
 java_debug_server_version="$(manifest_value javaDebugServerVersion)"
 java_test_extension_version="$(manifest_value javaTestExtensionVersion)"
+java_test_plugin_version="$(manifest_value javaTestPluginVersion)"
+minimum_java_version="$(manifest_value minimumJavaVersion)"
+bundled_jdk_version="$(/usr/bin/plutil -extract version raw -o - "$ROOT_DIR/third_party/jdk/manifest.json")"
 archive_path="${LITHE_JDTLS_ARCHIVE:-$CACHE_DIR/jdtls-$jdtls_version-$archive_sha256.tar.gz}"
 license_path="$CACHE_DIR/EPL-2.0-$license_sha256.txt"
 lombok_path="$CACHE_DIR/lombok-$lombok_version-$lombok_sha256.jar"
@@ -44,8 +47,18 @@ java_debug_license_path="$CACHE_DIR/java-debug-EPL-1.0-$java_debug_server_versio
 java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
 java_test_archive_path="$CACHE_DIR/vscode-java-test-$java_test_extension_version-$java_test_archive_sha256.vsix"
 java_test_license_path="$CACHE_DIR/java-test-MIT-$java_test_extension_version-$java_test_license_sha256.txt"
-java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
 java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
+# Records the Java Test bundle set declared by the extension so validation
+# checks the exact upstream list instead of a hard-coded count.
+java_test_bundle_list="java-test/extensions.txt"
+
+# JDT LS refuses to start on a Java runtime older than it requires, and the
+# bundled JDK is the runtime Lithe launches it with.
+(( ${bundled_jdk_version%%.*} >= minimum_java_version )) || {
+    print -u2 -- "Bundled JDK $bundled_jdk_version is older than the Java $minimum_java_version that JDTLS $jdtls_version requires"
+    exit 1
+}
 
 file_sha256() {
     shasum -a 256 "$1" | awk '{print tolower($1)}'
@@ -129,8 +142,15 @@ validate_output() {
     [[ -f "$OUTPUT_DIR/java-debug/$java_debug_plugin_name" ]] || { print -u2 -- "Java Debug Server plugin is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/java-debug/LICENSE-EPL-1.0.txt" ]] || { print -u2 -- "Java Debug Server license is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/java-test/extensions/$java_test_plugin_name" ]] || { print -u2 -- "Java Test extension plugin is missing: $OUTPUT_DIR"; exit 1; }
+    [[ -f "$OUTPUT_DIR/$java_test_bundle_list" ]] || { print -u2 -- "Java Test bundle list is missing: $OUTPUT_DIR/$java_test_bundle_list"; exit 1; }
+    local declared_bundles=("${(@f)$(<"$OUTPUT_DIR/$java_test_bundle_list")}")
+    local declared_bundle
+    for declared_bundle in "${declared_bundles[@]}"; do
+        [[ -f "$OUTPUT_DIR/java-test/extensions/$declared_bundle" ]] || { print -u2 -- "Java Test bundle $declared_bundle is missing: $OUTPUT_DIR/java-test/extensions"; exit 1; }
+        [[ ! -e "$OUTPUT_DIR/plugins/$declared_bundle" ]] || { print -u2 -- "Java Test bundle $declared_bundle duplicates a JDTLS plugin: $OUTPUT_DIR/plugins"; exit 1; }
+    done
     local java_test_extension_bundles=("$OUTPUT_DIR"/java-test/extensions/*.jar(N))
-    (( ${#java_test_extension_bundles[@]} == 18 )) || { print -u2 -- "Java Test extension bundle set is incomplete: $OUTPUT_DIR/java-test/extensions"; exit 1; }
+    (( ${#java_test_extension_bundles[@]} == ${#declared_bundles[@]} )) || { print -u2 -- "Java Test extension bundles do not match $java_test_bundle_list: $OUTPUT_DIR/java-test/extensions"; exit 1; }
     [[ -f "$OUTPUT_DIR/java-test/runner/$java_test_runner_name" ]] || { print -u2 -- "Java Test runner is missing: $OUTPUT_DIR"; exit 1; }
     [[ -f "$OUTPUT_DIR/java-test/LICENSE-MIT.txt" ]] || { print -u2 -- "Java Test license is missing: $OUTPUT_DIR"; exit 1; }
     # Wrapper scripts remain available for external/legacy launch plans. The
@@ -184,23 +204,28 @@ if [[ "$actual_java_debug_plugin_sha256" != "$java_debug_plugin_sha256" ]]; then
 fi
 cp "$java_debug_license_path" "$OUTPUT_DIR/java-debug/LICENSE-EPL-1.0.txt"
 java_test_extraction="$(mktemp -d "$CACHE_DIR/java-test-extract.XXXXXX")"
-unzip -q -j \
+unzip -q \
     "$java_test_archive_path" \
+    "extension/package.json" \
     "extension/server/*.jar" \
     -d "$java_test_extraction"
 mkdir -p "$OUTPUT_DIR/java-test/extensions" "$OUTPUT_DIR/java-test/runner"
-for java_test_jar in "$java_test_extraction"/*.jar(N); do
-    case "${java_test_jar:t}" in
-        jacocoagent.jar)
-            ;;
-        "$java_test_runner_name")
-            cp "$java_test_jar" "$OUTPUT_DIR/java-test/runner/$java_test_runner_name"
-            ;;
-        *)
-            cp "$java_test_jar" "$OUTPUT_DIR/java-test/extensions/${java_test_jar:t}"
-            ;;
-    esac
+# The extension's `contributes.javaExtensions` is the upstream list of bundles
+# JDT LS must load; copying that list keeps the runner and coverage agent out of
+# OSGi and follows upstream when the bundle set changes. Bundles JDT LS already
+# ships (Eclipse names them `<symbolic-name>_<version>.jar`) are skipped: JDT LS
+# cannot replace its own copy, so loading them only fails with "A bundle is
+# already installed" at every start.
+: > "$OUTPUT_DIR/$java_test_bundle_list"
+java_test_bundle_index=0
+while java_test_bundle="$(/usr/bin/plutil -extract "contributes.javaExtensions.$java_test_bundle_index" raw -o - "$java_test_extraction/extension/package.json" 2>/dev/null)"; do
+    (( java_test_bundle_index += 1 ))
+    [[ -e "$OUTPUT_DIR/plugins/${java_test_bundle:t}" ]] && continue
+    cp "$java_test_extraction/extension/${java_test_bundle#./}" "$OUTPUT_DIR/java-test/extensions/${java_test_bundle:t}"
+    print -r -- "${java_test_bundle:t}" >> "$OUTPUT_DIR/$java_test_bundle_list"
 done
+(( java_test_bundle_index > 0 )) || { print -u2 -- "Java Test extension declares no JDT LS bundles"; exit 1; }
+cp "$java_test_extraction/extension/server/$java_test_runner_name" "$OUTPUT_DIR/java-test/runner/$java_test_runner_name"
 rm -rf -- "$java_test_extraction"
 actual_java_test_plugin_sha256="$(file_sha256 "$OUTPUT_DIR/java-test/extensions/$java_test_plugin_name")"
 if [[ "$actual_java_test_plugin_sha256" != "$java_test_plugin_sha256" ]]; then

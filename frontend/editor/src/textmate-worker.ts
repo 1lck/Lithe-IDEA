@@ -1,4 +1,5 @@
 import { createJavaGrammar, INITIAL } from "./textmate-grammar";
+import { tokenizeLineWithinLimit } from "./textmate-line-limit";
 import { diffStateStacksRefEq } from "vscode-textmate";
 
 type Document = { lines: string[]; states: any[]; version: number; cursor: number; visible: boolean; timer?: ReturnType<typeof setTimeout> };
@@ -31,8 +32,7 @@ function tokenize(id: number) {
   const rows = [];
   while (document.cursor < document.lines.length && rows.length < 128) {
     const index = document.cursor;
-    const result = grammar.tokenizeLine(document.lines[index], index === 0 ? INITIAL : document.states[index - 1], 20);
-    if (result.stoppedEarly) throw new Error(`Java tokenization exceeded the per-line budget at line ${index + 1}`);
+    const result = tokenizeLineWithinLimit(grammar, document.lines[index], index === 0 ? INITIAL : document.states[index - 1]);
     document.states[index] = result.ruleStack;
     rows.push({ line: index + 1, tokens: result.tokens, state: diffStateStacksRefEq(INITIAL, result.ruleStack) });
     document.cursor++;
@@ -47,7 +47,7 @@ self.onmessage = async ({ data }) => {
       grammar = (await createJavaGrammar(data.wasm, data.grammar)).grammar;
       // vscode-textmate/Oniguruma lazily compiles grammar patterns on the first
       // tokenization. Keep that one-time initialization outside the per-line
-      // production budget; subsequent document lines still retain the 20 ms cap.
+      // production budget; subsequent document lines still retain the line cap.
       grammar.tokenizeLine("class LitheTokenizerWarmup {}", INITIAL);
       postMessage({ type: "ready" }); return;
     }

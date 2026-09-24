@@ -38,15 +38,20 @@ import { useGitBlame } from "@/features/git/hooks/use-git-blame";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
+import { canRunMavenTest, runMavenTestAction } from "@/features/maven/services/maven-test-actions";
+import { useJavaRunMarkers } from "@/features/run/hooks/use-java-run-markers";
 import {
-  canRunMavenTest,
-  runMavenTestAction,
-} from "@/features/maven/services/maven-test-actions";
+  canEditJavaRunMarkerConfiguration,
+  editJavaRunMarkerConfiguration,
+  registerJavaRunContext,
+  runJavaRunMarker,
+} from "@/features/run/services/java-run-marker-actions";
 import {
-  javaTestMethodAtLine,
-  type JavaTestMethod,
-} from "@/features/maven/utils/maven-test-selection";
-import { useJavaTestMethods } from "@/features/maven/hooks/use-java-test-methods";
+  contextMenuRunTarget,
+  javaRunMarkerForLine,
+  type JavaRunMarker,
+} from "@/features/run/services/java-run-markers";
+import { useTranslation } from "@/i18n/locale-provider";
 import { recordStartupMilestone } from "@/features/bootstrap/startup-performance";
 import { useVimStore } from "@/features/vim/stores/vim.store";
 import { formatRelativeTime } from "@/utils/date";
@@ -55,6 +60,7 @@ import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
 import { getRelativePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import EditorContextMenu from "../context-menu/context-menu";
+import { JavaRunMarkerMenu } from "../context-menu/java-run-marker-menu";
 import { useBufferStore } from "../stores/buffer.store";
 import { editorBufferSurfacesEqual, selectEditorBufferSurface } from "../stores/buffer-metadata";
 import { useJumpListStore } from "../stores/jump-list.store";
@@ -89,6 +95,7 @@ import type { MarkdownScrollMetrics } from "../markdown/scroll-sync";
 import type { EditorModelPositionResolver } from "../view-model/view-layout";
 import { syncContainedEditorFontOptions } from "../engines/monaco/contained-editors";
 import { registerMonacoDefinitionLinkGesture } from "../engines/monaco/definition-link";
+import { suppressFindWidgetCloseButtonHover } from "../engines/monaco/find-widget-hover";
 import {
   consumeLocalContentSnapshot,
   rememberLocalContentSnapshot,
@@ -133,6 +140,11 @@ import {
   javaMarkerRetryDelay,
   JAVA_IMPLEMENTATION_GLYPH_CLASS,
 } from "../engines/monaco/java-implementation-markers";
+import {
+  JAVA_RUN_GLYPH_CLASS,
+  runMarkerAtLine,
+  runMarkerDecorations,
+} from "../engines/monaco/java-run-markers";
 import type { JavaImplementationMarker } from "../lsp/java-navigation-models";
 import { toast } from "sonner";
 
@@ -320,7 +332,10 @@ export function MonacoEditor({
   const gitBlameWidgetRef = useRef<InlineGitBlameWidget | null>(null);
   const gitBlameRenderFrameRef = useRef<number | null>(null);
   const renderedGitBlameKeyRef = useRef<string | null>(null);
-  const javaTestMethodsRef = useRef<JavaTestMethod[]>([]);
+  const javaRunMarkersRef = useRef<JavaRunMarker[]>([]);
+  const runMarkerDecorationsRef = useRef<Monaco.editor.IEditorDecorationsCollection | null>(null);
+  // Latest Run-marker decorations, reapplied when the Monaco instance is recreated.
+  const runMarkerDecorationSpecsRef = useRef<Monaco.editor.IModelDeltaDecoration[]>([]);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
   const mouseSelectingRef = useRef(false);
   const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
@@ -394,8 +409,6 @@ export function MonacoEditor({
   const languageId = documentTarget.languageId ?? getLanguageIdFromPath(filePath);
   const monacoLanguageId = toMonacoLanguageId(languageId);
   const [mavenTestsAvailable, setMavenTestsAvailable] = useState(false);
-  const javaTestMethods = useJavaTestMethods(filePath, content, mavenTestsAvailable);
-  javaTestMethodsRef.current = javaTestMethods;
   const {
     fontFamily,
     fontSize,
@@ -428,6 +441,20 @@ export function MonacoEditor({
   const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
+  const javaTestScope = useMemo(
+    () => (rootFolderPath ? { workspaceId, root: rootFolderPath } : null),
+    [rootFolderPath, workspaceId],
+  );
+  const { t } = useTranslation();
+  const { markers: javaRunMarkers } = useJavaRunMarkers(
+    javaTestScope,
+    filePath,
+    content,
+    enableExpensiveServices && monacoLanguageId === "java",
+    mavenTestsAvailable,
+    javaMarkerRevision,
+  );
+  javaRunMarkersRef.current = javaRunMarkers;
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const vimModeEnabled = useSettingsStore((state) => state.settings.vimMode);
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
@@ -703,7 +730,11 @@ export function MonacoEditor({
     x: number;
     y: number;
   } | null>(null);
-  const [contextMenuTestMethod, setContextMenuTestMethod] = useState<JavaTestMethod | null>(null);
+  const [contextMenuRunMarker, setContextMenuRunMarker] = useState<JavaRunMarker | null>(null);
+  const [runMarkerMenu, setRunMarkerMenu] = useState<{
+    marker: JavaRunMarker;
+    position: { x: number; y: number };
+  } | null>(null);
   const [implementationMarkers, setImplementationMarkers] = useState<JavaImplementationMarker[]>(
     [],
   );
@@ -712,28 +743,47 @@ export function MonacoEditor({
     void keymapRegistry.executeCommand(commandId);
   }, []);
 
-  const runMavenTestFromEditor = useCallback(
-    (method?: string) => {
-      if (!filePath) return;
+  const runMarkerFromEditor = useCallback(
+    (marker: JavaRunMarker) => {
+      if (!filePath || !javaRunMarkersRef.current.includes(marker)) return;
       setContextMenuPosition(null);
-      setContextMenuTestMethod(null);
-      openMavenRunPane();
-      void runMavenTestAction(filePath, method, workspaceId).catch((error) => {
-        toast.error(error instanceof Error ? error.message : "Unable to run Maven test.");
+      setContextMenuRunMarker(null);
+      setRunMarkerMenu(null);
+      void runJavaRunMarker(marker, filePath, workspaceId).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("run.runMarkerFailed", { target: marker.label }),
+        );
       });
     },
-    [filePath, workspaceId],
+    [filePath, t, workspaceId],
   );
 
-  const runTestClassFromEditor = useCallback(() => {
-    runMavenTestFromEditor();
-  }, [runMavenTestFromEditor]);
+  const contextRunTarget = contextMenuRunTarget(contextMenuRunMarker, mavenTestsAvailable, filePath);
+  const runFileTestClassFromEditor = useCallback(() => {
+    if (!filePath) return;
+    setContextMenuPosition(null);
+    openMavenRunPane();
+    void runMavenTestAction(filePath, undefined, workspaceId).catch((error) => {
+      toast.error(error instanceof Error ? error.message : t("maven.testRunFailed"));
+    });
+  }, [filePath, t, workspaceId]);
 
-  const runTestMethodFromEditor = useCallback(() => {
-    const method = contextMenuTestMethod?.name;
-    if (!method) return;
-    runMavenTestFromEditor(method);
-  }, [contextMenuTestMethod, runMavenTestFromEditor]);
+  const editRunMarkerConfiguration = useCallback(
+    (marker: JavaRunMarker) => {
+      if (!filePath || !javaRunMarkersRef.current.includes(marker)) return;
+      setRunMarkerMenu(null);
+      void editJavaRunMarkerConfiguration(marker, filePath, workspaceId).catch((error) => {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("run.runMarkerFailed", { target: marker.label }),
+        );
+      });
+    },
+    [filePath, t, workspaceId],
+  );
 
   const triggerMonacoAction = useCallback(
     (actionId: string) => {
@@ -904,11 +954,16 @@ export function MonacoEditor({
         alwaysConsumeMouseWheel: scrollable && alwaysConsumeMouseWheel,
       },
     });
+    const restoreFindWidgetCloseButtonHover = suppressFindWidgetCloseButtonHover(container);
 
     editorRef.current = editor;
     modelRef.current = model;
     const implementationDecorations = editor.createDecorationsCollection();
     implementationDecorationsRef.current = implementationDecorations;
+    const runMarkerDecorationCollection = editor.createDecorationsCollection(
+      runMarkerDecorationSpecsRef.current,
+    );
+    runMarkerDecorationsRef.current = runMarkerDecorationCollection;
     previousContentRef.current = content;
     pendingLocalContentSnapshotsRef.current = [];
     if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -1085,16 +1140,11 @@ export function MonacoEditor({
       editor.onContextMenu((event) => {
         event.event.preventDefault();
         event.event.stopPropagation();
-        setContextMenuTestMethod(null);
+        setContextMenuRunMarker(null);
 
         if (event.target.position) {
-          setContextMenuTestMethod(
-            /\.java$/i.test(filePath)
-              ? javaTestMethodAtLine(
-                  javaTestMethodsRef.current,
-                  event.target.position.lineNumber - 1,
-                )
-              : null,
+          setContextMenuRunMarker(
+            javaRunMarkerForLine(javaRunMarkersRef.current, event.target.position.lineNumber - 1),
           );
           const currentSelection = editor.getSelection();
           if (!currentSelection?.containsPosition(event.target.position)) {
@@ -1129,6 +1179,12 @@ export function MonacoEditor({
         selectEntireModel();
       }),
       editor.onDidChangeModelContent(() => {
+        // Monaco moves decorations before React publishes the new document.
+        // Invalidate click/context targets synchronously, not just on rerender.
+        javaRunMarkersRef.current = [];
+        runMarkerDecorationCollection.clear();
+        setRunMarkerMenu(null);
+        setContextMenuRunMarker(null);
         if (applyingExternalChangeRef.current) return;
         const change = source.lastChange;
         if (!change || change.external) return;
@@ -1162,6 +1218,27 @@ export function MonacoEditor({
         if (!isCurrentEditorSurface()) return;
         const mouseEvent = event.event;
         const markerElement = event.target.element;
+        if (
+          event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
+          event.target.position &&
+          markerElement?.classList.contains(JAVA_RUN_GLYPH_CLASS)
+        ) {
+          const marker = runMarkerAtLine(
+            javaRunMarkersRef.current,
+            event.target.position.lineNumber,
+          );
+          if (marker) {
+            // IDEA opens a Run/Debug popup from the gutter icon instead of
+            // launching immediately, so a stray click never starts a process.
+            mouseEvent.preventDefault();
+            mouseEvent.stopPropagation();
+            mouseSelectingRef.current = false;
+            mouseGestureStartRef.current = null;
+            setContextMenuPosition(null);
+            setRunMarkerMenu({ marker, position: { x: mouseEvent.posx, y: mouseEvent.posy } });
+            return;
+          }
+        }
         if (
           event.target.type === monacoEditor.MouseTargetType.GUTTER_GLYPH_MARGIN &&
           event.target.position &&
@@ -1371,6 +1448,7 @@ export function MonacoEditor({
       unsubscribeCursor();
       unsubscribeSelection();
       container.removeEventListener("mousedown", handleNativeMouseDownCapture, true);
+      restoreFindWidgetCloseButtonHover();
       window.removeEventListener("keydown", handleWindowSelectAllShortcut, true);
       window.removeEventListener("mouseup", handleWindowMouseUp);
       for (const disposable of disposables) {
@@ -1410,6 +1488,10 @@ export function MonacoEditor({
       }
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
+      runMarkerDecorationCollection.clear();
+      if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
+        runMarkerDecorationsRef.current = null;
+      }
       persistMonacoSurfaceViewState(editor, viewStateKey ?? activeBufferId ?? "");
       if (editorRef.current === editor) editorRef.current = null;
       if (modelRef.current === model) modelRef.current = null;
@@ -1496,6 +1578,28 @@ export function MonacoEditor({
     editorAPI.setActiveEditorAdapter({
       ownerId: adapterOwnerId,
       executeCommand,
+      getCursorPosition: () => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        const position = editor?.getPosition();
+        if (!model || model.isDisposed() || !position) return null;
+        return toEditorPosition(model, position);
+      },
+      getSelectedText: () => {
+        const editor = editorRef.current;
+        const model = modelRef.current;
+        const currentSelection = editor?.getSelection();
+        if (!model || model.isDisposed() || !currentSelection || currentSelection.isEmpty()) {
+          return null;
+        }
+
+        const startOffset = model.getOffsetAt(currentSelection.getStartPosition());
+        const endOffset = model.getOffsetAt(currentSelection.getEndPosition());
+        return acquireEditorModelSource(
+          model,
+          previousContentRef.current,
+        ).textInNormalizedRange(startOffset, endOffset - startOffset);
+      },
       insertText: (text, position) => {
         if (!canEdit) return;
         const editor = editorRef.current;
@@ -1818,6 +1922,27 @@ export function MonacoEditor({
     rootFolderPath,
     workspaceId,
   ]);
+
+  useEffect(() => {
+    runMarkerDecorationSpecsRef.current = runMarkerDecorations(javaRunMarkers, (marker) =>
+      t("run.runTarget", { target: marker.label }),
+    );
+    runMarkerDecorationsRef.current?.set(runMarkerDecorationSpecsRef.current);
+  }, [javaRunMarkers, t]);
+
+  useEffect(() => {
+    if (!isActiveSurface || javaRunMarkers.length === 0) return;
+    const owner = {};
+    return registerJavaRunContext(owner, () => {
+      const position = editorRef.current?.getPosition();
+      const marker = position
+        ? javaRunMarkerForLine(javaRunMarkersRef.current, position.lineNumber - 1)
+        : null;
+      if (!marker) return false;
+      runMarkerFromEditor(marker);
+      return true;
+    });
+  }, [isActiveSurface, javaRunMarkers.length, runMarkerFromEditor]);
 
   useEffect(() => {
     const visibleMarkers = implementationMarkersForBuffer(
@@ -2277,7 +2402,7 @@ export function MonacoEditor({
             position={contextMenuPosition}
             onClose={() => {
               setContextMenuPosition(null);
-              setContextMenuTestMethod(null);
+              setContextMenuRunMarker(null);
             }}
             onCopy={() => executeEditorCommand("editor.copy")}
             onCut={canEdit ? () => executeEditorCommand("editor.cut") : undefined}
@@ -2319,12 +2444,29 @@ export function MonacoEditor({
             onTriggerSuggest={
               canEdit ? () => executeEditorCommand("editor.triggerSuggest") : undefined
             }
-            onRunTestClass={
-              mavenTestsAvailable ? runTestClassFromEditor : undefined
+            onRunContext={
+              contextRunTarget?.kind === "marker"
+                ? () => runMarkerFromEditor(contextRunTarget.marker)
+                : contextRunTarget
+                  ? runFileTestClassFromEditor
+                  : undefined
             }
-            onRunTestMethod={
-              mavenTestsAvailable && contextMenuTestMethod ? runTestMethodFromEditor : undefined
+            runContextLabel={contextRunTarget?.label}
+          />,
+          document.body,
+        )}
+      {runMarkerMenu &&
+        createPortal(
+          <JavaRunMarkerMenu
+            marker={runMarkerMenu.marker}
+            position={runMarkerMenu.position}
+            onRun={() => runMarkerFromEditor(runMarkerMenu.marker)}
+            onEditConfiguration={
+              canEditJavaRunMarkerConfiguration(runMarkerMenu.marker)
+                ? () => editRunMarkerConfiguration(runMarkerMenu.marker)
+                : undefined
             }
+            onClose={() => setRunMarkerMenu(null)}
           />,
           document.body,
         )}

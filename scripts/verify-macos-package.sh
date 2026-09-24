@@ -8,10 +8,10 @@ java_debug_server_version="$(
     /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
 )"
 java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
-java_test_extension_version="$(
-    /usr/bin/plutil -extract javaTestExtensionVersion raw -o - third_party/jdtls/manifest.json
+java_test_plugin_version="$(
+    /usr/bin/plutil -extract javaTestPluginVersion raw -o - third_party/jdtls/manifest.json
 )"
-java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
 java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
@@ -73,6 +73,7 @@ java_test_extension_bundles=(
 )
 for bundle in "${java_test_extension_bundles[@]}"; do
     : > "$jdtls_root/java-test/extensions/$bundle"
+    print -r -- "$bundle" >> "$jdtls_root/java-test/extensions.txt"
 done
 : > "$jdtls_root/java-test/runner/$java_test_runner_name"
 : > "$jdtls_root/java-test/LICENSE-MIT.txt"

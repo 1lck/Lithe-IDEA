@@ -9,6 +9,11 @@ import { listen } from "@tauri-apps/api/event";
 import { toast } from "sonner";
 import { presentMavenProfileTask } from "./maven-profile-task";
 import { isJavaLifecycle, ownedLifecycleHandler } from "./owned-lifecycle-event";
+import {
+  clearLanguageServerReadyFeedback,
+  showLanguageServerPreparing,
+  showLanguageServerReady,
+} from "./language-server-feedback";
 import type {
   CompletionItem,
   Hover,
@@ -25,8 +30,9 @@ import type {
 } from "@/features/diagnostics/types/diagnostics.types";
 import { hasTextContent, shouldStartLsp } from "@/features/panes/types/pane-content.types";
 import { useBufferStore } from "../stores/buffer.store";
+import type { EditorTextChange } from "../types/editor.types";
 import { logger } from "../utils/logger";
-import { normalizePath } from "@/utils/path-helpers";
+import { normalizePath, pathStartsWithRoot } from "@/utils/path-helpers";
 import { getLanguageDisplayName } from "../utils/language-id";
 import {
   isBuiltInLspPath,
@@ -34,6 +40,7 @@ import {
   languageIdForEditorFile,
 } from "./built-in-language-support";
 import { resolvePublishedDiagnosticsFilePath } from "./diagnostics-file-path";
+import { decideWorkspaceDiagnostics } from "./diagnostics-retention";
 import { resolveEditorLspLaunch } from "./resolve-editor-lsp-launch";
 import type { LspSemanticTokensResponse } from "./semantic-token-types";
 import {
@@ -132,6 +139,7 @@ type TrackedLspDocument = {
   filePath: string;
   attachmentId: string;
   version: number;
+  content: string;
   phase: "open" | "closing";
 };
 
@@ -187,6 +195,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/**
+ * Upper bound on unopened workspace files tracked for diagnostics at once. A
+ * language server can report markers for an entire monorepo, and the panel
+ * stops being useful long before the store becomes a memory problem.
+ */
+const MAX_WORKSPACE_DIAGNOSTIC_FILES = 2000;
+
 function trackedFileKey(filePath: string): string {
   const normalized = normalizePath(filePath);
   return /^(?:[A-Za-z]:\/|\/\/)/.test(normalized) ? normalized.toLowerCase() : normalized;
@@ -222,7 +237,15 @@ export class LspClient {
   private fileStartTasks = new Map<string, PendingFileStart>();
   private workspaceStartTasks = new Map<string, PendingWorkspaceStart>();
   private documentOpenTasks = new Map<string, PendingDocumentOpen>();
+  private documentChangeTasks = new Map<string, Promise<void>>();
   private documents = new Map<string, TrackedLspDocument>();
+  /**
+   * Unopened workspace files that currently carry diagnostics, keyed by
+   * tracked-file key so lookups match the rest of the client, with the exact
+   * store path as the value so the entries can be cleared again.
+   */
+  private workspaceDiagnosticFiles = new Map<string, string>();
+  private workspaceDiagnosticLimitReported = false;
 
   private constructor() {
     this.setupDiagnosticsListener();
@@ -428,6 +451,74 @@ export class LspClient {
     };
   }
 
+  /**
+   * Workspace roots that currently own a language server. Published
+   * diagnostics are kept only for files inside one of these roots, which
+   * excludes JDK sources, dependency jars, and decompiled class files without
+   * needing a separate project-store dependency here.
+   */
+  private activeWorkspaceRoots(): string[] {
+    const roots = new Set<string>();
+    for (const serverKey of this.activeLanguageServers) {
+      const { workspacePath } = this.parseServerKey(serverKey);
+      if (workspacePath) roots.add(workspacePath);
+    }
+    return [...roots];
+  }
+
+  /**
+   * Decides whether a published diagnostic set for `filePath` should reach the
+   * store, and keeps the workspace-wide bookkeeping that bounds it.
+   *
+   * Open files are never bounded: the editor must always show its own markers.
+   * Files the user never opened are tracked so that a clean rebuild removes
+   * their entries instead of leaving empty rows behind, and so that a very
+   * large workspace cannot grow the store without limit.
+   */
+  private retainWorkspaceDiagnostics(filePath: string, diagnosticCount: number): boolean {
+    const trackingKey = trackedFileKey(filePath);
+    const isDocumentOpen = this.isDocumentOpen(filePath);
+    const decision = decideWorkspaceDiagnostics({
+      isDocumentOpen,
+      diagnosticCount,
+      isTracked: this.workspaceDiagnosticFiles.has(trackingKey),
+      trackedFileCount: this.workspaceDiagnosticFiles.size,
+      maxTrackedFiles: MAX_WORKSPACE_DIAGNOSTIC_FILES,
+    });
+
+    if (decision === "clear") {
+      this.workspaceDiagnosticFiles.delete(trackingKey);
+      useDiagnosticsStore.getState().actions.clearDiagnosticsForOwner(filePath, "lsp");
+      return false;
+    }
+
+    if (decision === "ignore") {
+      if (diagnosticCount > 0 && !this.workspaceDiagnosticLimitReported) {
+        this.workspaceDiagnosticLimitReported = true;
+        logger.warn(
+          "LSPClient",
+          `Workspace diagnostics reached the ${MAX_WORKSPACE_DIAGNOSTIC_FILES} file limit; ` +
+            `dropping diagnostics for additional unopened files such as ${filePath}`,
+        );
+      }
+      return false;
+    }
+
+    if (!isDocumentOpen) this.workspaceDiagnosticFiles.set(trackingKey, filePath);
+    return true;
+  }
+
+  /** Drops diagnostics kept for unopened files under a workspace being closed. */
+  private clearWorkspaceDiagnostics(workspacePath: string): void {
+    const { clearDiagnosticsForOwner } = useDiagnosticsStore.getState().actions;
+    for (const [trackingKey, filePath] of this.workspaceDiagnosticFiles) {
+      if (!pathStartsWithRoot(filePath, workspacePath)) continue;
+      this.workspaceDiagnosticFiles.delete(trackingKey);
+      clearDiagnosticsForOwner(filePath, "lsp");
+    }
+    this.workspaceDiagnosticLimitReported = false;
+  }
+
   private parseServerKey(serverKey: string): { workspacePath: string; languageId: string } {
     const separatorIndex = serverKey.lastIndexOf(":");
     if (separatorIndex === -1) {
@@ -500,15 +591,18 @@ export class LspClient {
                 .filter((document) => document.phase === "open")
                 .map((document) => document.filePath),
             ),
+            this.activeWorkspaceRoots(),
           );
 
           if (!filePath) {
             logger.debug(
               "LSPClient",
-              `Ignoring diagnostics for closed document: ${publishedFilePath}`,
+              `Ignoring diagnostics outside the open workspaces: ${publishedFilePath}`,
             );
             return;
           }
+
+          if (!this.retainWorkspaceDiagnostics(filePath, diagnostics?.length ?? 0)) return;
 
           const publishedVersion = event.payload.version;
           const currentVersion = this.documents.get(trackedFileKey(filePath))?.version;
@@ -574,33 +668,31 @@ export class LspClient {
 
   private async setupLanguageLifecycleListener() {
     try {
-      await listen<{ sessionId?: string; providerId?: string; phase?: import("./stores/lsp.store").LanguageLifecyclePhase; status?: string }>(
+      await listen<{
+        sessionId?: string;
+        providerId?: string;
+        workspacePath?: string;
+        phase?: import("./stores/lsp.store").LanguageLifecyclePhase;
+        status?: string;
+      }>(
         "lsp://language-lifecycle",
         ownedLifecycleHandler(ownsLspSession, (payload) => {
           if (!payload.sessionId || !payload.phase) return;
-          const lifecycleToastId = `java-language-lifecycle:${payload.sessionId}`;
           useLspStore.getState().actions.updateLanguageLifecycle(payload.sessionId, payload.phase);
           if (!isJavaLifecycle(payload)) return;
           if (payload.phase === "stopped" || payload.phase === "failed") {
             useLspStore.getState().actions.clearMavenProfileProjects(payload.sessionId);
             toast.dismiss(`java-maven-profiles:${payload.sessionId}`);
-            toast.dismiss(lifecycleToastId);
+            if (payload.workspacePath) {
+              clearLanguageServerReadyFeedback(payload.workspacePath, JAVA_LANGUAGE_ID);
+            }
             return;
           }
+          if (!payload.workspacePath) return;
           if (payload.phase === "projectImporting") {
-            toast.loading("Language service connected; importing project", {
-              id: lifecycleToastId,
-            });
-          } else if (payload.phase === "fullyReady") {
-            toast.success("Java language service is ready", {
-              id: lifecycleToastId,
-              duration: 2500,
-            });
-          } else if (payload.phase === "serviceReady") {
-            toast.success("Java language service is ready", {
-              id: lifecycleToastId,
-              duration: 2500,
-            });
+            showLanguageServerPreparing(payload.workspacePath, JAVA_LANGUAGE_ID);
+          } else if (payload.phase === "fullyReady" || payload.phase === "serviceReady") {
+            showLanguageServerReady(payload.workspacePath, JAVA_LANGUAGE_ID);
           }
         }),
       );
@@ -687,6 +779,7 @@ export class LspClient {
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
           mavenContext: launch.mavenContext || null,
+          javaRuntimes: launch.javaRuntimes ?? [],
         });
 
         if (representativeFilePath) {
@@ -741,6 +834,8 @@ export class LspClient {
           this.activeLanguages.delete(displayName);
         }
       }
+
+      this.clearWorkspaceDiagnostics(workspacePath);
 
       // Update status store
       this.updateLspStatus();
@@ -920,6 +1015,7 @@ export class LspClient {
           environment: launch.environment || null,
           workspaceFingerprint: launch.workspaceFingerprint || null,
           mavenContext: launch.mavenContext || null,
+          javaRuntimes: launch.javaRuntimes ?? [],
           attachmentId,
         });
         if (!isCurrentAttachment()) {
@@ -1008,23 +1104,50 @@ export class LspClient {
     feature?: string,
   ): Promise<LspDocumentAvailability> {
     const initial = this.getDocumentAvailability(target, feature);
-    if (isDocumentFeatureAvailable(initial)) return initial;
-
     const document = normalizeLspDocumentTarget(target);
     const sessionFilePath = lspSessionFilePath(document);
     // A virtual JDT document borrows a physical source session. Reconstructing
     // that source document from virtual class text would corrupt synchronization.
     if (sessionFilePath !== document.filePath) return initial;
 
+    const attachmentKey = trackedFileKey(sessionFilePath);
+    const trackedDocument = this.documents.get(attachmentKey);
+    const currentAttachmentId = this.fileAttachmentIds.get(attachmentKey);
+    if (
+      isDocumentFeatureAvailable(initial) &&
+      trackedDocument?.phase === "open" &&
+      trackedDocument.attachmentId === currentAttachmentId
+    ) {
+      return initial;
+    }
+
     const attachment = await this.startForFile(sessionFilePath, scope);
     if (attachment.kind !== "attached") return this.getDocumentAvailability(document, feature);
     const { attachmentId } = attachment;
 
-    const trackedDocument = this.documents.get(trackedFileKey(sessionFilePath));
-    if (trackedDocument?.phase !== "open" || trackedDocument.attachmentId !== attachmentId) {
+    const attachedDocument = this.documents.get(attachmentKey);
+    if (attachedDocument?.phase !== "open" || attachedDocument.attachmentId !== attachmentId) {
       await this.notifyDocumentOpen(sessionFilePath, content, attachmentId);
     }
     return this.getDocumentAvailability(document, feature);
+  }
+
+  /**
+   * Opens the document when necessary and waits until Core has the exact
+   * editor text before a semantic request reads from the language server.
+   */
+  async ensureDocumentSynchronized(
+    target: LspDocumentTargetInput,
+    scope: WorkspaceLaunchScope,
+    content: string,
+    feature?: string,
+  ): Promise<LspDocumentAvailability> {
+    const availability = await this.ensureDocumentReady(target, scope, content, feature);
+    const document = normalizeLspDocumentTarget(target);
+    if (lspSessionFilePath(document) === document.filePath) {
+      await this.synchronizeDocument(document.filePath, content);
+    }
+    return availability;
   }
 
   async stopForFile(filePath: string, requestedAttachmentId?: string): Promise<void> {
@@ -1729,6 +1852,7 @@ export class LspClient {
           filePath,
           attachmentId: ownerAttachmentId,
           version: 1,
+          content,
           phase: "open",
         });
         useLspStore.getState().actions.markDocumentStateChanged();
@@ -1745,19 +1869,11 @@ export class LspClient {
     return task;
   }
 
-  async notifyDocumentChange(
+  private async notifyDocumentChange(
     filePath: string,
     content: string | undefined,
     version: number,
-    contentChanges?: Array<{
-      rangeOffset: number;
-      rangeLength: number;
-      text: string;
-      startLine?: number;
-      startColumn?: number;
-      endLine?: number;
-      endColumn?: number;
-    }>,
+    contentChanges?: EditorTextChange[],
   ): Promise<void> {
     const attachmentKey = trackedFileKey(filePath);
     const attachmentId = this.fileAttachmentIds.get(attachmentKey);
@@ -1776,12 +1892,47 @@ export class LspClient {
       });
       const current = this.documents.get(attachmentKey);
       if (current?.phase === "open" && current.attachmentId === attachmentId) {
-        this.documents.set(attachmentKey, { ...current, version });
+        this.documents.set(attachmentKey, {
+          ...current,
+          version,
+          content: content ?? current.content,
+        });
       }
     } catch (error) {
       logger.error("LSPClient", "LSP document change error:", error);
       throw error;
     }
+  }
+
+  /**
+   * Serializes editor updates per document so semantic consumers can await a
+   * precise text snapshot without competing for LSP document versions.
+   */
+  async synchronizeDocument(
+    filePath: string,
+    content: string,
+    contentChanges?: EditorTextChange[],
+  ): Promise<void> {
+    const attachmentKey = trackedFileKey(filePath);
+    const previous = this.documentChangeTasks.get(attachmentKey) ?? Promise.resolve();
+    const task = previous.catch(() => undefined).then(async () => {
+      const document = this.documents.get(attachmentKey);
+      if (document?.phase !== "open" || document.content === content) return;
+      await this.notifyDocumentChange(
+        filePath,
+        content,
+        document.version + 1,
+        contentChanges,
+      );
+    });
+    this.documentChangeTasks.set(attachmentKey, task);
+    const cleanup = () => {
+      if (this.documentChangeTasks.get(attachmentKey) === task) {
+        this.documentChangeTasks.delete(attachmentKey);
+      }
+    };
+    void task.then(cleanup, cleanup);
+    return task;
   }
 
   async notifyDocumentSave(filePath: string, content: string): Promise<void> {

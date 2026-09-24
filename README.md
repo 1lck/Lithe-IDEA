@@ -16,6 +16,8 @@
 
   <p>
     <a href="https://hellogithub.com/repository/1lck/Lithe-IDEA" target="_blank"><img src="https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=633af067f07d4d16af010b9dc16c0b8d&amp;claim_uid=7NYd4yvRlGtqfgr" alt="Featured | HelloGitHub" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://atomgit.com/lithe_IDEA/Lithe-IDEA"><img src="https://atomgit.com/lithe_IDEA/Lithe-IDEA/star/new_badge.svg" alt="AtomGit G-Star" style="width: 250px; height: 54px;" width="250" height="54"></a>
+    <a href="https://trendshift.io/repositories/124763?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-124763" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/124763/weekly?language=Swift" alt="Lithe-IDEA | Trendshift weekly" width="250" height="55"></a>
   </p>
 
   <p>
@@ -168,20 +170,27 @@ macOS is the current reference product. Windows is an independent React/Tauri im
 ```mermaid
 flowchart LR
     subgraph macOS["macOS"]
-        MacUI["SwiftUI / AppKit workbench"] --> MacApp["Application models and services"]
-        MacApp --> MacAdapters["macOS adapters"]
+        MacViews["SwiftUI / AppKit Views"] --> MacModel["AppModel and UI models"]
+        MacModel --> MacFeatures["Application feature models"]
+        MacFeatures --> MacServices["AppServices and Swift services"]
+        MacServices --> MacRust["Typed Rust operations"]
+        MacServices --> MacPorts["Platform ports"]
+        MacPorts --> MacAdapters["macOS adapters"]
     end
 
     subgraph Shared["Shared behavior"]
+        Editor["Shared Monaco editor"]
         Contracts["JSON contracts and fixtures"] --> Core["Rust lithe-core"]
     end
 
     subgraph Windows["Windows"]
-        WinUI["React workbench"] --> WinFeatures["TypeScript features and stores"]
-        WinFeatures --> Tauri["Tauri 2 host and Windows adapters"]
+        WinUI["React workbench and feature state"] --> WinBoundary["src/platform/tauri-core.ts"]
+        WinBoundary --> Tauri["Tauri composition root and Windows adapters"]
     end
 
-    MacApp -->|"JSON C ABI"| Core
+    Editor -.-> MacViews
+    Editor -.-> WinUI
+    MacRust -->|"JSON C ABI"| Core
     Tauri -->|"Rust crate"| Core
 ```
 
@@ -189,7 +198,7 @@ flowchart LR
 <summary><strong>Develop Lithe</strong></summary>
 
 
-Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6. Running the complete test suite requires Xcode; basic SwiftPM builds only need matching Command Line Tools. `Package.swift` keeps its Swift 6.2 manifest API minimum; this does not select the compiler version.
+Development and CI use Swift 6.3.3, pinned in `.swift-version`, with Xcode 26.6. Running the complete test suite requires Xcode; basic SwiftPM builds only need matching Command Line Tools. Developers using Xcode 27 may also build locally; the macOS 27 SDK compatibility path is detected by the build scripts. `Package.swift` keeps its Swift 6.2 manifest API minimum; this does not select the compiler version.
 
 Run the development build from the repository root:
 
@@ -298,6 +307,25 @@ See [Repository ownership and sharing boundaries](./.agents/notes/implemented/ar
     </td>
   </tr>
 </table>
+
+### ☕ Support Lithe
+
+If Lithe is useful to you, you are welcome to buy the project a cup of coffee. Every contribution will be put back into Lithe's continued development and maintenance.
+
+<div align="center">
+<table>
+  <tr>
+    <td align="center">
+      <img src="./docs/assets/donation/wechat.png" width="280" alt="WeChat donation QR code"><br>
+      <strong>WeChat</strong>
+    </td>
+    <td align="center">
+      <img src="./docs/assets/donation/alipay.png" width="280" alt="Alipay donation QR code"><br>
+      <strong>Alipay</strong>
+    </td>
+  </tr>
+</table>
+</div>
 
 ### ⭐ Special thanks
 

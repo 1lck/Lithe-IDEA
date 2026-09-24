@@ -16,7 +16,7 @@ manifest 欺骗。这些约束需要在发布工作流和客户端安装器两�
 
 ## 决策
 
-使用 Sparkle 2.9.6 处理应用内更新。Sparkle 拥有计划检查、跳过版本、
+使用 Sparkle 2.10.0 处理应用内更新。Sparkle 拥有计划检查、跳过版本、
 下载进度、取消、归档校验、安装和 relaunch；Lithe 只负责在 Sparkle
 请求终止时确认未保存文档并限时关闭。
 
@@ -124,6 +124,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
+./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)

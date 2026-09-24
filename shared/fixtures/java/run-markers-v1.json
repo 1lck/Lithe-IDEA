@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "main-methods-including-nested-class",
+      "request": {
+        "mainMethods": [
+          {
+            "mainClass": "demo.App",
+            "projectName": "app",
+            "range": { "startLine": 3, "startUtf16Column": 23, "endLine": 3, "endUtf16Column": 27 }
+          },
+          {
+            "mainClass": "demo.App$Inner",
+            "projectName": "app",
+            "range": { "startLine": 6, "startUtf16Column": 27, "endLine": 6, "endUtf16Column": 31 }
+          }
+        ]
+      },
+      "expected": {
+        "markers": [
+          { "line": 3, "endLine": 3, "kind": "main", "label": "App.main()", "mainClass": "demo.App", "projectName": "app", "status": "none" },
+          { "line": 6, "endLine": 6, "kind": "main", "label": "Inner.main()", "mainClass": "demo.App$Inner", "projectName": "app", "status": "none" }
+        ]
+      }
+    },
+    {
+      "name": "nested-test-classes-with-recorded-outcomes",
+      "request": {
+        "testItems": [
+          {
+            "id": "app@demo.OrderTest",
+            "label": "OrderTest",
+            "fullName": "demo.OrderTest",
+            "projectName": "app",
+            "testKind": 0,
+            "testLevel": 5,
+            "range": { "startLine": 5, "startUtf16Column": 6, "endLine": 14, "endUtf16Column": 1 },
+            "children": [
+              {
+                "id": "app@demo.OrderTest#creates()",
+                "label": "creates()",
+                "fullName": "demo.OrderTest#creates()",
+                "projectName": "app",
+                "testKind": 0,
+                "testLevel": 6,
+                "range": { "startLine": 7, "startUtf16Column": 9, "endLine": 7, "endUtf16Column": 21 },
+                "children": []
+              },
+              {
+                "id": "app@demo.OrderTest$Refunds",
+                "label": "Refunds",
+                "fullName": "demo.OrderTest$Refunds",
+                "projectName": "app",
+                "testKind": 0,
+                "testLevel": 5,
+                "range": { "startLine": 10, "startUtf16Column": 10, "endLine": 13, "endUtf16Column": 5 },
+                "children": [
+                  {
+                    "id": "app@demo.OrderTest$Refunds#refunds()",
+                    "label": "refunds()",
+                    "fullName": "demo.OrderTest$Refunds#refunds()",
+                    "projectName": "app",
+                    "testKind": 0,
+                    "testLevel": 6,
+                    "range": { "startLine": 12, "startUtf16Column": 13, "endLine": 12, "endUtf16Column": 25 },
+                    "children": []
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "testCases": [
+          { "className": "demo.OrderTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 },
+          { "className": "demo.OrderTest$Refunds", "method": "refunds", "status": "failed", "message": "expected refund", "invocations": 1 }
+        ]
+      },
+      "expected": {
+        "markers": [
+          { "line": 5, "endLine": 14, "kind": "testClass", "label": "OrderTest", "testClass": "demo.OrderTest", "testItemId": "app@demo.OrderTest", "status": "failed" },
+          { "line": 7, "endLine": 7, "kind": "testMethod", "label": "OrderTest.creates", "testClass": "demo.OrderTest", "testMethod": "creates", "testItemId": "app@demo.OrderTest#creates()", "status": "passed" },
+          { "line": 10, "endLine": 13, "kind": "testClass", "label": "Refunds", "testClass": "demo.OrderTest$Refunds", "testItemId": "app@demo.OrderTest$Refunds", "status": "failed" },
+          { "line": 12, "endLine": 12, "kind": "testMethod", "label": "Refunds.refunds", "testClass": "demo.OrderTest$Refunds", "testMethod": "refunds", "testItemId": "app@demo.OrderTest$Refunds#refunds()", "status": "failed" }
+        ]
+      }
+    }
+  ]
+}

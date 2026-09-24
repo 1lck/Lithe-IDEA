@@ -10,6 +10,7 @@ import {
   SIDEBAR_ACTIVITY_ITEM_IDS,
 } from "@/features/layout/config/item-order";
 import type { Settings } from "@/features/settings/types/settings.types";
+import { DEFAULT_COMMIT_AI } from "@/features/git/types/ai-commit";
 
 export const DEFAULT_AI_PROVIDER_ID = "anthropic";
 export const DEFAULT_AI_MODEL_ID = "claude-sonnet-4-6";
@@ -43,6 +44,7 @@ export const DEFAULT_HIDDEN_DIRECTORY_PATTERNS = [
 ] as const;
 
 export const defaultSettings: Settings = {
+  aiCommit: DEFAULT_COMMIT_AI,
   // General
   autoSave: true,
   quickOpenPreview: true,
@@ -92,6 +94,7 @@ export const defaultSettings: Settings = {
   showStatusBar: true,
   showTabIcons: true,
   tabCloseButtonVisibility: "active",
+  editorTabLayoutMode: "singleLine",
   windowChromeDensity: "focused",
   // Theme
   theme: "lithe-dark",
@@ -174,7 +177,6 @@ export const defaultSettings: Settings = {
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
   maxOpenTabs: 100,
-  horizontalTabScroll: false,
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,

@@ -30,7 +30,7 @@ let package = Package(
         .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"])
     ],
     dependencies: [
-        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.9.6"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm.git", exact: "1.15.0"),
         .package(url: "https://github.com/swiftlang/swift-testing.git", exact: "6.2.4")
     ],

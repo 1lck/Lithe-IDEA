@@ -45,9 +45,25 @@ async function assertWindowsBunCacheConfiguration() {
     assert.match(contents, /BUN_TMPDIR=.*\.artifacts\/bun-tmp/, `${relativePath} must keep Bun temp files on the cache volume`);
     assert.match(contents, /BUN_FEATURE_FLAG_DISABLE_INSTALL_INDEX=1/, `${relativePath} must omit Bun's Windows junction index`);
     assert.match(contents, /bun-\$\{\{ steps\.bun\.outputs\.bun-version \}\}-v2-/, `${relativePath} must isolate the same-volume Bun cache format`);
+  }
+
+  for (const relativePath of [
+    ".github/workflows/release-preview-windows.yml",
+    ".github/workflows/release-windows.yml",
+  ]) {
+    const contents = await fs.readFile(path.join(repositoryRoot, relativePath), "utf8");
     assert.match(contents, /^\s*path: \.artifacts\/jdk-downloads$/m, `${relativePath} must cache JDK downloads`);
     assert.match(contents, /jdk-v1-\$\{\{ hashFiles\('third_party\/jdk\/manifest\.json'\) \}\}/, `${relativePath} must key JDK downloads by manifest`);
   }
+
+  const pullRequestWorkflow = await fs.readFile(
+    path.join(repositoryRoot, ".github/workflows/ci-windows.yml"),
+    "utf8",
+  );
+  assert.doesNotMatch(pullRequestWorkflow, /package-windows\.ps1/, "Windows PR CI must not build an installer");
+  assert.doesNotMatch(pullRequestWorkflow, /jdk-downloads/, "Windows PR CI must not restore package-only JDK downloads");
+  assert.match(pullRequestWorkflow, /^  frontend:$/m, "Windows frontend validation must have its own job");
+  assert.match(pullRequestWorkflow, /^  rust-tests:$/m, "Windows Rust validation must have its own job");
 
   const installer = await fs.readFile(path.join(repositoryRoot, "scripts/install-windows-frontend-dependencies.ps1"), "utf8");
   assert.match(installer, /\.artifacts\/bun-cache/, "Windows dependency installation must use the isolated Bun cache");
@@ -205,6 +221,11 @@ try {
   const jdtlsCache = path.join(testRoot, "jdtls-cache");
   const jdtlsManifest = path.join(testRoot, "manifest.json");
   const jdtlsArchive = path.join(jdtlsCache, `jdtls-1.0.0-${emptySha256}.tar.gz`);
+  const javaDebugArchive = path.join(jdtlsCache, `vscode-java-debug-1.0.0-${emptySha256}.vsix`);
+  const windowsJavaDebugArchive = path.join(jdtlsCache, `vscode-java-debug-1.0.0-${emptySha256}.zip`);
+  const javaDebugLicense = path.join(jdtlsCache, `java-debug-EPL-1.0-1.0.0-${emptySha256}.txt`);
+  const javaTestArchive = path.join(jdtlsCache, `vscode-java-test-1.0.0-${emptySha256}.vsix`);
+  const javaTestLicense = path.join(jdtlsCache, `java-test-MIT-1.0.0-${emptySha256}.txt`);
   const unexpected = path.join(jdtlsCache, "unexpected.download");
   await fs.mkdir(jdtlsCache, { recursive: true });
   await fs.writeFile(
@@ -216,9 +237,26 @@ try {
       lombokVersion: "1.0.0",
       lombokSHA256: emptySha256,
       lombokLicenseSHA256: emptySha256,
+      javaDebugExtensionVersion: "1.0.0",
+      javaDebugServerVersion: "1.0.0",
+      javaDebugArchiveSHA256: emptySha256,
+      javaDebugLicenseSHA256: emptySha256,
+      javaTestExtensionVersion: "1.0.0",
+      javaTestArchiveSHA256: emptySha256,
+      javaTestLicenseSHA256: emptySha256,
     }),
   );
-  await fs.writeFile(jdtlsArchive, "");
+  const jdtlsArtifacts = [
+    jdtlsArchive,
+    javaDebugArchive,
+    windowsJavaDebugArchive,
+    javaDebugLicense,
+    javaTestArchive,
+    javaTestLicense,
+  ];
+  for (const artifact of jdtlsArtifacts) {
+    await fs.writeFile(artifact, "");
+  }
   await fs.writeFile(unexpected, "unexpected");
 
   result = verify([
@@ -232,9 +270,12 @@ try {
     jdtlsManifest,
   ]);
   assertSucceeded(result);
-  assert.equal(await fs.readFile(jdtlsArchive, "utf8"), "");
+  for (const artifact of jdtlsArtifacts) {
+    assert.equal(await fs.readFile(artifact, "utf8"), "");
+  }
   await assert.rejects(fs.access(unexpected));
   assert.match(diagnostics(result), /not referenced by the JDTLS manifest/);
+  assert.match(result.stdout, /JDTLS download cache verified: 6 artifact/);
 
   const jdkCache = path.join(testRoot, "jdk-cache");
   const jdkManifest = path.join(testRoot, "jdk-manifest.json");

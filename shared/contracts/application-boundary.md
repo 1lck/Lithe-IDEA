@@ -27,6 +27,7 @@ verification scripts are the executable source of boundary checks.
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
 | Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
+| [AI commit messages](ai-commit.md) | provider configuration parsing, commit rules, bounded diff evidence, request plans, and response text | local configuration discovery, credentials, HTTP, cancellation, and draft UI |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
@@ -179,9 +180,11 @@ external-plan compatibility fallback and are not the packaged execution path.
 
 Java test discovery remains a language-service workflow rather than a UI or
 Debug Core parser. When the Tests tool window is opened or refreshed, the
-language facade asks the Java Test extension for each candidate source file's
-class and method tree, then projects stable fully qualified identifiers into
-the native list. Closing the tool window, changing workspace, or reloading the
+language facade offers every Java source to Core's typed `javaTestItems`
+operation; Core asks the Java Test extension for the class and method tree and
+platforms project stable fully qualified identifiers into the native list.
+Neither file names nor locally recognized annotations may prefilter this request,
+so inherited tests and custom composed annotations remain visible. Closing the tool window, changing workspace, or reloading the
 Java runtime cancels the owning discovery operation; late results cannot replace
 the current workspace's tree. Discovery does not create a Debug session, result
 socket, adapter connection, or target JVM.
@@ -369,13 +372,37 @@ eight in-flight projects. Each project reports its own result, and a rejected
 or timed-out update preserves the usable Java session while exposing a partial
 failure that the host can retry.
 
-Maven-backed Run and Debug launch planning consumes the current project Maven
-context. A Run Configuration's explicit Profiles and toolchain paths take
-precedence; explicit `cwd` and `extensions.maven.skipTests` values also take
-precedence, including `skipTests: false`. Unset values inherit the project
-settings. The shared Core applies the final Maven argument order for all three
-entry points. Tool-window, Run, and Debug module launches add `-am` so reactor
-dependencies are built before the selected module.
+Maven-backed framework, test, and module launch planning consumes the current
+project Maven context. A Run Configuration's explicit Profiles and toolchain
+paths take precedence; explicit `cwd` and `extensions.maven.skipTests` values
+also take precedence, including `skipTests: false`. Unset values inherit the
+project settings. The shared Core applies the final Maven argument order;
+tool-window, framework, test, and module launches add `-am` when reactor
+dependencies must be built.
+
+Project-owned Java Main and a Maven Spring Boot service with a resolved Java
+entry source use a different boundary: the Java language service selects the
+source target, Java Debug Server builds the owning project and resolves its
+runtime classpath/module path, Core projects those structured paths into a
+direct JDK launch, and the Run host starts that one JVM. Maven still defines the
+project model, but Run never sends either target through a reactor-wide Java
+launch goal. A Spring Boot service without a resolved Java entry source retains
+its Maven-goal compatibility path. Run and Debug share the Java preparation path
+so module selection, generated sources, test-source mains, and dependency paths
+do not drift.
+
+An unsuccessful Java launch build is evidence, not an unconditional host veto.
+For `javaBuildCompilationErrors` and `javaBuildFailed`, the language boundary
+still resolves the target's runtime paths and returns them with Core's build
+report. Run and Debug pause the original attempt and offer Run Anyway, Always
+Continue for this workspace, and Cancel; a reported index rebuild recovery also
+offers Java: Rebuild Index. Continuing resumes the same attempt and never
+issues a second build. Cancellation, timeout, transport failure, and an unknown
+build status do not carry a code verdict and remain non-overridable. Build
+elapsed time is displayed as evidence only, never used as a trust threshold.
+Windows opens the Run tool window when a decision is required, including when
+Debug was initiated from the Maven tool window, so no launch waits on an
+unmounted prompt.
 
 Java test actions use the same Maven process lifecycle for a complete JUnit 4
 or JUnit 5 test class and for an individual method. The selector is validated
@@ -409,3 +436,22 @@ restores the preview. SVG is rendered as image data, never inserted into the
 application DOM as executable markup. Rendering and resizable layout are owned
 by the platform. The behavior fixture is
 [`svg-preview-v1.json`](../fixtures/editor/svg-preview-v1.json).
+
+### Java project preparation presentation
+
+Core projects the existing Java session, Maven profile task, and JDT build gate
+into `projectPreparation` runtime events. Both products render this in their
+status bar and Run panel, with language service settings and diagnostic access.
+`starting`, `importing`, `configuring`, and `building` describe actual work;
+`ready` describes preparation completion, not successful compilation or a valid
+launch configuration. Ordinary indexing is not a run prerequisite.
+
+Preparation is scoped to the Java workspace session. Only JDT-backed launch
+paths honor `blocksRun`; other language and Maven-goal launchers keep their own
+prerequisites. Partial profile failures remain visible without blocking unrelated
+modules: the target build still validates its own readiness. Consumers reject old
+session updates and clear state on explicit stop/workspace replacement.
+Core's bounded preparation wait is the single launch gate; platform services and
+Run controls do not race it with a second snapshot check. Preparation remains
+visible while a click queues behind Core, and a stale visible `ready` state
+cannot disagree with a separate host-owned preparation veto.

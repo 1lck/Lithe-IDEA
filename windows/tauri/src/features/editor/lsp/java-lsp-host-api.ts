@@ -4,6 +4,9 @@ export interface JdtlsLaunchResources {
   launcherJarPath: string;
   configurationDirectory: string;
   lombokAgentPath: string;
+  javaDebugBundlePath: string;
+  /** Java Test bundles JDT LS loads so it can discover tests. */
+  javaExtensionBundlePaths: string[];
 }
 
 export interface JavaLspLaunch {
@@ -19,6 +22,13 @@ export interface JavaLspLaunch {
   };
   /** Digest of the workspace structure and selected JDT LS version. */
   workspaceFingerprint?: string | null;
+  /** Installed JDKs JDT LS may compile projects against. */
+  javaRuntimes?: JavaLspRuntime[];
+}
+
+export interface JavaLspRuntime {
+  homePath: string;
+  version: string;
 }
 
 export function resolveJavaLspLaunch(workspacePath: string) {

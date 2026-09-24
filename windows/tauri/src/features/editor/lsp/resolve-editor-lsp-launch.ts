@@ -1,10 +1,15 @@
 import type { BackendLanguageToolConfigSet } from "@/extensions/registry/extension-store-runtime";
 import { isJavaSourcePath, JAVA_LANGUAGE_ID, JAVA_PROVIDER_ID } from "./built-in-language-support";
-import { resolveJavaLspLaunch, type JdtlsLaunchResources } from "./java-lsp-host-api";
+import {
+  resolveJavaLspLaunch,
+  type JavaLspRuntime,
+  type JdtlsLaunchResources,
+} from "./java-lsp-host-api";
 import type { MavenLaunchContext } from "@/features/maven/types/maven.types";
 import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { getRelativePath } from "@/utils/path-helpers";
+import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
 
 export interface EditorLspLaunch {
   providerId: string;
@@ -20,14 +25,17 @@ export interface EditorLspLaunch {
   /** Workspace structure digest forwarded to the Rust core. */
   workspaceFingerprint?: string | null;
   mavenContext?: MavenLaunchContext | null;
+  javaRuntimes?: JavaLspRuntime[];
 }
 
 export interface EditorLspLaunchDependencies {
+  ensureWorkspaceGitBootstrap: typeof ensureWorkspaceGitBootstrap;
   resolveJavaLspLaunch: typeof resolveJavaLspLaunch;
   mavenLaunchContextForWorkspace: typeof mavenLaunchContextForWorkspace;
 }
 
 const defaultDependencies: EditorLspLaunchDependencies = {
+  ensureWorkspaceGitBootstrap,
   resolveJavaLspLaunch,
   mavenLaunchContextForWorkspace,
 };
@@ -39,6 +47,9 @@ export async function resolveEditorLspLaunch(
 ): Promise<EditorLspLaunch | null> {
   const workspacePath = scope.root;
   if (isJavaSourcePath(filePath)) {
+    // Restored documents can attach before background prewarm runs. Both entry
+    // points must wait before Maven discovery or JDTLS preparation starts.
+    if (await dependencies.ensureWorkspaceGitBootstrap(scope) === "superseded") return null;
     const [launch, mavenContext] = await Promise.all([
       dependencies.resolveJavaLspLaunch(workspacePath),
       dependencies.mavenLaunchContextForWorkspace(
@@ -62,6 +73,7 @@ export async function resolveEditorLspLaunch(
       environment,
       workspaceFingerprint: launch.workspaceFingerprint,
       mavenContext,
+      javaRuntimes: launch.javaRuntimes ?? [],
     };
   }
 

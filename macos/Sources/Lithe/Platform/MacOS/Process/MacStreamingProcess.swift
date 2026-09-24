@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import LitheCoreContracts
 import LitheModuleAPI
 
 final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
@@ -13,6 +14,11 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     private var process: MacManagedProcess?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
+    private var outputBatcher: MacProcessOutputBatcher?
+    /// Serializes pipe reads with the final EOF drain so termination cannot
+    /// close a batch while a readability callback still owns output bytes.
+    private let outputReadLock = NSLock()
+    private var outputDecoder = StreamingUTF8Decoder()
     private var timeoutTask: Task<Void, Never>?
     private var activeOperationID: String?
     private let processRegistry: ManagedProcessRegistry?
@@ -41,6 +47,9 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         ))
 
         let outputPipe = Pipe()
+        let outputBatcher = MacProcessOutputBatcher { [weak self] output in
+            self?.onOutput?(output)
+        }
         let inputPipe = (request.standardInput != nil || request.keepsStandardInputOpen)
             ? Pipe()
             : nil
@@ -64,17 +73,42 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         }
 
         outputPipe.fileHandleForReading.readabilityHandler = { [weak self, weak process] handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            guard let self, let process, self.process === process else { return }
-            self.onOutput?(String(decoding: data, as: UTF8.self))
+            guard let self, let process else { return }
+            self.outputReadLock.withLock {
+                guard self.process === process else { return }
+                let data = handle.availableData
+                guard !data.isEmpty else { return }
+                let output = self.outputDecoder.decode(data)
+                if !output.isEmpty {
+                    outputBatcher.append(output)
+                }
+            }
         }
         process.terminationHandler = { [weak self] terminatedProcess in
             guard let self, self.process === terminatedProcess else { return }
-            self.outputPipe?.fileHandleForReading.readabilityHandler = nil
+            let shouldFinish = self.outputReadLock.withLock {
+                guard self.process === terminatedProcess else { return false }
+                guard let handle = self.outputPipe?.fileHandleForReading else { return true }
+                handle.readabilityHandler = nil
+                if let remaining = try? handle.readToEnd(), !remaining.isEmpty {
+                    let output = self.outputDecoder.decode(remaining)
+                    if !output.isEmpty {
+                        outputBatcher.append(output)
+                    }
+                }
+                let finalOutput = self.outputDecoder.finish()
+                if !finalOutput.isEmpty {
+                    outputBatcher.append(finalOutput)
+                }
+                return true
+            }
+            guard shouldFinish else { return }
+            outputBatcher.finish()
+            guard self.process === terminatedProcess else { return }
             self.process = nil
             self.inputPipe = nil
             self.outputPipe = nil
+            self.outputBatcher = nil
             self.timeoutTask?.cancel()
             self.timeoutTask = nil
             self.activeOperationID = nil
@@ -91,6 +125,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         self.process = process
         self.inputPipe = inputPipe
         self.outputPipe = outputPipe
+        self.outputBatcher = outputBatcher
         do {
             try process.run { [self] processIdentifier in
                 registeredPID = processIdentifier
@@ -103,8 +138,13 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
             try? inputPipe?.fileHandleForReading.close()
             try? outputPipe.fileHandleForWriting.close()
         } catch {
+            outputReadLock.withLock {
+                outputDecoder.reset()
+            }
+            outputBatcher.finish()
             closePipes()
             self.process = nil
+            self.outputBatcher = nil
             onStateChange?(ProcessLifecycleEvent(
                 operationID: request.operationID,
                 state: .failed,
@@ -145,7 +185,15 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
     private func stopProcessGroup() -> Task<Bool, Never>? {
         timeoutTask?.cancel()
         timeoutTask = nil
-        outputPipe?.fileHandleForReading.readabilityHandler = nil
+        let batcherToFinish = outputReadLock.withLock {
+            outputPipe?.fileHandleForReading.readabilityHandler = nil
+            let finalOutput = outputDecoder.finish()
+            if !finalOutput.isEmpty {
+                outputBatcher?.append(finalOutput)
+            }
+            return self.outputBatcher
+        }
+        batcherToFinish?.finish()
         var terminationTask: Task<Bool, Never>?
         if let process, process.isRunning {
             onStateChange?(ProcessLifecycleEvent(
@@ -159,6 +207,7 @@ final class MacStreamingProcess: StreamingProcess, @unchecked Sendable {
         closePipes()
         unregisterProcess()
         process = nil
+        outputBatcher = nil
         activeOperationID = nil
         return terminationTask
     }

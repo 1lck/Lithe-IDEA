@@ -16,15 +16,20 @@ export interface RunDiagnostic {
   toolchain?: string;
 }
 
+/** Whether an entry runs this project or the infrastructure it depends on. */
+export type RunCategory = "project" | "infrastructure";
+
 export interface RunConfiguration {
   id: string;
   name: string;
   provider: string;
   kindTitle: string;
   execution: RunExecution;
+  category: RunCategory;
   modulePath?: string;
   mavenReactorPath?: string;
   mainClass?: string;
+  sourcePath?: string;
   cwd: string;
   args: string[];
   env: Record<string, string>;
@@ -115,10 +120,20 @@ export interface LaunchPlan {
   preLaunchSteps?: PreLaunchStep[];
   /** Run classpath entries joined with `;` and prepended as `-cp` before args. */
   classpath?: string[];
+  /** Java module-path entries joined with `;` by the Windows host. */
+  modulepath?: string[];
+}
+
+export interface JavaLaunchTarget {
+  mainClass: string;
+  projectName?: string;
+  classPaths: string[];
+  modulePaths: string[];
 }
 
 export interface CoreInspectResult {
   status: string;
+  toolchain?: CoreGlobalToolchain | null;
   diagnostics?: Array<Record<string, string>>;
   localToolchains?: CoreLocalToolchains | null;
 }
@@ -127,6 +142,8 @@ export interface CoreGenerateResult {
   generated: unknown;
   toolchainRequirements: unknown;
   entryCount: number;
+  /** Whether the Java entries are JDT's current answer or the previous one. */
+  javaEntrypointsOrigin?: "languageService" | "previousGeneration";
 }
 
 export interface CoreResolveResult {
@@ -159,6 +176,7 @@ export interface CoreResolvedConfiguration {
   name: string;
   provider: string;
   execution?: RunExecution | string;
+  category?: RunCategory | string;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;
@@ -182,6 +200,8 @@ export interface CoreResolvedConfiguration {
       homePath?: string;
       mavenExecutablePath?: string;
       mavenJavaHomePath?: string;
+      source?: string;
+      sourceSet?: string;
     };
   };
 }

@@ -29,6 +29,10 @@ const JDTLS_EXECUTABLE_NAMES: &[&str] = &["jdtls.bat", "jdtls.cmd", "jdtls.exe",
 const MAX_CURRENT_EXE_JDTLS_WALK_DEPTH: usize = 12;
 const JDTLS_CORE_PLUGIN_PREFIX: &str = "org.eclipse.jdt.ls.core_";
 const EQUINOX_LAUNCHER_PLUGIN_PREFIX: &str = "org.eclipse.equinox.launcher_";
+const JAVA_DEBUG_BUNDLE_PREFIX: &str = "com.microsoft.java.debug.plugin-";
+/// Java Test bundle names recorded by `prepare-jdtls` from the extension's
+/// `contributes.javaExtensions`, one per line in declared order.
+const JAVA_TEST_BUNDLE_LIST: &str = "extensions.txt";
 const BUNDLED_JDTLS_MANIFEST: &str = include_str!("../../../../third_party/jdtls/manifest.json");
 static JDT_CACHE_OPERATION_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -47,6 +51,17 @@ pub struct JavaLspLaunch {
     /// Workspace structure digest forwarded to the Rust core so JDT LS uses a
     /// fresh state directory when the project layout changes.
     pub workspace_fingerprint: Option<String>,
+    /// Installed JDKs JDT LS may compile projects against; without them it
+    /// only knows the bundled JDK it runs on.
+    pub java_runtimes: Vec<JavaLspRuntime>,
+}
+
+/// One installed JDK offered to the Java language service.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct JavaLspRuntime {
+    pub home_path: String,
+    pub version: String,
 }
 
 /// JDT LS installation resources forwarded to the shared direct-Java launcher.
@@ -56,6 +71,9 @@ pub struct JdtlsLaunchResources {
     pub launcher_jar_path: String,
     pub configuration_directory: String,
     pub lombok_agent_path: String,
+    pub java_debug_bundle_path: String,
+    /// Java Test bundles JDT LS loads so it can discover tests.
+    pub java_extension_bundle_paths: Vec<String>,
 }
 
 /// Environment values the Java language server needs from the host.
@@ -78,6 +96,8 @@ struct ResolvedJdtlsLaunchResources {
     launcher_jar_path: PathBuf,
     configuration_directory: PathBuf,
     lombok_agent_path: PathBuf,
+    java_debug_bundle_path: PathBuf,
+    java_extension_bundle_paths: Vec<PathBuf>,
 }
 
 /// Resolves the built-in Java language-server executable, JDK, and cache directory.
@@ -164,6 +184,12 @@ pub fn lsp_resolve_java_launch(
                 launcher_jar_path: normalize_path(&resources.launcher_jar_path),
                 configuration_directory: normalize_path(&resources.configuration_directory),
                 lombok_agent_path: normalize_path(&resources.lombok_agent_path),
+                java_debug_bundle_path: normalize_path(&resources.java_debug_bundle_path),
+                java_extension_bundle_paths: resources
+                    .java_extension_bundle_paths
+                    .iter()
+                    .map(|path| normalize_path(path))
+                    .collect(),
             }
         }),
         cache_directory: normalize_path(&cache_directory),
@@ -171,6 +197,13 @@ pub fn lsp_resolve_java_launch(
             java_home: Some(normalize_path(&resolution.java_home)),
         },
         workspace_fingerprint,
+        java_runtimes: run::discover_java_runtimes(project_root)
+            .into_iter()
+            .map(|runtime| JavaLspRuntime {
+                home_path: runtime.home_path,
+                version: runtime.version,
+            })
+            .collect(),
     })
 }
 
@@ -223,7 +256,16 @@ fn resolve_jdtls_launch_resources(
         let plugins = root.join("plugins");
         let configuration_directory = root.join("config_win");
         let lombok_agent_path = root.join("lombok").join("lombok.jar");
+        let java_debug_directory = root.join("java-debug");
         let Some(launcher_jar_path) = first_equinox_launcher(&plugins)? else {
+            continue;
+        };
+        let Some(java_debug_bundle_path) =
+            first_regular_file(&java_debug_directory, JAVA_DEBUG_BUNDLE_PREFIX, ".jar")?
+        else {
+            continue;
+        };
+        let Some(java_extension_bundle_paths) = java_test_extension_bundles(&root)? else {
             continue;
         };
         if configuration_directory.is_dir() && lombok_agent_path.is_file() {
@@ -231,6 +273,8 @@ fn resolve_jdtls_launch_resources(
                 launcher_jar_path,
                 configuration_directory,
                 lombok_agent_path,
+                java_debug_bundle_path,
+                java_extension_bundle_paths,
             });
         }
     }
@@ -241,42 +285,86 @@ fn resolve_jdtls_launch_resources(
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "Expected an Equinox launcher JAR, config_win, and lombok/lombok.jar under: {roots}"
+        "Expected an Equinox launcher JAR, config_win, lombok/lombok.jar, a Java Debug Server bundle, and the Java Test bundles listed in java-test/{JAVA_TEST_BUNDLE_LIST} under: {roots}"
     ))
 }
 
+/// Returns the Java Test bundles recorded for this installation, in the order
+/// the extension declares them, or `None` when the installation has no list.
+///
+/// A listed bundle that is missing is an error rather than a skip: loading a
+/// partial set makes JDT LS fail OSGi resolution for the whole extension.
+fn java_test_extension_bundles(root: &Path) -> Result<Option<Vec<PathBuf>>, String> {
+    let directory = root.join("java-test");
+    let list_path = directory.join(JAVA_TEST_BUNDLE_LIST);
+    let list = match std::fs::read_to_string(&list_path) {
+        Ok(list) => list,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Failed to read the Java Test bundle list at {}: {error}",
+                list_path.display()
+            ));
+        }
+    };
+    let extensions = directory.join("extensions");
+    let mut bundles = Vec::new();
+    for name in list.lines().map(str::trim).filter(|name| !name.is_empty()) {
+        if name.contains(['/', '\\']) || name == ".." {
+            return Err(format!(
+                "The Java Test bundle list at {} names a path instead of a file: {name}",
+                list_path.display()
+            ));
+        }
+        let bundle = extensions.join(name);
+        if !bundle.is_file() {
+            return Err(format!(
+                "Java Test bundle {name} is missing under {}",
+                extensions.display()
+            ));
+        }
+        bundles.push(bundle);
+    }
+    Ok((!bundles.is_empty()).then_some(bundles))
+}
+
 fn first_equinox_launcher(plugins: &Path) -> Result<Option<PathBuf>, String> {
-    let entries = match std::fs::read_dir(plugins) {
+    first_regular_file(plugins, EQUINOX_LAUNCHER_PLUGIN_PREFIX, ".jar")
+}
+
+fn first_regular_file(
+    directory: &Path,
+    prefix: &str,
+    suffix: &str,
+) -> Result<Option<PathBuf>, String> {
+    let entries = match std::fs::read_dir(directory) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(format!(
-                "Failed to inspect JDTLS plugins at {}: {error}",
-                plugins.display()
+                "Failed to inspect JDTLS resources at {}: {error}",
+                directory.display()
             ));
         }
     };
-    let mut launchers = Vec::new();
+    let mut matching_files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| {
             format!(
-                "Failed to inspect an entry in JDTLS plugins at {}: {error}",
-                plugins.display()
+                "Failed to inspect an entry in JDTLS resources at {}: {error}",
+                directory.display()
             )
         })?;
         let path = entry.path();
         let Some(name) = path.file_name().and_then(OsStr::to_str) else {
             continue;
         };
-        if path.is_file()
-            && name.starts_with(EQUINOX_LAUNCHER_PLUGIN_PREFIX)
-            && name.ends_with(".jar")
-        {
-            launchers.push(path);
+        if path.is_file() && name.starts_with(prefix) && name.ends_with(suffix) {
+            matching_files.push(path);
         }
     }
-    launchers.sort();
-    Ok(launchers.into_iter().next())
+    matching_files.sort();
+    Ok(matching_files.into_iter().next())
 }
 
 fn find_jdtls_executable(
@@ -605,19 +693,48 @@ mod tests {
         let plugins = root.join("plugins");
         let configuration_directory = root.join("config_win");
         let lombok_directory = root.join("lombok");
+        let java_debug_directory = root.join("java-debug");
         fs::create_dir_all(&plugins).expect("plugins");
         fs::create_dir_all(&configuration_directory).expect("config_win");
         fs::create_dir_all(&lombok_directory).expect("lombok");
+        fs::create_dir_all(&java_debug_directory).expect("java-debug");
         fs::write(plugins.join("org.eclipse.equinox.launcher_2.0.0.jar"), [])
             .expect("second Equinox launcher");
         let launcher_jar_path = plugins.join("org.eclipse.equinox.launcher_1.0.0.jar");
         fs::write(&launcher_jar_path, []).expect("first Equinox launcher");
         let lombok_agent_path = lombok_directory.join("lombok.jar");
         fs::write(&lombok_agent_path, []).expect("Lombok agent");
+        fs::write(
+            java_debug_directory.join("com.microsoft.java.debug.plugin-0.54.0.jar"),
+            [],
+        )
+        .expect("second Java Debug Server bundle");
+        let java_debug_bundle_path =
+            java_debug_directory.join("com.microsoft.java.debug.plugin-0.53.1.jar");
+        fs::write(&java_debug_bundle_path, []).expect("Java Debug Server bundle");
+        let java_test_extensions = root.join("java-test").join("extensions");
+        fs::create_dir_all(&java_test_extensions).expect("java-test extensions");
+        // Declared order deliberately differs from name order: OSGi receives
+        // the bundles in the order the extension declares them.
+        let java_extension_bundle_paths =
+            ["com.microsoft.java.test.plugin-0.43.1.jar", "a-support.jar"]
+                .map(|name| {
+                    let path = java_test_extensions.join(name);
+                    fs::write(&path, []).expect("Java Test bundle");
+                    path
+                })
+                .to_vec();
+        fs::write(
+            root.join("java-test").join(JAVA_TEST_BUNDLE_LIST),
+            "com.microsoft.java.test.plugin-0.43.1.jar\na-support.jar\n",
+        )
+        .expect("Java Test bundle list");
         ResolvedJdtlsLaunchResources {
             launcher_jar_path,
             configuration_directory,
             lombok_agent_path,
+            java_debug_bundle_path,
+            java_extension_bundle_paths,
         }
     }
 
@@ -719,6 +836,49 @@ mod tests {
             resolve_jdtls_launch_resources(&executable).expect("direct launch resources"),
             expected
         );
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn a_listed_java_test_bundle_that_is_missing_is_a_packaging_error() {
+        // Loading part of the Java Test bundle set makes OSGi reject the whole
+        // extension, so a gap must surface instead of silently dropping tests.
+        let root = temp_dir();
+        let jdtls_root = root.join("jdtls");
+        let bin = jdtls_root.join("bin");
+        let jdk = root.join("jdk");
+        fs::create_dir_all(&bin).expect("JDTLS bin");
+        fs::create_dir_all(jdk.join("bin")).expect("JDK bin");
+        fs::write(bin.join("jdtls.bat"), "@echo off\n").expect("jdtls.bat");
+        fs::write(jdk.join("bin/java.exe"), []).expect("java.exe");
+        let resources = create_direct_launch_resources(&jdtls_root);
+        fs::remove_file(&resources.java_extension_bundle_paths[1]).expect("remove one bundle");
+
+        let error = resolve_java_lsp_launch(None, Some(&jdtls_root), &[], Some(&jdk))
+            .expect_err("a partial Java Test bundle set must be rejected");
+        assert!(error.contains("packaging error"), "{error}");
+        assert!(error.contains("a-support.jar"), "{error}");
+        fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn bundled_resources_without_java_test_bundles_are_a_packaging_error() {
+        let root = temp_dir();
+        let jdtls_root = root.join("jdtls");
+        let bin = jdtls_root.join("bin");
+        let jdk = root.join("jdk");
+        fs::create_dir_all(&bin).expect("JDTLS bin");
+        fs::create_dir_all(jdk.join("bin")).expect("JDK bin");
+        fs::write(bin.join("jdtls.bat"), "@echo off\n").expect("jdtls.bat");
+        fs::write(jdk.join("bin/java.exe"), []).expect("java.exe");
+        create_direct_launch_resources(&jdtls_root);
+        fs::remove_file(jdtls_root.join("java-test").join(JAVA_TEST_BUNDLE_LIST))
+            .expect("remove bundle list");
+
+        let error = resolve_java_lsp_launch(None, Some(&jdtls_root), &[], Some(&jdk))
+            .expect_err("bundled JDTLS must ship the Java Test bundles");
+        assert!(error.contains("packaging error"), "{error}");
+        assert!(error.contains("Java Test"), "{error}");
         fs::remove_dir_all(root).ok();
     }
 

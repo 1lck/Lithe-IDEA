@@ -246,6 +246,10 @@ public enum OfficialPluginCatalog {
                 displayName: "Go",
                 fileExtensions: ["go"],
                 projectFileNames: ["go.mod", "go.work"],
+                dependencies: LanguageDependencyDeclaration(
+                    managementFileNames: ["go.mod", "go.sum", "go.work", "go.work.sum", "vendor/modules.txt"],
+                    projectDependencyPaths: ["vendor"]
+                ),
                 languageServerModuleID: .languageServerExtension(goLanguageID),
                 executionModuleID: .languageExecutionExtension(goLanguageID),
                 testingModuleID: .languageExecutionExtension(goLanguageID)

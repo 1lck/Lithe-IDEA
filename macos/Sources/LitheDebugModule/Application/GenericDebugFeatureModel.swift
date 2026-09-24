@@ -216,7 +216,12 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     @Published public private(set) var sessionSummaries: [DebugSessionSummary] = []
     @Published public private(set) var targetTitle: String?
     @Published public private(set) var state: DebugAdapterState = .idle
-    @Published public private(set) var output = ""
+    /// The complete console value used by diagnostics and session snapshots.
+    /// UI consumers observe `outputPresentation` so chatty processes do not
+    /// invalidate the whole Debug view for every transport chunk.
+    public private(set) var output = ""
+    @Published public private(set) var hasOutput = false
+    public let outputPresentation = GenericDebugOutputPresentation()
     @Published public private(set) var errorMessage: String?
     @Published public private(set) var stoppedReason: String?
     @Published public private(set) var exceptionInfo: DebugExceptionInfo?
@@ -324,7 +329,10 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         sessionSummaries = sessions.sessionSummaries
         sessions.onSessionStateChange = { [weak self] sessionID, providerID, state in
             guard let self else { return }
-            self.sessionSummaries = self.sessions.sessionSummaries
+            let summaries = self.sessions.sessionSummaries
+            if self.sessionSummaries != summaries {
+                self.sessionSummaries = summaries
+            }
             if self.activeSessionID == sessionID {
                 self.providerID = providerID
                 self.state = state
@@ -333,6 +341,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
                 }
                 if state == .running {
                     self.clearStoppedInspection()
+                }
+                if state == .terminated || state == .failed {
+                    self.outputPresentation.flush()
                 }
                 self.saveActiveSessionSnapshot()
             } else {
@@ -345,9 +356,18 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         }
         sessions.onSessionEvent = { [weak self] sessionID, providerID, event in
             guard let self else { return }
-            self.sessionSummaries = self.sessions.sessionSummaries
+            let summaries = self.sessions.sessionSummaries
+            if self.sessionSummaries != summaries {
+                self.sessionSummaries = summaries
+            }
             if self.activeSessionID == sessionID {
                 self.consume(event)
+                // Session selection snapshots the live output before switching.
+                // Retaining a new String snapshot for every output event would
+                // force the next append to copy the entire console buffer.
+                if case .output = event {
+                    return
+                }
                 self.saveActiveSessionSnapshot()
             } else {
                 self.consumeInactiveSessionEvent(
@@ -455,8 +475,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         configuration: DebugLaunchConfiguration
     ) -> Bool {
         let previousSessionID = activeSessionID
-        let previousSnapshot = previousSessionID.flatMap { sessionSnapshots[$0] }
         saveActiveSessionSnapshot()
+        let previousSnapshot = previousSessionID.flatMap { sessionSnapshots[$0] }
         let started = startSession(
             fileURL: fileURL,
             rootURL: rootURL,
@@ -538,7 +558,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         activeFileURL = request.fileURL
         providerID = sessionsProviderID(for: fileURL)
         targetTitle = configuration.name
-        output = ""
+        replaceOutput(with: "")
         debuggeeOutputNormalizer.reset()
         errorMessage = nil
         stoppedReason = nil
@@ -601,6 +621,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
 
     public func stop() {
         invalidateInspectionRequests()
+        outputPresentation.flush()
         if let activeFileURL {
             dataBreakpoints.removeAll { !$0.canPersist }
             try? sessions.setDataBreakpoints(coreDataBreakpoints, for: activeFileURL)
@@ -686,7 +707,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         debuggeeOutputNormalizer.reset()
         providerID = nil
         targetTitle = nil
-        output = ""
+        replaceOutput(with: "")
         debuggeeOutputNormalizer.reset()
         errorMessage = nil
         breakpoints = []
@@ -1590,7 +1611,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func clearOutput() {
-        output = ""
+        replaceOutput(with: "")
         debuggeeOutputNormalizer.reset()
     }
 
@@ -1654,7 +1675,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             providerID = summary.providerID
             targetTitle = summary.targetTitle
             state = summary.state
-            output = ""
+            replaceOutput(with: "")
             errorMessage = nil
             stoppedReason = nil
             exceptionInfo = nil
@@ -1667,7 +1688,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         providerID = snapshot.providerID
         targetTitle = snapshot.targetTitle
         state = snapshot.state
-        output = snapshot.output
+        replaceOutput(with: snapshot.output)
         errorMessage = snapshot.errorMessage
         stoppedReason = snapshot.stoppedReason
         exceptionInfo = snapshot.exceptionInfo
@@ -1798,6 +1819,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         case .output(_, let text):
             append(text)
         case .stopped(let reason, let threadID, let description):
+            outputPresentation.flush()
             isExecutionRequestPending = false
             let generation = beginInspectionTransition()
             if let threadID {
@@ -1837,6 +1859,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             isExecutionRequestPending = false
             clearStoppedInspection()
             if let exitCode { append("Debug session exited with code \(exitCode).\n") }
+            outputPresentation.flush()
         case .breakpoint(let resolved):
             if let dataID = resolved.dataID,
                let index = dataBreakpoints.firstIndex(where: { $0.dataID == dataID }) {
@@ -2466,7 +2489,14 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         if output.count > maximumOutputCharacters {
             output.removeFirst(output.count - maximumOutputCharacters)
         }
-        saveActiveSessionSnapshot()
+        if !hasOutput { hasOutput = true }
+        outputPresentation.schedule { [weak self] in self?.output ?? "" }
+    }
+
+    private func replaceOutput(with text: String) {
+        output = text
+        hasOutput = !text.isEmpty
+        outputPresentation.replace(with: text)
     }
 
     private func launchDiagnostic(in output: String) -> String? {
