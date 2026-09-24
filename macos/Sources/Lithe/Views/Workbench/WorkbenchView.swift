@@ -1335,12 +1335,6 @@ struct WorkbenchView: View {
         }
     }
 
-    private var isHoverSidebarVisible: Bool {
-        hoverSidebarContributions.contains { contribution in
-            moduleUIRegistry.renderer(for: contribution)?.isSelected(model) == true
-        }
-    }
-
     private var isDockedSidebarVisible: Bool {
         dockedSidebarContributions.contains { contribution in
             guard let renderer = moduleUIRegistry.renderer(for: contribution) else { return false }

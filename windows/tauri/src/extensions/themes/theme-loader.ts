@@ -49,7 +49,10 @@ class ThemeLoader extends BaseThemeExtension {
       // Register themes with the theme registry
       const { themeRegistry } = await import("./theme-registry");
       this.themes.forEach((theme) => {
-        themeRegistry.registerTheme(theme);
+        themeRegistry.registerTheme(theme, {
+          extensionId: "builtin.themes",
+          isBundled: true,
+        });
       });
     } catch (error) {
       console.error("ThemeLoader: Failed to load JSON themes:", error);

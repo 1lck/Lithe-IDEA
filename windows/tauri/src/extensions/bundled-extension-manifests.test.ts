@@ -34,7 +34,7 @@ const IDEA_TREE_ICON_IDS = [
 describe("bundled file icon themes", () => {
   test("keeps only the selected built-in theme registered", async () => {
     const idea = await builtinIconThemes[0].load();
-    const material = await builtinIconThemes.at(-1)!.load();
+    const material = await builtinIconThemes[builtinIconThemes.length - 1].load();
 
     registerBuiltinIconTheme(idea, "idea-icons", {});
     expect(iconThemeRegistry.getThemeIdsByExtension("builtin.icon-themes")).toEqual(["idea-icons"]);

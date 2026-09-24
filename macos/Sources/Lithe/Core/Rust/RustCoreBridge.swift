@@ -2230,6 +2230,15 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let path: String
     }
 
+    var isAvailable: Bool {
+        String(cString: lithe_bridge_version()) != "unlinked"
+    }
+
+    func version() -> String? {
+        guard isAvailable else { return nil }
+        return String(cString: lithe_bridge_version())
+    }
+
     func snapshot(
         at rootURL: URL,
         hiddenDirectoryNames: [String] = [],
