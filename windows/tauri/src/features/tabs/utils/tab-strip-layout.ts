@@ -14,6 +14,7 @@ export interface TabStripLayout {
   scrollsHorizontally: boolean;
   sortingStrategy: SortingStrategy;
   dragModifiers: Modifier[];
+  sortableTabClassName?: string;
 }
 
 const SINGLE_LINE_LAYOUT: TabStripLayout = {
@@ -29,6 +30,9 @@ const MULTIPLE_ROWS_LAYOUT: TabStripLayout = {
   scrollsHorizontally: false,
   sortingStrategy: rectSortingStrategy,
   dragModifiers: [],
+  // Mirrors macOS EditorTabFlowLayout: tabs prefer a 154px minimum so rows line up, but never
+  // exceed the strip width, so in a narrow pane the title truncates instead of being clipped.
+  sortableTabClassName: "min-w-[min(154px,100%)] max-w-full",
 };
 
 export function getTabStripLayout(mode: EditorTabLayoutMode): TabStripLayout {

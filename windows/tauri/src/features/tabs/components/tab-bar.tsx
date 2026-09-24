@@ -688,6 +688,7 @@ const TabBar = ({
                     tabRefs.current[index] = el;
                   }}
                   disabled={editingBufferId === buffer.id}
+                  className={tabStripLayout.sortableTabClassName}
                   onClickCapture={getClickCapture(buffer.id)}
                 >
                   {({ isDragging }) => (

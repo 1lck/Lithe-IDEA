@@ -11,6 +11,7 @@ describe("editor tab strip layout", () => {
     expect(layout.scrollsHorizontally).toBe(true);
     expect(layout.sortingStrategy).toBe(horizontalListSortingStrategy);
     expect(layout.dragModifiers).toEqual([restrictToHorizontalAxis]);
+    expect(layout.sortableTabClassName).toBeUndefined();
   });
 
   test("wraps into rows and lets tabs be dragged between rows", () => {
@@ -20,5 +21,7 @@ describe("editor tab strip layout", () => {
     expect(layout.scrollsHorizontally).toBe(false);
     expect(layout.sortingStrategy).toBe(rectSortingStrategy);
     expect(layout.dragModifiers).toEqual([]);
+    // Like macOS, the preferred minimum never forces a tab wider than the strip.
+    expect(layout.sortableTabClassName).toBe("min-w-[min(154px,100%)] max-w-full");
   });
 });
