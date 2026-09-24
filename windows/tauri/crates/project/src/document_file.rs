@@ -604,7 +604,11 @@ fn retry_windows_replace(
 ) -> io::Result<SaveOutcome> {
     for (retry_index, retry_delay) in WINDOWS_REPLACE_RETRY_DELAYS.iter().enumerate() {
         match replace_once() {
-            Ok(()) => return Ok(SaveOutcome::Saved { identity }),
+            Ok(()) => {
+                return Ok(SaveOutcome::Saved {
+                    identity: identity.clone(),
+                });
+            }
             Err(error) if is_transient_windows_replace_error(&error) => {
                 log::debug!(
                     "Retrying Windows document replacement after transient error ({}/{} in {} ms): {error}",
