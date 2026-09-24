@@ -6,6 +6,7 @@ import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useUpdater } from "@/features/settings/hooks/use-updater";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import type { EditorTabLayoutMode } from "@/features/settings/types/settings.types";
 import {
   getProjectOpenPreference,
   getProjectOpenPreferencePatch,
@@ -296,6 +297,20 @@ function EditorPanel() {
             onChange={(checked) => void updateSetting("codeLens", checked)}
             size="sm"
           />
+        </SettingsRow>
+      </SettingsGroup>
+      <SettingsGroup title={t("settings.mac.editorTabs")}>
+        <SettingsRow label={t("settings.mac.layout")}>
+          <select
+            className={`${controlClassName} w-40`}
+            value={settings.editorTabLayoutMode}
+            onChange={(event) =>
+              void updateSetting("editorTabLayoutMode", event.target.value as EditorTabLayoutMode)
+            }
+          >
+            <option value="singleLine">{t("settings.mac.singleRow")}</option>
+            <option value="multipleRows">{t("settings.mac.wrapRows")}</option>
+          </select>
         </SettingsRow>
       </SettingsGroup>
       <SettingsGroup title={t("settings.mac.indentation")}>

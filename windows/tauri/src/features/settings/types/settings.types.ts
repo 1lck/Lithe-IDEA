@@ -21,6 +21,8 @@ type EditorCursorStyle =
 type EditorCursorBlinking = "blink" | "smooth" | "phase" | "expand" | "solid";
 type TerminalCursorInactiveStyle = "outline" | "block" | "bar" | "underline" | "none";
 export type TabCloseButtonVisibility = "active" | "hover" | "always";
+// Matches the macOS EditorTabLayoutMode raw values.
+export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
 export type FileTreeSortOrder = "folders-first" | "name";
 export type SettingsSection =
@@ -85,6 +87,7 @@ export interface Settings {
   showStatusBar: boolean;
   showTabIcons: boolean;
   tabCloseButtonVisibility: TabCloseButtonVisibility;
+  editorTabLayoutMode: EditorTabLayoutMode;
   windowChromeDensity: WindowChromeDensity;
   // Theme
   theme: Theme;

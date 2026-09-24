@@ -94,6 +94,7 @@ export const defaultSettings: Settings = {
   showStatusBar: true,
   showTabIcons: true,
   tabCloseButtonVisibility: "active",
+  editorTabLayoutMode: "singleLine",
   windowChromeDensity: "focused",
   // Theme
   theme: "lithe-dark",

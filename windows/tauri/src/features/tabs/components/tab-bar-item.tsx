@@ -36,6 +36,7 @@ interface TabBarItemProps {
   index: number;
   isActive: boolean;
   isDraggedTab: boolean;
+  isWrapped?: boolean;
   showDropIndicatorBefore?: boolean;
   tabRef?: RefCallback<HTMLDivElement>;
   onClick?: () => void;
@@ -57,6 +58,7 @@ const TabBarItem = memo(function TabBarItem({
   displayName,
   isActive,
   isDraggedTab,
+  isWrapped = false,
   showDropIndicatorBefore = false,
   tabRef,
   onClick,
@@ -141,6 +143,8 @@ const TabBarItem = memo(function TabBarItem({
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
         isDragged={isDraggedTab}
+        // Same minimum width as macOS EditorTabFlowLayout, so wrapped rows line up.
+        className={isWrapped ? "min-w-[154px]" : undefined}
         onClick={isEditing ? undefined : onClick}
         onMouseDown={onMouseDown}
         onDoubleClick={isEditing ? undefined : onDoubleClick}
