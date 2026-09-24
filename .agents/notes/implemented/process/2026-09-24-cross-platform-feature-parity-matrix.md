@@ -19,6 +19,7 @@ macOS 是当前参考产品，Windows 是独立实现。两端可以共享 Rust 
 - `scripts/verify-platform-feature-matrix.sh` 重新生成后检查生成文件没有漂移，适合作为本地和 PR gate。
 - `docs/development/platform-parity.md` 和仓库根目录 `AGENTS.md` 说明更新规则；功能 PR 必须更新源数据，不得直接手改生成视图。
 - `.github/workflows/verify-platform-feature-matrix.yml` 在每个 PR、`main` 推送和手动运行时执行校验，并上传 JSON、Markdown、CSV 视图，方便在线查看和下载。
+- 当前矩阵先按两端代码入口和共享契约完成初版静态盘点；`implemented` 不是实机验收结论，能力点的 `verification` 仍是后续跨平台验证入口。
 
 状态分为 `implemented`、`partial`、`missing`、`needs-verification` 和 `platform-specific`。矩阵行按“一个可单独验收的用户能力”拆分，`area` 和 `group` 只用于导航，不作为状态统计单位。其中 `implemented` 只代表代码入口与产品接入存在，不替代真实运行验证；这避免把“有文件”误报成“跨平台可用”。
 

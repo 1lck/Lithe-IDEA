@@ -3,9 +3,10 @@
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
 - 最后复核：2026-09-24
-- 功能项：56
-- macOS：✅ 51 已实现，🟡 0 部分实现，❌ 3 未实现，🔍 0 待验证，🧩 2 平台专属
-- Windows：✅ 50 已实现，🟡 0 部分实现，❌ 2 未实现，🔍 4 待验证，🧩 0 平台专属
+- 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
+- 功能项：74
+- macOS：✅ 65 已实现，🟡 2 部分实现，❌ 5 未实现，🔍 0 待验证，🧩 2 平台专属
+- Windows：✅ 68 已实现，🟡 0 部分实现，❌ 2 未实现，🔍 4 待验证，🧩 0 平台专属
 
 ## 状态定义
 
@@ -22,7 +23,7 @@
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。
 
 <details>
-<summary><strong>工作区</strong> · 4 个能力点</summary>
+<summary><strong>工作区</strong> · 7 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
 | --- | --- | --- | --- | --- | --- |
@@ -30,11 +31,14 @@
 | 工作区生命周期 | **文件树与文件操作**<br><sub>workspace-files</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Workspace`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/file-system`</sub> | Workspace | 新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 |
 | 工作区生命周期 | **脏状态、保存与外部修改**<br><sub>workspace-document-sync</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Models/Editor`、`macos/Sources/Lithe/Services/Workspace`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/editor`、`windows/tauri/src/features/file-system`</sub> | Workspace | 编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。 |
 | 工作区生命周期 | **多项目与多标签**<br><sub>workspace-tabs-projects</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/workspace`、`windows/tauri/src/features/tabs`</sub> | Workspace | 同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 |
+| 项目浏览 | **项目文件树与资源打开**<br><sub>file-explorer</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Models/Workspace`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/file-explorer`、`windows/tauri/src/features/sidebar`</sub> | Workspace | 浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 |
+| 项目浏览 | **项目依赖与模块浏览**<br><sub>dependency-browser</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/sidebar`</sub> | Workspace / Java | 打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。 |
+| 远程开发 | **远程连接与远程路径工作区**<br><sub>remote-workspace</sub> | ❌ 未实现<br><sub>`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/remote`、`windows/tauri/src/features/file-system`</sub> | Remote | Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。 |
 
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 5 个能力点</summary>
+<summary><strong>编辑器</strong> · 9 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
 | --- | --- | --- | --- | --- | --- |
@@ -43,6 +47,10 @@
 | 文本编辑 | **多行标签与标签导航**<br><sub>editor-multiline-tabs</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/tabs`</sub> | Editor | 打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 |
 | Markdown | **Markdown 预览与富文本渲染**<br><sub>markdown-rendering</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift`、`macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/editor/markdown`</sub> | Editor | 使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。 |
 | Markdown | **图片导入与链接定位**<br><sub>markdown-images-links</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Services/Markdown`、`macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/editor/markdown`、`windows/tauri/src/features/viewer`</sub> | Editor | 验证本地图片、远程图片、相对链接和打开源文件行为。 |
+| 代码结构 | **当前文件 Outline 与符号树**<br><sub>outline-symbols</sub> | 🟡 部分实现<br><sub>`macos/Sources/Lithe/Views/Language`、`macos/Sources/Lithe/Views/Search`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/outline`</sub> | Language Tooling | 使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。 |
+| 代码结构 | **引用结果面板与引用跳转**<br><sub>references-pane</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Language/JavaReferencesView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/references`</sub> | Language Tooling | 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 |
+| 资源预览 | **HTML、SVG、媒体、PDF 与二进制预览**<br><sub>embedded-viewers</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift`、`macos/Sources/Lithe/Views/Editor/MediaViewerView.swift`、`macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/viewer`</sub> | Editor | 分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 |
+| 编辑模式 | **Vim 模式与命令状态**<br><sub>vim-mode</sub> | ❌ 未实现<br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/vim`、`windows/tauri/src/features/editor`</sub> | Editor | Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。 |
 
 </details>
 
@@ -114,7 +122,7 @@
 </details>
 
 <details>
-<summary><strong>运行与调试</strong> · 5 个能力点</summary>
+<summary><strong>运行与调试</strong> · 6 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
 | --- | --- | --- | --- | --- | --- |
@@ -123,11 +131,12 @@
 | 运行配置 | **Java main 与测试运行**<br><sub>run-java-test</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/debug`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/run`、`shared/fixtures/debug`</sub> | Run | 运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。 |
 | 调试器 | **启动调试与断点**<br><sub>debug-breakpoints</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Debug`、`shared/fixtures/debug`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/debugger`、`shared/fixtures/debug`</sub> | Debug | 设置、命中、禁用和重新定位断点，确认调试会话生命周期。 |
 | 调试器 | **变量、异常与断开策略**<br><sub>debug-state</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Debug`、`shared/fixtures/debug`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/debugger`、`shared/fixtures/debug`</sub> | Debug | 验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。 |
+| 项目运行 | **Docker / Compose 项目识别与运行**<br><sub>docker-compose</sub> | 🟡 部分实现<br><sub>`macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift`、`macos/Sources/Lithe/Services/Java`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/docker`、`windows/tauri/src/features/run`</sub> | Run / Docker | 使用 Dockerfile 和 Compose fixture 验证识别、命令参数、输出和进程停止；确认 macOS 是否只有入口识别。 |
 
 </details>
 
 <details>
-<summary><strong>工作台</strong> · 5 个能力点</summary>
+<summary><strong>工作台</strong> · 7 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
 | --- | --- | --- | --- | --- | --- |
@@ -136,6 +145,8 @@
 | 终端 | **复制粘贴、搜索与调整大小**<br><sub>terminal-interaction</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Terminal`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/terminal`</sub> | Terminal | 验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 |
 | 本地历史 | **快照列表与 Diff**<br><sub>history-snapshots</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/History`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 |
 | 本地历史 | **恢复、删除与持久化**<br><sub>history-restore</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/History`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 验证恢复、删除、应用重启后持久化和失败回滚。 |
+| 命令与布局 | **命令面板与全局动作**<br><sub>command-palette</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`、`macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/command-palette`</sub> | Workbench | 搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 |
+| 命令与布局 | **分栏、面板与工具窗布局**<br><sub>workbench-panes</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Workbench`、`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/panes`、`windows/tauri/src/features/layout`</sub> | Workbench | 打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。 |
 
 </details>
 
@@ -148,6 +159,46 @@
 | 数据库工作区 | **Schema、表与列浏览**<br><sub>database-schema</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Database`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/database`</sub> | Database | 展开数据库、Schema、表和列，验证刷新、筛选和空结果展示。 |
 | 数据库工作区 | **SQL 查询、历史与分页**<br><sub>database-query-history</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Database`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/database`</sub> | Database | 执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。 |
 | 数据库工作区 | **表数据编辑、CRUD 与导出**<br><sub>database-crud-export</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Database`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/database`</sub> | Database | 验证新增、编辑、删除、事务失败、复制和结果导出。 |
+
+</details>
+
+<details>
+<summary><strong>可观测性</strong> · 4 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
+| --- | --- | --- | --- | --- | --- |
+| 诊断与日志 | **工作区诊断与问题面板**<br><sub>diagnostics-workspace</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift`、`macos/Sources/Lithe/Views/Language/JavaProblemsView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/diagnostics`</sub> | Diagnostics | 制造多个来源的错误和警告，验证筛选、排序、定位和清除。 |
+| 诊断与日志 | **诊断包导出与脱敏**<br><sub>diagnostics-export</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/Diagnostics/DiagnosticsExportSheet.swift`、`macos/Sources/Lithe/Services/Diagnostics`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/diagnostics`</sub> | Diagnostics | 导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制。 |
+| 通知与资源 | **操作通知、错误提示与自动消失**<br><sub>workbench-notifications</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/notifications`</sub> | Workbench | 触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。 |
+| 通知与资源 | **应用与语言服务内存监控**<br><sub>memory-monitor</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/layout/services/memory-api.ts`、`windows/tauri/src/platform/tauri-core.ts`</sub> | Workbench | 打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。 |
+
+</details>
+
+<details>
+<summary><strong>设置</strong> · 2 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
+| --- | --- | --- | --- | --- | --- |
+| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示。 |
+| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 |
+
+</details>
+
+<details>
+<summary><strong>扩展</strong> · 1 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
+| --- | --- | --- | --- | --- | --- |
+| 插件与主题 | **插件、语言服务与主题管理**<br><sub>plugin-extension-management</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/extensions`、`windows/tauri/src/features/settings`</sub> | Extensions | 启用、禁用和恢复插件/主题，确认启动加载、失败隔离和设置持久化。 |
+
+</details>
+
+<details>
+<summary><strong>启动与窗口</strong> · 1 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 |
+| --- | --- | --- | --- | --- | --- |
+| 首次启动 | **欢迎页、项目入口与首次启动引导**<br><sub>onboarding-welcome</sub> | ✅ 已实现<br><sub>`macos/Sources/Lithe/Views/App/WelcomeView.swift`、`macos/Sources/Lithe/Views/Workspace`</sub> | ✅ 已实现<br><sub>`windows/tauri/src/features/onboarding`、`windows/tauri/src/features/bootstrap`</sub> | Onboarding | 清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导。 |
 
 </details>
 

@@ -90,6 +90,7 @@ const markdown = [
   "> 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。",
   "",
   `- 最后复核：${source.lastReviewed}`,
+  `- 盘点状态：${source.review.status}（${source.review.method}）`,
   `- 功能项：${features.length}`,
   `- macOS：${renderCounts("macos")}`,
   `- Windows：${renderCounts("windows")}`,

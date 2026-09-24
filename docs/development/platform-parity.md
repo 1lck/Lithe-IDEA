@@ -4,6 +4,8 @@
 
 macOS 和 Windows 的功能状态以 `shared/platform-feature-matrix.json` 为唯一数据源，`docs/development/platform-parity-matrix.md` 和 `docs/development/platform-parity-matrix.csv` 都是自动生成的阅读视图。每个功能必须同时记录两端状态、代码证据、负责人和可执行的验证方式；这样新增 macOS 功能时，PR 就会明确暴露 Windows 是“已实现、部分实现、未实现，还是还没有验证”。
 
+当前表是基于两端代码入口和共享契约的**初版静态盘点**，不是已经完成所有平台实机验收的最终报告。`implemented` 表示已找到产品接入和实现入口；真实运行结果仍需按每行的 `verification` 逐项补齐。
+
 ## 为什么不只维护一张手工表
 
 手工 Markdown 表很容易在代码改名、功能拆分或 Windows 接入后过期。机器可读清单可以被脚本检查：状态值不能写错，证据路径必须存在，功能 ID 不能重复，生成视图必须与源数据一致。JSON 适合作为源文件，因为它能稳定参与代码审查和脚本校验；Markdown 适合在仓库中阅读，CSV 适合在 Excel、Numbers 或表格工具中筛选排序。
@@ -28,8 +30,11 @@ macOS 和 Windows 的功能状态以 `shared/platform-feature-matrix.json` 为�
 
 首版矩阵显示，最需要持续关注的是：
 
+- 当前已盘点 74 个可单独验收的能力点；后续新增能力应优先新增能力点，而不是重新增加一个笼统模块。
 - Windows 的 LSP/JDTLS 真实运行验证仍应单独完成，不能只依据目录存在判断完成。
 - macOS 尚无 Windows 已有的 AI 对话能力；这不是 AI 提交信息功能的缺失，两者应分开跟踪。
+- macOS 的 Outline 和 Docker/Compose 当前只标为部分实现，需要确认实际入口和覆盖范围。
+- macOS 尚无远程工作区和 Vim 模式，Windows 尚无 LINUX DO 社区入口。
 - LINUX DO 社区入口目前只有 macOS，Windows 应明确显示为缺口，而不是让用户从“功能看起来相似”中猜测。
 
 ## CI 接入建议
