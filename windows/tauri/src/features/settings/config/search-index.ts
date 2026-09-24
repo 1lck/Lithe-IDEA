@@ -1042,14 +1042,6 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     keywords: ["terminal", "cursor", "inactive", "unfocused", "outline", "hidden"],
   },
 
-  {
-    id: "editor-horizontal-tab-scroll",
-    tab: "editor",
-    section: "Tabs",
-    label: "Buffer Carousel",
-    description: "Show open buffers as a horizontally scrollable carousel in the main view",
-    keywords: ["tabs", "buffers", "carousel", "scroll", "horizontal", "trackpad", "main view"],
-  },
   // Advanced Settings
   {
     id: "advanced-export-settings",
