@@ -166,7 +166,6 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         ),
         "terminal.cleared" => ("终端已清空。", "Terminal cleared."),
         "terminal.unavailable" => ("PTY 不可用", "PTY unavailable"),
-        "terminal.execute" => ("执行", "Execute"),
         "workbench.settings" => ("设置", "Settings"),
         "workbench.sourceControl" => ("源代码管理", "Source Control"),
         "fileExplorer.searchFiles" => ("搜索文件", "Search files"),

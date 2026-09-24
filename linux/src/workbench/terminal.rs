@@ -1,97 +1,406 @@
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+//! Linux 原生 PTY 终端：`portable-pty` 跑 shell，`vte`（Alacritty 解析器）
+//! 做真机解析，键盘字符模式直输（对齐 IDEA 内嵌终端的交互：历史、
+//! 补全、方向键、中断均由 PTY 行规程处理）。
+//!
+//! 显示模型为行式 + 样式段（非全网格）：处理打印 / 换行 / 回车覆盖 /
+//! 退格 / SGR 颜色 / 擦除 / 光标移动；输出按行累积（上限丢弃最旧）。
+//! 适配声明：多标签、新终端、终端内搜索、复制粘贴、全屏、滚到末尾跟随、
+//! PTY 随窗缩放暂不支持（缺 xterm 级组件与滚动控制，采固定 120x30）。
+
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{h_flex, v_flex, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, Styled as _, Subscription, Window,
+    div, px, Context, FocusHandle, FontWeight, InteractiveElement as _, IntoElement, KeyDownEvent,
+    ParentElement as _, Render, Rgba, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use vte::{Parser, Perform};
 
 use crate::settings;
 use crate::theme::ThemeColors;
 
-/// 输出行数上限。
+/// PTY 固定尺寸（随窗缩放暂不支持）。
+const TERMINAL_COLS: usize = 120;
+const TERMINAL_ROWS: u16 = 30;
+
+/// 输出行数上限，超出丢弃最旧。
 const MAX_TERMINAL_LINES: usize = 1000;
 
-/// 未换行缓冲上限（字符），超出保留末尾，避免无换物流撑爆内存。
-const MAX_PENDING_CHARS: usize = 8192;
-const PENDING_KEEP_CHARS: usize = 4096;
+/// 渲染行数上限（样式段已合并，超出只保留末尾）。
+const MAX_RENDER_LINES: usize = 600;
 
-/// 剥离 ANSI 转义序列与无用控制字符（保留 `\n` `\r` `\t` 交由换行逻辑处理）。
-/// 无 xterm 网格，按纯文本展示是既定适配（右键菜单/复制等同理缺失）。
-fn strip_ansi(input: &str) -> String {
-    let mut out = String::with_capacity(input.len());
-    let mut chars = input.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' {
-            match chars.peek() {
-                // CSI：`ESC [` … 最终字节 `@`..=`~`
-                Some('[') => {
-                    chars.next();
-                    loop {
-                        match chars.next() {
-                            None => break,
-                            Some(c) if ('@'..='~').contains(&c) => break,
-                            Some(_) => {}
-                        }
-                    }
-                }
-                // OSC：`ESC ]` … 以 BEL 或 `ESC \` 结束
-                Some(']') => {
-                    chars.next();
-                    let mut prev_esc = false;
-                    loop {
-                        match chars.next() {
-                            None => break,
-                            Some('\x07') => break,
-                            Some('\x1b') => prev_esc = true,
-                            Some('\\') if prev_esc => break,
-                            Some(_) => prev_esc = false,
-                        }
-                    }
-                }
-                // 字符集选择等两字符序列
-                Some('(') | Some(')') | Some('#') => {
-                    chars.next();
-                    chars.next();
-                }
-                Some(_) => {
-                    chars.next();
-                }
-                None => {}
-            }
-        } else if ch.is_control() && ch != '\n' && ch != '\r' && ch != '\t' {
-            // 丢弃 BEL 等无用控制字符
-        } else {
-            out.push(ch);
+/// xterm 基础 16 色（加粗 0-7 自动取 8-15，标准终端行为）。
+const ANSI_PALETTE: [(u8, u8, u8); 16] = [
+    (0, 0, 0),
+    (205, 0, 0),
+    (0, 205, 0),
+    (205, 205, 0),
+    (0, 0, 238),
+    (205, 0, 205),
+    (0, 205, 205),
+    (229, 229, 229),
+    (127, 127, 127),
+    (255, 0, 0),
+    (0, 255, 0),
+    (255, 255, 0),
+    (92, 92, 255),
+    (255, 0, 255),
+    (0, 255, 255),
+    (255, 255, 255),
+];
+
+/// 256 色：0-15 基础色，16-231 立方体，232-255 灰阶。
+fn palette_256(index: u8) -> (u8, u8, u8) {
+    match index {
+        0..=15 => ANSI_PALETTE[index as usize],
+        16..=231 => {
+            let n = index - 16;
+            let levels = [0u8, 95, 135, 175, 215, 255];
+            (
+                levels[(n / 36) as usize],
+                levels[((n % 36) / 6) as usize],
+                levels[(n % 6) as usize],
+            )
+        }
+        _ => {
+            let v = 8 + (index - 232) * 10;
+            (v, v, v)
         }
     }
-    out
+}
+
+fn rgba_of(rgb: (u8, u8, u8)) -> Rgba {
+    Rgba {
+        r: rgb.0 as f32 / 255.0,
+        g: rgb.1 as f32 / 255.0,
+        b: rgb.2 as f32 / 255.0,
+        a: 1.0,
+    }
+}
+
+/// 语义颜色：默认色渲染时取主题，索引/RGB 取调色板。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum TermColor {
+    #[default]
+    Default,
+    Indexed(u8),
+    Rgb(u8, u8, u8),
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct SpanStyle {
+    fg: TermColor,
+    bg: TermColor,
+    bold: bool,
+}
+
+#[derive(Debug, Clone)]
+struct StyledChar {
+    c: char,
+    style: SpanStyle,
+}
+
+/// 终端屏幕：行缓冲（末尾即当前行）+ 光标 + 当前样式 + 保存位。
+struct TermScreen {
+    lines: Vec<Vec<StyledChar>>,
+    row: usize,
+    col: usize,
+    style: SpanStyle,
+    saved: Option<(usize, usize)>,
+}
+
+impl TermScreen {
+    fn new() -> Self {
+        Self {
+            lines: vec![Vec::new()],
+            row: 0,
+            col: 0,
+            style: SpanStyle::default(),
+            saved: None,
+        }
+    }
+
+    fn clear_all(&mut self) {
+        self.lines = vec![Vec::new()];
+        self.row = 0;
+        self.col = 0;
+        self.style = SpanStyle::default();
+    }
+
+    /// 保证 `row` 行存在，返回其可变引用（行号超限自动补空行）。
+    fn row_mut(&mut self, row: usize) -> &mut Vec<StyledChar> {
+        while self.lines.len() <= row {
+            self.lines.push(Vec::new());
+        }
+        &mut self.lines[row]
+    }
+
+    /// 换行：光标移到下一行行首，超限丢弃最旧行。
+    fn newline(&mut self) {
+        self.row += 1;
+        self.col = 0;
+        self.row_mut(self.row);
+        if self.lines.len() > MAX_TERMINAL_LINES {
+            let overflow = self.lines.len() - MAX_TERMINAL_LINES;
+            self.lines.drain(..overflow);
+            self.row = self.row.saturating_sub(overflow);
+        }
+    }
+
+    /// 在光标处打印字符（覆盖写，超宽自动换行）。
+    fn put_char(&mut self, c: char) {
+        if self.col >= TERMINAL_COLS {
+            self.newline();
+        }
+        let style = self.style;
+        let col = self.col;
+        let row = self.row;
+        let line = self.row_mut(row);
+        if col < line.len() {
+            line[col] = StyledChar { c, style };
+        } else {
+            while line.len() < col {
+                line.push(StyledChar {
+                    c: ' ',
+                    style: SpanStyle::default(),
+                });
+            }
+            line.push(StyledChar { c, style });
+        }
+        self.col += 1;
+    }
+}
+
+/// 取第 `index` 个参数（无参回退 `default`）。
+fn csi_param(params: &vte::Params, index: usize, default: u16) -> u16 {
+    params
+        .iter()
+        .flat_map(|group| group.iter().copied())
+        .nth(index)
+        .unwrap_or(default)
+}
+
+impl Perform for TermScreen {
+    fn print(&mut self, c: char) {
+        self.put_char(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        match byte {
+            b'\n' | b'\x0b' | b'\x0c' => self.newline(),
+            b'\r' => self.col = 0,
+            // 退格：只回退不删除（覆盖写模型）。
+            0x08 => self.col = self.col.saturating_sub(1),
+            // 制表：到下一个 8 列停靠位。
+            b'\t' => self.col = (self.col + 8) & !7,
+            // BEL 等其余控制字符忽略。
+            _ => {}
+        }
+    }
+
+    fn csi_dispatch(
+        &mut self,
+        params: &vte::Params,
+        _intermediates: &[u8],
+        _ignore: bool,
+        action: char,
+    ) {
+        match action {
+            // 光标移动
+            'A' => self.row = self.row.saturating_sub(csi_param(params, 0, 1) as usize),
+            'B' => {
+                let row = self.row + csi_param(params, 0, 1) as usize;
+                self.row = row;
+                self.row_mut(row);
+            }
+            'C' => self.col += csi_param(params, 0, 1) as usize,
+            'D' => self.col = self.col.saturating_sub(csi_param(params, 0, 1) as usize),
+            'E' => {
+                self.row += csi_param(params, 0, 1) as usize;
+                self.col = 0;
+                let row = self.row;
+                self.row_mut(row);
+            }
+            'F' => {
+                self.row = self.row.saturating_sub(csi_param(params, 0, 1) as usize);
+                self.col = 0;
+            }
+            'G' => self.col = csi_param(params, 0, 1).saturating_sub(1) as usize,
+            'H' | 'f' => {
+                self.row = csi_param(params, 0, 1).saturating_sub(1) as usize;
+                self.col = csi_param(params, 1, 1).saturating_sub(1) as usize;
+                let row = self.row;
+                self.row_mut(row);
+            }
+            // 擦除显示
+            'J' => match csi_param(params, 0, 0) {
+                1 => {
+                    self.lines.drain(..self.row.min(self.lines.len()));
+                    self.row = 0;
+                    let row = self.row;
+                    self.row_mut(row).clear();
+                }
+                2 | 3 => self.clear_all(),
+                // 0：光标到末尾清掉
+                _ => {
+                    let row = self.row;
+                    let col = self.col;
+                    let line = self.row_mut(row);
+                    line.truncate(col.min(line.len()));
+                    self.lines.truncate(row + 1);
+                }
+            },
+            // 擦除行
+            'K' => match csi_param(params, 0, 0) {
+                1 => {
+                    let row = self.row;
+                    let col = self.col;
+                    let line = self.row_mut(row);
+                    line.drain(..col.min(line.len()));
+                    self.col = 0;
+                }
+                2 => {
+                    let row = self.row;
+                    self.row_mut(row).clear();
+                    self.col = 0;
+                }
+                // 0：光标到行尾清掉
+                _ => {
+                    let row = self.row;
+                    let col = self.col;
+                    let len = self.row_mut(row).len();
+                    self.row_mut(row).truncate(col.min(len));
+                }
+            },
+            // 上卷：丢弃顶部 n 行
+            'S' => {
+                let n = csi_param(params, 0, 1) as usize;
+                let drop = n.min(self.lines.len().saturating_sub(1));
+                self.lines.drain(..drop);
+                self.row = self.row.saturating_sub(drop);
+            }
+            // 光标存取
+            's' => self.saved = Some((self.row, self.col)),
+            'u' => {
+                if let Some((row, col)) = self.saved {
+                    self.row = row;
+                    self.col = col;
+                    self.row_mut(row);
+                }
+            }
+            // SGR 颜色与属性
+            'm' => {
+                let values: Vec<u16> = params.iter().flat_map(|g| g.iter().copied()).collect();
+                let values = if values.is_empty() { vec![0] } else { values };
+                let mut ix = 0;
+                while ix < values.len() {
+                    match values[ix] {
+                        0 => self.style = SpanStyle::default(),
+                        1 => self.style.bold = true,
+                        22 => self.style.bold = false,
+                        30..=37 => {
+                            self.style.fg = TermColor::Indexed((values[ix] - 30) as u8);
+                        }
+                        39 => self.style.fg = TermColor::Default,
+                        40..=47 => {
+                            self.style.bg = TermColor::Indexed((values[ix] - 40) as u8);
+                        }
+                        49 => self.style.bg = TermColor::Default,
+                        90..=97 => {
+                            self.style.fg = TermColor::Indexed((values[ix] - 90 + 8) as u8);
+                        }
+                        100..=107 => {
+                            self.style.bg = TermColor::Indexed((values[ix] - 100 + 8) as u8);
+                        }
+                        38 | 48 => {
+                            let is_fg = values[ix] == 38;
+                            let color = match values.get(ix + 1).copied() {
+                                Some(5) => values
+                                    .get(ix + 2)
+                                    .copied()
+                                    .map(|v| TermColor::Indexed(v.min(255) as u8)),
+                                Some(2) => match (
+                                    values.get(ix + 2).copied(),
+                                    values.get(ix + 3).copied(),
+                                    values.get(ix + 4).copied(),
+                                ) {
+                                    (Some(r), Some(g), Some(b)) => Some(TermColor::Rgb(
+                                        r.min(255) as u8,
+                                        g.min(255) as u8,
+                                        b.min(255) as u8,
+                                    )),
+                                    _ => None,
+                                },
+                                _ => None,
+                            };
+                            if let Some(color) = color {
+                                if is_fg {
+                                    self.style.fg = color;
+                                } else {
+                                    self.style.bg = color;
+                                }
+                            }
+                            ix += 4;
+                        }
+                        _ => {}
+                    }
+                    ix += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
+        match byte {
+            // RI：反向换行
+            b'M' => {
+                if self.row == 0 {
+                    self.lines.insert(0, Vec::new());
+                    if self.lines.len() > MAX_TERMINAL_LINES {
+                        self.lines.pop();
+                    }
+                } else {
+                    self.row -= 1;
+                }
+            }
+            // DECSC / DECRC：光标存取
+            b'7' => self.saved = Some((self.row, self.col)),
+            b'8' => {
+                if let Some((row, col)) = self.saved {
+                    self.row = row;
+                    self.col = col;
+                    self.row_mut(row);
+                }
+            }
+            // RIS：全复位
+            b'c' => self.clear_all(),
+            _ => {}
+        }
+    }
 }
 
 /// Linux 原生 PTY 会话
 pub struct TerminalSession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    pub output_lines: Arc<Mutex<Vec<String>>>,
+    /// 主端句柄：必须活着，丢弃即关闭 PTY（shell 收 SIGHUP 退出）。
     #[allow(dead_code)]
-    input_buffer: Arc<Mutex<String>>,
+    master: Arc<Mutex<Box<dyn portable_pty::MasterPty + Send>>>,
 }
 
 impl TerminalSession {
-    /// 打开 PTY 会话并起输出线程：线程只透传原始字节块，主线程泵负责
-    /// 解析换行/回车并 `notify`（输出实时出现，对齐 xterm 的流式展示）。
-    /// 返回会话与输出 channel；`banner` 为首行提示（调用方按语言构造）。
+    /// 打开 PTY 会话并起输出线程：线程只透传原始字节块，主线程泵喂给
+    /// `vte` 解析器（输出实时出现，对齐 xterm 的流式展示）。
     pub fn new(
         cols: u16,
         rows: u16,
         working_dir: &str,
         shell: &str,
-        banner: Option<String>,
-    ) -> anyhow::Result<(Self, mpsc::Receiver<String>)> {
+    ) -> anyhow::Result<(Self, mpsc::Receiver<Vec<u8>>, String)> {
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
             rows,
@@ -111,20 +420,16 @@ impl TerminalSession {
         let _child = pair.slave.spawn_command(cmd)?;
         let mut reader = pair.master.try_clone_reader()?;
         let writer = pair.master.take_writer()?;
+        let displayed_shell = shell.clone();
 
-        let output_lines = Arc::new(Mutex::new(
-            banner.map(|line| vec![line]).unwrap_or_default(),
-        ));
-        let (tx, rx) = mpsc::channel::<String>();
-
+        let (tx, rx) = mpsc::channel::<Vec<u8>>();
         thread::spawn(move || {
             let mut buf = [0u8; 4096];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]).into_owned();
-                        if tx.send(chunk).is_err() {
+                        if tx.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
                     }
@@ -135,35 +440,45 @@ impl TerminalSession {
         Ok((
             Self {
                 writer: Arc::new(Mutex::new(writer)),
-                output_lines,
-                input_buffer: Arc::new(Mutex::new(String::new())),
+                master: Arc::new(Mutex::new(pair.master)),
             },
             rx,
+            displayed_shell,
         ))
     }
 
     pub fn write_input(&self, input: &str) -> anyhow::Result<()> {
+        self.write_bytes(input.as_bytes())
+    }
+
+    pub fn write_bytes(&self, bytes: &[u8]) -> anyhow::Result<()> {
         let mut writer = self.writer.lock().unwrap();
-        writer.write_all(input.as_bytes())?;
+        writer.write_all(bytes)?;
         writer.flush()?;
         Ok(())
     }
 
-    pub fn get_lines(&self) -> Vec<String> {
-        self.output_lines.lock().unwrap().clone()
+    /// PTY 缩放（随窗缩放接入后调用，当前固定尺寸保留接口）。
+    #[allow(dead_code)]
+    pub fn resize(&self, cols: u16, rows: u16) {
+        if let Ok(master) = self.master.lock() {
+            let _ = master.resize(PtySize {
+                rows,
+                cols,
+                pixel_width: 0,
+                pixel_height: 0,
+            });
+        }
     }
 }
 
-/// 终端视图组件：输出区 + 可输入的命令行（回车/按钮发送整行）。
+/// 终端视图组件：点击聚焦后键盘字符模式直输（IDEA 式交互）。
 pub struct TerminalView {
     pub session: Option<TerminalSession>,
     pub working_dir: String,
-    /// 未换行缓冲：跨字节块累积，`\r` 覆盖当前行内容。
-    pending: String,
-    input: Option<Entity<InputState>>,
-    _input_subscription: Option<Subscription>,
-    /// 回车发送后待清空输入框（render 内有 `window` 才可执行）。
-    clear_pending: bool,
+    screen: TermScreen,
+    parser: Parser,
+    focus_handle: FocusHandle,
 }
 
 impl TerminalView {
@@ -171,29 +486,32 @@ impl TerminalView {
         let mut view = Self {
             session: None,
             working_dir,
-            pending: String::new(),
-            input: None,
-            _input_subscription: None,
-            clear_pending: false,
+            screen: TermScreen::new(),
+            parser: Parser::new(),
+            focus_handle: cx.focus_handle(),
         };
         view.attach_session(cx);
         view
     }
 
-    /// 打开 PTY 会话并起主线程输出泵（channel 收字节块 → 解析落行 → notify）。
+    /// 打开 PTY 会话并起主线程输出泵（channel 收字节块 → `vte` 解析 → notify）。
     fn attach_session(&mut self, cx: &mut Context<Self>) {
-        let banner = crate::i18n::menu_text(cx, "terminal.session")
-            .replace("{shell}", &Self::resolve_shell(cx));
+        let shell = Self::resolve_shell(cx);
         match TerminalSession::new(
-            120,
-            30,
+            TERMINAL_COLS as u16,
+            TERMINAL_ROWS,
             &self.working_dir,
-            &Self::resolve_shell(cx),
-            Some(banner),
+            &shell,
         ) {
-            Ok((session, rx)) => {
+            Ok((session, rx, displayed)) => {
                 self.session = Some(session);
-                self.pending.clear();
+                self.screen.clear_all();
+                let banner =
+                    crate::i18n::menu_text(cx, "terminal.session").replace("{shell}", &displayed);
+                for c in banner.chars() {
+                    self.screen.put_char(c);
+                }
+                self.screen.newline();
                 Self::spawn_pump(rx, cx);
             }
             Err(_) => {
@@ -203,8 +521,8 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// 主线程输出泵：后台收字节块，回主线程解析。
-    fn spawn_pump(rx: mpsc::Receiver<String>, cx: &mut Context<Self>) {
+    /// 主线程输出泵：后台收字节块，回主线程喂解析器。
+    fn spawn_pump(rx: mpsc::Receiver<Vec<u8>>, cx: &mut Context<Self>) {
         let rx = Arc::new(Mutex::new(rx));
         cx.spawn(async move |this, cx| loop {
             let slot = rx.clone();
@@ -216,10 +534,15 @@ impl TerminalView {
                 })
                 .await;
             match next {
-                Some(chunk) => {
+                Some(bytes) => {
                     if this
                         .update(cx, |view, cx| {
-                            view.push_chunk(&chunk);
+                            view.parser.advance(&mut view.screen, &bytes);
+                            if view.screen.lines.len() > MAX_TERMINAL_LINES {
+                                let overflow = view.screen.lines.len() - MAX_TERMINAL_LINES;
+                                view.screen.lines.drain(..overflow);
+                                view.screen.row = view.screen.row.saturating_sub(overflow);
+                            }
                             cx.notify();
                         })
                         .is_err()
@@ -231,37 +554,6 @@ impl TerminalView {
             }
         })
         .detach();
-    }
-
-    /// 解析输出块：ANSI 剥离后按换行落行、`\r` 覆盖当前行。
-    fn push_chunk(&mut self, chunk: &str) {
-        let text = strip_ansi(chunk);
-        let Some(session) = self.session.as_ref() else {
-            return;
-        };
-        let Ok(mut lines) = session.output_lines.lock() else {
-            return;
-        };
-        for piece in text.split_inclusive('\n') {
-            let (content, newline) = match piece.strip_suffix('\n') {
-                Some(content) => (content, true),
-                None => (piece, false),
-            };
-            // `\r` 语义为回车覆盖：只保留最后一个 `\r` 之后的内容。
-            let visible = content.rsplit('\r').next().unwrap_or("");
-            self.pending.push_str(visible);
-            let count = self.pending.chars().count();
-            if count > MAX_PENDING_CHARS {
-                let skip = count - PENDING_KEEP_CHARS;
-                self.pending = self.pending.chars().skip(skip).collect();
-            }
-            if newline {
-                lines.push(std::mem::take(&mut self.pending));
-                if lines.len() > MAX_TERMINAL_LINES {
-                    lines.remove(0);
-                }
-            }
-        }
     }
 
     /// 解析生效 shell：设置 `terminalDefaultShellId` 非空即用（名称经
@@ -292,6 +584,7 @@ impl TerminalView {
         id
     }
 
+    /// 程序化发送命令（宿主调用，如打开目录）：原文 + 换行。
     pub fn send_command(&mut self, cmd: &str, cx: &mut Context<Self>) {
         if let Some(session) = &self.session {
             let mut full = cmd.to_string();
@@ -302,13 +595,10 @@ impl TerminalView {
     }
 
     pub fn clear(&mut self, cx: &mut Context<Self>) {
-        if let Some(session) = &self.session {
-            if let Ok(mut lines) = session.output_lines.lock() {
-                lines.clear();
-                lines.push(crate::i18n::menu_text(cx, "terminal.cleared").to_string());
-            }
-        }
-        self.pending.clear();
+        self.screen.clear_all();
+        self.screen
+            .put_str(&crate::i18n::menu_text(cx, "terminal.cleared").to_string());
+        self.screen.newline();
         cx.notify();
     }
 
@@ -318,68 +608,116 @@ impl TerminalView {
         self.attach_session(cx);
     }
 
-    /// 懒创建命令行输入框。
-    fn ensure_input(
-        slot: &mut Option<Entity<InputState>>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Entity<InputState> {
-        if let Some(entity) = slot.clone() {
-            return entity;
+    /// 键盘直输：可打印字符原样写 PTY，控制组合与功能键转义序列，
+    /// 未知键放行（IDEA 快捷键不断）。返回是否消费。
+    fn handle_key(&mut self, event: &KeyDownEvent) -> bool {
+        let key = event.keystroke.key.as_str();
+        let mods = &event.keystroke.modifiers;
+        let bytes: Vec<u8> = if mods.control && !mods.alt && !mods.platform {
+            // Ctrl+字母 → 控制字符（Ctrl+C 中断等）。
+            let lower = key.to_lowercase();
+            let mut chars = lower.chars();
+            match (chars.next(), chars.next()) {
+                (Some(c @ 'a'..='z'), None) => vec![(c as u8) - b'a' + 1],
+                (Some(' '), None) => vec![0],
+                (Some('['), None) => vec![0x1b],
+                (Some('\\'), None) => vec![0x1c],
+                (Some(']'), None) => vec![0x1d],
+                (Some('^'), None) => vec![0x1e],
+                (Some('_'), None) => vec![0x1f],
+                _ => return false,
+            }
+        } else if mods.alt && !mods.control && !mods.platform {
+            // Alt+字符 → ESC 前缀（readline Meta 键）。
+            match &event.keystroke.key_char {
+                Some(text) if text.chars().count() == 1 => {
+                    let mut out = vec![0x1b];
+                    out.extend_from_slice(text.as_bytes());
+                    out
+                }
+                _ => return false,
+            }
+        } else if mods.control || mods.platform {
+            return false;
+        } else {
+            match key {
+                "enter" => b"\r".to_vec(),
+                "backspace" => vec![0x7f],
+                "tab" => b"\t".to_vec(),
+                "escape" => vec![0x1b],
+                "up" => b"\x1b[A".to_vec(),
+                "down" => b"\x1b[B".to_vec(),
+                "right" => b"\x1b[C".to_vec(),
+                "left" => b"\x1b[D".to_vec(),
+                "home" => b"\x1b[H".to_vec(),
+                "end" => b"\x1b[F".to_vec(),
+                "delete" => b"\x1b[3~".to_vec(),
+                "pageup" => b"\x1b[5~".to_vec(),
+                "pagedown" => b"\x1b[6~".to_vec(),
+                "f1" => b"\x1bOP".to_vec(),
+                "f2" => b"\x1bOQ".to_vec(),
+                "f3" => b"\x1bOR".to_vec(),
+                "f4" => b"\x1bOS".to_vec(),
+                "f5" => b"\x1b[15~".to_vec(),
+                "f6" => b"\x1b[17~".to_vec(),
+                "f7" => b"\x1b[18~".to_vec(),
+                "f8" => b"\x1b[19~".to_vec(),
+                "f9" => b"\x1b[20~".to_vec(),
+                "f10" => b"\x1b[21~".to_vec(),
+                "f11" => b"\x1b[23~".to_vec(),
+                "f12" => b"\x1b[24~".to_vec(),
+                _ => match &event.keystroke.key_char {
+                    // 可打印字符（含中文）原样直输。
+                    Some(text) => text.as_bytes().to_vec(),
+                    None => return false,
+                },
+            }
+        };
+        if let Some(session) = &self.session {
+            let _ = session.write_bytes(&bytes);
         }
-        let entity = cx.new(|cx| InputState::new(window, cx));
-        *slot = Some(entity.clone());
-        entity
+        true
+    }
+}
+
+impl TermScreen {
+    /// 纯文本写入（banner/清空提示用当前默认样式）。
+    fn put_str(&mut self, text: &str) {
+        for c in text.chars() {
+            if c == '\n' {
+                self.newline();
+            } else {
+                self.put_char(c);
+            }
+        }
     }
 }
 
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 命令行输入框懒创建；回车发送整行（`PressEnter`），发送后在本次
-        // render 内清空（`set_value` 需 `window`，订阅回调里拿不到）。
-        let input_entity = Self::ensure_input(&mut self.input, window, cx);
-        if self._input_subscription.is_none() {
-            let entity = input_entity.clone();
-            self._input_subscription = Some(cx.subscribe(
-                &input_entity,
-                move |this: &mut Self, _, event: &InputEvent, cx| {
-                    if matches!(event, InputEvent::PressEnter { .. }) {
-                        let cmd = entity.read(cx).value().to_string();
-                        if !cmd.trim().is_empty() {
-                            this.send_command(&cmd, cx);
-                            this.clear_pending = true;
-                            cx.notify();
-                        }
-                    }
-                },
-            ));
-        }
-        if self.clear_pending {
-            self.clear_pending = false;
-            let entity = input_entity.clone();
-            entity.update(cx, |state, cx| {
-                state.set_value("", window, cx);
-            });
-        }
-
-        let mut lines = self
-            .session
-            .as_ref()
-            .map(|s| s.get_lines())
-            .unwrap_or_else(
-                || vec![crate::i18n::menu_text(cx, "terminal.unavailable").to_string()],
-            );
-        if self.session.is_some() && !self.pending.is_empty() {
-            lines.push(self.pending.clone());
-        }
+        let focused = self.focus_handle.is_focused(window);
+        let total = self.screen.lines.len();
+        let start = total.saturating_sub(MAX_RENDER_LINES);
+        let default_fg = ThemeColors::foreground();
+        let default_bg = ThemeColors::background();
 
         v_flex()
             .size_full()
-            // 终端区背景跟随主题（对齐 Tauri xterm 的 `--background`），
-            // 浅色主题下不再残留深色底。
             .bg(ThemeColors::background())
+            .id("terminal-grid")
+            .track_focus(&self.focus_handle)
+            .cursor_text()
+            .on_click(cx.listener(|this, _event, window, cx| {
+                window.focus(&this.focus_handle, cx);
+            }))
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                if this.handle_key(event) {
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .child(
-                // 终端输出行展示区（控制栏由底部窗格头负责，不再自带）。
+                // 输出网格（控制栏由底部窗格头负责，不再自带）。
                 div()
                     .flex_1()
                     .w_full()
@@ -388,60 +726,121 @@ impl Render for TerminalView {
                     .p_2()
                     .text_xs()
                     .text_size(px(crate::settings::get(cx).terminal_font_size))
-                    .text_color(ThemeColors::foreground())
                     .font_family("monospace")
-                    .children(lines.into_iter().enumerate().map(|(idx, line)| {
-                        div().id(idx).child(if line.is_empty() {
-                            " ".to_string()
-                        } else {
-                            line
-                        })
-                    })),
-            )
-            .child(
-                // 命令行输入条：可输入单行命令，回车或按钮发送。
-                h_flex()
-                    .h(px(32.0))
-                    .w_full()
-                    .flex_shrink_0()
-                    .bg(ThemeColors::surface())
-                    .border_t_1()
-                    .border_color(ThemeColors::border())
-                    .items_center()
-                    .px_2()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(ThemeColors::success())
-                            .font_family("monospace")
-                            .child("$"),
-                    )
-                    .child(
-                        div()
-                            .flex_1()
-                            .child(Input::new(&input_entity).cleanable(true)),
-                    )
-                    .child(
-                        Button::new("run-cmd")
-                            .small()
-                            .primary()
-                            .label(crate::i18n::menu_text(cx, "terminal.execute"))
-                            .on_click(cx.listener(move |_this, _event, window, cx| {
-                                let cmd = input_entity.read(cx).value().to_string();
-                                if !cmd.trim().is_empty() {
-                                    let _ = _this.session.as_ref().map(|session| {
-                                        let mut full = cmd.clone();
-                                        full.push('\n');
-                                        let _ = session.write_input(&full);
-                                    });
-                                    input_entity.update(cx, |state, cx| {
-                                        state.set_value("", window, cx);
-                                    });
-                                    cx.notify();
-                                }
-                            })),
+                    .children(
+                        self.screen.lines[start..]
+                            .iter()
+                            .enumerate()
+                            .map(|(ix, line)| {
+                                render_term_line(
+                                    start + ix,
+                                    line,
+                                    focused && start + ix == self.screen.row,
+                                    self.screen.col,
+                                    default_fg,
+                                    default_bg,
+                                )
+                            })
+                            .collect::<Vec<_>>(),
                     ),
             )
     }
+}
+
+/// 语义颜色解算（加粗配 0-7 自动取高亮 variant，标准终端行为）。
+fn resolve_color(color: TermColor, bold: bool, default: Rgba) -> Rgba {
+    match color {
+        TermColor::Default => default,
+        TermColor::Indexed(i) => {
+            let i = if bold && i < 8 { i + 8 } else { i };
+            rgba_of(palette_256(i))
+        }
+        TermColor::Rgb(r, g, b) => rgba_of((r, g, b)),
+    }
+}
+
+/// 渲染一行：同样式字符合并为一段；聚焦时在光标处画反色块。
+fn render_term_line(
+    row: usize,
+    line: &[StyledChar],
+    cursor_here: bool,
+    cursor_col: usize,
+    default_fg: Rgba,
+    default_bg: Rgba,
+) -> gpui_kit::AnyElement {
+    // 合并同样式段。
+    let mut spans: Vec<(SpanStyle, String)> = Vec::new();
+    for ch in line {
+        if let Some((style, text)) = spans.last_mut() {
+            if *style == ch.style {
+                text.push(ch.c);
+                continue;
+            }
+        }
+        spans.push((ch.style, ch.c.to_string()));
+    }
+    let total: usize = spans.iter().map(|(_, text)| text.chars().count()).sum();
+    // 光标超出文本末尾时在行尾补空格块。
+    let trailing = cursor_here && cursor_col >= total;
+    let mut row_el = h_flex()
+        .id(row)
+        .w_full()
+        .items_center()
+        .text_xs()
+        .font_family("monospace");
+    if spans.is_empty() && !trailing {
+        return row_el
+            .child(div().child(" ".to_string()))
+            .into_any_element();
+    }
+    let mut col = 0;
+    for (style, text) in &spans {
+        let fg = resolve_color(style.fg, style.bold, default_fg);
+        let bg = resolve_color(style.bg, false, default_bg);
+        let chunk = |text: String| {
+            div()
+                .text_color(fg)
+                .when(style.bg != TermColor::Default, |el| el.bg(bg))
+                .when(style.bold, |el| el.font_weight(FontWeight::BOLD))
+                .child(text)
+        };
+        if trailing {
+            row_el = row_el.child(chunk(text.clone()));
+            continue;
+        }
+        let mut before = String::new();
+        let mut cursor_char: Option<char> = None;
+        let mut after = String::new();
+        for c in text.chars() {
+            if col < cursor_col {
+                before.push(c);
+            } else if cursor_char.is_none() {
+                cursor_char = Some(c);
+            } else {
+                after.push(c);
+            }
+            col += 1;
+        }
+        if !before.is_empty() {
+            row_el = row_el.child(chunk(before));
+        }
+        row_el = row_el.child(
+            div()
+                .text_color(default_bg)
+                .bg(fg)
+                .child(cursor_char.unwrap_or(' ').to_string()),
+        );
+        if !after.is_empty() {
+            row_el = row_el.child(chunk(after));
+        }
+    }
+    if trailing {
+        row_el = row_el.child(
+            div()
+                .text_color(default_bg)
+                .bg(default_fg)
+                .child(" ".to_string()),
+        );
+    }
+    row_el.into_any_element()
 }
