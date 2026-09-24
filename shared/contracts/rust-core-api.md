@@ -1348,8 +1348,10 @@ projectName? }` entries plus diagnostics for unusable upstream records.
 `vscode.java.test.findTestTypesAndMethods`, and returns schema version 1 with a
 typed class/method tree. Each item carries the upstream identity, label, fully
 qualified name, project, test kind/level, optional JDT handler and sort text,
-optional zero-based UTF-16 range, and children. A malformed top-level result is
-an `invalidServerResult`, never an empty semantic answer.
+optional zero-based UTF-16 range, and children. A `null` upstream result means
+the file has no tests (Java Test leaves its root's children unset) and yields an
+empty item list; any other non-list top-level result is an
+`invalidServerResult`, never an empty semantic answer.
 `javaMainMethods` requires a file URI, invokes Java Debug Server's
 `vscode.java.resolveMainMethod`, and returns schema version 1 with
 `{ methods: [{ range, mainClass, projectName? }], diagnostics }`. `range` is the
@@ -1525,6 +1527,20 @@ toolchain-only callers, and initial run-panel presentation may send
 project sources. Omission preserves full inspection. The Windows run panel
 publishes readable configurations first, then performs full inspection and
 reports freshness failures without discarding those configurations.
+The input fingerprint covers what generation reads: build and tool files and
+the sources of generated Java entries by content (`sha256:<hex>` in
+`generator.inputs`), and every other Java source by path only (`path`), so
+editing a class body is not a staleness. When the stored inputs no longer
+reproduce the stored fingerprint, the document came from another generator
+revision and the diagnostic says so instead of listing modified files.
+`runConfig.inspect` also accepts optional schema-versioned `javaEntrypoints`
+from the current `lsp.request` result, independent of `checkFingerprint`. Core
+then compares JDT's `(sourcePath, mainClass)` pairs, with a `module/` prefix
+removed and nested checkouts excluded, against the generated Java entries and
+reports a difference as a `staleFingerprint` diagnostic. Platforms send it
+after a project load once the Java service has prepared the project, never
+start that service for this check, and skip it while a regeneration already
+waits for the service.
 Project environment saves use the existing local `runConfig.updateOptions`
 toolchain payload with an empty `configurationId`; service overrides are untouched.
 

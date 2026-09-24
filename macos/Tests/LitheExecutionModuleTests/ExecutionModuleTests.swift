@@ -572,6 +572,62 @@ struct ExecutionModuleTests {
         #expect(!feature.isSelectedConfigurationRunning)
     }
 
+    /// Issue #507: editing a run document changes no project input, so the
+    /// service must not re-read every input on the main actor, and the
+    /// freshness warning the load reported must stay visible.
+    @Test
+    func documentEditsKeepFreshnessWithoutRereadingProjectInputs() async {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        let service = makeFreshnessRecordingService(operations)
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
+
+        let created = service.createConfiguration(RunConfigurationDraft(
+            name: "Custom", kind: .javaMain, modulePath: ".", mainClass: "demo.Custom", scope: .project
+        ))
+
+        #expect(created)
+        #expect(operations.fingerprintChecks == [true, false])
+        #expect(service.configurationDiagnostics.map(\.code) == ["staleFingerprint"])
+    }
+
+    /// A main method added to an existing class is found by comparing JDT's
+    /// answer with the generated entries, once per distinct message.
+    @Test
+    func jdtFreshnessIsReportedOnceWithoutHashingInputs() async {
+        let operations = FreshnessRecordingRunConfigurationOperations()
+        operations.inputsChanged = false
+        let service = makeFreshnessRecordingService(operations)
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        #expect(service.configurationDiagnostics.isEmpty)
+
+        let entrypoints = JavaEntrypoints(entries: [])
+        await service.reportJavaEntrypointFreshness(entrypoints)
+        await service.reportJavaEntrypointFreshness(entrypoints)
+
+        #expect(operations.fingerprintChecks == [true, false, false])
+        #expect(operations.comparedEntrypoints == [entrypoints, entrypoints])
+        #expect(service.configurationDiagnostics.map(\.message) == [
+            "Java entry points changed: 1 added, 0 removed",
+        ])
+    }
+
+    private func makeFreshnessRecordingService(
+        _ operations: FreshnessRecordingRunConfigurationOperations
+    ) -> RunService {
+        RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: operations,
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+    }
+
     /// Once the project is bound, identification must behave exactly as before.
     @Test
     func identificationAfterProjectLoadGeneratesAndClearsTheUnloadedState() async throws {
@@ -1909,6 +1965,66 @@ private struct SelectionRunConfigurationOperations: RunConfigurationOperations {
             configurations: ([.currentFile] + configurations).map {
                 EffectiveRunConfiguration(configuration: $0, options: RunOptions())
             }, diagnostics: [], defaultConfigurationID: configurations.first?.id
+        )
+    }
+    func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
+        SharedLaunchPlan(executable: .toolchain("java"), arguments: [configurationID], workingDirectory: ".")
+    }
+    func createConfiguration(_ draft: RunConfigurationDraft, at _: URL) throws -> String { draft.name }
+    func migrateLegacySettings(at _: URL, configurationIDs _: [String]) throws {}
+}
+
+/// Records how the service inspects: a full check reads every project input,
+/// so only project loads may request it (issue #507).
+private final class FreshnessRecordingRunConfigurationOperations: RunConfigurationOperations, @unchecked Sendable {
+    var inputsChanged = true
+    private(set) var fingerprintChecks: [Bool] = []
+    private(set) var comparedEntrypoints: [JavaEntrypoints] = []
+    private let custom = RunConfiguration(
+        id: "Custom", name: "Custom", kind: .javaMain,
+        execution: .service, modulePath: nil, mainClass: "demo.Custom"
+    )
+
+    func inspect(at projectURL: URL) -> ProjectRunConfigurationInspection {
+        inspect(at: projectURL, checkFingerprint: true, javaEntrypoints: nil)
+    }
+    func inspect(
+        at _: URL,
+        checkFingerprint: Bool,
+        javaEntrypoints: JavaEntrypoints?
+    ) -> ProjectRunConfigurationInspection {
+        fingerprintChecks.append(checkFingerprint)
+        var diagnostics: [RunConfigurationDiagnostic] = []
+        if checkFingerprint && inputsChanged {
+            diagnostics.append(RunConfigurationDiagnostic(
+                configurationID: nil, code: "staleFingerprint",
+                message: "Project inputs changed: 0 added, 0 removed, 1 modified"
+            ))
+        }
+        if let javaEntrypoints {
+            comparedEntrypoints.append(javaEntrypoints)
+            diagnostics.append(RunConfigurationDiagnostic(
+                configurationID: nil, code: "staleFingerprint",
+                message: "Java entry points changed: 1 added, 0 removed"
+            ))
+        }
+        return ProjectRunConfigurationInspection(status: .ready, diagnostics: diagnostics)
+    }
+    func generate(
+        at _: URL,
+        files _: [URL],
+        modulePaths _: [String],
+        javaEntrypoints _: JavaEntrypoints?
+    ) throws -> RunConfigurationGenerationResult {
+        RunConfigurationGenerationResult(entryCount: 1)
+    }
+    func resolve(at _: URL, toolchainCandidates _: [ProjectToolchainCandidate]) throws -> RunConfigurationResolution {
+        RunConfigurationResolution(
+            configurations: [.currentFile, custom].map {
+                EffectiveRunConfiguration(configuration: $0, options: RunOptions())
+            },
+            diagnostics: [],
+            defaultConfigurationID: nil
         )
     }
     func launchPlan(at _: URL, configurationID: String, currentFile _: String?, classPath _: String?, debugPort _: Int?) throws -> SharedLaunchPlan {
