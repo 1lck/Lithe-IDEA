@@ -31,7 +31,6 @@ export const EditorSettings = () => {
       fontSize: state.settings.fontSize,
       formatOnSave: state.settings.formatOnSave,
       highlightOccurrences: state.settings.highlightOccurrences,
-      horizontalTabScroll: state.settings.horizontalTabScroll,
       codeLens: state.settings.codeLens,
       inlayHints: state.settings.inlayHints,
       lineNumbers: state.settings.lineNumbers,
@@ -400,20 +399,6 @@ export const EditorSettings = () => {
           />
         </SettingRow>
 
-        <SettingRow
-          label={t("settings.editor.bufferCarousel")}
-          description={t("settings.editor.bufferCarouselDescription")}
-          onReset={() =>
-            updateSetting("horizontalTabScroll", getDefaultSetting("horizontalTabScroll"))
-          }
-          canReset={settings.horizontalTabScroll !== getDefaultSetting("horizontalTabScroll")}
-        >
-          <Switch
-            checked={settings.horizontalTabScroll}
-            onChange={(checked) => updateSetting("horizontalTabScroll", checked)}
-            size="sm"
-          />
-        </SettingRow>
         <SettingRow
           label={t("settings.editor.autoSave")}
           description={t("settings.editor.autoSaveDescription")}

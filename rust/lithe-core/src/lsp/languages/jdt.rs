@@ -24,6 +24,14 @@ const LANGUAGE_STATUS_METHOD: &str = "language/status";
 const WORK_DONE_PROGRESS_METHOD: &str = "$/progress";
 const SERVICE_READY_STATUS: &str = "ServiceReady";
 const ERROR_STATUS: &str = "Error";
+/// JVM system property read by JDT LS's `org.eclipse.jdt.ls.filesystem` bundle.
+///
+/// When the property is absent, JDT LS writes `.project`, `.classpath`,
+/// `.factorypath`, and `.settings/*.prefs` into every imported module directory.
+/// `false` redirects them to the `-data` metadata area, so opening a project
+/// never adds Eclipse files to the user's tree. Files that already exist at a
+/// module root still take precedence; `jdt_project_metadata` removes those.
+const METADATA_AT_PROJECT_ROOT_PROPERTY: &str = "-Djava.import.generatesMetadataFilesAtProjectRoot";
 
 /// JDT LS readiness transition conveyed through its `language/status`
 /// extension after the standard LSP initialize handshake.
@@ -692,6 +700,7 @@ fn wrapper_arguments(
     arguments.extend([
         "--jvm-arg=-Xms256m".to_string(),
         "--jvm-arg=-Xmx1024m".to_string(),
+        format!("--jvm-arg={METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
         "-data".to_string(),
         data_directory.to_string_lossy().into_owned(),
     ]);
@@ -720,6 +729,7 @@ fn direct_java_arguments(
         "-Dosgi.bundles.defaultStartLevel=4".to_string(),
         "-Dlog.protocol=true".to_string(),
         "-Dlog.level=ALL".to_string(),
+        format!("{METADATA_AT_PROJECT_ROOT_PROPERTY}=false"),
     ];
     adapted.extend(custom_jvm_arguments);
     adapted.extend([
@@ -825,7 +835,14 @@ fn is_jdt_owned_jvm_argument(argument: &str) -> bool {
         || argument.starts_with("-Dosgi.bundles.defaultStartLevel=")
         || argument.starts_with("-Dlog.protocol=")
         || argument.starts_with("-Dlog.level=")
+        || is_metadata_location_argument(argument)
         || is_lombok_agent_argument(argument)
+}
+
+fn is_metadata_location_argument(argument: &str) -> bool {
+    argument
+        .strip_prefix(METADATA_AT_PROJECT_ROOT_PROPERTY)
+        .is_some_and(|rest| rest.starts_with('='))
 }
 
 fn is_lombok_agent_argument(argument: &str) -> bool {
@@ -853,7 +870,10 @@ fn without_wrapper_owned_arguments(arguments: &[String]) -> Vec<String> {
         let owns_inline_value = argument.starts_with("--java-executable=")
             || argument.starts_with("-data=")
             || argument.starts_with("--jvm-arg=-Xms")
-            || argument.starts_with("--jvm-arg=-Xmx");
+            || argument.starts_with("--jvm-arg=-Xmx")
+            || argument
+                .strip_prefix("--jvm-arg=")
+                .is_some_and(is_metadata_location_argument);
         if owns_following_value {
             index += usize::from(index + 1 < arguments.len()) + 1;
         } else {
@@ -1318,6 +1338,7 @@ mod tests {
                 "/jdk/bin/java",
                 "--jvm-arg=-Xms256m",
                 "--jvm-arg=-Xmx1024m",
+                "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-data",
                 data_directory.to_string_lossy().as_ref()
             ]
@@ -1333,6 +1354,8 @@ mod tests {
             "--jvm-arg=-Xms2g".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            // A catalog or user override must not put metadata back into the project.
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data".to_string(),
             "/old/data".to_string(),
         ];
@@ -1346,6 +1369,14 @@ mod tests {
             .contains(&"--jvm-arg=-Duser.language=en".to_string()));
         assert!(!first.arguments.contains(&"/old/java".to_string()));
         assert!(!first.arguments.contains(&"/old/data".to_string()));
+        assert_eq!(
+            first
+                .arguments
+                .iter()
+                .filter(|argument| argument.contains("generatesMetadataFilesAtProjectRoot"))
+                .collect::<Vec<_>>(),
+            vec!["--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=false"]
+        );
     }
 
     #[test]
@@ -1366,6 +1397,7 @@ mod tests {
             "--java-executable=/old/java".to_string(),
             "--jvm-arg=-Xmx4g".to_string(),
             "--jvm-arg=-Duser.language=en".to_string(),
+            "--jvm-arg=-Djava.import.generatesMetadataFilesAtProjectRoot=true".to_string(),
             "-data=/old/data".to_string(),
         ];
 
@@ -1390,6 +1422,7 @@ mod tests {
                 "-Dosgi.bundles.defaultStartLevel=4",
                 "-Dlog.protocol=true",
                 "-Dlog.level=ALL",
+                "-Djava.import.generatesMetadataFilesAtProjectRoot=false",
                 "-Duser.language=en",
                 "-jar",
                 "/jdtls/plugins/equinox.jar",

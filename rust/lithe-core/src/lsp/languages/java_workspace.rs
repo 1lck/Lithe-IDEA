@@ -7,7 +7,8 @@ use std::collections::{BTreeMap, BTreeSet};
 const JDT_CACHE_RETENTION_DAYS: u64 = 30;
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 
-const IGNORED_DIRECTORIES: &[&str] = &[
+/// Directory names that never contain the opened project's own Java modules.
+pub(crate) const IGNORED_DIRECTORIES: &[&str] = &[
     ".git",
     ".gradle",
     ".idea",
