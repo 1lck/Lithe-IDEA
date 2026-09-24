@@ -16,6 +16,7 @@ docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
+.codegraph/
 /node_modules/
 *.swp
 *.swo

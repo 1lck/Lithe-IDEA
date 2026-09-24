@@ -78,6 +78,8 @@ impl FileEntry {
 #[derive(Debug, Clone)]
 pub enum SidebarEvent {
     OpenFile(String),
+    NewFile,
+    Commit(String),
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +115,7 @@ pub struct SidebarView {
     pub git_branch: Option<String>,
     pub git_changes: Vec<GitChangeItem>,
     pub is_git_loading: bool,
+    pub git_commit_message: String,
     client: CoreClient,
 }
 
@@ -133,6 +136,7 @@ impl SidebarView {
             git_branch: None,
             git_changes: Vec::new(),
             is_git_loading: false,
+            git_commit_message: String::new(),
             client: CoreClient::new(),
         };
 
@@ -371,7 +375,7 @@ impl Render for SidebarView {
             .border_r_1()
             .border_color(ThemeColors::border())
             .child(
-                // 顶部工具窗口精简标题 + 刷新操作按钮（无老旧横排Tab栏）
+                // 顶部工具窗口精简标题 + 刷新/新建文件操作按钮（无老旧横排Tab栏）
                 h_flex()
                     .h(px(32.0))
                     .w_full()
@@ -389,15 +393,32 @@ impl Render for SidebarView {
                             .child(title),
                     )
                     .child(
-                        Button::new("sidebar-refresh")
-                            .small()
-                            .ghost()
-                            .icon(IconName::RotateCw)
-                            .tooltip("Refresh")
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.refresh(cx);
-                                this.refresh_git(cx);
-                            })),
+                        h_flex()
+                            .items_center()
+                            .gap_1()
+                            .when(self.active_tab == SidebarTab::Explorer, |buttons| {
+                                buttons.child(
+                                    Button::new("sidebar-new-file")
+                                        .small()
+                                        .ghost()
+                                        .icon(IconName::FilePlus)
+                                        .tooltip("New File")
+                                        .on_click(cx.listener(|_this, _event, _window, cx| {
+                                            cx.emit(SidebarEvent::NewFile);
+                                        })),
+                                )
+                            })
+                            .child(
+                                Button::new("sidebar-refresh")
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::RotateCw)
+                                    .tooltip("Refresh")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.refresh(cx);
+                                        this.refresh_git(cx);
+                                    })),
+                            ),
                     ),
             )
             .child(
@@ -631,91 +652,157 @@ impl SidebarView {
 
         v_flex()
             .size_full()
-            .p_2()
-            .gap_2()
+            .justify_between()
             .child(
-                h_flex()
-                    .items_center()
-                    .gap_2()
-                    .pb_2()
-                    .border_b_1()
-                    .border_color(ThemeColors::border())
-                    .child(
-                        Icon::new(IconName::GitBranch)
-                            .size(px(13.0))
-                            .text_color(ThemeColors::accent_green()),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(ThemeColors::accent_green())
-                            .child(branch),
-                    ),
-            )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(ThemeColors::text_muted())
-                    .child(format!("Changed Files ({})", self.git_changes.len())),
-            )
-            .children(self.git_changes.iter().enumerate().map(|(idx, change)| {
-                let path = change.path.clone();
-                let status = change.status.clone();
-                let status_color = match status.as_str() {
-                    "M" => ThemeColors::accent_yellow(),
-                    "A" => ThemeColors::accent_green(),
-                    "D" => ThemeColors::accent_red(),
-                    _ => ThemeColors::text_muted(),
-                };
-
-                let icon_name = if is_code_file(&path) {
-                    IconName::FileCode
-                } else {
-                    IconName::FileText
-                };
-
-                h_flex()
-                    .id(idx)
-                    .h(px(24.0))
+                // 1. Git 变更文件列表区
+                v_flex()
+                    .flex_1()
                     .w_full()
-                    .items_center()
-                    .justify_between()
-                    .px_2()
-                    .rounded_sm()
-                    .cursor_pointer()
-                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
-                    .text_xs()
+                    .p_2()
+                    .gap_2()
+                    .overflow_y_scrollbar()
                     .child(
                         h_flex()
                             .items_center()
                             .gap_2()
+                            .pb_2()
+                            .border_b_1()
+                            .border_color(ThemeColors::border())
                             .child(
-                                Icon::new(icon_name)
+                                Icon::new(IconName::GitBranch)
                                     .size(px(13.0))
-                                    .text_color(ThemeColors::text_muted()),
+                                    .text_color(ThemeColors::accent_green()),
                             )
                             .child(
                                 div()
-                                    .text_color(ThemeColors::text_primary())
-                                    .truncate()
-                                    .child(path.clone()),
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(ThemeColors::accent_green())
+                                    .child(branch),
                             ),
                     )
                     .child(
                         div()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(status_color)
-                            .child(status),
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(format!("Changed Files ({})", self.git_changes.len())),
                     )
-                    .on_click(cx.listener({
-                        let p = path.clone();
-                        move |this, _event, _window, cx| {
-                            this.selected_path = Some(p.clone());
-                            cx.emit(SidebarEvent::OpenFile(p.clone()));
-                            cx.notify();
-                        }
-                    }))
-            }))
+                    .children(self.git_changes.iter().enumerate().map(|(idx, change)| {
+                        let path = change.path.clone();
+                        let status = change.status.clone();
+                        let status_color = match status.as_str() {
+                            "M" => ThemeColors::accent_yellow(),
+                            "A" => ThemeColors::accent_green(),
+                            "D" => ThemeColors::accent_red(),
+                            _ => ThemeColors::text_muted(),
+                        };
+
+                        let icon_name = if is_code_file(&path) {
+                            IconName::FileCode
+                        } else {
+                            IconName::FileText
+                        };
+
+                        h_flex()
+                            .id(idx)
+                            .h(px(24.0))
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .px_2()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                            .text_xs()
+                            .child(
+                                h_flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(
+                                        Icon::new(icon_name)
+                                            .size(px(13.0))
+                                            .text_color(ThemeColors::text_muted()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_color(ThemeColors::text_primary())
+                                            .truncate()
+                                            .child(path.clone()),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(status_color)
+                                    .child(status),
+                            )
+                            .on_click(cx.listener({
+                                let p = path.clone();
+                                move |this, _event, _window, cx| {
+                                    this.selected_path = Some(p.clone());
+                                    cx.emit(SidebarEvent::OpenFile(p.clone()));
+                                    cx.notify();
+                                }
+                            }))
+                    })),
+            )
+            .child(
+                // 2. Git 面板底部 Commit 工作区
+                v_flex()
+                    .w_full()
+                    .p_2()
+                    .border_t_1()
+                    .border_color(ThemeColors::border())
+                    .bg(ThemeColors::bg_tab_bar())
+                    .gap_2()
+                    .child(
+                        // Commit message 输入提示卡片
+                        div()
+                            .w_full()
+                            .bg(ThemeColors::bg_editor())
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .rounded(px(4.0))
+                            .p_2()
+                            .text_xs()
+                            .text_color(if self.git_commit_message.is_empty() {
+                                ThemeColors::text_muted()
+                            } else {
+                                ThemeColors::text_primary()
+                            })
+                            .child(if self.git_commit_message.is_empty() {
+                                "Commit message (e.g. feat: update files)...".to_string()
+                            } else {
+                                self.git_commit_message.clone()
+                            }),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .items_center()
+                            .justify_between()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_muted())
+                                    .child(format!("{} changed", self.git_changes.len())),
+                            )
+                            .child(
+                                Button::new("git-commit-btn")
+                                    .small()
+                                    .primary()
+                                    .icon(IconName::Check)
+                                    .label("Commit")
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        let msg = if this.git_commit_message.trim().is_empty() {
+                                            "feat: update workspace files".to_string()
+                                        } else {
+                                            this.git_commit_message.trim().to_string()
+                                        };
+                                        cx.emit(SidebarEvent::Commit(msg));
+                                    })),
+                            ),
+                    ),
+            )
     }
 }

@@ -1,10 +1,12 @@
 use gpui_kit::assets::IconName;
+use gpui_kit::component::input::{Editor, EditorState, InputEvent};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, Context, FontWeight, InteractiveElement as _, IntoElement, ParentElement as _,
-    Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, relative, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window,
 };
 
 use crate::core::CoreClient;
@@ -23,22 +25,45 @@ pub struct EditorTab {
 }
 
 /// 多标签代码编辑器组件（对齐 macOS LitheTheme / IntelliJ 视觉规范）
+///
+/// 正文复用上游 `gpui_kit::component::input::Editor`，由它负责滚动、
+/// 文本选择与语法高亮；本组件只管理标签栏、面包屑与文件读写。
 pub struct EditorView {
     pub workspace_root: String,
     pub tabs: Vec<EditorTab>,
     pub active_tab_index: Option<usize>,
     #[allow(dead_code)]
     pub encoding: String,
+    /// 当前活动标签对应的上游编辑器状态，随视图生命周期常驻并复用。
+    editor_state: Entity<EditorState>,
+    /// 已同步到 `editor_state` 的标签索引。
+    synced_tab: Option<usize>,
+    /// 活动标签内容被外部替换（重新打开文件）时置位，渲染时重新灌入编辑器。
+    sync_needed: bool,
+    /// 监听编辑器文本变化以回写标签内容与脏标记。
+    _editor_subscription: Subscription,
     client: CoreClient,
 }
 
 impl EditorView {
-    pub fn new(workspace_root: String, _cx: &mut Context<Self>) -> Self {
+    pub fn new(workspace_root: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let editor_state = cx.new(|cx| EditorState::new(window, cx).line_number(true));
+        let _editor_subscription =
+            cx.subscribe_in(&editor_state, window, |this, _state, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.on_editor_change(cx);
+                }
+            });
+
         Self {
             workspace_root,
             tabs: Vec::new(),
             active_tab_index: None,
             encoding: "UTF-8".to_string(),
+            editor_state,
+            synced_tab: None,
+            sync_needed: false,
+            _editor_subscription,
             client: CoreClient::new(),
         }
     }
@@ -46,6 +71,13 @@ impl EditorView {
     /// 打开文件，如果已在标签中则切换，否则新增标签
     pub fn open_file(&mut self, path: String, content: String, cx: &mut Context<Self>) {
         if let Some(pos) = self.tabs.iter().position(|t| t.path == path) {
+            if let Some(tab) = self.tabs.get_mut(pos) {
+                if tab.content != content {
+                    tab.content = content;
+                    tab.is_dirty = false;
+                    self.sync_needed = true;
+                }
+            }
             self.active_tab_index = Some(pos);
             cx.notify();
             return;
@@ -66,6 +98,7 @@ impl EditorView {
         });
 
         self.active_tab_index = Some(self.tabs.len() - 1);
+        self.sync_needed = true;
         cx.notify();
     }
 
@@ -78,10 +111,58 @@ impl EditorView {
             } else if let Some(current) = self.active_tab_index {
                 if current >= self.tabs.len() {
                     self.active_tab_index = Some(self.tabs.len() - 1);
+                } else if current > index {
+                    self.active_tab_index = Some(current - 1);
                 }
             }
+            self.sync_needed = true;
             cx.notify();
         }
+    }
+
+    /// 把当前活动标签的文本与语言灌入上游编辑器。
+    fn sync_active_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let active_index = self.active_tab_index;
+
+        if self.synced_tab == active_index && !self.sync_needed {
+            return;
+        }
+
+        let Some(index) = active_index else {
+            self.synced_tab = None;
+            self.sync_needed = false;
+            return;
+        };
+
+        let Some(tab) = self.tabs.get(index).cloned() else {
+            return;
+        };
+
+        let language = Self::language_name(&tab.path).to_lowercase();
+        let content = tab.content.clone();
+        self.editor_state.update(cx, |editor, cx| {
+            editor.set_value(content, window, cx);
+            editor.set_highlighter(language, cx);
+        });
+
+        self.synced_tab = Some(index);
+        self.sync_needed = false;
+    }
+
+    /// 编辑器文本变化后回写标签内容并标记为已修改。
+    fn on_editor_change(&mut self, cx: &mut Context<Self>) {
+        let Some(index) = self.active_tab_index else {
+            return;
+        };
+
+        let value = self.editor_state.read(cx).value().to_string();
+        if let Some(tab) = self.tabs.get_mut(index) {
+            if tab.content != value {
+                tab.content = value;
+                tab.is_dirty = true;
+            }
+        }
+        cx.notify();
     }
 
     /// 保存当前活动的标签页至磁盘（对接 `file.write`）
@@ -93,9 +174,11 @@ impl EditorView {
             return;
         };
 
+        // 以编辑器内的实时文本为准，避免依赖事件回写的时序。
+        let text = self.editor_state.read(cx).value().to_string();
+
         let root = self.workspace_root.clone();
         let path = tab.path.clone();
-        let text = tab.content.clone();
         let client = self.client.clone();
 
         cx.spawn(async move |this, cx| {
@@ -173,10 +256,14 @@ fn is_code_file(name: &str) -> bool {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        self.sync_active_editor(window, cx);
+
         let active_tab = self
             .active_tab_index
             .and_then(|idx| self.tabs.get(idx).cloned());
+
+        let editor_state = self.editor_state.clone();
 
         v_flex()
             .size_full()
@@ -328,118 +415,94 @@ impl Render for EditorView {
                 )
             })
             .child(
-                // 3. 中央代码内容区
-                div().flex_1().w_full().overflow_scrollbar().child(
-                    if let Some(tab) = &active_tab {
-                        let lines: Vec<String> = tab.content.lines().map(|s| s.to_string()).collect();
-                        let total_lines = lines.len().max(1);
-
-                        h_flex()
-                            .size_full()
-                            .p_2()
-                            .font_family("monospace")
-                            .text_xs()
-                            .child(
-                                // 代码行号槽（Gutter）
-                                v_flex()
-                                    .flex_shrink_0()
-                                    .w(px(48.0))
-                                    .pr_3()
-                                    .border_r_1()
-                                    .border_color(ThemeColors::border())
-                                    .text_color(ThemeColors::text_muted())
-                                    .items_end()
-                                    .children((1..=total_lines).map(|num| {
-                                        div().h(px(20.0)).child(format!("{num}"))
-                                    })),
-                            )
-                            .child(
-                                // 代码文本展示行
-                                v_flex()
-                                    .flex_1()
-                                    .pl_3()
-                                    .text_color(ThemeColors::text_primary())
-                                    .children(lines.into_iter().enumerate().map(|(idx, line)| {
-                                        div()
-                                            .id(idx)
-                                            .h(px(20.0))
-                                            .child(if line.is_empty() { " ".to_string() } else { line })
-                                    })),
-                            )
-                    } else {
+                // 3. 中央代码内容区（滚动与文本选择由上游 Editor 负责）
+                div()
+                    .flex_1()
+                    .w_full()
+                    .overflow_hidden()
+                    .when_some(active_tab.as_ref().map(|_| editor_state.clone()), |this, state| {
+                        this.child(
+                            Editor::new(&state)
+                                .h(relative(1.0))
+                                .bordered(false)
+                                .readonly(false),
+                        )
+                    })
+                    .when(active_tab.is_none(), |this| {
                         // 无打开文件 Empty State（精致 Lithe 居中徽标与操作提示）
-                        h_flex()
-                            .size_full()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                v_flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .child(
-                                        Icon::new(IconName::Zap)
-                                            .size(px(48.0))
-                                            .text_color(ThemeColors::accent_blue()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_lg()
-                                            .font_weight(FontWeight::BOLD)
-                                            .text_color(ThemeColors::text_primary())
-                                            .child("Lithe IDEA"),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(ThemeColors::text_muted())
-                                            .child("Next-generation IDE for Linux, powered by GPUI Kit & Rust Core"),
-                                    )
-                                    .child(
-                                        v_flex()
-                                            .pt_2()
-                                            .gap_2()
-                                            .child(
-                                                h_flex()
-                                                    .items_center()
-                                                    .gap_2()
-                                                    .text_xs()
-                                                    .text_color(ThemeColors::text_muted())
-                                                    .child("Search files everywhere:")
-                                                    .child(
-                                                        div()
-                                                            .px_1p5()
-                                                            .py(px(1.0))
-                                                            .bg(ThemeColors::bg_tab_hover())
-                                                            .border_1()
-                                                            .border_color(ThemeColors::border())
-                                                            .rounded_sm()
-                                                            .text_color(ThemeColors::text_primary())
-                                                            .child("Ctrl+P"),
-                                                    ),
-                                            )
-                                            .child(
-                                                h_flex()
-                                                    .items_center()
-                                                    .gap_2()
-                                                    .text_xs()
-                                                    .text_color(ThemeColors::text_muted())
-                                                    .child("Toggle terminal panel:")
-                                                    .child(
-                                                        div()
-                                                            .px_1p5()
-                                                            .py(px(1.0))
-                                                            .bg(ThemeColors::bg_tab_hover())
-                                                            .border_1()
-                                                            .border_color(ThemeColors::border())
-                                                            .rounded_sm()
-                                                            .text_color(ThemeColors::text_primary())
-                                                            .child("Ctrl+`"),
-                                                    ),
-                                            ),
-                                    ),
-                            )
-                    },
-                ),
+                        this.child(
+                            h_flex()
+                                .size_full()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    v_flex()
+                                        .items_center()
+                                        .gap_3()
+                                        .child(
+                                            Icon::new(IconName::Zap)
+                                                .size(px(48.0))
+                                                .text_color(ThemeColors::accent_blue()),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_lg()
+                                                .font_weight(FontWeight::BOLD)
+                                                .text_color(ThemeColors::text_primary())
+                                                .child("Lithe IDEA"),
+                                        )
+                                        .child(
+                                            div()
+                                                .text_xs()
+                                                .text_color(ThemeColors::text_muted())
+                                                .child("Next-generation IDE for Linux, powered by GPUI Kit & Rust Core"),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .pt_2()
+                                                .gap_2()
+                                                .child(
+                                                    h_flex()
+                                                        .items_center()
+                                                        .gap_2()
+                                                        .text_xs()
+                                                        .text_color(ThemeColors::text_muted())
+                                                        .child("Search files everywhere:")
+                                                        .child(
+                                                            div()
+                                                                .px_1p5()
+                                                                .py(px(1.0))
+                                                                .bg(ThemeColors::bg_tab_hover())
+                                                                .border_1()
+                                                                .border_color(ThemeColors::border())
+                                                                .rounded_sm()
+                                                                .text_color(ThemeColors::text_primary())
+                                                                .child("Ctrl+P"),
+                                                        ),
+                                                )
+                                                .child(
+                                                    h_flex()
+                                                        .items_center()
+                                                        .gap_2()
+                                                        .text_xs()
+                                                        .text_color(ThemeColors::text_muted())
+                                                        .child("Toggle terminal panel:")
+                                                        .child(
+                                                            div()
+                                                                .px_1p5()
+                                                                .py(px(1.0))
+                                                                .bg(ThemeColors::bg_tab_hover())
+                                                                .border_1()
+                                                                .border_color(ThemeColors::border())
+                                                                .rounded_sm()
+                                                                .text_color(ThemeColors::text_primary())
+                                                                .child("Ctrl+`"),
+                                                        ),
+                                                ),
+                                        ),
+                                ),
+                        )
+                    }),
             )
     }
 }

@@ -21,6 +21,7 @@ pub enum BottomTab {
 pub struct BottomPanelView {
     pub active_tab: BottomTab,
     pub is_collapsed: bool,
+    pub height: f32,
     pub terminal: Entity<TerminalView>,
     pub output_logs: Vec<String>,
     pub problems: Vec<String>,
@@ -33,10 +34,16 @@ impl BottomPanelView {
         Self {
             active_tab: BottomTab::Terminal,
             is_collapsed: false,
+            height: 240.0,
             terminal,
             output_logs: vec!["[Lithe Linux] Initialized.".to_string()],
             problems: Vec::new(),
         }
+    }
+
+    pub fn set_height(&mut self, height: f32, cx: &mut Context<Self>) {
+        self.height = height;
+        cx.notify();
     }
 
     pub fn set_tab(&mut self, tab: BottomTab, cx: &mut Context<Self>) {
@@ -148,7 +155,7 @@ impl Render for BottomPanelView {
         }
 
         v_flex()
-            .h(px(240.0))
+            .h(px(self.height))
             .w_full()
             .bg(ThemeColors::bg_bottom_panel())
             .border_t_1()
