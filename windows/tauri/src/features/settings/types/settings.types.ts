@@ -171,7 +171,6 @@ export interface Settings {
     | "skill"
     | "agent";
   maxOpenTabs: number;
-  horizontalTabScroll: boolean;
   //// File tree
   fileTreeSortOrder: FileTreeSortOrder;
   fileTreeIndentSize: number;

@@ -103,7 +103,6 @@ const TabBar = ({
     convertPreviewToDefinite,
     showNewTabView,
   } = useBufferStore.use.actions();
-  const horizontalTabScroll = useSettingsStore((state) => state.settings.horizontalTabScroll);
   const maxOpenTabs = useSettingsStore((state) => state.settings.maxOpenTabs);
   const updateActivePath = useSidebarStore.use.actions().updateActivePath;
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
@@ -237,7 +236,7 @@ const TabBar = ({
     setPaneLocked(paneId, !isPaneLocked);
   }, [isPaneLocked, paneId, setPaneLocked]);
 
-  useTabWheelScroll(tabScrollRef, horizontalTabScroll && !draggedBufferId);
+  useTabWheelScroll(tabScrollRef, !draggedBufferId);
 
   const sortedBuffers = useMemo(() => {
     const pinnedBuffers: PaneContent[] = [];

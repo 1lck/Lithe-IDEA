@@ -298,18 +298,6 @@ function EditorPanel() {
           />
         </SettingsRow>
       </SettingsGroup>
-      <SettingsGroup title={t("settings.mac.editorTabs")}>
-        <SettingsRow
-          label={t("settings.editor.bufferCarousel")}
-          description={t("settings.editor.bufferCarouselDescription")}
-        >
-          <Switch
-            checked={settings.horizontalTabScroll}
-            onChange={(checked) => void updateSetting("horizontalTabScroll", checked)}
-            size="sm"
-          />
-        </SettingsRow>
-      </SettingsGroup>
       <SettingsGroup title={t("settings.mac.indentation")}>
         <SettingsRow label={t("settings.mac.tabWidth")}>
           <select
