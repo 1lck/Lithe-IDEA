@@ -21,8 +21,10 @@ use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
 use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::EditorView;
+use crate::workbench::extensions_panel::{ExtensionsEvent, ExtensionsView};
 use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
+use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
@@ -31,6 +33,15 @@ use crate::workbench::sidebar::{FileEntry, SidebarEvent, SidebarTab, SidebarView
 use crate::workbench::status_bar::{StatusBarEvent, StatusBarView};
 use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
 use crate::workbench::welcome_screen::{WelcomeEvent, WelcomeScreenView};
+
+/// 右侧工具窗口当前视图，对齐 Tauri `activeRightSidebarView`
+///（`notifications` / `maven` / 扩展）。`None` 即隐藏，不持久化，重启丢失。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RightToolView {
+    Notifications,
+    Maven,
+    Extensions,
+}
 
 /// 主工作台视图。
 pub struct WorkbenchView {
@@ -66,8 +77,8 @@ pub struct WorkbenchView {
     pub show_project_dialog: bool,
     /// 分支管理器弹窗是否可见
     pub show_branch_manager: bool,
-    /// 右侧 Maven 导航工具窗口是否可见
-    pub show_maven: bool,
+    /// 右侧工具窗口当前视图（`None` 隐藏，对齐 Tauri 右侧不持久化语义）
+    pub right_tool: Option<RightToolView>,
 
     /// 顶部标题栏/工具栏
     pub toolbar: Entity<ToolbarView>,
@@ -77,6 +88,12 @@ pub struct WorkbenchView {
     pub plugin_rail: Entity<PluginActivityRailView>,
     /// 右侧 Maven 导航工具窗口实体
     pub maven: Entity<MavenView>,
+    /// 右侧通知工具窗口实体（隐藏时保活）
+    pub notifications: Entity<NotificationsView>,
+    /// 右侧扩展面板实体（隐藏时保活）
+    pub extensions: Entity<ExtensionsView>,
+    /// 通知诊断行点击后的待跳转行号（1 起，文件加载完成后在 render 应用）
+    pending_goto_line: Option<u32>,
     /// 侧边栏面板 (Files / Git / Search)
     pub sidebar: Entity<SidebarView>,
     /// 主代码编辑器区
@@ -136,11 +153,12 @@ impl WorkbenchView {
         let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, cx));
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
         let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
+        let notifications = cx.new(|cx| NotificationsView::new(cx));
+        let extensions = cx.new(|cx| ExtensionsView::new(cx));
         let focus_handle = cx.focus_handle();
 
         // 1. 订阅侧边栏事件（打开文件、新建文件、提交 Git）
         let status_bar_clone = status_bar.clone();
-        let bottom_panel_sidebar = bottom_panel.clone();
         let sub_sidebar =
             cx.subscribe(
                 &sidebar,
@@ -172,13 +190,8 @@ impl WorkbenchView {
                         });
                     }
                     SidebarEvent::Commit(msg) => {
-                        let log_msg = format!("[Git Commit] {}", msg);
-                        let _ = bottom_panel_sidebar.update(cx, |bp, cx| {
-                            bp.append_log(log_msg.clone(), cx);
-                            let _ = bp.terminal.update(cx, |term, cx| {
-                                term.send_command(&format!("git commit -m \"{}\"", msg), cx);
-                            });
-                        });
+                        let cmd = format!("git commit -m \"{}\"", msg);
+                        this.send_terminal_command(&cmd, cx);
                         let _ = sidebar.update(cx, |sb, cx| {
                             sb.refresh_git(cx);
                         });
@@ -279,15 +292,38 @@ impl WorkbenchView {
             &plugin_rail,
             |this, _rail, event: &PluginRailEvent, cx| match event {
                 PluginRailEvent::OpenExtensions => {
-                    this.append_log("[Extensions] Opening extensions marketplace...", cx);
-                    cx.notify();
+                    this.toggle_right_tool(RightToolView::Extensions, cx);
                 }
                 PluginRailEvent::ToggleNotifications => {
-                    this.append_log("[Notifications] Toggling notifications tool window...", cx);
-                    cx.notify();
+                    this.toggle_right_tool(RightToolView::Notifications, cx);
                 }
                 PluginRailEvent::ToggleMaven => {
-                    this.show_maven = !this.show_maven;
+                    this.toggle_right_tool(RightToolView::Maven, cx);
+                }
+            },
+        );
+
+        // 4b-1. 订阅通知面板事件（关闭、诊断行跳转文件）
+        let sub_notifications = cx.subscribe(
+            &notifications,
+            |this, _view, event: &NotificationsEvent, cx| match event {
+                NotificationsEvent::Close => {
+                    this.right_tool = None;
+                    cx.notify();
+                }
+                NotificationsEvent::OpenFile(path, line) => {
+                    this.pending_goto_line = Some(*line);
+                    this.open_file(path, cx);
+                }
+            },
+        );
+
+        // 4b-2. 订阅扩展面板事件（关闭）
+        let sub_extensions = cx.subscribe(
+            &extensions,
+            |this, _view, event: &ExtensionsEvent, cx| match event {
+                ExtensionsEvent::Close => {
+                    this.right_tool = None;
                     cx.notify();
                 }
             },
@@ -296,19 +332,11 @@ impl WorkbenchView {
         // 4b. 订阅 Maven 视图事件（执行目标、关闭工具窗口）
         let sub_maven = cx.subscribe(&maven, |this, _maven, event: &MavenEvent, cx| match event {
             MavenEvent::RunGoal { pom_path, phase } => {
-                let _ = this.bottom_panel.update(cx, |bp, cx| {
-                    bp.set_tab(BottomTab::Terminal, cx);
-                    let _ = bp.terminal.update(cx, |term, cx| {
-                        term.send_command(&format!("mvn -f \"{pom_path}\" {phase}"), cx);
-                    });
-                });
-                let _ = this.activity_rail.update(cx, |r, cx| {
-                    r.set_has_maven_run(true, cx);
-                });
-                cx.notify();
+                let cmd = format!("mvn -f \"{pom_path}\" {phase}");
+                this.send_terminal_command(&cmd, cx);
             }
             MavenEvent::Close => {
-                this.show_maven = false;
+                this.right_tool = None;
                 cx.notify();
             }
         });
@@ -360,12 +388,7 @@ impl WorkbenchView {
                         this.open_quick_open(cx);
                     }
                     ToolbarEvent::Run => {
-                        this.append_log("[Run] Executing default run configuration...", cx);
-                        let _ = this.bottom_panel.update(cx, |bp, cx| {
-                            let _ = bp.terminal.update(cx, |term, cx| {
-                                term.send_command("echo '[Lithe Run]' && cargo check", cx);
-                            });
-                        });
+                        this.send_terminal_command("echo '[Lithe Run]' && cargo check", cx);
                     }
                     ToolbarEvent::Debug => {
                         this.append_log("[Debug] Launching DAP debug session...", cx);
@@ -557,12 +580,7 @@ impl WorkbenchView {
                     this.show_project_dialog = false;
                     this.open_project_path(path.clone(), cx);
                     if let Some(cmd) = starter {
-                        let _ = this.bottom_panel.update(cx, |bp, cx| {
-                            bp.set_tab(BottomTab::Terminal, cx);
-                            let _ = bp.terminal.update(cx, |term, cx| {
-                                term.send_command(cmd, cx);
-                            });
-                        });
+                        this.send_terminal_command(cmd, cx);
                     }
                     cx.notify();
                 }
@@ -680,11 +698,14 @@ impl WorkbenchView {
             show_settings_dialog: false,
             show_project_dialog: false,
             show_branch_manager: false,
-            show_maven: false,
+            right_tool: None,
+            pending_goto_line: None,
             toolbar,
             activity_rail,
             plugin_rail,
             maven,
+            notifications,
+            extensions,
             sidebar,
             editor,
             bottom_panel,
@@ -704,6 +725,8 @@ impl WorkbenchView {
                 obs_sidebar,
                 sub_rail,
                 sub_plugin_rail,
+                sub_notifications,
+                sub_extensions,
                 sub_maven,
                 sub_toolbar,
                 sub_search,
@@ -814,6 +837,35 @@ impl WorkbenchView {
     }
 
     /// 切换到指定项目根路径：同步侧边栏、Maven 与欢迎页状态，并记录最近项目。
+    /// 右侧工具窗口 toggle（对齐 `resolveRightToolWindowUpdate`）：
+    /// 同视图再点关闭，否则切换视图并展开。
+    fn toggle_right_tool(&mut self, view: RightToolView, cx: &mut Context<Self>) {
+        if self.right_tool == Some(view) {
+            self.right_tool = None;
+        } else {
+            self.right_tool = Some(view);
+        }
+        cx.notify();
+    }
+
+    /// 经底部终端发送命令：执行 + 计入运行历史 + 点亮左侧 maven 项
+    ///（对齐 Tauri `toggleTerminalPane` 系 + `hasMavenRun` 挂载语义）。
+    fn send_terminal_command(&mut self, cmd: &str, cx: &mut Context<Self>) {
+        let cmd = cmd.to_string();
+        let _ = self.bottom_panel.update(cx, |bp, cx| {
+            bp.set_tab(BottomTab::Terminal, cx);
+            let _ = bp.terminal.update(cx, |term, cx| {
+                term.send_command(&cmd, cx);
+            });
+            bp.record_run(&cmd, cx);
+        });
+        let has_run = self.bottom_panel.read(cx).has_run_history();
+        let _ = self.activity_rail.update(cx, |r, cx| {
+            r.set_has_maven_run(has_run, cx);
+        });
+        cx.notify();
+    }
+
     fn open_project_path(&mut self, path: String, cx: &mut Context<Self>) {
         if self.show_project_dialog {
             self.show_project_dialog = false;
@@ -833,6 +885,13 @@ impl WorkbenchView {
         });
         let _ = self.maven.update(cx, |m, cx| {
             m.set_root(path.clone(), cx);
+        });
+        let _ = self.bottom_panel.update(cx, |bp, _cx| {
+            bp.working_dir = path.clone();
+        });
+        // 右侧通知中心投递项目打开事件（对齐 Tauri 系统事件通知）。
+        let _ = self.notifications.update(cx, |n, cx| {
+            n.push("已打开项目", path.clone(), cx);
         });
         cx.notify();
     }
@@ -1084,13 +1143,8 @@ impl WorkbenchView {
                     sb.refresh_git(cx);
                 });
             }
-            "workbench.run" | "run.run" => {
-                self.append_log("[Run] Executing default run configuration...", cx);
-                let _ = self.bottom_panel.update(cx, |bp, cx| {
-                    let _ = bp.terminal.update(cx, |term, cx| {
-                        term.send_command("cargo check", cx);
-                    });
-                });
+            "workbench.run" | "run.run" | "run.start" => {
+                self.send_terminal_command("cargo check", cx);
             }
             "workbench.debug" | "run.debug" => {
                 self.append_log("[Debug] Launching DAP debug session...", cx);
@@ -1406,12 +1460,13 @@ fn sidebar_tab_for(view_id: &str) -> Option<SidebarTab> {
     }
 }
 
-/// 活动栏底部项 id → 底部面板标签。Linux 目前只有 Terminal / Diagnostics
-/// 两种真实面板：run/maven/gitLog 暂落到 Terminal，待各自后端面板接入。
+/// 活动栏底部项 id → 底部面板标签（对齐 Tauri `BottomPaneTab`）。
 fn bottom_tab_for(pane_id: &str) -> Option<BottomTab> {
     match pane_id {
-        "terminal" | "run" | "maven" | "gitLog" => Some(BottomTab::Terminal),
+        "terminal" => Some(BottomTab::Terminal),
+        "run" | "maven" => Some(BottomTab::Run),
         "diagnostics" => Some(BottomTab::Diagnostics),
+        "gitLog" => Some(BottomTab::GitLog),
         _ => None,
     }
 }
@@ -1432,8 +1487,22 @@ fn this_sync_files(this: &WorkbenchView, cx: &mut Context<WorkbenchView>) {
 }
 
 impl Render for WorkbenchView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let show_status_bar = settings::get(cx).show_status_bar;
+
+        // 通知诊断行点击的待跳转：文件加载完成后跳到指定行（1 起）。
+        if let Some(line) = self.pending_goto_line.take() {
+            let _ = self.editor.update(cx, |ed, cx| {
+                ed.go_to_line(line, window, cx);
+            });
+        }
+        // 右侧铃铛角标与通知未读数同步（变化时才 notify，避免渲染循环）。
+        {
+            let unread = self.notifications.read(cx).unread_count();
+            let _ = self.plugin_rail.update(cx, |rail, cx| {
+                rail.set_unread(unread, cx);
+            });
+        }
 
         div()
             .track_focus(&self.focus_handle)
@@ -1589,6 +1658,7 @@ impl WorkbenchView {
     fn render_workbench(&self, show_status_bar: bool, cx: &mut Context<Self>) -> impl IntoElement {
         let bottom_visible = self.bottom_panel.read(cx).is_visible();
         let bottom_splitter = self.render_bottom_splitter(cx);
+        let right_width = settings::get(cx).right_tool_window_width;
         v_flex()
             .size_full()
             .bg(ThemeColors::background())
@@ -1619,13 +1689,22 @@ impl WorkbenchView {
                             .bg(ThemeColors::background())
                             .child(self.editor.clone()),
                     )
-                    .when(self.show_maven, |layout| {
+                    .when_some(self.right_tool, |layout, tool| {
+                        let panel = match tool {
+                            RightToolView::Notifications => {
+                                self.notifications.clone().into_any_element()
+                            }
+                            RightToolView::Maven => self.maven.clone().into_any_element(),
+                            RightToolView::Extensions => self.extensions.clone().into_any_element(),
+                        };
                         layout.child(
                             div()
-                                .w(px(280.0))
+                                .w(px(right_width))
                                 .h_full()
                                 .flex_shrink_0()
-                                .child(self.maven.clone()),
+                                .border_l_1()
+                                .border_color(ThemeColors::border())
+                                .child(panel),
                         )
                     })
                     .child(self.plugin_rail.clone()),

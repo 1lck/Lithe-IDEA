@@ -3,8 +3,10 @@ pub mod bottom_panel;
 pub mod branch_manager;
 pub mod command_palette;
 pub mod editor;
+pub mod extensions_panel;
 pub mod go_to_line;
 pub mod maven;
+pub mod notifications;
 pub mod project_dialog;
 pub mod quick_open;
 pub mod search_everywhere;
@@ -29,9 +31,13 @@ pub use command_palette::{CommandPaletteEvent, CommandPaletteModal};
 #[allow(unused_imports)]
 pub use editor::EditorView;
 #[allow(unused_imports)]
+pub use extensions_panel::{ExtensionsEvent, ExtensionsView};
+#[allow(unused_imports)]
 pub use go_to_line::{GoToLineEvent, GoToLineModal};
 #[allow(unused_imports)]
 pub use maven::{MavenEvent, MavenView};
+#[allow(unused_imports)]
+pub use notifications::{NotificationsEvent, NotificationsView};
 #[allow(unused_imports)]
 pub use project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 #[allow(unused_imports)]

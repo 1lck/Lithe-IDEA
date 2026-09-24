@@ -237,8 +237,16 @@ impl Default for PluginActivityRailView {
 impl PluginActivityRailView {
     pub fn new() -> Self {
         Self {
-            unread_notifications: 3,
+            unread_notifications: 0,
             maven_available: true,
+        }
+    }
+
+    /// 同步通知未读数（变化时才 notify，避免宿主每帧渲染循环）。
+    pub fn set_unread(&mut self, count: usize, cx: &mut Context<Self>) {
+        if self.unread_notifications != count {
+            self.unread_notifications = count;
+            cx.notify();
         }
     }
 
