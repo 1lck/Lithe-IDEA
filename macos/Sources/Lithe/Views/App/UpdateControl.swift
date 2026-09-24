@@ -33,16 +33,20 @@ struct UpdateControl: View {
                 }
                 .foregroundStyle(LitheTheme.secondaryText)
             case .downloading(let version, let progress):
-                HStack(spacing: 6) {
-                    if let fractionCompleted = progress.fractionCompleted {
-                        ProgressView(value: fractionCompleted)
-                            .frame(width: compact ? 64 : 92)
-                        Text("\(progress.percentage ?? 0)%")
-                            .monospacedDigit()
-                    } else {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Preparing…")
+                // The title bar has room for a single row; the Welcome sidebar does
+                // not, so the version text wraps onto its own line below the bar.
+                VStack(alignment: .leading, spacing: compact ? 0 : 5) {
+                    HStack(spacing: 6) {
+                        if let fractionCompleted = progress.fractionCompleted {
+                            ProgressView(value: fractionCompleted)
+                                .frame(width: compact ? 64 : 92)
+                            Text("\(progress.percentage ?? 0)%")
+                                .monospacedDigit()
+                        } else {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Preparing…")
+                        }
                     }
                     if !compact {
                         Text("Downloading \(version)…")
