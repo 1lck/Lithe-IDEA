@@ -384,7 +384,12 @@ impl WorkbenchView {
                 this.open_file(path, cx);
             }
             MavenEvent::OpenSettings => {
-                this.open_settings(cx);
+                // 对齐 Tauri `openSettingsDialog("project")`：定位到项目 JDK 与 Maven 页。
+                this.show_settings_dialog = true;
+                let _ = this.settings_dialog.update(cx, |d, cx| {
+                    d.set_category(SettingsCategory::Project, cx);
+                });
+                cx.notify();
             }
             MavenEvent::Close => {
                 this.right_tool = None;
