@@ -1,15 +1,17 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, Context, EventEmitter, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::core::CoreClient;
+use crate::settings;
 use crate::theme::ThemeColors;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,12 +74,40 @@ impl FileEntry {
             }
         }
     }
+
+    /// 按偏好递归排序子节点：`folders-first` 目录在前同组按名称，
+    /// `name` 全按名称。对齐 Tauri 文件树排序。
+    pub fn sort_recursive(&mut self, folders_first: bool) {
+        if let Some(children) = &mut self.children {
+            children.sort_by(|a, b| {
+                if folders_first && a.is_directory != b.is_directory {
+                    return b.is_directory.cmp(&a.is_directory);
+                }
+                a.name.to_lowercase().cmp(&b.name.to_lowercase())
+            });
+            for child in children.iter_mut() {
+                child.sort_recursive(folders_first);
+            }
+        }
+    }
+
+    /// 递归移除隐藏文件（`.` 开头），对齐 `showHiddenFilesInFileTree=false` 的行为。
+    pub fn remove_hidden(&mut self) {
+        if let Some(children) = &mut self.children {
+            children.retain(|c| !c.name.starts_with('.'));
+            for child in children.iter_mut() {
+                child.remove_hidden();
+            }
+        }
+    }
 }
 
 /// 侧边栏派发的事件
 #[derive(Debug, Clone)]
 pub enum SidebarEvent {
     OpenFile(String),
+    /// 新建文件入口已移出 explorer 头部（对齐 Tauri），保留变体供外部调用。
+    #[allow(dead_code)]
     NewFile,
     Commit(String),
 }
@@ -106,6 +136,10 @@ pub struct SidebarView {
     pub selected_path: Option<String>,
     pub is_loading: bool,
     pub error_message: Option<String>,
+    /// 文件树过滤串（对齐 Tauri `treeSearchQuery`，仅按文件名过滤）
+    pub tree_filter: String,
+    /// 是否展开文件树过滤输入（对齐 Tauri `SidebarSearchPopover` 的打开态）
+    pub show_tree_filter: bool,
     // 搜索状态
     #[allow(dead_code)]
     pub search_query: String,
@@ -116,6 +150,7 @@ pub struct SidebarView {
     pub git_changes: Vec<GitChangeItem>,
     pub is_git_loading: bool,
     pub git_commit_message: String,
+    focus_handle: FocusHandle,
     client: CoreClient,
 }
 
@@ -130,6 +165,8 @@ impl SidebarView {
             selected_path: None,
             is_loading: false,
             error_message: None,
+            tree_filter: String::new(),
+            show_tree_filter: false,
             search_query: String::new(),
             search_results: Vec::new(),
             is_searching: false,
@@ -137,6 +174,7 @@ impl SidebarView {
             git_changes: Vec::new(),
             is_git_loading: false,
             git_commit_message: String::new(),
+            focus_handle: cx.focus_handle(),
             client: CoreClient::new(),
         };
 
@@ -220,10 +258,7 @@ impl SidebarView {
                                 .and_then(|p| p.as_str())
                                 .unwrap_or("")
                                 .to_string(),
-                            line: m
-                                .get("line")
-                                .and_then(|l| l.as_u64())
-                                .map(|l| l as usize),
+                            line: m.get("line").and_then(|l| l.as_u64()).map(|l| l as usize),
                             preview: m
                                 .get("preview")
                                 .and_then(|p| p.as_str())
@@ -363,10 +398,17 @@ fn is_code_file(name: &str) -> bool {
 
 impl Render for SidebarView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 标题跟随语言：Explorer 用 workbench.project（项目/Project）。
         let title = match self.active_tab {
-            SidebarTab::Explorer => "PROJECT",
-            SidebarTab::Search => "SEARCH",
-            SidebarTab::Git => "GIT",
+            SidebarTab::Explorer => crate::i18n::menu_text(cx, "workbench.project").to_string(),
+            SidebarTab::Search => "SEARCH".to_string(),
+            SidebarTab::Git => "GIT".to_string(),
+        };
+        // 过滤行在链式构建前算好，避免在 `.when` 闭包里同时借用 self 与 cx。
+        let filter_row = if self.show_tree_filter {
+            Some(Self::render_filter_row(&self.tree_filter, cx))
+        } else {
+            None
         };
 
         v_flex()
@@ -374,8 +416,47 @@ impl Render for SidebarView {
             .bg(ThemeColors::bg_sidebar())
             .border_r_1()
             .border_color(ThemeColors::border())
+            .track_focus(&self.focus_handle)
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
+                // 文件树过滤输入：字符追加、退格删除、Esc 清空并收起。
+                if !this.show_tree_filter {
+                    return;
+                }
+                let key = event.keystroke.key.as_str();
+                match key {
+                    "escape" => {
+                        this.tree_filter.clear();
+                        this.show_tree_filter = false;
+                        cx.notify();
+                    }
+                    "backspace" => {
+                        this.tree_filter.pop();
+                        cx.notify();
+                    }
+                    "enter" => {}
+                    _ => {
+                        if !event.keystroke.modifiers.control
+                            && !event.keystroke.modifiers.alt
+                            && !event.keystroke.modifiers.platform
+                        {
+                            let mut changed = false;
+                            if let Some(ch) = &event.keystroke.key_char {
+                                this.tree_filter.push_str(ch);
+                                changed = true;
+                            } else if key.chars().count() == 1 {
+                                this.tree_filter.push_str(key);
+                                changed = true;
+                            }
+                            if changed {
+                                cx.notify();
+                            }
+                        }
+                    }
+                }
+            }))
             .child(
-                // 顶部工具窗口精简标题 + 刷新/新建文件操作按钮（无老旧横排Tab栏）
+                // 顶部标题：Explorer 显示搜索与偏好设置（对齐 Tauri
+                // `file-explorer-tree.tsx` 的 SidebarHeader），无新建/刷新按钮。
                 h_flex()
                     .h(px(32.0))
                     .w_full()
@@ -397,48 +478,364 @@ impl Render for SidebarView {
                             .items_center()
                             .gap_1()
                             .when(self.active_tab == SidebarTab::Explorer, |buttons| {
+                                buttons
+                                    .child(
+                                        Button::new("sidebar-tree-search")
+                                            .small()
+                                            .ghost()
+                                            .icon(IconName::Search)
+                                            .tooltip(crate::i18n::menu_text(
+                                                cx,
+                                                "fileExplorer.searchFiles",
+                                            ))
+                                            .on_click(cx.listener(|this, _event, window, cx| {
+                                                this.show_tree_filter = !this.show_tree_filter;
+                                                if this.show_tree_filter {
+                                                    window.focus(&this.focus_handle, cx);
+                                                } else {
+                                                    this.tree_filter.clear();
+                                                }
+                                                cx.notify();
+                                            })),
+                                    )
+                                    .child(Self::render_explorer_prefs(cx))
+                            })
+                            .when(self.active_tab != SidebarTab::Explorer, |buttons| {
                                 buttons.child(
-                                    Button::new("sidebar-new-file")
+                                    Button::new("sidebar-refresh")
                                         .small()
                                         .ghost()
-                                        .icon(IconName::FilePlus)
-                                        .tooltip("New File")
-                                        .on_click(cx.listener(|_this, _event, _window, cx| {
-                                            cx.emit(SidebarEvent::NewFile);
+                                        .icon(IconName::RotateCw)
+                                        .tooltip("Refresh")
+                                        .on_click(cx.listener(|this, _event, _window, cx| {
+                                            this.refresh(cx);
+                                            this.refresh_git(cx);
                                         })),
                                 )
-                            })
-                            .child(
-                                Button::new("sidebar-refresh")
-                                    .small()
-                                    .ghost()
-                                    .icon(IconName::RotateCw)
-                                    .tooltip("Refresh")
-                                    .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.refresh(cx);
-                                        this.refresh_git(cx);
-                                    })),
-                            ),
+                            }),
                     ),
             )
+            .when_some(filter_row, |this, row| this.child(row))
             .child(
                 // 对应面板内容渲染
-                div().flex_1().w_full().overflow_y_scrollbar().child(
-                    match self.active_tab {
+                div()
+                    .flex_1()
+                    .w_full()
+                    .overflow_y_scrollbar()
+                    .child(match self.active_tab {
                         SidebarTab::Explorer => self.render_explorer(cx).into_any_element(),
                         SidebarTab::Search => self.render_search(cx).into_any_element(),
                         SidebarTab::Git => self.render_git(cx).into_any_element(),
-                    },
-                ),
+                    }),
             )
     }
 }
 
 impl SidebarView {
+    /// Explorer 偏好设置下拉：对齐 Tauri `file-explorer-tree.tsx` 的
+    /// Preferences 菜单（可见性/外观/排序顺序/缩进子菜单 + 自动显示/删除确认）。
+    /// 所有开关直接写入 XDG 持久化设置。
+    fn render_explorer_prefs(cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity();
+        // 下拉构建闭包要求 'static：文案与状态快照全部预先解析为 owned 值再 move。
+        let t_visibility = crate::i18n::menu_text(cx, "fileExplorer.visibility").to_string();
+        let t_appearance = crate::i18n::menu_text(cx, "settings.tabs.appearance").to_string();
+        let t_sort = crate::i18n::menu_text(cx, "settings.files.sortOrder").to_string();
+        let t_indent = crate::i18n::menu_text(cx, "fileExplorer.indentation").to_string();
+        let t_prefs = crate::i18n::menu_text(cx, "fileExplorer.preferences").to_string();
+        let t_hidden = crate::i18n::menu_text(cx, "settings.files.hiddenFiles").to_string();
+        let t_gitignored = crate::i18n::menu_text(cx, "fileExplorer.gitignoredFiles").to_string();
+        let t_git_status =
+            crate::i18n::menu_text(cx, "fileExplorer.gitStatusDecorations").to_string();
+        let t_icons = crate::i18n::menu_text(cx, "fileExplorer.fileIcons").to_string();
+        let t_guides = crate::i18n::menu_text(cx, "fileExplorer.indentGuides").to_string();
+        let t_compact = crate::i18n::menu_text(cx, "settings.files.compactFolders").to_string();
+        let t_hide_root = crate::i18n::menu_text(cx, "settings.files.hideRootFolder").to_string();
+        let t_folders_first = crate::i18n::menu_text(cx, "settings.files.foldersFirst").to_string();
+        let t_name = crate::i18n::menu_text(cx, "settings.files.name").to_string();
+        let t_indent_compact =
+            crate::i18n::menu_text(cx, "fileExplorer.indentationCompact").to_string();
+        let t_indent_default =
+            crate::i18n::menu_text(cx, "fileExplorer.indentationDefault").to_string();
+        let t_indent_spacious =
+            crate::i18n::menu_text(cx, "fileExplorer.indentationSpacious").to_string();
+        let t_indent_wide = crate::i18n::menu_text(cx, "fileExplorer.indentationWide").to_string();
+        let t_reveal = crate::i18n::menu_text(cx, "settings.files.autoReveal").to_string();
+        let t_confirm =
+            crate::i18n::menu_text(cx, "settings.files.confirmBeforeDelete").to_string();
+
+        let s = settings::get(cx).clone();
+        let show_hidden = s.show_hidden_files_in_file_tree;
+        let show_gitignored = s.show_gitignored_files_in_file_tree;
+        let show_git_status = s.show_git_status_in_file_tree;
+        let show_icons = s.show_file_icons_in_file_tree;
+        let show_indent_guides = s.show_indent_guides_in_file_tree;
+        let compact_folders = s.compact_folders_in_file_tree;
+        let hide_root = s.hide_root_folder_in_file_tree;
+        let sort_order = s.file_tree_sort_order.clone();
+        let indent_size = s.file_tree_indent_size as i32;
+        let auto_reveal = s.auto_reveal_active_file_in_file_tree;
+        let confirm_delete = s.confirm_before_file_delete;
+
+        // 开关项构造器：checked 状态 + 点击翻转并落盘。
+        let check_item = |label: String,
+                          checked: bool,
+                          toggle: fn(&mut crate::settings::Settings),
+                          v: gpui_kit::Entity<SidebarView>| {
+            PopupMenuItem::new(label)
+                .checked(checked)
+                .on_click(move |_, _, cx| {
+                    v.update(cx, |_, cx| {
+                        crate::settings::update(cx, |s| toggle(s));
+                    });
+                })
+        };
+
+        Button::new("sidebar-explorer-prefs")
+            .small()
+            .ghost()
+            .icon(IconName::SlidersHorizontal)
+            .tooltip(t_prefs)
+            .dropdown_menu(move |menu, window, cx| {
+                let v0 = view.clone();
+                // 子菜单构建闭包是 move：外层 dropdown 构建器为 Fn，每次调用前 clone。
+                let menu = menu.submenu(t_visibility.clone(), window, cx, {
+                    let v = v0.clone();
+                    let t_hidden = t_hidden.clone();
+                    let t_gitignored = t_gitignored.clone();
+                    let t_git_status = t_git_status.clone();
+                    move |sub, _w, _cx| {
+                        sub.item(check_item(
+                            t_hidden.clone(),
+                            show_hidden,
+                            |s| {
+                                s.show_hidden_files_in_file_tree = !s.show_hidden_files_in_file_tree
+                            },
+                            v.clone(),
+                        ))
+                        .item(check_item(
+                            t_gitignored.clone(),
+                            show_gitignored,
+                            |s| {
+                                s.show_gitignored_files_in_file_tree =
+                                    !s.show_gitignored_files_in_file_tree
+                            },
+                            v.clone(),
+                        ))
+                        .item(check_item(
+                            t_git_status.clone(),
+                            show_git_status,
+                            |s| s.show_git_status_in_file_tree = !s.show_git_status_in_file_tree,
+                            v.clone(),
+                        ))
+                    }
+                });
+                let menu = menu.submenu(t_appearance.clone(), window, cx, {
+                    let v = v0.clone();
+                    let t_icons = t_icons.clone();
+                    let t_guides = t_guides.clone();
+                    let t_compact = t_compact.clone();
+                    let t_hide_root = t_hide_root.clone();
+                    move |sub, _w, _cx| {
+                        sub.item(check_item(
+                            t_icons.clone(),
+                            show_icons,
+                            |s| s.show_file_icons_in_file_tree = !s.show_file_icons_in_file_tree,
+                            v.clone(),
+                        ))
+                        .item(check_item(
+                            t_guides.clone(),
+                            show_indent_guides,
+                            |s| {
+                                s.show_indent_guides_in_file_tree =
+                                    !s.show_indent_guides_in_file_tree
+                            },
+                            v.clone(),
+                        ))
+                        .item(check_item(
+                            t_compact.clone(),
+                            compact_folders,
+                            |s| s.compact_folders_in_file_tree = !s.compact_folders_in_file_tree,
+                            v.clone(),
+                        ))
+                        .item(check_item(
+                            t_hide_root.clone(),
+                            hide_root,
+                            |s| s.hide_root_folder_in_file_tree = !s.hide_root_folder_in_file_tree,
+                            v.clone(),
+                        ))
+                    }
+                });
+                let menu = menu.submenu(t_sort.clone(), window, cx, {
+                    let v = v0.clone();
+                    let current = sort_order.clone();
+                    let labels = [t_folders_first.clone(), t_name.clone()];
+                    move |sub, _w, _cx| {
+                        let mut sub = sub;
+                        for (value, label) in [("folders-first", &labels[0]), ("name", &labels[1])]
+                        {
+                            let vv = v.clone();
+                            let item = PopupMenuItem::new(label.clone());
+                            let item = if current == value {
+                                item.icon(IconName::Check)
+                            } else {
+                                item
+                            };
+                            sub = sub.item(item.on_click(move |_, _, cx| {
+                                vv.update(cx, |_, cx| {
+                                    crate::settings::update(cx, |s| {
+                                        s.file_tree_sort_order = value.to_string()
+                                    });
+                                });
+                            }));
+                        }
+                        sub
+                    }
+                });
+                let menu = menu.submenu(t_indent.clone(), window, cx, {
+                    let v = v0.clone();
+                    let labels = [
+                        t_indent_compact.clone(),
+                        t_indent_default.clone(),
+                        t_indent_spacious.clone(),
+                        t_indent_wide.clone(),
+                    ];
+                    move |sub, _w, _cx| {
+                        let mut sub = sub;
+                        for (value, label) in [
+                            (12, &labels[0]),
+                            (16, &labels[1]),
+                            (20, &labels[2]),
+                            (24, &labels[3]),
+                        ] {
+                            let vv = v.clone();
+                            let item = PopupMenuItem::new(label.clone());
+                            let item = if indent_size == value {
+                                item.icon(IconName::Check)
+                            } else {
+                                item
+                            };
+                            sub = sub.item(item.on_click(move |_, _, cx| {
+                                vv.update(cx, |_, cx| {
+                                    crate::settings::update(cx, |s| {
+                                        s.file_tree_indent_size = value as f32
+                                    });
+                                });
+                            }));
+                        }
+                        sub
+                    }
+                });
+                menu.separator()
+                    .item(check_item(
+                        t_reveal.clone(),
+                        auto_reveal,
+                        |s| {
+                            s.auto_reveal_active_file_in_file_tree =
+                                !s.auto_reveal_active_file_in_file_tree
+                        },
+                        v0.clone(),
+                    ))
+                    .item(check_item(
+                        t_confirm.clone(),
+                        confirm_delete,
+                        |s| s.confirm_before_file_delete = !s.confirm_before_file_delete,
+                        v0.clone(),
+                    ))
+            })
+    }
+
+    /// 文件树过滤输入行：展示当前过滤串，键盘输入由根节点 `on_key_down` 处理。
+    fn render_filter_row(filter: &str, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .h(px(28.0))
+            .w_full()
+            .items_center()
+            .gap_2()
+            .mx_2()
+            .px_2()
+            .rounded_sm()
+            .border_1()
+            .border_color(ThemeColors::primary())
+            .bg(ThemeColors::bg_tab_active())
+            .child(
+                Icon::new(IconName::Search)
+                    .size(px(13.0))
+                    .text_color(ThemeColors::text_muted()),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .text_xs()
+                    .text_color(if filter.is_empty() {
+                        ThemeColors::text_muted()
+                    } else {
+                        ThemeColors::text_primary()
+                    })
+                    .child(if filter.is_empty() {
+                        crate::i18n::menu_text(cx, "search.search").to_string()
+                    } else {
+                        filter.to_string()
+                    }),
+            )
+            .child(
+                Button::new("sidebar-filter-clear")
+                    .small()
+                    .ghost()
+                    .icon(IconName::Close)
+                    .tooltip(crate::i18n::menu_text(cx, "search.clear"))
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.tree_filter.clear();
+                        this.show_tree_filter = false;
+                        cx.notify();
+                    })),
+            )
+    }
+
     fn render_explorer(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        // 文件树偏好：排序、隐藏根目录、隐藏文件过滤、缩进、图标、文本过滤。
+        let s = settings::get(cx);
+        let folders_first = s.file_tree_sort_order == "folders-first";
+        let hide_root = s.hide_root_folder_in_file_tree;
+        let show_hidden = s.show_hidden_files_in_file_tree;
+        let indent_size = s.file_tree_indent_size;
+        let show_icons = s.show_file_icons_in_file_tree;
+        let query = self.tree_filter.trim().to_lowercase();
+
         let mut visible_items = Vec::new();
         if let Some(root) = &self.root_node {
-            root.collect_visible(0, &mut visible_items);
+            let mut node = root.clone();
+            if !show_hidden {
+                node.remove_hidden();
+            }
+            node.sort_recursive(folders_first);
+            if hide_root && node.is_directory {
+                // 隐藏根目录：从子节点开始按深度 0 收集。
+                if let Some(children) = &node.children {
+                    for child in children {
+                        child.collect_visible(0, &mut visible_items);
+                    }
+                }
+            } else {
+                node.collect_visible(0, &mut visible_items);
+            }
+        }
+        // 文本过滤：保留名称命中项及其祖先目录。
+        if !query.is_empty() {
+            let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for item in &visible_items {
+                if item.name.to_lowercase().contains(&query) {
+                    let mut path = item.path.clone();
+                    loop {
+                        keep.insert(path.clone());
+                        match path.rfind('/') {
+                            Some(idx) => path.truncate(idx),
+                            None => break,
+                        }
+                    }
+                }
+            }
+            visible_items.retain(|item| keep.contains(&item.path));
         }
 
         v_flex()
@@ -466,7 +863,7 @@ impl SidebarView {
                 let is_selected = self.selected_path.as_deref() == Some(&item.path);
                 let path_str = item.path.clone();
                 let is_dir = item.is_directory;
-                let indent = item.depth as f32 * 12.0;
+                let indent = item.depth as f32 * indent_size;
 
                 h_flex()
                     .id(idx)
@@ -529,19 +926,16 @@ impl SidebarView {
                             .items_center()
                             .gap_1()
                             .child(div().w(px(12.0)))
-                            .child(
-                                Icon::new(icon_name)
-                                    .size(px(14.0))
-                                    .text_color(ThemeColors::text_muted()),
-                            )
+                            .when(show_icons, |row| {
+                                row.child(
+                                    Icon::new(icon_name)
+                                        .size(px(14.0))
+                                        .text_color(ThemeColors::text_muted()),
+                                )
+                            })
                             .into_any_element()
                     })
-                    .child(
-                        div()
-                            .flex_1()
-                            .truncate()
-                            .child(item.name),
-                    )
+                    .child(div().flex_1().truncate().child(item.name))
                     .on_click(cx.listener({
                         let path = path_str.clone();
                         move |this, _event, _window, cx| {
@@ -594,61 +988,56 @@ impl SidebarView {
                         .child("Searching..."),
                 )
             })
-            .children(
-                self.search_results
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, res)| {
-                        let path = res.path.clone();
-                        let line_info = res
-                            .line
-                            .map(|l| format!(":{}", l))
-                            .unwrap_or_default();
-                        let preview = res.preview.clone().unwrap_or_default();
+            .children(self.search_results.iter().enumerate().map(|(idx, res)| {
+                let path = res.path.clone();
+                let line_info = res.line.map(|l| format!(":{}", l)).unwrap_or_default();
+                let preview = res.preview.clone().unwrap_or_default();
 
-                        v_flex()
-                            .id(idx)
-                            .p_1p5()
-                            .rounded_sm()
-                            .cursor_pointer()
-                            .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                v_flex()
+                    .id(idx)
+                    .p_1p5()
+                    .rounded_sm()
+                    .cursor_pointer()
+                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                    .child(
+                        h_flex()
+                            .items_center()
+                            .gap_1p5()
+                            .text_xs()
                             .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_1p5()
-                                    .text_xs()
-                                    .child(
-                                        Icon::new(IconName::FileText)
-                                            .size(px(12.0))
-                                            .text_color(ThemeColors::accent_blue()),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_color(ThemeColors::accent_blue())
-                                            .child(format!("{}{}", path, line_info)),
-                                    ),
+                                Icon::new(IconName::FileText)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::accent_blue()),
                             )
                             .child(
                                 div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::text_muted())
-                                    .pl(px(18.0))
-                                    .child(preview),
-                            )
-                            .on_click(cx.listener({
-                                let p = path.clone();
-                                move |this, _event, _window, cx| {
-                                    this.selected_path = Some(p.clone());
-                                    cx.emit(SidebarEvent::OpenFile(p.clone()));
-                                    cx.notify();
-                                }
-                            }))
-                    }),
-            )
+                                    .text_color(ThemeColors::accent_blue())
+                                    .child(format!("{}{}", path, line_info)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .pl(px(18.0))
+                            .child(preview),
+                    )
+                    .on_click(cx.listener({
+                        let p = path.clone();
+                        move |this, _event, _window, cx| {
+                            this.selected_path = Some(p.clone());
+                            cx.emit(SidebarEvent::OpenFile(p.clone()));
+                            cx.notify();
+                        }
+                    }))
+            }))
     }
 
     fn render_git(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let branch = self.git_branch.clone().unwrap_or_else(|| "DETACHED".to_string());
+        let branch = self
+            .git_branch
+            .clone()
+            .unwrap_or_else(|| "DETACHED".to_string());
 
         v_flex()
             .size_full()
