@@ -214,6 +214,16 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "quickOpen.fileCountOne" => ("1 个文件", "1 file"),
         "commandPalette.placeholder" => ("输入命令...", "Type a command..."),
         "search.noResults" => ("未找到结果", "No results found"),
+        // ---- 标签页右键菜单 / 文件上下文菜单（与 Tauri locale.ts tabs.* / files.* 对齐） ----
+        "tabs.close" => ("关闭", "Close"),
+        "tabs.closeOthers" => ("关闭其他", "Close Others"),
+        "tabs.closeToRight" => ("关闭右侧", "Close to Right"),
+        "tabs.closeAll" => ("全部关闭", "Close All"),
+        "tabs.reload" => ("重新加载", "Reload"),
+        "files.copyPath" => ("复制路径", "Copy Path"),
+        "files.copyRelativePath" => ("复制相对路径", "Copy Relative Path"),
+        "files.reveal" => ("在资源管理器中显示", "Reveal in File Explorer"),
+        "files.openInTerminal" => ("在终端中打开", "Open in Terminal"),
         // ---- Welcome 屏（与 Tauri locale.ts welcome.* 对齐） ----
         "welcome.searchProjects" => ("搜索项目", "Search projects"),
         "welcome.recentProjects" => ("最近项目", "Recent Projects"),

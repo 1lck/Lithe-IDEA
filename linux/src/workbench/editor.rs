@@ -1,10 +1,11 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::input::{Editor, EditorState, InputEvent, Position};
+use gpui_kit::component::menu::ContextMenuExt as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, relative, AppContext as _, ClipboardItem, Context, Entity, FontWeight,
+    div, px, relative, AppContext as _, ClipboardItem, Context, Entity, EventEmitter, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render,
     StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
@@ -55,6 +56,8 @@ pub struct EditorView {
     redo_stack: Vec<String>,
     /// 已关闭标签（标签快照，原索引），后进先出供恢复。
     closed_stack: Vec<(EditorTab, usize)>,
+    /// 右键菜单目标标签（UI 层读写，方法层不消费）。
+    pub context_menu_tab: Option<usize>,
 }
 
 impl EditorView {
@@ -92,6 +95,7 @@ impl EditorView {
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
             closed_stack: Vec::new(),
+            context_menu_tab: None,
         }
     }
 
@@ -650,6 +654,91 @@ impl EditorView {
         cx.notify();
     }
 
+    /// 关闭除 `idx` 外的全部标签（`close_other_tabs` 的指定索引版，供右键菜单调用）。
+    pub fn close_others_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.tabs.len() {
+            return;
+        }
+        let mut kept = None;
+        for (index, tab) in self.tabs.drain(..).enumerate() {
+            if index == idx {
+                kept = Some(tab);
+            } else {
+                self.closed_stack.push((tab, index));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        if let Some(tab) = kept {
+            self.tabs.push(tab);
+            self.active_tab_index = Some(0);
+        } else {
+            self.active_tab_index = None;
+        }
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 关闭 `idx` 右侧的全部标签（`close_tabs_to_right` 的指定索引版，供右键菜单调用）。
+    pub fn close_to_right_at(&mut self, idx: usize, cx: &mut Context<Self>) {
+        if idx >= self.tabs.len() || idx + 1 >= self.tabs.len() {
+            return;
+        }
+        for index in idx + 1..self.tabs.len() {
+            if let Some(tab) = self.tabs.get(index).cloned() {
+                self.closed_stack.push((tab, index));
+            }
+        }
+        if self.closed_stack.len() > 30 {
+            let overflow = self.closed_stack.len() - 30;
+            self.closed_stack.drain(..overflow);
+        }
+        self.tabs.truncate(idx + 1);
+        if let Some(active) = self.active_tab_index {
+            if active > idx {
+                self.active_tab_index = Some(idx);
+            }
+        }
+        self.sync_needed = true;
+        cx.notify();
+    }
+
+    /// 从磁盘重读指定标签（失败忽略；同步走既有 `sync_needed` 机制）。
+    pub fn reload_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
+        let Some(tab) = self.tabs.get(idx) else {
+            return;
+        };
+        let path = tab.path.clone();
+        let root = self.workspace_root.clone();
+        let client = self.client.clone();
+
+        cx.spawn(async move |this, cx| {
+            let task = client.read_file(&cx, &root, &path);
+            if let Ok(text) = task.await {
+                let _ = this.update(cx, |ed, cx| {
+                    if let Some(t) = ed.tabs.get_mut(idx) {
+                        if t.path == path {
+                            t.content = text;
+                            t.is_dirty = false;
+                            ed.sync_needed = true;
+                            cx.notify();
+                        }
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 返回指定标签的绝对路径（`workspace_root/path` 拼接，供复制路径/文件管理器显示用）。
+    pub fn tab_abs_path(&self, idx: usize) -> Option<String> {
+        self.tabs
+            .get(idx)
+            .map(|tab| format!("{}/{}", self.workspace_root.trim_end_matches('/'), tab.path))
+    }
+
     /// 恢复最近关闭的标签到原位（后进先出，活动标签指向恢复项）。
     pub fn reopen_closed_tab(&mut self, cx: &mut Context<Self>) {
         let Some((tab, index)) = self.closed_stack.pop() else {
@@ -821,6 +910,14 @@ impl EditorView {
         }
     }
 }
+
+/// 编辑器标签派发的事件（右键菜单动作由 UI 层触发，父视图订阅处理）。
+#[derive(Debug, Clone)]
+pub enum EditorTabEvent {
+    OpenInTerminal { dir: String },
+}
+
+impl EventEmitter<EditorTabEvent> for EditorView {}
 
 /// 行注释风格：行前缀或行级块包裹。
 
@@ -1008,6 +1105,26 @@ impl Render for EditorView {
                                         .bg(ThemeColors::accent_blue()),
                                 )
                             })
+                            // 右键记 `context_menu_tab` 并弹出标签菜单（上游
+                            // `context_menu` 管显隐，浮层不占布局；点选后由
+                            // 菜单动作清 `None`，点外由下式清 `None`）。
+                            .on_mouse_down(
+                                gpui_kit::MouseButton::Right,
+                                cx.listener(move |this, _event, _window, cx| {
+                                    this.context_menu_tab = Some(idx);
+                                    cx.notify();
+                                }),
+                            )
+                            .on_mouse_down_out(cx.listener(|this, _event, _window, cx| {
+                                if this.context_menu_tab.is_some() {
+                                    this.context_menu_tab = None;
+                                    cx.notify();
+                                }
+                            }))
+                            .context_menu(crate::workbench::tab_menu::tab_context_menu(
+                                cx.entity(),
+                                idx,
+                            ))
                     })),
             )
             .when_some(active_tab.as_ref(), |this, tab| {

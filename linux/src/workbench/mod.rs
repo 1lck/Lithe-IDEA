@@ -14,6 +14,7 @@ pub mod search_everywhere;
 pub mod settings_dialog;
 pub mod sidebar;
 pub mod status_bar;
+pub mod tab_menu;
 pub mod terminal;
 pub mod toolbar;
 pub mod view;
