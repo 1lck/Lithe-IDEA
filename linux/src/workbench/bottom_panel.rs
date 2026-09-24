@@ -199,11 +199,6 @@ impl BottomPanelView {
         cx.notify();
     }
 
-    /// 是否有运行历史；宿主据此决定左侧栏是否展示 maven 项。
-    pub fn has_run_history(&self) -> bool {
-        !self.run_history.is_empty()
-    }
-
     /// 更新工作目录并重探 Run 工程（替代直接写 `working_dir` 字段）。
     pub fn set_working_dir(&mut self, dir: String, cx: &mut Context<Self>) {
         self.working_dir = dir;

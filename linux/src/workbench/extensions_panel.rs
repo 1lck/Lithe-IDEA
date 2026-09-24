@@ -1,11 +1,13 @@
-//! 右侧扩展面板：搜索 + 分类 + 列表 + 启用开关，对齐 Tauri
+//! 右侧扩展面板：搜索 + 分类签 + 列表点选 + 详情，对齐 Tauri
 //! `windows/tauri/src/extensions/ui/components/extensions-sidebar.tsx`
-//! 的搜索与分类交互语义。
+//! 的展示语义（标题计数、分类签计数、行点选、详情徽标与主操作）。
 //!
-//! 平台适配说明：Tauri 的扩展在中央开 buffer 展示详情，Linux 中央是编辑器
-//! Tab，因此扩展列表改走右侧面板；交互保持一致（搜索框过滤、分类下拉、
-//! 列表行、启用开关）。头部 X 只发射 [`ExtensionsEvent::Close`]，由外部
-//! （`view.rs`）决定面板显隐，与 [`crate::workbench::maven::MavenView`] 一致。
+//! 平台适配说明：Tauri 的扩展页在中央开 buffer 左右两栏展示，Linux 中央是
+//! 编辑器 Tab 且右侧面板较窄，因此列表与详情纵向堆叠（列表上、详情下）；
+//! 安装/更新/主题选用等需要远端市场与外观系统的能力暂不提供，主操作仅为
+//! 启用/停用（落盘到 `~/.config/lithe/extensions.json`）。头部 X 只发射
+//! [`ExtensionsEvent::Close`]，由外部（`view.rs`）决定面板显隐，与
+//! [`crate::workbench::maven::MavenView`] 一致。
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,38 +15,44 @@ use std::path::{Path, PathBuf};
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
-use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AppContext as _, Context, Entity, EventEmitter, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Window,
+    div, px, AnyElement, AppContext as _, Context, Entity, EventEmitter, FontWeight,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 
 use crate::theme::ThemeColors;
 
-/// 扩展分类：Tauri `extensionsActiveTab` 的 Linux 子集（`all` 为过滤器，
-/// 其余为归类目标；`icon-theme`/`database`/`skill`/`agent` 暂归 `integration`）。
+/// 扩展分类：与 Tauri `FILTER_TABS` 的 9 个 tab id 逐一对齐。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ExtensionCategory {
     #[default]
     All,
     Language,
     Theme,
+    IconTheme,
+    Database,
     Ai,
     Integration,
+    Skill,
+    Agent,
 }
 
 impl ExtensionCategory {
-    /// 分类下拉的固定顺序，与 Tauri `FILTER_TABS` 的主分组顺序一致。
-    pub const ALL: [ExtensionCategory; 5] = [
+    /// 分类签的固定顺序，与 Tauri `FILTER_TABS` 一致。
+    pub const ALL: [ExtensionCategory; 9] = [
         ExtensionCategory::All,
         ExtensionCategory::Language,
         ExtensionCategory::Theme,
+        ExtensionCategory::IconTheme,
+        ExtensionCategory::Database,
         ExtensionCategory::Ai,
         ExtensionCategory::Integration,
+        ExtensionCategory::Skill,
+        ExtensionCategory::Agent,
     ];
 
     /// 稳定 id，与 Tauri 的 tab id 对齐。
@@ -53,19 +61,27 @@ impl ExtensionCategory {
             ExtensionCategory::All => "all",
             ExtensionCategory::Language => "language",
             ExtensionCategory::Theme => "theme",
+            ExtensionCategory::IconTheme => "icon-theme",
+            ExtensionCategory::Database => "database",
             ExtensionCategory::Ai => "ai",
             ExtensionCategory::Integration => "integration",
+            ExtensionCategory::Skill => "skill",
+            ExtensionCategory::Agent => "agent",
         }
     }
 
-    /// 下拉展示文案：`i18n.rs` 无对应键，按约定英文直写。
-    pub fn label(self) -> &'static str {
+    /// 分类签图标：对齐 Tauri 各 tab 图标；`all` 无图标。
+    pub fn icon(self) -> Option<IconName> {
         match self {
-            ExtensionCategory::All => "All",
-            ExtensionCategory::Language => "Languages",
-            ExtensionCategory::Theme => "Themes",
-            ExtensionCategory::Ai => "AI",
-            ExtensionCategory::Integration => "Integrations",
+            ExtensionCategory::All => None,
+            ExtensionCategory::Language => Some(IconName::Languages),
+            ExtensionCategory::Theme => Some(IconName::Paintbrush),
+            ExtensionCategory::IconTheme => Some(IconName::Package),
+            ExtensionCategory::Database => Some(IconName::Database),
+            ExtensionCategory::Ai => Some(IconName::Sparkles),
+            ExtensionCategory::Integration => Some(IconName::Plug),
+            ExtensionCategory::Skill => Some(IconName::Brain),
+            ExtensionCategory::Agent => Some(IconName::Bot),
         }
     }
 
@@ -74,14 +90,18 @@ impl ExtensionCategory {
             "all" => Some(ExtensionCategory::All),
             "language" => Some(ExtensionCategory::Language),
             "theme" => Some(ExtensionCategory::Theme),
+            "icon-theme" => Some(ExtensionCategory::IconTheme),
+            "database" => Some(ExtensionCategory::Database),
             "ai" => Some(ExtensionCategory::Ai),
             "integration" => Some(ExtensionCategory::Integration),
+            "skill" => Some(ExtensionCategory::Skill),
+            "agent" => Some(ExtensionCategory::Agent),
             _ => None,
         }
     }
 }
 
-/// 单个扩展条目：仓库插件扫描结果或内置项。
+/// 单个扩展条目：仓库插件扫描结果或内置项（本地均视为已安装）。
 #[derive(Debug, Clone)]
 pub struct ExtensionItem {
     /// 稳定 id：`package.json` 的 name、`plugin.json` 的 id 或内置 id。
@@ -90,6 +110,10 @@ pub struct ExtensionItem {
     pub version: String,
     pub description: String,
     pub category: ExtensionCategory,
+    /// 发布者：`package.json` 的 publisher/author，缺失为 `None`（不展示）。
+    pub publisher: Option<String>,
+    /// 是否随产品发布（对齐 Tauri `isBundled` 徽标）。
+    pub is_bundled: bool,
 }
 
 /// 扩展面板派发的事件。
@@ -98,7 +122,7 @@ pub enum ExtensionsEvent {
     Close,
 }
 
-/// 右侧扩展面板：搜索框 + 分类下拉 + 列表 + 启用开关。
+/// 右侧扩展面板：搜索框 + 分类签 + 列表点选 + 详情。
 pub struct ExtensionsView {
     items: Vec<ExtensionItem>,
     /// 启用状态 `{id: bool}`，缺省视为启用，落盘到
@@ -107,6 +131,9 @@ pub struct ExtensionsView {
     search_input: Option<Entity<InputState>>,
     _search_subscription: Option<Subscription>,
     category: ExtensionCategory,
+    /// 选中的扩展 id（对齐 Tauri `selectedExtensionId`；过滤后不在列表
+    /// 则展示回退到首项，不在此处改写）。
+    selected: Option<String>,
 }
 
 impl EventEmitter<ExtensionsEvent> for ExtensionsView {}
@@ -119,12 +146,13 @@ impl ExtensionsView {
             search_input: None,
             _search_subscription: None,
             category: ExtensionCategory::All,
+            selected: None,
         };
         view.rescan();
         view
     }
 
-    /// 重新扫描仓库插件（内置项常驻）。
+    /// 重新扫描仓库插件（内置项常驻）；选中项消失则清空选中。
     pub fn rescan(&mut self) {
         let mut items = builtin_items();
         items.extend(scan_plugins());
@@ -132,6 +160,11 @@ impl ExtensionsView {
         let mut seen = std::collections::HashSet::new();
         items.retain(|item| seen.insert(item.id.clone()));
         items.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        if let Some(selected) = self.selected.clone() {
+            if !items.iter().any(|item| item.id == selected) {
+                self.selected = None;
+            }
+        }
         self.items = items;
     }
 
@@ -167,14 +200,11 @@ impl ExtensionsView {
             .unwrap_or_default()
     }
 
-    /// 搜索 + 分类双重过滤，对齐 Tauri 的 `filteredExtensions`。
-    fn filtered_items(&self, query: &str) -> Vec<&ExtensionItem> {
+    /// 搜索过滤（先搜索后分签，对齐 Tauri `searchMatchedExtensions`）。
+    fn search_matched(&self, query: &str) -> Vec<&ExtensionItem> {
         let q = query.trim().to_lowercase();
         self.items
             .iter()
-            .filter(|item| {
-                self.category == ExtensionCategory::All || item.category == self.category
-            })
             .filter(|item| {
                 q.is_empty()
                     || item.name.to_lowercase().contains(&q)
@@ -184,99 +214,262 @@ impl ExtensionsView {
             .collect()
     }
 
-    /// 分类下拉：当前值按钮 + ChevronDown（复用 `settings_dialog.rs`
-    /// `render_dropdown` 思路：选中项打勾）。
-    fn render_category_dropdown(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let view = cx.entity();
-        let current = self.category.as_str();
-        let current_label = self.category.label().to_string();
-        let options: Vec<(&'static str, String)> = ExtensionCategory::ALL
-            .iter()
-            .map(|c| (c.as_str(), c.label().to_string()))
-            .collect();
-        Button::new("extensions-category")
-            .small()
-            .ghost()
-            .rounded_md()
-            .border_1()
-            .border_color(ThemeColors::border())
-            .bg(ThemeColors::background())
-            .w(px(160.0))
-            .child(
-                div()
-                    .flex_1()
-                    .text_xs()
-                    .text_color(ThemeColors::foreground())
-                    .child(current_label),
-            )
-            .child(
-                Icon::new(IconName::ChevronDown)
-                    .size(px(13.0))
-                    .text_color(ThemeColors::subtle_foreground()),
-            )
-            .dropdown_menu(move |menu, _window, _cx| {
-                let mut menu = menu;
-                for (value, label) in &options {
-                    let v = view.clone();
-                    let value = *value;
-                    let label = label.clone();
-                    let selected = value == current;
-                    let item = gpui_kit::component::menu::PopupMenuItem::new(label);
-                    let item = if selected {
-                        item.icon(IconName::Check)
-                    } else {
-                        item
-                    };
-                    menu = menu.item(item.on_click(move |_, _, cx| {
-                        v.update(cx, |this, cx| {
-                            if let Some(category) = ExtensionCategory::from_str(value) {
-                                this.category = category;
-                                cx.notify();
-                            }
-                        });
-                    }));
-                }
-                menu
-            })
+    /// 各分类签计数（搜索命中内部分类计数，对齐 Tauri `filterCounts`）。
+    fn tab_counts(&self, matched: &[&ExtensionItem]) -> [usize; 9] {
+        let mut counts = [0usize; 9];
+        for (ix, category) in ExtensionCategory::ALL.iter().enumerate() {
+            counts[ix] = if *category == ExtensionCategory::All {
+                matched.len()
+            } else {
+                matched
+                    .iter()
+                    .filter(|item| item.category == *category)
+                    .count()
+            };
+        }
+        counts
     }
 
-    /// 启用开关：可点击药丸，圆点指示状态（对齐 `settings_dialog.rs`
-    /// `render_toggle`，无文字）。
-    fn render_toggle(&self, id: &str, value: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let id_owned = id.to_string();
+    /// 分类签行：横滑签 + 计数角标，对齐 Tauri `FILTER_TABS` 行。
+    fn render_tab_row(&self, counts: &[usize; 9], cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
-            .id(format!("ext-toggle-{id_owned}"))
-            .items_center()
-            .gap_1p5()
-            .px_2p5()
+            .w_full()
+            .gap_1()
+            .overflow_x_scrollbar()
             .py_1()
+            .children(
+                ExtensionCategory::ALL
+                    .iter()
+                    .enumerate()
+                    .map(|(ix, category)| {
+                        let count = counts[ix];
+                        let active = self.category == *category;
+                        let id = category.as_str().to_string();
+                        h_flex()
+                            .id(format!("ext-tab-{id}"))
+                            .flex_shrink_0()
+                            .items_center()
+                            .gap_1p5()
+                            .h(px(28.0))
+                            .px_2p5()
+                            .rounded_sm()
+                            .cursor_pointer()
+                            .text_xs()
+                            .when(active, |el| {
+                                el.bg(ThemeColors::subtle_selection())
+                                    .text_color(ThemeColors::text_primary())
+                            })
+                            .when(!active, |el| {
+                                el.text_color(ThemeColors::text_muted()).hover(|h| {
+                                    h.bg(ThemeColors::bg_tab_hover())
+                                        .text_color(ThemeColors::text_primary())
+                                })
+                            })
+                            .when_some(category.icon(), |el, icon| {
+                                el.child(Icon::new(icon).size(px(13.0)).text_color(if active {
+                                    ThemeColors::text_primary()
+                                } else {
+                                    ThemeColors::text_muted()
+                                }))
+                            })
+                            .child(category_label(*category, cx))
+                            .child(
+                                div()
+                                    .px_1()
+                                    .rounded_sm()
+                                    .text_xs()
+                                    .bg(if active {
+                                        ThemeColors::accent_blue()
+                                    } else {
+                                        ThemeColors::bg_tab_hover()
+                                    })
+                                    .text_color(if active {
+                                        ThemeColors::foreground()
+                                    } else {
+                                        ThemeColors::text_muted()
+                                    })
+                                    .child(count.to_string()),
+                            )
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                                if let Some(category) = ExtensionCategory::from_str(&id) {
+                                    this.category = category;
+                                    cx.notify();
+                                }
+                            }))
+                    }),
+            )
+    }
+
+    /// 状态徽标：分类 / 已安装 / 已禁用 / 内置，对齐 Tauri 详情徽标行。
+    fn render_badge(text: String, highlighted: bool) -> AnyElement {
+        div()
+            .px_1p5()
+            .py_0p5()
             .rounded_sm()
             .border_1()
-            .cursor_pointer()
             .text_xs()
-            .when(value, |el| {
-                el.bg(ThemeColors::primary())
-                    .border_color(ThemeColors::primary())
-                    .text_color(ThemeColors::foreground())
-            })
-            .when(!value, |el| {
-                el.bg(ThemeColors::background())
-                    .border_color(ThemeColors::border())
-                    .text_color(ThemeColors::subtle_foreground())
-                    .hover(|h| {
-                        h.bg(ThemeColors::accent())
-                            .text_color(ThemeColors::foreground())
-                    })
-            })
-            .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(if value {
-                ThemeColors::foreground()
+            .border_color(if highlighted {
+                ThemeColors::accent_blue()
             } else {
-                ThemeColors::subtle_foreground()
-            }))
-            .on_click(cx.listener(move |this, _event, _window, cx| {
-                this.toggle(&id_owned, cx);
-            }))
+                ThemeColors::border()
+            })
+            .text_color(if highlighted {
+                ThemeColors::accent_blue()
+            } else {
+                ThemeColors::text_muted()
+            })
+            .child(text)
+            .into_any_element()
     }
+
+    /// 详情区：图标 + 名 + 发布者/版本 + 徽标 + 描述 + 主操作 + 贡献项，
+    /// 对齐 Tauri 右侧详情栏（纵向堆叠适配窄面板）。
+    fn render_detail(&self, item: &ExtensionItem, cx: &mut Context<Self>) -> AnyElement {
+        let enabled = self.is_enabled(&item.id);
+        let item_id = item.id.clone();
+        let mut badges = vec![Self::render_badge(category_label(item.category, cx), false)];
+        badges.push(Self::render_badge(
+            crate::i18n::menu_text(cx, "extensions.installed").to_string(),
+            true,
+        ));
+        if !enabled {
+            badges.push(Self::render_badge(
+                crate::i18n::menu_text(cx, "extensions.disabled").to_string(),
+                false,
+            ));
+        }
+        if item.is_bundled {
+            badges.push(Self::render_badge(
+                crate::i18n::menu_text(cx, "extensions.builtIn").to_string(),
+                true,
+            ));
+        }
+        let by_publisher = item.publisher.clone().map(|publisher| {
+            crate::i18n::menu_text(cx, "extensions.byPublisher").replace("{publisher}", &publisher)
+        });
+        v_flex()
+            .w_full()
+            .gap_2()
+            .p_3()
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .gap_2p5()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .size(px(40.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .bg(ThemeColors::background())
+                            .child(
+                                Icon::new(item.category.icon().unwrap_or(IconName::Puzzle))
+                                    .size(px(18.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            ),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_sm()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(ThemeColors::text_primary())
+                                    .child(item.name.clone()),
+                            )
+                            .when_some(by_publisher, |el, text| {
+                                el.child(
+                                    div()
+                                        .truncate()
+                                        .text_xs()
+                                        .text_color(ThemeColors::text_muted())
+                                        .child(text),
+                                )
+                            })
+                            .when(!item.version.is_empty(), |el| {
+                                el.child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(ThemeColors::text_muted())
+                                        .child(format!("v{}", item.version)),
+                                )
+                            }),
+                    ),
+            )
+            .child(h_flex().w_full().flex_wrap().gap_1p5().children(badges))
+            .when(!item.description.is_empty(), |el| {
+                el.child(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_color(ThemeColors::text_muted())
+                        .child(item.description.clone()),
+                )
+            })
+            .child(
+                Button::new(format!("ext-detail-toggle-{}", item.id))
+                    .small()
+                    .when(enabled, |b| b.ghost())
+                    .when(!enabled, |b| b.primary())
+                    .icon(if enabled {
+                        IconName::Close
+                    } else {
+                        IconName::Check
+                    })
+                    .label(if enabled {
+                        crate::i18n::menu_text(cx, "extensions.deactivate").to_string()
+                    } else {
+                        crate::i18n::menu_text(cx, "extensions.activate").to_string()
+                    })
+                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                        this.toggle(&item_id, cx);
+                    })),
+            )
+            .child(
+                v_flex()
+                    .w_full()
+                    .gap_1p5()
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(ThemeColors::text_primary())
+                            .child(crate::i18n::menu_text(cx, "extensions.contributions")),
+                    )
+                    .child(
+                        h_flex()
+                            .w_full()
+                            .flex_wrap()
+                            .gap_1p5()
+                            .child(Self::render_badge(category_label(item.category, cx), false)),
+                    ),
+            )
+            .into_any_element()
+    }
+}
+
+/// 分类签文案：`extensions.*` 与 Tauri `locale.ts` 同键。
+fn category_label(category: ExtensionCategory, cx: &gpui_kit::App) -> String {
+    let key = match category {
+        ExtensionCategory::All => "extensions.all",
+        ExtensionCategory::Language => "extensions.languages",
+        ExtensionCategory::Theme => "extensions.themes",
+        ExtensionCategory::IconTheme => "extensions.iconThemes",
+        ExtensionCategory::Database => "extensions.databases",
+        ExtensionCategory::Ai => "extensions.ai",
+        ExtensionCategory::Integration => "extensions.integrations",
+        ExtensionCategory::Skill => "extensions.skills",
+        ExtensionCategory::Agent => "extensions.agents",
+    };
+    crate::i18n::menu_text(cx, key).to_string()
 }
 
 impl Render for ExtensionsView {
@@ -294,70 +487,130 @@ impl Render for ExtensionsView {
             ));
         }
         let query = self.search_query(cx);
-        let filtered = self.filtered_items(&query);
-        let enabled_snapshot = self.enabled.clone();
+        let matched = self.search_matched(&query);
+        let counts = self.tab_counts(&matched);
+        let filtered: Vec<&ExtensionItem> = matched
+            .iter()
+            .filter(|item| {
+                self.category == ExtensionCategory::All || item.category == self.category
+            })
+            .copied()
+            .collect();
+        // 选中不在过滤结果内则回退首项（对齐 Tauri `selectedExtension` 回退）。
+        let selected_id = self
+            .selected
+            .clone()
+            .filter(|id| filtered.iter().any(|item| item.id == *id))
+            .or_else(|| filtered.first().map(|item| item.id.clone()));
+        let installed = self.items.len();
+        let subtitle = format!(
+            "{} · {}",
+            crate::i18n::menu_text(cx, "extensions.availableCount")
+                .replace("{count}", &filtered.len().to_string()),
+            crate::i18n::menu_text(cx, "extensions.installedCount")
+                .replace("{count}", &installed.to_string()),
+        );
 
         let mut rows = Vec::new();
         for item in &filtered {
-            let enabled = enabled_snapshot.get(&item.id).copied().unwrap_or(true);
-            let name = item.name.clone();
-            let version = item.version.clone();
-            let description = item.description.clone();
+            let enabled = self.is_enabled(&item.id);
+            let selected = selected_id.as_deref() == Some(item.id.as_str());
+            let id_owned = item.id.clone();
             rows.push(
                 h_flex()
                     .id(format!("ext-row-{}", item.id))
                     .w_full()
                     .items_center()
-                    .gap_2()
-                    .px_2p5()
+                    .gap_2p5()
+                    .px_2()
                     .py_1p5()
-                    .rounded_sm()
-                    .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                    .rounded_md()
+                    .cursor_pointer()
+                    .when(selected, |el| {
+                        el.bg(ThemeColors::subtle_selection())
+                            .text_color(ThemeColors::text_primary())
+                    })
+                    .when(!selected, |el| {
+                        el.hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                    })
                     .child(
-                        Icon::new(IconName::Puzzle)
-                            .size(px(14.0))
-                            .text_color(ThemeColors::subtle_foreground()),
+                        div()
+                            .flex_shrink_0()
+                            .size(px(36.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .bg(ThemeColors::background())
+                            .child(
+                                Icon::new(item.category.icon().unwrap_or(IconName::Puzzle))
+                                    .size(px(16.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            ),
                     )
                     .child(
                         v_flex()
                             .flex_1()
-                            .gap_0p5()
-                            .overflow_hidden()
+                            .min_w_0()
                             .child(
-                                h_flex()
-                                    .items_center()
-                                    .gap_1p5()
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .truncate()
-                                            .text_color(if enabled {
-                                                ThemeColors::text_primary()
-                                            } else {
-                                                ThemeColors::text_muted()
-                                            })
-                                            .child(name),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .flex_shrink_0()
-                                            .text_color(ThemeColors::text_muted())
-                                            .child(version),
-                                    ),
+                                div()
+                                    .truncate()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(ThemeColors::text_primary())
+                                    .child(item.name.clone()),
                             )
                             .child(
                                 div()
                                     .text_xs()
                                     .truncate()
                                     .text_color(ThemeColors::text_muted())
-                                    .child(description),
+                                    .child(item.description.clone()),
                             ),
                     )
-                    .child(self.render_toggle(&item.id, enabled, cx).into_any_element())
+                    .child(if enabled {
+                        div()
+                            .flex_shrink_0()
+                            .size(px(28.0))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .text_color(ThemeColors::text_muted())
+                            .child(
+                                Icon::new(IconName::Check)
+                                    .size(px(14.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
+                            .into_any_element()
+                    } else {
+                        Button::new(format!("ext-install-{}", item.id))
+                            .small()
+                            .primary()
+                            .icon(IconName::Plus)
+                            .tooltip(crate::i18n::menu_text(cx, "extensions.activate"))
+                            .on_click(cx.listener(move |this, _event, _window, cx| {
+                                this.enabled.insert(id_owned.clone(), true);
+                                save_enabled(&this.enabled);
+                                cx.notify();
+                            }))
+                            .into_any_element()
+                    })
+                    .on_click(cx.listener({
+                        let id_owned = item.id.clone();
+                        move |this, _event, _window, cx| {
+                            this.selected = Some(id_owned.clone());
+                            cx.notify();
+                        }
+                    }))
                     .into_any_element(),
             );
         }
+        let detail = selected_id
+            .as_deref()
+            .and_then(|id| filtered.iter().find(|item| item.id == id))
+            .map(|item| self.render_detail(item, cx));
 
         v_flex()
             .size_full()
@@ -375,11 +628,23 @@ impl Render for ExtensionsView {
                     .justify_between()
                     .px_3()
                     .child(
-                        div()
-                            .text_xs()
-                            .font_weight(FontWeight::BOLD)
-                            .text_color(ThemeColors::text_muted())
-                            .child(crate::i18n::menu_text(cx, "extensions.title")),
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .font_weight(FontWeight::BOLD)
+                                    .text_color(ThemeColors::text_muted())
+                                    .child(crate::i18n::menu_text(cx, "extensions.title")),
+                            )
+                            .child(
+                                div()
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_muted())
+                                    .child(subtitle),
+                            ),
                     )
                     .child(
                         Button::new("extensions-close")
@@ -395,16 +660,16 @@ impl Render for ExtensionsView {
             .child(
                 v_flex()
                     .w_full()
-                    .gap_2()
-                    .p_2()
-                    .border_b_1()
-                    .border_color(ThemeColors::border())
+                    .flex_shrink_0()
+                    .gap_1()
+                    .px_2()
+                    .pt_2()
                     .child(
                         div()
                             .w_full()
                             .child(Input::new(&search_entity).cleanable(true)),
                     )
-                    .child(self.render_category_dropdown(cx)),
+                    .child(self.render_tab_row(&counts, cx)),
             )
             .child(if rows.is_empty() {
                 div()
@@ -415,15 +680,30 @@ impl Render for ExtensionsView {
                     .justify_center()
                     .text_xs()
                     .text_color(ThemeColors::text_muted())
-                    .child("No extensions found")
+                    .child(crate::i18n::menu_text(cx, "extensions.noneFound"))
                     .into_any_element()
             } else {
                 div()
                     .flex_1()
                     .w_full()
+                    .min_h_0()
                     .overflow_y_scrollbar()
+                    .px_1()
                     .children(rows)
                     .into_any_element()
+            })
+            .when_some(detail, |el, detail| {
+                el.child(
+                    div()
+                        .w_full()
+                        .flex_shrink_0()
+                        .max_h(px(340.0))
+                        .overflow_y_scrollbar()
+                        .border_t_1()
+                        .border_color(ThemeColors::border())
+                        .bg(ThemeColors::bg_sidebar())
+                        .child(detail),
+                )
             })
     }
 }
@@ -437,6 +717,8 @@ fn builtin_items() -> Vec<ExtensionItem> {
             version: "0.1.0".to_string(),
             description: "Git source control integration".to_string(),
             category: ExtensionCategory::Integration,
+            publisher: None,
+            is_bundled: true,
         },
         ExtensionItem {
             id: "maven".to_string(),
@@ -444,6 +726,8 @@ fn builtin_items() -> Vec<ExtensionItem> {
             version: "0.1.0".to_string(),
             description: "Maven project navigation and lifecycle".to_string(),
             category: ExtensionCategory::Integration,
+            publisher: None,
+            is_bundled: true,
         },
         ExtensionItem {
             id: "terminal".to_string(),
@@ -451,6 +735,8 @@ fn builtin_items() -> Vec<ExtensionItem> {
             version: "0.1.0".to_string(),
             description: "Integrated terminal".to_string(),
             category: ExtensionCategory::Integration,
+            publisher: None,
+            is_bundled: true,
         },
     ]
 }
@@ -528,6 +814,8 @@ struct PackageJson {
     version: Option<String>,
     description: Option<String>,
     keywords: Option<Vec<String>>,
+    publisher: Option<String>,
+    author: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -549,6 +837,10 @@ fn read_manifest(dir: &Path, dir_name: &str) -> Option<ExtensionItem> {
         let text = std::fs::read_to_string(&package_path).ok()?;
         let manifest: PackageJson = serde_json::from_str(&text).ok()?;
         let keywords = manifest.keywords.clone().unwrap_or_default();
+        let publisher = manifest
+            .publisher
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| manifest.author.filter(|s| !s.trim().is_empty()));
         return Some(ExtensionItem {
             id: manifest
                 .name
@@ -558,6 +850,8 @@ fn read_manifest(dir: &Path, dir_name: &str) -> Option<ExtensionItem> {
             version: manifest.version.unwrap_or_default(),
             description: manifest.description.unwrap_or_default(),
             category: classify_keywords(&keywords),
+            publisher,
+            is_bundled: false,
         });
     }
     let plugin_path = dir.join("plugin.json");
@@ -581,6 +875,8 @@ fn read_manifest(dir: &Path, dir_name: &str) -> Option<ExtensionItem> {
             version: manifest.version.unwrap_or_default(),
             description: manifest.description.unwrap_or_default(),
             category,
+            publisher: None,
+            is_bundled: false,
         });
     }
     None
@@ -591,16 +887,27 @@ fn classify_keywords(keywords: &[String]) -> ExtensionCategory {
     classify_text(&keywords.join(" "))
 }
 
-/// 关键词归类：theme → 主题，language/lang/lsp/syntax → 语言，
-/// ai/llm/agent/chat/model → AI，其余 → integration。
+/// 关键词归类：theme/icon-theme → 主题系，language/lang/lsp/syntax →
+/// 语言，database/sql → 数据库，ai/llm/agent/chat/model → AI，
+/// skill → 技能，其余 → integration（对齐 Tauri 9 分类）。
 fn classify_text(text: &str) -> ExtensionCategory {
     let lower = text.to_lowercase();
     let has_any = |words: &[&str]| words.iter().any(|word| lower.contains(word));
-    if has_any(&["theme", "icon", "color-scheme"]) {
+    if has_any(&["icon-theme", "icon-pack", "file-icon"]) {
+        ExtensionCategory::IconTheme
+    } else if has_any(&["theme", "icon", "color-scheme"]) {
         ExtensionCategory::Theme
     } else if has_any(&["language", "lang", "lsp", "syntax", "grammar"]) {
         ExtensionCategory::Language
-    } else if has_any(&["ai", "llm", "agent", "chat", "model"]) {
+    } else if has_any(&[
+        "database", "sql", "sqlite", "postgres", "mysql", "mongo", "redis",
+    ]) {
+        ExtensionCategory::Database
+    } else if has_any(&["skill"]) {
+        ExtensionCategory::Skill
+    } else if has_any(&["agent", "robot"]) {
+        ExtensionCategory::Agent
+    } else if has_any(&["ai", "llm", "chat", "model"]) {
         ExtensionCategory::Ai
     } else {
         ExtensionCategory::Integration
