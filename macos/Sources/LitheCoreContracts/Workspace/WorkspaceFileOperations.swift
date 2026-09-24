@@ -75,6 +75,13 @@ package struct DocumentReadDetails: Sendable {
     }
 }
 
+/// Watcher reads compare raw bytes before decoding; explicit opens always decode.
+package enum DocumentChangeReadResult: Sendable {
+    case unchanged
+    case missing
+    case changed(DocumentReadDetails)
+}
+
 package protocol WorkspaceFileOperations: Sendable {
     var supportsDocumentEncoding: Bool { get }
     func fileExists(at url: URL) -> Bool
@@ -94,6 +101,7 @@ package protocol WorkspaceFileOperations: Sendable {
     func writeDocumentText(_ text: String, to url: URL, expectedContent: String?) throws -> DocumentWriteResult
     func readDocumentDetails(from url: URL, encoding: DocumentEncoding?) throws -> DocumentReadDetails?
     func readDocumentDetailsAsync(from url: URL, encoding: DocumentEncoding?) async throws -> DocumentReadDetails?
+    func readDocumentChangeAsync(from url: URL, encoding: DocumentEncoding?, knownIdentity: String?) async throws -> DocumentChangeReadResult
     func writeDocumentText(
         _ text: String,
         to url: URL,
@@ -149,6 +157,12 @@ package extension WorkspaceFileOperations {
         guard let text = try await readDocumentTextAsync(from: url) else { return nil }
         guard encoding == nil || encoding == .utf8 else { throw CocoaError(.featureUnsupported) }
         return DocumentReadDetails(text: text, encoding: .utf8)
+    }
+
+    func readDocumentChangeAsync(from url: URL, encoding: DocumentEncoding?, knownIdentity: String?) async throws -> DocumentChangeReadResult {
+        guard let details = try await readDocumentDetailsAsync(from: url, encoding: encoding) else { return .missing }
+        if let knownIdentity, details.identity == knownIdentity { return .unchanged }
+        return .changed(details)
     }
 
     func writeDocumentText(

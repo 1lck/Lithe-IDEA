@@ -1,4 +1,4 @@
-import { readDocumentFile, type DocumentReadDetails, type FileEncoding } from "@/platform/document-files";
+import { readDocumentFile, type DocumentReadDetails, type DocumentChangeReadResult, type FileEncoding } from "@/platform/document-files";
 import { decideDocumentLifecycle, type DocumentLifecycleState } from "@/platform/document-lifecycle";
 import { frontendTrace } from "@/utils/frontend-trace";
 
@@ -27,6 +27,7 @@ export interface ExternalChangeWorkflowDependencies {
   decide?: typeof decideDocumentLifecycle;
   readFile?: typeof readDocumentFile;
   readDetails?: (path: string, encoding?: FileEncoding) => Promise<DocumentReadDetails | null>;
+  readChange?: (path: string, encoding?: FileEncoding, knownIdentity?: string) => Promise<DocumentChangeReadResult>;
   trace?: typeof trace;
 }
 
@@ -39,10 +40,18 @@ export async function handleExternalDocumentChange({ owner, operationId, depende
   if (source.lifecycle.status === "saving") return "deferred";
   const decide = dependencies.decide ?? decideDocumentLifecycle;
   try {
-    const details = dependencies.readDetails
+    const change = dependencies.readChange
+      ? await dependencies.readChange(source.path, source.readEncoding ?? source.encoding, source.diskIdentity)
+      : undefined;
+    if (change?.status === "unchanged") return "ignored";
+    const details = change
+      ? change.status === "changed" ? change.document : null
+      : dependencies.readDetails
       ? await dependencies.readDetails(source.path, source.readEncoding ?? source.encoding)
       : null;
-    const content = dependencies.readDetails ? details?.content ?? null : await (dependencies.readFile ?? readDocumentFile)(source.path);
+    const content = change || dependencies.readDetails
+      ? details?.content ?? null
+      : await (dependencies.readFile ?? readDocumentFile)(source.path);
     const identity = details?.identity;
     let latest = owner.getSnapshot();
     if (!latest || latest.path !== source.path) return "ignored";

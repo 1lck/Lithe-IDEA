@@ -52,6 +52,19 @@ export interface DocumentReadDetails {
   identity: string;
 }
 
+export type DocumentChangeReadResult =
+  | { status: "unchanged" }
+  | { status: "missing" }
+  | { status: "changed"; document: DocumentReadDetails };
+
+/** Only watcher refreshes may skip decoding identical bytes. Explicit opens may not. */
+export const readDocumentFileChange = (
+  path: string,
+  encoding?: FileEncoding,
+  knownIdentity?: string,
+): Promise<DocumentChangeReadResult> =>
+  invoke("read_document_file_change", { path, encoding, knownIdentity });
+
 export function isLocalDocumentPath(path: string): boolean {
   return /^(?:[A-Za-z]:[\\/]|\/)/.test(path) && !/^\/\/(?:wsl\$|wsl\.localhost)\//i.test(path.replace(/\\/g, "/"));
 }

@@ -38,6 +38,19 @@ describe("external document change workflow", () => {
     expect(await handleExternalDocumentChange({ owner: document.value, operationId: "watch", dependencies: { decide, readFile: async () => "baseline", trace } })).toBe("ignored");
     expect(decide).not.toHaveBeenCalled(); expect(document.text()).toBe("editor text");
   });
+  test("skips decoding when the watcher sees the acknowledged raw bytes", async () => {
+    const document = owner("dirty"); const decide = mock(conflict);
+    const readChange = mock(async () => ({ status: "unchanged" as const }));
+    const readDetails = mock(async () => { throw new Error("unchanged bytes must not be decoded"); });
+    expect(await handleExternalDocumentChange({
+      owner: document.value,
+      operationId: "self-save",
+      dependencies: { decide, readChange, readDetails, trace },
+    })).toBe("ignored");
+    expect(readChange).toHaveBeenCalledTimes(1);
+    expect(readDetails).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
+  });
   test("missing clean file preserves text and requests the shared disk-conflict transition", async () => {
     const document = owner(); const decide = mock(async (..._args: unknown[]) => conflict());
     expect(await handleExternalDocumentChange({ owner: document.value, operationId: "watch", dependencies: { decide, readFile: async () => null, trace } })).toBe("conflict");

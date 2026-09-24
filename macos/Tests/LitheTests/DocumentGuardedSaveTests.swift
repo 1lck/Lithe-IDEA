@@ -3,6 +3,24 @@ import Testing
 @testable import Lithe
 
 struct DocumentGuardedSaveTests {
+    @Test func watcherIdentityIsCheckedBeforeDecodingWithCurrentReadEncoding() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("GBK.txt")
+        try Data([0xD6, 0xD0, 0xCE, 0xC4]).write(to: url)
+        let files = MacWorkspaceFileOperations()
+        let details = try #require(try files.readDocumentDetails(from: url, encoding: .gbk))
+
+        let result = try await files.readDocumentChangeAsync(
+            from: url, encoding: .utf8, knownIdentity: details.identity
+        )
+        guard case .unchanged = result else {
+            Issue.record("A self-save notification must not decode unchanged bytes")
+            return
+        }
+    }
+
     @Test func documentEncodingAutoDetectsGBKAndPreservesIdentity() throws {
         try withFile { url, files in
             let bytes = Data([0xD6, 0xD0, 0xCE, 0xC4, 0x0A])

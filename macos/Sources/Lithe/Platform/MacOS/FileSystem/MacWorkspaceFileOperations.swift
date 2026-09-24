@@ -30,6 +30,20 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
         }
     }
 
+    func readDocumentChangeAsync(from url: URL, encoding: DocumentEncoding?, knownIdentity: String?) async throws -> DocumentChangeReadResult {
+        try await withCheckedThrowingContinuation { continuation in
+            Self.documentQueue.async {
+                continuation.resume(with: Result {
+                    guard let bytes = try self.readDocumentBytes(from: url) else { return .missing }
+                    // Saving with another codec does not change the read selection.
+                    // A delayed notification of our own write must never decode it.
+                    if let knownIdentity, MacDocumentEncoding.identity(bytes) == knownIdentity { return .unchanged }
+                    return .changed(try MacDocumentEncoding.decode(bytes, encoding: encoding))
+                })
+            }
+        }
+    }
+
     func writeDocumentTextAsync(
         _ text: String, to url: URL, expectedContent: String?,
         encoding: DocumentEncoding, expectedIdentity: String?

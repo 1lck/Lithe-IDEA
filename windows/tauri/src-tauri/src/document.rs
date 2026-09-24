@@ -1,6 +1,6 @@
 //! Native document reads, guarded saves, and window-owned watch leases.
 use lithe_project::{
-    document_file::{self, DocumentRead, SaveOutcome},
+    document_file::{self, DocumentChangeRead, DocumentRead, SaveOutcome},
     document_watcher::{DocumentWatch, DocumentWatcher},
 };
 use std::{path::PathBuf, sync::Arc};
@@ -70,6 +70,20 @@ pub async fn read_document_file_details(
     .await
     .map_err(DocumentError::worker)?
 }
+#[tauri::command]
+pub async fn read_document_file_change(
+    path: PathBuf,
+    encoding: Option<String>,
+    known_identity: Option<String>,
+) -> Result<DocumentChangeRead, DocumentError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        document_file::read_document_change(&path, encoding.as_deref(), known_identity.as_deref())
+            .map_err(DocumentError::from)
+    })
+    .await
+    .map_err(DocumentError::worker)?
+}
+
 #[tauri::command]
 pub async fn save_document_file(
     path: PathBuf,

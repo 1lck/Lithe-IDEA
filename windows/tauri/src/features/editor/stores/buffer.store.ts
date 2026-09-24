@@ -37,7 +37,7 @@ import {
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { logger } from "@/features/editor/utils/logger";
 import { readFileContentWithEncoding } from "@/features/file-system/controllers/file-operations";
-import { isLocalDocumentPath, readDocumentFileDetails } from "@/platform/document-files";
+import { isLocalDocumentPath, readDocumentFileDetails, readDocumentFileChange } from "@/platform/document-files";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
 import {
@@ -2167,6 +2167,7 @@ const createBufferStore = (workspaceId: string) => {
             owner,
             operationId,
             dependencies: {
+              readChange: isLocalDocumentPath(owner.getSnapshot()?.path ?? "") ? readDocumentFileChange : undefined,
               readDetails: (path, encoding) =>
                 isLocalDocumentPath(path)
                   ? readDocumentFileDetails(path, encoding)

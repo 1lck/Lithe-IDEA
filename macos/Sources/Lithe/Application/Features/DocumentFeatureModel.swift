@@ -927,7 +927,6 @@ final class DocumentFeatureModel: ObservableObject {
     @discardableResult
     func requestReopen(_ document: EditorDocument, with encoding: DocumentEncoding) -> Task<Void, Never>? {
         guard fileOperations.supportsDocumentEncoding, document.url.isFileURL,
-              document.readEncoding != encoding,
               document.lifecycleState.status != .saving,
               openDocuments.contains(where: { $0 === document }) else { return nil }
         cancelEncodingChange()
@@ -1167,7 +1166,13 @@ final class DocumentFeatureModel: ObservableObject {
                 let identity = document.diskIdentity
                 let encoding = document.readEncoding
                 do {
-                    let details = try await self.fileOperations.readDocumentDetailsAsync(from: url, encoding: encoding)
+                    let change = try await self.fileOperations.readDocumentChangeAsync(from: url, encoding: encoding, knownIdentity: identity)
+                    let details: DocumentReadDetails?
+                    switch change {
+                    case .unchanged: return
+                    case .missing: details = nil
+                    case .changed(let snapshot): details = snapshot
+                    }
                     let content = details?.text
                     guard !Task.isCancelled, document.url == url, document.locationRevision == locationRevision,
                           self.observedDocuments.contains(where: { $0.id == document.id }) else { return }

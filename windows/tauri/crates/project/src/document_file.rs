@@ -206,6 +206,31 @@ pub struct DocumentRead {
     pub identity: String,
 }
 
+/// A watcher hint is checked against raw bytes before applying the read codec.
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum DocumentChangeRead {
+    Unchanged,
+    Missing,
+    Changed { document: DocumentRead },
+}
+
+pub fn read_document_change(
+    path: &Path,
+    encoding: Option<&str>,
+    known_identity: Option<&str>,
+) -> io::Result<DocumentChangeRead> {
+    let Some(bytes) = read_document_bytes(path)? else {
+        return Ok(DocumentChangeRead::Missing);
+    };
+    if known_identity.is_some_and(|identity| bytes_identity(&bytes) == identity) {
+        return Ok(DocumentChangeRead::Unchanged);
+    }
+    Ok(DocumentChangeRead::Changed {
+        document: decode_document_bytes(&bytes, encoding)?,
+    })
+}
+
 /// A missing file is distinct from an unreadable or unsupported file.
 pub fn read_document(path: &Path) -> io::Result<Option<String>> {
     Ok(read_document_with_encoding(path, None)?.map(|document| document.content))
@@ -220,6 +245,10 @@ pub fn read_document_with_encoding(
     let Some(bytes) = bytes else {
         return Ok(None);
     };
+    Ok(Some(decode_document_bytes(&bytes, encoding)?))
+}
+
+fn decode_document_bytes(bytes: &[u8], encoding: Option<&str>) -> io::Result<DocumentRead> {
     let selected = match encoding {
         Some(value) => DocumentEncoding::parse(Some(value))?,
         None if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) => DocumentEncoding::Utf8Bom,
@@ -235,11 +264,11 @@ pub fn read_document_with_encoding(
             }
         },
     };
-    Ok(Some(DocumentRead {
+    Ok(DocumentRead {
         content: selected.decode(&bytes)?,
         encoding: selected.label().to_string(),
         identity: bytes_identity(&bytes),
-    }))
+    })
 }
 
 fn bytes_identity(bytes: &[u8]) -> String {
@@ -610,6 +639,20 @@ mod tests {
                 .content,
             "更新"
         );
+    }
+
+    #[test]
+    fn watcher_identity_is_checked_before_decoding_with_current_read_encoding() {
+        let directory = Directory::new();
+        let path = directory.0.join("reopened-with-different-encoding.txt");
+        let original = DocumentEncoding::Gbk.encode("中文").unwrap();
+        fs::write(&path, &original).unwrap();
+        let identity = bytes_identity(&original);
+
+        assert!(matches!(
+            read_document_change(&path, Some("UTF-8"), Some(&identity)).unwrap(),
+            DocumentChangeRead::Unchanged
+        ));
     }
     #[test]
     fn rechecks_after_staging_and_cleans_temporary_file() {
