@@ -362,6 +362,8 @@
 "Refresh Log" = "刷新日志";
 "Show Changes" = "显示更改";
 "Local" = "本地";
+"Hide worktree repositories" = "隐藏工作树仓库";
+"Show worktree repositories" = "显示工作树仓库";
 "Remote" = "远程";
 "Tags" = "标签";
 "Checkout" = "检出";

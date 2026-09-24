@@ -41,6 +41,7 @@ package final class GitFeatureModel: ObservableObject {
         gitReferences = snapshot.references
         recentGitReferences = snapshot.recentReferences
         gitIdentity = snapshot.identity
+        await refreshGitRepositoryReferences(generation: gitHistoryGeneration)
     }
     package func remoteURL(named remote: String, at root: URL) async -> String? {
         await service.remoteURL(at: root, remote: remote)
@@ -193,6 +194,11 @@ package final class GitFeatureModel: ObservableObject {
     /// Constant-time invalidation for graph reference priority and classification.
     package private(set) var gitReferencesVersion = 0
     @Published package private(set) var recentGitReferences: [GitReference] = []
+    /// References for every discovered repository in a multi-repository
+    /// workspace, ordered like `availableRepositoryRoots`. The active
+    /// repository's references stay in `gitReferences` so existing consumers are
+    /// untouched; this list only feeds the reference pane's repository grouping.
+    @Published package private(set) var gitRepositoryReferences: [GitRepositoryReferences] = []
     @Published package private(set) var gitCommits: [GitCommit] = [] {
         didSet { gitCommitsVersion = Self.nextGitCommitsVersion() }
     }
@@ -460,6 +466,7 @@ package final class GitFeatureModel: ObservableObject {
         lineChangeHunks = [:]
         gitReferences = []
         recentGitReferences = []
+        gitRepositoryReferences = []
         gitCommits = []
         gitGraphRepositoryCommits = []
         gitIdentity = nil
@@ -1759,6 +1766,7 @@ package final class GitFeatureModel: ObservableObject {
             return
         }
         isLoadingGitHistory = false
+        await refreshGitRepositoryReferences(generation: generation)
         guard let historyPage else { return }
 
         if let referenceSnapshot {
@@ -1805,6 +1813,41 @@ package final class GitFeatureModel: ObservableObject {
         if let cursor = page?.nextCursor { service.closeHistoryCursor(at: root, cursor: cursor) }
         guard gitHistoryGeneration == generation, gitRepositoryRoot == root, !Task.isCancelled else { return }
         gitGraphRepositoryCommits = page?.commits ?? []
+    }
+
+    /// Loads the reference list for every discovered repository so the Git Log
+    /// can group by repository. References are read-only (no rewrite lease), so
+    /// the roots are fetched sequentially for deterministic ordering without
+    /// serializing writes. Guarded by `gitHistoryGeneration` like the rest of
+    /// the history refresh, so a workspace switch cannot publish stale roots.
+    private func refreshGitRepositoryReferences(generation: UUID) async {
+        let roots = availableRepositoryRoots
+        guard !roots.isEmpty else {
+            if !gitRepositoryReferences.isEmpty { gitRepositoryReferences = [] }
+            return
+        }
+        var loaded: [GitRepositoryReferences] = []
+        for (index, root) in roots.enumerated() {
+            guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+            let operationID = gitHistoryOperationID(
+                kind: "repository-references-\(index)",
+                generation: generation
+            )
+            activeGitHistoryOperationIDs.insert(operationID)
+            let snapshot = await service.references(at: root, operationID: operationID)
+            activeGitHistoryOperationIDs.remove(operationID)
+            guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+            guard let snapshot else { continue }
+            loaded.append(
+                GitRepositoryReferences(
+                    repositoryRoot: root,
+                    references: snapshot.references,
+                    recentReferences: snapshot.recentReferences
+                )
+            )
+        }
+        guard gitHistoryGeneration == generation, !Task.isCancelled else { return }
+        gitRepositoryReferences = loaded
     }
 
     package func applyGitLogFilter(_ rawQuery: String) async {
