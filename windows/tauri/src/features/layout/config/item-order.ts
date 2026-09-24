@@ -25,6 +25,7 @@ export const FOOTER_TRAILING_ITEM_IDS = [
   "readOnly",
   "memory",
   "gitChanges",
+  "aiUsage",
 ] as const;
 
 export type SidebarActivityItemId = (typeof SIDEBAR_ACTIVITY_ITEM_IDS)[number];

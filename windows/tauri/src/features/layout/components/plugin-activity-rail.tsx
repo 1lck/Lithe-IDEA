@@ -3,6 +3,7 @@ import { toggleMavenPane } from "@/features/keymaps/commands/view-command-action
 import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { NotificationsTrigger } from "@/features/notifications/components/notifications-trigger";
+import { UsageTrigger } from "@/features/usage/components/usage-trigger";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -64,6 +65,7 @@ export function PluginActivityRail() {
           <MavenIcon className="size-4.5" />
         </Button>
       ) : null}
+      <UsageTrigger />
     </aside>
   );
 }

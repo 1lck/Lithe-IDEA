@@ -4,6 +4,7 @@ import { toggleMavenToolWindow } from "@/features/maven/actions/maven-tool-windo
 import { openNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useWhatsNewStore } from "@/features/settings/stores/whats-new.store";
+import { openUsageToolWindow } from "@/features/usage/actions/usage-tool-window-actions";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useZoomStore } from "@/features/window/stores/zoom.store";
 import { useKeymapStore } from "../stores/keymaps.store";
@@ -70,6 +71,10 @@ export function openCommandPalette(): void {
 
 export function showNotifications(): void {
   openNotificationsToolWindow();
+}
+
+export function showUsage(): void {
+  openUsageToolWindow();
 }
 
 export function toggleAgentLauncher(): void {

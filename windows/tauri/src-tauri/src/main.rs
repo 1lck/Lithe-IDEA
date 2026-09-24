@@ -12,9 +12,11 @@ mod lsp;
 mod maven;
 mod memory;
 mod platform;
+mod quota;
 mod run;
 mod secure_storage;
 mod terminal;
+mod usage;
 mod watcher;
 
 use file_events::TauriFileChangeEmitter;
@@ -127,6 +129,8 @@ fn main() {
             debug::debug_stop_workspace_sessions,
             platform::platform_invoke,
             memory::get_application_memory_usage,
+            usage::usage_collect,
+            quota::usage_quota,
             terminal::begin_frontend_terminal_session,
             terminal::warm_terminal_environment,
             terminal::create_terminal,

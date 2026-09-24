@@ -204,6 +204,10 @@ jobs:
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/editor/components/svg-editor.test.tsx
 
+      - name: Test AI usage collection and quota panel
+        shell: pwsh
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/usage
+
       - name: Test welcome clone and modal isolation
         shell: pwsh
         run: |

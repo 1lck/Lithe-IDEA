@@ -8,6 +8,7 @@ import {
   type FooterTrailingItemId,
 } from "@/features/layout/config/item-order";
 import { orderChromeItems, type ChromeItem } from "@/features/layout/utils/chrome-items";
+import { useFooterQuotaItem } from "@/features/usage/components/footer-quota-item";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useFooterFilePathItem } from "./footer-file-path-item";
 import { useFooterEditorStatusItems } from "./footer-editor-status";
@@ -23,6 +24,7 @@ const Footer = () => {
   );
   const filePathItem = useFooterFilePathItem();
   const editorStatusItems = useFooterEditorStatusItems();
+  const quotaItem = useFooterQuotaItem();
   const footerLeadingItemsSource: Array<ChromeItem<FooterLeadingItemId> | null> = [filePathItem];
   const footerLeadingItems = footerLeadingItemsSource.filter(
     (item): item is ChromeItem<FooterLeadingItemId> => item !== null,
@@ -36,6 +38,7 @@ const Footer = () => {
 
   const footerTrailingItems: Array<ChromeItem<FooterTrailingItemId> | null> = [
     ...editorStatusItems,
+    quotaItem,
   ];
   const visibleTrailingItems = footerTrailingItems.filter(
     (item): item is ChromeItem<FooterTrailingItemId> => item !== null,

@@ -29,6 +29,11 @@ import { prewarmCommonLanguageTokenizers } from "@/features/editor/engines/monac
 import { ReferencesPopover } from "@/features/references/components/references-popover";
 import { closeNotificationsToolWindow } from "@/features/notifications/actions/notifications-tool-window-actions";
 import { NotificationsToolWindow } from "@/features/notifications/components/notifications-tool-window";
+import {
+  closeUsageToolWindow,
+  USAGE_TOOL_WINDOW_VIEW,
+} from "@/features/usage/actions/usage-tool-window-actions";
+import { UsageToolWindow } from "@/features/usage/components/usage-tool-window";
 import { getInternalTabDragData } from "@/features/tabs/utils/internal-tab-drag";
 import { PendingBufferCloseDialog } from "@/features/window/components/pending-buffer-close-dialog";
 import TitleBarWithSettings from "../../window/components/title-bar/title-bar";
@@ -102,7 +107,8 @@ export function MainLayout() {
     isRightSidebarVisible && activeRightSidebarView === "notifications";
   const isMavenSelected = activeRightSidebarView === "maven";
   const isMavenVisible = isRightSidebarVisible && isMavenSelected;
-  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible;
+  const isUsageVisible = isRightSidebarVisible && activeRightSidebarView === USAGE_TOOL_WINDOW_VIEW;
+  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible || isUsageVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -338,6 +344,7 @@ export function MainLayout() {
                     <MavenPane onClose={closeMavenToolWindow} />
                   </Suspense>
                 ) : null}
+                {isUsageVisible ? <UsageToolWindow onClose={closeUsageToolWindow} /> : null}
               </ResizablePane>
               <PluginActivityRail />
             </div>
