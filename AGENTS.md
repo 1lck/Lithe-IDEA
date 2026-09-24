@@ -46,3 +46,10 @@
   资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
   说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
   和 LSP workspace 状态不得跨 worktree 共享。
+
+## 跨平台功能同步
+
+5. 每次新增用户可观察功能，或修改已有功能的跨平台行为时，必须在同一个 PR 中更新 `shared/platform-feature-matrix.json`。必须同时填写 macOS 和 Windows 的状态、证据路径、负责人和验证方式；即使功能只属于一个平台，也要登记为 `platform-specific`，不能省略。
+6. 代码入口存在但还没有真实运行验证时，必须标记为 `needs-verification`，不能直接标记为 `implemented`。功能矩阵是功能 PR 的必需同步项，不是可选文档。
+7. 修改矩阵源数据后必须运行 `node scripts/generate-platform-feature-matrix.mjs`，并将生成的 Markdown 和 CSV 视图一并更新；不要直接编辑生成文件。
+8. 提交前必须运行 `./scripts/verify-platform-feature-matrix.sh`。若 PR 没有新增或改变用户可观察功能，也应在 PR 描述中说明不需要更新矩阵的原因。
