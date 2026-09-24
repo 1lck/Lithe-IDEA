@@ -22,7 +22,7 @@ use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal
 use crate::workbench::editor::EditorView;
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
-use crate::workbench::settings_dialog::{SettingsDialog, SettingsEvent};
+use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
 use crate::workbench::sidebar::{FileEntry, SidebarEvent, SidebarTab, SidebarView};
 use crate::workbench::status_bar::{StatusBarEvent, StatusBarView};
 use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
@@ -696,8 +696,25 @@ impl WorkbenchView {
 
     /// 执行常用命令动作（工具栏菜单、命令面板、全局搜索共用）。
     pub fn handle_action(&mut self, action_id: &str, cx: &mut Context<Self>) {
+        // 主题子菜单：menu.theme.<id>，直接写设置并应用主题。
+        if let Some(theme_id) = action_id.strip_prefix("menu.theme.") {
+            let theme_id = theme_id.to_string();
+            settings::update(cx, |s| {
+                s.theme = theme_id.clone();
+                s.sync_system_theme = false;
+            });
+            settings::apply_theme(&theme_id);
+            let mode = if crate::theme::ThemePalette::is_light(&theme_id) {
+                gpui_kit::component::ThemeMode::Light
+            } else {
+                gpui_kit::component::ThemeMode::Dark
+            };
+            gpui_kit::component::Theme::change(mode, None, cx);
+            cx.notify();
+            return;
+        }
         match action_id {
-            "workbench.new_file" | "file.new_file" => {
+            "workbench.new_file" | "file.new_file" | "file.new_tab" => {
                 let _ = self.editor.update(cx, |ed, cx| {
                     ed.open_file("untitled.txt".to_string(), String::new(), cx);
                 });
@@ -719,7 +736,7 @@ impl WorkbenchView {
                     bp.toggle_collapsed(cx);
                 });
             }
-            "workbench.toggle_sidebar" | "view.toggle_sidebar" => {
+            "workbench.toggle_sidebar" | "view.toggle_sidebar" | "view.toggle_activity_rail" => {
                 self.toggle_sidebar(cx);
             }
             "workbench.open_settings" | "tools.settings" => {
@@ -786,6 +803,52 @@ impl WorkbenchView {
                         let _ = handle.update(cx, |_, window, _| window.zoom_window());
                     }
                 });
+            }
+            // 全局搜索与查找：查找替换 UI 未做，复用全局搜索弹窗。
+            "view.global_search" | "edit.find" | "edit.find_replace" => {
+                self.open_search_everywhere(cx);
+            }
+            // 诊断信息：底部面板切换到 Problems 并展开。
+            "view.diagnostics" => {
+                let _ = self.bottom_panel.update(cx, |bp, cx| {
+                    bp.set_tab(BottomTab::Problems, cx);
+                });
+            }
+            // 显示资源管理器：侧边栏切到 Explorer 并展开。
+            "view.show_explorer" => {
+                self.sidebar_visible = true;
+                let _ = self
+                    .activity_rail
+                    .update(cx, |r, cx| r.set_active_view(Some("files".to_string()), cx));
+                let _ = self
+                    .sidebar
+                    .update(cx, |sb, cx| sb.set_tab(SidebarTab::Explorer, cx));
+                cx.notify();
+            }
+            // 显示 Git 面板：侧边栏切到 Git 并展开。
+            "view.show_git" => {
+                self.sidebar_visible = true;
+                let _ = self
+                    .activity_rail
+                    .update(cx, |r, cx| r.set_active_view(Some("git".to_string()), cx));
+                let _ = self
+                    .sidebar
+                    .update(cx, |sb, cx| sb.set_tab(SidebarTab::Git, cx));
+                cx.notify();
+            }
+            // GitHub / 运行调试面板尚未接入后端，仅占位提示。
+            "view.show_github" => {
+                self.append_log("[GitHub] GitHub panel is not wired yet.", cx);
+            }
+            "view.show_debug" => {
+                self.append_log("[Run and Debug] Debug panel is not wired yet.", cx);
+            }
+            // 快捷键设置：设置对话框切到 Keyboard 分类并打开。
+            "tools.shortcuts" => {
+                let _ = self.settings_dialog.update(cx, |d, cx| {
+                    d.set_category(SettingsCategory::Keyboard, cx);
+                });
+                self.open_settings(cx);
             }
             _ => {}
         }

@@ -1,6 +1,7 @@
 //! Linux 工作台入口：初始化设置与主题，打开主窗口。
 
 mod core;
+mod i18n;
 mod settings;
 mod theme;
 mod workbench;

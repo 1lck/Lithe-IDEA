@@ -88,167 +88,303 @@ impl ToolbarView {
     }
 }
 
-/// 单个菜单项：显示文本 + 稳定动作 id。
+/// 单个菜单项：i18n 键（`crate::i18n::menu_text`）+ 稳定动作 id + 快捷键展示文本。
+///
+/// 分组与条目顺序严格照抄 Tauri `window-menu-bar.tsx`，`action` 字符串与
+/// `view.rs` 接入约定一致，不可改动；Linux 上 `mod` 展示为 `Ctrl`。
 struct MenuEntry {
-    label: &'static str,
+    key: &'static str,
     action: &'static str,
+    shortcut: &'static str,
+    disabled: bool,
 }
 
 /// 便于在 `const` 菜单表中声明条目。
-const fn entry(label: &'static str, action: &'static str) -> MenuEntry {
-    MenuEntry { label, action }
+const fn entry(key: &'static str, action: &'static str, shortcut: &'static str) -> MenuEntry {
+    MenuEntry {
+        key,
+        action,
+        shortcut,
+        disabled: false,
+    }
 }
 
-/// 一个顶层应用菜单：标题 + 分组（分组之间渲染分隔线）。
+/// 禁用条目（如 Tools 首项 databases，后端能力缺失时不可点）。
+const fn disabled_entry(
+    key: &'static str,
+    action: &'static str,
+    shortcut: &'static str,
+) -> MenuEntry {
+    MenuEntry {
+        key,
+        action,
+        shortcut,
+        disabled: true,
+    }
+}
+
+/// 一个顶层应用菜单：i18n 标题键 + 分组（分组之间渲染分隔线）。
 struct AppMenu {
-    title: &'static str,
+    key: &'static str,
     groups: &'static [&'static [MenuEntry]],
 }
 
-// ---- 九个应用菜单的静态定义，与 Tauri `window-menu-bar.tsx` 对齐 ----
+// ---- File：对齐 tsx File 菜单四组（含分隔线位置） ----
 const FILE_MENU: &[&[MenuEntry]] = &[
     &[
-        entry("New File", "file.new_file"),
-        entry("New Window", "file.new_window"),
+        entry("menu.newTab", "file.new_tab", "Ctrl+T"),
+        entry("menu.newWindow", "file.new_window", "Ctrl+Shift+N"),
+        entry("menu.newFile", "file.new_file", ""),
+        entry("menu.openFolder", "file.open_folder", "Ctrl+O"),
+        entry("menu.closeFolder", "file.close_folder", ""),
     ],
     &[
-        entry("Open File...", "file.open_file"),
-        entry("Open Folder...", "file.open_folder"),
+        entry("menu.save", "file.save", "Ctrl+S"),
+        entry("menu.saveAs", "file.save_as", "Ctrl+Shift+S"),
+        entry("menu.saveAll", "file.save_all", "Ctrl+Alt+S"),
+        entry("menu.revertFile", "file.revert", ""),
+        entry("menu.showLocalHistory", "file.local_history", ""),
     ],
     &[
-        entry("Save", "file.save"),
-        entry("Save All", "file.save_all"),
+        entry("menu.closeTab", "file.close_editor", "Ctrl+W"),
+        entry("menu.closeWindow", "file.close_window", "Ctrl+Shift+W"),
+        entry("menu.closeAllTabs", "file.close_all", ""),
+        entry("menu.closeOtherTabs", "file.close_others", ""),
+        entry("menu.closeSavedTabs", "file.close_saved", ""),
+        entry("menu.closeTabsToLeft", "file.close_left", ""),
+        entry("menu.closeTabsToRight", "file.close_right", ""),
+        entry("menu.reopenClosedTab", "file.reopen_closed", "Ctrl+Shift+T"),
     ],
-    &[
-        entry("Close Editor", "file.close_editor"),
-        entry("Close Window", "file.close_window"),
-    ],
-    &[entry("Exit", "file.exit")],
+    &[entry("menu.quit", "file.exit", "Ctrl+Q")],
 ];
 
+// ---- Edit：对齐 tsx Edit 菜单五组 ----
 const EDIT_MENU: &[&[MenuEntry]] = &[
-    &[entry("Undo", "edit.undo"), entry("Redo", "edit.redo")],
     &[
-        entry("Cut", "edit.cut"),
-        entry("Copy", "edit.copy"),
-        entry("Paste", "edit.paste"),
+        entry("menu.undo", "edit.undo", "Ctrl+Z"),
+        entry("menu.redo", "edit.redo", "Ctrl+Shift+Z"),
     ],
-    &[entry("Find", "edit.find"), entry("Replace", "edit.replace")],
+    &[
+        entry("menu.cut", "edit.cut", "Ctrl+X"),
+        entry("menu.copy", "edit.copy", "Ctrl+C"),
+        entry("menu.paste", "edit.paste", "Ctrl+V"),
+        entry("menu.selectAll", "edit.select_all", "Ctrl+A"),
+    ],
+    &[
+        entry("menu.find", "edit.find", "Ctrl+F"),
+        entry("menu.findAndReplace", "edit.find_replace", "Ctrl+Alt+F"),
+        entry("menu.toggleComment", "edit.toggle_comment", "Ctrl+/"),
+        entry("menu.quickFix", "edit.quick_fix", "Ctrl+."),
+        entry(
+            "menu.triggerParameterHints",
+            "edit.param_hints",
+            "Ctrl+Shift+Space",
+        ),
+        entry("menu.showHover", "edit.show_hover", "Ctrl+K Ctrl+I"),
+    ],
+    &[
+        entry("menu.duplicateLine", "edit.duplicate_line", "Ctrl+D"),
+        entry("menu.deleteLine", "edit.delete_line", "Ctrl+Shift+K"),
+        entry("menu.moveLineUp", "edit.move_up", "Alt+Up"),
+        entry("menu.moveLineDown", "edit.move_down", "Alt+Down"),
+        entry("menu.formatDocument", "edit.format_doc", "Ctrl+Alt+L"),
+        entry("menu.formatSelection", "edit.format_sel", "Ctrl+K Ctrl+F"),
+    ],
+    &[entry(
+        "menu.commandPalette",
+        "view.command_palette",
+        "Ctrl+Shift+P",
+    )],
 ];
 
+// ---- View：对齐 tsx View 菜单六组（末尾 Theme 子菜单由 build_menu 追加） ----
 const VIEW_MENU: &[&[MenuEntry]] = &[
     &[
-        entry("Toggle Sidebar", "view.toggle_sidebar"),
-        entry("Toggle Bottom Panel", "view.toggle_bottom_panel"),
-        entry("Toggle Status Bar", "view.toggle_status_bar"),
+        entry(
+            "menu.toggleActivitySidebar",
+            "view.toggle_activity_rail",
+            "Ctrl+B",
+        ),
+        entry(
+            "menu.toggleSecondarySidebar",
+            "view.toggle_sidebar",
+            "Ctrl+E",
+        ),
+        entry("menu.toggleTerminal", "view.toggle_bottom_panel", "Ctrl+J"),
     ],
     &[
-        entry("Command Palette", "view.command_palette"),
-        entry("Quick Open", "view.quick_open"),
+        entry("menu.globalSearch", "view.global_search", "Ctrl+Shift+F"),
+        entry("menu.diagnostics", "view.diagnostics", "Ctrl+Shift+J"),
     ],
     &[
-        entry("Zoom In", "view.zoom_in"),
-        entry("Zoom Out", "view.zoom_out"),
-        entry("Reset Zoom", "view.reset_zoom"),
+        entry("menu.fileExplorer", "view.show_explorer", "Ctrl+Shift+E"),
+        entry("menu.sourceControl", "view.show_git", "Ctrl+Shift+G"),
+        entry("menu.github", "view.show_github", ""),
+        entry("menu.runAndDebug", "view.show_debug", ""),
+    ],
+    &[
+        entry("menu.splitEditor", "view.split_editor", ""),
+        entry("menu.toggleMinimap", "view.toggle_minimap", ""),
+        entry("menu.toggleWordWrap", "view.toggle_wrap", "Alt+Z"),
+        entry("menu.toggleLineNumbers", "view.toggle_line_numbers", ""),
+        entry("menu.toggleRenderWhitespace", "view.toggle_whitespace", ""),
+    ],
+    &[
+        entry("menu.zoomIn", "view.zoom_in", "Ctrl+="),
+        entry("menu.zoomOut", "view.zoom_out", "Ctrl+-"),
+        entry("menu.resetZoom", "view.reset_zoom", "Ctrl+0"),
     ],
 ];
 
+// ---- Go：对齐 tsx Go 菜单四组 ----
 const GO_MENU: &[&[MenuEntry]] = &[
-    &[entry("Back", "go.back"), entry("Forward", "go.forward")],
     &[
-        entry("Go to File", "go.go_to_file"),
-        entry("Go to Symbol", "go.go_to_symbol"),
-        entry("Go to Line", "go.go_to_line"),
+        entry("menu.quickOpen", "view.quick_open", "Ctrl+P"),
+        entry("menu.goToLine", "go.go_to_line", "Ctrl+G"),
+    ],
+    &[
+        entry("menu.goBack", "go.back", "Ctrl+Alt+Left"),
+        entry("menu.goForward", "go.forward", "Ctrl+Alt+Right"),
+    ],
+    &[
+        entry("menu.goToDefinition", "go.definition", "F12"),
+        entry("menu.goToImplementation", "go.implementation", "Ctrl+F12"),
+        entry("menu.goToTypeDefinition", "go.type_definition", ""),
+        entry("menu.goToReferences", "go.references", "Ctrl+B"),
+        entry("menu.renameSymbol", "go.rename", "F2"),
+    ],
+    &[
+        entry("menu.nextTab", "go.next_tab", "Ctrl+Alt+Right"),
+        entry("menu.previousTab", "go.prev_tab", "Ctrl+Alt+Left"),
     ],
 ];
 
+// ---- Terminal：对齐 tsx，单组无分隔线 ----
 const TERMINAL_MENU: &[&[MenuEntry]] = &[&[
-    entry("New Terminal", "terminal.new"),
-    entry("Split Terminal", "terminal.split"),
-    entry("Clear Terminal", "terminal.clear"),
+    entry("menu.newTerminal", "terminal.new", ""),
+    entry("menu.splitTerminalRight", "terminal.split_right", "Ctrl+D"),
+    entry(
+        "menu.splitTerminalDown",
+        "terminal.split_down",
+        "Ctrl+Shift+D",
+    ),
+    entry("menu.closeTerminal", "terminal.close", ""),
 ]];
 
-const RUN_MENU: &[&[MenuEntry]] = &[
-    &[
-        entry("Run", "run.run"),
-        entry("Debug", "run.debug"),
-        entry("Stop", "run.stop"),
-    ],
-    &[entry("Run Without Debugging", "run.run_without_debugging")],
-];
+// ---- Run：对齐 tsx，单组无分隔线 ----
+const RUN_MENU: &[&[MenuEntry]] = &[&[
+    entry("menu.startDebugging", "run.debug_start", "F5"),
+    entry("menu.stopDebugging", "run.debug_stop", "Shift+F5"),
+    entry("menu.toggleBreakpoint", "run.breakpoint", "F9"),
+]];
 
+// ---- Tools：对齐 tsx 三组（首项 databases 禁用，对齐后端能力缺失） ----
 const TOOLS_MENU: &[&[MenuEntry]] = &[
+    &[disabled_entry("menu.databases", "tools.database", "")],
+    &[entry("menu.webInspector", "tools.inspector", "Ctrl+Alt+I")],
     &[
-        entry("Settings", "tools.settings"),
-        entry("Extensions", "tools.extensions"),
-    ],
-    &[
-        entry("Database", "tools.database"),
-        entry("Diagnostics", "tools.diagnostics"),
+        entry("menu.preferences", "tools.settings", ""),
+        entry("menu.keyboardShortcuts", "tools.shortcuts", ""),
     ],
 ];
 
+// ---- Window：对齐 tsx，Linux 下不要 toggleMenuBar 那一段，单组无分隔线 ----
 const WINDOW_MENU: &[&[MenuEntry]] = &[&[
-    entry("Minimize", "window.minimize"),
-    entry("Maximize", "window.maximize"),
-    entry("Close", "window.close"),
+    entry("menu.minimize", "window.minimize", "Alt+F9"),
+    entry("menu.maximize", "window.maximize", "Alt+F10"),
+    entry("menu.toggleFullscreen", "window.fullscreen", "F11"),
 ]];
 
+// ---- Help：对齐 tsx 三组 ----
 const HELP_MENU: &[&[MenuEntry]] = &[
     &[
-        entry("Documentation", "help.documentation"),
-        entry("Keyboard Shortcuts", "help.keyboard_shortcuts"),
+        entry("menu.documentation", "help.docs", ""),
+        entry("menu.keyboardShortcuts", "help.shortcuts", ""),
+        entry("menu.whatsNew", "help.whats_new", ""),
+        entry("menu.changelog", "help.changelog", ""),
     ],
-    &[entry("About Lithe", "help.about")],
+    &[
+        entry("menu.reportBug", "help.report_bug", ""),
+        entry("menu.requestFeature", "help.feature", ""),
+    ],
+    &[entry("menu.checkForUpdates", "help.check_updates", "")],
 ];
 
 const APP_MENUS: &[AppMenu] = &[
     AppMenu {
-        title: "File",
+        key: "menu.file",
         groups: FILE_MENU,
     },
     AppMenu {
-        title: "Edit",
+        key: "menu.edit",
         groups: EDIT_MENU,
     },
     AppMenu {
-        title: "View",
+        key: "menu.view",
         groups: VIEW_MENU,
     },
     AppMenu {
-        title: "Go",
+        key: "menu.go",
         groups: GO_MENU,
     },
     AppMenu {
-        title: "Terminal",
+        key: "menu.terminal",
         groups: TERMINAL_MENU,
     },
     AppMenu {
-        title: "Run",
+        key: "menu.run",
         groups: RUN_MENU,
     },
     AppMenu {
-        title: "Tools",
+        key: "menu.tools",
         groups: TOOLS_MENU,
     },
     AppMenu {
-        title: "Window",
+        key: "menu.window",
         groups: WINDOW_MENU,
     },
     AppMenu {
-        title: "Help",
+        key: "menu.help",
         groups: HELP_MENU,
     },
 ];
 
 /// 构造一个发出 `MenuAction(id)` 的菜单项。
+///
+/// 用 `PopupMenuItem::element` 自定义行：左侧标签占满（`text_xs`），右侧快捷键
+/// （`text_xs` + 弱化色，无快捷键不渲染），对齐 Tauri `MenubarItem` 左右结构；
+/// `ElementItem` 同样享受 hover 高亮。
 fn menu_action_item(
-    label: impl Into<SharedString>,
+    label: String,
+    shortcut: String,
     action: &'static str,
+    disabled: bool,
     view: &gpui_kit::Entity<ToolbarView>,
 ) -> PopupMenuItem {
     let v = view.clone();
-    PopupMenuItem::new(label).on_click(move |_, _, cx| {
+    // element 闭包只有 `&mut Window, &mut App`，翻译好的 owned 文案 move 进来。
+    PopupMenuItem::element(move |_window, _cx| {
+        let label = label.clone();
+        let shortcut = shortcut.clone();
+        let mut row = h_flex().w_full().items_center().gap_2().child(
+            div()
+                .flex_1()
+                .text_xs()
+                .text_color(ThemeColors::foreground())
+                .child(label),
+        );
+        if !shortcut.is_empty() {
+            row = row.child(
+                div()
+                    .text_xs()
+                    .text_color(ThemeColors::subtle_foreground())
+                    .child(shortcut),
+            );
+        }
+        row
+    })
+    .disabled(disabled)
+    .on_click(move |_, _, cx| {
         v.update(cx, |this, cx| {
             // 选中任意菜单项后收起紧凑菜单条，与 Tauri `onCompactClose` 一致。
             this.compact_menu_open = false;
@@ -274,8 +410,15 @@ fn event_item(
 }
 
 /// 按分组把菜单项灌入 `PopupMenu`，分组之间自动插入分隔线。
+///
+/// 文案在 builder 内用 `cx`（`&mut Context<PopupMenu>`）实时解析；
+/// View 菜单末尾追加 Theme 子菜单（Lithe Dark / Lithe Light），对齐 tsx 的
+/// `MenubarSub`（主题列表在 Linux 端固定两项）。
 fn build_menu(
     mut menu: PopupMenu,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+    app_key: &'static str,
     groups: &[&[MenuEntry]],
     view: &gpui_kit::Entity<ToolbarView>,
 ) -> PopupMenu {
@@ -286,8 +429,38 @@ fn build_menu(
         }
         first_group = false;
         for item in *group {
-            menu = menu.item(menu_action_item(item.label, item.action, view));
+            let label = crate::i18n::menu_text(cx, item.key).to_string();
+            menu = menu.item(menu_action_item(
+                label,
+                item.shortcut.to_string(),
+                item.action,
+                item.disabled,
+                view,
+            ));
         }
+    }
+    if app_key == "menu.view" {
+        let theme_label = crate::i18n::menu_text(cx, "menu.theme").to_string();
+        let v = view.clone();
+        // submenu 闭包要求 'static，view 需 clone 成 owned 再 move。
+        menu = menu
+            .separator()
+            .submenu(theme_label, window, cx, move |sub, _w, _cx| {
+                sub.item(menu_action_item(
+                    "Lithe Dark".to_string(),
+                    String::new(),
+                    "menu.theme.lithe-dark",
+                    false,
+                    &v,
+                ))
+                .item(menu_action_item(
+                    "Lithe Light".to_string(),
+                    String::new(),
+                    "menu.theme.lithe-light",
+                    false,
+                    &v,
+                ))
+            });
     }
     menu
 }
@@ -305,8 +478,25 @@ impl Render for ToolbarView {
 
         let view = cx.entity();
 
+        // 项目胶囊下拉文案：翻译在 render 内用 cx 解析成 owned String 再 move 进闭包
+        //（dropdown_menu 的 builder 闭包是 Fn，多次调用时 clone 使用）。
+        // 必须放在紧凑菜单 `.when(open, move ...)` 之前，避免 cx 被 move 后再借用。
+        let t_new_project = crate::i18n::menu_text(cx, "titleProject.newProject").to_string();
+        let t_open = crate::i18n::menu_text(cx, "titleProject.open").to_string();
+        let t_clone = crate::i18n::menu_text(cx, "titleProject.cloneRepository").to_string();
+        let t_open_projects = crate::i18n::menu_text(cx, "titleProject.openProjects").to_string();
+        let t_recent = crate::i18n::menu_text(cx, "titleProject.recentProjects").to_string();
+
+        // 九个顶层菜单标题：render 入口处一次性翻译成 owned String，
+        // 后续 move 闭包只搬运字符串，不再借用 cx（避免 cx 被 move 后再借用）。
+        let menu_titles: Vec<String> = APP_MENUS
+            .iter()
+            .map(|app| crate::i18n::menu_text(cx, app.key).to_string())
+            .collect();
+
         // 应用菜单栏：紧凑模式为 Menu 图标触发一个横向浮出的菜单条（九个菜单名并排，
         // 各自下拉），对齐 Tauri `compactFloating` 的 `Menubar`；非紧凑模式平铺九个顶层菜单。
+        // 顶层标题用 i18n 翻译，不再用英文常量。
         let app_menu: AnyElement = if compact_menu {
             let v_menu = view.clone();
             // 触发点相对定位，浮层用 deferred+anchored 挂在其下方，避免撑开标题栏。
@@ -356,14 +546,17 @@ impl Render for ToolbarView {
                                             cx.notify();
                                         });
                                     })
-                                    .children(APP_MENUS.iter().map(|app| {
+                                    .children(APP_MENUS.iter().enumerate().map(|(ix, app)| {
                                         let v_item = v_menu.clone();
-                                        Button::new(format!("tb-compact-menu-{}", app.title))
+                                        let key = app.key;
+                                        let groups = app.groups;
+                                        let title = menu_titles[ix].clone();
+                                        Button::new(format!("tb-compact-menu-{key}"))
                                             .small()
                                             .ghost()
-                                            .label(app.title)
-                                            .dropdown_menu(move |menu, _window, _cx| {
-                                                build_menu(menu, app.groups, &v_item)
+                                            .label(title)
+                                            .dropdown_menu(move |menu, window, cx| {
+                                                build_menu(menu, window, cx, key, groups, &v_item)
                                             })
                                     })),
                             ),
@@ -373,13 +566,18 @@ impl Render for ToolbarView {
         } else {
             h_flex()
                 .items_center()
-                .children(APP_MENUS.iter().map(|app| {
+                .children(APP_MENUS.iter().enumerate().map(|(ix, app)| {
                     let v = view.clone();
-                    Button::new(format!("tb-menu-{}", app.title))
+                    let key = app.key;
+                    let groups = app.groups;
+                    let title = menu_titles[ix].clone();
+                    Button::new(format!("tb-menu-{key}"))
                         .small()
                         .ghost()
-                        .label(app.title)
-                        .dropdown_menu(move |menu, _window, _cx| build_menu(menu, app.groups, &v))
+                        .label(title)
+                        .dropdown_menu(move |menu, window, cx| {
+                            build_menu(menu, window, cx, key, groups, &v)
+                        })
                 }))
                 .into_any_element()
         };
@@ -435,25 +633,22 @@ impl Render for ToolbarView {
                             )
                             .dropdown_menu(move |menu, _window, _cx| {
                                 menu.item(event_item(
-                                    "New Project",
+                                    t_new_project.clone(),
                                     || ToolbarEvent::NewProject,
                                     &v,
                                 ))
-                                .item(event_item("Open", || ToolbarEvent::OpenProject, &v))
+                                .item(event_item(t_open.clone(), || ToolbarEvent::OpenProject, &v))
                                 .item(event_item(
-                                    "Clone Repository",
+                                    t_clone.clone(),
                                     || ToolbarEvent::CloneRepository,
                                     &v,
                                 ))
                                 .separator()
-                                .item(event_item(
-                                    "Open Projects",
-                                    || ToolbarEvent::OpenProject,
-                                    &v,
-                                ))
+                                // 打开的项目分组标签：只展示，不可点。
+                                .item(PopupMenuItem::label(t_open_projects.clone()))
                                 .separator()
                                 .item(event_item(
-                                    "Open Recent",
+                                    t_recent.clone(),
                                     || ToolbarEvent::OpenRecent,
                                     &v,
                                 ))
