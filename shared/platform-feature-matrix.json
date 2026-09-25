@@ -82,14 +82,14 @@
           "macos/Sources/Lithe/Views/App/AgentsSettingsView.swift",
           "macos/Sources/Lithe/Application/Features/AgentManagementFeatureModel.swift",
           "rust/lithe-agent-host/src/install.rs",
-          "rust/lithe-core/src/agent.rs"
+          "rust/lithe-core/src/agent/mod.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "windows": {
         "evidence": [
-          "rust/lithe-core/src/agent.rs"
+          "rust/lithe-core/src/agent/mod.rs"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"

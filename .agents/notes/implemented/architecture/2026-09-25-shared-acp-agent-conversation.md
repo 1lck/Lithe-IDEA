@@ -89,4 +89,4 @@ Zed 就是这么做的。但会装 Agent 的用户本机通常已经有 Node。�
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent.rs`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/App/AgentsSettingsView.swift`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/App/AgentsSettingsView.swift`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
