@@ -21,6 +21,7 @@ pub mod status_bar;
 pub mod tab_menu;
 pub mod terminal;
 pub mod toolbar;
+pub mod tree_search;
 pub mod view;
 pub mod welcome_screen;
 

@@ -136,10 +136,14 @@ pub struct SidebarView {
     pub selected_path: Option<String>,
     pub is_loading: bool,
     pub error_message: Option<String>,
-    /// 文件树过滤串（对齐 Tauri `treeSearchQuery`，仅按文件名过滤）
+    /// 文件树过滤串（对齐 Tauri `treeSearchQuery`，匹配名称与路径）
     pub tree_filter: String,
     /// 是否展开文件树过滤输入（对齐 Tauri `SidebarSearchPopover` 的打开态）
     pub show_tree_filter: bool,
+    /// 过滤命中路径（深度优先顺序，对齐 `orderedMatchedPaths`）
+    tree_search_hits: Vec<String>,
+    /// 回车跳转游标：当前聚焦的命中下标
+    tree_search_match_index: usize,
     // 搜索状态
     #[allow(dead_code)]
     pub search_query: String,
@@ -167,6 +171,8 @@ impl SidebarView {
             error_message: None,
             tree_filter: String::new(),
             show_tree_filter: false,
+            tree_search_hits: Vec::new(),
+            tree_search_match_index: 0,
             search_query: String::new(),
             search_results: Vec::new(),
             is_searching: false,
@@ -217,6 +223,8 @@ impl SidebarView {
                     let _ = this.update(cx, |sidebar, cx| {
                         sidebar.root_node = node;
                         sidebar.is_loading = false;
+                        // 快照刷新后重算搜索命中，避免旧命中路径与新树不一致。
+                        sidebar.recompute_tree_search();
                         cx.notify();
                     });
                 }
@@ -381,6 +389,63 @@ impl SidebarView {
         }
         false
     }
+
+    /// 重算文件树搜索命中（对齐 Windows `collectFileTreeSearchHits`）。
+    ///
+    /// 空查询清空命中；非空时在完整递归快照上做 `"name path"` 子串匹配，
+    /// 并重置回车跳转游标。
+    pub fn recompute_tree_search(&mut self) {
+        self.tree_search_match_index = 0;
+        self.tree_search_hits = match &self.root_node {
+            Some(root) if !self.tree_filter.trim().is_empty() => super::tree_search::collect_hits(
+                root,
+                &self.tree_filter,
+                super::tree_search::TREE_SEARCH_RESULT_LIMIT,
+            ),
+            _ => Vec::new(),
+        };
+        // 对齐 Windows：有命中时自动聚焦首个命中，便于高亮与直接回车打开。
+        if let Some(first) = self.tree_search_hits.first() {
+            self.selected_path = Some(first.clone());
+        }
+    }
+
+    /// 按覆盖集合强制设置目录展开态（对齐 Windows `expandedPathsOverride`）。
+    ///
+    /// 目录是否展开完全由 `expanded` 决定；文件节点保留原状。`is_root` 为真时
+    /// 保留工作区根节点原展开态（根不代表可折叠层级）。
+    fn apply_expanded_override(
+        node: &mut FileEntry,
+        expanded: &std::collections::HashSet<String>,
+        is_root: bool,
+    ) {
+        if node.is_directory && !is_root {
+            node.is_expanded = expanded.contains(&node.path);
+        }
+        if let Some(children) = &mut node.children {
+            for child in children {
+                Self::apply_expanded_override(child, expanded, false);
+            }
+        }
+    }
+
+    /// 回车/Shift+回车 在命中间跳转（对齐 `navigateTreeSearchMatch`）。
+    ///
+    /// 正向从当前游标向下一个命中推进（到尾部回到首个），反向则相反；
+    /// 跳转即将目标命中选中，供文件树高亮显示。
+    fn navigate_tree_search(&mut self, forward: bool, cx: &mut Context<Self>) {
+        if self.tree_search_hits.is_empty() {
+            return;
+        }
+        let count = self.tree_search_hits.len();
+        self.tree_search_match_index = if forward {
+            (self.tree_search_match_index + 1) % count
+        } else {
+            (self.tree_search_match_index + count - 1) % count
+        };
+        self.selected_path = Some(self.tree_search_hits[self.tree_search_match_index].clone());
+        cx.notify();
+    }
 }
 
 fn is_code_file(name: &str) -> bool {
@@ -431,7 +496,7 @@ impl Render for SidebarView {
             .border_color(ThemeColors::border())
             .track_focus(&self.focus_handle)
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                // 文件树过滤输入：字符追加、退格删除、Esc 清空并收起。
+                // 文件树过滤输入：字符追加、退格删除、回车跳转命中、Esc 清空并收起。
                 if !this.show_tree_filter {
                     return;
                 }
@@ -440,13 +505,18 @@ impl Render for SidebarView {
                     "escape" => {
                         this.tree_filter.clear();
                         this.show_tree_filter = false;
+                        this.recompute_tree_search();
                         cx.notify();
                     }
                     "backspace" => {
                         this.tree_filter.pop();
+                        this.recompute_tree_search();
                         cx.notify();
                     }
-                    "enter" => {}
+                    "enter" => {
+                        // 对齐 Tauri：回车跳下一个命中，Shift+回车跳上一个。
+                        this.navigate_tree_search(!event.keystroke.modifiers.shift, cx);
+                    }
                     _ => {
                         if !event.keystroke.modifiers.control
                             && !event.keystroke.modifiers.alt
@@ -461,6 +531,7 @@ impl Render for SidebarView {
                                 changed = true;
                             }
                             if changed {
+                                this.recompute_tree_search();
                                 cx.notify();
                             }
                         }
@@ -507,6 +578,7 @@ impl Render for SidebarView {
                                                     window.focus(&this.focus_handle, cx);
                                                 } else {
                                                     this.tree_filter.clear();
+                                                    this.recompute_tree_search();
                                                 }
                                                 cx.notify();
                                             })),
@@ -800,6 +872,7 @@ impl SidebarView {
                     .on_click(cx.listener(|this, _event, _window, cx| {
                         this.tree_filter.clear();
                         this.show_tree_filter = false;
+                        this.recompute_tree_search();
                         cx.notify();
                     })),
             )
@@ -823,6 +896,16 @@ impl SidebarView {
                 node.remove_hidden();
             }
             node.sort_recursive(folders_first);
+            // 搜索生效时用命中结果覆盖展开态（对齐 Windows `expandedPathsOverride`）：
+            // 仅保留命中子树，并强制展开命中项的祖先目录。
+            if !query.is_empty() {
+                let result = super::tree_search::filter_for_hits(&node, &self.tree_search_hits);
+                // 将命中子树归到同一根节点下后应用展开覆盖。
+                node.children = Some(result.children);
+                let expanded: std::collections::HashSet<String> =
+                    result.expanded_paths.into_iter().collect();
+                Self::apply_expanded_override(&mut node, &expanded, true);
+            }
             if hide_root && node.is_directory {
                 // 隐藏根目录：从子节点开始按深度 0 收集。
                 if let Some(children) = &node.children {
@@ -833,23 +916,6 @@ impl SidebarView {
             } else {
                 node.collect_visible(0, &mut visible_items);
             }
-        }
-        // 文本过滤：保留名称命中项及其祖先目录。
-        if !query.is_empty() {
-            let mut keep: std::collections::HashSet<String> = std::collections::HashSet::new();
-            for item in &visible_items {
-                if item.name.to_lowercase().contains(&query) {
-                    let mut path = item.path.clone();
-                    loop {
-                        keep.insert(path.clone());
-                        match path.rfind('/') {
-                            Some(idx) => path.truncate(idx),
-                            None => break,
-                        }
-                    }
-                }
-            }
-            visible_items.retain(|item| keep.contains(&item.path));
         }
 
         v_flex()
