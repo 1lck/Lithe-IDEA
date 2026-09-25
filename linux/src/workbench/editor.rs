@@ -683,15 +683,15 @@ impl EditorView {
             return;
         }
 
-        let view = cx.entity();
         let editor_focus = self
             .editor_state
             .read(cx)
             .presentation()
             .focus_handle()
             .clone();
+        let capabilities = self.editor_state.read(cx).context_menu_capabilities();
         let menu = PopupMenu::build(window, cx, move |menu, _window, cx| {
-            build_editor_context_menu(menu, cx, &view).action_context(editor_focus)
+            build_editor_context_menu(menu, cx, capabilities).action_context(editor_focus)
         });
         let subscription = cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
             this.editor_context_menu = None;
@@ -1389,13 +1389,8 @@ fn install_editor_context_menu_handler(
 fn build_editor_context_menu(
     mut menu: PopupMenu,
     cx: &mut Context<PopupMenu>,
-    view: &Entity<EditorView>,
+    capabilities: InputContextMenuCapabilities,
 ) -> PopupMenu {
-    let capabilities = view
-        .read(cx)
-        .editor_state
-        .read(cx)
-        .context_menu_capabilities();
     let enabled = !capabilities.is_disabled();
     let editable = enabled && !capabilities.is_readonly();
 
