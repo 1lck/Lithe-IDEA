@@ -39,6 +39,7 @@ use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
+use crate::workbench::global_search_panel::{GlobalSearchEvent, GlobalSearchPanel};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
 use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
 use crate::workbench::sidebar::{FileEntry, SidebarEvent, SidebarTab, SidebarView};
@@ -88,6 +89,8 @@ pub struct WorkbenchView {
     pub show_welcome: bool,
     /// 全局搜索弹窗浮层是否可见
     pub show_search_everywhere: bool,
+    /// 全局内容搜索面板是否显示（对齐 Tauri 全局搜索标签页）。
+    pub show_global_search: bool,
     /// 快速打开浮层是否可见
     pub show_quick_open: bool,
     /// 跳转到行浮层是否可见
@@ -151,6 +154,8 @@ pub struct WorkbenchView {
     pub status_bar: Entity<StatusBarView>,
     /// 全局搜索弹窗
     pub search_everywhere: Entity<SearchEverywhereModal>,
+    /// 全局内容搜索面板（对齐 Tauri `global-search`，编辑器区内呈现）
+    pub global_search: Entity<GlobalSearchPanel>,
     /// 快速打开弹窗
     pub quick_open: Entity<QuickOpenModal>,
     /// 跳转到行弹窗
@@ -216,6 +221,7 @@ impl WorkbenchView {
         });
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
+        let global_search = cx.new(|cx| GlobalSearchPanel::new(root.clone(), window, cx));
         let quick_open = cx.new(|cx| QuickOpenModal::new(cx));
         let go_to_line = cx.new(|cx| GoToLineModal::new(cx));
         let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
@@ -608,7 +614,25 @@ impl WorkbenchView {
                 },
             );
 
-        // 6. 订阅全局搜索事件
+        // 6. 订阅全局搜索面板事件
+        let sub_global_search = cx.subscribe(
+            &global_search,
+            move |this, _panel, event: &GlobalSearchEvent, cx| match event {
+                GlobalSearchEvent::OpenFile { path, line, column } => {
+                    this.open_file(path, cx);
+                    // 行跳转需要 `Window`，此处只记待跳转，由 `render` 消费。
+                    this.pending_goto_line = line.map(|l| l as u32);
+                    let _ = column;
+                    cx.notify();
+                }
+                GlobalSearchEvent::Close => {
+                    this.show_global_search = false;
+                    cx.notify();
+                }
+            },
+        );
+
+        // 6. 订阅 Search Everywhere 弹窗事件
         let status_bar_search = status_bar.clone();
         let sub_search = cx.subscribe(
             &search_everywhere,
@@ -861,6 +885,7 @@ impl WorkbenchView {
             // 无工作区（命令行与最近项目都为空）时直接进入欢迎页。
             show_welcome: root.is_empty(),
             show_search_everywhere: false,
+            show_global_search: false,
             show_quick_open: false,
             show_go_to_line: false,
             show_command_palette: false,
@@ -892,6 +917,7 @@ impl WorkbenchView {
             bottom_panel,
             status_bar,
             search_everywhere,
+            global_search,
             quick_open,
             go_to_line,
             command_palette,
@@ -915,6 +941,7 @@ impl WorkbenchView {
                 sub_maven,
                 sub_toolbar,
                 sub_search,
+                sub_global_search,
                 sub_quick_open,
                 sub_go_to_line,
                 sub_command_palette,
@@ -1160,6 +1187,18 @@ impl WorkbenchView {
         let _ = self.bottom_panel.update(cx, |bp, cx| {
             bp.append_log(message.to_string(), cx);
         });
+    }
+
+    /// 打开全局内容搜索面板（对齐 Tauri `global-search` 标签页）。
+    pub fn open_global_search(&mut self, cx: &mut Context<Self>) {
+        this_sync_files(self, cx);
+        let root = self.workspace_root.clone();
+        let _ = self.global_search.update(cx, |panel, cx| {
+            panel.set_root(root, cx);
+        });
+        self.show_global_search = true;
+        self.double_shift.reset();
+        cx.notify();
     }
 
     /// 打开全局搜索弹窗并更新当前文件索引
@@ -2187,9 +2226,13 @@ impl WorkbenchView {
                     }
                 });
             }
-            // 全局搜索与查找：查找替换 UI 未做，复用全局搜索弹窗。
-            "view.global_search" | "edit.find" | "edit.find_replace" => {
+            // 全局搜索：打开 Search Everywhere 弹窗。
+            "view.global_search" => {
                 self.open_search_everywhere(cx);
+            }
+            // 在文件中查找/替换：打开全局内容搜索面板（对齐 Tauri `global-search`）。
+            "edit.find" | "edit.find_replace" => {
+                self.open_global_search(cx);
             }
             // 诊断信息：底部面板切换到 Diagnostics 并展开。
             "view.diagnostics" => {
@@ -2582,6 +2625,8 @@ impl Render for WorkbenchView {
                         this.show_go_to_line = false;
                     } else if this.show_search_everywhere {
                         this.show_search_everywhere = false;
+                    } else if this.show_global_search {
+                        this.show_global_search = false;
                     } else if this.show_settings_dialog {
                         this.show_settings_dialog = false;
                     }
@@ -2718,6 +2763,18 @@ impl Render for WorkbenchView {
             } else {
                 self.render_workbench(show_status_bar, cx)
                     .into_any_element()
+            })
+            // 全局内容搜索面板（对齐 Tauri 编辑区内呈现）；铺满工作区且在其上。
+            .when(self.show_global_search, |view| {
+                view.child(
+                    div()
+                        .absolute()
+                        .top(px(0.0))
+                        .left(px(0.0))
+                        .right(px(0.0))
+                        .bottom(px(0.0))
+                        .child(self.global_search.clone()),
+                )
             })
             .when(self.show_search_everywhere, |view| {
                 view.child(self.search_everywhere.clone())

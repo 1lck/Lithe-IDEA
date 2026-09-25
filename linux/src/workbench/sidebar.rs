@@ -250,7 +250,16 @@ impl SidebarView {
         let q = query.to_string();
 
         cx.spawn(async move |this, cx| {
-            let task = client.search(&cx, &root, &q);
+            let task = client.search(
+                &cx,
+                &root,
+                &q,
+                false,
+                false,
+                false,
+                super::global_search::CONTENT_SEARCH_PAGE_SIZE,
+                "",
+            );
 
             match task.await {
                 Ok(matches) => {

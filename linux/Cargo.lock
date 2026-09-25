@@ -3963,6 +3963,7 @@ dependencies = [
  "libc",
  "lithe-core",
  "portable-pty",
+ "regex",
  "rfd",
  "serde",
  "serde_json",

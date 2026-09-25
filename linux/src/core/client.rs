@@ -201,13 +201,21 @@ impl CoreClient {
         })
     }
 
-    /// 在工作区中搜索文本或文件
+    /// 在工作区中搜索文本或文件（对齐 Tauri `workspace.search` 的完整参数）。
+    ///
+    /// `max_results` 默认与 Tauri `CONTENT_SEARCH_PAGE_SIZE`（140）一致；
+    /// `file_mask` 为逗号分隔的文件掩码，空串表示不过滤。
     #[allow(dead_code)]
     pub fn search(
         &self,
         cx: &gpui_kit::AsyncApp,
         root: &str,
         query: &str,
+        case_sensitive: bool,
+        whole_words: bool,
+        regular_expression: bool,
+        max_results: usize,
+        file_mask: &str,
     ) -> Task<Result<Vec<Value>, String>> {
         let task: Task<Result<Value, String>> = self.execute(
             cx,
@@ -215,8 +223,11 @@ impl CoreClient {
             serde_json::json!({
                 "root": root,
                 "query": query,
-                "caseSensitive": false,
-                "maxResults": 100,
+                "caseSensitive": case_sensitive,
+                "wholeWords": whole_words,
+                "regularExpression": regular_expression,
+                "maxResults": max_results,
+                "fileMask": file_mask,
             }),
         );
 
@@ -229,6 +240,36 @@ impl CoreClient {
                 .unwrap_or_default();
             Ok(matches)
         })
+    }
+
+    /// 工作区替换预览（对齐 Tauri `workspace.replacePreview`）。
+    ///
+    /// 返回 `files` 数组：每项含 `path`、`replacementText`，调用方据此写回。
+    #[allow(dead_code)]
+    pub fn replace_preview(
+        &self,
+        cx: &gpui_kit::AsyncApp,
+        root: &str,
+        query: &str,
+        replacement: &str,
+        case_sensitive: bool,
+        whole_words: bool,
+        regular_expression: bool,
+        paths: &[String],
+    ) -> Task<Result<Value, String>> {
+        self.execute(
+            cx,
+            "workspace.replacePreview",
+            serde_json::json!({
+                "root": root,
+                "query": query,
+                "replacement": replacement,
+                "caseSensitive": case_sensitive,
+                "wholeWords": whole_words,
+                "regularExpression": regular_expression,
+                "paths": paths,
+            }),
+        )
     }
 
     /// 获取 Git 状态

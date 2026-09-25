@@ -5,6 +5,8 @@ pub mod command_palette;
 pub mod editor;
 pub mod extensions_panel;
 pub mod file_icon;
+pub mod global_search;
+pub mod global_search_panel;
 pub mod go_to_line;
 pub mod maven;
 pub mod notifications;

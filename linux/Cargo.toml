@@ -27,3 +27,4 @@ tokio = { version = "1", features = ["sync", "macros", "rt"] }
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 libc = "0.2"
+regex = "1.11"
