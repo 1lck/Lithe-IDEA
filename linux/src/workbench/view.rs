@@ -10,8 +10,9 @@ use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle,
-    InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Styled as _, Subscription, Window,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ModifiersChangedEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Styled as _,
+    Subscription, Window,
 };
 
 use std::collections::{HashMap, HashSet};
@@ -152,6 +153,13 @@ pub struct WorkbenchView {
     pub branch_manager: Entity<BranchManagerView>,
     /// 欢迎页
     pub welcome_screen: Entity<WelcomeScreenView>,
+
+    /// 快捷键索引（菜单快捷键表 → 动作 id），启动时构建一次。
+    keymap: crate::keybindings::KeymapIndex,
+    /// 双击 Shift 手势识别器（全局搜索）。
+    double_shift: crate::keybindings::DoubleShiftRecognizer,
+    /// 双击 Shift 计时用的单调起点（进程内首次按键时惰性记录）。
+    double_shift_clock_origin: Option<std::time::Instant>,
 
     focus_handle: FocusHandle,
     client: CoreClient,
@@ -863,6 +871,9 @@ impl WorkbenchView {
             project_dialog,
             branch_manager,
             welcome_screen,
+            keymap: crate::keybindings::KeymapIndex::build(),
+            double_shift: crate::keybindings::DoubleShiftRecognizer::new(),
+            double_shift_clock_origin: None,
             focus_handle,
             client: CoreClient::new(),
             _subscriptions: vec![
@@ -895,6 +906,18 @@ impl WorkbenchView {
             !crate::theme::ThemePalette::is_light(&settings::resolved_theme_id(s, false))
         };
         view.apply_resolved_theme(is_dark, cx);
+        // 快捷键表自检：菜单写了但无法解析的快捷键会让「菜单显示了键、按下却无效」
+        // 变得很难排查，启动时直接报到日志（正常情况下为空）。若整张表为空，
+        // 说明菜单表与解析器已经脱钩，同样算错。
+        if view.keymap.is_empty() || !view.keymap.invalid_shortcuts().is_empty() {
+            let bad = view.keymap.invalid_shortcuts().join(", ");
+            let msg = format!(
+                "[Keymap] {} shortcut(s) parsed, unparseable: {}",
+                view.keymap.len(),
+                bad
+            );
+            view.append_log(&msg, cx);
+        }
         // 启动目录同样记入最近项目（对齐 Tauri 打开即记录）。
         settings::record_recent_project(cx, &view.workspace_root.clone());
         // 同步工具栏当前项目行（仿分支同步写法；构造时已传入，此处再确认一次）。
@@ -1077,6 +1100,9 @@ impl WorkbenchView {
     pub fn open_search_everywhere(&mut self, cx: &mut Context<Self>) {
         this_sync_files(self, cx);
         self.show_search_everywhere = true;
+        // 弹窗打开后 Shift 用于输入，手势状态必须清空，
+        // 避免关闭弹窗后把之前的一次 Shift 与下一次拼接成双击。
+        self.double_shift.reset();
         let _ = self.search_everywhere.update(cx, |search, cx| {
             search.reset(cx);
         });
@@ -1087,6 +1113,7 @@ impl WorkbenchView {
     pub fn open_quick_open(&mut self, cx: &mut Context<Self>) {
         this_sync_files(self, cx);
         self.show_quick_open = true;
+        self.double_shift.reset();
         let _ = self.quick_open.update(cx, |qo, cx| {
             qo.reset(cx);
         });
@@ -1096,6 +1123,7 @@ impl WorkbenchView {
     /// 打开跳转到行弹窗
     pub fn open_go_to_line(&mut self, cx: &mut Context<Self>) {
         self.show_go_to_line = true;
+        self.double_shift.reset();
         let _ = self.go_to_line.update(cx, |modal, cx| {
             modal.reset(cx);
         });
@@ -1105,6 +1133,7 @@ impl WorkbenchView {
     /// 打开命令面板
     pub fn open_command_palette(&mut self, cx: &mut Context<Self>) {
         self.show_command_palette = true;
+        self.double_shift.reset();
         let _ = self.command_palette.update(cx, |cp, cx| {
             cp.reset(cx);
         });
@@ -1131,6 +1160,28 @@ impl WorkbenchView {
     fn active_editor(&self) -> Option<Entity<EditorView>> {
         self.active_pane_id()
             .and_then(|id| self.pane_editors.get(&id).cloned())
+    }
+
+    /// 是否有模态浮层可见。可见时按键监听不抢快捷键，让弹窗输入框正常接收字符。
+    fn modal_visible(&self) -> bool {
+        self.show_search_everywhere
+            || self.show_quick_open
+            || self.show_go_to_line
+            || self.show_command_palette
+            || self.show_settings_dialog
+            || self.show_project_dialog
+            || self.show_branch_manager
+    }
+
+    /// 双击 Shift 用的单调秒级时钟。
+    ///
+    /// 识别器只关心两次抬手的时间差，因此以「首次调用时刻」为零点，
+    /// 避免依赖墙钟（系统时间跳变会让手势失效）。
+    fn double_shift_clock(&mut self) -> f64 {
+        let origin = *self
+            .double_shift_clock_origin
+            .get_or_insert_with(std::time::Instant::now);
+        origin.elapsed().as_secs_f64()
     }
 
     fn sync_run_editor(&mut self, cx: &mut Context<Self>) {
@@ -2108,7 +2159,6 @@ impl Render for WorkbenchView {
             .bg(ThemeColors::background())
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
                 let key = event.keystroke.key.as_str();
-                let modifiers = event.keystroke.modifiers;
 
                 // 浮层优先：Esc 关闭最上层模态。
                 if key == "escape" {
@@ -2129,60 +2179,93 @@ impl Render for WorkbenchView {
                     return;
                 }
 
-                if modifiers.control || modifiers.platform {
-                    if modifiers.shift && key == "p" {
-                        this.open_command_palette(cx);
-                        return;
+                // 弹窗打开时输入框要能正常打字：除 Esc 外不抢占快捷键，
+                // 与 Tauri 模态捕获按键的语义一致。
+                if this.modal_visible() {
+                    return;
+                }
+
+                // 其它按键按下：本次 Shift 按压不再算「独立」，双击手势取消。
+                // 注意 Linux 后端不为修饰键本身发 `KeyDownEvent`（X11 侧
+                // `keysym.is_modifier_key()` 直接返回），因此这里只会收到
+                // 真正的普通按键，Shift 的按下/抬起完全由 `ModifiersChanged` 驱动。
+                this.double_shift.handle_key_down();
+
+                // 快捷键统一走菜单派生的按键表；命中后交给 `handle_action`，
+                // 与菜单项、命令面板共用同一套动作分支。
+                let stroke = crate::keybindings::KeyStrokeId::from_event(
+                    key,
+                    &event.keystroke.modifiers,
+                );
+                let Some(action_id) = this.keymap.lookup(&stroke) else {
+                    return;
+                };
+                // 编辑器动作需要 `&mut Window`，经 `editor_direct` 直达；
+                // 其余动作不重入窗口，统一由 `handle_action` 处理。
+                match action_id {
+                    "edit.duplicate_line" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.duplicate_line(window, cx);
+                    }),
+                    "edit.delete_line" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.delete_line(window, cx);
+                    }),
+                    "edit.move_up" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.move_line_up(window, cx);
+                    }),
+                    "edit.move_down" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.move_line_down(window, cx);
+                    }),
+                    "edit.toggle_comment" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.toggle_comment(window, cx);
+                    }),
+                    "edit.undo" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.undo(window, cx);
+                    }),
+                    "edit.redo" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.redo(window, cx);
+                    }),
+                    "edit.cut" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.cut(window, cx);
+                    }),
+                    "edit.paste" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.paste(window, cx);
+                    }),
+                    "edit.select_all" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.select_all(window, cx);
+                    }),
+                    "edit.copy" => this.with_active_editor(cx, |ed, cx| {
+                        ed.copy(cx);
+                    }),
+                    "view.toggle_wrap" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.toggle_wrap(window, cx);
+                    }),
+                    "view.toggle_line_numbers" => {
+                        this.editor_direct(window, cx, |ed, window, cx| {
+                            ed.toggle_line_numbers(window, cx);
+                        })
                     }
-                    if modifiers.shift && key == "f" {
-                        this.open_search_everywhere(cx);
-                        return;
-                    }
-                    match key {
-                        "p" => this.open_quick_open(cx),
-                        "," => this.open_settings(cx),
-                        "b" => this.toggle_sidebar(cx),
-                        "`" => {
-                            let _ = this.bottom_panel.update(cx, |bp, cx| {
-                                bp.toggle_collapsed(cx);
-                            });
-                        }
-                        "j" => {
-                            let _ = this.bottom_panel.update(cx, |bp, cx| {
-                                bp.set_tab(BottomTab::Terminal, cx);
-                            });
-                        }
-                        // 行操作快捷键与菜单展示一致（上游编辑器不原生支持）。
-                        // 按键监听自带 `window`，直接下发，避免经句柄二次
-                        // `update` 的重入借用失败。
-                        "d" => this.editor_direct(window, cx, |ed, window, cx| {
-                            ed.duplicate_line(window, cx);
-                        }),
-                        "/" => this.editor_direct(window, cx, |ed, window, cx| {
-                            ed.toggle_comment(window, cx);
-                        }),
-                        _ => {
-                            if modifiers.shift && (key == "k" || key == "K") {
-                                this.editor_direct(window, cx, |ed, window, cx| {
-                                    ed.delete_line(window, cx);
-                                });
-                            }
-                        }
-                    }
-                    // Alt+Up/Down 移动行（`modifiers.alt`）。
-                    if modifiers.alt && (key == "up" || key == "down") {
-                        if key == "up" {
-                            this.editor_direct(window, cx, |ed, window, cx| {
-                                ed.move_line_up(window, cx);
-                            });
-                        } else {
-                            this.editor_direct(window, cx, |ed, window, cx| {
-                                ed.move_line_down(window, cx);
-                            });
-                        }
-                    }
+                    "view.toggle_whitespace" => this.editor_direct(window, cx, |ed, window, cx| {
+                        ed.toggle_whitespace(window, cx);
+                    }),
+                    other => this.handle_action(other, cx),
                 }
             }))
+            // 双击 Shift：GPUI 的修饰键变化事件包含按下/抬起两次，
+            // 由识别器按时间窗判定，命中后打开全局搜索。
+            .on_modifiers_changed(
+                cx.listener(|this, event: &ModifiersChangedEvent, _window, cx| {
+                    let timestamp = this.double_shift_clock();
+                    let modifiers = event.modifiers;
+                    let has_other = modifiers.control || modifiers.alt || modifiers.platform;
+                    if this.double_shift.handle_modifiers_changed(
+                        modifiers.shift,
+                        has_other,
+                        timestamp,
+                    ) {
+                        this.handle_action(crate::keybindings::DOUBLE_SHIFT_ACTION, cx);
+                    }
+                }),
+            )
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.is_resizing_sidebar {
                     let current_x = f32::from(event.position.x);

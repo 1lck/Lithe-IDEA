@@ -373,6 +373,32 @@ const APP_MENUS: &[AppMenu] = &[
     },
 ];
 
+/// 菜单表里所有非空快捷键的 `(展示文本, 动作 id)` 展平结果，按菜单顺序稳定。
+///
+/// 这是快捷键的唯一真源：`keybindings` 模块据此生成按键索引，
+/// 因此「菜单上写着什么快捷键」与「按什么键会触发」不会出现两份定义。
+///
+/// 只收录可用条目（`disabled` 的菜单项后端能力缺失，绑定后按键按下会静默
+/// 无响应，比未绑定更难排查）。同一按键被多个可用条目占用时，取菜单中
+/// 先出现的那个，保证结果与菜单自上而下的阅读顺序一致。
+pub fn menu_shortcut_entries() -> Vec<(&'static str, &'static str)> {
+    let mut out: Vec<(&'static str, &'static str)> = Vec::new();
+    for menu in APP_MENUS {
+        for group in menu.groups {
+            for item in *group {
+                if item.shortcut.is_empty() || item.disabled {
+                    continue;
+                }
+                if out.iter().any(|(shortcut, _)| *shortcut == item.shortcut) {
+                    continue;
+                }
+                out.push((item.shortcut, item.action));
+            }
+        }
+    }
+    out
+}
+
 /// 构造一个发出 `MenuAction(id)` 的菜单项。
 ///
 /// 用 `PopupMenuItem::element` 自定义行：左侧标签占满（`text_xs`），右侧快捷键
