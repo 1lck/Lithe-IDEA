@@ -19,7 +19,7 @@ use std::{
 #[cfg(target_os = "windows")]
 #[link(name = "kernel32")]
 unsafe extern "system" {
-   fn GetACP() -> u32;
+   fn GetOEMCP() -> u32;
    fn WideCharToMultiByte(
       code_page: u32,
       flags: u32,
@@ -615,10 +615,18 @@ impl TerminalConnection {
       let data = match input {
          TerminalInput::Text { data } => {
             #[cfg(target_os = "windows")]
-            if let Some(invocation) = self.prepare_long_input(&data)? {
-               invocation.into_bytes()
-            } else {
-               data.into_bytes()
+            match self.prepare_long_input(&data) {
+               Ok(Some(invocation)) => invocation.into_bytes(),
+               Ok(None) => data.into_bytes(),
+               Err(error) => {
+                  (self.event_handler)(
+                     &self.id,
+                     TerminalEvent::Error {
+                        message: error.to_string(),
+                     },
+                  );
+                  return Ok(());
+               }
             }
             #[cfg(not(target_os = "windows"))]
             data.into_bytes()
@@ -636,19 +644,21 @@ impl TerminalConnection {
 
    #[cfg(target_os = "windows")]
    fn prepare_long_input(&self, input: &str) -> Result<Option<String>> {
-      if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT {
-         return Ok(None);
-      }
-
       let Some(shell) = self.long_input_shell else {
          return Ok(None);
       };
 
-      if shell == LongInputShell::Cmd && !Self::cmd_input_can_use_script(input) {
-         return Err(anyhow!(
-            "cmd.exe cannot execute a single terminal input line longer than {} UTF-16 units",
-            WINDOWS_INTERACTIVE_INPUT_LIMIT
-         ));
+      match shell {
+         LongInputShell::Cmd => {
+            if !Self::cmd_input_can_use_script(input)? {
+               return Ok(None);
+            }
+         }
+         LongInputShell::PowerShell => {
+            if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT {
+               return Ok(None);
+            }
+         }
       }
 
       let Some((invocation, path)) = Self::create_long_input_script(
@@ -669,13 +679,17 @@ impl TerminalConnection {
       input: &str,
       directory: &Path,
    ) -> Result<Option<(String, PathBuf)>> {
-      if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT
-      {
-         return Ok(None);
-      }
-
-      if shell == LongInputShell::Cmd && !Self::cmd_input_can_use_script(input) {
-         return Ok(None);
+      match shell {
+         LongInputShell::Cmd => {
+            if !Self::cmd_input_can_use_script(input)? {
+               return Ok(None);
+            }
+         }
+         LongInputShell::PowerShell => {
+            if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT {
+               return Ok(None);
+            }
+         }
       }
 
       let (extension, suffix) = match shell {
@@ -720,18 +734,28 @@ impl TerminalConnection {
    }
 
    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
-   fn cmd_input_can_use_script(input: &str) -> bool {
-      input.lines().count() > 1
-         && input
-            .lines()
-            .all(|line| line.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT)
+   fn cmd_input_can_use_script(input: &str) -> Result<bool> {
+      let lines = input.lines().collect::<Vec<_>>();
+      let mut total_bytes = 0;
+      for line in &lines {
+         let encoded_len = Self::encode_cmd_script(line)?.len();
+         if encoded_len > WINDOWS_INTERACTIVE_INPUT_LIMIT {
+            return Err(anyhow!(
+               "cmd.exe cannot execute an input line longer than {} encoded bytes",
+               WINDOWS_INTERACTIVE_INPUT_LIMIT
+            ));
+         }
+         total_bytes += encoded_len;
+      }
+      Ok(lines.len() > 1 && total_bytes > WINDOWS_INTERACTIVE_INPUT_LIMIT)
    }
 
    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
    fn encode_cmd_script(input: &str) -> Result<Vec<u8>> {
       #[cfg(target_os = "windows")]
       {
-         return Self::encode_cmd_script_in_code_page(input, unsafe { GetACP() });
+         // cmd.exe reads batch files using the console's default OEM code page.
+         return Self::encode_cmd_script_in_code_page(input, unsafe { GetOEMCP() });
       }
       #[cfg(not(target_os = "windows"))]
       {
@@ -968,9 +992,8 @@ mod tests {
          LongInputShell::Cmd,
          &single_line,
          directory.path(),
-      )
-      .unwrap();
-      assert!(cmd_result.is_none());
+      );
+      assert!(cmd_result.unwrap_err().to_string().contains("encoded bytes"));
 
       let powershell_result = TerminalConnection::create_long_input_script(
          LongInputShell::PowerShell,
@@ -985,14 +1008,20 @@ mod tests {
    #[test]
    fn cmd_scripts_require_multiple_safe_length_lines() {
       let oversized_line = "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT + 1);
-      assert!(!TerminalConnection::cmd_input_can_use_script(&oversized_line));
-      assert!(!TerminalConnection::cmd_input_can_use_script(&format!(
+      assert!(TerminalConnection::cmd_input_can_use_script(&oversized_line).is_err());
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
          "{oversized_line}\necho finish"
-      )));
+      )).is_err());
       assert!(TerminalConnection::cmd_input_can_use_script(&format!(
          "echo start\n{}\necho finish",
          "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT)
-      )));
+      )).unwrap());
+      assert!(!TerminalConnection::cmd_input_can_use_script("echo short\necho finish").unwrap());
+
+      let wide_line = "\u{4e2d}".repeat(4_000);
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "echo start\n{wide_line}\necho finish"
+      )).is_err());
    }
 
    #[test]
