@@ -22,7 +22,7 @@ use crate::theme::ThemeColors;
 use crate::workbench::activity_rail::{
     ActivityRailEvent, ActivityRailView, PluginActivityRailView, PluginRailEvent,
 };
-use crate::workbench::bottom_panel::{BottomPanelView, BottomTab};
+use crate::workbench::bottom_panel::{BottomPanelEvent, BottomPanelView, BottomTab};
 use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::{EditorTabEvent, EditorView};
@@ -320,7 +320,19 @@ impl WorkbenchView {
             },
         );
 
-        // 4. 订阅右侧插件活动栏事件
+        // 4. 订阅底部诊断面板事件
+        let sub_bottom_panel = cx.subscribe(
+            &bottom_panel,
+            |this, _panel, event: &BottomPanelEvent, cx| match event {
+                BottomPanelEvent::OpenFile { path, line } => {
+                    this.open_file(path, cx);
+                    this.pending_goto_line = Some(*line);
+                    cx.notify();
+                }
+            },
+        );
+
+        // 5. 订阅右侧插件活动栏事件
         let sub_plugin_rail = cx.subscribe(
             &plugin_rail,
             |this, _rail, event: &PluginRailEvent, cx| match event {
@@ -808,6 +820,7 @@ impl WorkbenchView {
                 sub_sidebar,
                 obs_sidebar,
                 sub_rail,
+                sub_bottom_panel,
                 sub_plugin_rail,
                 sub_notifications,
                 sub_extensions,

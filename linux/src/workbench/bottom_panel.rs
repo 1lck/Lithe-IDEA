@@ -5,6 +5,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
+use gpui_kit::EventEmitter;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, ScrollHandle, StatefulInteractiveElement as _,
@@ -102,6 +103,24 @@ pub enum BottomTab {
     GitLog,
 }
 
+/// 诊断面板中的一条问题，字段与 Tauri DiagnosticsBuffer 的展示模型对齐。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticEntry {
+    pub severity: String,
+    pub file_path: String,
+    pub line: u32,
+    pub column: u32,
+    pub message: String,
+    pub source: Option<String>,
+    pub code: Option<String>,
+}
+
+/// 诊断面板向外发出的定位事件。
+#[derive(Debug, Clone)]
+pub enum BottomPanelEvent {
+    OpenFile { path: String, line: u32 },
+}
+
 /// Git 提交记录的一行：短 hash + 首行 message，只读展示不跳转。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitLogEntry {
@@ -114,7 +133,7 @@ pub struct BottomPanelView {
     pub is_collapsed: bool,
     pub height: f32,
     pub terminal: Entity<TerminalView>,
-    pub diagnostics: Vec<String>,
+    pub diagnostics: Vec<DiagnosticEntry>,
     /// 终端工作目录；GitLog 面板取数时作为 `git -C` 目标。
     pub working_dir: String,
     /// 运行历史（`TerminalView::send_command` 被调用时由宿主经
@@ -162,6 +181,8 @@ pub struct BottomPanelView {
     pub git_log_error: Option<String>,
 }
 
+impl EventEmitter<BottomPanelEvent> for BottomPanelView {}
+
 impl BottomPanelView {
     pub fn new(working_dir: String, cx: &mut Context<Self>) -> Self {
         let terminal = cx.new(|cx| TerminalView::new(working_dir.clone(), cx));
@@ -199,6 +220,93 @@ impl BottomPanelView {
 
     pub fn is_visible(&self) -> bool {
         !self.is_collapsed
+    }
+
+    fn render_diagnostics_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.diagnostics.is_empty() {
+            return div()
+                .size_full()
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_xs()
+                .text_color(ThemeColors::text_muted())
+                .child(crate::i18n::menu_text(cx, "diagnostics.empty").to_string())
+                .into_any_element();
+        }
+
+        let rows: Vec<AnyElement> = self
+            .diagnostics
+            .iter()
+            .enumerate()
+            .map(|(index, diagnostic)| {
+                let location = format!(
+                    "{}:{}:{}",
+                    diagnostic.file_path,
+                    diagnostic.line + 1,
+                    diagnostic.column + 1
+                );
+                let source = diagnostic
+                    .source
+                    .as_deref()
+                    .unwrap_or("diagnostic")
+                    .to_string();
+                let path = diagnostic.file_path.clone();
+                let line = diagnostic.line + 1;
+                let severity_color = match diagnostic.severity.as_str() {
+                    "error" => ThemeColors::destructive(),
+                    "warning" => ThemeColors::warning(),
+                    _ => ThemeColors::accent_blue(),
+                };
+                h_flex()
+                    .id(format!("diagnostic-{index}"))
+                    .w_full()
+                    .items_start()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .cursor_pointer()
+                    .hover(|row| row.bg(ThemeColors::accent()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(severity_color)
+                            .child(diagnostic.severity.clone()),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_primary())
+                                    .child(diagnostic.message.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_muted())
+                                    .child(format!("{location} · {source}")),
+                            ),
+                    )
+                    .on_click(cx.listener(move |_this, _event, _window, cx| {
+                        cx.emit(BottomPanelEvent::OpenFile {
+                            path: path.clone(),
+                            line,
+                        });
+                    }))
+                    .into_any_element()
+            })
+            .collect();
+
+        div()
+            .size_full()
+            .overflow_y_scrollbar()
+            .children(rows)
+            .into_any_element()
     }
 
     pub fn set_height(&mut self, height: f32, cx: &mut Context<Self>) {
@@ -1156,22 +1264,7 @@ impl Render for BottomPanelView {
                     )],
                     cx,
                 ),
-                div()
-                    .size_full()
-                    .p_3()
-                    .overflow_y_scrollbar()
-                    .text_xs()
-                    .text_color(ThemeColors::text_muted())
-                    .child(if self.diagnostics.is_empty() {
-                        crate::i18n::menu_text(cx, "diagnostics.empty").to_string()
-                    } else {
-                        format!(
-                            "{} ({})",
-                            crate::i18n::menu_text(cx, "workbench.diagnostics"),
-                            self.diagnostics.len()
-                        )
-                    })
-                    .into_any_element(),
+                self.render_diagnostics_panel(cx),
             ),
             BottomTab::GitLog => (
                 self.render_pane_header(
