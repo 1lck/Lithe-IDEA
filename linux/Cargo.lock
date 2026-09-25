@@ -3960,6 +3960,7 @@ dependencies = [
  "alacritty_terminal",
  "anyhow",
  "gpui-kit",
+ "libc",
  "lithe-core",
  "portable-pty",
  "rfd",

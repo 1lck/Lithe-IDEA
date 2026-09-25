@@ -3,6 +3,7 @@
 //! 结构对齐 Tauri `MainLayout`：顶栏 / 多项目标签条 / 活动栏 + 侧边栏 + 编辑区 +
 //! 右侧插件活动栏 / 底部面板 / 状态栏；无项目时显示欢迎页，浮层由模态状态控制。
 
+use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, ResizableState};
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
@@ -180,12 +181,18 @@ impl WorkbenchView {
         pane_editors.insert(initial_pane, editor.clone());
         Self::wire_pane_editor(&pane_tree, cx.entity(), initial_pane, &editor, cx);
         let bottom_panel = cx.new(|cx| BottomPanelView::new(root.clone(), cx));
+        bottom_panel.update(cx, |panel, cx| {
+            panel.set_run_editor(Some(editor.clone()), cx);
+        });
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
         let quick_open = cx.new(|cx| QuickOpenModal::new(cx));
         let go_to_line = cx.new(|cx| GoToLineModal::new(cx));
         let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
         let settings_dialog = cx.new(|cx| SettingsDialog::new(cx));
+        settings_dialog.update(cx, |dialog, cx| {
+            dialog.set_workspace_root(root.clone(), cx);
+        });
         let project_dialog = cx.new(|cx| ProjectDialog::new(cx));
         let branch_manager_root = root.clone();
         let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, cx));
@@ -694,6 +701,12 @@ impl WorkbenchView {
                 SettingsEvent::Changed => {
                     cx.notify();
                 }
+                SettingsEvent::RunConfigurationChanged => {
+                    let _ = this.bottom_panel.update(cx, |panel, cx| {
+                        panel.reload_run_project(cx);
+                    });
+                    cx.notify();
+                }
             },
         );
 
@@ -1010,7 +1023,9 @@ impl WorkbenchView {
     /// 打开底部 Run 页并运行选中配置：对齐 Tauri `openRunDecisionPane` +
     /// `runConfiguration`（页签可见 + 受管进程，不进交互终端）。
     fn open_run_pane(&mut self, cx: &mut Context<Self>) {
+        let editor = self.active_editor();
         let _ = self.bottom_panel.update(cx, |bp, cx| {
+            bp.set_run_editor(editor, cx);
             bp.set_tab(BottomTab::Run, cx);
             bp.run_selected_config(cx);
         });
@@ -1023,6 +1038,9 @@ impl WorkbenchView {
         }
         self.workspace_root = path.clone();
         self.show_welcome = false;
+        let _ = self
+            .settings_dialog
+            .update(cx, |dialog, cx| dialog.set_workspace_root(path.clone(), cx));
         // 同步工具栏当前项目行（仿分支同步写法）。
         let _ = self.toolbar.update(cx, |tb, cx| {
             tb.set_workspace_root(path.clone(), cx);
@@ -1040,6 +1058,7 @@ impl WorkbenchView {
         let _ = self.bottom_panel.update(cx, |bp, cx| {
             bp.set_working_dir(path.clone(), cx);
         });
+        self.sync_run_editor(cx);
         // 右侧通知中心投递项目打开事件（对齐 Tauri 系统事件通知）。
         let opened = crate::i18n::menu_text(cx, "notifications.projectOpened").to_string();
         let _ = self.notifications.update(cx, |n, cx| {
@@ -1114,15 +1133,11 @@ impl WorkbenchView {
             .and_then(|id| self.pane_editors.get(&id).cloned())
     }
 
-    /// 新文件路由编辑器（`route_target()` 落 map，未命中回退 active；
-    /// 锁定窗格自动跳过由模型保证）。
-    fn routed_editor(&self) -> Option<Entity<EditorView>> {
-        if let Some(id) = self.pane_tree.route_target() {
-            if let Some(ed) = self.pane_editors.get(&id).cloned() {
-                return Some(ed);
-            }
-        }
-        self.active_editor()
+    fn sync_run_editor(&mut self, cx: &mut Context<Self>) {
+        let editor = self.active_editor();
+        let _ = self
+            .bottom_panel
+            .update(cx, |panel, cx| panel.set_run_editor(editor, cx));
     }
 
     /// 编辑器文档变化：选择语言服务器、按需启动会话并同步全文。
@@ -1365,6 +1380,16 @@ impl WorkbenchView {
             .update(cx, |panel, cx| panel.set_diagnostics(entries, cx));
     }
 
+    /// 新文件路由编辑器（`route_target()` 落 map，未命中回退 active；
+    /// 锁定窗格自动跳过由模型保证）。
+    fn routed_editor(&self) -> Option<Entity<EditorView>> {
+        if let Some(id) = self.pane_tree.route_target() {
+            if let Some(ed) = self.pane_editors.get(&id).cloned() {
+                return Some(ed);
+            }
+        }
+        self.active_editor()
+    }
 
     /// 活动编辑器上执行动作（无活动窗格时忽略）。
     fn with_active_editor(
@@ -1443,6 +1468,7 @@ impl WorkbenchView {
     fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         if self.pane_tree.close_leaf(pane_id) {
             self.pane_editors.remove(&pane_id);
+            self.sync_run_editor(cx);
             cx.notify();
         }
     }
@@ -1975,6 +2001,7 @@ impl WorkbenchView {
                     if let Some(pid) = target_pane {
                         let _ = this.update(cx, |this, cx| {
                             this.pane_tree.set_active(pid);
+                            this.sync_run_editor(cx);
                             cx.notify();
                         });
                     }
@@ -2370,13 +2397,17 @@ impl WorkbenchView {
         }
     }
 
-    /// 渲染单个窗格叶：对应 editor；整个叶包左键设 active；空标签叶居中
-    /// 显示关闭窗格按钮（根叶关闭返回 `false` 时忽略）。
+    /// 渲染单个窗格叶：对应 editor；整个叶包左键设 active。空拆分窗格保留
+    /// 编辑器空态，并在右上角提供关闭操作；根窗格不可关闭，不显示该操作。
     fn render_pane_leaf(&self, id: PaneId, cx: &mut Context<Self>) -> AnyElement {
         let Some(editor) = self.pane_editors.get(&id).cloned() else {
             return div().size_full().into_any_element();
         };
         let is_empty = editor.read(cx).tabs.is_empty();
+        let can_close = !matches!(
+            self.pane_tree.root(),
+            Some(PaneNode::Leaf(root_id)) if *root_id == id
+        );
         let base = v_flex()
             .size_full()
             .min_w_0()
@@ -2386,25 +2417,28 @@ impl WorkbenchView {
                 MouseButton::Left,
                 cx.listener(move |this, _event: &MouseDownEvent, _window, cx| {
                     this.pane_tree.set_active(id);
+                    this.sync_run_editor(cx);
                     cx.notify();
                 }),
             );
-        if is_empty {
-            base.items_center()
-                .justify_center()
-                .child(
+        let pane = div().relative().size_full().child(editor);
+        let pane = if is_empty && can_close {
+            pane.child(
+                div().absolute().top_1().right_1().child(
                     Button::new(format!("close-pane-{id}"))
-                        .small()
+                        .xsmall()
                         .ghost()
-                        .label(crate::i18n::menu_text(cx, "ui.close").to_string())
+                        .icon(IconName::Close)
+                        .tooltip(crate::i18n::menu_text(cx, "ui.close"))
                         .on_click(cx.listener(move |this, _event, _window, cx| {
                             this.close_pane(id, cx);
                         })),
-                )
-                .into_any_element()
+                ),
+            )
         } else {
-            base.child(editor).into_any_element()
-        }
+            pane
+        };
+        base.child(pane).into_any_element()
     }
 
     fn render_sidebar_splitter(&self, cx: &mut Context<Self>) -> impl IntoElement {

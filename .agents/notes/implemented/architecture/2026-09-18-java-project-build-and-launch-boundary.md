@@ -36,6 +36,13 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 4. Rust Core 接收结构化 `javaLaunch`，生成 `project-jdk` 直启计划；
 5. macOS/Windows 宿主按各自路径分隔符拼接参数并启动一个 JVM。
 
+Linux 第一阶段沿用同一条配置边界：`bottom_panel.rs` 只发 Core 命令和展示
+状态，`workbench/run/config.rs` 持久化 Core 生成结果、解析工具链与启动计划，
+`workbench/run/process.rs` 独占 session、子进程组和输出事件。Linux 不读取旧
+`name/type/mainClass` 文档作为主路径，不再用源码正则补入口，也不在计划失败
+后伪造 `mvn compile`。Maven 项目里的 `java.main` 仍因缺少 JDT 返回的
+`javaLaunch` 明确失败，直到 Linux 接入同一 Java 项目准备能力。
+
 Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信息仍用于 JDT LS
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
 Maven 任务仍走 Maven 启动计划。
@@ -176,6 +183,9 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
 - 点击运行可能需要等待 Java 语言服务 ready；构建失败会保留真实诊断，并在目标路径
   仍可解析时暂停等待用户决定，而不是永久阻止启动。
 - 独立 Java 文件仍遵循“`javac` 编译再运行”的既有方案，不依赖语言服务。
+- Linux Run 只把 Core 计划解析成 Linux 进程；Core 或配置失败会保留真实错误，
+  不再退化为只执行 `compile`。Maven 项目里的 Java 入口在 JDT 准备完成前不会
+  启动，Linux 也不会维护第二套源码扫描结果。
 - 打开大型 Maven 项目后立即点击运行，可能要先等 JDT 的项目更新结束；等待原因
   会写入日志（`Java project build is waiting`），不会再因 30 秒期限而半路失败。
   Windows 运行面板在准备期间先显示一行“正在等待 Java 语言服务更新并构建项目”，
@@ -202,6 +212,10 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
   终态测试覆盖同一次启动继续、按工作区记忆选择和索引恢复。
 - Windows：Run Store 把准备结果传入 Core，并分别用 `;` 拼 classpath/module-path；
   Run/Debug 共用的 Store 测试覆盖同一次启动继续、取消、记忆选择和索引恢复。
+- Linux：`cargo test --manifest-path linux/Cargo.toml --lib --bins` 覆盖 Core
+  process/Spring Boot 计划、`javac -> java`、POSIX classpath、工具链映射、
+  pre-launch 失败门禁、过期 sequence 与完整进程组停止；测试不依赖本机
+  Maven/JDK/网络。
 - 共享契约：`shared/contracts/rust-core-api.md` 与
   `shared/contracts/application-boundary.md`，跨平台样例为
   `shared/fixtures/lsp/java-build-report-v1.json`。
@@ -213,5 +227,6 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
   `rust/lithe-core/src/lsp/interface/engine.rs`
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
 - Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
+- Linux：`linux/src/workbench/bottom_panel.rs`、`linux/src/workbench/run/`
 - 相关笔记：
   `.agents/notes/implemented/feature/2026-09-17-standalone-java-compile-then-run.md`

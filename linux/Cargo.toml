@@ -26,3 +26,4 @@ serde_json = "1"
 tokio = { version = "1", features = ["sync", "macros", "rt"] }
 anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
+libc = "0.2"

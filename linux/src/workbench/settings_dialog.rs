@@ -20,8 +20,13 @@ use gpui_kit::{
     StatefulInteractiveElement as _, Styled as _, Window,
 };
 
+use crate::core::CoreClient;
 use crate::settings::{self, Settings};
 use crate::theme::ThemeColors;
+use crate::workbench::run::{
+    default_generated_configuration_id, list_java_sources, parse_resolved_configurations,
+    read_toolchain_paths, write_generated_documents, write_toolchain_paths, ToolchainPaths,
+};
 
 /// 设置分类，顺序与 Tauri `categories` 数组一致。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -134,11 +139,12 @@ impl SettingsCategory {
     }
 }
 
-/// 对话框对外事件：关闭，以及设置已变更（宿主可据此同步其它视图）。
+/// 对话框对外事件：关闭、普通设置变更，以及 Run 文档/工具链变更。
 #[derive(Debug, Clone)]
 pub enum SettingsEvent {
     Close,
     Changed,
+    RunConfigurationChanged,
 }
 
 /// 居中设置面板（宽 820px，高 620px）。
@@ -164,6 +170,8 @@ pub struct SettingsDialog {
     project_status: String,
     run_configs: Vec<String>,
     run_status: String,
+    run_load_seq: u64,
+    client: CoreClient,
     /// AI 模型单行输入（provider 切换不重置，由用户显式修改）。
     ai_model_input: Option<Entity<InputState>>,
     /// Git 可执行路径单行输入。
@@ -199,6 +207,8 @@ impl SettingsDialog {
             project_status: String::new(),
             run_configs: Vec::new(),
             run_status: String::new(),
+            run_load_seq: 0,
+            client: CoreClient::new(),
             ai_model_input: None,
             git_exe_input: None,
             log_dir_input: None,
@@ -207,17 +217,132 @@ impl SettingsDialog {
         }
     }
 
+    /// 切换工作区并使旧的 Run 配置加载结果失效。
+    pub fn set_workspace_root(&mut self, root: String, cx: &mut Context<Self>) {
+        if self.workspace_root == root {
+            return;
+        }
+        self.workspace_root = root;
+        self.run_load_seq += 1;
+        self.run_configs.clear();
+        self.run_status.clear();
+        self.project_loaded_for.clear();
+        self.project_status.clear();
+        cx.notify();
+    }
+
     /// 切换分类并把 `lastSettingsTab` 写回磁盘，保证下次打开停在同一页。
     pub fn set_category(&mut self, cat: SettingsCategory, cx: &mut Context<Self>) {
         self.active_category = cat;
         settings::update(cx, |s| s.last_settings_tab = cat.id().to_string());
+        if cat == SettingsCategory::Run {
+            self.refresh_run_configs(false, cx);
+        }
         cx.notify();
     }
 
     /// 打开对话框时按持久化的 `lastSettingsTab` 重置分类。
     pub fn open(&mut self, cx: &mut Context<Self>) {
         self.active_category = SettingsCategory::from_id(&settings::get(cx).last_settings_tab);
+        if self.active_category == SettingsCategory::Run {
+            self.refresh_run_configs(false, cx);
+        }
         cx.notify();
+    }
+
+    fn refresh_run_configs(&mut self, generate: bool, cx: &mut Context<Self>) {
+        self.run_load_seq += 1;
+        let seq = self.run_load_seq;
+        let root = self.workspace_root.clone();
+        let client = self.client.clone();
+        self.run_status = if generate {
+            "生成中…".to_string()
+        } else {
+            "加载中…".to_string()
+        };
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result: Result<Vec<String>, String> = async {
+                if generate {
+                    let generated = client
+                        .execute::<serde_json::Value, serde_json::Value>(
+                            &cx,
+                            "runConfig.generate",
+                            serde_json::json!({
+                                "root": root,
+                                "paths": list_java_sources(&root),
+                                "modulePaths": []
+                            }),
+                        )
+                        .await?;
+                    if !this
+                        .update(cx, |view, _cx| view.run_load_seq == seq)
+                        .unwrap_or(false)
+                    {
+                        return Err("stale run configuration request".to_string());
+                    }
+                    let document = generated
+                        .get("generated")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({"version": 2, "configurations": []}));
+                    let requirements = generated
+                        .get("toolchainRequirements")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::json!({"version": 1, "toolchains": {}}));
+                    write_generated_documents(
+                        &root,
+                        &document,
+                        &requirements,
+                        default_generated_configuration_id(&document).as_deref(),
+                    )?;
+                }
+                let inspection = client
+                    .execute::<serde_json::Value, serde_json::Value>(
+                        &cx,
+                        "runConfig.inspect",
+                        serde_json::json!({ "root": root, "checkFingerprint": true }),
+                    )
+                    .await?;
+                if inspection.get("status").and_then(serde_json::Value::as_str) != Some("ready") {
+                    return Err("Run configuration has not been generated".to_string());
+                }
+                let resolved = client
+                    .execute::<serde_json::Value, serde_json::Value>(
+                        &cx,
+                        "runConfig.resolve",
+                        serde_json::json!({ "root": root, "toolchainCandidates": [] }),
+                    )
+                    .await?;
+                let parsed = parse_resolved_configurations(&resolved)?;
+                Ok(parsed
+                    .configurations
+                    .into_iter()
+                    .map(|item| format!("{} ({})", item.name, item.provider))
+                    .collect())
+            }
+            .await;
+            let _ = this.update(cx, |view, cx| {
+                if view.run_load_seq != seq {
+                    return;
+                }
+                match result {
+                    Ok(configs) => {
+                        view.run_configs = configs;
+                        view.run_status = if view.run_configs.is_empty() {
+                            "暂无可运行配置".to_string()
+                        } else {
+                            String::new()
+                        };
+                        if generate {
+                            cx.emit(SettingsEvent::RunConfigurationChanged);
+                        }
+                    }
+                    Err(error) => view.run_status = error,
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 恢复本地占位项的默认值（不涉及持久化）。
@@ -233,6 +358,7 @@ impl SettingsDialog {
         self.project_status = String::new();
         self.run_configs = Vec::new();
         self.run_status = String::new();
+        self.run_load_seq = self.run_load_seq.saturating_add(1);
         self.ai_model_input = None;
         self.git_exe_input = None;
         self.log_dir_input = None;
@@ -1152,7 +1278,7 @@ impl SettingsDialog {
             fill(
                 &mut self.project_jdk_input,
                 if jdk.is_empty() {
-                    which("java").unwrap_or_default()
+                    which_java_home().unwrap_or_default()
                 } else {
                     jdk
                 },
@@ -1284,6 +1410,9 @@ impl SettingsDialog {
                                                 "保存失败".to_string()
                                             };
                                             cx.emit(SettingsEvent::Changed);
+                                            if ok {
+                                                cx.emit(SettingsEvent::RunConfigurationChanged);
+                                            }
                                             cx.notify();
                                         })),
                                 ),
@@ -1292,13 +1421,8 @@ impl SettingsDialog {
             )
     }
 
-    /// 运行配置：读写 `<workspace>/.lithe/run/configurations.json`
-    ///（对齐 Mac `MacRunConfigurationStore` 的项目级配置），列表展示已有
-    /// 配置，生成按钮追加默认 Java 配置。
+    /// 运行配置：通过 Core inspect/resolve 读取，生成按钮走 Core generate。
     fn render_run_content(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.run_configs.is_empty() && self.run_status.is_empty() {
-            self.run_configs = read_run_config_names(&self.workspace_root);
-        }
         let configs = self.run_configs.clone();
         let status = self.run_status.clone();
         let list = if configs.is_empty() {
@@ -1354,16 +1478,7 @@ impl SettingsDialog {
                                             .to_string(),
                                     )
                                     .on_click(cx.listener(|this, _event, _window, cx| {
-                                        let root = this.workspace_root.clone();
-                                        let ok = append_default_run_config(&root);
-                                        this.run_configs = read_run_config_names(&root);
-                                        this.run_status = if ok {
-                                            "已生成默认配置".to_string()
-                                        } else {
-                                            "生成失败".to_string()
-                                        };
-                                        cx.emit(SettingsEvent::Changed);
-                                        cx.notify();
+                                        this.refresh_run_configs(true, cx);
                                     })),
                             ),
                     ),
@@ -3033,6 +3148,15 @@ fn which(exe: &str) -> Option<String> {
     None
 }
 
+fn which_java_home() -> Option<String> {
+    let executable = which("java")?;
+    let path = std::fs::canonicalize(&executable)
+        .unwrap_or_else(|_| std::path::PathBuf::from(&executable));
+    path.parent()
+        .and_then(std::path::Path::parent)
+        .map(|home| home.to_string_lossy().into_owned())
+}
+
 /// Linux 可用 shell 探测：仅收录真实存在的系统 shell（对齐 Tauri 终端面板
 /// 的“探测 shells”行为，Windows 的 powershell/cmd/wsl 在 Linux 无意义）。
 fn detect_linux_shells() -> Vec<String> {
@@ -3048,128 +3172,26 @@ fn detect_linux_shells() -> Vec<String> {
     shells
 }
 
-/// 项目 local.json 路径（`<workspace>/.lithe/run/local.json`，对齐 Mac
-/// `MacRunConfigurationStore` 的本机配置位置）。
-fn project_local_json(workspace_root: &str) -> std::path::PathBuf {
-    std::path::Path::new(workspace_root)
-        .join(".lithe")
-        .join("run")
-        .join("local.json")
-}
-
-/// 读项目工具链（javaHome/mavenExecutable/mavenJavaHome 三键，缺失即空）。
+/// 读项目工具链；canonical 键优先，兼容历史 Linux 扁平键。
 fn read_local_toolchain(workspace_root: &str) -> (String, String, String) {
-    let Ok(text) = std::fs::read_to_string(project_local_json(workspace_root)) else {
-        return (String::new(), String::new(), String::new());
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return (String::new(), String::new(), String::new());
-    };
-    let toolchain = value.get("toolchain");
-    let get = |key: &str| {
-        toolchain
-            .and_then(|t| t.get(key))
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string()
-    };
+    let paths = read_toolchain_paths(workspace_root);
     (
-        get("javaHome"),
-        get("mavenExecutable"),
-        get("mavenJavaHome"),
+        paths.java_home_path,
+        paths.maven_executable_path,
+        paths.maven_java_home_path,
     )
 }
 
-/// 写项目工具链（JSON merge，保留 local.json 其余键）。
+/// 写项目工具链；使用 canonical 键并保留 local.json 其它配置。
 fn write_local_toolchain(workspace_root: &str, jdk: &str, maven: &str, maven_jdk: &str) -> bool {
-    let path = project_local_json(workspace_root);
-    if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return false;
-        }
-    }
-    let mut value: serde_json::Value = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str(&text).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-    if !value.is_object() {
-        value = serde_json::json!({});
-    }
-    let toolchain = value
-        .as_object_mut()
-        .expect("object checked")
-        .entry("toolchain")
-        .or_insert_with(|| serde_json::json!({}));
-    if let Some(map) = toolchain.as_object_mut() {
-        map.insert("javaHome".to_string(), serde_json::json!(jdk));
-        map.insert("mavenExecutable".to_string(), serde_json::json!(maven));
-        map.insert("mavenJavaHome".to_string(), serde_json::json!(maven_jdk));
-    }
-    serde_json::to_string_pretty(&value)
-        .ok()
-        .and_then(|text| std::fs::write(&path, text).ok())
-        .is_some()
-}
-
-/// 运行配置文件路径（`<workspace>/.lithe/run/configurations.json`）。
-fn run_configurations_path(workspace_root: &str) -> std::path::PathBuf {
-    std::path::Path::new(workspace_root)
-        .join(".lithe")
-        .join("run")
-        .join("configurations.json")
-}
-
-/// 读运行配置名列表（兼容数组与 `{configurations:[]}` 两种形状）。
-fn read_run_config_names(workspace_root: &str) -> Vec<String> {
-    let Ok(text) = std::fs::read_to_string(run_configurations_path(workspace_root)) else {
-        return Vec::new();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Vec::new();
-    };
-    let list = if let Some(arr) = value.as_array() {
-        arr.clone()
-    } else if let Some(arr) = value.get("configurations").and_then(|v| v.as_array()) {
-        arr.clone()
-    } else {
-        return Vec::new();
-    };
-    list.iter()
-        .filter_map(|item| {
-            let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-            let kind = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
-            if kind.is_empty() {
-                Some(name.to_string())
-            } else {
-                Some(format!("{name} ({kind})"))
-            }
-        })
-        .collect()
-}
-
-/// 追加一个默认 Java 运行配置（保留已有配置）。
-fn append_default_run_config(workspace_root: &str) -> bool {
-    let path = run_configurations_path(workspace_root);
-    if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return false;
-        }
-    }
-    let mut list: Vec<serde_json::Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|v| {
-            if let Some(arr) = v.as_array() {
-                Some(arr.clone())
-            } else {
-                v.get("configurations").and_then(|c| c.as_array()).cloned()
-            }
-        })
-        .unwrap_or_default();
-    list.push(serde_json::json!({"name": "Run Main", "type": "java", "mainClass": "Main"}));
-    let value = serde_json::json!({"configurations": list});
-    serde_json::to_string_pretty(&value)
-        .ok()
-        .and_then(|text| std::fs::write(&path, text).ok())
-        .is_some()
+    write_toolchain_paths(
+        workspace_root,
+        &ToolchainPaths {
+            java_home_path: jdk.to_string(),
+            maven_executable_path: maven.to_string(),
+            maven_java_home_path: maven_jdk.to_string(),
+            ..ToolchainPaths::default()
+        },
+    )
+    .is_ok()
 }

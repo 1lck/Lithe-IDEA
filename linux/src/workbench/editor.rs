@@ -247,38 +247,51 @@ impl EditorView {
         cx.notify();
     }
 
-    /// 保存当前活动的标签页至磁盘（对接 `file.write`）
+    /// 返回当前活动文件路径，供 Run 构造 Current File 请求。
+    pub fn active_file_path(&self) -> Option<String> {
+        let index = self.active_tab_index?;
+        self.tabs.get(index).map(|tab| tab.path.clone())
+    }
+
+    /// 保存当前活动的标签页至磁盘（对接 `file.write`）。
     pub fn save_active(&mut self, cx: &mut Context<Self>) {
+        self.save_active_task(cx).detach();
+    }
+
+    /// Run 前等待保存完成；错误原样返回给启动工作流。
+    pub fn save_active_task(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::Task<Result<(), String>> {
         let Some(idx) = self.active_tab_index else {
-            return;
+            return cx.spawn(async move |_this, _cx| Ok(()));
         };
         let Some(tab) = self.tabs.get(idx) else {
-            return;
+            return cx.spawn(async move |_this, _cx| Ok(()));
         };
+        if !tab.is_dirty {
+            return cx.spawn(async move |_this, _cx| Ok(()));
+        }
 
         // 以编辑器内的实时文本为准，避免依赖事件回写的时序。
         let text = self.editor_state.read(cx).value().to_string();
-
         let root = self.workspace_root.clone();
         let path = tab.path.clone();
         let client = self.client.clone();
-
         cx.spawn(async move |this, cx| {
-            let task = client.write_file(&cx, &root, &path, &text);
-            if task.await.is_ok() {
-                let _ = this.update(cx, |ed, cx| {
-                    if let Some(active_idx) = ed.active_tab_index {
-                        if let Some(t) = ed.tabs.get_mut(active_idx) {
-                            if t.path == path {
-                                t.is_dirty = false;
-                                cx.notify();
-                            }
+            client.write_file(&cx, &root, &path, &text).await?;
+            let _ = this.update(cx, |ed, cx| {
+                if let Some(active_idx) = ed.active_tab_index {
+                    if let Some(tab) = ed.tabs.get_mut(active_idx) {
+                        if tab.path == path {
+                            tab.is_dirty = false;
+                            cx.notify();
                         }
                     }
-                });
-            }
+                }
+            });
+            Ok(())
         })
-        .detach();
     }
 
     /// 全文替换并记入撤销历史（`set_value` 不触发 Change，需手动维护历史与标签同步）。

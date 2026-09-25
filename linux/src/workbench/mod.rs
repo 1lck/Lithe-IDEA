@@ -11,6 +11,7 @@ pub mod notifications;
 pub mod panes;
 pub mod project_dialog;
 pub mod quick_open;
+pub mod run;
 pub mod search_everywhere;
 pub mod settings_dialog;
 pub mod sidebar;

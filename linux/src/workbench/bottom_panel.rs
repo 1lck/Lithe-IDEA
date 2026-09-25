@@ -1,4 +1,4 @@
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::mpsc;
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -14,6 +14,13 @@ use gpui_kit::{
 
 use crate::core::CoreClient;
 use crate::theme::ThemeColors;
+use crate::workbench::editor::EditorView;
+use crate::workbench::run::{
+    create_launch_plan_request, default_generated_configuration_id, list_java_sources,
+    maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
+    sequence_is_current, toolchain_candidates, write_generated_documents, LaunchPlan, OutputStream,
+    ProcessEvent, ProcessManager, RunConfigItem,
+};
 use crate::workbench::terminal::TerminalView;
 
 /// 运行历史上限。
@@ -34,51 +41,6 @@ pub enum RunProjectState {
     Ready,
     /// 探测失败，内附展示文案。
     Failed(String),
-}
-
-/// Run 配置行：本地 `.lithe/run/configurations.json` 与
-/// `runConfig.generate` 结果的显示子集。
-#[derive(Debug, Clone)]
-pub struct RunConfigItem {
-    /// core 配置 id（本地文件项用配置名代替；`createLaunchPlan`
-    /// 可能因此找不到而走退化执行）。
-    pub id: String,
-    pub name: String,
-    /// `mainClass`（java）|`maven`|`npm`。
-    pub kind: String,
-    /// 副标题：主类 / 模块 / 脚本参数。
-    pub detail: String,
-    pub main_class: Option<String>,
-    /// java 源码路径（generate 结果的 `extensions.java.source`），单文件退化编译用。
-    pub source: Option<String>,
-}
-
-/// 后台运行步骤（退化执行用，不经 core 常驻进程宿主）。
-#[derive(Debug, Clone)]
-struct RunStep {
-    program: String,
-    args: Vec<String>,
-    cwd: String,
-}
-
-/// 进程 framing 行文案（`run_steps_blocking` 无 `cx`，调用方预取传入）。
-#[derive(Debug, Clone)]
-struct StepText {
-    start_failed: String,
-    exit_code: String,
-    exited: String,
-    finished: String,
-}
-
-impl StepText {
-    fn load(cx: &gpui_kit::App) -> Self {
-        Self {
-            start_failed: crate::i18n::menu_text(cx, "run.startFailed").to_string(),
-            exit_code: crate::i18n::menu_text(cx, "run.exitCode").to_string(),
-            exited: crate::i18n::menu_text(cx, "run.exited").to_string(),
-            finished: crate::i18n::menu_text(cx, "run.finished").to_string(),
-        }
-    }
 }
 
 /// 上次 Maven 目标参数（头部重跑按钮回放，对齐 Tauri `rerunLastTest` 语义的子集）。
@@ -118,7 +80,10 @@ pub struct DiagnosticEntry {
 /// 诊断面板向外发出的定位事件。
 #[derive(Debug, Clone)]
 pub enum BottomPanelEvent {
-    OpenFile { path: String, line: u32 },
+    OpenFile {
+        path: String,
+        line: u32,
+    },
     /// 面板清空按钮：请求宿主同步丢弃缓存的 LSP 诊断。
     ClearDiagnostics,
 }
@@ -145,14 +110,24 @@ pub struct BottomPanelView {
     pub(crate) run_state: RunProjectState,
     /// Run 面板工程展示名（工作区目录名）。
     pub(crate) run_project_name: String,
-    /// Run 配置列表（本地文件优先，否则 generate 结果）。
+    /// Run 配置列表（Core resolve 的有效配置）。
     pub(crate) run_configs: Vec<RunConfigItem>,
+    /// Core resolve 给出的默认配置 id。
+    pub(crate) default_run_config: Option<String>,
     /// 选中的 Run 配置 id。
     pub(crate) selected_run_config: Option<String>,
+    /// reload 尚未完成时，行内 Run 要在 ready 后启动的指定 id。
+    pending_run_id: Option<String>,
+    /// reload 完成后自动启动 Core 选出的配置。
+    run_on_ready: bool,
+    /// Run/配置加载诊断，按 Core 返回顺序展示。
+    pub(crate) run_diagnostics: Vec<String>,
     /// 运行输出行（后台线程经 channel 推送，`cx.spawn` 泵入）。
     pub(crate) run_output: Vec<String>,
-    /// 是否有进程在跑。
+    /// 是否有 Run execution 在准备或运行。
     pub(crate) run_running: bool,
+    /// 最近一次 Run 主进程退出码。
+    pub(crate) run_exit_code: Option<i32>,
     /// 输出跟随末尾（对齐 Tauri `scrollOutputToEnd`，默认开，落盘持久化）。
     pub(crate) run_follow_end: bool,
     /// 运行输出滚动句柄（跟随末尾用）。
@@ -167,16 +142,18 @@ pub struct BottomPanelView {
     pub(crate) maven_running: bool,
     /// core 客户端（`reload_run_project` / `createLaunchPlan` 经它走 core JSON 命令）。
     client: CoreClient,
-    /// 在跑子进程句柄：停止按钮经 `kill` 停，运行线程经 `try_wait` 短锁轮询收割。
-    run_child: Arc<Mutex<Option<std::process::Child>>>,
-    /// Maven 任务子进程句柄（与 Run 共用停止语义，分开存放可各自启停）。
-    maven_child: Arc<Mutex<Option<std::process::Child>>>,
+    /// 所有 Run/Maven 子进程的 session/execution 所有者。
+    processes: ProcessManager,
     /// Maven 启动序号，丢弃过期 `launchPlan` 结果。
     maven_seq: u64,
     /// 上次 Maven 目标参数（头部重跑按钮回放）。
     last_maven_goal: Option<MavenGoalParams>,
     /// reload 序号，丢弃过期探测结果。
     run_seq: u64,
+    /// Run execution 序号，阻止被替换的 session 继续写输出。
+    run_execution_seq: u64,
+    /// 当前编辑器，Run 前用于保存脏文件。
+    run_editor: Option<Entity<EditorView>>,
     /// 最近一次加载的 Git 提交记录。
     pub git_log: Vec<GitLogEntry>,
     /// Git 记录加载失败时的展示文案；成功后清空。
@@ -200,21 +177,27 @@ impl BottomPanelView {
             run_state: RunProjectState::Missing,
             run_project_name: crate::settings::project_dir_name(&working_dir).to_string(),
             run_configs: Vec::new(),
+            default_run_config: None,
             selected_run_config: None,
+            pending_run_id: None,
+            run_on_ready: false,
+            run_diagnostics: Vec::new(),
             run_output: Vec::new(),
             run_running: false,
+            run_exit_code: None,
             run_follow_end: crate::settings::get(cx).run_scroll_to_end,
             run_scroll: ScrollHandle::new(),
             run_followed_len: 0,
             maven_title: None,
             maven_output: Vec::new(),
             maven_running: false,
-            maven_child: Arc::new(Mutex::new(None)),
+            client: CoreClient::new(),
+            processes: ProcessManager::new(),
             maven_seq: 0,
             last_maven_goal: None,
-            client: CoreClient::new(),
-            run_child: Arc::new(Mutex::new(None)),
             run_seq: 0,
+            run_execution_seq: 0,
+            run_editor: None,
             git_log: Vec::new(),
             git_log_error: None,
         }
@@ -360,85 +343,270 @@ impl BottomPanelView {
 
     /// 更新工作目录并重探 Run 工程（替代直接写 `working_dir` 字段）。
     pub fn set_working_dir(&mut self, dir: String, cx: &mut Context<Self>) {
+        let _ = self.processes.request_stop("run", None);
+        self.maven_seq += 1;
+        let _ = self.processes.request_stop("maven", None);
+        self.maven_running = false;
+        self.pending_run_id = None;
+        self.run_on_ready = false;
         self.working_dir = dir;
         self.reload_run_project(cx);
     }
 
-    /// 重探 Run 工程：本地 `.lithe/run/configurations.json` 优先命中即 `Ready`；
-    /// 否则先 `maven.scan`（payload `{root, paths}`）探测工程类型，再
-    /// `runConfig.generate`（payload `{root}`，返回
-    /// `{generated: {configurations[]}, entryCount}`）取配置列表，失败即 `Failed`。
+    /// 设置 Run 前需要保存的编辑器实体。
+    pub fn set_run_editor(&mut self, editor: Option<Entity<EditorView>>, cx: &mut Context<Self>) {
+        self.run_editor = editor;
+        cx.notify();
+    }
+
+    /// 重探 Run 工程：先 inspect，再按需 generate，随后持久化并 resolve。
     pub fn reload_run_project(&mut self, cx: &mut Context<Self>) {
         self.run_seq += 1;
+        self.run_execution_seq += 1;
         let seq = self.run_seq;
-        self.run_project_name = crate::settings::project_dir_name(&self.working_dir).to_string();
-        let local = read_local_run_configs(&self.working_dir);
-        if !local.is_empty() {
-            self.run_configs = local;
-            self.keep_run_selection();
-            self.run_state = RunProjectState::Ready;
-            cx.notify();
-            return;
+        if self.run_running {
+            let _ = self.processes.request_stop("run", None);
+            self.run_running = false;
         }
+        self.run_project_name = crate::settings::project_dir_name(&self.working_dir).to_string();
+        self.run_configs.clear();
+        self.default_run_config = None;
+        self.selected_run_config = None;
+        self.run_diagnostics.clear();
         self.run_state = RunProjectState::Loading;
         cx.notify();
+
         let client = self.client.clone();
         let root = self.working_dir.clone();
         cx.spawn(async move |this, cx| {
-            // 先探 Maven 工程（只作工程类型参考；失败不直接 Failed，交给 generate 定夺）。
-            let _ = client
+            let inspection = client
                 .execute::<serde_json::Value, serde_json::Value>(
                     &cx,
-                    "maven.scan",
-                    serde_json::json!({ "root": root, "paths": [] }),
+                    "runConfig.inspect",
+                    serde_json::json!({ "root": root, "checkFingerprint": true }),
                 )
                 .await;
-            let generated = client
-                .execute::<serde_json::Value, serde_json::Value>(
-                    &cx,
-                    "runConfig.generate",
-                    serde_json::json!({ "root": root }),
-                )
-                .await;
-            let _ = this.update(cx, |view, cx| {
-                if view.run_seq != seq {
+            let inspection = match inspection {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
                     return;
                 }
-                match generated {
-                    Ok(value) => {
-                        view.run_configs = parse_generated_configs(&value);
-                        // 无 LSP 时 generate 为空：本地文本扫描 main 方法兜底
-                        //（对齐 Tauri 入口点发现，Linux 无 JDT 故用源码文本匹配）。
-                        if view.run_configs.is_empty() {
-                            view.run_configs = scan_java_mains(&root);
-                        }
-                        view.keep_run_selection();
-                        view.run_state = if view.run_configs.is_empty() {
-                            RunProjectState::Missing
-                        } else {
-                            RunProjectState::Ready
-                        };
+            };
+            let status = inspection
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("missing");
+            let inspection_diagnostics = inspection
+                .get("diagnostics")
+                .and_then(serde_json::Value::as_array)
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.get("message")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_string)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let inspection_diagnostics = if status == "ready" {
+                inspection_diagnostics
+            } else {
+                Vec::new()
+            };
+            if status != "ready" {
+                let paths = list_java_sources(&root);
+                let generated = client
+                    .execute::<serde_json::Value, serde_json::Value>(
+                        &cx,
+                        "runConfig.generate",
+                        serde_json::json!({
+                            "root": root,
+                            "paths": paths,
+                            "modulePaths": []
+                        }),
+                    )
+                    .await;
+                let generated = match generated {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let _ = this.update(cx, |view, cx| {
+                            if view.run_seq == seq {
+                                view.run_state = RunProjectState::Failed(error);
+                                cx.notify();
+                            }
+                        });
+                        return;
                     }
-                    Err(err) => {
-                        view.run_state = RunProjectState::Failed(err);
-                    }
+                };
+                if !this
+                    .update(cx, |view, _cx| view.run_seq == seq)
+                    .unwrap_or(false)
+                {
+                    return;
                 }
+                let generated_document = generated.get("generated").cloned().unwrap_or_default();
+                let requirements = generated
+                    .get("toolchainRequirements")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({"version": 1, "toolchains": {}}));
+                let default_id = default_generated_configuration_id(&generated_document);
+                if let Err(error) = write_generated_documents(
+                    &root,
+                    &generated_document,
+                    &requirements,
+                    default_id.as_deref(),
+                ) {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+                if !this
+                    .update(cx, |view, _cx| view.run_seq == seq)
+                    .unwrap_or(false)
+                {
+                    return;
+                }
+            }
+
+            let toolchains = read_toolchain_paths(&root);
+            let candidates = toolchain_candidates(&root, &toolchains);
+            let resolved = client
+                .execute::<serde_json::Value, serde_json::Value>(
+                    &cx,
+                    "runConfig.resolve",
+                    serde_json::json!({
+                        "root": root,
+                        "toolchainCandidates": candidates
+                    }),
+                )
+                .await;
+            let resolved = match resolved {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let parsed = match parse_resolved_configurations(&resolved) {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let launch = this.update(cx, |view, cx| {
+                if view.run_seq != seq {
+                    return None;
+                }
+                view.run_configs = parsed.configurations;
+                view.default_run_config = parsed.default_configuration_id.clone();
+                view.run_diagnostics = inspection_diagnostics.clone();
+                view.run_diagnostics.extend(parsed.diagnostics.clone());
+                view.run_diagnostics.dedup();
+                let selected = view
+                    .pending_run_id
+                    .clone()
+                    .filter(|id| view.run_configs.iter().any(|item| &item.id == id))
+                    .or_else(|| parsed.default_configuration_id.clone())
+                    .or_else(|| view.run_configs.first().map(|item| item.id.clone()));
+                view.selected_run_config = selected.clone();
+                view.run_state = if view.run_configs.is_empty() {
+                    RunProjectState::Missing
+                } else {
+                    RunProjectState::Ready
+                };
+                let should_launch = view.run_on_ready || view.pending_run_id.is_some();
+                view.run_on_ready = false;
                 cx.notify();
+                let launch_id = view
+                    .pending_run_id
+                    .take()
+                    .or_else(|| should_launch.then(|| selected.clone()).flatten());
+                launch_id.and_then(|id| view.run_configs.iter().find(|item| item.id == id).cloned())
             });
+            if let Ok(Some(item)) = launch {
+                let _ = this.update(cx, |view, cx| view.start_run(item, cx));
+            }
         })
         .detach();
     }
 
-    /// 运行选中配置；运行中则改为停止。
+    /// 顶部 Run 只在当前 reload 结果 ready 后使用默认/当前选择。
     pub fn run_selected_config(&mut self, cx: &mut Context<Self>) {
         if self.run_running {
             self.stop_running(cx);
             return;
         }
-        let Some(item) = self.selected_run_item() else {
+        if !matches!(self.run_state, RunProjectState::Ready) {
+            self.run_on_ready = true;
+            if !matches!(self.run_state, RunProjectState::Loading) {
+                self.reload_run_project(cx);
+            } else {
+                cx.notify();
+            }
             return;
-        };
+        }
+        if let Some(item) = self.selected_run_item() {
+            self.start_run(item, cx);
+        } else {
+            self.run_on_ready = true;
+            self.reload_run_project(cx);
+        }
+    }
+
+    /// 行内 Run 永远携带用户指定的配置 id；配置尚未 ready 时等待 reload。
+    pub fn run_configuration_id(&mut self, id: String, cx: &mut Context<Self>) {
+        if self.run_running {
+            return;
+        }
+        self.pending_run_id = Some(id.clone());
+        self.selected_run_config = Some(id.clone());
+        self.run_on_ready = true;
+        if matches!(self.run_state, RunProjectState::Ready)
+            && self.run_configs.iter().any(|item| item.id == id)
+        {
+            self.pending_run_id = None;
+            self.run_on_ready = false;
+            if let Some(item) = self.run_configs.iter().find(|item| item.id == id).cloned() {
+                self.start_run(item, cx);
+            }
+        } else if !matches!(self.run_state, RunProjectState::Loading) {
+            self.reload_run_project(cx);
+        } else {
+            cx.notify();
+        }
+    }
+
+    fn start_run(&mut self, item: RunConfigItem, cx: &mut Context<Self>) {
+        if self.run_running {
+            return;
+        }
+        self.run_execution_seq += 1;
+        let execution_seq = self.run_execution_seq;
         self.run_running = true;
+        self.run_exit_code = None;
         push_run_line(
             &mut self.run_output,
             format!(
@@ -448,122 +616,256 @@ impl BottomPanelView {
             ),
         );
         cx.notify();
-        let (tx, rx) = mpsc::channel::<String>();
-        let child_slot = self.run_child.clone();
-        let text = StepText::load(cx);
+        let launch_seq = self.run_seq;
+        let launch_execution_seq = execution_seq;
         let client = self.client.clone();
         let root = self.working_dir.clone();
+        let editor = self.run_editor.clone();
+        let processes = self.processes.clone();
         cx.spawn(async move |this, cx| {
-            // 先问 core 要可执行计划（payload `{root, configurationId}`，返回
-            // `{executable, arguments, workingDirectory}`）；本地配置或工具链
-            // 未解析时拿不到可直跑的命令，退化到按 kind 拼的本地命令。
+            if let Some(editor) = editor.as_ref() {
+                let save = editor.update(cx, |editor, cx| editor.save_active_task(cx));
+                if let Err(error) = save.await {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            push_run_line(&mut view.run_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            }
+            if this
+                .update(cx, |view, _cx| {
+                    !view.is_current_run_execution(launch_seq, launch_execution_seq)
+                })
+                .unwrap_or(true)
+            {
+                return;
+            }
+            let current_file = editor
+                .as_ref()
+                .and_then(|editor| editor.update(cx, |editor, _cx| editor.active_file_path()));
+            let current_file = current_file.and_then(|path| workspace_relative_path(&root, &path));
+            let mut toolchains = read_toolchain_paths(&root);
+            if let Some(path) = item.java_home_path() {
+                toolchains.java_home_path = path.to_string();
+            }
+            if let Some(path) = item.maven_executable_path() {
+                toolchains.maven_executable_path = path.to_string();
+            }
+            if let Some(path) = item.maven_java_home_path() {
+                toolchains.maven_java_home_path = path.to_string();
+            }
+            let maven_context = item
+                .uses_maven()
+                .then(|| maven_context_for_configuration(&item, &toolchains));
+            let payload = create_launch_plan_request(
+                &root,
+                &item,
+                current_file.as_deref(),
+                maven_context.as_ref(),
+                None,
+            );
             let plan = client
                 .execute::<serde_json::Value, serde_json::Value>(
                     &cx,
                     "runConfig.createLaunchPlan",
-                    serde_json::json!({ "root": root, "configurationId": item.id }),
+                    payload,
                 )
-                .await
-                .ok();
-            let steps = plan_to_steps(plan.as_ref(), &item, &root);
-            let started = this.update(cx, |view, cx| {
-                if steps.is_empty() {
-                    view.run_running = false;
-                    push_run_line(
-                        &mut view.run_output,
-                        crate::i18n::menu_text(cx, "run.noSteps").to_string(),
-                    );
-                    cx.notify();
-                    return false;
-                }
-                let display = format!("$ {} {}", steps[0].program, steps[0].args.join(" "));
-                push_run_line(&mut view.run_output, display.clone());
-                view.record_run(&display, cx);
-                cx.notify();
-                true
-            });
-            if !matches!(started, Ok(true)) {
+                .await;
+            if this
+                .update(cx, |view, _cx| {
+                    !view.is_current_run_execution(launch_seq, launch_execution_seq)
+                })
+                .unwrap_or(true)
+            {
                 return;
             }
-            std::thread::spawn(move || run_steps_blocking(steps, child_slot, text, tx));
-            // 输出泵：每行经 background 线程阻塞收，再回到主线程落盘展示。
-            let rx = Arc::new(Mutex::new(rx));
+            let plan = match plan {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            push_run_line(&mut view.run_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let plan = match LaunchPlan::from_value(&plan) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            push_run_line(&mut view.run_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let (steps, _main) =
+                match crate::workbench::run::process::resolve_launch(&plan, &root, &toolchains) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let _ = this.update(cx, |view, cx| {
+                            if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                                view.run_running = false;
+                                push_run_line(&mut view.run_output, error);
+                                cx.notify();
+                            }
+                        });
+                        return;
+                    }
+                };
+            if this
+                .update(cx, |view, _cx| {
+                    !view.is_current_run_execution(launch_seq, launch_execution_seq)
+                })
+                .unwrap_or(true)
+            {
+                return;
+            }
+            let execution_id = uuid::Uuid::new_v4().to_string();
+            let (sender, receiver) = mpsc::channel::<ProcessEvent>();
+            let handle = match processes.start("run", &execution_id, steps, sender) {
+                Ok(handle) => handle,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            push_run_line(&mut view.run_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
             loop {
-                let slot = rx.clone();
-                let next = cx
+                let slot = receiver.clone();
+                let event = cx
                     .background_executor()
                     .spawn(async move {
                         let guard = slot.lock().ok()?;
-                        guard.recv().ok()
+                        Some(
+                            match guard.recv_timeout(std::time::Duration::from_secs(1)) {
+                                Ok(event) => Ok(event),
+                                Err(error) => Err(error),
+                            },
+                        )
                     })
                     .await;
-                match next {
-                    Some(line) => {
-                        if this
-                            .update(cx, |view, cx| {
-                                push_run_line(&mut view.run_output, line);
-                                cx.notify();
-                            })
-                            .is_err()
-                        {
-                            break;
-                        }
+                let event = match event {
+                    Some(Ok(event)) => event,
+                    Some(Err(mpsc::RecvTimeoutError::Timeout)) => continue,
+                    Some(Err(mpsc::RecvTimeoutError::Disconnected)) | None => break,
+                };
+                let finished = matches!(&event, ProcessEvent::Finished { .. });
+                let stale = this
+                    .update(cx, |view, _cx| {
+                        !view.is_current_run_execution(launch_seq, launch_execution_seq)
+                    })
+                    .unwrap_or(true);
+                if stale {
+                    let _ = processes.stop("run", Some(&execution_id));
+                    break;
+                }
+                let _ = this.update(cx, |view, cx| match event {
+                    ProcessEvent::Started {
+                        index: _index,
+                        label,
+                    } => {
+                        push_run_line(&mut view.run_output, label.clone());
+                        view.record_run(&label, cx);
+                        cx.notify();
                     }
-                    None => break,
+                    ProcessEvent::Output { stream, text } => {
+                        let text = if stream == OutputStream::Stderr {
+                            format!("[stderr] {text}")
+                        } else {
+                            text
+                        };
+                        push_run_line(&mut view.run_output, text);
+                        cx.notify();
+                    }
+                    ProcessEvent::Finished {
+                        exit_code,
+                        cancelled,
+                        error,
+                    } => {
+                        if let Some(error) = error {
+                            push_run_line(&mut view.run_output, error);
+                        }
+                        let exit_code = exit_code.or_else(|| Some(1));
+                        if cancelled {
+                            push_run_line(
+                                &mut view.run_output,
+                                crate::i18n::menu_text(cx, "run.finished").to_string(),
+                            );
+                        } else {
+                            push_run_line(
+                                &mut view.run_output,
+                                format!(
+                                    "{}：{}",
+                                    crate::i18n::menu_text(cx, "run.exited"),
+                                    exit_code.unwrap_or(1)
+                                ),
+                            );
+                        }
+                        view.run_exit_code = exit_code;
+                        view.run_running = false;
+                        cx.notify();
+                    }
+                });
+                if finished {
+                    break;
                 }
             }
-            let _ = this.update(cx, |view, cx| {
-                view.run_running = false;
-                cx.notify();
-            });
+            let _ = handle.join();
         })
         .detach();
     }
 
-    /// 停止在跑进程（Run 与 Maven 各自 kill；mvn 拉起的 java 孙进程不在此列）。
+    /// 停止在跑进程；ProcessManager 异步终止完整进程树并在输出泵中回收。
     pub fn stop_running(&mut self, cx: &mut Context<Self>) {
         let mut stopped = false;
-        if let Ok(mut slot) = self.run_child.lock() {
-            if let Some(child) = slot.as_mut() {
-                let _ = child.kill();
-                stopped = true;
-            }
-        }
-        if let Ok(mut slot) = self.maven_child.lock() {
-            if let Some(child) = slot.as_mut() {
-                let _ = child.kill();
-                stopped = true;
-            }
-        }
         if self.run_running {
+            self.run_execution_seq += 1;
+            let _ = self.processes.request_stop("run", None);
             push_run_line(
                 &mut self.run_output,
                 crate::i18n::menu_text(cx, "run.stopping").to_string(),
             );
+            self.run_running = false;
             stopped = true;
         }
         if self.maven_running {
+            self.maven_seq += 1;
+            let _ = self.processes.request_stop("maven", None);
             push_run_line(
                 &mut self.maven_output,
                 crate::i18n::menu_text(cx, "run.stopping").to_string(),
             );
+            self.maven_running = false;
             stopped = true;
         }
         if stopped {
             cx.notify();
         }
     }
-
     /// 是否发生过 Maven 运行；宿主据此决定左侧栏是否展示 maven 项
     ///（对齐 Tauri `hasMavenRun`：任务跑过即真，与终端历史无关）。
     pub fn has_maven_run(&self) -> bool {
         self.maven_running || !self.maven_output.is_empty()
     }
 
-    /// 运行 Maven 目标：切 Maven 页 + 经 core `maven.launchPlan` 拿确定性参数
-    ///（payload `{root, context: {version: 1, reactorPath: ".", profiles, skipTests}, module, goals}`），
-    /// 起受管进程并把输出泵入 Maven 页（首行 `$ mvn …`，对齐 Tauri Maven 页）。
-    /// 已有任务在跑时先停掉（对齐 Tauri 停掉上一个 session）。
+    /// 运行 Maven 目标：Core 生成计划，Linux 只解析工具链并托管进程。
     pub fn run_maven_goal(
         &mut self,
         pom_path: &str,
@@ -578,11 +880,7 @@ impl BottomPanelView {
             return;
         }
         if self.maven_running {
-            if let Ok(mut slot) = self.maven_child.lock() {
-                if let Some(child) = slot.as_mut() {
-                    let _ = child.kill();
-                }
-            }
+            let _ = self.processes.request_stop("maven", None);
         }
         self.maven_seq += 1;
         let seq = self.maven_seq;
@@ -596,7 +894,7 @@ impl BottomPanelView {
         });
         self.active_tab = BottomTab::Maven;
         self.is_collapsed = false;
-        self.maven_title = Some(title.clone());
+        self.maven_title = Some(title);
         self.maven_output.clear();
         self.maven_running = true;
         cx.notify();
@@ -605,8 +903,7 @@ impl BottomPanelView {
         let root = self.working_dir.clone();
         let module = maven_module_for_pom(&self.working_dir, pom_path);
         let profiles = profiles.to_vec();
-        let text = StepText::load(cx);
-        let child_slot = self.maven_child.clone();
+        let processes = self.processes.clone();
         cx.spawn(async move |this, cx| {
             let plan = client
                 .execute::<serde_json::Value, serde_json::Value>(
@@ -624,63 +921,141 @@ impl BottomPanelView {
                         "goals": [goal],
                     }),
                 )
-                .await
-                .ok();
-            let (program, args, cwd) = maven_plan_to_step(plan.as_ref(), &root, &goal);
-            let display = format!("$ {} {}", program, args.join(" "));
-            let started = this.update(cx, |view, cx| {
-                if view.maven_seq != seq {
-                    return false;
-                }
-                push_run_line(&mut view.maven_output, display.clone());
-                view.record_run(&display, cx);
-                cx.notify();
-                true
-            });
-            if !matches!(started, Ok(true)) {
+                .await;
+            if this
+                .update(cx, |view, _cx| view.maven_seq != seq)
+                .unwrap_or(true)
+            {
                 return;
             }
-            let steps = vec![RunStep { program, args, cwd }];
-            let (tx, rx) = mpsc::channel::<String>();
-            std::thread::spawn(move || run_steps_blocking(steps, child_slot, text, tx));
-            let rx = Arc::new(Mutex::new(rx));
+            let plan = match plan {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.maven_seq == seq {
+                            view.maven_running = false;
+                            push_run_line(&mut view.maven_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let plan = match LaunchPlan::from_value(&plan) {
+                Ok(plan) => plan,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.maven_seq == seq {
+                            view.maven_running = false;
+                            push_run_line(&mut view.maven_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let toolchains = read_toolchain_paths(&root);
+            let (steps, _main) =
+                match crate::workbench::run::process::resolve_launch(&plan, &root, &toolchains) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let _ = this.update(cx, |view, cx| {
+                            if view.maven_seq == seq {
+                                view.maven_running = false;
+                                push_run_line(&mut view.maven_output, error);
+                                cx.notify();
+                            }
+                        });
+                        return;
+                    }
+                };
+            if this
+                .update(cx, |view, _cx| view.maven_seq != seq)
+                .unwrap_or(true)
+            {
+                return;
+            }
+            let execution_id = uuid::Uuid::new_v4().to_string();
+            let (sender, receiver) = mpsc::channel::<ProcessEvent>();
+            let handle = match processes.start("maven", &execution_id, steps, sender) {
+                Ok(handle) => handle,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.maven_seq == seq {
+                            view.maven_running = false;
+                            push_run_line(&mut view.maven_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let receiver = std::sync::Arc::new(std::sync::Mutex::new(receiver));
             loop {
-                let slot = rx.clone();
-                let next = cx
+                let slot = receiver.clone();
+                let event = cx
                     .background_executor()
                     .spawn(async move {
                         let guard = slot.lock().ok()?;
-                        guard.recv().ok()
+                        Some(
+                            match guard.recv_timeout(std::time::Duration::from_secs(1)) {
+                                Ok(event) => Ok(event),
+                                Err(error) => Err(error),
+                            },
+                        )
                     })
                     .await;
-                match next {
-                    Some(line) => {
-                        // `run_steps_blocking` 首行会再发一次 `$ …`，Maven 页已有
-                        // 展示首行，跳过重复（对齐 Tauri 单首行）。
-                        let skip = this
-                            .update(cx, |view, cx| {
-                                let duplicate = line.trim_start().starts_with("$ ")
-                                    && !view.maven_output.is_empty();
-                                if !duplicate {
-                                    push_run_line(&mut view.maven_output, line);
-                                }
-                                cx.notify();
-                                view.maven_seq == seq
-                            })
-                            .unwrap_or(false);
-                        if !skip {
-                            break;
+                let event = match event {
+                    Some(Ok(event)) => event,
+                    Some(Err(mpsc::RecvTimeoutError::Timeout)) => continue,
+                    Some(Err(mpsc::RecvTimeoutError::Disconnected)) | None => break,
+                };
+                let finished = matches!(&event, ProcessEvent::Finished { .. });
+                let _ = this.update(cx, |view, cx| {
+                    if view.maven_seq != seq {
+                        return;
+                    }
+                    match event {
+                        ProcessEvent::Started { label, .. } => {
+                            push_run_line(&mut view.maven_output, label.clone());
+                            view.record_run(&label, cx);
+                        }
+                        ProcessEvent::Output { text, .. } => {
+                            push_run_line(&mut view.maven_output, text);
+                        }
+                        ProcessEvent::Finished {
+                            exit_code,
+                            cancelled,
+                            error,
+                        } => {
+                            if let Some(error) = error {
+                                push_run_line(&mut view.maven_output, error);
+                            }
+                            if let Some(code) = exit_code {
+                                push_run_line(
+                                    &mut view.maven_output,
+                                    format!(
+                                        "{}：{}",
+                                        crate::i18n::menu_text(cx, "run.exited"),
+                                        code
+                                    ),
+                                );
+                            } else if cancelled {
+                                push_run_line(
+                                    &mut view.maven_output,
+                                    crate::i18n::menu_text(cx, "run.finished").to_string(),
+                                );
+                            }
+                            view.maven_running = false;
                         }
                     }
-                    None => break,
+                    cx.notify();
+                });
+                if finished {
+                    break;
                 }
             }
-            let _ = this.update(cx, |view, cx| {
-                if view.maven_seq == seq {
-                    view.maven_running = false;
-                }
-                cx.notify();
-            });
+            let _ = handle.join();
         })
         .detach();
     }
@@ -703,23 +1078,16 @@ impl BottomPanelView {
         }
     }
 
-    /// 当前选中项（无选中或已失效时回退首项）。
+    fn is_current_run_execution(&self, reload_seq: u64, execution_seq: u64) -> bool {
+        sequence_is_current(self.run_seq, reload_seq)
+            && sequence_is_current(self.run_execution_seq, execution_seq)
+    }
+
+    /// 当前选中项只按稳定 id 查找，不在 reload 后回退到旧列表。
     fn selected_run_item(&self) -> Option<RunConfigItem> {
         self.selected_run_config
             .as_deref()
-            .and_then(|id| self.run_configs.iter().find(|c| c.id == id).cloned())
-            .or_else(|| self.run_configs.first().cloned())
-    }
-
-    /// 保持选中有效：原选中仍在则不动，否则选首项。
-    fn keep_run_selection(&mut self) {
-        let keep = self
-            .selected_run_config
-            .as_ref()
-            .is_some_and(|id| self.run_configs.iter().any(|c| &c.id == id));
-        if !keep {
-            self.selected_run_config = self.run_configs.first().map(|c| c.id.clone());
-        }
+            .and_then(|id| self.run_configs.iter().find(|item| item.id == id).cloned())
     }
 
     /// 重新加载 Git 提交记录。core 的 `git.historyPage` 需经宿主异步接线，
@@ -998,8 +1366,6 @@ impl BottomPanelView {
                                 .primary()
                                 .label(run_ui_text(cx, "生成配置", "Generate"))
                                 .on_click(cx.listener(|this, _event, _window, cx| {
-                                    let root = this.working_dir.clone();
-                                    let _ = append_default_run_config(&root);
                                     this.reload_run_project(cx);
                                 })),
                         )
@@ -1008,6 +1374,19 @@ impl BottomPanelView {
             }
         }
 
+        let diagnostic_rows: Vec<AnyElement> = self
+            .run_diagnostics
+            .iter()
+            .map(|message| {
+                div()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .text_color(ThemeColors::text_muted())
+                    .child(message.clone())
+                    .into_any_element()
+            })
+            .collect();
         let rows: Vec<AnyElement> = self
             .run_configs
             .iter()
@@ -1054,8 +1433,7 @@ impl BottomPanelView {
                             .icon(IconName::Play)
                             .tooltip(run_ui_text(cx, "运行", "Run"))
                             .on_click(cx.listener(move |this, _event, _window, cx| {
-                                this.selected_run_config = Some(run_id.clone());
-                                this.run_selected_config(cx);
+                                this.run_configuration_id(run_id.clone(), cx);
                             })),
                     )
                     .on_click(cx.listener(move |this, _event, _window, cx| {
@@ -1103,7 +1481,8 @@ impl BottomPanelView {
                             .border_r_1()
                             .border_color(ThemeColors::border())
                             .py_1()
-                            .children(rows),
+                            .children(rows)
+                            .children(diagnostic_rows),
                     )
                     .child(
                         div()
@@ -1346,525 +1725,29 @@ fn load_git_log(workdir: &str) -> Result<Vec<GitLogEntry>, String> {
     Ok(entries)
 }
 
-/// 读本地运行配置（`<workspace>/.lithe/run/configurations.json`），兼容数组与
-/// `{configurations: []}` 两种形状；字段沿用 v1 形态（`name/type/mainClass`）。
-fn read_local_run_configs(workspace_root: &str) -> Vec<RunConfigItem> {
-    let path = std::path::Path::new(workspace_root)
-        .join(".lithe")
-        .join("run")
-        .join("configurations.json");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return Vec::new();
-    };
-    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return Vec::new();
-    };
-    let arr = if let Some(arr) = value.as_array() {
-        arr.clone()
-    } else if let Some(arr) = value.get("configurations").and_then(|v| v.as_array()) {
-        arr.clone()
+fn workspace_relative_path(root: &str, path: &str) -> Option<String> {
+    let root = std::path::Path::new(root);
+    let path = std::path::Path::new(path);
+    let relative = if path.is_absolute() {
+        path.strip_prefix(root).ok()?
     } else {
-        return Vec::new();
+        path
     };
-    arr.iter()
-        .filter_map(|item| {
-            let name = item.get("name")?.as_str()?;
-            let kind_raw = item.get("type").and_then(|t| t.as_str()).unwrap_or("java");
-            let main_class = item
-                .get("mainClass")
-                .and_then(|m| m.as_str())
-                .map(str::to_string);
-            let kind = if kind_raw.contains("npm") || kind_raw.contains("node") {
-                "npm"
-            } else if kind_raw.contains("maven") {
-                "maven"
-            } else {
-                "mainClass"
-            };
-            let detail = main_class.clone().unwrap_or_else(|| kind_raw.to_string());
-            Some(RunConfigItem {
-                id: name.to_string(),
-                name: name.to_string(),
-                kind: kind.to_string(),
-                detail,
-                main_class,
-                source: None,
-            })
-        })
-        .collect()
+    Some(relative.to_string_lossy().replace('\\', "/"))
 }
 
-/// 追加一个默认 Java 运行配置（保留已有配置），供 Missing 空态的生成按钮用。
-fn append_default_run_config(workspace_root: &str) -> bool {
-    let path = std::path::Path::new(workspace_root)
-        .join(".lithe")
-        .join("run")
-        .join("configurations.json");
-    if let Some(parent) = path.parent() {
-        if std::fs::create_dir_all(parent).is_err() {
-            return false;
-        }
-    }
-    let mut list: Vec<serde_json::Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|v| {
-            if let Some(arr) = v.as_array() {
-                Some(arr.clone())
-            } else {
-                v.get("configurations").and_then(|c| c.as_array()).cloned()
-            }
-        })
-        .unwrap_or_default();
-    list.push(serde_json::json!({"name": "Run Main", "type": "java", "mainClass": "Main"}));
-    let value = serde_json::json!({"configurations": list});
-    serde_json::to_string_pretty(&value)
-        .ok()
-        .and_then(|text| std::fs::write(&path, text).ok())
-        .is_some()
-}
-
-/// 解析 `runConfig.generate` 返回的 `{generated: {configurations[]}}`。
-/// 本地 Java 入口扫描：无 LSP 时的兜底（对齐 Tauri `discoverJavaEntrypoints`，
-/// Linux 无 JDT 故用源码文本匹配 `public static void main`）。
-/// 主类由 `package` 声明 + 文件名推导；上限 20 个，按路径排序保证稳定。
-fn scan_java_mains(root: &str) -> Vec<RunConfigItem> {
-    const MAX_MAINS: usize = 20;
-    const MAX_DEPTH: usize = 8;
-    const SKIP_DIRS: &[&str] = &[
-        "target",
-        "build",
-        "out",
-        "dist",
-        "node_modules",
-        ".git",
-        ".idea",
-        ".vscode",
-        "vendor",
-    ];
-    const MAX_FILE_BYTES: u64 = 512 * 1024;
-
-    fn walk(dir: &std::path::Path, depth: usize, out: &mut Vec<std::path::PathBuf>) {
-        if depth > MAX_DEPTH || out.len() >= MAX_MAINS * 4 {
-            return;
-        }
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        let mut entries: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-        entries.sort_by_key(|e| e.file_name());
-        for entry in entries {
-            let path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
-            if path.is_dir() {
-                if !name.starts_with('.') && !SKIP_DIRS.contains(&name.as_str()) {
-                    walk(&path, depth + 1, out);
-                }
-            } else if name.ends_with(".java") {
-                out.push(path);
-            }
-        }
-    }
-
-    fn package_of(text: &str) -> Option<String> {
-        text.lines().find_map(|line| {
-            let line = line.trim();
-            line.strip_prefix("package ")
-                .and_then(|rest| rest.strip_suffix(';'))
-                .map(|pkg| pkg.trim().to_string())
-                .filter(|pkg| {
-                    !pkg.is_empty()
-                        && pkg
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '.' || c == '_')
-                })
-        })
-    }
-
-    let root_path = std::path::Path::new(root);
-    let mut files = Vec::new();
-    walk(root_path, 0, &mut files);
-    let mut items = Vec::new();
-    for path in files {
-        if items.len() >= MAX_MAINS {
-            break;
-        }
-        if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_FILE_BYTES) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        if !text.contains("public static void main") {
-            continue;
-        }
-        let stem = path
-            .file_stem()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if stem.is_empty() {
-            continue;
-        }
-        let main_class = match package_of(&text) {
-            Some(pkg) => format!("{pkg}.{stem}"),
-            None => stem,
-        };
-        let source = path
-            .strip_prefix(root_path)
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
-        items.push(RunConfigItem {
-            id: format!("local-main:{main_class}"),
-            name: main_class.clone(),
-            kind: "mainClass".to_string(),
-            detail: main_class.clone(),
-            main_class: Some(main_class),
-            source: Some(source),
-        });
-    }
-    items.sort_by(|a, b| a.name.cmp(&b.name));
-    items
-}
-
-fn parse_generated_configs(value: &serde_json::Value) -> Vec<RunConfigItem> {
-    value
-        .get("generated")
-        .and_then(|g| g.get("configurations"))
-        .and_then(|c| c.as_array())
-        .map(|arr| arr.iter().filter_map(config_item_from_generated).collect())
-        .unwrap_or_default()
-}
-
-fn config_item_from_generated(item: &serde_json::Value) -> Option<RunConfigItem> {
-    let id = item.get("id")?.as_str()?;
-    let name = item.get("name").and_then(|n| n.as_str()).unwrap_or(id);
-    let provider = item.get("provider").and_then(|p| p.as_str()).unwrap_or("");
-    let command = item.get("command").and_then(|c| c.as_str()).unwrap_or("");
-    let maven = &item["extensions"]["maven"];
-    let main_class = maven
-        .get("mainClass")
-        .and_then(|m| m.as_str())
-        .map(str::to_string);
-    let module = maven
-        .get("module")
-        .and_then(|m| m.as_str())
-        .map(str::to_string);
-    let source = item
-        .get("extensions")
-        .and_then(|e| e.get("java"))
-        .and_then(|j| j.get("source"))
-        .and_then(|s| s.as_str())
-        .map(str::to_string);
-    let kind = if provider.contains("npm") || provider.contains("node") || command == "npm" {
-        "npm"
-    } else if provider.contains("maven") {
-        "maven"
-    } else {
-        "mainClass"
-    };
-    let detail = if kind == "npm" {
-        item.get("args")
-            .and_then(|a| a.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "run dev".to_string())
-    } else {
-        main_class
-            .clone()
-            .or(module.clone())
-            .unwrap_or_else(|| provider.to_string())
-    };
-    Some(RunConfigItem {
-        id: id.to_string(),
-        name: name.to_string(),
-        kind: kind.to_string(),
-        detail,
-        main_class,
-        source,
-    })
-}
-
-/// 由 `createLaunchPlan` 结果拼直跑步骤：只有 `executable.command`
-/// 是真实可执行路径；`executable.toolchain` 需宿主解析，拿不到就走退化。
-fn plan_to_steps(
-    plan: Option<&serde_json::Value>,
-    item: &RunConfigItem,
-    root: &str,
-) -> Vec<RunStep> {
-    if let Some(plan) = plan {
-        let cwd = plan
-            .get("workingDirectory")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
-        let cwd = if cwd == "." || cwd.is_empty() {
-            root.to_string()
-        } else {
-            format!("{root}/{cwd}")
-        };
-        if let Some(command) = plan
-            .get("executable")
-            .and_then(|e| e.get("command"))
-            .and_then(|c| c.as_str())
-            .filter(|c| !c.is_empty())
-        {
-            let args = plan
-                .get("arguments")
-                .and_then(|a| a.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            return vec![RunStep {
-                program: command.to_string(),
-                args,
-                cwd,
-            }];
-        }
-    }
-    fallback_run_steps(item, root)
-}
-
-/// pom 所在目录相对 root 的模块路径：根 pom 为 `.`，与 core 模块约定一致。
+/// pom 所在目录相对 root 的模块路径：根 pom 为 `.`。
 fn maven_module_for_pom(root: &str, pom: &str) -> String {
     let relative = std::path::Path::new(pom)
         .parent()
-        .and_then(|dir| dir.strip_prefix(root).ok())
-        .map(|rel| rel.to_string_lossy().replace('\\', "/"))
+        .and_then(|directory| directory.strip_prefix(root).ok())
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
         .unwrap_or_default();
     let trimmed = relative.trim_matches('/').to_string();
     if trimmed.is_empty() {
         ".".to_string()
     } else {
         trimmed
-    }
-}
-
-/// `maven.launchPlan`（`{executable.toolchain, arguments[], workingDirectory}`）
-/// 转本地执行步骤；拿不到计划时退化为 `mvn <goal>`。
-fn maven_plan_to_step(
-    plan: Option<&serde_json::Value>,
-    root: &str,
-    goal: &str,
-) -> (String, Vec<String>, String) {
-    if let Some(plan) = plan {
-        let cwd = plan
-            .get("workingDirectory")
-            .and_then(|v| v.as_str())
-            .unwrap_or(".");
-        let cwd = if cwd == "." || cwd.is_empty() {
-            root.to_string()
-        } else {
-            format!("{root}/{cwd}")
-        };
-        let args = plan
-            .get("arguments")
-            .and_then(|a| a.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(str::to_string))
-                    .collect::<Vec<_>>()
-            })
-            .filter(|args| !args.is_empty());
-        if let Some(args) = args {
-            return (resolve_maven_executable(root), args, cwd);
-        }
-    }
-    (
-        resolve_maven_executable(root),
-        vec![goal.to_string()],
-        root.to_string(),
-    )
-}
-
-/// 退化执行规则：maven 用 mvn 跑 `compile exec:java`；npm 跑 `run dev`；
-/// java 单文件走 javac+java，否则直跑主类。
-fn fallback_run_steps(item: &RunConfigItem, root: &str) -> Vec<RunStep> {
-    match item.kind.as_str() {
-        "maven" => {
-            let mut args = vec!["-B".to_string(), "-ntp".to_string(), "compile".to_string()];
-            if let Some(main) = item.main_class.as_deref().filter(|s| !s.is_empty()) {
-                args.push("exec:java".to_string());
-                args.push(format!("-Dexec.mainClass={main}"));
-            }
-            vec![RunStep {
-                program: resolve_maven_executable(root),
-                args,
-                cwd: root.to_string(),
-            }]
-        }
-        "npm" => vec![RunStep {
-            program: "npm".to_string(),
-            args: vec!["run".to_string(), pick_npm_script(root)],
-            cwd: root.to_string(),
-        }],
-        _ => {
-            let classes = format!("{root}/.lithe/run/classes");
-            if let (Some(source), Some(main)) = (item.source.as_deref(), item.main_class.as_deref())
-            {
-                let abs = format!("{root}/{source}");
-                if !source.is_empty() && !main.is_empty() && std::path::Path::new(&abs).is_file() {
-                    let _ = std::fs::create_dir_all(&classes);
-                    return vec![
-                        RunStep {
-                            program: "javac".to_string(),
-                            args: vec!["-d".to_string(), classes.clone(), abs],
-                            cwd: root.to_string(),
-                        },
-                        RunStep {
-                            program: "java".to_string(),
-                            args: vec!["-cp".to_string(), classes, main.to_string()],
-                            cwd: root.to_string(),
-                        },
-                    ];
-                }
-            }
-            let main = item.main_class.clone().unwrap_or_else(|| item.name.clone());
-            vec![RunStep {
-                program: "java".to_string(),
-                args: vec![main],
-                cwd: root.to_string(),
-            }]
-        }
-    }
-}
-
-/// mvn 路径：先看 `.lithe/run/local.json` 的 `mavenExecutablePath`
-///（含 `toolchain` 下），没有就用 `PATH` 里的 `mvn`。
-fn resolve_maven_executable(root: &str) -> String {
-    let path = std::path::Path::new(root)
-        .join(".lithe")
-        .join("run")
-        .join("local.json");
-    let from_file = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .and_then(|value| {
-            value
-                .get("mavenExecutablePath")
-                .or_else(|| {
-                    value
-                        .get("toolchain")
-                        .and_then(|t| t.get("mavenExecutablePath"))
-                })
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-        })
-        .filter(|s| !s.trim().is_empty());
-    from_file.unwrap_or_else(|| "mvn".to_string())
-}
-
-/// npm 脚本选择：`package.json` 有 dev 用 dev，否则 start，再没有还用 dev（报错由输出展示）。
-fn pick_npm_script(root: &str) -> String {
-    let has = |name: &str, value: &serde_json::Value| {
-        value.get("scripts").and_then(|s| s.get(name)).is_some()
-    };
-    std::fs::read_to_string(std::path::Path::new(root).join("package.json"))
-        .ok()
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .map(|value| {
-            if has("dev", &value) {
-                "dev".to_string()
-            } else if has("start", &value) {
-                "start".to_string()
-            } else {
-                "dev".to_string()
-            }
-        })
-        .unwrap_or_else(|| "dev".to_string())
-}
-
-/// 顺序跑步骤并把输出行推入 channel；首个失败步骤后停。stdout/stderr 各一根
-/// 转发线程；子进程句柄共享给停止按钮，`try_wait` 短锁轮询避免 `wait`
-/// 占锁导致 kill 拿不到锁。
-fn run_steps_blocking(
-    steps: Vec<RunStep>,
-    child_slot: Arc<Mutex<Option<std::process::Child>>>,
-    text: StepText,
-    tx: mpsc::Sender<String>,
-) {
-    use std::io::BufRead as _;
-    for step in &steps {
-        let _ = tx.send(format!("$ {} {}", step.program, step.args.join(" ")));
-        let mut child = match std::process::Command::new(&step.program)
-            .args(&step.args)
-            .current_dir(&step.cwd)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(err) => {
-                let _ = tx.send(format!("{}：{err}", text.start_failed));
-                return;
-            }
-        };
-        let stdout = child.stdout.take();
-        let stderr = child.stderr.take();
-        if let Ok(mut slot) = child_slot.lock() {
-            *slot = Some(child);
-        }
-        let tx_out = tx.clone();
-        let out_handle = stdout.map(|out| {
-            std::thread::spawn(move || {
-                for line in std::io::BufReader::new(out).lines().map_while(Result::ok) {
-                    if tx_out.send(line).is_err() {
-                        break;
-                    }
-                }
-            })
-        });
-        let tx_err = tx.clone();
-        let err_handle = stderr.map(|err| {
-            std::thread::spawn(move || {
-                for line in std::io::BufReader::new(err).lines().map_while(Result::ok) {
-                    if tx_err.send(line).is_err() {
-                        break;
-                    }
-                }
-            })
-        });
-        let status = loop {
-            let Ok(mut slot) = child_slot.lock() else {
-                break None;
-            };
-            match slot.as_mut().map(|child| child.try_wait()) {
-                Some(Ok(Some(status))) => break Some(status),
-                Some(Ok(None)) => {
-                    drop(slot);
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                _ => break None,
-            }
-        };
-        if let Some(handle) = out_handle {
-            let _ = handle.join();
-        }
-        if let Some(handle) = err_handle {
-            let _ = handle.join();
-        }
-        if let Ok(mut slot) = child_slot.lock() {
-            let _ = slot.take();
-        }
-        match status {
-            Some(status) if status.success() => {
-                let _ = tx.send(format!("{}：0", text.exit_code));
-            }
-            Some(status) => {
-                let _ = tx.send(format!("{}：{status}", text.exited));
-                return;
-            }
-            None => {
-                let _ = tx.send(text.finished.clone());
-                return;
-            }
-        }
     }
 }
 
