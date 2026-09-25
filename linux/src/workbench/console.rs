@@ -12,7 +12,7 @@ use std::io::{self, Read};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 
-use gpui_kit::{px, App, Edges, Entity};
+use gpui_kit::{px, App, ClipboardItem, Edges, Entity};
 use gpui_xterm::{TerminalConfig, TerminalView};
 use portable_pty::PtySize;
 
@@ -85,16 +85,16 @@ impl OutputConsole {
                 buf: Vec::new(),
                 pos: 0,
             };
-            TerminalView::new(io::sink(), reader, config, cx).with_resize_callback(
-                move |cols, rows| {
+            TerminalView::new(io::sink(), reader, config, cx)
+                .with_context_menu_labels(crate::workbench::terminal::context_menu_labels(cx))
+                .with_resize_callback(move |cols, rows| {
                     if let Ok(mut slot) = size_slot.lock() {
                         *slot = (
                             (cols as u16).clamp(MIN_COLS, u16::MAX),
                             (rows as u16).clamp(MIN_ROWS, u16::MAX),
                         );
                     }
-                },
-            )
+                })
         });
         Self {
             view,
@@ -169,6 +169,25 @@ impl OutputConsole {
             view.state().scroll_to_bottom();
             cx.notify();
         });
+    }
+
+    /// 把控制台当前选区写入 GPUI 的平台剪贴板。
+    ///
+    /// 与集成终端同理：组件的复制用临时 `arboard` 句柄，X11 下可能丢数据，宿主
+    /// 侧再用 GPUI 剪贴板写一次兜底。返回是否复制了非空选区。
+    pub fn copy_selection(&self, cx: &mut App) -> bool {
+        let text = self
+            .view
+            .read(cx)
+            .state()
+            .with_term(|term| term.selection_to_string());
+        match text.filter(|text| !text.is_empty()) {
+            Some(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                true
+            }
+            None => false,
+        }
     }
 }
 

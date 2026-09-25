@@ -9,8 +9,8 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::EventEmitter;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
-    WeakEntity, Window,
+    IntoElement, MouseButton, ParentElement as _, Render, StatefulInteractiveElement as _,
+    Styled as _, WeakEntity, Window,
 };
 
 use crate::core::CoreClient;
@@ -1906,6 +1906,12 @@ impl BottomPanelView {
                             .flex_1()
                             .h_full()
                             .min_h_0()
+                            .on_mouse_up(
+                                MouseButton::Left,
+                                cx.listener(|this, _event, _window, cx| {
+                                    this.run_console.copy_selection(cx);
+                                }),
+                            )
                             .child(self.run_console.view.clone()),
                     ),
             )
@@ -1913,11 +1919,17 @@ impl BottomPanelView {
     }
 
     /// Maven 面板体：输出区（首行 `$ mvn …`，流式追加）；头部由 `render_maven_header` 负责。
-    fn render_maven_panel(&self, _cx: &mut Context<Self>) -> AnyElement {
+    fn render_maven_panel(&self, cx: &mut Context<Self>) -> AnyElement {
         div()
             .flex_1()
             .w_full()
             .min_h_0()
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.maven_console.copy_selection(cx);
+                }),
+            )
             .child(self.maven_console.view.clone())
             .into_any_element()
     }

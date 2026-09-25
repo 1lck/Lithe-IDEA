@@ -35,8 +35,9 @@ use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, App, AppContext as _, Context, Edges, Entity, InteractiveElement as _, IntoElement,
-    KeyDownEvent, ParentElement as _, Render, Rgba, Styled as _, Subscription, Window,
+    div, px, App, AppContext as _, ClipboardItem, Context, Edges, Entity,
+    InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, ParentElement as _, Render,
+    Rgba, Styled as _, Subscription, Window,
 };
 use gpui_xterm::{ColorPalette, TerminalConfig, TerminalView as XtermView};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
@@ -893,6 +894,24 @@ fn is_search_shortcut(event: &KeyDownEvent) -> bool {
         && keystroke.key.eq_ignore_ascii_case("f")
 }
 
+/// 判断一次按键是否是“复制”（Ctrl+C），与组件的判定保持一致。
+fn is_copy_shortcut(event: &KeyDownEvent) -> bool {
+    let keystroke = &event.keystroke;
+    keystroke.modifiers.control
+        && !keystroke.modifiers.alt
+        && !keystroke.modifiers.platform
+        && keystroke.key.eq_ignore_ascii_case("c")
+}
+
+/// 终端右键菜单文案（跟随应用语言）。Run/Maven 输出控制台也复用这一份。
+pub(crate) fn context_menu_labels(cx: &App) -> gpui_xterm::ContextMenuLabels {
+    gpui_xterm::ContextMenuLabels {
+        copy: crate::i18n::menu_text(cx, "menu.copy").to_string(),
+        paste: crate::i18n::menu_text(cx, "menu.paste").to_string(),
+        clear: crate::i18n::menu_text(cx, "ui.clear").to_string(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 视图层
 // ---------------------------------------------------------------------------
@@ -1003,6 +1022,7 @@ impl TerminalView {
                     XtermView::new(writer, reader, config, cx)
                         .with_resize_callback(move |cols, rows| resize(cols, rows))
                         .with_key_handler(is_search_shortcut)
+                        .with_context_menu_labels(context_menu_labels(cx))
                 });
                 self.applied_font_size = settings::get(cx).terminal_font_size;
                 self.applied_font_family = crate::fonts::mono_family(cx).to_string();
@@ -1301,6 +1321,29 @@ impl TerminalView {
             });
         }
     }
+
+    /// 把终端当前选区写入 GPUI 的平台剪贴板。
+    ///
+    /// 不改上游：组件自身的复制用临时 `arboard::Clipboard`，X11 下句柄一 drop 就
+    /// 可能丢失数据（复制到其它应用读不到）。GPUI 的剪贴板由 App 进程长期持有并
+    /// 持续服务选区请求，因此在宿主侧再写一次即可让复制真正生效。返回是否复制了
+    /// 非空选区；无选区时返回 false，让 Ctrl+C 继续作为中断信号发给前台程序。
+    fn copy_selection_to_clipboard(&self, cx: &mut Context<Self>) -> bool {
+        let Some(xterm) = self.xterm.clone() else {
+            return false;
+        };
+        let text = xterm
+            .read(cx)
+            .state()
+            .with_term(|term| term.selection_to_string());
+        match text.filter(|text| !text.is_empty()) {
+            Some(text) => {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+                true
+            }
+            None => false,
+        }
+    }
 }
 
 impl Render for TerminalView {
@@ -1337,8 +1380,21 @@ impl Render for TerminalView {
                         if is_search_shortcut(event) {
                             this.open_search(window, cx);
                             cx.stop_propagation();
+                            return;
+                        }
+                        // Ctrl+C：组件用临时 arboard 句柄复制，X11 下可能丢数据；
+                        // 有选区时这里再用 GPUI 剪贴板复制一次兜底。
+                        if is_copy_shortcut(event) && this.copy_selection_to_clipboard(cx) {
+                            cx.stop_propagation();
                         }
                     }))
+                    // 左键抬起（拖选/双击选词结束）后同样兜底复制一次。
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _event, _window, cx| {
+                            this.copy_selection_to_clipboard(cx);
+                        }),
+                    )
                     .child(xterm.clone())
                     .when_some(search_bar, |el, bar| el.child(bar))
                     .into_any_element()

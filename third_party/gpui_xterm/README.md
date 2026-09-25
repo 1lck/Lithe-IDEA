@@ -33,6 +33,20 @@ comment at the change site.
    target Linux systems the block-element samples fall back to a full-width (1em)
    CJK font, inflating every column to ~1.7× and making the whole grid much wider
    than a normal terminal.
+5. `src/view.rs` + `src/lib.rs`: `ContextMenuLabels` and
+   `TerminalView::with_context_menu_labels` — upstream hardcoded the context-menu
+   labels ("Copy"/"Paste"/"Clear"); the host injects localized strings. The default
+   keeps upstream's wording so the component still works standalone.
 
 When pulling a newer upstream revision, re-apply these patches and re-run
 `cargo check -p gpui_xterm`.
+
+## Host-side behavior we do NOT patch upstream for
+
+Copy from the context menu / Ctrl+C is delivered by the host instead. Upstream
+builds a throwaway `arboard::Clipboard` per copy and drops it immediately; on X11
+that drops the selection before it can be handed to a clipboard manager, so pasting
+in another app yields nothing. Lithe reads the selection through the `state()`
+accessor and writes it to GPUI's own platform clipboard (held for the process
+lifetime), on left mouse-up and Ctrl+C. Keep the fix on the host side; do not
+rewrite upstream's clipboard code.

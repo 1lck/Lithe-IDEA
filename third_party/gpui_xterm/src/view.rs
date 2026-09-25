@@ -64,6 +64,28 @@ pub type ClipboardStoreCallback = Box<dyn Fn(&mut Window, &mut Context<TerminalV
 
 pub type ExitCallback = Box<dyn Fn(&mut Window, &mut Context<TerminalView>)>;
 
+/// 右键上下文菜单文案。
+///
+/// Lithe patch: 上游把 "Copy"/"Paste"/"Clear" 写死在菜单里，宿主无法本地化。这里
+/// 提供一个可注入的文案结构，默认值与上游一致；宿主通过
+/// [`TerminalView::with_context_menu_labels`] 传入本地化字符串。
+#[derive(Clone, Debug)]
+pub struct ContextMenuLabels {
+    pub copy: String,
+    pub paste: String,
+    pub clear: String,
+}
+
+impl Default for ContextMenuLabels {
+    fn default() -> Self {
+        Self {
+            copy: "Copy".to_string(),
+            paste: "Paste".to_string(),
+            clear: "Clear".to_string(),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 struct LayoutMetrics {
     origin: Point<Pixels>,
@@ -99,6 +121,8 @@ pub struct TerminalView {
     clipboard_store_callback: Option<ClipboardStoreCallback>,
 
     exit_callback: Option<ExitCallback>,
+
+    context_menu_labels: ContextMenuLabels,
 
     layout_metrics: Arc<parking_lot::Mutex<LayoutMetrics>>,
 
@@ -201,6 +225,7 @@ impl TerminalView {
             title_callback: None,
             clipboard_store_callback: None,
             exit_callback: None,
+            context_menu_labels: ContextMenuLabels::default(),
             layout_metrics: Arc::new(parking_lot::Mutex::new(LayoutMetrics::default())),
             dragging_selection: false,
             ime_text: String::new(),
@@ -217,6 +242,12 @@ impl TerminalView {
         callback: impl Fn(usize, usize) + Send + Sync + 'static,
     ) -> Self {
         self.resize_callback = Some(Arc::new(Box::new(callback)));
+        self
+    }
+
+    /// Lithe patch: 注入右键菜单文案，供宿主本地化。
+    pub fn with_context_menu_labels(mut self, labels: ContextMenuLabels) -> Self {
+        self.context_menu_labels = labels;
         self
     }
 
@@ -564,12 +595,13 @@ impl TerminalView {
     fn build_context_menu(
         view: WeakEntity<Self>,
         has_selection: bool,
+        labels: ContextMenuLabels,
         menu: PopupMenu,
         _window: &mut Window,
         _cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
         menu.item(
-            PopupMenuItem::new("Copy")
+            PopupMenuItem::new(labels.copy)
                 .disabled(!has_selection)
                 .on_click({
                     let view = view.clone();
@@ -580,7 +612,7 @@ impl TerminalView {
                     }
                 }),
         )
-        .item(PopupMenuItem::new("Paste").on_click({
+        .item(PopupMenuItem::new(labels.paste).on_click({
             let view = view.clone();
             move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| {
@@ -590,7 +622,7 @@ impl TerminalView {
             }
         }))
         .item(PopupMenuItem::separator())
-        .item(PopupMenuItem::new("Clear").on_click({
+        .item(PopupMenuItem::new(labels.clear).on_click({
             move |_, _, cx| {
                 let _ = view.update(cx, |this, cx| {
                     this.clear(cx);
@@ -738,8 +770,16 @@ impl Render for TerminalView {
             .context_menu({
                 let view = cx.entity().downgrade();
                 let has_selection = self.has_selection();
+                let labels = self.context_menu_labels.clone();
                 move |menu, window, cx| {
-                    Self::build_context_menu(view.clone(), has_selection, menu, window, cx)
+                    Self::build_context_menu(
+                        view.clone(),
+                        has_selection,
+                        labels.clone(),
+                        menu,
+                        window,
+                        cx,
+                    )
                 }
             })
             .child(

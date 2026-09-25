@@ -54,9 +54,11 @@ Linux 原生 GPUI 版终端不再自己把 `alacritty_terminal` 的网格投影�
 `Cargo.toml` 的依赖指向（`gpui = { package = "gpui-pre" }`、`gpui-component`
 crates.io 版、`alacritty_terminal` 与产品一致的 0.26），并记录上游 revision
 `4bdcdbbeab4211f7938f31919819b06d755a1733`。本地补丁只做必要扩展：暴露引擎
-状态（搜索/滚动/显示偏移）、让 `scrollback` 生效，以及把单元格宽度改为按半角
-ASCII 步进测量（上游取 `M/W/█/▀/▄` 最大值，块元素会回退到全角字体把整列撑宽）。
+状态（搜索/滚动/显示偏移）、让 `scrollback` 生效、把单元格宽度改为按半角
+ASCII 步进测量（上游取 `M/W/█/▀/▄` 最大值，块元素会回退到全角字体把整列撑宽），
+以及让宿主注入右键菜单文案（上游把 Copy/Paste/Clear 写死，无法本地化）。
 完整清单见 `third_party/gpui_xterm/README.md`；升级上游时按该清单重新应用补丁。
+补丁保持“最小、追加式”：不改上游的渲染与输入逻辑。
 
 ### 会话层：终止与回收只有一套契约
 
@@ -86,6 +88,17 @@ KILL，最后兜底 `ChildKiller::kill` 并 join 等待线程。每一步都是�
 `Term::scroll_to_point`。搜索栏做成浮层，打开/关闭不会触发终端 resize 与全屏
 TUI 重排。Ctrl+F 由宿主的按键钩子（`with_key_handler`）从组件手里吞掉，再由宿主
 容器打开搜索栏，避免组件把 `^F` 写进 PTY 后工作台再收到同一个按键。
+
+### 复制：宿主侧兜底，不改上游剪贴板代码
+
+上游每次复制都新建一个 `arboard::Clipboard` 并立即 drop。X11 下 arboard 是在 drop
+时把选区交给剪贴板管理器（CopyQ 之类），句柄一销毁就来不及交接，于是复制到其它
+应用读不到内容（本机就装并运行着 CopyQ，仍复现，说明不是“缺管理器”）。
+
+修法放在宿主：终端/控制台的左键抬起与 Ctrl+C 时，用组件暴露的 `state()` 取
+`selection_to_string()`，再写进 **GPUI 自己的平台剪贴板**（其 X11 客户端在进程内
+长期持有 clipboard 并后台线程服务选区请求）。无选区时返回 false，Ctrl+C 继续作为
+中断信号发给前台程序。**不要为此重写上游的 `copy_selection`/`paste_from_clipboard`。**
 
 ### 正确做法
 
