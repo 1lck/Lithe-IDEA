@@ -13,16 +13,20 @@ use gpui_kit::{
     MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::time::Duration;
 
 use crate::core::CoreClient;
+use crate::lsp::{self, LanguageProvider};
 use crate::settings;
 use crate::theme::ThemeColors;
 use crate::workbench::activity_rail::{
     ActivityRailEvent, ActivityRailView, PluginActivityRailView, PluginRailEvent,
 };
-use crate::workbench::bottom_panel::{BottomPanelEvent, BottomPanelView, BottomTab};
+use crate::workbench::bottom_panel::{
+    BottomPanelEvent, BottomPanelView, BottomTab, DiagnosticEntry,
+};
 use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::{EditorTabEvent, EditorView};
@@ -48,6 +52,14 @@ pub enum RightToolView {
     Notifications,
     Maven,
     Extensions,
+}
+
+/// 语言服务器尚未就绪时暂存的一份文档同步请求。
+#[derive(Debug, Clone)]
+struct PendingDocument {
+    uri: String,
+    language_id: String,
+    text: String,
 }
 
 /// 主工作台视图。
@@ -101,6 +113,18 @@ pub struct WorkbenchView {
     pub extensions: Entity<ExtensionsView>,
     /// 通知诊断行点击后的待跳转行号（1 起，文件加载完成后在 render 应用）
     pending_goto_line: Option<u32>,
+    /// LSP：provider id → Core 会话 id（非空即已启动）。
+    lsp_sessions: HashMap<String, String>,
+    /// LSP：正在启动中的 provider id，避免重复 `lsp.startServer`。
+    lsp_starting: HashSet<String>,
+    /// LSP：正在轮询的会话 id，保证每个会话只有一个 poll 循环。
+    lsp_polling: HashSet<String>,
+    /// LSP：会话中已同步文档的版本号（`session\0uri` → version）。
+    lsp_document_versions: HashMap<String, i64>,
+    /// LSP：会话未就绪时暂存的待同步文档（provider id → 文档）。
+    lsp_pending_documents: HashMap<String, Vec<PendingDocument>>,
+    /// LSP：工作区相对路径 → 该文件最新诊断，供底部面板聚合展示。
+    lsp_diagnostics: HashMap<String, Vec<DiagnosticEntry>>,
     /// 侧边栏面板 (Files / Git / Search)
     pub sidebar: Entity<SidebarView>,
     /// 多窗格布局模型（`Split{Horizontal}` 左右并排，`{Vertical}` 上下堆叠）
@@ -328,6 +352,9 @@ impl WorkbenchView {
                     this.open_file(path, cx);
                     this.pending_goto_line = Some(*line);
                     cx.notify();
+                }
+                BottomPanelEvent::ClearDiagnostics => {
+                    this.lsp_diagnostics.clear();
                 }
             },
         );
@@ -642,13 +669,16 @@ impl WorkbenchView {
             },
         );
 
-        // 8b. 订阅编辑器标签页事件（在终端中打开）
+        // 8b. 订阅编辑器标签页事件（在终端中打开 / 文档变化同步 LSP）
         let sub_editor_tab =
             cx.subscribe(
                 &editor,
                 move |this, _ed, event: &EditorTabEvent, cx| match event {
                     EditorTabEvent::OpenInTerminal { dir } => {
                         this.send_terminal_command(&format!("cd \"{dir}\""), cx);
+                    }
+                    EditorTabEvent::DocumentChanged { path, text } => {
+                        this.lsp_on_document_changed(path.clone(), text.clone(), cx);
                     }
                 },
             );
@@ -795,6 +825,12 @@ impl WorkbenchView {
             show_branch_manager: false,
             right_tool: None,
             pending_goto_line: None,
+            lsp_sessions: HashMap::new(),
+            lsp_starting: HashSet::new(),
+            lsp_polling: HashSet::new(),
+            lsp_document_versions: HashMap::new(),
+            lsp_pending_documents: HashMap::new(),
+            lsp_diagnostics: HashMap::new(),
             toolbar,
             activity_rail,
             plugin_rail,
@@ -1089,6 +1125,247 @@ impl WorkbenchView {
         self.active_editor()
     }
 
+    /// 编辑器文档变化：选择语言服务器、按需启动会话并同步全文。
+    /// 未知语言或本机无对应可执行文件时静默跳过，不影响编辑。
+    fn lsp_on_document_changed(&mut self, path: String, text: String, cx: &mut Context<Self>) {
+        let Some((provider, executable)) = lsp::resolve_provider(&path) else {
+            return;
+        };
+        let root = self.workspace_root.clone();
+        let uri = lsp::file_uri(&root, &path);
+        let language_id = lsp::language_id_for_path(&path, provider).to_string();
+
+        if let Some(session) = self.lsp_sessions.get(provider.id).cloned() {
+            self.lsp_sync_document(&session, uri, language_id, text, cx);
+            return;
+        }
+
+        // 会话未就绪：先暂存最新全文，会话 ready 后统一 flush。
+        let pending = self
+            .lsp_pending_documents
+            .entry(provider.id.to_string())
+            .or_default();
+        if let Some(existing) = pending.iter_mut().find(|document| document.uri == uri) {
+            existing.text = text;
+        } else {
+            pending.push(PendingDocument {
+                uri,
+                language_id,
+                text,
+            });
+        }
+        self.lsp_start_server(provider, executable, root, cx);
+    }
+
+    /// 启动一个语言服务器会话；同一 provider 同时只允许一个启动任务。
+    fn lsp_start_server(
+        &mut self,
+        provider: LanguageProvider,
+        executable: String,
+        root: String,
+        cx: &mut Context<Self>,
+    ) {
+        if self.lsp_starting.contains(provider.id) || self.lsp_sessions.contains_key(provider.id) {
+            return;
+        }
+        self.lsp_starting.insert(provider.id.to_string());
+
+        let client = self.client.clone();
+        let cache_directory = format!("{root}/.lithe/lsp/{}", provider.id);
+        let payload = lsp::start_payload(provider, &executable, &root, &cache_directory);
+        cx.spawn(async move |this, cx| {
+            let result = client
+                .execute::<_, serde_json::Value>(&cx, "lsp.startServer", payload)
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.lsp_starting.remove(provider.id);
+                match result {
+                    Ok(value) => match lsp::parse_session_id(&value) {
+                        Some(session) => {
+                            this.lsp_sessions
+                                .insert(provider.id.to_string(), session.clone());
+                            this.lsp_start_poll(provider.id, session.clone(), cx);
+                            this.lsp_flush_pending(provider.id, &session, cx);
+                        }
+                        None => {
+                            this.lsp_push_error(provider.id, "lsp.startServer 未返回 sessionId", cx)
+                        }
+                    },
+                    Err(error) => this.lsp_push_error(provider.id, &error, cx),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// 会话建立后把所有暂存文档送入 Core。
+    fn lsp_flush_pending(&mut self, provider_id: &str, session: &str, cx: &mut Context<Self>) {
+        let Some(pending) = self.lsp_pending_documents.remove(provider_id) else {
+            return;
+        };
+        for document in pending {
+            self.lsp_sync_document(
+                session,
+                document.uri,
+                document.language_id,
+                document.text,
+                cx,
+            );
+        }
+    }
+
+    /// 把一份全文同步给 Core；版本号在响应后写回，供后续状态查询使用。
+    fn lsp_sync_document(
+        &mut self,
+        session: &str,
+        uri: String,
+        language_id: String,
+        text: String,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.client.clone();
+        let key = format!("{session}\u{0}{uri}");
+        let payload = lsp::sync_payload(session, &uri, &language_id, &text);
+        cx.spawn(async move |this, cx| {
+            let result = client
+                .execute::<_, serde_json::Value>(&cx, "lsp.syncDocument", payload)
+                .await;
+            if let Ok(value) = result {
+                let version = value
+                    .get("documentVersion")
+                    .and_then(serde_json::Value::as_i64);
+                let _ = this.update(cx, |this, _cx| {
+                    match version {
+                        Some(version) => {
+                            this.lsp_document_versions.insert(key, version);
+                        }
+                        // 保留会话-文档映射，便于后续清理时识别归属。
+                        None => {
+                            this.lsp_document_versions.entry(key).or_insert(0);
+                        }
+                    }
+                });
+            }
+        })
+        .detach();
+    }
+
+    /// 为会话启动唯一的事件轮询循环，直至服务器停止或命令失败。
+    fn lsp_start_poll(
+        &mut self,
+        provider_id: &'static str,
+        session: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.lsp_polling.insert(session.clone()) {
+            return;
+        }
+        let client = self.client.clone();
+        let root = self.workspace_root.clone();
+        cx.spawn(async move |this, cx| {
+            loop {
+                let payload = lsp::poll_payload(&session);
+                let result = client
+                    .execute::<_, serde_json::Value>(&cx, "lsp.pollEvents", payload)
+                    .await;
+                let finished = match result {
+                    Ok(value) => {
+                        let diagnostics = lsp::diagnostics_from_poll(&value, &root);
+                        let finished = lsp::session_finished(&value);
+                        let provider = provider_id.to_string();
+                        let session_key = session.clone();
+                        let _ = this.update(cx, |this, cx| {
+                            if !diagnostics.is_empty() {
+                                this.lsp_apply_diagnostics(diagnostics, cx);
+                            }
+                            if finished {
+                                this.lsp_forget_session(&provider, &session_key, cx);
+                            }
+                        });
+                        finished
+                    }
+                    Err(_) => true,
+                };
+                if finished {
+                    break;
+                }
+                cx.background_executor()
+                    .timer(Duration::from_millis(400))
+                    .await;
+            }
+            let _ = this.update(cx, |this, _cx| {
+                this.lsp_polling.remove(&session);
+            });
+        })
+        .detach();
+    }
+
+    /// 会话终止后的清理：移除会话、轮询标记、文档版本与错误占位。
+    fn lsp_forget_session(&mut self, provider_id: &str, session: &str, cx: &mut Context<Self>) {
+        self.lsp_sessions.remove(provider_id);
+        self.lsp_polling.remove(session);
+        let prefix = format!("{session}\u{0}");
+        self.lsp_document_versions
+            .retain(|key, _| !key.starts_with(&prefix));
+        let error_key = format!("__lsp__{provider_id}");
+        if self.lsp_diagnostics.remove(&error_key).is_some() {
+            self.sync_diagnostics_panel(cx);
+        }
+    }
+
+    /// 合并一轮诊断：空列表代表服务端已清空该文件的问题。
+    fn lsp_apply_diagnostics(
+        &mut self,
+        updates: HashMap<String, Vec<DiagnosticEntry>>,
+        cx: &mut Context<Self>,
+    ) {
+        let mut changed = false;
+        for (path, entries) in updates {
+            if entries.is_empty() {
+                changed |= self.lsp_diagnostics.remove(&path).is_some();
+            } else {
+                self.lsp_diagnostics.insert(path, entries);
+                changed = true;
+            }
+        }
+        if changed {
+            self.sync_diagnostics_panel(cx);
+        }
+    }
+
+    /// 启动/同步失败时在诊断面板留一条错误记录，便于定位缺失的服务器。
+    fn lsp_push_error(&mut self, provider_id: &str, message: &str, cx: &mut Context<Self>) {
+        let entry = DiagnosticEntry {
+            severity: "error".to_string(),
+            file_path: provider_id.to_string(),
+            line: 0,
+            column: 0,
+            message: message.to_string(),
+            source: Some("LSP".to_string()),
+            code: None,
+        };
+        self.lsp_diagnostics
+            .insert(format!("__lsp__{provider_id}"), vec![entry]);
+        self.sync_diagnostics_panel(cx);
+    }
+
+    /// 把所有文件的诊断按路径/行/列排序后交给底部面板。
+    fn sync_diagnostics_panel(&mut self, cx: &mut Context<Self>) {
+        let mut entries: Vec<DiagnosticEntry> =
+            self.lsp_diagnostics.values().flatten().cloned().collect();
+        entries.sort_by(|left, right| {
+            left.file_path
+                .cmp(&right.file_path)
+                .then(left.line.cmp(&right.line))
+                .then(left.column.cmp(&right.column))
+        });
+        let _ = self
+            .bottom_panel
+            .update(cx, |panel, cx| panel.set_diagnostics(entries, cx));
+    }
+
+
     /// 活动编辑器上执行动作（无活动窗格时忽略）。
     fn with_active_editor(
         &self,
@@ -1152,6 +1429,9 @@ impl WorkbenchView {
             |this, _ed, event: &EditorTabEvent, cx| match event {
                 EditorTabEvent::OpenInTerminal { dir } => {
                     this.send_terminal_command(&format!("cd \"{dir}\""), cx);
+                }
+                EditorTabEvent::DocumentChanged { path, text } => {
+                    this.lsp_on_document_changed(path.clone(), text.clone(), cx);
                 }
             },
         );

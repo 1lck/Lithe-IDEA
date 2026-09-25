@@ -129,6 +129,7 @@ impl EditorView {
                 }
             }
             self.active_tab_index = Some(pos);
+            self.publish_active_document(cx);
             cx.notify();
             return;
         }
@@ -150,6 +151,7 @@ impl EditorView {
 
         self.active_tab_index = Some(self.tabs.len() - 1);
         self.sync_needed = true;
+        self.publish_active_document(cx);
         cx.notify();
     }
 
@@ -206,6 +208,18 @@ impl EditorView {
 
         self.synced_tab = Some(index);
         self.sync_needed = false;
+        self.publish_active_document(cx);
+    }
+
+    /// 向父视图广播当前活动文档（无活动标签时不广播）。
+    fn publish_active_document(&mut self, cx: &mut Context<Self>) {
+        let Some(tab) = self.active_tab_index.and_then(|index| self.tabs.get(index)) else {
+            return;
+        };
+        cx.emit(EditorTabEvent::DocumentChanged {
+            path: tab.path.clone(),
+            text: tab.content.clone(),
+        });
     }
 
     /// 编辑器文本变化后回写标签内容并标记为已修改。
@@ -229,6 +243,7 @@ impl EditorView {
             }
             self.redo_stack.clear();
         }
+        self.publish_active_document(cx);
         cx.notify();
     }
 
@@ -993,6 +1008,8 @@ impl EditorView {
 #[derive(Debug, Clone)]
 pub enum EditorTabEvent {
     OpenInTerminal { dir: String },
+    /// 活动标签的内容或身份发生变化，父视图据此同步 LSP 文档态。
+    DocumentChanged { path: String, text: String },
 }
 
 impl EventEmitter<EditorTabEvent> for EditorView {}

@@ -119,6 +119,8 @@ pub struct DiagnosticEntry {
 #[derive(Debug, Clone)]
 pub enum BottomPanelEvent {
     OpenFile { path: String, line: u32 },
+    /// 面板清空按钮：请求宿主同步丢弃缓存的 LSP 诊断。
+    ClearDiagnostics,
 }
 
 /// Git 提交记录的一行：短 hash + 首行 message，只读展示不跳转。
@@ -327,6 +329,12 @@ impl BottomPanelView {
             self.reload_run_project(cx);
             return;
         }
+        cx.notify();
+    }
+
+    /// 用最新一轮 LSP 诊断替换面板内容；顺序与 [`crate::lsp`] 投影一致。
+    pub fn set_diagnostics(&mut self, diagnostics: Vec<DiagnosticEntry>, cx: &mut Context<Self>) {
+        self.diagnostics = diagnostics;
         cx.notify();
     }
 
@@ -1259,6 +1267,7 @@ impl Render for BottomPanelView {
                         cx,
                         |this, _window, cx| {
                             this.diagnostics.clear();
+                            cx.emit(BottomPanelEvent::ClearDiagnostics);
                             cx.notify();
                         },
                     )],

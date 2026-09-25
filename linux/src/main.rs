@@ -2,6 +2,7 @@
 
 mod core;
 mod i18n;
+mod lsp;
 mod settings;
 mod theme;
 mod workbench;
