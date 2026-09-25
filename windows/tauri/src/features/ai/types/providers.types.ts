@@ -232,6 +232,13 @@ const AI_PROVIDERS: ModelProvider[] = [
     models: [],
   },
   {
+    id: "requesty",
+    name: "Requesty",
+    apiUrl: "https://router.requesty.ai/v1/chat/completions",
+    requiresApiKey: true,
+    models: [],
+  },
+  {
     id: "custom",
     name: "Custom",
     apiUrl: "",

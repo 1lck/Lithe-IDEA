@@ -59,6 +59,9 @@
           "url": "https://openrouter.ai/**"
         },
         {
+          "url": "https://router.requesty.ai/**"
+        },
+        {
           "url": "http://localhost:3000/**"
         },
         {

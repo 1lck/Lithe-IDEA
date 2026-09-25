@@ -6,6 +6,7 @@ import { OllamaProvider } from "./ollama-provider";
 import { OpenAIProvider } from "./openai-provider";
 import { OpenAICompatibleProvider } from "./openai-compatible-provider";
 import { OpenRouterProvider } from "./openrouter-provider";
+import { RequestyProvider } from "./requesty-provider";
 import type { AIProvider, ProviderConfig } from "./ai-provider-interface";
 import type { Settings } from "@/features/settings/types/settings.types";
 import {
@@ -61,6 +62,15 @@ function initializeProviders(): void {
     maxTokens: 4096,
   };
   providers.set("openrouter", new OpenRouterProvider(openRouterConfig));
+
+  const requestyConfig: ProviderConfig = {
+    id: "requesty",
+    name: "Requesty",
+    apiUrl: "https://router.requesty.ai/v1/chat/completions",
+    requiresApiKey: true,
+    maxTokens: 4096,
+  };
+  providers.set("requesty", new RequestyProvider(requestyConfig));
 
   const geminiConfig: ProviderConfig = {
     id: "gemini",
@@ -181,7 +191,8 @@ export function shouldUseTauriFetchForProvider(providerId: string): boolean {
     providerId === "gemini" ||
     providerId === "ollama" ||
     providerId === "anthropic" ||
-    providerId === "openrouter"
+    providerId === "openrouter" ||
+    providerId === "requesty"
   );
 }
 

@@ -42,7 +42,7 @@ export function useAIModelOptions(
     if (!instance?.getModels) return;
 
     const apiKey = config?.requiresApiKey ? await getProviderApiToken(providerId) : undefined;
-    const canFetchWithoutApiKey = providerId === "openrouter";
+    const canFetchWithoutApiKey = providerId === "openrouter" || providerId === "requesty";
     const canUseWithoutApiKey = canUseProviderWithoutApiKey({
       hasStoredKey: Boolean(apiKey),
       requiresApiKey: config?.requiresApiKey ?? true,
@@ -117,7 +117,11 @@ export function useAIModelOptions(
     const selectedModel = availableModels.find((model) => model.id === modelId);
     if (selectedModel) return selectedModel.name;
     if (isLoadingModels) return t("ai.loadingModels");
-    if ((providerId === "openrouter" || isCustomProvider) && modelId.trim()) return modelId;
+    if (
+      (providerId === "openrouter" || providerId === "requesty" || isCustomProvider) &&
+      modelId.trim()
+    )
+      return modelId;
     return t("ai.selectModel");
   }, [availableModels, isCustomProvider, isLoadingModels, modelId, providerId, t]);
 

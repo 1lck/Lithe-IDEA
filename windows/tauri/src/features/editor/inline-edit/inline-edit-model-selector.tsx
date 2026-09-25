@@ -69,7 +69,8 @@ export const InlineEditModelSelector = ({
       if (!instance?.getModels) return;
 
       const apiKey = config?.requiresApiKey ? await getProviderApiToken(nextProviderId) : undefined;
-      const canFetchWithoutApiKey = nextProviderId === "openrouter";
+      const canFetchWithoutApiKey =
+        nextProviderId === "openrouter" || nextProviderId === "requesty";
       const canUseWithoutApiKey = canUseProviderWithoutApiKey({
         hasStoredKey: !!apiKey,
         requiresApiKey: config?.requiresApiKey ?? true,

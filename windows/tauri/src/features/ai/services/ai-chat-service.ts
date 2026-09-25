@@ -63,7 +63,10 @@ function resolveProviderModelPair(providerId: string, modelId: string) {
     };
   }
 
-  if (requestedProvider?.id === "openrouter" && modelId.trim().length > 0) {
+  if (
+    (requestedProvider?.id === "openrouter" || requestedProvider?.id === "requesty") &&
+    modelId.trim().length > 0
+  ) {
     return {
       providerId,
       modelId,

@@ -76,7 +76,7 @@ function resolveInlineEditModel(providerId: string, modelId: string): ProviderMo
     };
   }
 
-  if (providerId === "openrouter" || providerId === "custom") {
+  if (providerId === "openrouter" || providerId === "requesty" || providerId === "custom") {
     return {
       id: modelId,
       name: modelId,

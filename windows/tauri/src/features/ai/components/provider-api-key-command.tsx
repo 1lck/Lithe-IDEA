@@ -30,6 +30,7 @@ interface ProviderApiKeyCommandProps {
 
 const DASHBOARD_LINKS: Partial<Record<string, string>> = {
   openrouter: "https://openrouter.ai/keys",
+  requesty: "https://app.requesty.ai/api-keys",
   grok: "https://console.x.ai",
   openai: "https://platform.openai.com/api-keys",
   anthropic: "https://console.anthropic.com/settings/keys",
@@ -39,6 +40,7 @@ const DASHBOARD_LINKS: Partial<Record<string, string>> = {
 
 const PLACEHOLDERS: Partial<Record<string, string>> = {
   openrouter: "sk-or-v1-xxxxxxxxxxxxxxxxxxxx",
+  requesty: "rqsty-xxxxxxxxxxxxxxxxxxxx",
   grok: "xai-xxxxxxxxxxxxxxxxxxxx",
   openai: "sk-xxxxxxxxxxxxxxxxxxxx",
   mistral: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
