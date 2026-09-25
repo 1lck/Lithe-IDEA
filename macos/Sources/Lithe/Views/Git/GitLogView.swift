@@ -747,6 +747,7 @@ struct GitLogView: View {
             currentReference: currentReference,
             isActiveRepository: true,
             repositoryColorIndex: nil,
+            remoteBranches: remoteBranches,
             actions: referenceRowActions
         )
     }
@@ -758,6 +759,9 @@ struct GitLogView: View {
         let collapseKey = "repository:" + repository.repositoryRoot.standardizedFileURL.path
         let isCollapsed = collapsedRepositoryGroups.contains(collapseKey)
         let actions = repoRowActions(for: repository.repositoryRoot, isActive: isActive)
+        // Only the active repository's rows can open the "Tracking Branch"
+        // submenu; a read-only row shows no menu, so it gets no remote list.
+        let rowRemoteBranches = isActive ? remoteBranches : []
         let colorIndex = gitRepositoryColorIndex(for: repository.repositoryRoot)
         return VStack(alignment: .leading, spacing: 2) {
             Button {
@@ -804,6 +808,7 @@ struct GitLogView: View {
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
                     repositoryColorIndex: colorIndex,
+                    remoteBranches: rowRemoteBranches,
                     actions: actions
                 )
                 referenceSection(
@@ -815,6 +820,7 @@ struct GitLogView: View {
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
                     repositoryColorIndex: colorIndex,
+                    remoteBranches: rowRemoteBranches,
                     actions: actions
                 )
                 referenceSection(
@@ -826,6 +832,7 @@ struct GitLogView: View {
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
                     repositoryColorIndex: colorIndex,
+                    remoteBranches: rowRemoteBranches,
                     actions: actions
                 )
             }
@@ -841,6 +848,7 @@ struct GitLogView: View {
         currentReference: GitReference?,
         isActiveRepository: Bool,
         repositoryColorIndex: Int?,
+        remoteBranches: [GitReference],
         actions: GitReferenceRowActions
     ) -> some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -877,6 +885,7 @@ struct GitLogView: View {
                             comparisonSourceID: comparisonSourceReference?.id,
                             isReadOnly: !isActiveRepository,
                             repositoryColorIndex: repositoryColorIndex,
+                            remoteBranches: remoteBranches,
                             actions: actions
                         )
                         .equatable()
@@ -927,6 +936,13 @@ struct GitLogView: View {
             }
         }
         return actions
+    }
+
+    /// Remote branches offered by the reference rows' "Tracking Branch"
+    /// submenu. Passed down as a value so a `refs` refresh that only changes the
+    /// remote branches still rebuilds a row whose own branch is unchanged.
+    private var remoteBranches: [GitReference] {
+        feature.gitReferences.filter { $0.kind == .remote }
     }
 
     /// Rebuilt on each body pass, but every closure is stable in behavior, and
@@ -988,7 +1004,6 @@ struct GitLogView: View {
                     }
                 }
             },
-            remoteBranches: feature.gitReferences.filter { $0.kind == .remote },
             branchOperation: { kind, reference in
                 pendingBranchOperation = GitBranchOperationRequest(kind: kind, reference: reference)
             }
@@ -2927,8 +2942,6 @@ private struct GitReferenceRowActions {
     let copyBranchName: (GitReference) -> Void
     /// Sets the local branch's tracking branch. A `nil` upstream clears it.
     let setBranchUpstream: (GitReference, GitReference?) -> Void
-    /// Remote branches offered by the "Tracking Branch" submenu.
-    let remoteBranches: [GitReference]
     let branchOperation: (GitBranchOperationKind, GitReference) -> Void
 }
 
@@ -2948,16 +2961,29 @@ private struct GitReferenceRowView: View, Equatable {
     /// the resolved `Color`, participates in equality so the row refresh rule
     /// stays value-based.
     let repositoryColorIndex: Int?
+    /// Remote branches backing this row's "Tracking Branch" submenu. Kept here,
+    /// next to the other compared values, rather than inside `actions` — which
+    /// `==` ignores — so a refresh that only changes the remote branch list
+    /// still rebuilds the row and its context menu.
+    let remoteBranches: [GitReference]
     let actions: GitReferenceRowActions
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.row == rhs.row
-            && lhs.isSelected == rhs.isSelected
-            && lhs.isPerformingBranchOperation == rhs.isPerformingBranchOperation
-            && lhs.currentReferenceID == rhs.currentReferenceID
-            && lhs.comparisonSourceID == rhs.comparisonSourceID
-            && lhs.isReadOnly == rhs.isReadOnly
-            && lhs.repositoryColorIndex == rhs.repositoryColorIndex
+        lhs.renderKey == rhs.renderKey
+    }
+
+    /// The values the row is compared on; see `GitReferenceRowRenderKey`.
+    private var renderKey: GitReferenceRowRenderKey {
+        GitReferenceRowRenderKey(
+            row: row,
+            isSelected: isSelected,
+            isPerformingBranchOperation: isPerformingBranchOperation,
+            currentReferenceID: currentReferenceID,
+            comparisonSourceID: comparisonSourceID,
+            isReadOnly: isReadOnly,
+            repositoryColorIndex: repositoryColorIndex,
+            remoteBranches: remoteBranches
+        )
     }
 
     var body: some View {
@@ -3168,10 +3194,10 @@ private struct GitReferenceRowView: View, Equatable {
             })
             items.append(.separator)
         }
-        if actions.remoteBranches.isEmpty {
+        if remoteBranches.isEmpty {
             items.append(.action("No Remote Branches", isEnabled: false) {})
         } else {
-            for remote in actions.remoteBranches {
+            for remote in remoteBranches {
                 items.append(.action(
                     remote.shortName,
                     systemImage: "network",

@@ -146,6 +146,21 @@ rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRep
 引用和分支名传给 Core），`GitService`、`GitFeatureModel.setUpstream` /
 `unsetUpstream` 依次透传。**没有改动 Rust Core**，也没有新增 Core 命令。
 
+### 引用行的刷新比较必须包含远程分支
+
+`GitReferenceRowView` 以 `.equatable()` 渲染，只有 `==` 判不相等的行才会重建。Tracking Branch
+子菜单读的是活动仓库的远程分支列表，所以这份列表必须参与相等判断：否则一次只增删远程分支的
+`refs` 刷新（本地分支、选中和执行状态都没变）不会让行失效，子菜单会继续用建行时捕获的旧列表
+——远程分支已删还列着，或明明有远程分支却仍显示 “No Remote Branches”。
+
+原来 `remoteBranches` 放在 `GitReferenceRowActions` 里，而 `==` 刻意忽略这个结构（它的闭包每次
+body 都会重建，比较它会让所有行每帧都重建）。现在把它从 `actions` 移出，成为
+`GitReferenceRowView` 自己的值属性；同时把整条相等契约抽成 `GitReferenceRowRenderKey`
+（定义在 `GitReferenceRows.swift`），`==` 只比较这个 key。**新增任何被行或菜单读取的字段，都要
+加进 key，否则改了对 UI 没有影响。**
+
+非活动仓库分组的行是只读的、只触发选中，菜单不出现，所以它们传空列表，避免无谓的行重建。
+
 ### 提交右键的重置支持 soft / mixed / hard
 
 `GitFeatureModel.resetCurrentBranch(to:)` 以前写死 `--mixed`，现在加
@@ -213,6 +228,9 @@ rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRep
   校验菜单策略：只读行返回空条目，活动行的本地 / 远程 / 标签菜单项与启用状态符合预期，
   分支操作进行中时写操作项被禁用，并新增 Copy Branch Name（本地 / 远程有、标签无）与
   Tracking Branch（仅本地有）两条策略断言。
+- `macos/Tests/LitheTests/GitReferenceRowRenderKeyTests.swift` 校验行的刷新契约：只增 / 只删
+  远程分支时 `GitReferenceRowRenderKey` 必须判不相等（保证子菜单重建），远程分支列表不变时
+  判相等（保证不白重建），行自身字段变化时仍然判不相等。
 - `macos/Tests/LitheTests/GitRepositoryColorTests.swift` 校验配色：8 色互不相同且不透明，
   N 个仓库拿到互不相同的色号，隐藏中间仓库时后续仓库色号不变（证明按完整仓库列表定色），
   超过 8 个仓库回绕，单仓库不启用颜色，未知仓库回退到 0 号色。
@@ -244,7 +262,7 @@ rename / delete）都只针对一个活动仓库，闭包直接从活动 `gitRep
 - `macos/Resources/en.lproj/Localizable.strings`
 - `macos/Resources/zh-Hans.lproj/Localizable.strings`
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift`
-- `macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift`
+- `macos/Tests/LitheTests/GitReferenceRowRenderKeyTests.swift`
 - `macos/Tests/LitheTests/GitRepositoryColorTests.swift`
 - `macos/Tests/LitheTests/ContextMenuCoverageTests.swift`
 - `macos/Tests/LitheTests/AppLocalizationTests.swift`
