@@ -557,6 +557,7 @@ fn render_term_row(
             .into_any_element();
     }
     let mut col = 0;
+    let mut cursor_drawn = false;
     for (fg, bg, bold, text) in &spans {
         let fg_resolved = resolve_color(*fg, *bold, default_fg);
         let bg_resolved = resolve_color(*bg, false, default_bg);
@@ -569,8 +570,11 @@ fn render_term_row(
                 .when(*bold, |el| el.font_weight(FontWeight::BOLD))
                 .child(text)
         };
-        if trailing {
+        let span_len = text.chars().count();
+        // 光标块整行只画一次：完全在光标前/后的段原样输出。
+        if trailing || col + span_len <= cursor_col || cursor_drawn {
             row_el = row_el.child(chunk(text.clone()));
+            col += span_len;
             continue;
         }
         let mut before = String::new();
@@ -595,6 +599,7 @@ fn render_term_row(
                 .bg(fg_resolved)
                 .child(cursor_char.unwrap_or(' ').to_string()),
         );
+        cursor_drawn = true;
         if !after.is_empty() {
             row_el = row_el.child(chunk(after));
         }
