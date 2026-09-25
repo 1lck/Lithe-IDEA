@@ -200,9 +200,27 @@ pub fn set_palette(palette: ThemePalette) {
     }
 }
 
+/// rgitui diff 引擎内置的深浅主题名（见 `rgitui_theme::builtin_themes`）。
+const GIT_ENGINE_THEME_DARK: &str = "Catppuccin Mocha";
+const GIT_ENGINE_THEME_LIGHT: &str = "Catppuccin Latte";
+
+/// 把工作台的深浅外观同步给 rgitui diff 引擎。
+///
+/// 引擎用自己的 `ThemeState` 选语法高亮主题，不会跟随 Lithe 的调色板；主题切换后
+/// 必须重新告诉它当前是深色还是浅色，否则 diff 视图会停在旧外观。未知名字在引擎里
+/// 是静默忽略，因此这里只传内置主题名。
+pub fn sync_git_engine_theme(cx: &mut gpui_kit::App) {
+    let theme_id = crate::settings::resolved_theme_id(crate::settings::get(cx), false);
+    let name = if ThemePalette::is_light(&theme_id) {
+        GIT_ENGINE_THEME_LIGHT
+    } else {
+        GIT_ENGINE_THEME_DARK
+    };
+    rgitui_theme::set_theme(name, cx);
+}
+
 /// 当前生效的工作台调色板。
-pub fn palette() -> ThemePalette {
-    CURRENT_PALETTE
+pub fn palette() -> ThemePalette {    CURRENT_PALETTE
         .read()
         .map(|p| *p)
         .unwrap_or_else(|_| ThemePalette::dark())

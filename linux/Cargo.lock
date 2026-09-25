@@ -4211,6 +4211,7 @@ dependencies = [
  "regex",
  "rfd",
  "rgitui_diff",
+ "rgitui_theme",
  "serde",
  "serde_json",
  "tokio",

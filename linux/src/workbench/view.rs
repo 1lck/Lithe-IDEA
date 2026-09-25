@@ -1061,6 +1061,7 @@ impl WorkbenchView {
         };
         gpui_kit::component::Theme::change(mode, None, cx);
         crate::fonts::apply_theme(cx);
+        crate::theme::sync_git_engine_theme(cx);
         cx.notify();
     }
 
@@ -2147,6 +2148,7 @@ impl WorkbenchView {
             };
             gpui_kit::component::Theme::change(mode, None, cx);
             crate::fonts::apply_theme(cx);
+            crate::theme::sync_git_engine_theme(cx);
             cx.notify();
             return;
         }
