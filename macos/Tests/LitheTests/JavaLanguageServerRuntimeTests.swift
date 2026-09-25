@@ -199,7 +199,7 @@ struct JavaLanguageServerRuntimeTests {
         )
 
         let symlinkRoot = root.deletingLastPathComponent()
-            .appendingPathComponent("lithe-jdtls-link-(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lithe-jdtls-link-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: symlinkRoot) }
         try fileManager.createSymbolicLink(at: symlinkRoot, withDestinationURL: root)
         let symlinkResolver = MacJDTLSLaunchResourceResolver(
