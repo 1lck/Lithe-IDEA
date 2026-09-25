@@ -62,3 +62,31 @@ __attribute__((weak)) int32_t lithe_core_git_askpass(const char *prompt) {
 int32_t lithe_bridge_git_askpass(const char *prompt) {
     return lithe_core_git_askpass(prompt);
 }
+
+__attribute__((weak)) void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context) {
+    (void)configuration; (void)callback; (void)context;
+    return NULL;
+}
+__attribute__((weak)) int32_t lithe_agent_prompt(void *handle, const char *prompt) {
+    (void)handle; (void)prompt;
+    return 0;
+}
+__attribute__((weak)) int32_t lithe_agent_cancel(void *handle) {
+    (void)handle;
+    return 0;
+}
+__attribute__((weak)) int32_t lithe_agent_permission(void *handle, const char *request_id, const char *option_id) {
+    (void)handle; (void)request_id; (void)option_id;
+    return 0;
+}
+__attribute__((weak)) void lithe_agent_close(void *handle) { (void)handle; }
+
+void *lithe_bridge_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context) {
+    return lithe_agent_open_json(configuration, callback, context);
+}
+int32_t lithe_bridge_agent_prompt(void *handle, const char *prompt) { return lithe_agent_prompt(handle, prompt); }
+int32_t lithe_bridge_agent_cancel(void *handle) { return lithe_agent_cancel(handle); }
+int32_t lithe_bridge_agent_permission(void *handle, const char *request_id, const char *option_id) {
+    return lithe_agent_permission(handle, request_id, option_id);
+}
+void lithe_bridge_agent_close(void *handle) { lithe_agent_close(handle); }

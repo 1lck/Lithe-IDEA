@@ -91,6 +91,8 @@ fi
   abort "module IDs must be sorted" unless modules.map { |m| m.fetch("id") } == modules.map { |m| m.fetch("id") }.sort
   abort "workspace must be the only required module" unless modules.select { |m| m.fetch("required") }.map { |m| m.fetch("id") } == ["dev.lithe.workspace"]
   abort "AI must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.ai-assistance" }.fetch("defaultState") == "disabled"
+  agent = modules.find { |m| m.fetch("id") == "dev.lithe.agent-conversation" }
+  abort "Agent must be disabled and on demand" unless agent.fetch("defaultState") == "disabled" && agent.fetch("activationPolicy") == "onDemand"
   abort "Database must be disabled by default" unless modules.find { |m| m.fetch("id") == "dev.lithe.database" }.fetch("defaultState") == "disabled"
   allowed_states = ["enabled", "disabled"]
   allowed_scopes = ["application", "workspace"]

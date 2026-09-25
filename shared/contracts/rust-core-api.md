@@ -12,6 +12,11 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
+int32_t lithe_agent_prompt(void *handle, const char *prompt);
+int32_t lithe_agent_cancel(void *handle);
+int32_t lithe_agent_permission(void *handle, const char *request_id, const char *option_id);
+void lithe_agent_close(void *handle);
 ```
 
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
@@ -35,6 +40,16 @@ spawn failures clean it up, while successful launches retain it until that exact
 process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
+
+The ACP Agent calls use an opaque per-session handle. `lithe_agent_open_json`
+accepts `{ "command": string, "args": string[], "cwd": absolutePath }` and
+starts the user-installed executable in that workspace. It reports ordered
+JSON events (`ready`, `update`, `permission`, `turnFinished`, `error`, `stopped`)
+through a borrowed callback string. `lithe_agent_permission` accepts an event's
+`requestId` and an advertised option ID, or null to deny. The caller must close
+each handle exactly once; closing revokes callbacks and stops the process tree.
+The callback context must remain valid until close returns. This API is owned
+by `lithe-agent-host` and is separate from the synchronous JSON command envelope.
 
 ## Envelope
 

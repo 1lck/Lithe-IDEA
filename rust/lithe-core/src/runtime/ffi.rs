@@ -3,6 +3,19 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+struct AgentFFIHandle {
+    handle: lithe_agent_host::AgentHandle,
+    callback: Arc<
+        Mutex<
+            Option<(
+                unsafe extern "C" fn(*const c_char, *mut std::ffi::c_void),
+                usize,
+            )>,
+        >,
+    >,
+}
 
 /// Returns a pointer to the static, NUL-terminated Core ABI version.
 ///
@@ -137,4 +150,126 @@ pub unsafe extern "C" fn lithe_core_git_askpass(prompt: *const c_char) -> i32 {
         return 1;
     }
     crate::git_askpass_main(&CStr::from_ptr(prompt).to_string_lossy())
+}
+
+/// Opens a shared ACP session and delivers UTF-8 JSON events on a worker thread.
+///
+/// The returned opaque handle must be closed once with [`lithe_agent_close`].
+///
+/// # Safety
+///
+/// `configuration` must be readable NUL-terminated JSON. `callback` must not
+/// unwind or retain its borrowed event pointer. `context` must remain valid
+/// until `lithe_agent_close` returns. Other handle calls must not race close.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_agent_open_json(
+    configuration: *const c_char,
+    callback: Option<unsafe extern "C" fn(*const c_char, *mut std::ffi::c_void)>,
+    context: *mut std::ffi::c_void,
+) -> *mut std::ffi::c_void {
+    let Some(callback) = callback else {
+        return std::ptr::null_mut();
+    };
+    if configuration.is_null() {
+        return std::ptr::null_mut();
+    }
+    let Ok(launch) = serde_json::from_slice::<lithe_agent_host::AgentLaunch>(
+        CStr::from_ptr(configuration).to_bytes(),
+    ) else {
+        return std::ptr::null_mut();
+    };
+    let callback_state = Arc::new(Mutex::new(Some((callback, context as usize))));
+    let state = callback_state.clone();
+    let emit = Arc::new(move |event: lithe_agent_host::AgentEvent| {
+        if let Ok(json) = serde_json::to_string(&event) {
+            if let Ok(json) = CString::new(json) {
+                // Holding the lock lets close revoke the callback only after an
+                // in-flight call returns, so Swift can then release context.
+                if let Ok(state) = state.lock() {
+                    if let Some((callback, context)) = *state {
+                        callback(json.as_ptr(), context as *mut std::ffi::c_void);
+                    }
+                }
+            }
+        }
+    });
+    match lithe_agent_host::AgentHandle::open(launch, emit) {
+        Ok(handle) => Box::into_raw(Box::new(AgentFFIHandle {
+            handle,
+            callback: callback_state,
+        }))
+        .cast(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Queues one prompt on an ACP session; returns 1 when accepted.
+///
+/// # Safety
+/// `handle` must be an open handle from `lithe_agent_open_json`; `prompt` must
+/// be a readable NUL-terminated string for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_agent_prompt(
+    handle: *mut std::ffi::c_void,
+    prompt: *const c_char,
+) -> i32 {
+    if handle.is_null() || prompt.is_null() {
+        return 0;
+    }
+    let handle = &*(handle as *mut AgentFFIHandle);
+    handle
+        .handle
+        .prompt(CStr::from_ptr(prompt).to_string_lossy().into_owned())
+        .is_ok() as i32
+}
+
+/// Requests cancellation of the active ACP prompt.
+///
+/// # Safety
+/// `handle` must be an open handle from `lithe_agent_open_json`.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_agent_cancel(handle: *mut std::ffi::c_void) -> i32 {
+    if handle.is_null() {
+        return 0;
+    }
+    let handle = &*(handle as *mut AgentFFIHandle);
+    handle.handle.cancel().is_ok() as i32
+}
+
+/// Resolves an ACP permission request; null `option_id` rejects it.
+///
+/// # Safety
+/// `handle` must be open and `request_id` and any `option_id` must be readable
+/// NUL-terminated strings for this call.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_agent_permission(
+    handle: *mut std::ffi::c_void,
+    request_id: *const c_char,
+    option_id: *const c_char,
+) -> i32 {
+    if handle.is_null() || request_id.is_null() {
+        return 0;
+    }
+    let handle = &*(handle as *mut AgentFFIHandle);
+    let request_id = CStr::from_ptr(request_id).to_string_lossy();
+    let option =
+        (!option_id.is_null()).then(|| CStr::from_ptr(option_id).to_string_lossy().into_owned());
+    handle.handle.respond_permission(&request_id, option) as i32
+}
+
+/// Revokes callbacks, stops the agent tree, and frees an ACP handle.
+///
+/// # Safety
+/// `handle` must be null or an open handle from `lithe_agent_open_json`. Calls
+/// using the same handle must finish before close; the handle is invalid after.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_agent_close(handle: *mut std::ffi::c_void) {
+    if handle.is_null() {
+        return;
+    }
+    let handle = Box::from_raw(handle as *mut AgentFFIHandle);
+    if let Ok(mut callback) = handle.callback.lock() {
+        callback.take();
+    }
+    handle.handle.close();
 }

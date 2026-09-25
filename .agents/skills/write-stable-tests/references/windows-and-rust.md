@@ -38,7 +38,7 @@ report. One suite deadline covers compilation, enumeration, every test process,
 and the clean cache retry; a timeout writes the completed records before the
 runner exits. This isolation makes the exact hanging test visible.
 
-SharedRust explicitly runs both `lithe-git-host` and `lithe-core`, keeping the
+SharedRust explicitly runs `lithe-agent-host`, `lithe-git-host`, and `lithe-core`, keeping the
 native Git process/AskPass tests in `git-host-rust.json` and Core tests in
 `shared-rust.json`. Testing a Cargo package does not run its dependencies' own
 tests. macOS's `verify-rust-core.sh` runs the same native adapter timing lane.

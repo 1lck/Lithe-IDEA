@@ -676,6 +676,31 @@ struct SettingsView: View {
 
     private var aiSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
+            group("Agent conversation (ACP)") {
+                LitheSettingsCheckbox(
+                    isOn: Binding(
+                        get: { model.isAgentConversationEnabled },
+                        set: { enabled in
+                            Task { await model.setAgentConversationEnabled(enabled) }
+                        }
+                    ),
+                    title: "Enable Agent conversation"
+                )
+                Text("The Agent starts only when you send a message. Disabling this feature stops its session.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+                TextField("ACP Agent executable", text: $settings.agentCommand)
+                    .litheSettingsTextField()
+                    .disabled(!model.isAgentConversationEnabled)
+                Text("Arguments (one per line)")
+                    .font(LitheTheme.smallFont)
+                TextEditor(text: $settings.agentArguments)
+                    .frame(height: 72)
+                    .disabled(!model.isAgentConversationEnabled)
+                Text("Install a compatible ACP Agent separately, then enter its executable and arguments here.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
             group("AI provider") {
                 if settings.commitMessageAI.providers.isEmpty {
                     Text("No AI provider is configured yet.")

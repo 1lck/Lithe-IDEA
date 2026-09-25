@@ -6,6 +6,15 @@ import Foundation
 public enum BuiltInModuleCatalog {
     public static let manifests: [ModuleManifest] = [
         ModuleManifest(
+            id: .agentConversation,
+            displayName: "Agent Conversation",
+            scope: .application,
+            defaultState: .disabled,
+            activationPolicy: .onDemand,
+            sleepPolicy: .never,
+            providedCapabilities: [.agentConversation]
+        ),
+        ModuleManifest(
             id: .aiAssistance,
             displayName: "AI Assistance",
             scope: .application,
@@ -98,6 +107,9 @@ public enum BuiltInModuleCatalog {
     public static var ids: [ModuleID] { manifests.map(\.id) }
 
     public static let contributions: [ModuleID: [ModuleContribution]] = [
+        .agentConversation: [
+            ModuleContribution(id: "agent.conversation", kind: .toolWindow, title: "Agent", icon: "sparkles", placement: .activityBar, order: 250, actionID: "agent.conversation.toggle", rendererID: "agent.conversation")
+        ],
         .aiAssistance: [
             ModuleContribution(id: "ai.commit-message", kind: .command, title: "Generate Commit Message", icon: "wand.and.stars"),
             ModuleContribution(id: "ai.pull-request-description", kind: .command, title: "Generate Pull Request Description", icon: "wand.and.stars"),
@@ -178,6 +190,7 @@ public enum BuiltInPluginCatalog {
     private static func targetName(for id: ModuleID) -> String {
         switch id {
         case .aiAssistance: "LitheAIAssistanceModule"
+        case .agentConversation: "LitheAgentConversationModule"
         case .database: "LitheDatabaseModule"
         case .debug: "LitheDebugModule"
         case .execution: "LitheExecutionModule"

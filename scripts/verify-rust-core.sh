@@ -15,6 +15,10 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-git-host \
     --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/git-host-rust.json
+node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
+    --manifest rust/Cargo.toml --package lithe-agent-host \
+    --suite-timeout-ms 120000 \
+    --report .artifacts/test-stability/agent-host-rust.json
 cargo test --manifest-path rust/Cargo.toml -p lithe-core
 
 case "$(uname -m)" in

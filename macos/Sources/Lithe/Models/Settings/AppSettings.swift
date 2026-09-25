@@ -33,6 +33,8 @@ final class AppSettings: ObservableObject {
         static let gitSaveChangesPolicy = "settings.gitSaveChangesPolicy"
         static let projectOpenBehavior = "settings.projectOpenBehavior"
         static let commitMessageAI = "settings.commitMessageAI"
+        static let agentCommand = "settings.agentCommand"
+        static let agentArguments = "settings.agentArguments"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
@@ -121,6 +123,9 @@ final class AppSettings: ObservableObject {
     @Published var commitMessageAI: CommitMessageAISettings {
         didSet { saveCommitMessageAI() }
     }
+    @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
+    /// One command argument per line, so paths with spaces need no shell parser.
+    @Published var agentArguments: String { didSet { defaults.set(agentArguments, forKey: Key.agentArguments) } }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var customLogDirectory: URL?
     @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
@@ -197,6 +202,8 @@ final class AppSettings: ObservableObject {
         } else {
             commitMessageAI = .default
         }
+        agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
+        agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
@@ -329,6 +336,8 @@ final class AppSettings: ObservableObject {
         gitSaveChangesPolicy = .stash
         projectOpenBehavior = .ask
         commitMessageAI = .default
+        agentCommand = ""
+        agentArguments = ""
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22

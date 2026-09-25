@@ -10,6 +10,7 @@ final class WorkbenchFeatureModel: ObservableObject {
     enum ToolWindow: Equatable {
         case gitLog
         case terminal
+        case agent
         case references
         case problems
         case maven

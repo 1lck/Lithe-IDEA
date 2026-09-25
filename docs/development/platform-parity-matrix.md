@@ -2,11 +2,11 @@
 
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
-- 最后复核：2026-09-24
+- 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：76
-- macOS：实现：✅ 64 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 67 待验证，— 9 不适用
-- Windows：实现：✅ 71 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 74 待验证，— 2 不适用
+- 功能项：77
+- macOS：实现：✅ 65 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 68 待验证，— 9 不适用
+- Windows：实现：✅ 71 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 75 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -28,6 +28,19 @@
 ## 功能矩阵
 
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。单元格第一行是实现状态，第二行是验证状态。
+
+<details>
+<summary><strong>AI</strong> · 5 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Agent 对话 | **可选 ACP Agent 对话、流式输出、权限确认和会话清理**<br><sub>agent-acp-conversation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule`、`macos/Sources/Lithe/Views/Agent`、`rust/lithe-agent-host`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host`</sub> | Agent | 在 macOS 安装兼容 ACP Agent，验证启用、对话、流式输出、权限选择、取消及禁用或切换工作区后进程退出；Windows 待接入 UI 和宿主。 |  |
+| AI 提交信息 | **Provider 配置与提交信息生成**<br><sub>ai-commit-generation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift`、`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/services/ai-commit-service.ts`、`shared/contracts/ai-commit.md`</sub> | Git / AI | 用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 |  |
+| AI 对话 | **对话会话与流式响应**<br><sub>ai-chat-session</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/components/chat/ai-chat.tsx`、`windows/tauri/src/features/ai/services/ai-chat-service.ts`</sub> | AI | Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。 |  |
+| AI 对话 | **对话历史、置顶与归档**<br><sub>ai-chat-history</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/ai-chat-history-service.ts`、`windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx`</sub> | AI | Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。 |  |
+| AI 对话 | **多 Provider 与工作区范围**<br><sub>ai-chat-providers</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/providers`、`windows/tauri/src/features/ai/lib/ai-workspace-scope.ts`</sub> | AI | Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。 |  |
+
+</details>
 
 <details>
 <summary><strong>工作区</strong> · 7 个能力点</summary>
@@ -96,18 +109,6 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | GitHub | **Pull Request 列表与详情**<br><sub>github-prs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/GitHub`、`macos/Sources/Lithe/Services/GitHub`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/github`、`shared/contracts/application-boundary.md`</sub> | GitHub | 使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。 |  |
 | GitHub | **Review 与评论**<br><sub>github-reviews-comments</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/GitHub`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/github`</sub> | GitHub | 创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。 |  |
-
-</details>
-
-<details>
-<summary><strong>AI</strong> · 4 个能力点</summary>
-
-| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
-| --- | --- | --- | --- | --- | --- | --- |
-| AI 提交信息 | **Provider 配置与提交信息生成**<br><sub>ai-commit-generation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift`、`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/services/ai-commit-service.ts`、`shared/contracts/ai-commit.md`</sub> | Git / AI | 用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 |  |
-| AI 对话 | **对话会话与流式响应**<br><sub>ai-chat-session</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/components/chat/ai-chat.tsx`、`windows/tauri/src/features/ai/services/ai-chat-service.ts`</sub> | AI | Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。 |  |
-| AI 对话 | **对话历史、置顶与归档**<br><sub>ai-chat-history</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/ai-chat-history-service.ts`、`windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx`</sub> | AI | Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。 |  |
-| AI 对话 | **多 Provider 与工作区范围**<br><sub>ai-chat-providers</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/providers`、`windows/tauri/src/features/ai/lib/ai-workspace-scope.ts`</sub> | AI | Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。 |  |
 
 </details>
 
