@@ -108,6 +108,11 @@ impl FileEntry {
 #[derive(Debug, Clone)]
 pub enum SidebarEvent {
     OpenFile(String),
+    /// 打开 Git 面板并展示该文件的 diff（单击变更项）。
+    OpenGitDiff {
+        path: String,
+        staged: bool,
+    },
     /// 新建文件入口已移出 explorer 头部（对齐 Tauri），保留变体供外部调用。
     #[allow(dead_code)]
     NewFile,
@@ -1242,9 +1247,17 @@ impl SidebarView {
                             )
                             .on_click(cx.listener({
                                 let p = path.clone();
-                                move |this, _event, _window, cx| {
+                                let staged = change.staged;
+                                move |this, event: &gpui_kit::ClickEvent, _window, cx| {
                                     this.selected_path = Some(p.clone());
-                                    cx.emit(SidebarEvent::OpenFile(p.clone()));
+                                    if event.click_count() >= 2 {
+                                        cx.emit(SidebarEvent::OpenFile(p.clone()));
+                                    } else {
+                                        cx.emit(SidebarEvent::OpenGitDiff {
+                                            path: p.clone(),
+                                            staged,
+                                        });
+                                    }
                                     cx.notify();
                                 }
                             }))

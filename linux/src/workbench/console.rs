@@ -177,7 +177,8 @@ impl OutputConsole {
     /// 仍保持创建时的浅色配色。
     pub fn apply_config(&self, cx: &mut App) {
         let config = console_config(cx);
-        self.view.update(cx, |view, cx| view.update_config(config, cx));
+        self.view
+            .update(cx, |view, cx| view.update_config(config, cx));
     }
 
     /// 把控制台当前选区写入 GPUI 的平台剪贴板。

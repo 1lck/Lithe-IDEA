@@ -352,6 +352,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "notifications.filterErrors" => ("错误", "Errors"),
         "notifications.projectOpened" => ("已打开项目", "Project opened"),
         // ---- Git ----
+        "git.panel.selectFile" => ("选择一个变更文件查看差异", "Select a changed file to view its diff"),
         "git.commit" => ("提交", "Commit"),
         // ---- Git 分支管理器（与 Tauri locale.ts git.* 逐字对齐） ----
         "git.repositories" => ("仓库", "Repositories"),

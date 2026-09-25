@@ -33,6 +33,7 @@ use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::{EditorTabEvent, EditorView};
 use crate::workbench::extensions_panel::{ExtensionsEvent, ExtensionsView};
+use crate::workbench::git_panel::{GitPanelEvent, GitPanelView};
 use crate::workbench::global_search_panel::{GlobalSearchEvent, GlobalSearchPanel};
 use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
@@ -103,6 +104,8 @@ pub struct WorkbenchView {
     pub show_project_dialog: bool,
     /// 分支管理器弹窗是否可见
     pub show_branch_manager: bool,
+    /// Git 面板（变更列表 + diff）是否可见
+    pub show_git_panel: bool,
     /// 右侧工具窗口当前视图（`None` 隐藏，对齐 Tauri 右侧不持久化语义）
     pub right_tool: Option<RightToolView>,
 
@@ -168,6 +171,8 @@ pub struct WorkbenchView {
     pub project_dialog: Entity<ProjectDialog>,
     /// 分支管理器弹窗（对齐 Tauri `GitBranchManager`）
     pub branch_manager: Entity<BranchManagerView>,
+    /// Git 面板：变更列表 + 上游 rgitui diff 视图
+    pub git_panel: Entity<GitPanelView>,
     /// 欢迎页
     pub welcome_screen: Entity<WelcomeScreenView>,
 
@@ -232,6 +237,8 @@ impl WorkbenchView {
         let project_dialog = cx.new(|cx| ProjectDialog::new(cx));
         let branch_manager_root = root.clone();
         let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, window, cx));
+
+        let git_panel = cx.new(GitPanelView::new);
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
         let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
         let notifications = cx.new(|cx| NotificationsView::new(cx));
@@ -244,6 +251,14 @@ impl WorkbenchView {
             cx.subscribe(
                 &sidebar,
                 move |this, sidebar, event: &SidebarEvent, cx| match event {
+                    SidebarEvent::OpenGitDiff { path, staged } => {
+                        let root = this.sidebar.read(cx).root_path.clone();
+                        this.git_panel.update(cx, |panel, cx| {
+                            panel.open(root, Some(path.clone()), *staged, cx);
+                        });
+                        this.show_git_panel = true;
+                        cx.notify();
+                    }
                     SidebarEvent::OpenFile(path) => {
                         this.open_file(path, cx);
                         let _ = status_bar_clone.update(cx, |sb, cx| {
@@ -814,6 +829,14 @@ impl WorkbenchView {
             },
         );
 
+        // 9d. 订阅 Git 面板事件（关闭按钮）
+        let sub_git_panel = cx.subscribe(&git_panel, |this, _panel, event: &GitPanelEvent, cx| {
+            if matches!(event, GitPanelEvent::Close) {
+                this.show_git_panel = false;
+                cx.notify();
+            }
+        });
+
         // 10. 订阅欢迎页事件
         let sub_welcome = cx.subscribe(
             &welcome_screen,
@@ -899,6 +922,7 @@ impl WorkbenchView {
             show_settings_dialog: false,
             show_project_dialog: false,
             show_branch_manager: false,
+            show_git_panel: false,
             right_tool: None,
             pending_goto_line: None,
             lsp_sessions: HashMap::new(),
@@ -931,6 +955,7 @@ impl WorkbenchView {
             settings_dialog,
             project_dialog,
             branch_manager,
+            git_panel,
             welcome_screen,
             keymap: crate::keybindings::KeymapIndex::build(),
             double_shift: crate::keybindings::DoubleShiftRecognizer::new(),
@@ -956,6 +981,7 @@ impl WorkbenchView {
                 sub_settings,
                 sub_project_dialog,
                 sub_branch_manager,
+                sub_git_panel,
                 sub_welcome,
                 sub_status,
                 sub_appearance,
@@ -2818,6 +2844,9 @@ impl Render for WorkbenchView {
             })
             .when(self.show_branch_manager, |view| {
                 view.child(self.branch_manager.clone())
+            })
+            .when(self.show_git_panel, |view| {
+                view.child(self.git_panel.clone())
             })
     }
 }

@@ -220,7 +220,8 @@ pub fn sync_git_engine_theme(cx: &mut gpui_kit::App) {
 }
 
 /// 当前生效的工作台调色板。
-pub fn palette() -> ThemePalette {    CURRENT_PALETTE
+pub fn palette() -> ThemePalette {
+    CURRENT_PALETTE
         .read()
         .map(|p| *p)
         .unwrap_or_else(|_| ThemePalette::dark())

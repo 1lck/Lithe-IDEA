@@ -7,6 +7,7 @@ pub mod console;
 pub mod editor;
 pub mod extensions_panel;
 pub mod file_icon;
+pub mod git_panel;
 pub mod global_search;
 pub mod global_search_panel;
 pub mod go_to_line;

@@ -35,9 +35,9 @@ use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, App, AppContext as _, ClipboardItem, Context, Edges, Entity,
-    InteractiveElement as _, IntoElement, KeyDownEvent, MouseButton, ParentElement as _, Render,
-    Rgba, Styled as _, Subscription, Window,
+    div, px, App, AppContext as _, ClipboardItem, Context, Edges, Entity, InteractiveElement as _,
+    IntoElement, KeyDownEvent, MouseButton, ParentElement as _, Render, Rgba, Styled as _,
+    Subscription, Window,
 };
 use gpui_xterm::{ColorPalette, TerminalConfig, TerminalView as XtermView};
 use portable_pty::{native_pty_system, ChildKiller, CommandBuilder, MasterPty, PtySize};
