@@ -2634,11 +2634,13 @@ name = "lithe-project"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "encoding_rs",
  "log",
  "notify",
  "notify-debouncer-full",
  "notify-debouncer-mini",
  "serde",
+ "sha2",
  "windows-sys 0.61.2",
 ]
 

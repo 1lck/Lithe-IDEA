@@ -157,6 +157,31 @@ export const getGitReferences = async (
   }
 };
 
+/**
+ * Reads references for an already-discovered repository root, skipping
+ * `git_discover_repo`. Reusing the known repository root avoids redundant Git
+ * process launches when the workspace already resolved its repository roots.
+ */
+export const getGitReferencesAtRoot = async (
+  repoPath: string,
+  operationId: string,
+): Promise<GitReferenceSnapshot | null> => {
+  try {
+    return await runGitRead(repoPath, `references:${operationId}`, () =>
+      tauriInvoke<GitReferenceSnapshot>("git_references", {
+        repoPath,
+        operationId,
+      }),
+    );
+  } catch (error) {
+    if (isCancelledGitHistoryRequest(error)) return null;
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to get git references:", error);
+    }
+    throw error;
+  }
+};
+
 export const getGitHistoryPage = async (
   repoPath: string,
   cursor: string | undefined,

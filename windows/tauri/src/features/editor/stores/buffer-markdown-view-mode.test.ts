@@ -61,7 +61,7 @@ describe("setMarkdownViewMode", () => {
     buffer.documentLifecycle = { status: "dirty", revision: 1, savedRevision: 0 };
     setBuffers([buffer], buffer.id);
     useBufferStore.getStore(WORKSPACE).getState().actions
-      .replaceRestoredBufferContent(buffer.id, "stale disk content", "markdown");
+      .replaceRestoredBufferContent(buffer.id, "stale disk content", "markdown", undefined, undefined);
     const restored = bufferById(buffer.id) as EditorContent;
     expect(restored.content).toBe("new edit");
     expect(restored.savedContent).toBe("old content");

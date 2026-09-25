@@ -94,6 +94,7 @@ export const defaultSettings: Settings = {
   showStatusBar: true,
   showTabIcons: true,
   tabCloseButtonVisibility: "active",
+  editorTabLayoutMode: "singleLine",
   windowChromeDensity: "focused",
   // Theme
   theme: "lithe-dark",
@@ -176,7 +177,6 @@ export const defaultSettings: Settings = {
   lastSettingsTab: "general",
   extensionsActiveTab: "all",
   maxOpenTabs: 100,
-  horizontalTabScroll: true,
   //// File tree
   fileTreeSortOrder: "folders-first",
   fileTreeIndentSize: 16,

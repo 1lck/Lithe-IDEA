@@ -74,12 +74,9 @@ final class MacServiceContainer {
         gitWatchContextProvider providedGitWatchContextProvider: (any GitWatchContextProviding)? = nil,
         runExecutableResolver providedRunExecutableResolver: (any RunExecutableResolving)? = nil,
         pluginRuntimeRecovery: MacPluginRuntimeRecoveryCoordinator? = nil,
-        authorizationCallbackRouter providedAuthorizationCallbackRouter: MacExternalAuthorizationCallbackRouter? = nil,
         platformUI providedPlatformUI: (any PlatformUI)? = nil,
         gitPerformanceLogger: (any GitPerformanceLogger)? = nil
     ) {
-        let authorizationCallbackRouter = providedAuthorizationCallbackRouter
-            ?? MacExternalAuthorizationCallbackRouter()
         let gitExecutionJournal = GitExecutionJournal()
         let rustCore = RustCoreBridge(gitPreferences: settings.gitExecutionPreferences,
                                       gitExecutionJournal: gitExecutionJournal)
@@ -117,12 +114,6 @@ final class MacServiceContainer {
             git: MacGitHubGitOperations(core: rustCore)
         )
         let platformUI = providedPlatformUI ?? MacPlatformUI()
-        let discourseCommunityService = DiscourseCommunityService(
-            core: rustCore,
-            credentialStore: MacKeychainSecureStore(service: "app.lithe.desktop.linux-do"),
-            platformUI: platformUI,
-            callbackRouter: authorizationCallbackRouter
-        )
         let diagnosticsExportService = Self.makeDiagnosticsExportService(
             fileStorage: fileStorage,
             processRunner: processRunner,
@@ -143,6 +134,11 @@ final class MacServiceContainer {
         pluginHostServices.register(languageExecutionHost, for: .languageExecution)
         let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
         let moduleStore = providedModuleStore ?? MacModuleConfigurationStore(store: store)
+        // Database is now an internal on-demand workspace feature, so an old
+        // plugin-market preference must not leave the workspace inaccessible.
+        if moduleStore.enabledState(for: .database) == false {
+            moduleStore.setEnabledState(true, for: .database)
+        }
         let moduleRuntime = ModuleRuntime(
             configurationStore: moduleStore,
             recoveryStore: moduleStore,
@@ -582,8 +578,7 @@ final class MacServiceContainer {
             configurationStore: moduleStore,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: (BuiltInPluginCatalog.manifest(forModule: .database).map { [$0] } ?? [])
-                + bundledLanguageManifests
+            managedBuiltInPlugins: bundledLanguageManifests
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
@@ -623,7 +618,6 @@ final class MacServiceContainer {
             githubService: githubService,
             secureStore: secureStore,
             databaseSecureStore: databaseSecureStore,
-            discourseCommunityService: discourseCommunityService,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             aiConfigurationSources: aiConfigurationSources,

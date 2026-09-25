@@ -222,6 +222,8 @@ pub enum CoreCommand {
     GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
+    /// Resolves the containing repository root without acquiring a write lease (`git.repositoryRoot`).
+    GitRepositoryRoot,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
@@ -403,6 +405,7 @@ impl CoreCommand {
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
+            "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
             "git.write" => Some(Self::GitWrite),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
@@ -537,6 +540,14 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("workspace.repositories"),
             Some(CoreCommand::WorkspaceRepositories)
+        ));
+    }
+
+    #[test]
+    fn parses_git_repository_root_command() {
+        assert!(matches!(
+            CoreCommand::parse("git.repositoryRoot"),
+            Some(CoreCommand::GitRepositoryRoot)
         ));
     }
 }

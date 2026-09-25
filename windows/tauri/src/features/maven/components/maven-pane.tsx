@@ -18,6 +18,7 @@ import {
   ArrowsInIcon,
   CaretDownIcon,
   CaretRightIcon,
+  FileTextIcon,
   FolderIcon,
   GearIcon,
   PackageIcon,
@@ -26,7 +27,6 @@ import {
   SlidersHorizontalIcon,
   StopIcon,
   TerminalIcon,
-  TrashIcon,
   WarningIcon,
   XIcon,
 } from "@/ui/icons";
@@ -179,6 +179,13 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
     [customProfiles, project],
   );
   const isRunning = taskStatus === "running" || taskStatus === "stopping";
+  const hasMavenOutput =
+    taskStatus !== "idle" ||
+    runningTitle !== null ||
+    taskError !== null ||
+    output.length > 0 ||
+    issues.length > 0 ||
+    lastExitCode !== null;
   const isDebugging =
     activeDebugSession?.status === "running" || activeDebugSession?.status === "paused";
   const isModuleOperationBusy = isRunning || moduleOperationPending;
@@ -644,6 +651,17 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
                 aria-label={t("maven.executeGoal")}
               >
                 <TerminalIcon />
+              </Button>
+            </Tooltip>
+            <Tooltip content={t("maven.buildOutput")}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                disabled={!hasMavenOutput}
+                onClick={openMavenRunPane}
+                aria-label={t("maven.buildOutput")}
+              >
+                <FileTextIcon />
               </Button>
             </Tooltip>
             <Tooltip content={t("maven.reloadProjects")}>

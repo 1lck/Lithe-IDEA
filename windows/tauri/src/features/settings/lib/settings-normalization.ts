@@ -1,7 +1,7 @@
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
-import { normalizeV0DesignSystems } from "@/extensions/v0/lib/v0-design-systems";
+import { normalizeV0DesignSystems } from "./v0-design-system-profiles";
 import { isKeybindingPreset } from "@/features/keymaps/defaults/keybinding-presets";
 import {
   DEFAULT_AI_AUTOCOMPLETE_MODEL_ID,
@@ -146,6 +146,10 @@ const TAB_CLOSE_BUTTON_VISIBILITY_MODES = new Set<Settings["tabCloseButtonVisibi
   "hover",
   "always",
 ]);
+const EDITOR_TAB_LAYOUT_MODES = new Set<Settings["editorTabLayoutMode"]>([
+  "singleLine",
+  "multipleRows",
+]);
 const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "focused",
   "comfortable",
@@ -204,6 +208,11 @@ function normalizeStringList(value: unknown): string[] {
       value.filter((item): item is string => typeof item === "string" && item.trim().length > 0),
     ),
   );
+}
+
+function normalizeHiddenSidebarActivityItems(value: unknown): string[] {
+  const validIds = new Set<string>(SIDEBAR_ACTIVITY_ITEM_IDS);
+  return normalizeStringList(value).filter((id) => validIds.has(id));
 }
 
 function normalizeIconTheme(value: string): string {
@@ -267,6 +276,12 @@ function normalizeTabCloseButtonVisibility(value: unknown): Settings["tabCloseBu
   return TAB_CLOSE_BUTTON_VISIBILITY_MODES.has(value as Settings["tabCloseButtonVisibility"])
     ? (value as Settings["tabCloseButtonVisibility"])
     : defaultSettings.tabCloseButtonVisibility;
+}
+
+function normalizeEditorTabLayoutMode(value: unknown): Settings["editorTabLayoutMode"] {
+  return EDITOR_TAB_LAYOUT_MODES.has(value as Settings["editorTabLayoutMode"])
+    ? (value as Settings["editorTabLayoutMode"])
+    : defaultSettings.editorTabLayoutMode;
 }
 
 function normalizeWindowChromeDensity(value: unknown): Settings["windowChromeDensity"] {
@@ -511,6 +526,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.tabCloseButtonVisibility = normalizeTabCloseButtonVisibility(
     (normalizedSettings as { tabCloseButtonVisibility?: unknown }).tabCloseButtonVisibility,
   );
+  normalizedSettings.editorTabLayoutMode = normalizeEditorTabLayoutMode(
+    (normalizedSettings as { editorTabLayoutMode?: unknown }).editorTabLayoutMode,
+  );
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
@@ -559,7 +577,7 @@ export function normalizeSettings(settings: Settings): Settings {
     normalizedSettings.sidebarActivityItemsOrder,
     SIDEBAR_ACTIVITY_ITEM_IDS,
   );
-  normalizedSettings.hiddenSidebarActivityItems = normalizeStringList(
+  normalizedSettings.hiddenSidebarActivityItems = normalizeHiddenSidebarActivityItems(
     normalizedSettings.hiddenSidebarActivityItems,
   );
   normalizedSettings.collapsedActivityRailSections = normalizeStringList(
@@ -628,6 +646,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
     return normalizeTabCloseButtonVisibility(value) as Settings[K];
   }
 
+  if (key === "editorTabLayoutMode") {
+    return normalizeEditorTabLayoutMode(value) as Settings[K];
+  }
+
   if (key === "windowChromeDensity") {
     return normalizeWindowChromeDensity(value) as Settings[K];
   }
@@ -656,7 +678,11 @@ export function normalizeSettingValue<K extends keyof Settings>(
     ) as Settings[K];
   }
 
-  if (key === "hiddenSidebarActivityItems" || key === "collapsedActivityRailSections") {
+  if (key === "hiddenSidebarActivityItems") {
+    return normalizeHiddenSidebarActivityItems(value) as Settings[K];
+  }
+
+  if (key === "collapsedActivityRailSections") {
     return normalizeStringList(value) as Settings[K];
   }
 

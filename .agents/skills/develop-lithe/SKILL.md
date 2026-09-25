@@ -130,6 +130,28 @@ implementation and must not import Swift source or depend on macOS types.
 - Treat command names, JSON fields, error codes, and the C ABI as compatibility
   surfaces. Update contract documentation and every consumer when they change.
 
+## Keep the platform feature matrix current
+
+For every new user-visible capability or cross-platform behavior change, update
+`shared/platform-feature-matrix.json` in the same pull request. Each row is one
+independently verifiable user capability and must include both platforms'
+`implementationStatus`, `verificationStatus`, evidence paths, owner, and a
+concrete verification action. Platform-only capabilities still get a row with
+`implementationStatus: platform-specific` on the other side.
+
+`implementationStatus` and `verificationStatus` are independent dimensions.
+Code presence without runtime evidence keeps its implementation status and uses
+`verificationStatus: pending`; only the verification procedure completing on the
+target platform permits `verified`. The status labels, icons, and descriptions in
+the JSON are the generator's only status source of truth.
+
+Run `node scripts/generate-platform-feature-matrix.mjs` after changing the source
+and commit both generated views under `docs/development/`. Run
+`./scripts/verify-platform-feature-matrix.sh` before handoff. Pull requests that
+change platform implementation paths are required by CI to update the JSON. A
+reviewer may add the `matrix-exempt` label only for a reviewed refactor with no
+user-observable change; explain that exception in the pull request.
+
 ## Follow the codebase's language conventions
 
 Apply the style used by surrounding files. Prefer descriptive names, focused
