@@ -10,7 +10,7 @@ use gpui_kit::{
     div, px, relative, AppContext as _, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
     Focusable as _, FontWeight, InteractiveElement as _, IntoElement, KeyDownEvent,
     ParentElement as _, Pixels, Point, Render, StatefulInteractiveElement as _, Styled as _,
-    Subscription, Task, Window,
+    Subscription, Task, WeakEntity, Window,
 };
 
 use std::collections::HashMap;
@@ -666,35 +666,6 @@ impl EditorView {
                 editor.insert(text, window, cx);
             });
         }
-    }
-
-    /// 在编辑器完成本帧渲染后接管其右键回调。
-    ///
-    /// `Editor::render` 每帧都会重新安装上游默认的 `NativeMenu` 回调，因此这里
-    /// 必须在子元素的 `on_prepaint` 阶段覆盖它；鼠标按下/释放仍由上游编辑器
-    /// 处理，因此右键到选区外的光标移动语义保持不变。
-    fn install_editor_context_menu_handler(&mut self, cx: &mut Context<Self>) {
-        if self.active_tab_index.is_none() {
-            return;
-        }
-
-        let view = cx.entity().downgrade();
-        self.editor_state.update(cx, |state, _cx| {
-            state.on_context_menu(Rc::new(
-                move |_menu: NativeMenu,
-                      _capabilities: InputContextMenuCapabilities,
-                      position: Point<Pixels>,
-                      window: &mut Window,
-                      cx: &mut gpui_kit::App| {
-                    let Some(view) = view.upgrade() else {
-                        return;
-                    };
-                    view.update(cx, |editor, cx| {
-                        editor.open_editor_context_menu(position, window, cx);
-                    });
-                },
-            ));
-        });
     }
 
     /// 打开编辑区正文右键菜单。
@@ -1382,6 +1353,38 @@ fn is_code_file(name: &str) -> bool {
         || lower.ends_with(".sql")
 }
 
+/// 在编辑器完成本帧布局后接管其右键回调。
+///
+/// 这里只更新子实体 `EditorState`，不在 `EditorView` 自己的 `on_prepaint`
+/// 回调中回写父实体，避免 GPUI 的实体重复 lease。鼠标事件仍由上游编辑器
+/// 处理，因此右键到选区外的光标移动语义保持不变。
+fn install_editor_context_menu_handler(
+    editor_state: &Entity<EditorState>,
+    view: &WeakEntity<EditorView>,
+    cx: &mut gpui_kit::App,
+) {
+    let handler_view = view.clone();
+    editor_state.update(cx, |state, _cx| {
+        state.on_context_menu(Rc::new(
+            move |_menu: NativeMenu,
+                  _capabilities: InputContextMenuCapabilities,
+                  position: Point<Pixels>,
+                  window: &mut Window,
+                  cx: &mut gpui_kit::App| {
+                let handler_view = handler_view.clone();
+                window.defer(cx, move |window, cx| {
+                    let Some(view) = handler_view.upgrade() else {
+                        return;
+                    };
+                    view.update(cx, |editor, cx| {
+                        editor.open_editor_context_menu(position, window, cx);
+                    });
+                });
+            },
+        ));
+    });
+}
+
 /// 构造与上游内置编辑菜单相同的项目，但交给应用自己的非抢焦点浮层。
 fn build_editor_context_menu(
     mut menu: PopupMenu,
@@ -1475,6 +1478,7 @@ impl Render for EditorView {
         };
 
         let editor_state = self.editor_state.clone();
+        let editor_state_for_handler = self.editor_state.clone();
         let editor_view = cx.entity().downgrade();
         let editor_menu = self
             .editor_context_menu
@@ -1815,12 +1819,11 @@ impl Render for EditorView {
                         )
                     })
                     .on_prepaint(move |_bounds, _window, cx| {
-                        let Some(view) = editor_view.upgrade() else {
-                            return;
-                        };
-                        view.update(cx, |editor, cx| {
-                            editor.install_editor_context_menu_handler(cx);
-                        });
+                        install_editor_context_menu_handler(
+                            &editor_state_for_handler,
+                            &editor_view,
+                            cx,
+                        );
                     }),
             )
             .when_some(editor_context_menu_overlay, |this, overlay| {
