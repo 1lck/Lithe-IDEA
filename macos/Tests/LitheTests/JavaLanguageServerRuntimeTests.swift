@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import LitheCoreContracts
 import Testing
 @testable import Lithe
@@ -148,11 +149,20 @@ struct JavaLanguageServerRuntimeTests {
             root.appendingPathComponent("java-test/extensions/com.microsoft.java.test.plugin-0.42.0.jar"),
             root.appendingPathComponent(
                 "java-test/runner/com.microsoft.java.test.runner-jar-with-dependencies.jar"
-            )
+            ),
+            root.appendingPathComponent("config_mac/config.ini"),
+            root.appendingPathComponent("config_mac_arm/config.ini")
         ] {
             try Data().write(to: file)
         }
-        let resolver = MacJDTLSLaunchResourceResolver(bundledJdtlsRootURL: root)
+        let configurationCache = root.deletingLastPathComponent()
+            .appendingPathComponent("lithe-jdtls-cache-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: configurationCache) }
+        let bundleSnapshotBeforeLaunch = try runtimeBundleSnapshot(at: root)
+        let resolver = MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: root,
+            configurationCacheDirectoryURL: configurationCache
+        )
 
         guard case .direct(let resources) = resolver.resolve(for: executable) else {
             Issue.record("Expected complete bundled JDTLS resources to use direct Java launch")
@@ -160,10 +170,19 @@ struct JavaLanguageServerRuntimeTests {
         }
         #expect(resources.launcherJarURL == firstLauncher.standardizedFileURL)
         #if arch(arm64)
-        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac_arm")
+        #expect(resources.configurationDirectoryURL.lastPathComponent.hasPrefix("config_mac_arm-"))
         #else
-        #expect(resources.configurationDirectoryURL.lastPathComponent == "config_mac")
+        #expect(resources.configurationDirectoryURL.lastPathComponent.hasPrefix("config_mac-"))
         #endif
+        #expect(resources.configurationDirectoryURL.path.hasPrefix(configurationCache.path + "/"))
+        #expect(fileManager.fileExists(atPath: root.appendingPathComponent("config_mac_arm/config.ini").path))
+        let generatedState = resources.configurationDirectoryURL
+            .appendingPathComponent("org.eclipse.core.runtime", isDirectory: true)
+        try fileManager.createDirectory(at: generatedState, withIntermediateDirectories: true)
+        #expect(!fileManager.fileExists(
+            atPath: root.appendingPathComponent("config_mac_arm/org.eclipse.core.runtime").path
+        ))
+        #expect(try runtimeBundleSnapshot(at: root) == bundleSnapshotBeforeLaunch)
         #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
         #expect(
             resources.javaDebugBundleURL?.lastPathComponent
@@ -178,6 +197,28 @@ struct JavaLanguageServerRuntimeTests {
             resources.javaTestRunnerURL?.lastPathComponent
                 == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
         )
+    }
+
+    private func runtimeBundleSnapshot(at root: URL) throws -> [String: String] {
+        let fileManager = FileManager.default
+        let rootPath = root.standardizedFileURL.path
+        let urls = try #require(fileManager.enumerator(
+            at: root,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: []
+        ))
+        var snapshot: [String: String] = [:]
+        for case let url as URL in urls {
+            guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
+                continue
+            }
+            let relativePath = String(url.standardizedFileURL.path.dropFirst(rootPath.count + 1))
+            let digest = SHA256.hash(data: try Data(contentsOf: url))
+                .map { String(format: "%02x", $0) }
+                .joined()
+            snapshot[relativePath] = digest
+        }
+        return snapshot
     }
 
     @Test
