@@ -42,13 +42,12 @@ struct AgentManagementFeatureModelTests {
     }
 
     private func waitUntilIdle(_ feature: AgentManagementFeatureModel) async throws {
-        // Bounded by wall-clock time, not by a yield count: under CI load a
-        // fixed number of yields is not enough for the operation task to run.
-        let deadline = ContinuousClock.now + .seconds(2)
-        while feature.busyAgentID != nil || feature.phase == .checking, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
+        // The operation task publishes through the feature model, so wait on
+        // its publications with a local deadline instead of polling.
+        let idle = await awaitChange(on: feature) {
+            feature.busyAgentID == nil && feature.phase != .checking
         }
-        #expect(feature.busyAgentID == nil, "operation finished within the deadline")
+        #expect(idle, "operation finished within the deadline")
     }
 }
 
@@ -60,6 +59,9 @@ private actor TestAgentManagementService: AgentManagementService {
     private var installGate: CheckedContinuation<Void, Never>?
     private var holdsInstall = false
     private var installStarted = false
+    /// Test waiting for `install` to be entered; resumed once, by the install
+    /// or by the deadline.
+    private var installStartedWaiter: CheckedContinuation<Bool, Never>?
 
     struct Failure: LocalizedError {
         let message: String
@@ -77,11 +79,23 @@ private actor TestAgentManagementService: AgentManagementService {
     }
 
     func waitUntilInstallStarted() async throws {
-        let deadline = ContinuousClock.now + .seconds(2)
-        while !installStarted, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(5))
+        if !installStarted {
+            let started = await withCheckedContinuation { continuation in
+                installStartedWaiter = continuation
+                // Deadline arm: the install task resumes the waiter first in
+                // the normal case; the timer only fails a stuck test.
+                DispatchQueue.global().asyncAfter(deadline: .now() + .seconds(5)) {
+                    Task { await self.resumeInstallStartedWaiter(false) }
+                }
+            }
+            #expect(started, "install started within the deadline")
         }
-        #expect(installStarted, "install started within the deadline")
+    }
+
+    private func resumeInstallStartedWaiter(_ value: Bool) {
+        guard let waiter = installStartedWaiter else { return }
+        installStartedWaiter = nil
+        waiter.resume(returning: value)
     }
 
     func status(dataDirectory: URL) async throws -> AgentManagementStatus {
@@ -110,6 +124,7 @@ private actor TestAgentManagementService: AgentManagementService {
 
     func install(agentID: String, dataDirectory: URL) async throws -> String {
         installStarted = true
+        resumeInstallStartedWaiter(true)
         if holdsInstall {
             await withCheckedContinuation { installGate = $0 }
         }
