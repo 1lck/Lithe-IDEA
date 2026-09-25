@@ -1,13 +1,12 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::InputEvent;
-use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
-    Styled as _, Subscription, Window,
+    div, px, rgba, uniform_list, AnyElement, Context, EventEmitter, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render, ScrollStrategy,
+    StatefulInteractiveElement as _, Styled as _, Subscription, UniformListScrollHandle, Window,
 };
 
 use crate::theme::ThemeColors;
@@ -74,14 +73,30 @@ pub enum MatchedItem {
     },
 }
 
+/// 结果条数上限，对齐 macOS `SearchEverywhereResults.matchLimit`；
+/// 命中顶到上限时列表底部展示 "… more" 提示行。
+const RESULT_LIMIT: usize = 200;
+
 /// IntelliJ / macOS Lithe 风格居中全局搜索模态弹窗
+///
+/// 性能约束（对齐 macOS `SearchEverywhereView` 的 LazyVStack + matchLimit）：
+/// 命中列表只在查询 / 范围 / 文件索引变化时重算一次并缓存，渲染走官方
+/// `uniform_list` 虚拟化（只布局可见行），禁止在 render 里全量过滤文件。
 pub struct SearchEverywhereModal {
     pub query: String,
     pub scope: SearchScope,
     pub files: Vec<String>,
+    /// 与 `files` 平行的小写副本，避免每次按键对全量路径做 `to_lowercase` 分配。
+    files_lower: Vec<String>,
     pub actions: Vec<SearchActionItem>,
+    /// 命中结果缓存（已按 `RESULT_LIMIT` 截断），只在查询/范围/索引变化时重算。
+    pub filtered: Vec<MatchedItem>,
+    /// 命中数顶到 `RESULT_LIMIT` 时为 true，列表底部展示 "… more"。
+    filtered_truncated: bool,
     pub selected_index: usize,
     pub focus_handle: FocusHandle,
+    /// 结果列表滚动句柄，键盘导航时把选中项滚到可视区中央（对齐 macOS）。
+    list_handle: UniformListScrollHandle,
     /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
     search: SearchInput,
     _search_subscription: Subscription,
@@ -102,19 +117,19 @@ impl SearchEverywhereModal {
             InputEvent::Change => {
                 this.query = this.search.value(cx);
                 this.selected_index = 0;
+                this.recompute_filtered(cx);
                 cx.notify();
             }
             InputEvent::PressEnter { shift, .. } => {
-                let items = this.filtered_items(cx);
                 let idx = if *shift {
                     this.selected_index.saturating_sub(1)
-                } else if items.is_empty() {
+                } else if this.filtered.is_empty() {
                     0
                 } else {
-                    this.selected_index.min(items.len() - 1)
+                    this.selected_index.min(this.filtered.len() - 1)
                 };
-                if let Some(item) = items.get(idx) {
-                    this.select_item(item, cx);
+                if let Some(item) = this.filtered.get(idx).cloned() {
+                    this.select_item(&item, cx);
                 }
             }
             _ => {}
@@ -186,9 +201,13 @@ impl SearchEverywhereModal {
             query: String::new(),
             scope: SearchScope::All,
             files: Vec::new(),
+            files_lower: Vec::new(),
             actions,
+            filtered: Vec::new(),
+            filtered_truncated: false,
             selected_index: 0,
             focus_handle: cx.focus_handle(),
+            list_handle: UniformListScrollHandle::new(),
             search,
             _search_subscription,
             pending_reset: true,
@@ -196,31 +215,49 @@ impl SearchEverywhereModal {
     }
 
     pub fn set_files(&mut self, files: Vec<String>, cx: &mut Context<Self>) {
+        // 小写副本一次性预算，查询匹配只做 `contains`，不再逐路径分配。
+        self.files_lower = files.iter().map(|f| f.to_lowercase()).collect();
         self.files = files;
+        self.recompute_filtered(cx);
         cx.notify();
     }
 
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.query.clear();
         self.selected_index = 0;
+        self.recompute_filtered(cx);
         self.pending_reset = true;
         cx.notify();
     }
 
-    fn filtered_items(&self, cx: &gpui_kit::App) -> Vec<MatchedItem> {
-        let q = self.query.trim().to_lowercase();
-        let mut results = Vec::new();
+    /// 按当前查询与范围重算命中列表并缓存（对齐 macOS `matchLimit` 截断）。
+    ///
+    /// 空查询时直接清空结果（macOS `if hasQuery` 才展示结果区），
+    /// 避免打开弹窗就渲染整个工作区文件列表。
+    fn recompute_filtered(&mut self, cx: &gpui_kit::App) {
+        self.filtered.clear();
+        self.filtered_truncated = false;
+        self.selected_index = self.selected_index.min(self.filtered.len());
 
-        // 1. Files
+        let q = self.query.trim().to_lowercase();
+        if q.is_empty() {
+            return;
+        }
+
+        // 1. Files：顶到 RESULT_LIMIT 即停，避免大工作区全量收集。
         if self.scope == SearchScope::All || self.scope == SearchScope::Files {
-            for file in &self.files {
-                if q.is_empty() || file.to_lowercase().contains(&q) {
+            for (file, file_lower) in self.files.iter().zip(self.files_lower.iter()) {
+                if self.filtered.len() >= RESULT_LIMIT {
+                    self.filtered_truncated = true;
+                    break;
+                }
+                if file_lower.contains(&q) {
                     let (dir, name) = if let Some((d, n)) = file.rsplit_once('/') {
                         (d.to_string(), n.to_string())
                     } else {
                         (String::new(), file.clone())
                     };
-                    results.push(MatchedItem::File {
+                    self.filtered.push(MatchedItem::File {
                         path: file.clone(),
                         name,
                         dir,
@@ -229,16 +266,21 @@ impl SearchEverywhereModal {
             }
         }
 
-        // 2. Actions（本地化显示名、英文原名、id 任一包含即命中）
-        if self.scope == SearchScope::All || self.scope == SearchScope::Actions {
+        // 2. Actions（本地化显示名、英文原名、id 任一包含即命中）。
+        if !self.filtered_truncated
+            && (self.scope == SearchScope::All || self.scope == SearchScope::Actions)
+        {
             for act in &self.actions {
+                if self.filtered.len() >= RESULT_LIMIT {
+                    self.filtered_truncated = true;
+                    break;
+                }
                 let display = action_display_name(&act.id, cx);
-                if q.is_empty()
-                    || display.to_lowercase().contains(&q)
+                if display.to_lowercase().contains(&q)
                     || act.name.to_lowercase().contains(&q)
                     || act.id.to_lowercase().contains(&q)
                 {
-                    results.push(MatchedItem::Action {
+                    self.filtered.push(MatchedItem::Action {
                         id: act.id.clone(),
                         shortcut: act.shortcut.clone(),
                         icon: act.icon,
@@ -247,7 +289,7 @@ impl SearchEverywhereModal {
             }
         }
 
-        results
+        self.selected_index = self.selected_index.min(self.filtered.len());
     }
 
     fn select_item(&self, item: &MatchedItem, cx: &mut Context<Self>) {
@@ -293,12 +335,9 @@ impl Render for SearchEverywhereModal {
             self.search.focus(window, cx);
         }
 
-        let filtered = self.filtered_items(cx);
-        let current_index = if filtered.is_empty() {
-            0
-        } else {
-            self.selected_index.min(filtered.len() - 1)
-        };
+        // 命中列表已缓存（recompute_filtered），渲染只读缓存，不做全量过滤。
+        // 对齐 macOS：空查询不渲染结果区（`if hasQuery`）。
+        let has_query = !self.query.trim().is_empty();
 
         // 全屏半透明遮罩背景
         div()
@@ -318,13 +357,18 @@ impl Render for SearchEverywhereModal {
                     "up" | "arrowup" => {
                         if this.selected_index > 0 {
                             this.selected_index -= 1;
+                            // 对齐 macOS：选中项变化后滚动到可视区中央。
+                            this.list_handle
+                                .scroll_to_item(this.selected_index, ScrollStrategy::Center);
                             cx.notify();
                         }
                     }
                     "down" | "arrowdown" => {
-                        let total = this.filtered_items(cx).len();
+                        let total = this.filtered.len();
                         if total > 0 && this.selected_index + 1 < total {
                             this.selected_index += 1;
+                            this.list_handle
+                                .scroll_to_item(this.selected_index, ScrollStrategy::Center);
                             cx.notify();
                         }
                     }
@@ -384,6 +428,7 @@ impl Render for SearchEverywhereModal {
                                             this.selected_index = 0;
                                             this.search.set_value("", window, cx);
                                             this.search.focus(window, cx);
+                                            this.recompute_filtered(cx);
                                             cx.notify();
                                         })),
                                 )
@@ -432,121 +477,73 @@ impl Render for SearchEverywhereModal {
                             )),
                     )
                     .child(
-                        // 3. 结果列表展示区
-                        div()
-                            .flex_1()
-                            .w_full()
-                            .max_h(px(320.0))
-                            .overflow_y_scrollbar()
-                            .py_1()
-                            .when(filtered.is_empty(), |list| {
-                                list.child(
-                                    div()
+                        // 3. 结果列表展示区：对齐 macOS `if hasQuery`，空查询不渲染
+                        // 结果区；列表走官方 `uniform_list` 虚拟化，只布局可见行。
+                        {
+                            let list_handle = self.list_handle.clone();
+                            let result_count = self.filtered.len();
+                            v_flex().w_full().when(has_query, |list| {
+                                if result_count == 0 {
+                                    list.child(
+                                        div()
+                                            .w_full()
+                                            .py_8()
+                                            .text_center()
+                                            .text_xs()
+                                            .text_color(ThemeColors::text_muted())
+                                            .child(crate::i18n::menu_text(cx, "search.noResults")),
+                                    )
+                                } else {
+                                    list.child(
+                                        uniform_list(
+                                            "search-everywhere-results",
+                                            result_count,
+                                            cx.processor(
+                                                move |this,
+                                                      visible: std::ops::Range<usize>,
+                                                      _window,
+                                                      cx| {
+                                                    let current = if this.filtered.is_empty() {
+                                                        0
+                                                    } else {
+                                                        this.selected_index
+                                                            .min(this.filtered.len() - 1)
+                                                    };
+                                                    visible.clone().filter_map(|idx| {
+                                                        let item =
+                                                            this.filtered.get(idx)?.clone();
+                                                        Some(this.render_result_row(
+                                                            idx, item, current, cx,
+                                                        ))
+                                                    })
+                                                    .collect::<Vec<_>>()
+                                                },
+                                            ),
+                                        )
+                                        .track_scroll(&list_handle)
+                                        .h(px(320.0))
                                         .w_full()
-                                        .py_8()
-                                        .text_center()
-                                        .text_xs()
-                                        .text_color(ThemeColors::text_muted())
-                                        .child(crate::i18n::menu_text(cx, "search.noResults")),
-                                )
-                            })
-                            .children(filtered.into_iter().enumerate().map(|(idx, item)| {
-                                let is_selected = idx == current_index;
-                                let item_clone = item.clone();
-
-                                h_flex()
-                                    .id(idx)
-                                    .h(px(34.0))
-                                    .w_full()
-                                    .items_center()
-                                    .justify_between()
-                                    .px_3()
-                                    .cursor_pointer()
-                                    .when(is_selected, |row| {
-                                        row.bg(ThemeColors::subtle_selection())
-                                            .border_l_2()
-                                            .border_color(ThemeColors::accent_blue())
-                                    })
-                                    .when(!is_selected, |row| {
-                                        row.hover(|h| h.bg(ThemeColors::bg_tab_hover()))
-                                    })
-                                    .child(match &item {
-                                        MatchedItem::File { name, dir, .. } => {
-                                            let icon = if is_code_file(name) {
-                                                IconName::FileCode
-                                            } else {
-                                                IconName::FileText
-                                            };
+                                        .py_1(),
+                                    )
+                                    // 对齐 macOS `moreRow`：命中顶到上限时提示还有更多。
+                                    .when(self.filtered_truncated, |list| {
+                                        list.child(
                                             h_flex()
+                                                .h(px(22.0))
+                                                .w_full()
                                                 .items_center()
-                                                .gap_2()
-                                                .child(
-                                                    Icon::new(icon)
-                                                        .size(px(14.0))
-                                                        .text_color(ThemeColors::accent_blue()),
-                                                )
+                                                .px_3()
                                                 .child(
                                                     div()
                                                         .text_xs()
-                                                        .font_weight(FontWeight::MEDIUM)
-                                                        .text_color(ThemeColors::text_primary())
-                                                        .child(name.clone()),
-                                                )
-                                                .when(!dir.is_empty(), |row| {
-                                                    row.child(
-                                                        div()
-                                                            .text_xs()
-                                                            .text_color(ThemeColors::text_muted())
-                                                            .child(dir.clone()),
-                                                    )
-                                                })
-                                                .into_any_element()
-                                        }
-                                        MatchedItem::Action { id, icon, .. } => h_flex()
-                                            .items_center()
-                                            .gap_2()
-                                            .child(
-                                                Icon::new(*icon)
-                                                    .size(px(14.0))
-                                                    .text_color(ThemeColors::accent_green()),
-                                            )
-                                            .child(
-                                                div()
-                                                    .text_xs()
-                                                    .font_weight(FontWeight::MEDIUM)
-                                                    .text_color(ThemeColors::text_primary())
-                                                    .child(action_display_name(id, cx)),
-                                            )
-                                            .into_any_element(),
+                                                        .text_color(ThemeColors::text_muted())
+                                                        .child("… more"),
+                                                ),
+                                        )
                                     })
-                                    .child(match &item {
-                                        MatchedItem::File { .. } => div()
-                                            .text_xs()
-                                            .text_color(ThemeColors::text_muted())
-                                            .child(crate::i18n::menu_text(cx, "menu.file"))
-                                            .into_any_element(),
-                                        MatchedItem::Action { shortcut, .. } => {
-                                            if let Some(sc) = shortcut {
-                                                div()
-                                                    .px_1p5()
-                                                    .py(px(1.0))
-                                                    .rounded_sm()
-                                                    .bg(ThemeColors::bg_titlebar())
-                                                    .border_1()
-                                                    .border_color(ThemeColors::border())
-                                                    .text_xs()
-                                                    .text_color(ThemeColors::text_muted())
-                                                    .child(sc.clone())
-                                                    .into_any_element()
-                                            } else {
-                                                div().into_any_element()
-                                            }
-                                        }
-                                    })
-                                    .on_click(cx.listener(move |this, _event, _window, cx| {
-                                        this.select_item(&item_clone, cx);
-                                    }))
-                            })),
+                                }
+                            })
+                        },
                     )
                     .child(
                         // 4. 底部标题
@@ -571,6 +568,113 @@ impl Render for SearchEverywhereModal {
 }
 
 impl SearchEverywhereModal {
+    /// 渲染单条命中行（由 `uniform_list` 按可见范围调用，样式与旧版一致）。
+    fn render_result_row(
+        &self,
+        idx: usize,
+        item: MatchedItem,
+        current_index: usize,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let is_selected = idx == current_index;
+
+        h_flex()
+            .id(("search-everywhere-result", idx))
+            .h(px(34.0))
+            .w_full()
+            .items_center()
+            .justify_between()
+            .px_3()
+            .cursor_pointer()
+            .when(is_selected, |row| {
+                row.bg(ThemeColors::subtle_selection())
+                    .border_l_2()
+                    .border_color(ThemeColors::accent_blue())
+            })
+            .when(!is_selected, |row| {
+                row.hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+            })
+            .child(match &item {
+                MatchedItem::File { name, dir, .. } => {
+                    let icon = if is_code_file(name) {
+                        IconName::FileCode
+                    } else {
+                        IconName::FileText
+                    };
+                    h_flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Icon::new(icon)
+                                .size(px(14.0))
+                                .text_color(ThemeColors::accent_blue()),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .font_weight(FontWeight::MEDIUM)
+                                .text_color(ThemeColors::text_primary())
+                                .child(name.clone()),
+                        )
+                        .when(!dir.is_empty(), |row| {
+                            row.child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_muted())
+                                    .child(dir.clone()),
+                            )
+                        })
+                        .into_any_element()
+                }
+                MatchedItem::Action { id, icon, .. } => h_flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Icon::new(*icon)
+                            .size(px(14.0))
+                            .text_color(ThemeColors::accent_green()),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_weight(FontWeight::MEDIUM)
+                            .text_color(ThemeColors::text_primary())
+                            .child(action_display_name(id, cx)),
+                    )
+                    .into_any_element(),
+            })
+            .child(match &item {
+                MatchedItem::File { .. } => div()
+                    .text_xs()
+                    .text_color(ThemeColors::text_muted())
+                    .child(crate::i18n::menu_text(cx, "menu.file"))
+                    .into_any_element(),
+                MatchedItem::Action { shortcut, .. } => {
+                    if let Some(sc) = shortcut {
+                        div()
+                            .px_1p5()
+                            .py(px(1.0))
+                            .rounded_sm()
+                            .bg(ThemeColors::bg_titlebar())
+                            .border_1()
+                            .border_color(ThemeColors::border())
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(sc.clone())
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    }
+                }
+            })
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                if let Some(item) = this.filtered.get(idx).cloned() {
+                    this.select_item(&item, cx);
+                }
+            }))
+            .into_any_element()
+    }
+
     fn render_scope_pill(
         &self,
         id: &'static str,
@@ -602,6 +706,7 @@ impl SearchEverywhereModal {
             .on_click(cx.listener(move |this, _event, _window, cx| {
                 this.scope = scope;
                 this.selected_index = 0;
+                this.recompute_filtered(cx);
                 cx.notify();
             }))
     }
