@@ -31,6 +31,11 @@ export interface ExternalChangeWorkflowDependencies {
   trace?: typeof trace;
 }
 
+/** A null decoded value is missing only when no raw disk identity was observed. */
+export function isMissingExternalDocument(content: string | null | undefined, identity?: string): boolean {
+  return content === null && identity === undefined;
+}
+
 /** Notifications are hints: compare real bytes before reloading or declaring a conflict. */
 export async function handleExternalDocumentChange({ owner, operationId, dependencies = {} }: {
   owner: DocumentBufferOwner; operationId: string; dependencies?: ExternalChangeWorkflowDependencies;

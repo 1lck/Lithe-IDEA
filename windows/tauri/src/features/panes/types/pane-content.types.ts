@@ -86,7 +86,7 @@ export interface EditorContent extends PaneContentBase {
   savedContent: string;
   /** Explicitly acknowledged disk bytes; null authorizes recreation of a missing file. */
   acknowledgedDiskContent?: string | null;
-  /** Last conflict observation; undefined means no observed conflict snapshot. */
+  /** Last conflict observation; null may mean undecodable disk bytes, with identity distinguishing a missing file. */
   externalDiskContent?: string | null;
   /** Exact bytes associated with the last conflict observation. */
   externalDiskIdentity?: string;

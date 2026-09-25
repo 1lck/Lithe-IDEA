@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import type { DocumentLifecycleDecision } from "@/platform/document-lifecycle";
-import { handleExternalDocumentChange, resolveExternalDocumentConflict, type DocumentBufferOwner, type DocumentBufferSnapshot } from "./document-external-change-workflow";
+import { handleExternalDocumentChange, isMissingExternalDocument, resolveExternalDocumentConflict, type DocumentBufferOwner, type DocumentBufferSnapshot } from "./document-external-change-workflow";
 
 function owner(status: "clean" | "dirty" | "saving" = "clean") {
   let snapshot: DocumentBufferSnapshot = {
@@ -22,6 +22,12 @@ const conflict = async (): Promise<DocumentLifecycleDecision> => ({ state: { sta
 const trace = () => {};
 
 describe("external document change workflow", () => {
+  test("distinguishes undecodable disk bytes from a missing file", () => {
+    expect(isMissingExternalDocument(null)).toBe(true);
+    expect(isMissingExternalDocument(null, "sha256:external-bytes")).toBe(false);
+    expect(isMissingExternalDocument(undefined, "sha256:external-bytes")).toBe(false);
+  });
+
   test("preserves dirty editor text and records the actual disk version", async () => {
     const document = owner("dirty");
     expect(await handleExternalDocumentChange({ owner: document.value, operationId: "watch", dependencies: { decide: conflict, readFile: async () => "external", trace } })).toBe("conflict");
