@@ -220,11 +220,11 @@ impl WorkbenchView {
             panel.set_workbench(workbench_entity.clone(), cx);
         });
         let status_bar = cx.new(|_cx| StatusBarView::new());
-        let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
+        let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(window, cx));
         let global_search = cx.new(|cx| GlobalSearchPanel::new(root.clone(), window, cx));
-        let quick_open = cx.new(|cx| QuickOpenModal::new(cx));
-        let go_to_line = cx.new(|cx| GoToLineModal::new(cx));
-        let command_palette = cx.new(|cx| CommandPaletteModal::new(cx));
+        let quick_open = cx.new(|cx| QuickOpenModal::new(window, cx));
+        let go_to_line = cx.new(|cx| GoToLineModal::new(window, cx));
+        let command_palette = cx.new(|cx| CommandPaletteModal::new(window, cx));
         let settings_dialog = cx.new(|cx| SettingsDialog::new(cx));
         settings_dialog.update(cx, |dialog, cx| {
             dialog.set_workspace_root(root.clone(), cx);

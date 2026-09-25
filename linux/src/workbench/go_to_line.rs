@@ -5,13 +5,15 @@
 //! 做钳制与跳转；本模块不直接操作编辑器。
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::{
     div, px, rgba, Context, EventEmitter, FocusHandle, InteractiveElement as _, IntoElement,
-    KeyDownEvent, ParentElement as _, Render, Styled as _, Window,
+    KeyDownEvent, ParentElement as _, Render, Styled as _, Subscription, Window,
 };
 
 use crate::theme::ThemeColors;
+use crate::workbench::search_input::SearchInput;
 
 /// 跳转到行弹窗对外事件。
 #[derive(Debug, Clone)]
@@ -26,21 +28,53 @@ pub enum GoToLineEvent {
 pub struct GoToLineModal {
     pub input: String,
     pub focus_handle: FocusHandle,
+    /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    search: SearchInput,
+    _search_subscription: Subscription,
+    /// 打开时需要在下一帧复位并聚焦搜索框（只做一次）。
+    pending_reset: bool,
+    /// 需要对输入框施加的净化值（只允许数字、最长 6 位）；渲染时应用。
+    pending_sanitized: Option<String>,
 }
 
 impl EventEmitter<GoToLineEvent> for GoToLineModal {}
 
 impl GoToLineModal {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search = SearchInput::new(
+            crate::i18n::menu_text(cx, "goToLine.placeholder"),
+            window,
+            cx,
+        );
+        let _search_subscription = search.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                let raw = this.search.value(cx);
+                // 只保留 ASCII 数字，最多 6 位（对齐原有单行数字输入限制）。
+                let sanitized: String =
+                    raw.chars().filter(|c| c.is_ascii_digit()).take(6).collect();
+                this.input = sanitized.clone();
+                if sanitized != raw {
+                    this.pending_sanitized = Some(sanitized);
+                }
+                cx.notify();
+            }
+            InputEvent::PressEnter { .. } => this.confirm(cx),
+            _ => {}
+        });
         Self {
             input: String::new(),
             focus_handle: cx.focus_handle(),
+            search,
+            _search_subscription,
+            pending_reset: true,
+            pending_sanitized: None,
         }
     }
 
     /// 复位到初始状态：清空输入。
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.input.clear();
+        self.pending_reset = true;
         cx.notify();
     }
 
@@ -57,7 +91,15 @@ impl GoToLineModal {
 impl Render for GoToLineModal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // 请求聚焦以接收按键输入
-        window.focus(&self.focus_handle, cx);
+        // 打开后只复位/聚焦搜索框一次；不要每帧抢焦点（否则输入框打不进字）。
+        if self.pending_reset {
+            self.pending_reset = false;
+            self.search.set_value("", window, cx);
+            self.search.focus(window, cx);
+        }
+        if let Some(sanitized) = self.pending_sanitized.take() {
+            self.search.set_value(sanitized, window, cx);
+        }
 
         // 全屏半透明遮罩：点击空白处关闭
         div()
@@ -69,47 +111,11 @@ impl Render for GoToLineModal {
             .flex()
             .items_center()
             .justify_center()
-            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let key = event.keystroke.key.as_str();
-                match key {
-                    "escape" => {
-                        cx.emit(GoToLineEvent::Close);
-                    }
-                    "enter" => {
-                        this.confirm(cx);
-                    }
-                    "backspace" => {
-                        this.input.pop();
-                        cx.notify();
-                    }
-                    _ => {
-                        // 无修饰键时只接受 ASCII 数字，最多 6 位。
-                        if !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.alt
-                            && !event.keystroke.modifiers.platform
-                            && this.input.len() < 6
-                        {
-                            let mut digit: Option<char> = None;
-                            if let Some(ch) = &event.keystroke.key_char {
-                                let mut chars = ch.chars();
-                                if let (Some(c), None) = (chars.next(), chars.next()) {
-                                    if c.is_ascii_digit() {
-                                        digit = Some(c);
-                                    }
-                                }
-                            } else if key.chars().count() == 1 {
-                                if let Some(c) = key.chars().next() {
-                                    if c.is_ascii_digit() {
-                                        digit = Some(c);
-                                    }
-                                }
-                            }
-                            if let Some(c) = digit {
-                                this.input.push(c);
-                                cx.notify();
-                            }
-                        }
-                    }
+            .on_key_down(cx.listener(|_this, event: &KeyDownEvent, _window, cx| {
+                // 字符输入由搜索框处理；这里只管 Esc（回车经搜索框的
+                // `InputEvent::PressEnter` 分发到 `confirm`）。
+                if event.keystroke.key.as_str() == "escape" {
+                    cx.emit(GoToLineEvent::Close);
                 }
             }))
             .on_mouse_down(
@@ -163,31 +169,7 @@ impl Render for GoToLineModal {
                                     .size(px(16.0))
                                     .text_color(ThemeColors::primary()),
                             )
-                            .child(
-                                h_flex()
-                                    .flex_1()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(if self.input.is_empty() {
-                                                ThemeColors::subtle_foreground()
-                                            } else {
-                                                ThemeColors::foreground()
-                                            })
-                                            .child(if self.input.is_empty() {
-                                                crate::i18n::menu_text(cx, "goToLine.placeholder")
-                                                    .to_string()
-                                            } else {
-                                                self.input.clone()
-                                            }),
-                                    )
-                                    .child(
-                                        // 静态光标条，提示可输入
-                                        div().w(px(2.0)).h(px(16.0)).bg(ThemeColors::primary()),
-                                    ),
-                            )
+                            .child(self.search.element())
                             .child(shortcut_badge("Enter")),
                     )
                     .child(

@@ -16,14 +16,14 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgba, AppContext as _, Context, Entity, EventEmitter, FocusHandle, FontWeight,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
+    IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
+    Styled as _, Subscription, Window,
 };
 
 use super::branch_manager_logic::{
@@ -94,7 +94,8 @@ pub struct BranchManagerView {
     busy: bool,
     /// 弹窗打开后需要在下一帧把焦点交给搜索框（只做一次，避免每帧抢焦点）。
     pending_search_focus: bool,
-    search_input: Entity<InputState>,
+    /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    search_input: super::search_input::SearchInput,
     _search_subscription: Subscription,
     focus_handle: FocusHandle,
     client: CoreClient,
@@ -104,31 +105,28 @@ impl EventEmitter<BranchManagerEvent> for BranchManagerView {}
 
 impl BranchManagerView {
     pub fn new(repo_path: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let search_input = cx.new(|cx| {
-            InputState::new(window, cx)
-                .placeholder(crate::i18n::menu_text(cx, "git.searchBranches"))
-        });
-        let input_source = search_input.clone();
-        let _search_subscription = cx.subscribe(
-            &search_input,
-            move |this: &mut Self, _, event: &InputEvent, cx| match event {
-                InputEvent::Change => {
-                    this.query = input_source.read(cx).value().to_string();
-                    this.selected_index = 0;
-                    this.error = None;
-                    cx.notify();
-                }
-                InputEvent::PressEnter { shift, .. } => {
-                    // 回车执行当前选中项；Shift+回车回退一格（列表导航习惯）。
-                    if *shift {
-                        this.move_selection(-1, cx);
-                    } else {
-                        this.activate_selection(cx);
-                    }
-                }
-                _ => {}
-            },
+        let search_input = super::search_input::SearchInput::new(
+            crate::i18n::menu_text(cx, "git.searchBranches"),
+            window,
+            cx,
         );
+        let _search_subscription = search_input.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                this.query = this.search_input.value(cx);
+                this.selected_index = 0;
+                this.error = None;
+                cx.notify();
+            }
+            InputEvent::PressEnter { shift, .. } => {
+                // 回车执行当前选中项；Shift+回车回退一格（列表导航习惯）。
+                if *shift {
+                    this.move_selection(-1, cx);
+                } else {
+                    this.activate_selection(cx);
+                }
+            }
+            _ => {}
+        });
 
         let mut view = Self {
             repo_path,
@@ -168,29 +166,14 @@ impl BranchManagerView {
         self.error = None;
         self.busy = false;
         self.selected_index = 0;
-        // 下一次渲染时把焦点交给搜索框。
+        // 下一次渲染时清空搜索框并聚焦（渲染时才持有 `Window`）。
         self.pending_search_focus = true;
-        // 清空搜索框显示值（`InputState::set_value` 需要 `Window`）。
-        if let Some(handle) = cx.active_window() {
-            let input = self.search_input.clone();
-            handle
-                .update(cx, |_, window, cx| {
-                    input.update(cx, |state, cx| state.set_value("", window, cx));
-                })
-                .ok();
-        }
         self.reload(cx);
     }
 
     /// 设置工作区根（仓库副行显示相对此根的路径）。
     pub fn set_workspace_root(&mut self, workspace_root: String) {
         self.workspace_root = workspace_root;
-    }
-
-    /// 弹窗打开时把焦点交给搜索输入框（否则根节点不持有焦点，键盘无法输入）。
-    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.search_input
-            .update(cx, |state, cx| state.focus(window, cx));
     }
     /// 并发拉取分支、工作树与仓库列表。
     pub fn reload(&mut self, cx: &mut Context<Self>) {
@@ -664,7 +647,9 @@ impl Render for BranchManagerView {
         // 上下键/Esc 经事件冒泡到达根节点的 `on_key_down`。
         if self.pending_search_focus {
             self.pending_search_focus = false;
-            self.focus_search(window, cx);
+            // 清空 + 聚焦：两件事一起做，只用一次 `Window`。
+            self.search_input.set_value("", window, cx);
+            self.search_input.focus(window, cx);
         }
         let active_tab = self.active_tab;
         let count_text = self.count_text(cx);
@@ -784,10 +769,8 @@ impl BranchManagerView {
                         // 切 tab 后刷新占位与焦点（对齐 `handleTabChange`）。
                         let placeholder: gpui_kit::SharedString =
                             crate::i18n::menu_text(cx, tab.placeholder_key()).into();
-                        this.search_input.update(cx, |state, cx| {
-                            state.set_placeholder(placeholder, window, cx);
-                            state.focus(window, cx);
-                        });
+                        this.search_input.set_placeholder(placeholder, window, cx);
+                        this.search_input.focus(window, cx);
                         cx.notify();
                     }))
             }))
@@ -815,7 +798,7 @@ impl BranchManagerView {
                     .flex_1()
                     .min_w_0()
                     .text_sm()
-                    .child(Input::new(&self.search_input).appearance(false)),
+                    .child(self.search_input.element()),
             )
     }
 

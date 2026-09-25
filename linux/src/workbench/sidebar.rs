@@ -1,14 +1,14 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputEvent, InputState};
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenuItem};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AppContext as _, Context, Entity, EventEmitter, FocusHandle, FontWeight,
-    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    div, px, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _, IntoElement,
+    KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Window,
 };
 use serde::{Deserialize, Serialize};
 
@@ -146,8 +146,8 @@ pub struct SidebarView {
     tree_search_hits: Vec<String>,
     /// 回车跳转游标：当前聚焦的命中下标
     tree_search_match_index: usize,
-    /// 文件树过滤输入框（真实 `Input`，负责 IME 组字与剪贴板粘贴）
-    tree_search_input: Entity<InputState>,
+    /// 文件树过滤输入框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    tree_search: super::search_input::SearchInput,
     _tree_search_subscription: Subscription,
     // 搜索状态
     #[allow(dead_code)]
@@ -167,27 +167,26 @@ impl EventEmitter<SidebarEvent> for SidebarView {}
 
 impl SidebarView {
     pub fn new(root_path: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // 过滤输入用真实 `Input` 组件：本地 IME（XIM/ibus）组字、Ctrl+V 粘贴、
-        // 选区与光标均由组件处理，不再靠 `on_key_down` 手动拼接 `key_char`。
-        let tree_search_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder(crate::i18n::menu_text(cx, "search.search"))
+        // 过滤输入复用统一搜索输入组件：IME 组字、Ctrl+V 粘贴、选区与光标
+        // 均由 gpui-kit `Input` 处理，不再靠 `on_key_down` 手动拼接 `key_char`。
+        let tree_search = super::search_input::SearchInput::new(
+            crate::i18n::menu_text(cx, "search.search"),
+            window,
+            cx,
+        )
+        .compact();
+        let _tree_search_subscription = tree_search.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                this.tree_filter = this.tree_search.value(cx);
+                this.recompute_tree_search();
+                cx.notify();
+            }
+            InputEvent::PressEnter { shift, .. } => {
+                // 对齐 Tauri：回车跳下一个命中，Shift+回车跳上一个。
+                this.navigate_tree_search(!shift, cx);
+            }
+            _ => {}
         });
-        let input_source = tree_search_input.clone();
-        let _tree_search_subscription = cx.subscribe(
-            &tree_search_input,
-            move |this: &mut Self, _, event: &InputEvent, cx| match event {
-                InputEvent::Change => {
-                    this.tree_filter = input_source.read(cx).value().to_string();
-                    this.recompute_tree_search();
-                    cx.notify();
-                }
-                InputEvent::PressEnter { shift, .. } => {
-                    // 对齐 Tauri：回车跳下一个命中，Shift+回车跳上一个。
-                    this.navigate_tree_search(!shift, cx);
-                }
-                _ => {}
-            },
-        );
 
         let mut view = Self {
             root_path,
@@ -200,7 +199,7 @@ impl SidebarView {
             show_tree_filter: false,
             tree_search_hits: Vec::new(),
             tree_search_match_index: 0,
-            tree_search_input,
+            tree_search,
             _tree_search_subscription,
             search_query: String::new(),
             search_results: Vec::new(),
@@ -570,11 +569,8 @@ impl Render for SidebarView {
                                                     this.close_tree_search(window, cx);
                                                 } else {
                                                     this.show_tree_filter = true;
-                                                    // 真实输入框接管键盘：打开时聚焦它。
-                                                    this.tree_search_input
-                                                        .update(cx, |state, cx| {
-                                                            state.focus(window, cx)
-                                                        });
+                                                    // 搜索输入接管键盘：打开时聚焦它一次。
+                                                    this.tree_search.focus(window, cx);
                                                     cx.notify();
                                                 }
                                             })),
@@ -832,16 +828,15 @@ impl SidebarView {
         self.show_tree_filter = false;
         self.tree_search_hits.clear();
         self.tree_search_match_index = 0;
-        self.tree_search_input
-            .update(cx, |state, cx| state.set_value("", window, cx));
+        self.tree_search.set_value("", window, cx);
         cx.notify();
     }
 
-    /// 文件树过滤输入行：真实 `Input`，由组件负责 IME 组字、Ctrl+V 粘贴、
-    /// 选区、光标与回车提交（`InputEvent::PressEnter`）。
+    /// 文件树过滤输入行：复用统一搜索输入组件（IME 组字、Ctrl+V 粘贴、
+    /// 选区、光标与回车提交均由组件处理）。
     ///
-    /// `Input` 用 `appearance(false)` 关掉自带的背景/边框/焦点环，保留外层
-    /// 行现有的紧凑样式，避免多出一层阴影或双层边框。
+    /// 输入框用 `appearance(false)` 关掉自带背景/边框/焦点环，保留外层行现有
+    /// 的紧凑样式，避免多出一层阴影或双层边框。
     fn render_filter_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(28.0))
@@ -859,13 +854,7 @@ impl SidebarView {
                     .size(px(13.0))
                     .text_color(ThemeColors::text_muted()),
             )
-            .child(
-                div().flex_1().min_w_0().child(
-                    Input::new(&self.tree_search_input)
-                        .small()
-                        .appearance(false),
-                ),
-            )
+            .child(self.tree_search.element())
             .child(
                 Button::new("sidebar-filter-clear")
                     .small()

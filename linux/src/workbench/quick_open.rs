@@ -6,16 +6,18 @@
 //! 不接入真实文件索引与 LSP 符号查询。
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, rgba, AnyElement, Context, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 
 use crate::theme::ThemeColors;
+use crate::workbench::search_input::SearchInput;
 
 /// 快速打开的工作模式，由查询串前缀决定。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,12 +79,42 @@ pub struct QuickOpenModal {
     pub open_files: Vec<String>,
     /// 最近打开的文件，用于优先分组展示。
     pub recent: Vec<String>,
+    /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    search: SearchInput,
+    _search_subscription: Subscription,
+    /// 打开时需要在下一帧复位并聚焦搜索框（只做一次）。
+    pending_reset: bool,
+    /// 已应用到搜索框占位的模式（避免每帧重复设置）。
+    placeholder_mode: QuickOpenMode,
 }
 
 impl EventEmitter<QuickOpenEvent> for QuickOpenModal {}
 
 impl QuickOpenModal {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search = SearchInput::new(
+            crate::i18n::menu_text(cx, QuickOpenMode::File.placeholder_key()),
+            window,
+            cx,
+        );
+        let _search_subscription = search.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                this.query = this.search.value(cx);
+                this.mode = mode_for_query(&this.query);
+                this.selected_index = 0;
+                this.recompute_filtered();
+                cx.notify();
+            }
+            InputEvent::PressEnter { shift, .. } => {
+                if *shift {
+                    this.move_selection(-1, cx);
+                } else if !this.filtered.is_empty() {
+                    let idx = this.current_index();
+                    this.open_at(idx, cx);
+                }
+            }
+            _ => {}
+        });
         Self {
             query: String::new(),
             mode: QuickOpenMode::File,
@@ -92,6 +124,10 @@ impl QuickOpenModal {
             focus_handle: cx.focus_handle(),
             open_files: Vec::new(),
             recent: Vec::new(),
+            search,
+            _search_subscription,
+            pending_reset: true,
+            placeholder_mode: QuickOpenMode::File,
         }
     }
 
@@ -124,16 +160,8 @@ impl QuickOpenModal {
         self.mode = QuickOpenMode::File;
         self.selected_index = 0;
         self.recompute_filtered();
-        cx.notify();
-    }
-
-    /// 设置查询串并同步模式（`@`/`#` 前缀）与筛选结果。
-    #[allow(dead_code)]
-    pub fn set_query(&mut self, q: impl Into<String>, cx: &mut Context<Self>) {
-        self.query = q.into();
-        self.mode = mode_for_query(&self.query);
-        self.selected_index = 0;
-        self.recompute_filtered();
+        // 搜索框显示值/Tab 置位在渲染时统一处理（此时才持有 `Window`）。
+        self.pending_reset = true;
         cx.notify();
     }
 
@@ -233,8 +261,12 @@ fn mode_for_query(query: &str) -> QuickOpenMode {
 
 impl Render for QuickOpenModal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 请求聚焦以接收按键输入
-        window.focus(&self.focus_handle, cx);
+        // 打开后只复位/聚焦搜索框一次；不要每帧抢焦点（否则输入框打不进字）。
+        if self.pending_reset {
+            self.pending_reset = false;
+            self.search.set_value("", window, cx);
+            self.search.focus(window, cx);
+        }
 
         let rows = self.build_rows();
         let current_index = self.current_index();
@@ -255,54 +287,13 @@ impl Render for QuickOpenModal {
             .items_center()
             .justify_center()
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let key = event.keystroke.key.as_str();
-                match key {
-                    "escape" => {
-                        cx.emit(QuickOpenEvent::Close);
-                    }
+                // 字符输入 / 退格 / 空格由搜索框处理（含 IME 与粘贴）；
+                // 这里只管方向键与 Esc。
+                match event.keystroke.key.as_str() {
+                    "escape" => cx.emit(QuickOpenEvent::Close),
                     "up" | "arrowup" => this.move_selection(-1, cx),
                     "down" | "arrowdown" => this.move_selection(1, cx),
-                    "enter" => {
-                        if !this.filtered.is_empty() {
-                            let idx = this.current_index();
-                            this.open_at(idx, cx);
-                        }
-                    }
-                    "backspace" => {
-                        this.query.pop();
-                        this.mode = mode_for_query(&this.query);
-                        this.selected_index = 0;
-                        this.recompute_filtered();
-                        cx.notify();
-                    }
-                    "space" => {
-                        this.query.push(' ');
-                        this.selected_index = 0;
-                        this.recompute_filtered();
-                        cx.notify();
-                    }
-                    _ => {
-                        // 无修饰键时把可打印字符追加到查询串，并随前缀切换模式
-                        if !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.alt
-                            && !event.keystroke.modifiers.platform
-                        {
-                            let mut changed = false;
-                            if let Some(ch) = &event.keystroke.key_char {
-                                this.query.push_str(ch);
-                                changed = true;
-                            } else if key.chars().count() == 1 {
-                                this.query.push_str(key);
-                                changed = true;
-                            }
-                            if changed {
-                                this.mode = mode_for_query(&this.query);
-                                this.selected_index = 0;
-                                this.recompute_filtered();
-                                cx.notify();
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }))
             .on_mouse_down(
@@ -330,52 +321,37 @@ impl Render for QuickOpenModal {
                         }),
                     )
                     .child(
-                        // 1. 顶部输入行：搜索图标 + 查询串/占位 + Esc 徽标
-                        h_flex()
-                            .h(px(52.0))
-                            .w_full()
-                            .items_center()
-                            .gap_2p5()
-                            .px_4()
-                            .border_b_1()
-                            .border_color(ThemeColors::border())
-                            .child(
-                                Icon::new(IconName::Search)
-                                    .size(px(16.0))
-                                    .text_color(ThemeColors::primary()),
-                            )
-                            .child(
-                                h_flex()
-                                    .flex_1()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(if self.query.is_empty() {
-                                                ThemeColors::subtle_foreground()
-                                            } else {
-                                                ThemeColors::foreground()
-                                            })
-                                            .child(if self.query.is_empty() {
-                                                crate::i18n::menu_text(cx, mode.placeholder_key())
-                                                    .to_string()
-                                            } else {
-                                                self.query.clone()
-                                            }),
-                                    )
-                                    .child(
-                                        // 静态光标条，提示可输入
-                                        div().w(px(2.0)).h(px(16.0)).bg(ThemeColors::primary()),
-                                    ),
-                            )
-                            .child(count_badge(
-                                self.filtered.len(),
-                                self.files.len(),
-                                !self.query.is_empty(),
-                                cx,
-                            ))
-                            .child(shortcut_badge("Esc")),
+                        // 1. 顶部输入行：搜索图标 + 统一搜索输入框 + 计数 + Esc 徽标。
+                        // 占位文案随模式变化（每次渲染比对模式后更新）。
+                        {
+                            let wanted: gpui_kit::SharedString =
+                                crate::i18n::menu_text(cx, mode.placeholder_key()).into();
+                            if self.placeholder_mode != mode {
+                                self.placeholder_mode = mode;
+                                self.search.set_placeholder(wanted, window, cx);
+                            }
+                            h_flex()
+                                .h(px(52.0))
+                                .w_full()
+                                .items_center()
+                                .gap_2p5()
+                                .px_4()
+                                .border_b_1()
+                                .border_color(ThemeColors::border())
+                                .child(
+                                    Icon::new(IconName::Search)
+                                        .size(px(16.0))
+                                        .text_color(ThemeColors::primary()),
+                                )
+                                .child(self.search.element())
+                                .child(count_badge(
+                                    self.filtered.len(),
+                                    self.files.len(),
+                                    !self.query.is_empty(),
+                                    cx,
+                                ))
+                                .child(shortcut_badge("Esc"))
+                        },
                     )
                     .child(
                         // 2. 结果列表：已打开优先、最近其次、其余最后，路径分段着色

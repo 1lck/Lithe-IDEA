@@ -1,15 +1,17 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
     IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
-    Styled as _, Window,
+    Styled as _, Subscription, Window,
 };
 
 use crate::theme::ThemeColors;
+use crate::workbench::search_input::SearchInput;
 
 /// Search Everywhere 动作本地化显示名（id → 菜单键），未知 id 回退 id 本身。
 fn action_display_name(id: &str, cx: &gpui_kit::App) -> String {
@@ -80,12 +82,43 @@ pub struct SearchEverywhereModal {
     pub actions: Vec<SearchActionItem>,
     pub selected_index: usize,
     pub focus_handle: FocusHandle,
+    /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    search: SearchInput,
+    _search_subscription: Subscription,
+    /// 打开时需要在下一帧复位并聚焦搜索框（只做一次）。
+    pending_reset: bool,
 }
 
 impl EventEmitter<SearchEverywhereEvent> for SearchEverywhereModal {}
 
 impl SearchEverywhereModal {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search = SearchInput::new(
+            crate::i18n::menu_text(cx, "search.everywherePlaceholder"),
+            window,
+            cx,
+        );
+        let _search_subscription = search.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                this.query = this.search.value(cx);
+                this.selected_index = 0;
+                cx.notify();
+            }
+            InputEvent::PressEnter { shift, .. } => {
+                let items = this.filtered_items(cx);
+                let idx = if *shift {
+                    this.selected_index.saturating_sub(1)
+                } else if items.is_empty() {
+                    0
+                } else {
+                    this.selected_index.min(items.len() - 1)
+                };
+                if let Some(item) = items.get(idx) {
+                    this.select_item(item, cx);
+                }
+            }
+            _ => {}
+        });
         let actions = vec![
             SearchActionItem {
                 id: "workbench.new_file".to_string(),
@@ -156,6 +189,9 @@ impl SearchEverywhereModal {
             actions,
             selected_index: 0,
             focus_handle: cx.focus_handle(),
+            search,
+            _search_subscription,
+            pending_reset: true,
         }
     }
 
@@ -167,6 +203,7 @@ impl SearchEverywhereModal {
     pub fn reset(&mut self, cx: &mut Context<Self>) {
         self.query.clear();
         self.selected_index = 0;
+        self.pending_reset = true;
         cx.notify();
     }
 
@@ -249,8 +286,12 @@ fn is_code_file(name: &str) -> bool {
 
 impl Render for SearchEverywhereModal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 请求聚焦以接收按键输入
-        window.focus(&self.focus_handle, cx);
+        // 打开后只复位/聚焦搜索框一次；不要每帧抢焦点（否则输入框打不进字）。
+        if self.pending_reset {
+            self.pending_reset = false;
+            self.search.set_value("", window, cx);
+            self.search.focus(window, cx);
+        }
 
         let filtered = self.filtered_items(cx);
         let current_index = if filtered.is_empty() {
@@ -270,11 +311,10 @@ impl Render for SearchEverywhereModal {
             .items_center()
             .justify_center()
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let key = event.keystroke.key.as_str();
-                match key {
-                    "escape" => {
-                        cx.emit(SearchEverywhereEvent::Close);
-                    }
+                // 字符输入 / 退格 / 空格由搜索框处理（含 IME 与粘贴）；
+                // 这里只管方向键与 Esc。
+                match event.keystroke.key.as_str() {
+                    "escape" => cx.emit(SearchEverywhereEvent::Close),
                     "up" | "arrowup" => {
                         if this.selected_index > 0 {
                             this.selected_index -= 1;
@@ -288,43 +328,7 @@ impl Render for SearchEverywhereModal {
                             cx.notify();
                         }
                     }
-                    "enter" => {
-                        let items = this.filtered_items(cx);
-                        let idx = if items.is_empty() {
-                            0
-                        } else {
-                            this.selected_index.min(items.len() - 1)
-                        };
-                        if let Some(item) = items.get(idx) {
-                            this.select_item(item, cx);
-                        }
-                    }
-                    "backspace" => {
-                        this.query.pop();
-                        this.selected_index = 0;
-                        cx.notify();
-                    }
-                    "space" => {
-                        this.query.push(' ');
-                        this.selected_index = 0;
-                        cx.notify();
-                    }
-                    _ => {
-                        if !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.alt
-                            && !event.keystroke.modifiers.platform
-                        {
-                            if let Some(ch) = &event.keystroke.key_char {
-                                this.query.push_str(ch);
-                                this.selected_index = 0;
-                                cx.notify();
-                            } else if key.chars().count() == 1 {
-                                this.query.push_str(key);
-                                this.selected_index = 0;
-                                cx.notify();
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }))
             .on_mouse_down(
@@ -368,43 +372,18 @@ impl Render for SearchEverywhereModal {
                                     .size(px(16.0))
                                     .text_color(ThemeColors::accent_blue()),
                             )
-                            .child(
-                                h_flex()
-                                    .flex_1()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(if self.query.is_empty() {
-                                                ThemeColors::text_muted()
-                                            } else {
-                                                ThemeColors::text_primary()
-                                            })
-                                            .child(if self.query.is_empty() {
-                                                crate::i18n::menu_text(
-                                                    cx,
-                                                    "search.everywherePlaceholder",
-                                                )
-                                                .to_string()
-                                            } else {
-                                                self.query.clone()
-                                            }),
-                                    )
-                                    .child(
-                                        // 闪烁光标模拟
-                                        div().w(px(2.0)).h(px(14.0)).bg(ThemeColors::accent_blue()),
-                                    ),
-                            )
+                            .child(self.search.element())
                             .when(!self.query.is_empty(), |row| {
                                 row.child(
                                     Button::new("clear-search-query")
                                         .small()
                                         .ghost()
                                         .icon(IconName::Close)
-                                        .on_click(cx.listener(|this, _event, _window, cx| {
+                                        .on_click(cx.listener(|this, _event, window, cx| {
                                             this.query.clear();
                                             this.selected_index = 0;
+                                            this.search.set_value("", window, cx);
+                                            this.search.focus(window, cx);
                                             cx.notify();
                                         })),
                                 )

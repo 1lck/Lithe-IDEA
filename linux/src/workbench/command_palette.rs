@@ -5,16 +5,18 @@
 //! [`CommandPaletteEvent::Execute`] 把命令 id 交给上层工作台处理，不在本模块执行真实命令。
 
 use gpui_kit::assets::IconName;
+use gpui_kit::component::input::InputEvent;
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, rgba, AnyElement, Context, EventEmitter, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 
 use crate::theme::ThemeColors;
+use crate::workbench::search_input::SearchInput;
 
 /// 命令面板中的一条命令。
 ///
@@ -54,14 +56,41 @@ pub struct CommandPaletteModal {
     pub focus_handle: FocusHandle,
     /// 预留的多级视图栈，根视图为 `"root"`。
     pub view_stack: Vec<String>,
+    /// 搜索框（复用统一搜索输入实现：IME / 粘贴由组件处理）。
+    search: SearchInput,
+    _search_subscription: Subscription,
+    /// 打开时需要在下一帧复位并聚焦搜索框（只做一次）。
+    pending_reset: bool,
 }
 
 impl EventEmitter<CommandPaletteEvent> for CommandPaletteModal {}
 
 impl CommandPaletteModal {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let items = build_commands();
         let filtered = (0..items.len()).collect();
+        let search = SearchInput::new(
+            crate::i18n::menu_text(cx, "commandPalette.placeholder"),
+            window,
+            cx,
+        );
+        let _search_subscription = search.subscribe(cx, |this, event, cx| match event {
+            InputEvent::Change => {
+                this.query = this.search.value(cx);
+                this.selected_index = 0;
+                this.recompute_filtered();
+                cx.notify();
+            }
+            InputEvent::PressEnter { shift, .. } => {
+                if *shift {
+                    this.move_selection(-1, cx);
+                } else if !this.filtered.is_empty() {
+                    let idx = this.current_index();
+                    this.execute_at(idx, cx);
+                }
+            }
+            _ => {}
+        });
 
         Self {
             query: String::new(),
@@ -70,6 +99,9 @@ impl CommandPaletteModal {
             selected_index: 0,
             focus_handle: cx.focus_handle(),
             view_stack: vec!["root".to_string()],
+            search,
+            _search_subscription,
+            pending_reset: true,
         }
     }
 
@@ -79,15 +111,7 @@ impl CommandPaletteModal {
         self.selected_index = 0;
         self.view_stack = vec!["root".to_string()];
         self.recompute_filtered();
-        cx.notify();
-    }
-
-    /// 直接设置查询串（供上层联动外部输入）。
-    #[allow(dead_code)]
-    pub fn set_query(&mut self, q: impl Into<String>, cx: &mut Context<Self>) {
-        self.query = q.into();
-        self.selected_index = 0;
-        self.recompute_filtered();
+        self.pending_reset = true;
         cx.notify();
     }
 
@@ -159,8 +183,12 @@ impl CommandPaletteModal {
 
 impl Render for CommandPaletteModal {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 请求聚焦以接收按键输入
-        window.focus(&self.focus_handle, cx);
+        // 打开后只复位/聚焦搜索框一次；不要每帧抢焦点（否则输入框打不进字）。
+        if self.pending_reset {
+            self.pending_reset = false;
+            self.search.set_value("", window, cx);
+            self.search.focus(window, cx);
+        }
 
         let rows = self.build_rows();
         let current_index = self.current_index();
@@ -176,50 +204,13 @@ impl Render for CommandPaletteModal {
             .items_center()
             .justify_center()
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let key = event.keystroke.key.as_str();
-                match key {
-                    "escape" => {
-                        cx.emit(CommandPaletteEvent::Close);
-                    }
+                // 字符输入 / 退格 / 空格由搜索框处理（含 IME 与粘贴）；
+                // 这里只管方向键与 Esc。
+                match event.keystroke.key.as_str() {
+                    "escape" => cx.emit(CommandPaletteEvent::Close),
                     "up" | "arrowup" => this.move_selection(-1, cx),
                     "down" | "arrowdown" => this.move_selection(1, cx),
-                    "enter" => {
-                        if !this.filtered.is_empty() {
-                            let idx = this.current_index();
-                            this.execute_at(idx, cx);
-                        }
-                    }
-                    "backspace" => {
-                        this.query.pop();
-                        this.selected_index = 0;
-                        this.recompute_filtered();
-                        cx.notify();
-                    }
-                    "space" => {
-                        this.query.push(' ');
-                        this.selected_index = 0;
-                        this.recompute_filtered();
-                        cx.notify();
-                    }
-                    _ => {
-                        // 无修饰键时把可打印字符追加到查询串
-                        if !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.alt
-                            && !event.keystroke.modifiers.platform
-                        {
-                            if let Some(ch) = &event.keystroke.key_char {
-                                this.query.push_str(ch);
-                                this.selected_index = 0;
-                                this.recompute_filtered();
-                                cx.notify();
-                            } else if key.chars().count() == 1 {
-                                this.query.push_str(key);
-                                this.selected_index = 0;
-                                this.recompute_filtered();
-                                cx.notify();
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }))
             .on_mouse_down(
@@ -261,34 +252,7 @@ impl Render for CommandPaletteModal {
                                     .size(px(16.0))
                                     .text_color(ThemeColors::primary()),
                             )
-                            .child(
-                                h_flex()
-                                    .flex_1()
-                                    .items_center()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(if self.query.is_empty() {
-                                                ThemeColors::subtle_foreground()
-                                            } else {
-                                                ThemeColors::foreground()
-                                            })
-                                            .child(if self.query.is_empty() {
-                                                crate::i18n::menu_text(
-                                                    cx,
-                                                    "commandPalette.placeholder",
-                                                )
-                                                .to_string()
-                                            } else {
-                                                self.query.clone()
-                                            }),
-                                    )
-                                    .child(
-                                        // 静态光标条，提示可输入
-                                        div().w(px(2.0)).h(px(16.0)).bg(ThemeColors::primary()),
-                                    ),
-                            )
+                            .child(self.search.element())
                             .child(shortcut_badge("Esc")),
                     )
                     .child(
