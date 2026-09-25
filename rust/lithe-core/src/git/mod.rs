@@ -149,6 +149,13 @@ pub struct GitCommandRequest {
     pub input: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// Request to resolve the repository root containing a workspace path.
+pub struct GitRepositoryRootRequest {
+    pub root: String,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 /// One Git subprocess executed while fulfilling a shared Git command.
@@ -848,6 +855,15 @@ pub fn command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreErr
 fn readonly_command(request: GitCommandRequest) -> Result<GitCommandResponse, CoreError> {
     let root = validate_root(&request.root)?;
     execute_git_readonly(&root, &request.arguments, request.input)
+}
+
+/// Resolves the containing repository root without participating in write coordination.
+pub fn discover_repository_root(
+    request: GitRepositoryRootRequest,
+) -> Result<Option<String>, CoreError> {
+    let root = validate_root(&request.root)?;
+    Ok(discover_containing_repository(Path::new(&root))?
+        .map(|path| path.to_string_lossy().replace('\\', "/")))
 }
 
 /// Executes one supported repository mutation without invoking a shell.
@@ -6570,6 +6586,50 @@ mod tests {
         assert_eq!(
             simplified_canonical_path(PathBuf::from("/work/repo")),
             PathBuf::from("/work/repo")
+        );
+    }
+
+    #[test]
+    fn repository_root_discovery_does_not_acquire_a_write_lease() {
+        struct Repository(std::path::PathBuf);
+        impl Drop for Repository {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).expect("temporary repository should be removed");
+            }
+        }
+
+        let repository = Repository(std::env::temp_dir().join(format!(
+            "lithe-repository-root-{}-{}",
+            std::process::id(),
+            super::TEMPORARY_INDEX_SEQUENCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )));
+        std::fs::create_dir_all(&repository.0).unwrap();
+        let root = repository.0.to_string_lossy().into_owned();
+        let initialized = super::command(super::GitCommandRequest {
+            root: root.clone(),
+            arguments: vec!["init".into(), "-q".into()],
+            input: None,
+        })
+        .unwrap();
+        assert_eq!(initialized.exit_code, 0);
+
+        let lease = super::rewrite::RewriteLease::acquire(&root).unwrap();
+        let response: Value = serde_json::from_str(&crate::execute_json(
+            &serde_json::json!({
+                "id": "repository-root",
+                "command": "git.repositoryRoot",
+                "payload": { "root": root.clone() },
+            })
+            .to_string(),
+        ))
+        .unwrap();
+        drop(lease);
+
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["data"],
+            serde_json::json!(root.replace('\\', "/")),
+            "{response}"
         );
     }
 

@@ -174,6 +174,7 @@ stable error code and a user-facing message:
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
+| `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
 | `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
@@ -392,6 +393,10 @@ that occur before Git starts use the standard error envelope. If a follow-up
 validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
+
+`git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
+absolute repository root or `null` when the path is not inside a repository. It
+is read-only and does not acquire the repository write lease.
 
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer

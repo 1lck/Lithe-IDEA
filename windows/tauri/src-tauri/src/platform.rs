@@ -417,8 +417,7 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
         }
         "git_discover_repo" => {
             move_field(&mut payload, "path", "root");
-            payload.insert("arguments".into(), json!(["rev-parse", "--show-toplevel"]));
-            "git.command"
+            "git.repositoryRoot"
         }
         "git_discover_workspace_repos" => {
             move_field(&mut payload, "workspacePath", "root");
@@ -854,6 +853,15 @@ mod tests {
 
         assert_eq!(command, "workspace.repositories");
         assert_eq!(payload, json!({ "root": "C:/work" }));
+    }
+
+    #[test]
+    fn translates_git_repository_root_discovery_to_read_only_core_command() {
+        let (command, payload) =
+            translate("git_discover_repo", json!({ "path": "C:/work/src" })).unwrap();
+
+        assert_eq!(command, "git.repositoryRoot");
+        assert_eq!(payload, json!({ "root": "C:/work/src" }));
     }
 
     #[test]
