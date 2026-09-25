@@ -502,6 +502,25 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::ExecutionPlanLaunchCommand => {
+            match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
+                parsed.payload,
+            )
+            .map(crate::execution::plan_launch_command_request)
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Java launch-command request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch-command plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::MavenDependencyPlan => {
             match serde_json::from_value::<MavenDependencyPlanRequest>(parsed.payload)
                 .map_err(|error| {

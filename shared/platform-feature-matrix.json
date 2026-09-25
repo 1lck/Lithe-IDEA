@@ -915,6 +915,31 @@
       "verification": "运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。"
     },
     {
+      "id": "run-java-long-classpath",
+      "area": "运行与调试",
+      "group": "运行配置",
+      "capability": "超长 Java 类路径自动缩短",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacJavaLaunchArgumentPreparer.swift",
+          "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+          "rust/lithe-core/src/execution/launch_command.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src-tauri/src/run/launch_arguments.rs",
+          "rust/lithe-core/src/execution/launch_command.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run",
+      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。"
+    },
+    {
       "id": "debug-breakpoints",
       "area": "运行与调试",
       "group": "调试器",
@@ -1031,6 +1056,30 @@
       },
       "owner": "Terminal",
       "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。"
+    },
+    {
+      "id": "terminal-long-command-input",
+      "area": "工作台",
+      "group": "终端",
+      "capability": "Windows Shell 超长命令输入",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Terminal"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/crates/terminal/src/connection.rs",
+          "windows/tauri/src-tauri/src/terminal.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Terminal",
+      "verification": "在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。",
+      "notes": "仅在 IDE 后端为 cmd.exe/PowerShell 的超长多行文本创建一次性脚本；不修改系统 Shell 配置。"
     },
     {
       "id": "markdown-rendering",

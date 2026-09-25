@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：76
-- macOS：实现：✅ 64 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 67 待验证，— 9 不适用
-- Windows：实现：✅ 71 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 74 待验证，— 2 不适用
+- 功能项：78
+- macOS：实现：✅ 65 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 68 待验证，— 10 不适用
+- Windows：实现：✅ 73 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 76 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -131,13 +131,14 @@
 </details>
 
 <details>
-<summary><strong>运行与调试</strong> · 6 个能力点</summary>
+<summary><strong>运行与调试</strong> · 7 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 运行配置 | **入口点与运行配置发现**<br><sub>run-discovery</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/run-configuration`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`shared/fixtures/run-configuration`</sub> | Run | 验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别。 |  |
 | 运行配置 | **保存前同步与工具链解析**<br><sub>run-save-toolchain</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Java`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`windows/tauri/src/features/maven`</sub> | Run | 修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。 |  |
 | 运行配置 | **Java main 与测试运行**<br><sub>run-java-test</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/debug`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`shared/fixtures/debug`</sub> | Run | 运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。 |  |
+| 运行配置 | **超长 Java 类路径自动缩短**<br><sub>run-java-long-classpath</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacJavaLaunchArgumentPreparer.swift`、`macos/Sources/LitheExecutionModule/Services/RunService.swift`、`rust/lithe-core/src/execution/launch_command.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src-tauri/src/run/launch_arguments.rs`、`rust/lithe-core/src/execution/launch_command.rs`</sub> | Run | 使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。 |  |
 | 调试器 | **启动调试与断点**<br><sub>debug-breakpoints</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Debug`、`shared/fixtures/debug`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/debugger`、`shared/fixtures/debug`</sub> | Debug | 设置、命中、禁用和重新定位断点，确认调试会话生命周期。 | Windows 真实调试产品链路仍在 #466 跟进。 |
 | 调试器 | **变量、异常与断开策略**<br><sub>debug-state</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Debug`、`shared/fixtures/debug`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/debugger`、`shared/fixtures/debug`</sub> | Debug | 验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。 | Windows 真实调试产品链路仍在 #466 跟进。 |
 | 项目运行 | **Docker / Compose 项目识别与运行**<br><sub>docker-compose</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift`、`macos/Sources/Lithe/Services/Java`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/docker`、`windows/tauri/src/features/run`</sub> | Run / Docker | 使用 Dockerfile 和 Compose fixture 验证识别、命令参数、输出和进程停止；确认 macOS 是否只有入口识别。 |  |
@@ -145,13 +146,14 @@
 </details>
 
 <details>
-<summary><strong>工作台</strong> · 7 个能力点</summary>
+<summary><strong>工作台</strong> · 8 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 终端 | **Shell 发现与配置**<br><sub>terminal-shell</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Terminal`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/terminal`、`windows/tauri/src-tauri`</sub> | Terminal | 验证默认 Shell、环境变量、工作目录和不可用 Shell 的错误提示。 |  |
 | 终端 | **多会话与标签**<br><sub>terminal-sessions</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Terminal`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/terminal`</sub> | Terminal | 创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理。 |  |
 | 终端 | **复制粘贴、搜索与调整大小**<br><sub>terminal-interaction</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Terminal`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/terminal`</sub> | Terminal | 验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。 |  |
+| 终端 | **Windows Shell 超长命令输入**<br><sub>terminal-long-command-input</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Views/Terminal`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/crates/terminal/src/connection.rs`、`windows/tauri/src-tauri/src/terminal.rs`</sub> | Terminal | 在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。 | 仅在 IDE 后端为 cmd.exe/PowerShell 的超长多行文本创建一次性脚本；不修改系统 Shell 配置。 |
 | 本地历史 | **快照列表与 Diff**<br><sub>history-snapshots</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 |  |
 | 本地历史 | **恢复、删除与持久化**<br><sub>history-restore</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 验证恢复、删除、应用重启后持久化和失败回滚。 |  |
 | 命令与布局 | **命令面板与全局动作**<br><sub>command-palette</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`、`macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette`</sub> | Workbench | 搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 |  |
