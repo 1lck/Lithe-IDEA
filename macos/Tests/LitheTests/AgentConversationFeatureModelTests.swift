@@ -158,9 +158,10 @@ struct AgentConversationFeatureModelTests {
         #expect(codex.cli?.detected?.version == "0.156.1")
         #expect(codex.cli?.minimumVersion == "0.156.0")
         let claude = try #require(status.agents.last)
-        #expect(claude.cli == nil)
+        #expect(claude.cli?.command == "claude")
+        #expect(claude.cli?.detected == nil)
         #expect(!claude.isInstalled)
-        #expect(claude.issues.count == 1)
+        #expect(claude.issues.count == 2)
     }
 
     // MARK: Helpers

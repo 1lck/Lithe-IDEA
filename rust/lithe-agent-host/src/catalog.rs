@@ -1,4 +1,7 @@
-//! Agents Lithe can install and launch, and how each receives an API key.
+//! Agents Lithe can install and launch, and how each receives its settings.
+//!
+//! Every adapter signs in through the ACP `gateway` method, so the user's API
+//! key travels over stdio in the header of the agent's provider protocol.
 //!
 //! Entries mirror the official ACP registry
 //! (`cdn.agentclientprotocol.com/registry/v1/latest/registry.json`): the same
@@ -17,24 +20,13 @@ pub enum ProviderProtocol {
     AnthropicMessages,
 }
 
-/// How a user-supplied API key reaches the agent. Account logins offered by
-/// agents are never used.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyDelivery {
-    /// ACP `authenticate` with the `gateway` method; the key travels over stdio.
-    Gateway,
-    /// `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in the agent's environment,
-    /// the only API-key input the Claude Agent SDK accepts.
-    AnthropicEnvironment,
-}
-
 /// How the provider's model name reaches the agent. It is not secret, so the
 /// environment is acceptable for every adapter.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelDelivery {
     /// `CODEX_CONFIG={"model": ...}`, merged into Codex's session config.
     CodexConfig,
-    /// `ANTHROPIC_MODEL`, read by the Claude Agent SDK.
+    /// `ANTHROPIC_MODEL`, the Claude adapter's preferred model.
     AnthropicEnvironment,
 }
 
@@ -70,7 +62,6 @@ pub struct CatalogAgent {
     /// Lowest Node.js major version the adapter and its dependencies run on.
     pub minimum_node_major: u32,
     pub protocol: ProviderProtocol,
-    pub key_delivery: KeyDelivery,
     pub model_delivery: ModelDelivery,
     /// The user's CLI the adapter drives, if it does not bundle one we use.
     pub cli: Option<AgentCli>,
@@ -90,7 +81,6 @@ pub const CATALOG: &[CatalogAgent] = &[
         // `open@11`, a dependency of the adapter, requires Node.js 20.
         minimum_node_major: 20,
         protocol: ProviderProtocol::Responses,
-        key_delivery: KeyDelivery::Gateway,
         model_delivery: ModelDelivery::CodexConfig,
         // `@openai/codex ^0.156.1` in the adapter; its platform binaries are
         // optional dependencies that the install skips.
@@ -112,9 +102,16 @@ pub const CATALOG: &[CatalogAgent] = &[
         bin: "claude-agent-acp",
         minimum_node_major: 22,
         protocol: ProviderProtocol::AnthropicMessages,
-        key_delivery: KeyDelivery::AnthropicEnvironment,
         model_delivery: ModelDelivery::AnthropicEnvironment,
-        cli: None,
+        // The Claude Agent SDK pairs with Claude Code 2.1.280; its native
+        // binary is an optional dependency that the install skips.
+        cli: Some(AgentCli {
+            command: "claude",
+            name: "Claude Code",
+            minimum_version: "2.1.280",
+            path_env: "CLAUDE_CODE_EXECUTABLE",
+            install_hint: "npm install -g @anthropic-ai/claude-code",
+        }),
         verified: false,
     },
 ];

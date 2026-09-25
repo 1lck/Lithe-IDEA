@@ -26,16 +26,16 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **支持的 Agent 目录**：写在 `lithe-agent-host` 的 `catalog.rs`，Agent ID、npm 包名和固定版本都与 ACP 官方注册表一致。首批是 Codex（已用真实服务商验证）和 Claude（标为"未验证"）。只有重新验证过的版本才会提升。
   - **环境检测**：通过登录 shell 读取 `PATH`，所以 nvm、fnm 装的 Node 也能找到。检测 Node 和 npm 的版本，每个 Agent 各有最低 Node 版本（Codex 20、Claude 22），版本不够时只提示。
   - **一键安装**：用用户的 npm 把固定版本的适配器装到 `Application Support/Lithe/agents/<id>`。先装到临时目录，确认可执行文件存在后再替换旧目录，所以失败或取消不会破坏已经能用的旧版本。
-  - **复用用户本机的 Agent CLI**：codex-acp 默认会带一份 Codex（各平台二进制都是可选依赖，单个平台约 370 MB），但用户本机本来就有 Codex。所以安装 Codex 适配器时加上 `--omit=optional`，装完只有约 18 MB；启动时在登录 shell 的 PATH 里找到用户的 `codex`，通过 `CODEX_PATH` 交给适配器。CLI 的最低版本跟随适配器的依赖范围（0.156.0），找不到或版本太旧时只提示，由用户自己安装或升级。
+  - **复用用户本机的 Agent CLI**：两个适配器都自带一份 Agent 的原生程序，都是可选依赖，单个平台约 200–370 MB，而用户本机本来就有。所以安装时加上 `--omit=optional`（Codex 装完约 18 MB）。启动时在登录 shell 的 PATH 里找到用户的 CLI 交给适配器：Codex 用 `CODEX_PATH`（最低 0.156.0），Claude Code 用 `CLAUDE_CODE_EXECUTABLE`（最低 2.1.280，对应 SDK 的 `claudeCodeVersion`）。CLI 找不到或版本太旧时只提示，由用户自己安装或升级。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`，复用现有信封的取消和超时。
-  - **Key 和模型的传法**：按 Agent 分别适配。Codex 的 Key 走网关登录，模型走 `CODEX_CONFIG`。Claude 的 SDK 只接受环境变量，所以 Key 和地址走 `ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`，模型走 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
+  - **Key 和模型的传法**：所有适配器都通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置页结构**：服务商在"AI Providers"页统一管理，每个 Agent 在"Agents"页选择自己用哪个服务商（只列出协议匹配的）。"正在编辑的服务商"和"提交信息使用的服务商"是两回事，在管理页上切换正在编辑的服务商，不会改动提交信息的设置。
 - **对话面板**：顶部可以切换 Agent，列出的是已经设置了服务商的 Agent。每个 Agent 第一次被选中时才建立连接；项目里所有 Agent 的权限提醒会合并显示到项目标签上。
 - **进程与诊断**：启动时把 Agent 可执行文件所在目录放到 `PATH` 最前面。npm 把 `codex-acp` 和 `node` 装在同一个目录，而 Mac 图形应用拿不到登录 shell 的 `PATH`。关闭时先向整棵进程树发 SIGTERM，并记录树里的每个进程 ID，稍等后再对仍存活的进程发 SIGKILL，因为 codex-acp 的 app-server 会比外层进程晚几秒退出。Agent 意外退出时，报错里附上 stderr 最后 20 行，其中的 Key 会被替换掉。
 
 正确做法：新平台的界面通过平台适配器把 fixture 里的命令交给 `lithe-agent-host`，并把工具权限选择交给用户。
 
-不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；为了让取消看起来生效而在超时后结束整个会话；把 API Key 通过环境变量或命令行传给 Agent。
+不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；为了让取消看起来生效而在超时后结束整个会话；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI。
 
 ## 考虑过的备选方案
 

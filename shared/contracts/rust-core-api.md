@@ -46,11 +46,11 @@ per workspace and agent; one connection carries many conversation sessions.
 "provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
 "baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
 "allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
-installed by `agent.install` under `dataDirectory` and delivers the key the way
-that adapter requires: Codex signs in through the ACP `gateway` method over
-stdio, and Claude receives `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in its
-environment because its SDK accepts no other key input. A non-empty `model` is
-passed as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+installed by `agent.install` under `dataDirectory`. Every agent signs in through
+the ACP `gateway` method over stdio: Responses providers send
+`Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
+user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
+non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
 provider. Agents start with the executable's directory and the login shell's
 `PATH` first. Account logins offered by agents are never used. Invalid settings
@@ -123,10 +123,11 @@ stable error code and a user-facing message:
 Lithe never installs Node.js or the agents' own command-line tools. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. Adapters that drive the agent's own CLI (Codex) report the
+and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
 CLI found on that `PATH` with its minimum version; they are installed with
 `--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
-with the user's CLI through the adapter's variable (`CODEX_PATH`). A missing or
+with the user's CLI through the adapter's variable (`CODEX_PATH`,
+`CLAUDE_CODE_EXECUTABLE`). A missing or
 too old CLI is an issue for the user to resolve, never installed by Lithe.
 `agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it

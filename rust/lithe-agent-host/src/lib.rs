@@ -10,7 +10,7 @@ pub mod catalog;
 pub mod environment;
 pub mod install;
 
-pub use catalog::{KeyDelivery, ModelDelivery, ProviderProtocol};
+pub use catalog::{ModelDelivery, ProviderProtocol};
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
@@ -137,7 +137,8 @@ impl std::fmt::Debug for ProviderCredentials {
 #[derive(Clone)]
 struct GatewaySignIn {
     base_url: String,
-    api_key: String,
+    /// Authentication headers in the dialect of the provider's protocol.
+    headers: Vec<(String, String)>,
     provider_name: Option<String>,
 }
 
@@ -171,10 +172,25 @@ fn resolve_with(
     if !launch.cwd.is_absolute() {
         return Err("The workspace path must be absolute".into());
     }
+    // Every adapter signs in through the ACP `gateway` method; the key travels
+    // over stdio in the header its protocol expects.
     let gateway = |provider: &ProviderCredentials| -> Result<GatewaySignIn, String> {
+        let (base_url, header) = match provider.protocol {
+            ProviderProtocol::AnthropicMessages => (
+                provider.anthropic_base_url()?,
+                ("x-api-key".to_owned(), provider.api_key.clone()),
+            ),
+            ProviderProtocol::Responses | ProviderProtocol::ChatCompletions => (
+                provider.responses_base_url()?,
+                (
+                    "Authorization".to_owned(),
+                    format!("Bearer {}", provider.api_key),
+                ),
+            ),
+        };
         Ok(GatewaySignIn {
-            base_url: provider.responses_base_url()?,
-            api_key: provider.api_key.clone(),
+            base_url,
+            headers: vec![header],
             provider_name: provider.name.clone(),
         })
     };
@@ -216,19 +232,8 @@ fn resolve_with(
             agent.name
         ));
     }
-    let (mut env, gateway) = match agent.key_delivery {
-        KeyDelivery::Gateway => (Vec::new(), Some(gateway(&provider)?)),
-        KeyDelivery::AnthropicEnvironment => (
-            vec![
-                ("ANTHROPIC_API_KEY".to_owned(), provider.api_key.clone()),
-                (
-                    "ANTHROPIC_BASE_URL".to_owned(),
-                    provider.anthropic_base_url()?,
-                ),
-            ],
-            None,
-        ),
-    };
+    let gateway = Some(gateway(&provider)?);
+    let mut env = Vec::new();
     if let Some(cli) = &agent.cli {
         let detected = find_cli(cli.command);
         if let Some(issue) = install::cli_issue(cli, detected.as_ref()) {
@@ -1017,10 +1022,12 @@ async fn request_with_timeout<T>(
 }
 
 fn gateway_authentication(gateway: &GatewaySignIn) -> AuthenticateRequest {
-    let mut settings = serde_json::json!({
-        "baseUrl": gateway.base_url,
-        "headers": { "Authorization": format!("Bearer {}", gateway.api_key) },
-    });
+    let headers: serde_json::Map<String, serde_json::Value> = gateway
+        .headers
+        .iter()
+        .map(|(name, value)| (name.clone(), serde_json::Value::String(value.clone())))
+        .collect();
+    let mut settings = serde_json::json!({ "baseUrl": gateway.base_url, "headers": headers });
     if let Some(name) = gateway
         .provider_name
         .as_deref()

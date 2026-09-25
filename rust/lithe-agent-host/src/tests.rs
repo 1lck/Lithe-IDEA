@@ -27,7 +27,7 @@ fn provider() -> ProviderCredentials {
 fn gateway() -> Option<GatewaySignIn> {
     Some(GatewaySignIn {
         base_url: "https://gateway.example.com/v1".into(),
-        api_key: "test-key-123".into(),
+        headers: vec![("Authorization".into(), "Bearer test-key-123".into())],
         provider_name: Some("Example".into()),
     })
 }
@@ -829,11 +829,16 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         base_url: "https://api.example/v1/messages".into(),
         ..provider()
     };
-    let codex_cli = |command: &str| {
-        (command == "codex").then(|| environment::DetectedTool {
+    let codex_cli = |command: &str| match command {
+        "codex" => Some(environment::DetectedTool {
             version: "0.156.1".into(),
             path: "/opt/example/bin/codex".into(),
-        })
+        }),
+        "claude" => Some(environment::DetectedTool {
+            version: "2.1.282".into(),
+            path: "/opt/example/bin/claude".into(),
+        }),
+        _ => None,
     };
     let resolve = |launch: AgentLaunch| resolve_with(launch, &codex_cli);
     let not_installed = resolve(launch("codex-acp", provider())).err().unwrap();
@@ -899,14 +904,20 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         },
     ))
     .unwrap();
-    assert!(claude.gateway.is_none());
+    // Claude signs in through the gateway too, in the Anthropic dialect; the
+    // key never enters the adapter's environment.
+    let sign_in = claude.gateway.expect("gateway sign-in");
+    assert_eq!(sign_in.base_url, "https://api.example");
+    assert_eq!(
+        sign_in.headers,
+        [("x-api-key".to_owned(), "test-key-123".to_owned())]
+    );
     assert_eq!(
         claude.env,
         [
-            ("ANTHROPIC_API_KEY".to_owned(), "test-key-123".to_owned()),
             (
-                "ANTHROPIC_BASE_URL".to_owned(),
-                "https://api.example".to_owned()
+                "CLAUDE_CODE_EXECUTABLE".to_owned(),
+                "/opt/example/bin/claude".to_owned()
             ),
             ("ANTHROPIC_MODEL".to_owned(), "claude-sonnet-5".to_owned()),
         ]

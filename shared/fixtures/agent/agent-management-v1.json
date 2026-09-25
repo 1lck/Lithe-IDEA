@@ -42,8 +42,17 @@
           "protocol": "anthropicMessages",
           "minimumNodeMajor": 22,
           "verified": false,
-          "cli": null,
-          "issues": ["Claude needs Node.js 22 or later; found 20.11.0."]
+          "cli": {
+            "name": "Claude Code",
+            "command": "claude",
+            "minimumVersion": "2.1.280",
+            "installHint": "npm install -g @anthropic-ai/claude-code",
+            "detected": null
+          },
+          "issues": [
+            "Claude needs Node.js 22 or later; found 20.11.0.",
+            "Claude Code was not found. Install it (for example `npm install -g @anthropic-ai/claude-code`), then check again."
+          ]
         }
       ]
     },
