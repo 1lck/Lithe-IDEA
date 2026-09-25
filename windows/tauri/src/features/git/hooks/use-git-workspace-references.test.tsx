@@ -40,6 +40,17 @@ class ManualTimer {
   }
 }
 
+function deferRepository(repositoryPath: string): { release: () => void } {
+  let release: () => void = () => {};
+  deferredRepositories.set(
+    repositoryPath,
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  return { release: () => release() };
+}
+
 const referenceFor = (shortName: string): GitReference => ({
   fullName: `refs/heads/${shortName}`,
   shortName,
@@ -55,9 +66,13 @@ let referencesByRepository: Record<string, GitReference[]> = {
 
 const failedRepositories = new Set<string>();
 
+/** Repositories whose read is held open until the returned promise resolves. */
+const deferredRepositories = new Map<string, Promise<void>>();
+
 const getGitReferencesAtRoot = mock(
   async (repoPath: string): Promise<GitReferenceSnapshot> => {
     const key = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    await deferredRepositories.get(key);
     if (failedRepositories.has(key)) throw new Error(`failed to load ${key}`);
     return {
       references: referencesByRepository[key] ?? [],
@@ -82,6 +97,7 @@ beforeEach(() => {
     "C:/repo-b": [referenceFor("develop"), referenceFor("feature/x")],
   };
   failedRepositories.clear();
+  deferredRepositories.clear();
   getGitReferencesAtRoot.mockClear();
   cancelGitHistoryOperation.mockClear();
   spies.push(
@@ -307,6 +323,70 @@ describe("Git workspace references", () => {
         harness.read().referencesByRepository.get("C:/repo-b")?.map((reference) => reference.shortName),
       ).toEqual(["develop", "feature/x"]);
     } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("never reads a queued repository after the panel unmounts", async () => {
+    const deferred = deferRepository("C:/repo-a");
+    const harness = mountHook();
+    let unmounted = false;
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+
+      let queued: Promise<void> | undefined;
+      await act(async () => {
+        queued = harness.read().ensureRepository("C:/repo-b");
+      });
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+
+      await act(async () => {
+        harness.root.unmount();
+      });
+      unmounted = true;
+
+      deferred.release();
+      await act(async () => {
+        await queued;
+      });
+
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+    } finally {
+      deferred.release();
+      if (!unmounted) {
+        await act(async () => {
+          harness.root.unmount();
+        });
+      }
+    }
+  });
+
+  test("never reads a queued repository that left the workspace and releases its pending slot", async () => {
+    const deferred = deferRepository("C:/repo-a");
+    const harness = mountHook();
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+
+      let queued: Promise<void> | undefined;
+      await act(async () => {
+        queued = harness.read().ensureRepository("C:/repo-b");
+      });
+
+      await harness.render(["C:/repo-a"], "C:/repo-a");
+
+      deferred.release();
+      await act(async () => {
+        await queued;
+      });
+
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+      expect(harness.read().isLoading).toBe(false);
+      expect(harness.read().referencesByRepository.has("C:/repo-b")).toBe(false);
+    } finally {
+      deferred.release();
       await act(async () => {
         harness.root.unmount();
       });

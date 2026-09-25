@@ -38,7 +38,10 @@ const defaultScheduler: GitWorkspaceReferencesScheduler = {
  * active repository is read eagerly; the others stay lazy and are fetched on
  * demand through `ensureRepository`, then cached until a Git change invalidates
  * them. Reads stay serialized because resolving sibling worktrees of the same
- * common dir would otherwise race for the repository write lease.
+ * common dir would otherwise race for the repository write lease. A read that
+ * is still queued when the panel unmounts, when its repository leaves the
+ * workspace, or when a newer request supersedes it is dropped before it reaches
+ * the native API.
  */
 export function useGitWorkspaceReferences(
   repositoryPaths: string[],
@@ -54,6 +57,9 @@ export function useGitWorkspaceReferences(
   const requestedRepositoryKeysRef = useRef(new Set<string>());
   const loadChainRef = useRef<Promise<void>>(Promise.resolve());
   const pendingLoadCountRef = useRef(0);
+  // Bumped when the hook unmounts so reads still waiting in the serialized
+  // chain can be recognized as dead before they call into the native API.
+  const lifecycleGenerationRef = useRef(0);
   const repositoryPathsRef = useRef(repositoryPaths);
   const scheduledRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRefreshPathsRef = useRef(new Set<string>());
@@ -75,10 +81,8 @@ export function useGitWorkspaceReferences(
   }, []);
 
   const loadRepository = useCallback(
-    async (repositoryPath: string) => {
+    async (repositoryPath: string, generation: number) => {
       const repositoryKey = normalizeRepositoryPath(repositoryPath);
-      const generation = (generationsRef.current.get(repositoryKey) ?? 0) + 1;
-      generationsRef.current.set(repositoryKey, generation);
       const operationId = `git-workspace-references-${controllerIdRef.current}-${repositoryKey}-${generation}`;
       const operations = activeOperationsRef.current.get(repositoryKey) ?? new Set<string>();
       operations.add(operationId);
@@ -141,16 +145,36 @@ export function useGitWorkspaceReferences(
         return Promise.resolve();
       }
       requestedRepositoryKeysRef.current.add(repositoryKey);
+      // Claim the repository generation while enqueuing, not when the read
+      // finally starts, so a superseded or unmounted queue entry can be told
+      // apart from the read that is still wanted.
+      const lifecycleGeneration = lifecycleGenerationRef.current;
+      const generation = (generationsRef.current.get(repositoryKey) ?? 0) + 1;
+      generationsRef.current.set(repositoryKey, generation);
       pendingLoadCountRef.current += 1;
       setState((current) => (current.isLoading ? current : { ...current, isLoading: true }));
-      const task = loadChainRef.current.then(() => loadRepository(repositoryPath));
+      const task = loadChainRef.current.then(() => {
+        if (
+          lifecycleGenerationRef.current !== lifecycleGeneration ||
+          generationsRef.current.get(repositoryKey) !== generation ||
+          !isTrackedRepository(repositoryKey)
+        ) {
+          // The panel unmounted, the repository left the workspace, or a newer
+          // request superseded this one while it waited its turn. Drop the
+          // queued read before it reaches the native API, and release the
+          // pending slot it claimed so `isLoading` cannot stay stuck.
+          finishLoad();
+          return;
+        }
+        return loadRepository(repositoryKey, generation);
+      });
       loadChainRef.current = task.then(
         () => undefined,
         () => undefined,
       );
       return task;
     },
-    [isTrackedRepository, loadRepository],
+    [finishLoad, isTrackedRepository, loadRepository],
   );
 
   const ensureRepository = useCallback(
@@ -251,6 +275,7 @@ export function useGitWorkspaceReferences(
     () => () => {
       cancelScheduledRefresh();
       cancelAllOperations();
+      lifecycleGenerationRef.current += 1;
       generationsRef.current.clear();
       requestedRepositoryKeysRef.current.clear();
     },

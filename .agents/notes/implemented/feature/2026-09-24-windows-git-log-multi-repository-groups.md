@@ -73,6 +73,12 @@ Git 变更刷新只作用于已请求过的仓库。活动仓库改变或列表�
 活动仓库的引用同时由 `useGitLogController` 提供并被引用树直接使用，hook 侧对活动
 仓库的读取主要用于保持"活动仓库总是已加载"这一不变式和刷新语义一致。
 
+读取串行执行（同一个 common dir 的兄弟工作树读引用会互相抢仓库写租约），所以一次请求
+可能要排在前面若干次读取之后才真正开始。**排队不等于已经发出**：仓库代数在入队时就占住，
+真正调用原生 API 前要重新核对"面板没卸载、仓库还在工作区、没有更新的请求顶替"。三者任一
+不成立就丢掉这条排队项，并把它占用的 pending 计数还回去。否则会出现：A 的读取挂起、B 入队、
+面板关闭，A 取消完成后 B 仍会发起一次没有主人负责取消的原生读取。
+
 ### 点击其它仓库的分支要切换活动仓库
 
 引用树只负责选中，不负责加载历史。选中一条属于非活动仓库的引用时，
@@ -112,7 +118,8 @@ pending 引用 ref，在 `repoPath` 变化后的 effect 里调用 `selectReferen
   `git-reference-tree.test.tsx`（单仓库保持扁平、多仓库按仓库分组）、
   `git-reference-tree-lazy-references.test.tsx`（可见的展开分组触发加载、折叠分组
   展开后才加载）与 `use-git-workspace-references.test.tsx`（只加载活动仓库、
-  按需加载、只刷新已加载仓库、错误重试）。
+  按需加载、只刷新已加载仓库、错误重试，以及排队项在面板卸载 / 仓库移出工作区后
+  不得发起原生读取且要归还 pending 计数）。
 - Rust 未改动（Core 的仓库发现和引用契约保持原样），`cargo test --manifest-path
   rust/lithe-core/Cargo.toml` 无需针对本改动重跑。
 - 手工：在工作区 `D:/workspace/work-code/op` 打开 Git Log，确认仓库分组、工作树
