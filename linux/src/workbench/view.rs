@@ -1060,6 +1060,7 @@ impl WorkbenchView {
             gpui_kit::component::ThemeMode::Dark
         };
         gpui_kit::component::Theme::change(mode, None, cx);
+        crate::fonts::apply_theme(cx);
         cx.notify();
     }
 
@@ -2145,6 +2146,7 @@ impl WorkbenchView {
                 gpui_kit::component::ThemeMode::Dark
             };
             gpui_kit::component::Theme::change(mode, None, cx);
+            crate::fonts::apply_theme(cx);
             cx.notify();
             return;
         }

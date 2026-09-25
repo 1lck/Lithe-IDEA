@@ -278,7 +278,7 @@ impl Default for Settings {
         Self {
             auto_save: true,
             quick_open_preview: true,
-            font_family: "Geist Mono".to_string(),
+            font_family: crate::fonts::FAMILY.to_string(),
             font_size: 14.0,
             editor_line_height: 1.4,
             tab_size: 2,
@@ -477,7 +477,22 @@ pub fn load() -> Settings {
     };
     let mut settings = serde_json::from_str::<Settings>(&text).unwrap_or_default();
     settings.display_language = normalized_display_language(&settings.display_language);
+    settings.font_family = migrated_font_family(&settings.font_family);
     settings
+}
+
+/// 历史版本的默认编辑器字体。这些值只是旧默认，不是用户的真实选择，
+/// 加载时迁移到当前默认字体，避免设置弹窗显示一个并未生效的字体名。
+const LEGACY_DEFAULT_FONT_FAMILIES: &[&str] = &["Geist Mono"];
+
+/// 归一化编辑器字体：空值或历史默认值 → 当前内嵌默认字体。
+fn migrated_font_family(configured: &str) -> String {
+    let trimmed = configured.trim();
+    if trimmed.is_empty() || LEGACY_DEFAULT_FONT_FAMILIES.contains(&trimmed) {
+        crate::fonts::FAMILY.to_string()
+    } else {
+        trimmed.to_string()
+    }
 }
 
 /// 将设置写回磁盘（临时文件 + 原子替换）。
@@ -557,6 +572,7 @@ pub fn apply_theme(theme_id: &str) {
 
 #[cfg(test)]
 mod tests {
+    use super::migrated_font_family;
     use super::normalized_display_language;
 
     #[test]
@@ -569,5 +585,15 @@ mod tests {
     #[test]
     fn unknown_display_language_uses_product_default() {
         assert_eq!(normalized_display_language("fr-FR"), "zh-CN");
+    }
+
+    /// 空值与旧默认字体迁移到当前默认字体；用户显式选择的其他字体保持不变。
+    #[test]
+    fn font_family_migrates_legacy_defaults() {
+        let default = crate::fonts::FAMILY;
+        assert_eq!(migrated_font_family(""), default);
+        assert_eq!(migrated_font_family("  "), default);
+        assert_eq!(migrated_font_family("Geist Mono"), default);
+        assert_eq!(migrated_font_family("Noto Sans Mono"), "Noto Sans Mono");
     }
 }

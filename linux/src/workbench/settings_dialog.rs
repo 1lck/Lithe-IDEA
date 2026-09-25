@@ -771,9 +771,9 @@ impl SettingsDialog {
         cx: &mut Context<Self>,
         toggle: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
-        Switch::new(id).checked(value).on_click(cx.listener(
-            move |this, _event, _window, cx| toggle(this, cx),
-        ))
+        Switch::new(id)
+            .checked(value)
+            .on_click(cx.listener(move |this, _event, _window, cx| toggle(this, cx)))
     }
 
     /// 数值步进器：减号 + 当前值 + 加号。
@@ -1239,7 +1239,7 @@ impl SettingsDialog {
             .gap_4()
             .child(
                 div()
-                    .font_family("monospace")
+                    .font_family(crate::fonts::mono_family(cx))
                     .text_xs()
                     .text_color(ThemeColors::foreground())
                     .child(root),
@@ -1375,7 +1375,7 @@ impl SettingsDialog {
                         .border_1()
                         .border_color(ThemeColors::border())
                         .bg(ThemeColors::background())
-                        .font_family("monospace")
+                        .font_family(crate::fonts::mono_family(cx))
                         .text_xs()
                         .text_color(ThemeColors::foreground())
                         .child(name.clone())
@@ -1446,14 +1446,17 @@ impl SettingsDialog {
                                 s.font_family.clone(),
                                 176.0,
                                 vec![
-                                    ("Geist Mono", "Geist Mono".to_string()),
+                                    (crate::fonts::FAMILY, crate::fonts::FAMILY.to_string()),
                                     ("DejaVu Sans Mono", "DejaVu Sans Mono".to_string()),
                                     ("Noto Sans Mono", "Noto Sans Mono".to_string()),
                                     ("monospace", "monospace".to_string()),
                                 ],
                                 cx,
                                 |this, family, cx| {
-                                    this.commit(cx, |s| s.font_family = family.to_string())
+                                    this.commit(cx, |s| s.font_family = family.to_string());
+                                    // 编辑器/代码/终端都跟随等宽字体，改完立即生效并重绘。
+                                    crate::fonts::apply_theme(cx);
+                                    cx.refresh_windows();
                                 },
                             ),
                         ))

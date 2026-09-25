@@ -2,6 +2,10 @@
 
 状态：已实现
 
+归档日期：2026-09-26
+
+被 `.agents/notes/implemented/architecture/2026-09-26-linux-gpui-terminal-component-reuse.md` 取代。
+
 ## 先说结论
 
 Linux 原生 GPUI 版终端不自己实现终端语义，只复用成熟上游 `alacritty_terminal`

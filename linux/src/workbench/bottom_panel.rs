@@ -1881,7 +1881,7 @@ impl BottomPanelView {
                             .child(
                                 div()
                                     .truncate()
-                                    .font_family("monospace")
+                                    .font_family(crate::fonts::mono_family(cx))
                                     .child(format!("{} {}", item.kind, item.detail)),
                             ),
                     )
@@ -1953,7 +1953,7 @@ impl BottomPanelView {
                             .track_scroll(&self.run_scroll)
                             .vertical_scrollbar(&self.run_scroll)
                             .p_2()
-                            .font_family("monospace")
+                            .font_family(crate::fonts::mono_family(cx))
                             .text_xs()
                             .text_color(ThemeColors::text_primary())
                             .children(output),
@@ -1983,7 +1983,7 @@ impl BottomPanelView {
             .min_h_0()
             .overflow_y_scrollbar()
             .p_2()
-            .font_family("monospace")
+            .font_family(crate::fonts::mono_family(cx))
             .text_xs()
             .text_color(ThemeColors::text_primary())
             .children(output)
@@ -2035,7 +2035,7 @@ impl BottomPanelView {
                     .child(
                         div()
                             .flex_shrink_0()
-                            .font_family("monospace")
+                            .font_family(crate::fonts::mono_family(cx))
                             .text_color(ThemeColors::accent_blue())
                             .child(entry.hash.clone()),
                     )
@@ -2072,7 +2072,7 @@ impl Render for BottomPanelView {
                 let status = self.terminal_status(cx);
                 let (at_bottom, has_session) = {
                     let terminal = self.terminal.read(cx);
-                    (terminal.is_at_bottom(), terminal.has_session())
+                    (terminal.is_at_bottom(cx), terminal.has_session())
                 };
                 (
                     self.render_pane_header(
@@ -2112,7 +2112,7 @@ impl Render for BottomPanelView {
                                 |this, _window, cx| {
                                     let _ = this
                                         .terminal
-                                        .update(cx, |term, _cx| term.scroll_to_bottom());
+                                        .update(cx, |term, cx| term.scroll_to_bottom(cx));
                                 },
                             ),
                             Self::header_button(

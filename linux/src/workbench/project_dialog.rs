@@ -1001,7 +1001,7 @@ impl ProjectDialog {
                                     div()
                                         .px_3()
                                         .py_2()
-                                        .font_family("monospace")
+                                        .font_family(crate::fonts::mono_family(cx))
                                         .text_xs()
                                         .text_color(crate::theme::ThemeColors::foreground())
                                         .child(dest),
@@ -1142,7 +1142,7 @@ impl ProjectDialog {
                             .rounded_sm()
                             .border_1()
                             .cursor_pointer()
-                            .font_family("monospace")
+                            .font_family(crate::fonts::mono_family(cx))
                             .when(is_active, |row| {
                                 row.border_color(crate::theme::ThemeColors::primary())
                                     .bg(crate::theme::ThemeColors::background())
@@ -1262,7 +1262,7 @@ impl ProjectDialog {
                     .w_full()
                     .text_center()
                     .truncate()
-                    .font_family("monospace")
+                    .font_family(crate::fonts::mono_family(cx))
                     .text_xs()
                     .text_color(crate::theme::ThemeColors::subtle_foreground())
                     .child(self.destination_path()),

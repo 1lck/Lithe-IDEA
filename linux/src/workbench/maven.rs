@@ -1191,7 +1191,7 @@ impl MavenView {
                 el.child(
                     div()
                         .truncate()
-                        .font_family("monospace")
+                        .font_family(crate::fonts::mono_family(cx))
                         .text_xs()
                         .text_color(ThemeColors::text_muted())
                         .child(text),
@@ -1392,7 +1392,7 @@ impl MavenView {
                                 .when(!kind.is_empty(), |el| {
                                     el.child(
                                         div()
-                                            .font_family("monospace")
+                                            .font_family(crate::fonts::mono_family(cx))
                                             .text_xs()
                                             .text_color(ThemeColors::text_muted())
                                             .child(kind.clone()),
@@ -1678,7 +1678,7 @@ impl MavenView {
                         div()
                             .flex_1()
                             .truncate()
-                            .font_family("monospace")
+                            .font_family(crate::fonts::mono_family(cx))
                             .text_xs()
                             .text_color(ThemeColors::text_muted())
                             .child(dep_subtitle(dep, cx)),

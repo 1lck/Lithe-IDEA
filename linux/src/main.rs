@@ -1,6 +1,7 @@
 //! Linux 工作台入口：初始化设置与主题，打开主窗口。
 
 mod core;
+mod fonts;
 mod i18n;
 mod keybindings;
 mod lsp;
@@ -28,6 +29,8 @@ fn main() {
 
     app.run(move |cx| {
         gpui_kit::init(cx);
+        // 先注册内嵌字体，后续文本布局（含主题字体解析）才能用到它。
+        fonts::register(cx);
 
         // 先加载持久化设置，再据此决定 gpui-component 主题与工作台调色板。
         settings::init(cx);
@@ -48,6 +51,8 @@ fn main() {
             None,
             cx,
         );
+        // 主题切换会重设字体字段，因此每次都把内嵌字体族装回去。
+        fonts::apply_theme(cx);
 
         cx.open_window(WindowOptions::default(), |window, cx| {
             let view = cx.new(|cx| WorkbenchView::new(window, cx));
