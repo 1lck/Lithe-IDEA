@@ -7,10 +7,12 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, relative, AppContext as _, ClipboardItem, Context, Entity, EventEmitter, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Task, Window,
 };
 
+use std::collections::HashMap;
 use std::rc::Rc;
+use std::time::Duration;
 
 use super::panes::PaneId;
 use super::tab_menu::{SplitCallback, ToggleLockCallback};
@@ -18,6 +20,33 @@ use super::tab_menu::{SplitCallback, ToggleLockCallback};
 use crate::core::CoreClient;
 use crate::settings;
 use crate::theme::ThemeColors;
+
+/// 与 Windows 编辑器一致的自动保存防抖窗口。
+const AUTO_SAVE_DELAY: Duration = Duration::from_millis(150);
+
+/// 单个文档的自动保存任务状态。
+///
+/// 每个文档只保留一个前台任务。连续编辑只推进修订号并重置防抖标记，不创建
+/// 并行写盘任务；旧快照写盘后若修订号已变化，当前任务继续保存最新内容。
+struct AutoSaveState {
+    revision: u64,
+    running: bool,
+    debounce_requested: bool,
+    task: Option<Task<()>>,
+}
+
+impl AutoSaveState {
+    fn request(&mut self) {
+        self.revision = self.revision.wrapping_add(1);
+        self.debounce_requested = true;
+    }
+
+    fn take_debounce(&mut self) -> bool {
+        let requested = self.debounce_requested;
+        self.debounce_requested = false;
+        requested
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct EditorTab {
@@ -57,6 +86,8 @@ pub struct EditorView {
     sync_needed: bool,
     /// 监听编辑器文本变化以回写标签内容与脏标记。
     _editor_subscription: Subscription,
+    /// 按文档路径隔离自动保存任务，避免切换标签或连续编辑产生并行写入。
+    auto_saves: HashMap<String, AutoSaveState>,
     client: CoreClient,
     /// 撤销/重做历史（全文快照，栈顶恒等于编辑器当前值）。
     undo_stack: Vec<String>,
@@ -106,6 +137,7 @@ impl EditorView {
             synced_tab: None,
             sync_needed: false,
             _editor_subscription,
+            auto_saves: HashMap::new(),
             client: CoreClient::new(),
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
@@ -118,15 +150,189 @@ impl EditorView {
         }
     }
 
+    /// 为活动文档安排自动保存；关闭自动保存或关闭文档时取消对应任务。
+    fn schedule_active_auto_save(&mut self, cx: &mut Context<Self>) {
+        let Some(path) = self
+            .active_tab_index
+            .and_then(|index| self.tabs.get(index).map(|tab| tab.path.clone()))
+        else {
+            return;
+        };
+        self.schedule_auto_save(path, cx);
+    }
+
+    /// 按文档修订启动唯一的自动保存任务。
+    ///
+    /// 防抖阶段不取消正在等待的任务，而是由下一次循环重新计时；写入阶段保持
+    /// 同一个任务串行执行，确保新修订不会与旧快照并行落盘。
+    fn schedule_auto_save(&mut self, path: String, cx: &mut Context<Self>) {
+        if !settings::get(cx).auto_save {
+            self.cancel_auto_save(&path);
+            return;
+        }
+
+        let should_start = match self.auto_saves.entry(path.clone()) {
+            std::collections::hash_map::Entry::Occupied(mut entry) => {
+                let state = entry.get_mut();
+                state.request();
+                !state.running
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                let mut state = AutoSaveState {
+                    revision: 0,
+                    running: false,
+                    debounce_requested: false,
+                    task: None,
+                };
+                state.request();
+                entry.insert(state);
+                true
+            }
+        };
+        if !should_start {
+            return;
+        }
+        if let Some(state) = self.auto_saves.get_mut(&path) {
+            state.running = true;
+        }
+
+        let root = self.workspace_root.clone();
+        let client = self.client.clone();
+        let worker_path = path.clone();
+        let task = cx.spawn(async move |this, cx| loop {
+            let should_debounce = this
+                .update(cx, |editor, cx| {
+                    if !editor.auto_saves.contains_key(&worker_path) {
+                        return None;
+                    }
+                    if !settings::get(cx).auto_save {
+                        if let Some(state) = editor.auto_saves.get_mut(&worker_path) {
+                            state.running = false;
+                        }
+                        return None;
+                    }
+                    let Some(tab) = editor.tabs.iter().find(|tab| tab.path == worker_path) else {
+                        if let Some(state) = editor.auto_saves.get_mut(&worker_path) {
+                            state.running = false;
+                        }
+                        return None;
+                    };
+                    if !tab.is_dirty {
+                        if let Some(state) = editor.auto_saves.get_mut(&worker_path) {
+                            state.running = false;
+                        }
+                        return None;
+                    }
+                    let Some(state) = editor.auto_saves.get_mut(&worker_path) else {
+                        return None;
+                    };
+                    Some(state.take_debounce())
+                })
+                .unwrap_or(None);
+            let Some(should_debounce) = should_debounce else {
+                break;
+            };
+            if should_debounce {
+                cx.background_executor().timer(AUTO_SAVE_DELAY).await;
+                continue;
+            }
+
+            let snapshot = this
+                .update(cx, |editor, cx| {
+                    if !settings::get(cx).auto_save {
+                        return None;
+                    }
+                    let state = editor.auto_saves.get(&worker_path)?;
+                    let tab = editor.tabs.iter().find(|tab| tab.path == worker_path)?;
+                    if !tab.is_dirty {
+                        return None;
+                    }
+                    let text = editor
+                        .active_tab_index
+                        .and_then(|index| editor.tabs.get(index))
+                        .filter(|active| active.path == worker_path)
+                        .map(|_| editor.editor_state.read(cx).value().to_string())
+                        .unwrap_or_else(|| tab.content.clone());
+                    Some((state.revision, text))
+                })
+                .unwrap_or(None);
+            let Some((revision, text)) = snapshot else {
+                let _ = this.update(cx, |editor, _| {
+                    if let Some(state) = editor.auto_saves.get_mut(&worker_path) {
+                        state.running = false;
+                    }
+                });
+                break;
+            };
+
+            let result = client.write_file(&cx, &root, &worker_path, &text).await;
+            let should_continue = this
+                .update(cx, |editor, cx| {
+                    let active_has_newer_text = editor
+                        .active_tab_index
+                        .and_then(|index| editor.tabs.get(index))
+                        .filter(|active| active.path == worker_path)
+                        .is_some_and(|_| editor.editor_state.read(cx).value().to_string() != text);
+                    let Some(state) = editor.auto_saves.get_mut(&worker_path) else {
+                        return false;
+                    };
+                    let Some(tab) = editor.tabs.iter_mut().find(|tab| tab.path == worker_path)
+                    else {
+                        state.running = false;
+                        return false;
+                    };
+
+                    if let Err(error) = &result {
+                        tracing::error!(
+                            path = %worker_path,
+                            error = %error,
+                            "automatic file save failed"
+                        );
+                    } else if tab.content == text && !active_has_newer_text {
+                        tab.is_dirty = false;
+                    }
+
+                    let content_changed = tab.content != text || active_has_newer_text;
+                    let newer_revision = state.revision != revision;
+                    if result.is_ok() && (content_changed || newer_revision) {
+                        state.debounce_requested = true;
+                        true
+                    } else {
+                        state.running = false;
+                        false
+                    }
+                })
+                .unwrap_or(false);
+            if !should_continue {
+                break;
+            }
+        });
+        if let Some(state) = self.auto_saves.get_mut(&path) {
+            state.task = Some(task);
+        }
+    }
+
+    /// 取消指定文档的自动保存任务。
+    pub fn cancel_auto_save(&mut self, path: &str) {
+        self.auto_saves.remove(path);
+    }
+
+    /// 清理已关闭文档的自动保存任务。
+    fn retain_auto_save_states(&mut self) {
+        self.auto_saves
+            .retain(|path, _| self.tabs.iter().any(|tab| tab.path == *path));
+    }
+
     /// 打开文件，如果已在标签中则切换，否则新增标签
     pub fn open_file(&mut self, path: String, content: String, cx: &mut Context<Self>) {
         if let Some(pos) = self.tabs.iter().position(|t| t.path == path) {
-            if let Some(tab) = self.tabs.get_mut(pos) {
-                if tab.content != content {
+            if self.tabs[pos].content != content {
+                self.cancel_auto_save(&self.tabs[pos].path.clone());
+                if let Some(tab) = self.tabs.get_mut(pos) {
                     tab.content = content;
                     tab.is_dirty = false;
-                    self.sync_needed = true;
                 }
+                self.sync_needed = true;
             }
             self.active_tab_index = Some(pos);
             self.publish_active_document(cx);
@@ -160,6 +366,7 @@ impl EditorView {
         if index < self.tabs.len() {
             self.record_closed(index);
             self.tabs.remove(index);
+            self.retain_auto_save_states();
             if self.tabs.is_empty() {
                 self.active_tab_index = None;
             } else if let Some(current) = self.active_tab_index {
@@ -229,11 +436,16 @@ impl EditorView {
         };
 
         let value = self.editor_state.read(cx).value().to_string();
+        let mut changed = false;
         if let Some(tab) = self.tabs.get_mut(index) {
             if tab.content != value {
                 tab.content = value.clone();
                 tab.is_dirty = true;
+                changed = true;
             }
+        }
+        if changed {
+            self.schedule_active_auto_save(cx);
         }
         if self.undo_stack.last().is_none_or(|top| *top != value) {
             self.undo_stack.push(value);
@@ -281,14 +493,17 @@ impl EditorView {
         cx.spawn(async move |this, cx| {
             client.write_file(&cx, &root, &path, &text).await?;
             let _ = this.update(cx, |ed, cx| {
-                if let Some(active_idx) = ed.active_tab_index {
-                    if let Some(tab) = ed.tabs.get_mut(active_idx) {
-                        if tab.path == path {
-                            tab.is_dirty = false;
-                            cx.notify();
-                        }
+                let active_has_newer_text = ed
+                    .active_tab_index
+                    .and_then(|index| ed.tabs.get(index))
+                    .filter(|active| active.path == path)
+                    .is_some_and(|_| ed.editor_state.read(cx).value().to_string() != text);
+                if let Some(tab) = ed.tabs.iter_mut().find(|tab| tab.path == path) {
+                    if tab.content == text && !active_has_newer_text {
+                        tab.is_dirty = false;
                     }
                 }
+                cx.notify();
             });
             Ok(())
         })
@@ -316,6 +531,7 @@ impl EditorView {
                 tab.is_dirty = true;
             }
         }
+        self.schedule_active_auto_save(cx);
         cx.notify();
     }
 
@@ -343,6 +559,7 @@ impl EditorView {
                 tab.is_dirty = true;
             }
         }
+        self.schedule_active_auto_save(cx);
         cx.notify();
     }
 
@@ -370,6 +587,7 @@ impl EditorView {
                 tab.is_dirty = true;
             }
         }
+        self.schedule_active_auto_save(cx);
         cx.notify();
     }
 
@@ -603,6 +821,7 @@ impl EditorView {
             self.closed_stack.drain(..overflow);
         }
         self.tabs = kept;
+        self.retain_auto_save_states();
         self.active_tab_index =
             active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
@@ -633,6 +852,7 @@ impl EditorView {
         // 固定组在前并保持原相对顺序。
         kept.sort_by_key(|(index, tab)| (!tab.is_pinned, *index));
         self.tabs = kept.into_iter().map(|(_, tab)| tab).collect();
+        self.retain_auto_save_states();
         self.active_tab_index =
             active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
@@ -661,6 +881,7 @@ impl EditorView {
             self.closed_stack.drain(..overflow);
         }
         self.tabs = kept;
+        self.retain_auto_save_states();
         self.active_tab_index =
             active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
@@ -691,6 +912,7 @@ impl EditorView {
         for (offset, tab) in pinned_left.into_iter().enumerate() {
             self.tabs.insert(offset, tab);
         }
+        self.retain_auto_save_states();
         self.active_tab_index =
             active_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
@@ -718,6 +940,7 @@ impl EditorView {
             self.closed_stack.drain(..overflow);
         }
         self.tabs.extend(pinned_right);
+        self.retain_auto_save_states();
         self.sync_needed = true;
         cx.notify();
     }
@@ -743,6 +966,7 @@ impl EditorView {
         // 固定组在前并保持原相对顺序；`idx` 未固定时排在固定段之后。
         kept.sort_by_key(|(index, tab)| (!tab.is_pinned, *index));
         self.tabs = kept.into_iter().map(|(_, tab)| tab).collect();
+        self.retain_auto_save_states();
         self.active_tab_index =
             kept_path.and_then(|path| self.tabs.iter().position(|tab| tab.path == path));
         self.sync_needed = true;
@@ -771,6 +995,7 @@ impl EditorView {
             self.closed_stack.drain(..overflow);
         }
         self.tabs.extend(pinned_right);
+        self.retain_auto_save_states();
         if let Some(active) = self.active_tab_index {
             if active > idx {
                 // 活动页被关掉时回退到 `idx`；固定活动页幸存时按 path 跟随。
@@ -817,6 +1042,7 @@ impl EditorView {
             return;
         };
         let path = tab.path.clone();
+        self.cancel_auto_save(&path);
         let root = self.workspace_root.clone();
         let client = self.client.clone();
 
@@ -858,6 +1084,7 @@ impl EditorView {
             self.active_tab_index = Some(insert_at);
         }
         self.sync_needed = true;
+        self.schedule_active_auto_save(cx);
         cx.notify();
     }
 
@@ -889,8 +1116,15 @@ impl EditorView {
             for (path, text) in jobs {
                 if client.write_file(&cx, &root, &path, &text).await.is_ok() {
                     let _ = this.update(cx, |ed, cx| {
+                        let active_has_newer_text = ed
+                            .active_tab_index
+                            .and_then(|index| ed.tabs.get(index))
+                            .filter(|active| active.path == path)
+                            .is_some_and(|_| ed.editor_state.read(cx).value().to_string() != text);
                         if let Some(tab) = ed.tabs.iter_mut().find(|tab| tab.path == path) {
-                            tab.is_dirty = false;
+                            if tab.content == text && !active_has_newer_text {
+                                tab.is_dirty = false;
+                            }
                         }
                         cx.notify();
                     });
@@ -1384,5 +1618,28 @@ impl Render for EditorView {
                         )
                     }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AutoSaveState;
+
+    #[test]
+    fn auto_save_burst_keeps_latest_revision_in_one_task() {
+        let mut state = AutoSaveState {
+            revision: 0,
+            running: true,
+            debounce_requested: false,
+            task: None,
+        };
+
+        state.request();
+        state.request();
+
+        assert_eq!(state.revision, 2);
+        assert!(state.running, "a running worker must absorb repeated edits");
+        assert!(state.take_debounce());
+        assert!(!state.take_debounce());
     }
 }

@@ -2056,6 +2056,9 @@ impl WorkbenchView {
             cx.spawn(async move |_this, cx| {
                 if client.write_file(&cx, &root, &rel, &text).await.is_ok() {
                     let _ = editor.update(cx, |ed, cx| {
+                        if ed.tabs.iter().any(|tab| tab.path == old_path) {
+                            ed.cancel_auto_save(&old_path);
+                        }
                         if let Some(idx) = ed.active_tab_index {
                             if let Some(t) = ed.tabs.get_mut(idx) {
                                 if t.path == old_path {
@@ -2073,6 +2076,9 @@ impl WorkbenchView {
         } else if std::fs::write(&dest, text.as_bytes()).is_ok() {
             let abs = dest.to_string_lossy().to_string();
             let _ = active.update(cx, |ed, cx| {
+                if ed.tabs.iter().any(|tab| tab.path == old_path) {
+                    ed.cancel_auto_save(&old_path);
+                }
                 if let Some(idx) = ed.active_tab_index {
                     if let Some(t) = ed.tabs.get_mut(idx) {
                         if t.path == old_path {
