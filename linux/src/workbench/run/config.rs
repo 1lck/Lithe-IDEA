@@ -586,6 +586,11 @@ fn write_bytes_atomically(path: &Path, contents: &[u8]) -> Result<(), String> {
         TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
     fs::write(&temporary, contents).map_err(|error| error.to_string())?;
+    // Windows 的 `rename` 不会覆盖已存在目标，先移除旧文件。
+    #[cfg(windows)]
+    {
+        let _ = fs::remove_file(path);
+    }
     match fs::rename(&temporary, path) {
         Ok(()) => Ok(()),
         Err(error) => {

@@ -1755,7 +1755,7 @@ impl SettingsDialog {
     }
 
     /// 终端：对齐 Tauri `TerminalPanel`（启动/默认 Shell/排版/滚动/光标）。
-    /// Linux 只收录真实存在的系统 shell（bash/zsh/fish/sh/dash）。
+    /// 只收录当前平台真实存在的系统 shell；Windows 下列表为空，保留系统默认项。
     fn render_terminal_content(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let s = settings::get(cx).clone();
         // 固定候选集转静态引用（避免每次渲染泄漏内存）。
@@ -1763,7 +1763,7 @@ impl SettingsDialog {
             "",
             crate::i18n::menu_text(cx, "settings.mac.systemDefault").to_string(),
         )];
-        for name in detect_linux_shells() {
+        for name in detect_available_shells() {
             let value: &'static str = match name.as_str() {
                 "bash" => "bash",
                 "zsh" => "zsh",
@@ -1982,6 +1982,8 @@ impl SettingsDialog {
     }
 
     /// 在 `PATH` 中查找可执行文件，返回完整路径。
+    ///
+    /// Windows 上按 `PATHEXT` 补全扩展名；Unix 要求执行位。
     fn find_in_path(name: &str) -> Option<String> {
         let path = std::env::var_os("PATH")?;
         for dir in std::env::split_paths(&path) {
@@ -3059,14 +3061,11 @@ impl SettingsDialog {
     }
 }
 
-/// 默认日志目录（`~/.local/share/lithe/logs`，对齐 XDG 状态目录）。
+/// 默认日志目录：配置数据目录下的 `lithe/logs`。
+///
+/// 数据目录的平台规则（XDG / `%LOCALAPPDATA%`）见 `settings::data_dir`。
 fn default_log_dir() -> String {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(std::path::PathBuf::from)
-        .filter(|p| !p.as_os_str().is_empty())
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share"))
-        })
+    crate::settings::data_dir()
         .map(|base| {
             base.join("lithe")
                 .join("logs")
@@ -3086,12 +3085,16 @@ fn effective_log_dir(settings: &Settings) -> String {
 }
 
 /// `PATH` 中查找可执行文件，返回首个命中绝对路径（对齐 Mac `which` 探测思路）。
+///
+/// Windows 上同名程序带扩展名（`java` -> `java.exe`），因此按 `PATHEXT`
+/// 补全候选；Unix 要求执行位。两平台都只返回存在的绝对路径。
 fn which(exe: &str) -> Option<String> {
     let paths = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&paths) {
-        let candidate = dir.join(exe);
-        if candidate.is_file() {
-            // 可执行位检查：Unix 下确认有执行权限。
+        for candidate in executable_candidates(&dir, exe) {
+            if !candidate.is_file() {
+                continue;
+            }
             #[cfg(unix)]
             {
                 use std::os::unix::fs::PermissionsExt as _;
@@ -3110,6 +3113,29 @@ fn which(exe: &str) -> Option<String> {
     None
 }
 
+/// 列出在 `dir` 下应该尝试的可执行文件名。
+///
+/// Windows 上按 `PATHEXT`（缺省 ` .COM;.EXE;.BAT;.CMD`）补全；名字已带
+/// 扩展名或非 Windows 平台时只尝试原名。
+fn executable_candidates(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![dir.join(name)];
+        if std::path::Path::new(name).extension().is_none() {
+            let pathext = std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            for extension in pathext.split(';').filter(|value| !value.is_empty()) {
+                candidates.push(dir.join(format!("{name}{extension}")));
+            }
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    {
+        vec![dir.join(name)]
+    }
+}
+
 fn which_java_home() -> Option<String> {
     let executable = which("java")?;
     let path = std::fs::canonicalize(&executable)
@@ -3119,19 +3145,28 @@ fn which_java_home() -> Option<String> {
         .map(|home| home.to_string_lossy().into_owned())
 }
 
-/// Linux 可用 shell 探测：仅收录真实存在的系统 shell（对齐 Tauri 终端面板
-/// 的“探测 shells”行为，Windows 的 powershell/cmd/wsl 在 Linux 无意义）。
-fn detect_linux_shells() -> Vec<String> {
-    let mut shells = Vec::new();
-    for name in ["bash", "zsh", "fish", "sh", "dash"] {
-        let found = ["/bin", "/usr/bin"]
-            .iter()
-            .any(|dir| std::path::Path::new(dir).join(name).is_file());
-        if found || which(name).is_some() {
-            shells.push(name.to_string());
+/// 当前可用 shell 探测：仅收录真实存在的系统 shell。
+///
+/// Unix 检查常见路径或 `PATH`；Windows 上没有 bash/zsh/fish，默认 shell 由
+/// 系统决定（PowerShell/cmd），因此返回空列表，让上层保留“系统默认”选项。
+fn detect_available_shells() -> Vec<String> {
+    #[cfg(unix)]
+    {
+        let mut shells = Vec::new();
+        for name in ["bash", "zsh", "fish", "sh", "dash"] {
+            let found = ["/bin", "/usr/bin"]
+                .iter()
+                .any(|dir| std::path::Path::new(dir).join(name).is_file());
+            if found || which(name).is_some() {
+                shells.push(name.to_string());
+            }
         }
+        shells
     }
-    shells
+    #[cfg(not(unix))]
+    {
+        Vec::new()
+    }
 }
 
 /// 读项目工具链；canonical 键优先，兼容历史 Linux 扁平键。

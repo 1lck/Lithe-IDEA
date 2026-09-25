@@ -118,7 +118,7 @@ pub struct ProjectDialog {
 impl EventEmitter<ProjectDialogEvent> for ProjectDialog {}
 
 impl ProjectDialog {
-    /// 新建对话框：位置默认取 `$HOME`（不引入新依赖，不读真实 home 库）。
+    /// 新建对话框：位置默认取用户主目录（不引入新依赖，不读真实 home 库）。
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
             mode: ProjectDialogMode::New,
@@ -128,7 +128,7 @@ impl ProjectDialog {
             selected_index: 0,
             project_name: String::new(),
             repository_url: String::new(),
-            location_path: std::env::var("HOME").unwrap_or_default(),
+            location_path: default_project_location(),
             package_manager: PackageManager::Npm,
             name_was_edited: false,
             error_message: None,
@@ -149,7 +149,7 @@ impl ProjectDialog {
         self.selected_index = 0;
         self.project_name.clear();
         self.repository_url.clear();
-        self.location_path = std::env::var("HOME").unwrap_or_default();
+        self.location_path = default_project_location();
         self.package_manager = PackageManager::Npm;
         self.name_was_edited = false;
         self.error_message = None;
@@ -1326,6 +1326,13 @@ impl ProjectDialog {
                     })),
             )
     }
+}
+
+/// 新建/克隆项目的默认位置：用户主目录，取不到时返回空串（由表单校验提示）。
+fn default_project_location() -> String {
+    crate::settings::user_home_dir()
+        .map(|home| home.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 /// 来源徽标（对齐 quick_open 的徽标样式）。

@@ -1,7 +1,7 @@
-//! 应用设置的 XDG 持久化与运行时全局状态。
+//! 应用设置的持久化与运行时全局状态。
 //!
-//! 对齐 Tauri 端 `settings.json` 的键名与默认值，落到
-//! `$XDG_CONFIG_HOME/lithe/settings.json`（缺省 `~/.config/lithe/settings.json`）。
+//! 对齐 Tauri 端 `settings.json` 的键名与默认值，按平台落到配置目录
+//! （Unix `~/.config/lithe/settings.json`，Windows `%APPDATA%\lithe\settings.json`）。
 //! 视图通过 [`get`] / [`update`] 读取和修改，修改后写盘并刷新窗口。
 
 use std::path::PathBuf;
@@ -398,13 +398,75 @@ pub fn get_mut(cx: &mut App) -> &mut Settings {
     &mut cx.global_mut::<AppSettings>().settings
 }
 
-/// 解析配置文件路径；优先 `XDG_CONFIG_HOME`，否则 `~/.config`。
+/// 当前用户主目录。
+///
+/// Unix 读 `$HOME`；Windows 读 `$USERPROFILE`，再用 `$HOMEDRIVE$HOMEPATH`
+/// 兼容没有 `USERPROFILE` 的会话。主目录是默认项目位置与配置回退的基点。
+pub fn user_home_dir() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    }
+    #[cfg(windows)]
+    {
+        if let Some(profile) = std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()) {
+            return Some(PathBuf::from(profile));
+        }
+        let drive = std::env::var_os("HOMEDRIVE")?;
+        let path = std::env::var_os("HOMEPATH")?;
+        let mut home = PathBuf::from(drive);
+        home.push(path);
+        Some(home)
+    }
+}
+
+/// 应用配置目录（不含 `lithe` 子目录）。
+///
+/// Unix 遵循 XDG：`$XDG_CONFIG_HOME` 非空即用，否则 `<home>/.config`；
+/// Windows 用 `%APPDATA%`（缺失时回退 `<home>\AppData\Roaming`）。
+pub fn config_dir() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var_os("XDG_CONFIG_HOME")
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+            .or_else(|| user_home_dir().map(|home| home.join(".config")))
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("APPDATA")
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+            .or_else(|| user_home_dir().map(|home| home.join("AppData").join("Roaming")))
+    }
+}
+
+/// 应用数据目录（日志等持久数据）。
+///
+/// Unix 遵循 XDG：`$XDG_DATA_HOME` 非空即用，否则 `<home>/.local/share`；
+/// Windows 用 `%LOCALAPPDATA%`（缺失时回退 `<home>\AppData\Local`）。
+pub fn data_dir() -> Option<PathBuf> {
+    #[cfg(unix)]
+    {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+            .or_else(|| user_home_dir().map(|home| home.join(".local/share")))
+    }
+    #[cfg(windows)]
+    {
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+            .or_else(|| {
+                user_home_dir().map(|home| home.join("AppData").join("Local"))
+            })
+    }
+}
+
+/// 解析配置文件路径；配置目录与平台规则见 [`config_dir`]。
 pub fn config_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| !p.as_os_str().is_empty())
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
-    Some(base.join("lithe").join("settings.json"))
+    Some(config_dir()?.join("lithe").join("settings.json"))
 }
 
 /// 从磁盘加载设置；缺失或损坏时回退到默认值并补齐顺序字段。
@@ -435,6 +497,12 @@ pub fn persist(settings: &Settings) {
     };
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, text).is_ok() {
+        // Windows 的 `rename` 在目标存在时会失败，先移除旧文件再落盘；
+        // 两次操作间目录里可能短暂无配置，但不会有半写内容。
+        #[cfg(windows)]
+        {
+            let _ = std::fs::remove_file(&path);
+        }
         let _ = std::fs::rename(&tmp, &path);
     }
 }

@@ -914,14 +914,10 @@ fn classify_text(text: &str) -> ExtensionCategory {
     }
 }
 
-/// 启用状态落盘路径：`~/.config/lithe/extensions.json`
-///（`$XDG_CONFIG_HOME` 优先，与 `settings.rs::config_path` 同规则）。
+/// 启用状态落盘路径：`<config>/lithe/extensions.json`
+///（配置目录规则见 `settings::config_dir`）。
 fn extensions_state_path() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
-    Some(base.join("lithe").join("extensions.json"))
+    Some(crate::settings::config_dir()?.join("lithe").join("extensions.json"))
 }
 
 fn load_enabled() -> HashMap<String, bool> {
@@ -949,6 +945,11 @@ fn save_enabled(enabled: &HashMap<String, bool>) {
     };
     let tmp = path.with_extension("json.tmp");
     if std::fs::write(&tmp, text).is_ok() {
+        // Windows 的 `rename` 不会覆盖已存在目标，需先移除旧文件。
+        #[cfg(windows)]
+        {
+            let _ = std::fs::remove_file(&path);
+        }
         let _ = std::fs::rename(&tmp, &path);
     }
 }

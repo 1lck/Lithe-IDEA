@@ -1,8 +1,12 @@
-//! Linux Run/Maven 进程解析与受管会话。
+//! Run/Maven 进程解析与受管会话（跨平台）。
 //!
 //! 每个执行由一个 session/execution 身份拥有。一个后台线程顺序执行所有步骤，
 //! stdout/stderr 各自有明确归属并在进程结束后 join；停止操作向独立进程组
 //! 发送 TERM，超时后再 KILL，调用方通过 `ProcessHandle::join` 完成回收。
+//!
+//! 进程组信号是平台能力：Unix 用 `setpgid` + `kill(-pgid)` 覆盖整棵进程树，
+//! Windows 没有等价的原生进程组信号，改用 `taskkill /T` 终止同一 pid 的
+//! 子树。两条路径都保持“先温和、后强制、有界等待”的同一语义契约。
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -23,7 +27,20 @@ use super::config::{
 const PROCESS_STOP_TIMEOUT: Duration = Duration::from_secs(2);
 const PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
-/// 一个已经解析到 Linux 路径和环境的命令。
+/// 平台无关的终止信号强度，替代裸 `SIGTERM`/`SIGKILL` 常量。
+///
+/// Unix 映射到对应信号；Windows 没有 SIGTERM/SIGKILL 区分，`Terminate`
+/// 与 `Kill` 都落到进程树强制终止（Windows 无法只靠软件手段做到“可捕获的
+/// 温和退出”，因此 `Terminate` 仅用于先给目标一次自行退出的机会）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessSignal {
+    /// 请求目标自行退出（Unix `SIGTERM`）。
+    Terminate,
+    /// 强制终止目标（Unix `SIGKILL`）。
+    Kill,
+}
+
+/// 一个已经解析到当前平台路径和环境的命令。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessCommand {
     pub program: String,
@@ -242,7 +259,7 @@ impl ProcessManager {
         };
         if let Some(control) = control {
             control.request_stop();
-            send_signal(control.pgid(), libc::SIGTERM);
+            send_signal(control.pgid(), ProcessSignal::Terminate);
         }
         Ok(())
     }
@@ -312,9 +329,9 @@ impl Default for ProcessManager {
 impl ProcessHandle {
     pub fn stop(&self) -> Result<(), String> {
         self.control.request_stop();
-        send_signal(self.control.pgid(), libc::SIGTERM);
+        send_signal(self.control.pgid(), ProcessSignal::Terminate);
         if !self.control.wait_finished(PROCESS_STOP_TIMEOUT) {
-            send_signal(self.control.pgid(), libc::SIGKILL);
+            send_signal(self.control.pgid(), ProcessSignal::Kill);
             if !self.control.wait_finished(PROCESS_STOP_TIMEOUT) {
                 return Err("Process did not exit within the stop deadline".to_string());
             }
@@ -354,9 +371,9 @@ impl Drop for ProcessManagerInner {
             .unwrap_or_default();
         for entry in sessions {
             entry.control.request_stop();
-            send_signal(entry.control.pgid(), libc::SIGTERM);
+            send_signal(entry.control.pgid(), ProcessSignal::Terminate);
             let _ = entry.control.wait_finished(PROCESS_STOP_TIMEOUT);
-            send_signal(entry.control.pgid(), libc::SIGKILL);
+            send_signal(entry.control.pgid(), ProcessSignal::Kill);
             if let Ok(mut slot) = entry.join.lock() {
                 if let Some(worker) = slot.take() {
                     let _ = worker.join();
@@ -444,7 +461,7 @@ fn execute_step(
     // A child can exit while a forked descendant still owns the pipe. Kill the
     // whole process group before joining readers so the reader threads cannot
     // remain blocked on inherited descriptors.
-    send_signal(Some(pgid), libc::SIGKILL);
+    send_signal(Some(pgid), ProcessSignal::Kill);
     if let Some(thread) = stdout_thread {
         let _ = thread.join();
     }
@@ -493,9 +510,9 @@ fn wait_for_child(
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
             Ok(None) if control.is_stop_requested() => {
-                send_signal(control.pgid(), libc::SIGTERM);
+                send_signal(control.pgid(), ProcessSignal::Terminate);
                 thread::park_timeout(PROCESS_STOP_TIMEOUT.min(Duration::from_millis(200)));
-                send_signal(control.pgid(), libc::SIGKILL);
+                send_signal(control.pgid(), ProcessSignal::Kill);
                 return child
                     .wait()
                     .map_err(|error| format!("Waiting for process failed: {error}"));
@@ -508,9 +525,9 @@ fn wait_for_child(
 
 fn stop_control(control: &Control) -> Result<(), String> {
     control.request_stop();
-    send_signal(control.pgid(), libc::SIGTERM);
+    send_signal(control.pgid(), ProcessSignal::Terminate);
     if !control.wait_finished(PROCESS_STOP_TIMEOUT) {
-        send_signal(control.pgid(), libc::SIGKILL);
+        send_signal(control.pgid(), ProcessSignal::Kill);
         if !control.wait_finished(PROCESS_STOP_TIMEOUT) {
             return Err("Process did not exit within the stop deadline".to_string());
         }
@@ -518,23 +535,62 @@ fn stop_control(control: &Control) -> Result<(), String> {
     Ok(())
 }
 
+/// 把子进程放进独立进程组，使停止操作能覆盖子进程派生的整棵进程树。
+///
+/// Unix 用 `setpgid(0, 0)`；Windows 用 `CREATE_NEW_PROCESS_GROUP`，二者都让
+/// 后续终止按组/树进行，而不是只杀掉直接子进程。
 fn configure_process_group(command: &mut Command) {
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        let _ = command;
+        use std::os::windows::process::CommandExt as _;
+        // CREATE_NEW_PROCESS_GROUP (0x0000_0200)：让子进程成为新进程组
+        // 组长，配合 `taskkill /T` 能一并清理其派生进程。
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        command.creation_flags(CREATE_NEW_PROCESS_GROUP);
     }
 }
 
-fn send_signal(pgid: Option<i32>, signal: i32) {
-    if let Some(pgid) = pgid.filter(|value| *value > 1) {
+/// 向由 `pgid` 标识的进程组（Unix）或进程树（Windows）发送终止信号。
+///
+/// `pgid` 只在子进程存活期间有效；None 或 <= 1（pid 0/1 属于内核或 launchd/
+/// init）时不做任何事，避免误伤会话或系统进程。
+fn send_signal(pgid: Option<i32>, signal: ProcessSignal) {
+    let Some(pgid) = pgid.filter(|value| *value > 1) else {
+        return;
+    };
+    #[cfg(unix)]
+    {
+        // 负 pid 表示对整进程组发信号；这里信号值只在 Unix 意义上有区别。
+        let signal_number = match signal {
+            ProcessSignal::Terminate => libc::SIGTERM,
+            ProcessSignal::Kill => libc::SIGKILL,
+        };
         unsafe {
-            libc::kill(-pgid, signal);
+            libc::kill(-pgid, signal_number);
         }
+    }
+    #[cfg(windows)]
+    {
+        // Windows 无 POSIX 进程组信号，统一用 `taskkill /T` 终止该 pid 及其
+        // 派生进程；“先温和后强制”的语义由调用方的有界等待轮次体现。
+        // 为了避免弹出控制台窗口，隐藏子窗口并以静默方式调用。
+        let _ = signal;
+        use std::os::windows::process::CommandExt as _;
+        use std::process::{Command as WindowsCommand, Stdio};
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let mut killer = WindowsCommand::new("taskkill");
+        killer
+            .args(["/PID", &pgid.to_string(), "/T", "/F"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(CREATE_NO_WINDOW);
+        let _ = killer.status();
     }
 }
 
@@ -808,23 +864,26 @@ fn resolve_runtime(
             return Ok(path.to_string_lossy().into_owned());
         }
         if id == "project-node" {
-            for name in ["node", "node.exe", "npm", "npm.cmd"] {
-                let direct = path.join(name);
-                if direct.is_file() {
-                    return Ok(direct.to_string_lossy().into_owned());
-                }
-                let nested = path.join("bin").join(name);
-                if nested.is_file() {
-                    return Ok(nested.to_string_lossy().into_owned());
+            // Node 安装目录可能是 `bin/`（Unix）或直接为根（Windows）。
+            for tool in ["node", "npm"] {
+                for name in binary_file_names(tool) {
+                    let direct = path.join(&name);
+                    if direct.is_file() {
+                        return Ok(direct.to_string_lossy().into_owned());
+                    }
+                    let nested = path.join("bin").join(&name);
+                    if nested.is_file() {
+                        return Ok(nested.to_string_lossy().into_owned());
+                    }
                 }
             }
         }
         return Err(format!("Configured executable for {id} does not exist."));
     }
     let names = if id == "project-node" {
-        vec!["node", "node.exe"]
+        binary_file_names("node")
     } else {
-        vec![id]
+        vec![id.to_string()]
     };
     names
         .iter()
@@ -872,7 +931,7 @@ fn resolve_command(
                     .unwrap_or_else(|| Path::new(root))
                     .to_path_buf()
             };
-            for name in command_file_names(command) {
+            for name in binary_file_names(command) {
                 let direct = directory.join(&name);
                 if direct.is_file() {
                     return Ok(direct.to_string_lossy().into_owned());
@@ -885,7 +944,7 @@ fn resolve_command(
             return Err(format!("Selected Node runtime does not contain {command}."));
         }
     }
-    command_file_names(command)
+    binary_file_names(command)
         .iter()
         .find_map(|name| lookup_on_path(name))
         .map(|path| path.to_string_lossy().into_owned())
@@ -900,7 +959,13 @@ fn resolve_maven(root: &str, working_directory: &str, configured: &str) -> Resul
             }
         }
         let path = absolute_path(root, &configured);
-        for candidate in [path.clone(), path.join("bin/mvn"), path.join("mvn")] {
+        let mut candidates = vec![path.clone()];
+        // Maven 可能是目录（`bin/mvn[.cmd]`）或直接指向可执行文件。
+        for name in binary_file_names("mvn") {
+            candidates.push(path.join("bin").join(&name));
+            candidates.push(path.join(&name));
+        }
+        for candidate in candidates {
             if candidate.is_file() {
                 return Ok(candidate.to_string_lossy().into_owned());
             }
@@ -908,13 +973,18 @@ fn resolve_maven(root: &str, working_directory: &str, configured: &str) -> Resul
         return Err("Maven executable path does not exist.".to_string());
     }
     for directory in [working_directory, root] {
-        let wrapper = Path::new(directory).join("mvnw");
-        if wrapper.is_file()
-            && Path::new(directory)
+        // Maven Wrapper 在 Unix 是 `mvnw`，Windows 是 `mvnw.cmd`。
+        let wrapper = binary_file_names("mvnw")
+            .into_iter()
+            .map(|name| Path::new(directory).join(name))
+            .find(|candidate| candidate.is_file());
+        if let Some(wrapper) = wrapper {
+            if Path::new(directory)
                 .join(".mvn/wrapper/maven-wrapper.properties")
                 .is_file()
-        {
-            return Ok(wrapper.to_string_lossy().into_owned());
+            {
+                return Ok(wrapper.to_string_lossy().into_owned());
+            }
         }
     }
     lookup_on_path("mvn")
@@ -924,28 +994,50 @@ fn resolve_maven(root: &str, working_directory: &str, configured: &str) -> Resul
         })
 }
 
-fn command_file_names(command: &str) -> Vec<String> {
-    if Path::new(command).extension().is_some() {
-        return vec![command.to_string()];
-    }
-    vec![
-        format!("{command}.exe"),
-        format!("{command}.cmd"),
-        format!("{command}.bat"),
-        command.to_string(),
-    ]
-}
-
 fn lookup_on_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|directory| directory.join(name))
-        .find(|candidate| candidate.is_file())
+    let candidates = binary_file_names(name);
+    std::env::split_paths(&path).find_map(|directory| {
+        candidates
+            .iter()
+            .map(|name| directory.join(name))
+            .find(|candidate| candidate.is_file())
+    })
 }
 
 fn jdk_tool(home: &str, tool: &str) -> Option<String> {
-    let path = Path::new(home).join("bin").join(tool);
-    path.is_file().then(|| path.to_string_lossy().into_owned())
+    let bin = Path::new(home).join("bin");
+    // Windows 的 JDK 工具带 `.exe`（`bin/java.exe`），Unix 无扩展名。
+    for name in binary_file_names(tool) {
+        let candidate = bin.join(&name);
+        if candidate.is_file() {
+            return Some(candidate.to_string_lossy().into_owned());
+        }
+    }
+    None
+}
+
+/// 在无扩展名工具名的基础上补全当前平台的可执行后缀。
+///
+/// Windows 上 `java`/`mvn` 实际是 `java.exe`/`mvn.cmd` 等；名字已带
+/// 扩展名或非 Windows 平台时只返回原名。
+fn binary_file_names(tool: &str) -> Vec<String> {
+    #[cfg(windows)]
+    {
+        if Path::new(tool).extension().is_some() {
+            return vec![tool.to_string()];
+        }
+        vec![
+            format!("{tool}.exe"),
+            format!("{tool}.cmd"),
+            format!("{tool}.bat"),
+            tool.to_string(),
+        ]
+    }
+    #[cfg(not(windows))]
+    {
+        vec![tool.to_string()]
+    }
 }
 
 fn resolve_working_directory(root: &str, relative: &str) -> Result<String, String> {
@@ -1054,7 +1146,9 @@ fn absolute_path(root: &str, value: &str) -> PathBuf {
     }
 }
 
-#[cfg(test)]
+// 这些测试用 `/bin/sh` 驱动真实子进程并校验 Unix 进程组信号与 `bin/` 路径
+// 语义；Windows 的进程树终止与可执行文件命名不同，因此仅在 Unix 上运行。
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use std::fs;

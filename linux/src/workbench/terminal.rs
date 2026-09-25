@@ -1,4 +1,4 @@
-//! Linux 原生 PTY 终端：`portable-pty` 跑 shell，`alacritty_terminal`（Alacritty
+//! 原生 PTY 终端：`portable-pty` 跑 shell，`alacritty_terminal`（Alacritty
 //! 网格引擎）做解析与状态，键盘字符模式直输（对齐 IDEA 内嵌终端的交互：历史、
 //! 补全、方向键、中断均由 PTY 行规程处理）。
 //!
@@ -7,8 +7,7 @@
 //! `alacritty_terminal` 的既有 API（`Term::scroll_display`、`Selection`、
 //! `RegexSearch`、`Term::resize` 与网格 reflow），不重复实现上游能力。
 //!
-//! 适配声明：多标签、横向分屏、超链接点击、图形协议（Sixel/Kitty）暂不支持。
-//!
+//! 适配声明：多标签、横向分屏、超链接点击、图形协议（Sixel/Kitty）暂不支持。//!
 //! Note: 引擎复用边界与禁止手写终端语义的原因见
 //! `.agents/notes/implemented/architecture/2026-09-25-linux-gpui-terminal-engine-reuse.md`。
 
@@ -47,6 +46,43 @@ const INITIAL_ROWS: usize = 24;
 /// 网格最小尺寸，避免退化到 0 列触发上游断言。
 const MIN_COLS: usize = 2;
 const MIN_ROWS: usize = 1;
+
+/// 平台默认 shell：Unix 用登录 shell（`$SHELL`），Windows 用 `COMSPEC`。
+///
+/// 两个变量都缺失时给出该平台最可能存在的回退名，避免空 program 导致 PTY 启动失败。
+fn default_shell() -> String {
+    #[cfg(unix)]
+    {
+        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string())
+    }
+}
+
+/// 列出在 `dir` 下应该尝试的 shell 可执行文件名。
+///
+/// Windows 上按 `PATHEXT` 补全（`pwsh` -> `pwsh.exe`）；名字已带扩展名或非
+/// Windows 平台时只尝试原名。
+fn shell_candidates(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![dir.join(name)];
+        if std::path::Path::new(name).extension().is_none() {
+            let pathext = std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            for extension in pathext.split(';').filter(|value| !value.is_empty()) {
+                candidates.push(dir.join(format!("{name}{extension}")));
+            }
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    {
+        vec![dir.join(name)]
+    }
+}
 
 /// 行高相对字号的倍率（等宽终端常用 1.4）。
 const LINE_HEIGHT_RATIO: f32 = 1.4;
@@ -199,7 +235,9 @@ impl TerminalSession {
         })?;
 
         let shell = if shell.trim().is_empty() {
-            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+            // Unix 从 `$SHELL` 取用户登录 shell；Windows 没有该变量，回退到
+            // `COMSPEC`（cmd.exe），这与系统终端的默认行为一致。
+            default_shell()
         } else {
             shell.to_string()
         };
@@ -423,7 +461,7 @@ impl TerminalView {
     }
 
     /// 解析生效 shell：设置 `terminalDefaultShellId` 非空即用（名称经
-    /// `PATH` 或 `/bin` 解析为路径），为空回退 `$SHELL`。
+    /// `PATH` 解析为路径），为空回退平台默认 shell。
     fn resolve_shell(cx: &App) -> String {
         let id = settings::get(cx)
             .terminal_default_shell_id
@@ -432,20 +470,26 @@ impl TerminalView {
         if id.is_empty() {
             return String::new();
         }
-        if id.contains('/') {
+        // 已含路径分隔符（`/` 或 `\`）时视为绝对/相对路径，直接使用。
+        if id.contains('/') || id.contains('\\') {
             return id;
         }
         if let Some(paths) = std::env::var_os("PATH") {
             for dir in std::env::split_paths(&paths) {
-                let candidate = dir.join(&id);
-                if candidate.is_file() {
-                    return candidate.to_string_lossy().to_string();
+                for candidate in shell_candidates(&dir, &id) {
+                    if candidate.is_file() {
+                        return candidate.to_string_lossy().to_string();
+                    }
                 }
             }
         }
-        let fallback = format!("/bin/{id}");
-        if std::path::Path::new(&fallback).is_file() {
-            return fallback;
+        // 某些发行版的 shell 不在 PATH 中，退回固定系统目录。
+        #[cfg(unix)]
+        {
+            let fallback = format!("/bin/{id}");
+            if std::path::Path::new(&fallback).is_file() {
+                return fallback;
+            }
         }
         id
     }

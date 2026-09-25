@@ -36,22 +36,39 @@ const JDTLS_DEBUG_PREFIX: &str = "com.microsoft.java.debug.plugin-";
 const JDTLS_TEST_LIST: &str = "extensions.txt";
 const MAX_BUILD_FILE_DEPTH: usize = 32;
 
-fn linux_configuration_name() -> &'static str {
-    match std::env::consts::ARCH {
-        "aarch64" | "arm" => "config_linux_arm",
-        _ => "config_linux",
+/// JDT LS 发行包内与当前平台/架构对应的配置目录名。
+///
+/// 上游 JDT LS 按平台打包不同目录名（`config_linux` / `config_win` /
+/// `config_mac`，ARM 变体带 `_arm` 后缀）；名字必须与解压出的目录一致，
+/// 否则初始化会找不到 bundle。
+fn jdtls_configuration_name() -> &'static str {
+    #[cfg(all(target_os = "linux", any(target_arch = "aarch64", target_arch = "arm")))]
+    {
+        "config_linux_arm"
+    }
+    #[cfg(all(target_os = "linux", not(any(target_arch = "aarch64", target_arch = "arm"))))]
+    {
+        "config_linux"
+    }
+    #[cfg(target_os = "windows")]
+    {
+        "config_win"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "config_mac"
     }
 }
 
-/// Linux 解析出的 JDT LS 直启资源。
+/// 当前平台解析出的 JDT LS 直启资源。
 ///
-/// 这些路径只属于 Linux 适配器；Core 负责把它们转换为 JVM 参数和 JDT 初始化选项。
+/// 这些路径只属于本平台适配器；Core 负责把它们转换为 JVM 参数和 JDT 初始化选项。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct JdtlsLaunchResources {
     /// Equinox launcher JAR。
     pub launcher_jar_path: String,
-    /// Linux Eclipse configuration 目录。
+    /// 当前平台的 Eclipse configuration 目录。
     pub configuration_directory: String,
     /// Lombok agent JAR。
     pub lombok_agent_path: String,
@@ -192,26 +209,53 @@ pub fn language_id_for_path(path: &str, provider: LanguageProvider) -> &'static 
 }
 
 /// 在 `PATH` 中查找可执行文件；只返回可执行且存在的绝对路径。
+///
+/// Unix 要求文件带执行位；Windows 按 `PATHEXT`（缺省 ` .COM;.EXE;.BAT;
+/// .CMD`）逐个候选名尝试，因为 Windows 上 `java` 实际是 `java.exe`。
 pub fn find_in_path(name: &str) -> Option<String> {
     let path = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path) {
-        let candidate = dir.join(name);
-        if !candidate.is_file() {
-            continue;
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let executable = std::fs::metadata(&candidate)
-                .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
-                .unwrap_or(false);
-            if !executable {
+        for candidate in executable_candidates(&dir, name) {
+            if !candidate.is_file() {
                 continue;
             }
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let executable = std::fs::metadata(&candidate)
+                    .map(|metadata| metadata.permissions().mode() & 0o111 != 0)
+                    .unwrap_or(false);
+                if !executable {
+                    continue;
+                }
+            }
+            return Some(candidate.to_string_lossy().into_owned());
         }
-        return Some(candidate.to_string_lossy().into_owned());
     }
     None
+}
+
+/// 列出在 `dir` 下应该尝试的可执行文件名。
+///
+/// Windows 上同名可执行文件通常带扩展名，因此除原名外还要按 `PATHEXT`
+/// 补全；已经带扩展名或非 Windows 平台时只尝试原名，避免产生无意义探测。
+fn executable_candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    {
+        let mut candidates = vec![dir.join(name)];
+        if Path::new(name).extension().is_none() {
+            let pathext = std::env::var("PATHEXT")
+                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            for extension in pathext.split(';').filter(|value| !value.is_empty()) {
+                candidates.push(dir.join(format!("{name}{extension}")));
+            }
+        }
+        candidates
+    }
+    #[cfg(not(windows))]
+    {
+        vec![dir.join(name)]
+    }
 }
 
 /// 解析 Linux Java 语言服务器资源。
@@ -277,10 +321,10 @@ fn resolve_direct_jdtls_resources(root: &Path) -> Result<JdtlsLaunchResources, S
                 JDTLS_EQUINOX_PREFIX
             )
         })?;
-    let configuration_directory = root.join(linux_configuration_name());
+    let configuration_directory = root.join(jdtls_configuration_name());
     if !configuration_directory.is_dir() {
         return Err(format!(
-            "JDT LS Linux configuration is missing: {}",
+            "JDT LS platform configuration is missing: {}",
             configuration_directory.display()
         ));
     }
@@ -1269,7 +1313,7 @@ mod tests {
         let debug = root.join("java-debug");
         let extensions = root.join("java-test").join("extensions");
         fs::create_dir_all(&plugins).unwrap();
-        fs::create_dir_all(root.join(linux_configuration_name())).unwrap();
+        fs::create_dir_all(root.join(jdtls_configuration_name())).unwrap();
         fs::create_dir_all(root.join("lombok")).unwrap();
         fs::create_dir_all(&debug).unwrap();
         fs::create_dir_all(&extensions).unwrap();
@@ -1337,7 +1381,7 @@ mod tests {
         );
         assert_eq!(
             payload["jdtlsLaunchResources"]["configurationDirectory"],
-            path_string(&jdtls.join(linux_configuration_name()))
+            path_string(&jdtls.join(jdtls_configuration_name()))
         );
         assert_eq!(
             payload["jdtlsLaunchResources"]["lombokAgentPath"],
