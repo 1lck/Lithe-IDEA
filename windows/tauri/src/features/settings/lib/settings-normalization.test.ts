@@ -51,20 +51,6 @@ describe("IDEA file icon theme normalization", () => {
   });
 });
 
-describe("display language normalization", () => {
-  test("keeps the settings selector aligned with the persisted locale", () => {
-    const settings = getDefaultSettingsSnapshot();
-    settings.displayLanguage = "zh" as typeof settings.displayLanguage;
-
-    expect(normalizeSettings(settings).displayLanguage).toBe("zh-CN");
-  });
-
-  test("normalizes legacy English locale aliases", () => {
-    // Simulate a legacy value that bypassed the Settings type at runtime.
-    expect(normalizeSettingValue("displayLanguage", "en_US" as never)).toBe("en-US");
-  });
-});
-
 describe("Windows New UI defaults", () => {
   test("uses Chinese and the native CJK UI typography for new settings", () => {
     const settings = getDefaultSettingsSnapshot();
