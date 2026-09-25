@@ -172,6 +172,8 @@ pub struct Settings {
     pub terminal_cursor_blink: bool,
     pub terminal_scrollback: usize,
     pub terminal_default_shell_id: String,
+    // Run
+    pub run_scroll_to_end: bool,
     // UI
     pub ui_font_size: f32,
     pub display_language: String,
@@ -279,6 +281,7 @@ impl Default for Settings {
             terminal_cursor_blink: true,
             terminal_scrollback: 10000,
             terminal_default_shell_id: String::new(),
+            run_scroll_to_end: true,
             ui_font_size: 13.0,
             display_language: "zh-CN".to_string(),
             reduce_motion: false,

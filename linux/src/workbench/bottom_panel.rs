@@ -7,7 +7,8 @@ use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    IntoElement, ParentElement as _, Render, ScrollHandle, StatefulInteractiveElement as _,
+    Styled as _, Window,
 };
 
 use crate::core::CoreClient;
@@ -131,6 +132,12 @@ pub struct BottomPanelView {
     pub(crate) run_output: Vec<String>,
     /// 是否有进程在跑。
     pub(crate) run_running: bool,
+    /// 输出跟随末尾（对齐 Tauri `scrollOutputToEnd`，默认开，落盘持久化）。
+    pub(crate) run_follow_end: bool,
+    /// 运行输出滚动句柄（跟随末尾用）。
+    run_scroll: ScrollHandle,
+    /// 上次跟随到的输出行数（只在新增时滚动，避免无关重绘抢夺滚动条）。
+    run_followed_len: usize,
     /// Maven 任务标题（对齐 Tauri `taskTitle`，如 `compile · pom.xml`）。
     pub(crate) maven_title: Option<String>,
     /// Maven 任务输出行（`$ mvn …` 开头，对齐 Tauri Maven 页）。
@@ -173,6 +180,9 @@ impl BottomPanelView {
             selected_run_config: None,
             run_output: Vec::new(),
             run_running: false,
+            run_follow_end: crate::settings::get(cx).run_scroll_to_end,
+            run_scroll: ScrollHandle::new(),
+            run_followed_len: 0,
             maven_title: None,
             maven_output: Vec::new(),
             maven_running: false,
@@ -687,7 +697,8 @@ impl BottomPanelView {
             .into_any_element()
     }
 
-    /// Run 窗格头部：运行/停止 + 重扫 + 清空 + 最小化（对齐 Tauri RunPane 头）。
+    /// Run 窗格头部：运行/停止 + 重扫 + 跟随末尾 + 清空 + 最小化
+    ///（对齐 Tauri RunPane 头）。
     fn render_run_header(&self, cx: &mut Context<Self>) -> AnyElement {
         let running = self.run_running;
         let status = running.then(|| {
@@ -703,46 +714,60 @@ impl BottomPanelView {
             self.run_project_name
         );
         let can_run = !matches!(self.run_state, RunProjectState::Loading);
-        self.render_pane_header(
-            IconName::Play,
-            title,
-            status,
-            vec![
-                Self::header_button(
-                    "run-toggle".to_string(),
-                    if running {
-                        IconName::Square
-                    } else {
-                        IconName::Play
-                    },
-                    crate::i18n::menu_text(cx, if running { "run.stop" } else { "run.run" })
-                        .to_string(),
-                    !can_run,
-                    cx,
-                    |this, _window, cx| this.run_selected_config(cx),
-                ),
-                Self::header_button(
-                    "run-rescan".to_string(),
-                    IconName::RotateCw,
-                    crate::i18n::menu_text(cx, "run.rescan").to_string(),
-                    running,
-                    cx,
-                    |this, _window, cx| this.reload_run_project(cx),
-                ),
-                Self::header_button(
-                    "run-clear-output".to_string(),
-                    IconName::Trash,
-                    crate::i18n::menu_text(cx, "run.clearOutput").to_string(),
-                    self.run_output.is_empty(),
-                    cx,
-                    |this, _window, cx| {
-                        this.run_output.clear();
-                        cx.notify();
-                    },
-                ),
-            ],
+        let follow_end = self.run_follow_end;
+        let mut buttons = vec![
+            Self::header_button(
+                "run-toggle".to_string(),
+                if running {
+                    IconName::Square
+                } else {
+                    IconName::Play
+                },
+                crate::i18n::menu_text(cx, if running { "run.stop" } else { "run.run" })
+                    .to_string(),
+                !can_run,
+                cx,
+                |this, _window, cx| this.run_selected_config(cx),
+            ),
+            Self::header_button(
+                "run-rescan".to_string(),
+                IconName::RotateCw,
+                crate::i18n::menu_text(cx, "run.rescan").to_string(),
+                running,
+                cx,
+                |this, _window, cx| this.reload_run_project(cx),
+            ),
+        ];
+        buttons.push(
+            Button::new("run-follow-end")
+                .small()
+                .when(follow_end, |b| b.primary())
+                .when(!follow_end, |b| b.ghost())
+                .icon(IconName::ArrowDownToLine)
+                .tooltip(crate::i18n::menu_text(cx, "run.scrollToEnd"))
+                .on_click(cx.listener(|this, _event, _window, cx| {
+                    this.run_follow_end = !this.run_follow_end;
+                    crate::settings::update(cx, |s| {
+                        s.run_scroll_to_end = this.run_follow_end;
+                    });
+                    // 打开跟随即滚到底（长度归零触发下次 render 滚动）。
+                    this.run_followed_len = 0;
+                    cx.notify();
+                }))
+                .into_any_element(),
+        );
+        buttons.push(Self::header_button(
+            "run-clear-output".to_string(),
+            IconName::Trash,
+            crate::i18n::menu_text(cx, "run.clearOutput").to_string(),
+            self.run_output.is_empty(),
             cx,
-        )
+            |this, _window, cx| {
+                this.run_output.clear();
+                cx.notify();
+            },
+        ));
+        self.render_pane_header(IconName::Play, title, status, buttons, cx)
     }
 
     /// Maven 窗格头部：停止 + 重跑 + 清空 + 最小化（对齐 Tauri MavenRunPane 头）。
@@ -805,9 +830,8 @@ impl BottomPanelView {
         )
     }
 
-    /// Run 面板：Tauri RunPane 子集——顶部状态行（工程名+状态+运行/停止+
-    /// 重扫+清空）+ 配置列表（选中高亮）+ 输出区（monospace）。
-    fn render_run_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+    /// Run 面板体：配置列表 + 输出区；头部由 `render_run_header` 负责。
+    fn render_run_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
         if self.run_configs.is_empty() {
             match &self.run_state {
                 RunProjectState::Loading => {
@@ -936,9 +960,16 @@ impl BottomPanelView {
         } else {
             self.run_output[start..]
                 .iter()
-                .map(|line| div().child(line.clone()).into_any_element())
+                .map(|line| render_output_line(line))
                 .collect()
         };
+        // 跟随末尾：只在新增输出时滚到最后一行（对齐 Tauri `useFollowOutputEnd`）。
+        if self.run_follow_end && output.len() != self.run_followed_len {
+            self.run_followed_len = output.len();
+            if output.len() > 1 {
+                self.run_scroll.scroll_to_item(output.len() - 1);
+            }
+        }
 
         v_flex()
             .size_full()
@@ -962,7 +993,7 @@ impl BottomPanelView {
                         div()
                             .flex_1()
                             .h_full()
-                            .overflow_y_scrollbar()
+                            .vertical_scrollbar(&self.run_scroll)
                             .p_2()
                             .font_family("monospace")
                             .text_xs()
@@ -985,7 +1016,7 @@ impl BottomPanelView {
         } else {
             self.maven_output[start..]
                 .iter()
-                .map(|line| div().child(line.clone()).into_any_element())
+                .map(|line| render_output_line(line))
                 .collect()
         };
         div()
@@ -1735,7 +1766,30 @@ fn run_steps_blocking(
     }
 }
 
-/// 输出行入列（超限丢最旧）。
+/// 行首空白转不换行空格：GPUI `Normal` 会塌缩连续空白（Tauri `pre-wrap`
+/// 保留），只转行首以兼顾缩进保留与行内换行。
+fn preserve_leading_whitespace(line: &str) -> String {
+    let indent_len = line.len() - line.trim_start_matches([' ', '\t']).len();
+    let (indent, rest) = line.split_at(indent_len);
+    let mut out = String::with_capacity(line.len() + indent.len() * 2);
+    for c in indent.chars() {
+        if c == '\t' {
+            out.push_str("\u{a0}\u{a0}\u{a0}\u{a0}");
+        } else {
+            out.push('\u{a0}');
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 输出行渲染：显式换行模式（对齐 Tauri `pre-wrap`）+ 行首缩进保留。
+fn render_output_line(line: &str) -> AnyElement {
+    div()
+        .whitespace_normal()
+        .child(preserve_leading_whitespace(line))
+        .into_any_element()
+}
 fn push_run_line(output: &mut Vec<String>, line: String) {
     output.push(line);
     if output.len() > MAX_RUN_OUTPUT {

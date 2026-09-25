@@ -549,6 +549,7 @@ fn render_term_row(
         .id(format!("term-row-{line}"))
         .w_full()
         .items_center()
+        .flex_wrap()
         .text_xs()
         .font_family("monospace");
     if spans.is_empty() && !trailing {
