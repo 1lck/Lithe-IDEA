@@ -686,18 +686,29 @@ struct SettingsView: View {
                     ),
                     title: "Enable Agent conversation"
                 )
-                Text("The Agent starts only when you send a message. Disabling this feature stops its session.")
+                Text("The Agent starts when you open the Agent panel in a project. Disabling this feature stops every Agent process.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
-                TextField("ACP Agent executable", text: $settings.agentCommand)
+                TextField("ACP Agent executable, e.g. the codex-acp installed with npm", text: $settings.agentCommand)
                     .litheSettingsTextField()
                     .disabled(!model.isAgentConversationEnabled)
                 Text("Arguments (one per line)")
                     .font(LitheTheme.smallFont)
                 TextEditor(text: $settings.agentArguments)
-                    .frame(height: 72)
+                    .frame(height: 56)
                     .disabled(!model.isAgentConversationEnabled)
-                Text("Install a compatible ACP Agent separately, then enter its executable and arguments here.")
+                Picker("API provider", selection: $settings.agentProviderID) {
+                    Text("Choose a provider").tag(UUID?.none)
+                    ForEach(settings.agentProviderCandidates) { provider in
+                        Text(provider.name).tag(UUID?.some(provider.id))
+                    }
+                }
+                .frame(maxWidth: 360, alignment: .leading)
+                .disabled(!model.isAgentConversationEnabled)
+                .lithePointer()
+                Text(settings.agentProviderCandidates.isEmpty
+                     ? "Add an AI provider that uses the Responses API below. The Agent signs in with that provider's endpoint and API key."
+                     : "The Agent signs in with this provider's endpoint and API key. Account sign-in, such as a ChatGPT login, is not used.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
             }

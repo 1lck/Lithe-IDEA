@@ -78,6 +78,8 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
+    /// An Agent conversation in this project waits for a permission decision.
+    @Published var agentConversationNeedsAttention = false
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {
@@ -608,7 +610,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if !isActive {
             searchSessionFeature.isSearchEverywhereVisible = false
             cancelJavaLanguageServerPreparation()
-            agentConversationFeatureIfActive?.stopForProjectDeactivation()
         }
     }
 

@@ -3,91 +3,209 @@ import LitheCoreContracts
 import Testing
 @testable import LitheAgentConversationModule
 
+/// Drives the feature model with events from the shared Rust fixture. Events
+/// are delivered synchronously through `receive`, so no test waits on timers.
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
-    func rustPermissionEventDisplaysChoicesAndRoutesBothDecisions() async throws {
-        let transport = TestAgentTransport()
-        let feature = AgentConversationFeatureModel(transport: transport)
-        try feature.send("hello", configuration: configuration)
-        let permissionEvent = try fixtureEvent("permission")
+    func readyAgentListsWorkspaceHistory() throws {
+        let (feature, connection) = try connectedFeature()
+        #expect(feature.connectionState == .ready)
+        #expect(feature.canLoadSessions)
+        #expect(connection.commands.last?["kind"] as? String == "listSessions")
 
-        feature.receive(permissionEvent)
-        #expect(feature.permission?.title == "Run command")
-        #expect(feature.permission?.choices.map(\.id) == ["allow_once"])
-        feature.answerPermission(optionID: "allow_once")
-        #expect(transport.session.answers.count == 1)
-        #expect(transport.session.answers[0].requestID == "permission-1")
-        #expect(transport.session.answers[0].optionID == "allow_once")
-
-        feature.receive(permissionEvent)
-        feature.cancel()
-        #expect(feature.permission?.id == nil)
-        #expect(transport.session.answers.count == 2)
-        #expect(transport.session.answers[1].optionID == nil)
-        #expect(transport.session.cancelCount == 1)
-        await feature.stop()
+        try feature.receive(event("sessions"))
+        #expect(feature.sessions.map(\.id) == ["session-1", "session-2"])
+        #expect(feature.sessions.first?.title == "Explain this project")
     }
 
     @Test
-    func projectDeactivationDetachesSessionBeforeProcessCleanup() async throws {
+    func firstMessageCreatesASessionThenPromptsIt() throws {
+        let (feature, connection) = try connectedFeature()
+        try feature.send("Explain this project")
+        let create = try #require(connection.commands.last)
+        #expect(create["kind"] as? String == "newSession")
+        #expect(feature.pendingNewConversationPrompt == "Explain this project")
+
+        try feature.receive(event("sessionCreated", ["token": create["token"] as Any]))
+        #expect(feature.selectedSessionID == "session-1")
+        #expect(feature.pendingNewConversationPrompt == nil)
+        let prompt = try #require(connection.commands.last)
+        #expect(prompt["kind"] as? String == "prompt")
+        #expect(prompt["sessionId"] as? String == "session-1")
+        #expect(prompt["text"] as? String == "Explain this project")
+        #expect(feature.selectedConversation?.isResponding == true)
+        #expect(feature.sessions.first?.title == "Explain this project")
+    }
+
+    @Test
+    func streamedTextAndToolUpdatesBuildOneTranscript() throws {
+        let (feature, _) = try respondingFeature()
+        try feature.receive(event("agentMessageChunk"))
+        try feature.receive(event("toolCall"))
+        try feature.receive(event("toolCallUpdate"))
+        try feature.receive(event("sessionInfo"))
+        try feature.receive(event("turnFinished"))
+
+        let messages = try #require(feature.selectedConversation?.messages)
+        #expect(messages.map(\.role) == [.user, .agent, .tool])
+        #expect(messages[1].text == "This project **builds** an IDE.")
+        // The update carries only a status, so the tool keeps its title.
+        #expect(messages[2].text == "Run tests")
+        #expect(messages[2].toolStatus == .completed)
+        #expect(feature.selectedConversation?.isResponding == false)
+        #expect(feature.sessions.first?.title == "Project overview")
+    }
+
+    @Test
+    func permissionChoicesAreAnsweredOrRejectedByCancel() throws {
+        let (feature, connection) = try respondingFeature()
+        var attention: [Bool] = []
+        feature.onAttentionChanged = { attention.append($0) }
+
+        try feature.receive(event("permission"))
+        #expect(feature.selectedConversation?.permission?.choices.map(\.id) == ["allow_once", "reject_once"])
+        feature.answerPermission(optionID: "allow_once")
+        let answer = try #require(connection.commands.last)
+        #expect(answer["kind"] as? String == "permission")
+        #expect(answer["requestId"] as? String == "permission-1")
+        #expect(answer["optionId"] as? String == "allow_once")
+
+        try feature.receive(event("permission"))
+        feature.answerPermission(optionID: nil)
+        #expect(connection.commands.last?["optionId"] is NSNull)
+
+        try feature.receive(event("permission"))
+        feature.cancel()
+        #expect(feature.selectedConversation?.permission == nil)
+        #expect(connection.commands.last?["kind"] as? String == "cancel")
+        try feature.receive(event("turnCancelled"))
+        #expect(feature.selectedConversation?.isResponding == false)
+        #expect(attention == [true, false, true, false, true, false])
+    }
+
+    @Test
+    func openingAnEarlierSessionReplaysItsHistoryBeforePrompting() throws {
+        let (feature, connection) = try connectedFeature()
+        try feature.receive(event("sessions"))
+        feature.selectSession("session-1")
+        let load = try #require(connection.commands.last)
+        #expect(load["kind"] as? String == "loadSession")
+        #expect(feature.selectedConversation?.isLoading == true)
+
+        try feature.send("Continue")
+        #expect(connection.commands.count == 2, "prompt waits for the load")
+        try feature.receive(event("userMessageChunk"))
+        try feature.receive(event("agentMessageChunk"))
+        try feature.receive(event("sessionLoaded", ["token": load["token"] as Any]))
+
+        let conversation = try #require(feature.selectedConversation)
+        #expect(conversation.isAttached)
+        #expect(conversation.messages.map(\.text) == ["Explain this project", "This project **builds** an IDE.", "Continue"])
+        #expect(connection.commands.last?["kind"] as? String == "prompt")
+    }
+
+    @Test
+    func agentExitKeepsTranscriptAndRequiresReloadAfterReconnect() async throws {
         let transport = TestAgentTransport()
         let feature = AgentConversationFeatureModel(transport: transport)
-        try feature.send("hello", configuration: configuration)
+        try feature.connect(configuration: configuration)
+        try feature.receive(event("ready"))
+        try feature.send("Explain this project")
+        try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
 
-        feature.stopForProjectDeactivation()
-        #expect(!feature.hasActiveSession)
-        #expect(feature.messages.isEmpty)
-        #expect(throws: AgentConversationError.sessionStopping) {
-            try feature.send("new prompt", configuration: configuration)
-        }
+        try feature.receive(event("stopped"))
+        #expect(feature.connectionState == .failed("The Agent connection closed unexpectedly"))
+        #expect(feature.selectedConversation?.isResponding == false)
+        #expect(feature.selectedConversation?.isAttached == false)
+        #expect(feature.selectedConversation?.messages.count == 1)
+        #expect(throws: AgentConversationError.notConnected) { try feature.send("again") }
+
         await feature.stop()
-        #expect(transport.session.stopCount == 1)
+        #expect(transport.connections[0].closeCount == 1)
+        try feature.connect(configuration: configuration)
+        try feature.receive(event("ready"))
+        try feature.send("again")
+        #expect(transport.connections[1].commands.last?["kind"] as? String == "loadSession")
+        await feature.stop()
+        #expect(transport.connections[1].closeCount == 1)
     }
+
+    @Test
+    func requestFailureEndsTheTurnWithoutStoppingTheConnection() throws {
+        let (feature, _) = try respondingFeature()
+        try feature.receive(event("requestFailed"))
+        #expect(feature.selectedConversation?.isResponding == false)
+        #expect(feature.selectedConversation?.errorMessage == "The Agent is still responding in this conversation")
+        #expect(feature.connectionState == .ready)
+    }
+
+    // MARK: Helpers
 
     private var configuration: AgentLaunchConfiguration {
         AgentLaunchConfiguration(
             command: "test-agent",
             arguments: [],
-            workspaceURL: URL(fileURLWithPath: "/tmp/lithe-acp-test")
+            workspaceURL: URL(fileURLWithPath: "/tmp/lithe-acp-test"),
+            gatewayBaseURL: "https://gateway.example.com/v1",
+            apiKey: "test-key",
+            providerName: "Example",
+            allowsInsecureHTTP: false
         )
     }
 
-    private func fixtureEvent(_ name: String) throws -> String {
+    private func connectedFeature() throws -> (AgentConversationFeatureModel, TestAgentConnection) {
+        let transport = TestAgentTransport()
+        let feature = AgentConversationFeatureModel(transport: transport)
+        try feature.connect(configuration: configuration)
+        #expect(feature.connectionState == .connecting)
+        try feature.receive(event("ready"))
+        return (feature, transport.connections[0])
+    }
+
+    private func respondingFeature() throws -> (AgentConversationFeatureModel, TestAgentConnection) {
+        let (feature, connection) = try connectedFeature()
+        try feature.send("Explain this project")
+        try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+        return (feature, connection)
+    }
+
+    private func event(_ name: String, _ overrides: [String: Any] = [:]) throws -> String {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/acp-events-v1.json"))
         let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let events = try #require(fixture["events"] as? [String: Any])
-        let event = try #require(events[name])
-        return try #require(String(data: JSONSerialization.data(withJSONObject: event), encoding: .utf8))
+        var event = try #require(events[name] as? [String: Any])
+        event.merge(overrides) { _, new in new }
+        return String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
     }
 }
 
 @MainActor
 private final class TestAgentTransport: AgentConversationTransport {
-    let session = TestAgentSession()
+    var connections: [TestAgentConnection] = []
 
     func open(
         configuration: AgentLaunchConfiguration,
         onEvent: @escaping @Sendable (String) -> Void
-    ) throws -> any AgentConversationSession {
-        session
+    ) throws -> any AgentConnection {
+        let connection = TestAgentConnection()
+        connections.append(connection)
+        return connection
     }
 }
 
 @MainActor
-private final class TestAgentSession: AgentConversationSession {
-    struct Answer { let requestID: String; let optionID: String? }
-    var answers: [Answer] = []
-    var cancelCount = 0
-    var stopCount = 0
+private final class TestAgentConnection: AgentConnection {
+    var commands: [[String: Any]] = []
+    var closeCount = 0
 
-    func send(_ prompt: String) throws {}
-    func cancel() { cancelCount += 1 }
-    func answerPermission(requestID: String, optionID: String?) {
-        answers.append(Answer(requestID: requestID, optionID: optionID))
+    func send(commandJSON: String) throws {
+        let object = try JSONSerialization.jsonObject(with: Data(commandJSON.utf8))
+        commands.append(try #require(object as? [String: Any]))
     }
-    func stop() async { stopCount += 1 }
+
+    func close() async { closeCount += 1 }
 }

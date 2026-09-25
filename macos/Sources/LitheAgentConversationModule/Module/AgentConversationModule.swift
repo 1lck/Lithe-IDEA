@@ -28,7 +28,7 @@ public final class AgentConversationModule: LitheModule {
     public func activate(context: ModuleContext) async throws {
         guard capability == nil else { return }
         let feature = AgentConversationFeatureModel(transport: transportFactory())
-        context.resources.register(AgentSessionResource(feature: feature))
+        context.resources.register(AgentConnectionResource(feature: feature))
         capability = AgentConversationCapability(feature: feature)
     }
 
@@ -50,10 +50,10 @@ public final class AgentConversationModule: LitheModule {
 }
 
 @MainActor
-private final class AgentSessionResource: ModuleResource {
+private final class AgentConnectionResource: ModuleResource {
     let feature: AgentConversationFeatureModel
     init(feature: AgentConversationFeatureModel) { self.feature = feature }
-    var moduleResourceKind: String { "acp-agent-session" }
-    var isModuleResourceActive: Bool { feature.hasActiveSession }
+    var moduleResourceKind: String { "acp-agent-connection" }
+    var isModuleResourceActive: Bool { feature.hasActiveConnection }
     func stopModuleResource() async { await feature.stop() }
 }

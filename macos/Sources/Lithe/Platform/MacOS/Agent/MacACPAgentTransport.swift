@@ -7,24 +7,28 @@ final class MacACPAgentTransport: AgentConversationTransport {
     func open(
         configuration: AgentLaunchConfiguration,
         onEvent: @escaping @Sendable (String) -> Void
-    ) throws -> any AgentConversationSession {
+    ) throws -> any AgentConnection {
         let configurationJSON: [String: Any] = [
             "command": configuration.command,
             "args": configuration.arguments,
-            "cwd": configuration.workspaceURL.path
+            "cwd": configuration.workspaceURL.path,
+            "gateway": [
+                "baseUrl": configuration.gatewayBaseURL,
+                "apiKey": configuration.apiKey,
+                "providerName": configuration.providerName,
+                "allowInsecureHttp": configuration.allowsInsecureHTTP
+            ]
         ]
         let data = try JSONSerialization.data(withJSONObject: configurationJSON)
-        guard let json = String(data: data, encoding: .utf8) else {
-            throw MacACPAgentError.invalidConfiguration
-        }
+        let json = String(decoding: data, as: UTF8.self)
         let callback = AgentEventCallback(onEvent: onEvent)
         let context = Unmanaged.passRetained(callback).toOpaque()
         let handle = json.withCString { lithe_bridge_agent_open_json($0, macACPEventCallback, context) }
         guard let handle else {
             Unmanaged<AgentEventCallback>.fromOpaque(context).release()
-            throw MacACPAgentError.unavailable
+            throw MacACPAgentError.invalidConfiguration
         }
-        return MacACPAgentSession(handle: handle, context: context)
+        return MacACPAgentConnection(handle: handle, context: context)
     }
 }
 
@@ -40,7 +44,7 @@ private func macACPEventCallback(_ event: UnsafePointer<CChar>?, _ context: Unsa
 }
 
 @MainActor
-private final class MacACPAgentSession: AgentConversationSession {
+private final class MacACPAgentConnection: AgentConnection {
     private var handle: UnsafeMutableRawPointer?
     private var context: UnsafeMutableRawPointer?
 
@@ -49,31 +53,15 @@ private final class MacACPAgentSession: AgentConversationSession {
         self.context = context
     }
 
-    func send(_ prompt: String) throws {
-        guard let handle, prompt.withCString({ lithe_bridge_agent_prompt(handle, $0) }) == 1 else {
-            throw MacACPAgentError.stopped
+    func send(commandJSON: String) throws {
+        guard let handle, commandJSON.withCString({ lithe_bridge_agent_send_json(handle, $0) }) == 1 else {
+            throw MacACPAgentError.rejected
         }
     }
 
-    func cancel() {
-        guard let handle else { return }
-        _ = lithe_bridge_agent_cancel(handle)
-    }
-
-    func answerPermission(requestID: String, optionID: String?) {
-        guard let handle else { return }
-        requestID.withCString { request in
-            if let optionID {
-                optionID.withCString { option in
-                    _ = lithe_bridge_agent_permission(handle, request, option)
-                }
-            } else {
-                _ = lithe_bridge_agent_permission(handle, request, nil)
-            }
-        }
-    }
-
-    func stop() async {
+    /// Closing blocks until the agent tree exits (bounded by the host), so it
+    /// runs off the main thread.
+    func close() async {
         guard let handle, let context else { return }
         self.handle = nil
         self.context = nil
@@ -91,21 +79,27 @@ private final class MacACPAgentSession: AgentConversationSession {
     }
 
     deinit {
-        if let handle { lithe_bridge_agent_close(handle) }
-        if let context { Unmanaged<AgentEventCallback>.fromOpaque(context).release() }
+        // Normal paths call `close()`; this only guards an abandoned connection.
+        guard let handle, let context else { return }
+        let handleAddress = Int(bitPattern: handle)
+        let contextAddress = Int(bitPattern: context)
+        DispatchQueue.global(qos: .utility).async {
+            lithe_bridge_agent_close(UnsafeMutableRawPointer(bitPattern: handleAddress))
+            if let pointer = UnsafeMutableRawPointer(bitPattern: contextAddress) {
+                Unmanaged<AgentEventCallback>.fromOpaque(pointer).release()
+            }
+        }
     }
 }
 
 private enum MacACPAgentError: LocalizedError {
     case invalidConfiguration
-    case unavailable
-    case stopped
+    case rejected
 
     var errorDescription: String? {
         switch self {
-        case .invalidConfiguration: "The Agent configuration is invalid."
-        case .unavailable: "The ACP runtime is unavailable."
-        case .stopped: "The Agent session has stopped."
+        case .invalidConfiguration: "The Agent configuration is invalid. Check the executable, API endpoint, and key."
+        case .rejected: "The Agent did not accept the request. It may have stopped."
         }
     }
 }

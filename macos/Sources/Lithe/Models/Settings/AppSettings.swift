@@ -35,6 +35,7 @@ final class AppSettings: ObservableObject {
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
+        static let agentProviderID = "settings.agentProviderID"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
@@ -126,6 +127,10 @@ final class AppSettings: ObservableObject {
     @Published var agentCommand: String { didSet { defaults.set(agentCommand, forKey: Key.agentCommand) } }
     /// One command argument per line, so paths with spaces need no shell parser.
     @Published var agentArguments: String { didSet { defaults.set(agentArguments, forKey: Key.agentArguments) } }
+    /// AI provider whose endpoint and API key the Agent uses; `nil` until chosen.
+    @Published var agentProviderID: UUID? {
+        didSet { defaults.set(agentProviderID?.uuidString, forKey: Key.agentProviderID) }
+    }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var customLogDirectory: URL?
     @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
@@ -204,6 +209,7 @@ final class AppSettings: ObservableObject {
         }
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
+        agentProviderID = defaults.string(forKey: Key.agentProviderID).flatMap(UUID.init(uuidString:))
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
@@ -338,6 +344,7 @@ final class AppSettings: ObservableObject {
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
+        agentProviderID = nil
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
@@ -349,6 +356,15 @@ final class AppSettings: ObservableObject {
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {
         keyboardShortcutOverrides = value
         saveKeyboardShortcutOverrides()
+    }
+
+    /// Providers the Agent can use: phase one supports Responses API gateways.
+    var agentProviderCandidates: [AIProviderProfile] {
+        commitMessageAI.providers.filter { $0.apiProtocol == .responses }
+    }
+
+    var agentProvider: AIProviderProfile? {
+        agentProviderCandidates.first { $0.id == agentProviderID }
     }
 
     var activeCommitMessageProvider: AIProviderProfile? {

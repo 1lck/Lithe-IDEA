@@ -41,8 +41,7 @@ enum WorkbenchModuleUIComposition {
                     }
                     return AnyView(AgentConversationView(
                         feature: feature,
-                        settings: model.settings,
-                        workspaceURL: model.workspaceURL
+                        onConnect: { [weak model] in model?.connectAgentConversation() }
                     ))
                 },
                 contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.agentConversationFeatureIfActive) }
