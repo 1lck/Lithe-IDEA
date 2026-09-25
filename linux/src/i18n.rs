@@ -16,6 +16,27 @@ pub fn is_zh(cx: &App) -> bool {
     settings::get(cx).display_language.starts_with("zh")
 }
 
+/// 把显示语言映射为上游 gpui-component `locales/ui.yml` 使用的标识。
+///
+/// 上游内置文案（编辑区右键菜单、日期选择器、命令面板等）只认 `zh-CN` 这类
+/// 具体语言码，产品设置里的 `zh-CN` / `en-US` 需要归一到这里。
+pub fn upstream_locale(display_language: &str) -> &'static str {
+    if display_language.starts_with("zh") {
+        "zh-CN"
+    } else {
+        "en"
+    }
+}
+
+/// 把显示语言同步给上游 gpui-component 的文案域（编辑区右键菜单、日期选择器、
+/// 命令面板等内置 UI 文案）。
+///
+/// 上游用 `rust_i18n` 的 `t!` 取键（如 `Input.Cut`），默认 `fallback = "en"`，
+/// 只有显式 `set_locale` 才会切到中文；不调用就会一直渲染英文菜单。
+pub fn apply_locale(display_language: &str) {
+    gpui_kit::component::set_locale(upstream_locale(display_language));
+}
+
 /// 取菜单文案：键与 Tauri `menu.*` / `titleProject.*` 对齐，不存在返回 `""`。
 pub fn menu_text(cx: &App, key: &str) -> &'static str {
     let (zh, en) = match key {
@@ -807,5 +828,20 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         zh
     } else {
         en
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::upstream_locale;
+
+    /// 设置里存的是产品语言标识（`zh-CN`/`en-US`），上游只认 `zh-CN`/`en`；
+    /// 映射错了内置右键菜单就会退回英文。
+    #[test]
+    fn display_language_maps_to_upstream_locale() {
+        assert_eq!(upstream_locale("zh-CN"), "zh-CN");
+        assert_eq!(upstream_locale("zh"), "zh-CN");
+        assert_eq!(upstream_locale("en-US"), "en");
+        assert_eq!(upstream_locale("en"), "en");
     }
 }

@@ -508,6 +508,7 @@ pub fn persist(settings: &Settings) {
 /// 初始化全局设置（应用启动时调用一次）。
 pub fn init(cx: &mut App) {
     let settings = load();
+    crate::i18n::apply_locale(&settings.display_language);
     cx.set_global(AppSettings { settings });
 }
 
@@ -517,6 +518,9 @@ pub fn update(cx: &mut App, f: impl FnOnce(&mut Settings)) {
     let settings = get_mut(cx);
     settings.display_language = normalized_display_language(&settings.display_language);
     let snapshot = get(cx).clone();
+    // 上游组件文案域必须与显示语言同步，否则编辑区右键菜单等内置 UI
+    // 会一直保持上一次的语言。
+    crate::i18n::apply_locale(&snapshot.display_language);
     persist(&snapshot);
     cx.refresh_windows();
 }
