@@ -53,6 +53,13 @@ final class AgentManagementFeatureModel: ObservableObject {
         }
     }
 
+    /// Install or update the agent's own CLI globally with the user's npm.
+    func installCli(_ agentID: String) {
+        run(agentID) { service, directory in
+            _ = try await service.installCli(agentID: agentID, dataDirectory: directory)
+        }
+    }
+
     /// Stops a running npm install; the previous install stays intact.
     func cancelOperation() {
         operation?.cancel()

@@ -31,13 +31,16 @@ public struct AgentCliStatus: Decodable, Equatable, Sendable {
     public let command: String
     public let minimumVersion: String
     public let installHint: String
+    /// npm package Lithe installs globally on request.
+    public let package: String
     public let detected: AgentRuntimeTool?
 
-    public init(name: String, command: String, minimumVersion: String, installHint: String, detected: AgentRuntimeTool?) {
+    public init(name: String, command: String, minimumVersion: String, installHint: String, package: String = "", detected: AgentRuntimeTool?) {
         self.name = name
         self.command = command
         self.minimumVersion = minimumVersion
         self.installHint = installHint
+        self.package = package
         self.detected = detected
     }
 }
@@ -100,6 +103,9 @@ public protocol AgentManagementService: Sendable {
     /// Installs the pinned adapter version; returns the installed version.
     func install(agentID: String, dataDirectory: URL) async throws -> String
     func uninstall(agentID: String, dataDirectory: URL) async throws
+    /// Installs or updates the agent's own CLI with the user's npm; returns
+    /// the CLI version found afterwards.
+    func installCli(agentID: String, dataDirectory: URL) async throws -> String
 }
 
 /// Used where no platform adapter is composed, such as focused tests.
@@ -115,6 +121,10 @@ public struct UnavailableAgentManagementService: AgentManagementService {
     }
 
     public func uninstall(agentID: String, dataDirectory: URL) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
+    public func installCli(agentID: String, dataDirectory: URL) async throws -> String {
         throw CocoaError(.featureUnsupported)
     }
 }

@@ -1,41 +1,98 @@
 import SwiftUI
 import LitheAgentConversationModule
 
-/// Agent panel: picks one of the agents set up in Settings › Agents and shows
-/// that agent's conversations in this project.
+/// Right-docked Agent panel. It always shows the full conversation layout;
+/// sending validates the setup first and points to the in-panel settings.
 struct AgentConversationView: View {
-    @ObservedObject var feature: AgentConversationFeatureModel
-    let onConnect: () -> Void
-    let onSelectAgent: (String) -> Void
-    let onOpenSettings: () -> Void
+    @ObservedObject var model: AppModel
+    @State private var showsSettings = false
+
+    private var feature: AgentConversationFeatureModel? { model.agentConversationFeatureIfActive }
 
     var body: some View {
-        Group {
-            if let connection = feature.selectedConnection {
+        VStack(spacing: 0) {
+            if showsSettings {
+                AgentPanelSettingsView(
+                    model: model,
+                    settings: model.settings,
+                    feature: model.agentManagementFeature,
+                    onDone: { showsSettings = false }
+                )
+            } else if let feature, let connection = feature.selectedConnection {
                 AgentConnectionView(
                     feature: connection,
                     agents: feature.agents,
                     selectedAgentID: feature.selectedAgentID,
-                    onSelectAgent: onSelectAgent,
-                    onConnect: onConnect,
-                    onOpenSettings: onOpenSettings
+                    onSelectAgent: { model.selectAgentConversationAgent($0) },
+                    onConnect: { model.connectAgentConversation() },
+                    onOpenSettings: { showsSettings = true }
                 )
                 .id(feature.selectedAgentID)
             } else {
-                VStack(spacing: 0) {
-                    LitheToolWindowHeader(title: "Agent") { EmptyView() }
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("No Agent is set up yet. Install an Agent and choose its AI provider to start.")
-                            .foregroundStyle(LitheTheme.secondaryText)
-                        Button("Open Agent Settings", action: onOpenSettings)
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(12)
-                }
+                AgentUnconfiguredConversationView(
+                    setupError: model.agentConversationSetupError,
+                    onOpenSettings: { showsSettings = true }
+                )
             }
         }
-        .onAppear(perform: onConnect)
+        .background(LitheTheme.editor)
+        .onAppear { model.activateAgentConversation() }
+    }
+}
+
+/// Title on the left and icon actions on the right, like a chat client's
+/// session header: new conversation, history, settings.
+private struct AgentPanelHeader<Actions: View>: View {
+    let title: String
+    @ViewBuilder let actions: Actions
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Text(title)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(LitheTheme.toolWindowText)
+                .lineLimit(1)
+            Spacer(minLength: 12)
+            actions
+        }
+        .padding(.leading, 12)
+        .padding(.trailing, 6)
+        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
+        .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+}
+
+/// The full conversation layout shown before any Agent can run. Typing is
+/// allowed; sending explains what is missing.
+private struct AgentUnconfiguredConversationView: View {
+    let setupError: AgentConversationError?
+    let onOpenSettings: () -> Void
+    @State private var notice: String?
+
+    var body: some View {
+        AgentPanelHeader(title: String(localized: "New conversation")) {
+            Button(action: onOpenSettings) { Image(systemName: "gearshape") }
+                .litheIconButton()
+                .help("Agent Settings")
+        }
+        AgentSessionTabStrip(tabs: [], showsNewTab: true, isNewTabBusy: false, onSelect: { _ in }, onClose: { _ in }, onNew: {})
+        Divider().overlay(LitheTheme.divider)
+        AgentHeroView(agentName: nil, agentVersion: nil, onTap: onOpenSettings)
+        AgentActivitySummaryBar(messages: [])
+        if let notice {
+            AgentInlineNotice(text: notice, actionTitle: "Open Agent Settings", action: onOpenSettings)
+        }
+        AgentComposerView(
+            agents: [],
+            selectedAgent: nil,
+            isResponding: false,
+            isBlocked: false,
+            onSend: { _ in throw setupError ?? .moduleStarting },
+            onCancel: {},
+            onSelectAgent: { _ in },
+            onOpenSettings: onOpenSettings,
+            onError: { notice = $0 }
+        )
     }
 }
 
@@ -46,263 +103,311 @@ private struct AgentConnectionView: View {
     let onSelectAgent: (String) -> Void
     let onConnect: () -> Void
     let onOpenSettings: () -> Void
-    @State private var draft = ""
     @State private var localError: String?
 
+    private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
+
     var body: some View {
-        VStack(spacing: 0) {
-            LitheToolWindowHeader(title: "Agent") {
-                agentMenu
-                sessionMenu
-                Button {
-                    feature.startNewConversation()
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                }
-                .buttonStyle(LitheIconButtonStyle())
+        AgentPanelHeader(title: headerTitle) {
+            Button { feature.startNewConversation() } label: { Image(systemName: "plus") }
+                .litheIconButton()
                 .help("New conversation")
                 .disabled(feature.selectedSessionID == nil)
-            }
-            switch feature.connectionState {
-            case .idle, .connecting:
-                statusView {
-                    ProgressView().controlSize(.small)
-                    Text("Starting the Agent…").foregroundStyle(LitheTheme.secondaryText)
-                }
-                .onAppear {
-                    if feature.connectionState == .idle { onConnect() }
-                }
-            case .failed(let message):
-                statusView {
-                    Text(message)
-                        .foregroundStyle(LitheTheme.warning)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    HStack {
-                        Button("Retry", action: onConnect)
-                        Button("Agent Settings", action: onOpenSettings)
-                    }
-                }
-            case .ready:
-                conversationView
-            }
+            AgentHistoryMenu(feature: feature)
+            Button(action: onOpenSettings) { Image(systemName: "gearshape") }
+                .litheIconButton()
+                .help("Agent Settings")
         }
+        AgentSessionTabStrip(
+            tabs: feature.openSessionIDs.map { id in
+                AgentSessionTabItem(
+                    id: id,
+                    title: feature.sessions.first { $0.id == id }.map(AgentSessionTitle.title(of:)) ?? String(localized: "Untitled conversation"),
+                    isSelected: feature.selectedSessionID == id,
+                    isBusy: feature.conversations[id]?.isResponding == true,
+                    needsAttention: feature.conversations[id]?.permission != nil
+                )
+            },
+            showsNewTab: feature.selectedSessionID == nil,
+            isNewTabBusy: feature.isCreatingSession,
+            newTabTitle: feature.pendingNewConversationPrompt.map(AgentSessionTitle.provisional),
+            onSelect: { feature.selectSession($0) },
+            onClose: { feature.closeConversation($0) },
+            onNew: { feature.startNewConversation() }
+        )
+        Divider().overlay(LitheTheme.divider)
+        switch feature.connectionState {
+        case .idle, .connecting:
+            AgentEmptyStateView(
+                systemImage: "sparkles",
+                title: "Starting the Agent…",
+                message: String(localized: "The Agent process starts when this panel opens."),
+                isBusy: true
+            )
+            .onAppear {
+                if feature.connectionState == .idle { onConnect() }
+            }
+        case .failed(let message):
+            AgentEmptyStateView(
+                systemImage: "exclamationmark.triangle",
+                title: "The Agent could not start",
+                message: message,
+                actionTitle: "Retry",
+                action: onConnect,
+                secondaryActionTitle: "Agent Settings",
+                secondaryAction: onOpenSettings
+            )
+        case .ready:
+            AgentTranscriptView(
+                feature: feature,
+                agentName: selectedAgent?.name ?? feature.agentName,
+                agentVersion: feature.agentVersion,
+                agents: agents,
+                onSelectAgent: onSelectAgent
+            )
+        }
+        if let error = localError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
+            AgentInlineNotice(text: error)
+        }
+        AgentComposerView(
+            agents: agents,
+            selectedAgent: selectedAgent,
+            isResponding: feature.selectedConversation?.isResponding == true,
+            isBlocked: feature.isCreatingSession
+                || feature.selectedConversation?.isLoading == true
+                || feature.connectionState != .ready,
+            onSend: { try feature.send($0) },
+            onCancel: { feature.cancel() },
+            onSelectAgent: onSelectAgent,
+            onOpenSettings: onOpenSettings,
+            onError: { localError = $0 }
+        )
     }
 
-    private var agentMenu: some View {
+    private var headerTitle: String {
+        guard let id = feature.selectedSessionID else { return String(localized: "New conversation") }
+        return feature.sessions.first { $0.id == id }.map(AgentSessionTitle.title(of:)) ?? String(localized: "Untitled conversation")
+    }
+}
+
+private struct AgentHistoryMenu: View {
+    @ObservedObject var feature: AgentConnectionModel
+
+    var body: some View {
         Menu {
-            ForEach(agents) { agent in
+            if feature.sessions.isEmpty {
+                Text("No earlier conversations")
+            }
+            ForEach(feature.sessions) { session in
                 Button {
-                    onSelectAgent(agent.id)
+                    feature.selectSession(session.id)
                 } label: {
-                    if agent.id == selectedAgentID {
-                        Label(agent.name, systemImage: "checkmark")
+                    if session.id == feature.selectedSessionID {
+                        Label(AgentSessionTitle.title(of: session), systemImage: "checkmark")
                     } else {
-                        Text(agent.name)
-                    }
-                }
-            }
-            Divider()
-            Button("Agent Settings…", action: onOpenSettings)
-        } label: {
-            Text(agents.first { $0.id == selectedAgentID }?.name ?? "Agent")
-                .lineLimit(1)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Agent")
-    }
-
-    private var sessionMenu: some View {
-        Menu {
-            Button("New conversation") { feature.startNewConversation() }
-            if !feature.sessions.isEmpty {
-                Divider()
-                ForEach(feature.sessions) { session in
-                    Button {
-                        feature.selectSession(session.id)
-                    } label: {
-                        if session.id == feature.selectedSessionID {
-                            Label(Self.title(of: session), systemImage: "checkmark")
-                        } else {
-                            Text(Self.title(of: session))
-                        }
+                        Text(AgentSessionTitle.title(of: session))
                     }
                 }
             }
             Divider()
             Button("Refresh history") { feature.refreshSessions() }
         } label: {
-            Text(selectedTitle)
-                .lineLimit(1)
-                .frame(maxWidth: 180, alignment: .leading)
+            Image(systemName: "clock.arrow.circlepath")
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
         .fixedSize()
+        .frame(width: 28, height: 28)
         .help("Conversation history")
-    }
-
-    private var selectedTitle: String {
-        guard let id = feature.selectedSessionID else { return "New conversation" }
-        return feature.sessions.first { $0.id == id }.map(Self.title(of:)) ?? "Conversation"
-    }
-
-    private var conversationView: some View {
-        let conversation = feature.selectedConversation
-        let messages = conversation?.messages ?? []
-        return VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        if conversation?.isLoading == true {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
-                            }
-                        } else if messages.isEmpty && feature.pendingNewConversationPrompt == nil {
-                            Text("Ask the Agent about this workspace.")
-                                .foregroundStyle(LitheTheme.secondaryText)
-                        }
-                        ForEach(messages) { message in
-                            AgentMessageRow(message: message).id(message.id)
-                        }
-                        if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                            AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
-                                .id("pending")
-                        }
-                        if conversation?.isResponding == true || feature.isCreatingSession {
-                            ProgressView().controlSize(.small).id("responding")
-                        }
-                    }
-                    .padding(12)
-                }
-                .onChange(of: messages.last?.text) { _ in
-                    if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
-                .onChange(of: messages.count) { _ in
-                    if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
-            }
-            if let permission = conversation?.permission {
-                permissionBar(permission)
-            }
-            if let error = localError ?? conversation?.errorMessage ?? feature.errorMessage {
-                Text(error)
-                    .foregroundStyle(LitheTheme.warning)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-            }
-            composer(isResponding: conversation?.isResponding == true)
-        }
-    }
-
-    private func permissionBar(_ permission: AgentPermissionPrompt) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(permission.title, systemImage: "hand.raised")
-                .font(.body.weight(.medium))
-            HStack {
-                ForEach(permission.choices) { choice in
-                    Button(choice.label) { feature.answerPermission(optionID: choice.id) }
-                }
-                Button("Deny") { feature.answerPermission(optionID: nil) }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(LitheTheme.hoverBackground)
-    }
-
-    private func composer(isResponding: Bool) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            TextField("Message the Agent", text: $draft, axis: .vertical)
-                .lineLimit(2...6)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(send)
-            if isResponding {
-                Button("Cancel") { feature.cancel() }
-            } else {
-                Button("Send", action: send)
-                    .disabled(
-                        draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                            || feature.isCreatingSession
-                            || feature.selectedConversation?.isLoading == true
-                    )
-            }
-        }
-        .padding(12)
-    }
-
-    private func statusView<Content: View>(@ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            content()
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(12)
-    }
-
-    private func send() {
-        do {
-            try feature.send(draft)
-            draft = ""
-            localError = nil
-        } catch {
-            localError = error.localizedDescription
-        }
-    }
-
-    private static func title(of session: AgentSessionSummary) -> String {
-        guard let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
-            return "Untitled conversation"
-        }
-        return title
     }
 }
 
-private struct AgentMessageRow: View {
-    let message: AgentConversationMessage
+struct AgentSessionTabItem: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let isSelected: Bool
+    let isBusy: Bool
+    let needsAttention: Bool
+}
+
+/// Agent badge on the left, then one tab per open conversation and a "new" button.
+/// One tab per open conversation and a "new" button.
+struct AgentSessionTabStrip: View {
+    let tabs: [AgentSessionTabItem]
+    let showsNewTab: Bool
+    let isNewTabBusy: Bool
+    var newTabTitle: String? = nil
+    let onSelect: (String) -> Void
+    let onClose: (String) -> Void
+    let onNew: () -> Void
 
     var body: some View {
-        switch message.role {
-        case .user:
-            VStack(alignment: .leading, spacing: 4) {
-                Text("You").font(.caption.bold()).foregroundStyle(LitheTheme.secondaryText)
-                Text(message.text).textSelection(.enabled)
+        HStack(spacing: 4) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 2) {
+                    ForEach(tabs) { tab in
+                        AgentSessionTab(
+                            title: tab.title,
+                            isSelected: tab.isSelected,
+                            isBusy: tab.isBusy,
+                            needsAttention: tab.needsAttention,
+                            select: { onSelect(tab.id) },
+                            close: { onClose(tab.id) }
+                        )
+                    }
+                    if showsNewTab {
+                        AgentSessionTab(
+                            title: newTabTitle ?? String(localized: "New conversation"),
+                            isSelected: true,
+                            isBusy: isNewTabBusy,
+                            needsAttention: false,
+                            select: {},
+                            close: nil
+                        )
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(8)
-            .background(LitheTheme.hoverBackground, in: RoundedRectangle(cornerRadius: 6))
-        case .agent:
-            Text(Self.markdown(message.text))
+            Button(action: onNew) {
+                Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .litheIconButton()
+            .help("New conversation")
+            .disabled(showsNewTab)
+        }
+        .padding(.horizontal, 8)
+        .frame(height: 32)
+        .background(LitheTheme.toolHeaderInactive)
+    }
+}
+
+private struct AgentSessionTab: View {
+    let title: String
+    let isSelected: Bool
+    let isBusy: Bool
+    let needsAttention: Bool
+    let select: () -> Void
+    let close: (() -> Void)?
+    @State private var isHovering = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if isBusy {
+                ProgressView().controlSize(.mini)
+            } else if needsAttention {
+                Circle().fill(LitheTheme.warning).frame(width: 6, height: 6)
+            }
+            Text(title)
+                .font(.system(size: 12, weight: isSelected ? .medium : .regular))
+                .lineLimit(1)
+                .frame(maxWidth: 140)
+            if let close, isHovering || isSelected {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 9, weight: .bold))
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(.plain)
+                .lithePointer()
+                .foregroundStyle(LitheTheme.tertiaryText)
+                .help("Close conversation")
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+        .background(
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .fill(isSelected ? LitheTheme.activeTabBackground : (isHovering ? LitheTheme.hoverBackground : .clear))
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: select)
+        .onHover { isHovering = $0 }
+    }
+}
+
+struct AgentEmptyStateView: View {
+    let systemImage: String
+    let title: LocalizedStringKey
+    /// Already localized; callers format dynamic values into it.
+    let message: String
+    var actionTitle: LocalizedStringKey? = nil
+    var action: (() -> Void)? = nil
+    var secondaryActionTitle: LocalizedStringKey? = nil
+    var secondaryAction: (() -> Void)? = nil
+    var isBusy = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            if isBusy {
+                ProgressView().controlSize(.regular)
+            } else {
+                Image(systemName: systemImage)
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundStyle(LitheTheme.tertiaryText)
+            }
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(LitheTheme.primaryText)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .multilineTextAlignment(.center)
+                .textSelection(.enabled)
+            HStack(spacing: 8) {
+                if let actionTitle, let action {
+                    Button(actionTitle, action: action)
+                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 26, fontSize: 12))
+                }
+                if let secondaryActionTitle, let secondaryAction {
+                    Button(secondaryActionTitle, action: secondaryAction)
+                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 12, height: 26, fontSize: 12))
+                }
+            }
+            .padding(.top, 4)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+struct AgentInlineNotice: View {
+    let text: String
+    var actionTitle: LocalizedStringKey? = nil
+    var action: (() -> Void)? = nil
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .foregroundStyle(LitheTheme.warning)
+            Text(text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        case .tool:
-            Label {
-                Text(message.text).lineLimit(2)
-            } icon: {
-                Image(systemName: Self.icon(for: message.toolStatus))
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
             }
-            .font(.callout)
-            .foregroundStyle(LitheTheme.secondaryText)
         }
+        .font(.system(size: 12))
+        .foregroundStyle(LitheTheme.primaryText)
+        .padding(10)
+        .background(LitheTheme.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(LitheTheme.warning.opacity(0.4), lineWidth: 1))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 4)
+    }
+}
+
+enum AgentSessionTitle {
+    static func title(of session: AgentSessionSummary) -> String {
+        guard let title = session.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty else {
+            return String(localized: "Untitled conversation")
+        }
+        return title
     }
 
-    /// Inline Markdown keeps line breaks and renders emphasis, code and links;
-    /// text that fails to parse is shown as typed.
-    private static func markdown(_ text: String) -> AttributedString {
-        let options = AttributedString.MarkdownParsingOptions(
-            interpretedSyntax: .inlineOnlyPreservingWhitespace
-        )
-        return (try? AttributedString(markdown: text, options: options)) ?? AttributedString(text)
-    }
-
-    private static func icon(for status: AgentConversationMessage.ToolStatus?) -> String {
-        switch status {
-        case .completed: "checkmark.circle"
-        case .failed: "xmark.circle"
-        case .inProgress: "arrow.triangle.2.circlepath"
-        case .pending, nil: "circle.dotted"
-        }
+    static func provisional(_ prompt: String) -> String {
+        let line = prompt.split(whereSeparator: \.isNewline).first.map(String.init) ?? prompt
+        return line.count > 40 ? String(line.prefix(40)) + "…" : line
     }
 }

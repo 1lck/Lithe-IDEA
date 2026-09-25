@@ -106,6 +106,32 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func openedConversationsBecomeTabsAndClosingOneFallsBackToTheLastOpenTab() throws {
+        let (feature, connection) = try connectedFeature()
+        try feature.receive(event("sessions"))
+        #expect(feature.openSessionIDs.isEmpty, "history is not opened until selected")
+
+        feature.selectSession("session-2")
+        try feature.receive(event("sessionLoaded", ["token": connection.commands.last?["token"] as Any, "sessionId": "session-2"]))
+        feature.startNewConversation()
+        try feature.send("Explain this project")
+        try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+        #expect(feature.openSessionIDs == ["session-2", "session-1"])
+
+        // A responding conversation keeps its tab so the reply is not lost.
+        feature.closeConversation("session-1")
+        #expect(feature.openSessionIDs == ["session-2", "session-1"])
+        try feature.receive(event("turnFinished"))
+        feature.closeConversation("session-1")
+        #expect(feature.openSessionIDs == ["session-2"])
+        #expect(feature.selectedSessionID == "session-2")
+        #expect(feature.conversations["session-1"] == nil)
+
+        feature.closeConversation("session-2")
+        #expect(feature.selectedSessionID == nil, "closing the last tab starts a new conversation")
+    }
+
+    @Test
     func agentExitKeepsTranscriptAndRequiresReloadAfterReconnect() async throws {
         let transport = TestAgentTransport()
         let feature = AgentConnectionModel(transport: transport)

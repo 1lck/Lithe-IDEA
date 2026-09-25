@@ -15,7 +15,7 @@ fn fixture() -> Value {
 
 #[test]
 fn fixture_requests_are_accepted_by_the_dispatcher() {
-    for name in ["status", "install", "uninstall"] {
+    for name in ["status", "install", "uninstall", "installCli"] {
         let command = fixture()["requests"][name]["command"]
             .as_str()
             .unwrap()
@@ -63,6 +63,11 @@ fn invalid_management_requests_fail_with_stable_codes() {
     assert_eq!(unknown["error"]["code"], "invalid_request", "{unknown}");
     let relative = run("agent.status", json!({ "dataDirectory": "relative/path" }));
     assert_eq!(relative["error"]["code"], "invalid_request", "{relative}");
+    let no_cli = run(
+        "agent.installCli",
+        json!({ "dataDirectory": data, "agentId": "unknown" }),
+    );
+    assert_eq!(no_cli["error"]["code"], "invalid_request", "{no_cli}");
     let missing = run("agent.uninstall", json!({ "dataDirectory": data }));
     assert_eq!(missing["error"]["code"], "invalid_request", "{missing}");
     let removed = run(

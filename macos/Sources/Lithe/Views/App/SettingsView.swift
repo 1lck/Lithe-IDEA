@@ -198,8 +198,6 @@ struct SettingsView: View {
             ["AI & Commit", "Commit message", "Pull request"]
         case .providers:
             ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
-        case .agents:
-            ["Agents", "Agent", "ACP", "Codex", "Claude", "Node.js", "npm", "Install"]
         case .git:
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
@@ -263,13 +261,6 @@ struct SettingsView: View {
                     case .run: EmptyView()
                     case .ai: aiSettings
                     case .providers: providersSettings
-                    case .agents:
-                        AgentsSettingsView(
-                            settings: settings,
-                            feature: model.agentManagementFeature,
-                            onManageProviders: { viewState.selection = .providers }
-                        )
-                            .frame(maxWidth: 760, alignment: .leading)
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
                             GitExecutionSettingsView(settings: settings)
@@ -880,12 +871,14 @@ struct SettingsView: View {
     /// Which features use `provider`, e.g. "Used by: commit messages, Codex".
     private func providerUsage(_ provider: AIProviderProfile) -> String {
         var users: [String] = []
-        if settings.commitMessageAI.activeProviderID == provider.id { users.append("commit messages") }
+        if settings.commitMessageAI.activeProviderID == provider.id { users.append(String(localized: "commit messages")) }
         users += settings.agentConfigurations.values
             .filter { $0.providerID == provider.id }
             .map(\.name)
             .sorted()
-        return users.isEmpty ? "Not used yet." : "Used by: " + users.joined(separator: ", ")
+        return users.isEmpty
+            ? String(localized: "Not used yet.")
+            : String(format: String(localized: "Used by: %@"), users.joined(separator: ", "))
     }
 
     private var aiSettings: some View {

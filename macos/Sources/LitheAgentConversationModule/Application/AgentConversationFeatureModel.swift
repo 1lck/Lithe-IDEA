@@ -6,10 +6,13 @@ import LitheCoreContracts
 public struct AgentOption: Identifiable, Equatable, Sendable {
     public let id: String
     public let name: String
+    /// Model or provider label shown next to the agent in the composer.
+    public let modelName: String?
 
-    public init(id: String, name: String) {
+    public init(id: String, name: String, modelName: String? = nil) {
         self.id = id
         self.name = name
+        self.modelName = modelName
     }
 }
 

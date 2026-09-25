@@ -75,10 +75,15 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     @Published public private(set) var connectionState: ConnectionState = .idle
+    /// Name and version the agent reported on `ready`, for the panel header.
+    @Published public private(set) var agentName: String?
+    @Published public private(set) var agentVersion: String?
     @Published public private(set) var sessions: [AgentSessionSummary] = []
     /// `nil` selects a new, not yet created conversation.
     @Published public private(set) var selectedSessionID: String?
     @Published public private(set) var conversations: [String: AgentConversation] = [:]
+    /// Sessions shown as tabs, in the order they were opened in this panel.
+    @Published public private(set) var openSessionIDs: [String] = []
     /// Prompt of a new conversation while its session is being created.
     @Published public private(set) var pendingNewConversationPrompt: String?
     @Published public private(set) var canLoadSessions = false
@@ -169,10 +174,25 @@ public final class AgentConnectionModel: ObservableObject {
     public func selectSession(_ sessionID: String) {
         selectedSessionID = sessionID
         errorMessage = nil
+        openTab(sessionID)
         let conversation = conversations[sessionID]
         if conversation?.isAttached != true, conversation?.isLoading != true,
            connection != nil, canLoadSessions {
             beginLoad(sessionID)
+        }
+    }
+
+    /// Close a tab. A conversation that is still responding or waiting for a
+    /// permission decision stays open so its outcome is not lost.
+    public func closeConversation(_ sessionID: String) {
+        guard let conversation = conversations[sessionID],
+              !conversation.isResponding, conversation.permission == nil else { return }
+        openSessionIDs.removeAll { $0 == sessionID }
+        conversations[sessionID] = nil
+        pendingText[sessionID] = nil
+        queuedPrompts[sessionID] = nil
+        if selectedSessionID == sessionID {
+            selectedSessionID = openSessionIDs.last
         }
     }
 
@@ -238,6 +258,8 @@ public final class AgentConnectionModel: ObservableObject {
         switch kind {
         case "ready":
             connectionState = .ready
+            agentName = event["agentName"] as? String
+            agentVersion = event["agentVersion"] as? String
             canLoadSessions = event["canLoadSessions"] as? Bool ?? false
             canListSessions = event["canListSessions"] as? Bool ?? false
             refreshSessions()
@@ -293,6 +315,7 @@ public final class AgentConnectionModel: ObservableObject {
         var conversation = conversations[sessionID] ?? AgentConversation()
         conversation.isAttached = true
         conversations[sessionID] = conversation
+        openTab(sessionID)
         guard let prompt else { return }
         pendingNewConversationPrompt = nil
         selectedSessionID = sessionID
@@ -467,6 +490,11 @@ public final class AgentConnectionModel: ObservableObject {
         return old
     }
 
+    private func openTab(_ sessionID: String) {
+        guard !openSessionIDs.contains(sessionID) else { return }
+        openSessionIDs.append(sessionID)
+    }
+
     private func makeToken() -> String {
         nextToken += 1
         return "lithe-\(nextToken)"
@@ -519,6 +547,9 @@ public final class AgentConnectionModel: ObservableObject {
 }
 
 public enum AgentConversationError: LocalizedError, Equatable {
+    case featureDisabled
+    case noAgentConfigured
+    case moduleStarting
     case missingCommand
     case missingProvider
     case missingAPIKey
@@ -528,12 +559,15 @@ public enum AgentConversationError: LocalizedError, Equatable {
 
     public var errorDescription: String? {
         switch self {
-        case .missingCommand: "Set the custom Agent's executable in Settings › Agents."
-        case .missingProvider: "Choose an AI provider for this Agent in Settings › Agents."
-        case .missingAPIKey: "Add an API key to this Agent's provider in Settings › AI Providers."
-        case .notConnected: "The Agent is not running. Connect to start a conversation."
-        case .sessionStopping: "The previous Agent is still stopping. Try again shortly."
-        case .cannotResume: "This Agent cannot reopen earlier conversations. Start a new conversation."
+        case .featureDisabled: String(localized: "Agent conversation is turned off. Turn it on in the panel settings to send messages.")
+        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration.")
+        case .moduleStarting: String(localized: "The Agent module is still starting. Try again in a moment.")
+        case .missingCommand: String(localized: "Set the custom Agent's executable in the panel settings.")
+        case .missingProvider: String(localized: "Fetch this Agent's local configuration in the panel settings.")
+        case .missingAPIKey: String(localized: "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again.")
+        case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
+        case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
+        case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
         }
     }
 }

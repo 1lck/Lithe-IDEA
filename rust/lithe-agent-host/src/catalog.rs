@@ -45,6 +45,9 @@ pub struct AgentCli {
     pub path_env: &'static str,
     /// How users usually install or update the CLI, shown when it is missing.
     pub install_hint: &'static str,
+    /// npm package that provides the CLI, for one-click install or update
+    /// with the user's npm.
+    pub package: &'static str,
 }
 
 /// One installable ACP adapter distributed as an npm package.
@@ -90,6 +93,7 @@ pub const CATALOG: &[CatalogAgent] = &[
             minimum_version: "0.156.0",
             path_env: "CODEX_PATH",
             install_hint: "npm install -g @openai/codex",
+            package: "@openai/codex",
         }),
         verified: true,
     },
@@ -111,6 +115,7 @@ pub const CATALOG: &[CatalogAgent] = &[
             minimum_version: "2.1.280",
             path_env: "CLAUDE_CODE_EXECUTABLE",
             install_hint: "npm install -g @anthropic-ai/claude-code",
+            package: "@anthropic-ai/claude-code",
         }),
         verified: false,
     },

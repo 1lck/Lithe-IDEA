@@ -19,7 +19,7 @@ pub(crate) struct AgentStatusRequest {
     data_directory: PathBuf,
 }
 
-/// Payload of `agent.install` and `agent.uninstall`.
+/// Payload of `agent.install`, `agent.uninstall`, and `agent.installCli`.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AgentInstallRequest {
@@ -57,6 +57,14 @@ pub(crate) fn install(request: AgentInstallRequest) -> Result<Value, CoreError> 
     absolute(&request.data_directory)?;
     install::install(&request.data_directory, &request.agent_id, &cancelled)
         .map(|version| serde_json::json!({ "agentId": request.agent_id, "installedVersion": version }))
+        .map_err(core_error)
+}
+
+/// Install or update the agent's own CLI globally with the user's npm.
+pub(crate) fn install_cli(request: AgentInstallRequest) -> Result<Value, CoreError> {
+    absolute(&request.data_directory)?;
+    install::install_cli(&request.agent_id, &cancelled)
+        .map(|version| serde_json::json!({ "agentId": request.agent_id, "cliVersion": version }))
         .map_err(core_error)
 }
 

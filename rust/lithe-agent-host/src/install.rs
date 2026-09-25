@@ -54,6 +54,8 @@ pub struct CliStatus {
     pub command: String,
     pub minimum_version: String,
     pub install_hint: String,
+    /// npm package Lithe installs globally on request.
+    pub package: String,
     pub detected: Option<DetectedTool>,
 }
 
@@ -108,6 +110,7 @@ pub(crate) fn status_with(
                 command: cli.command.into(),
                 minimum_version: cli.minimum_version.into(),
                 install_hint: cli.install_hint.into(),
+                package: cli.package.into(),
                 detected: find_cli(cli.command),
             });
             let mut issues = runtime_issues(agent, &environment);
@@ -245,6 +248,63 @@ pub fn install(
         let _ = std::fs::remove_dir_all(&staging);
     }
     result.map(|()| agent.version.to_owned())
+}
+
+/// Install or update the user's own CLI for `agent_id` with `npm install -g`
+/// on the user's npm, then report the version now on the search path.
+///
+/// This is the one place Lithe touches a global npm install; it runs only on
+/// an explicit click and uses the same npm the user would.
+pub fn install_cli(agent_id: &str, cancel: &dyn Fn() -> bool) -> Result<String, ManagementError> {
+    let agent = crate::catalog::find(agent_id)
+        .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
+    let cli = agent.cli.as_ref().ok_or_else(|| {
+        ManagementError::Failed(format!("{} does not use a separate CLI", agent.name))
+    })?;
+    let environment = environment::detect(cancel);
+    let npm = environment
+        .npm
+        .as_ref()
+        .map(|npm| npm.path.clone())
+        .ok_or_else(|| ManagementError::RuntimeMissing("npm was not found".into()))?;
+    let mut command = Command::new(&npm);
+    command
+        .args([
+            "install",
+            "-g",
+            "--no-audit",
+            "--no-fund",
+            "--loglevel=error",
+        ])
+        .arg(format!("{}@latest", cli.package));
+    if let Some(path) = environment::search_path() {
+        command.env("PATH", path);
+    }
+    match environment::run_bounded_status(&mut command, INSTALL_TIMEOUT, cancel) {
+        Ok((true, _)) => {}
+        Ok((false, output)) => {
+            return Err(ManagementError::Failed(format!(
+                "npm could not install {}:\n{}",
+                cli.package,
+                tail(&output)
+            )))
+        }
+        Err(RunError::Cancelled) => return Err(ManagementError::Cancelled),
+        Err(RunError::TimedOut) => return Err(ManagementError::TimedOut),
+        Err(RunError::Start(message)) => {
+            return Err(ManagementError::Failed(format!(
+                "Could not run npm: {message}"
+            )))
+        }
+    }
+    environment::detect_tool(cli.command, cancel)
+        .map(|tool| tool.version)
+        .ok_or_else(|| {
+            ManagementError::Failed(format!(
+                "npm finished, but `{}` was not found on the search path",
+                cli.command
+            ))
+        })
 }
 
 /// Remove an installed adapter. Removing a missing adapter succeeds.

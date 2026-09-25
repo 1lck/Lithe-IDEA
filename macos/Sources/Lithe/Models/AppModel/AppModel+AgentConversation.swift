@@ -13,9 +13,10 @@ extension AppModel {
         (services.moduleRuntime.capability(.agentConversation) as? AgentConversationCapability)?.feature
     }
 
+    /// The panel stays open when the feature is turned off; only the Agent
+    /// processes stop and the panel explains how to turn it back on.
     func setAgentConversationEnabled(_ enabled: Bool) async {
         if !enabled {
-            workbenchFeature.setVisibility(.agent, isVisible: false)
             agentConversationNeedsAttention = false
         }
         do {
@@ -23,12 +24,26 @@ extension AppModel {
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)
+            return
+        }
+        if enabled, workbenchFeature.isVisible(.agent) {
+            activateAgentConversation()
         }
     }
 
+    /// Show or hide the panel. The panel always renders its full layout; the
+    /// module is only activated when the feature is enabled.
     func toggleAgentConversation() {
         guard workspaceURL != nil else { return }
         guard toggleToolWindow(.agent) else { return }
+        activateAgentConversation()
+    }
+
+    func activateAgentConversation() {
+        guard isAgentConversationEnabled, agentConversationFeatureIfActive == nil else {
+            connectAgentConversation()
+            return
+        }
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
@@ -37,10 +52,48 @@ extension AppModel {
                 objectWillChange.send()
                 connectAgentConversation()
             } catch {
-                workbenchFeature.setVisibility(.agent, isVisible: false)
                 showNotification(error.localizedDescription)
             }
         }
+    }
+
+    /// Why a message cannot be sent right now, before any Agent is involved.
+    var agentConversationSetupError: AgentConversationError? {
+        if !isAgentConversationEnabled { return .featureDisabled }
+        if configuredAgentOptions.isEmpty { return .noAgentConfigured }
+        if agentConversationFeatureIfActive == nil { return .moduleStarting }
+        return nil
+    }
+
+    /// Which local CLI configuration an agent follows, if any.
+    static func localConfigurationSource(for agentID: String) -> AIConfigurationSourceKind? {
+        switch agentID {
+        case "codex-acp": .codex
+        case "claude-acp": .claude
+        default: nil
+        }
+    }
+
+    /// Read the user's own CLI configuration (endpoint, model, API key) and
+    /// bind it to `agentID`. Lithe keeps following that file; nothing is
+    /// copied into Lithe settings except the provider profile. The commit
+    /// message provider is left untouched.
+    @discardableResult
+    func importLocalConfiguration(for agentID: String, source: AIConfigurationSourceKind, name: String) -> Bool {
+        guard let configuration = loadAIConfigurations().first(where: { $0.source == source }) else {
+            detectedAIConfigurations.removeAll { $0.source == source }
+            showNotification(String(format: String(localized: "No %@ configuration was found on this Mac."), source.title))
+            return false
+        }
+        let commitProviderID = settings.commitMessageAI.activeProviderID
+        let provider = settings.importAIConfiguration(configuration)
+        settings.commitMessageAI.activeProviderID = commitProviderID
+        try? services.secureStore.delete(key: provider.apiKeyIdentifier)
+        detectedAIConfigurations.removeAll { $0.source == source }
+        detectedAIConfigurations.append(configuration)
+        settings.setAgentProvider(provider.id, for: agentID, name: name)
+        showNotification(String(format: String(localized: "%@ now follows your local %@ configuration."), name, source.title))
+        return true
     }
 
     /// Directory holding Lithe-managed ACP adapter installs.
@@ -57,7 +110,11 @@ extension AppModel {
                     && (id != AgentConfiguration.customAgentID
                         || !settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .map { AgentOption(id: $0.key, name: $0.value.name) }
+            .map { id, configuration -> AgentOption in
+                let provider = settings.agentProvider(for: id)
+                let model = provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
+            }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 

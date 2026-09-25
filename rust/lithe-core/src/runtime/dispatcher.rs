@@ -116,6 +116,9 @@ fn execute(request: &str) -> CoreResponse {
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
         CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
         CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
+        CoreCommand::AgentInstallCli => {
+            agent_response(id, parsed.payload, crate::agent::install_cli)
+        }
         CoreCommand::CommunityDiscourseAuthBegin => {
             match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
                 .map_err(|error| {

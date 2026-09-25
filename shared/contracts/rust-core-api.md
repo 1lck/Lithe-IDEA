@@ -118,9 +118,9 @@ stable error code and a user-facing message:
 
 ### Agent adapters
 
-`agent.status`, `agent.install`, and `agent.uninstall` manage ACP adapters in
+`agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
 `<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
-Lithe never installs Node.js or the agents' own command-line tools. `agent.status`
+Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
 and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
@@ -135,6 +135,12 @@ honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
 `runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with
 its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
 results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
+
+`agent.installCli` runs `npm install -g <package>@latest` with the user's npm for
+the agent's own CLI (`cli.package` in `agent.status`), then reports the version
+found on the search path as `cliVersion`. It is the only global npm install
+Lithe performs and runs only on an explicit user action; it never installs
+Node.js or npm.
 
 | Command | Purpose |
 | --- | --- |

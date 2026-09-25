@@ -1,15 +1,45 @@
 {
   "version": 1,
   "requests": {
-    "status": { "command": "agent.status", "payload": { "dataDirectory": "/Users/example/Library/Application Support/Lithe" } },
-    "install": { "command": "agent.install", "payload": { "dataDirectory": "/Users/example/Library/Application Support/Lithe", "agentId": "codex-acp" } },
-    "uninstall": { "command": "agent.uninstall", "payload": { "dataDirectory": "/Users/example/Library/Application Support/Lithe", "agentId": "codex-acp" } }
+    "status": {
+      "command": "agent.status",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe"
+      }
+    },
+    "install": {
+      "command": "agent.install",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    },
+    "uninstall": {
+      "command": "agent.uninstall",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    },
+    "installCli": {
+      "command": "agent.installCli",
+      "payload": {
+        "dataDirectory": "/Users/example/Library/Application Support/Lithe",
+        "agentId": "codex-acp"
+      }
+    }
   },
   "responses": {
     "status": {
       "environment": {
-        "node": { "version": "20.11.0", "path": "/opt/example/node/bin/node" },
-        "npm": { "version": "10.2.4", "path": "/opt/example/node/bin/npm" },
+        "node": {
+          "version": "20.11.0",
+          "path": "/opt/example/node/bin/node"
+        },
+        "npm": {
+          "version": "10.2.4",
+          "path": "/opt/example/node/bin/npm"
+        },
         "usedLoginShell": true
       },
       "agents": [
@@ -28,7 +58,11 @@
             "command": "codex",
             "minimumVersion": "0.156.0",
             "installHint": "npm install -g @openai/codex",
-            "detected": { "version": "0.156.1", "path": "/opt/example/node/bin/codex" }
+            "detected": {
+              "version": "0.156.1",
+              "path": "/opt/example/node/bin/codex"
+            },
+            "package": "@openai/codex"
           },
           "issues": []
         },
@@ -47,7 +81,8 @@
             "command": "claude",
             "minimumVersion": "2.1.280",
             "installHint": "npm install -g @anthropic-ai/claude-code",
-            "detected": null
+            "detected": null,
+            "package": "@anthropic-ai/claude-code"
           },
           "issues": [
             "Claude needs Node.js 22 or later; found 20.11.0.",
@@ -56,7 +91,16 @@
         }
       ]
     },
-    "install": { "agentId": "codex-acp", "installedVersion": "1.13.1" },
-    "uninstall": { "agentId": "codex-acp" }
+    "install": {
+      "agentId": "codex-acp",
+      "installedVersion": "1.13.1"
+    },
+    "uninstall": {
+      "agentId": "codex-acp"
+    },
+    "installCli": {
+      "agentId": "codex-acp",
+      "cliVersion": "0.156.1"
+    }
   }
 }

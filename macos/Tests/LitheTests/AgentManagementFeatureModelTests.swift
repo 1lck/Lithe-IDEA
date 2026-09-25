@@ -3,7 +3,7 @@ import LitheCoreContracts
 import Testing
 @testable import Lithe
 
-/// Settings › Agents state, driven by a controllable management service.
+/// Agent panel settings state, driven by a controllable management service.
 @MainActor
 struct AgentManagementFeatureModelTests {
     @Test
@@ -42,9 +42,11 @@ struct AgentManagementFeatureModelTests {
     }
 
     private func waitUntilIdle(_ feature: AgentManagementFeatureModel) async throws {
-        // Bounded: the operation finishes as soon as the service is released.
-        for _ in 0..<500 where feature.busyAgentID != nil || feature.phase == .checking {
-            await Task.yield()
+        // Bounded by wall-clock time, not by a yield count: under CI load a
+        // fixed number of yields is not enough for the operation task to run.
+        let deadline = ContinuousClock.now + .seconds(2)
+        while feature.busyAgentID != nil || feature.phase == .checking, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
         }
         #expect(feature.busyAgentID == nil, "operation finished within the deadline")
     }
@@ -75,7 +77,10 @@ private actor TestAgentManagementService: AgentManagementService {
     }
 
     func waitUntilInstallStarted() async throws {
-        for _ in 0..<500 where !installStarted { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !installStarted, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(5))
+        }
         #expect(installStarted, "install started within the deadline")
     }
 
@@ -115,4 +120,6 @@ private actor TestAgentManagementService: AgentManagementService {
     func uninstall(agentID: String, dataDirectory: URL) async throws {
         uninstallCalls += 1
     }
+
+    func installCli(agentID: String, dataDirectory: URL) async throws -> String { "0.156.1" }
 }

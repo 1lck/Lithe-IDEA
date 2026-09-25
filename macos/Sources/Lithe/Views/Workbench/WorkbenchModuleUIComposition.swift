@@ -35,18 +35,11 @@ enum WorkbenchModuleUIComposition {
                 ideaAssetPath: nil,
                 isVisible: { $0.workspaceURL != nil },
                 isSelected: { $0.workbenchFeature.isVisible(.agent) },
-                content: { model in
-                    guard let feature = model.agentConversationFeatureIfActive else {
-                        return AnyView(WorkbenchModuleUIRegistry.moduleLoadingView)
-                    }
-                    return AnyView(AgentConversationView(
-                        feature: feature,
-                        onConnect: { [weak model] in model?.connectAgentConversation() },
-                        onSelectAgent: { [weak model] agentID in model?.selectAgentConversationAgent(agentID) },
-                        onOpenSettings: { [weak model] in model?.workbenchFeature.presentSettings(category: .agents) }
-                    ))
-                },
-                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.agentConversationFeatureIfActive) }
+                // The panel renders its full layout even before the optional
+                // module is active, so the loading placeholder is not used.
+                content: { model in AnyView(AgentConversationView(model: model)) },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.agentConversationFeatureIfActive) },
+                rightSidebarBehavior: .docked
             )
         ]
     )
