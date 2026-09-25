@@ -442,6 +442,28 @@
       "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"
     },
     {
+      "id": "git-multi-repository-references",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "多仓库引用面板：分组、配色与引用操作",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。"
+    },
+    {
       "id": "github-prs",
       "area": "协作",
       "group": "GitHub",

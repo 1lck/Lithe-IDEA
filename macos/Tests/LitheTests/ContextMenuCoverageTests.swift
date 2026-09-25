@@ -60,13 +60,23 @@ struct ContextMenuCoverageTests {
             onSelect: { _ in Issue.record("Right click must not check out or change selection") },
             onCherryPick: { received.append("cherry:\($0.hash)") },
             onRevert: { received.append("revert:\($0.hash)") },
-            onReset: { received.append("reset:\($0.hash)") },
+            onReset: { commit, mode in received.append("reset:\(mode.rawValue):\(commit.hash)") },
             onCreateTag: { received.append("tag:\($0.hash)") }
         ).contextMenuItems(for: commit)
-        for title in ["New Tag…", "Cherry-pick Commit…", "Revert Commit…", "Reset Current Branch to Here…"] {
+        for title in ["New Tag…", "Cherry-pick Commit…", "Revert Commit…"] {
             try #require(menu.first { $0.title == title }).action()
         }
-        #expect(received == ["tag:abcdef123456", "cherry:abcdef123456", "revert:abcdef123456", "reset:abcdef123456"])
+        let resetMenu = try #require(menu.first { $0.title == "Reset Current Branch to Here…" })
+        guard case .submenu(let resetItems) = resetMenu.kind else {
+            Issue.record("Reset should offer soft, mixed, and hard as a submenu")
+            return
+        }
+        try #require(resetItems.first { $0.title == "Mixed Reset (Keep Changes Unstaged)" }).action()
+        try #require(resetItems.first { $0.title == "Hard Reset (Discard Changes)" }).action()
+        #expect(received == [
+            "tag:abcdef123456", "cherry:abcdef123456", "revert:abcdef123456",
+            "reset:mixed:abcdef123456", "reset:hard:abcdef123456"
+        ])
     }
 
     @Test

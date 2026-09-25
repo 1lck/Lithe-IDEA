@@ -116,6 +116,8 @@ enum GitReferenceMenuAction: Equatable {
     case push
     case delete
     case rename
+    case copyBranchName
+    case trackingBranch
 }
 
 /// Builds the context menu a reference row shows.
@@ -165,6 +167,8 @@ enum GitReferenceRowMenu {
             entries.append(.separator)
             entries.append(.action(.pullRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
             entries.append(.action(.pullMerge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
         }
 
         if kind == .local {
@@ -178,6 +182,9 @@ enum GitReferenceRowMenu {
 
             entries.append(.separator)
             entries.append(.action(.rename, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.trackingBranch, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
         }
 
         return entries

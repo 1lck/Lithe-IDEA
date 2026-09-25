@@ -205,7 +205,10 @@ struct GitLogView: View {
             titleVisibility: .visible
         ) {
             if let operation = pendingCommitOperation {
-                Button(LocalizedStringKey(operation.kind.actionTitle)) {
+                Button(
+                    LocalizedStringKey(operation.kind.actionTitle),
+                    role: operation.kind.isDestructive ? .destructive : nil
+                ) {
                     pendingCommitOperation = nil
                     Task {
                         switch operation.kind {
@@ -213,8 +216,8 @@ struct GitLogView: View {
                             await feature.cherryPick(operation.commit)
                         case .revert:
                             await feature.revert(operation.commit)
-                        case .reset:
-                            await feature.resetCurrentBranch(to: operation.commit)
+                        case .reset(let mode):
+                            await feature.resetCurrentBranch(to: operation.commit, mode: mode)
                         }
                     }
                 }
@@ -743,6 +746,7 @@ struct GitLogView: View {
             rows: rows(for: kind),
             currentReference: currentReference,
             isActiveRepository: true,
+            repositoryColorIndex: nil,
             actions: referenceRowActions
         )
     }
@@ -754,6 +758,7 @@ struct GitLogView: View {
         let collapseKey = "repository:" + repository.repositoryRoot.standardizedFileURL.path
         let isCollapsed = collapsedRepositoryGroups.contains(collapseKey)
         let actions = repoRowActions(for: repository.repositoryRoot, isActive: isActive)
+        let colorIndex = gitRepositoryColorIndex(for: repository.repositoryRoot)
         return VStack(alignment: .leading, spacing: 2) {
             Button {
                 if isCollapsed {
@@ -768,6 +773,11 @@ struct GitLogView: View {
                         .frame(width: 10)
                     LitheSystemIcon(systemImage: "shippingbox", size: 14)
                         .foregroundStyle(LitheTheme.secondaryText)
+                    if let colorIndex {
+                        Circle()
+                            .fill(GitRepositoryColor.color(at: colorIndex))
+                            .frame(width: 8, height: 8)
+                    }
                     Text(repository.name)
                         .font(GitVisual.section)
                         .foregroundStyle(LitheTheme.primaryText)
@@ -793,6 +803,7 @@ struct GitLogView: View {
                     rows: repository.localRows,
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
+                    repositoryColorIndex: colorIndex,
                     actions: actions
                 )
                 referenceSection(
@@ -803,6 +814,7 @@ struct GitLogView: View {
                     rows: repository.remoteRows,
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
+                    repositoryColorIndex: colorIndex,
                     actions: actions
                 )
                 referenceSection(
@@ -813,6 +825,7 @@ struct GitLogView: View {
                     rows: repository.tagRows,
                     currentReference: repository.currentReference,
                     isActiveRepository: isActive,
+                    repositoryColorIndex: colorIndex,
                     actions: actions
                 )
             }
@@ -827,6 +840,7 @@ struct GitLogView: View {
         rows: [GitReferenceRow],
         currentReference: GitReference?,
         isActiveRepository: Bool,
+        repositoryColorIndex: Int?,
         actions: GitReferenceRowActions
     ) -> some View {
         VStack(alignment: .leading, spacing: 1) {
@@ -862,6 +876,7 @@ struct GitLogView: View {
                             currentReferenceID: currentReference?.id,
                             comparisonSourceID: comparisonSourceReference?.id,
                             isReadOnly: !isActiveRepository,
+                            repositoryColorIndex: repositoryColorIndex,
                             actions: actions
                         )
                         .equatable()
@@ -960,6 +975,20 @@ struct GitLogView: View {
             push: { reference in
                 pendingPushReference = reference
             },
+            copyBranchName: { reference in
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(reference.shortName, forType: .string)
+            },
+            setBranchUpstream: { reference, upstream in
+                Task {
+                    if let upstream {
+                        await feature.setUpstream(reference, to: upstream)
+                    } else {
+                        await feature.unsetUpstream(reference)
+                    }
+                }
+            },
+            remoteBranches: feature.gitReferences.filter { $0.kind == .remote },
             branchOperation: { kind, reference in
                 pendingBranchOperation = GitBranchOperationRequest(kind: kind, reference: reference)
             }
@@ -1445,8 +1474,8 @@ struct GitLogView: View {
             onRevert: { commit in
                 pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .revert, commit: commit)
             },
-            onReset: { commit in
-                pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .reset, commit: commit)
+            onReset: { commit, mode in
+                pendingOperation.wrappedValue = GitCommitOperationRequest(kind: .reset(mode), commit: commit)
             },
             onCreateTag: { commit in
                 tagDialogRequest = GitTagDialogRequest(commit: commit)
@@ -1919,6 +1948,15 @@ struct GitLogView: View {
             == feature.gitRepositoryRoot?.standardizedFileURL
     }
 
+    /// The repository's palette slot, or `nil` when the pane is not grouping
+    /// repositories. The slot always comes from the full ordered root list, so
+    /// hiding worktrees cannot shift the colors of the repositories still shown.
+    private func gitRepositoryColorIndex(for repositoryRoot: URL) -> Int? {
+        let repositoryRoots = feature.availableRepositoryRoots
+        guard GitRepositoryColor.isVisible(for: repositoryRoots) else { return nil }
+        return GitRepositoryColor.index(for: repositoryRoot, in: repositoryRoots)
+    }
+
     private var hasWorktreeRepositories: Bool {
         let roots = feature.availableRepositoryRoots
         return roots.contains { GitRepositoryHierarchy.isLinkedWorktreeRepository($0, among: roots) }
@@ -2110,7 +2148,7 @@ enum GitLogDatePreset: String, CaseIterable, Identifiable, Hashable {
 private enum GitCommitOperationKind {
     case cherryPick
     case revert
-    case reset
+    case reset(GitResetMode)
 
     var title: String {
         switch self {
@@ -2124,8 +2162,17 @@ private enum GitCommitOperationKind {
         switch self {
         case .cherryPick: "Cherry-pick"
         case .revert: "Revert"
-        case .reset: "Reset (Mixed)"
+        case .reset(.soft): "Reset (Soft)"
+        case .reset(.mixed): "Reset (Mixed)"
+        case .reset(.hard): "Reset (Hard)"
         }
+    }
+
+    /// A hard reset discards working-tree changes, so its confirmation button is
+    /// destructive. Soft and mixed keep the changes.
+    var isDestructive: Bool {
+        if case .reset(.hard) = self { return true }
+        return false
     }
 
     func message(for commit: GitCommit) -> LocalizedStringKey {
@@ -2134,8 +2181,12 @@ private enum GitCommitOperationKind {
             "Apply \(commit.shortHash) to the current branch."
         case .revert:
             "Create a new commit that reverses \(commit.shortHash)."
-        case .reset:
+        case .reset(.soft):
+            "Move the current branch to \(commit.shortHash) and keep changes staged."
+        case .reset(.mixed):
             "Move the current branch to \(commit.shortHash) and keep changes unstaged."
+        case .reset(.hard):
+            "Move the current branch to \(commit.shortHash) and discard all working-tree changes."
         }
     }
 }
@@ -2144,7 +2195,7 @@ private struct GitCommitOperationRequest: Identifiable {
     let kind: GitCommitOperationKind
     let commit: GitCommit
 
-    var id: String { "\(kind.title):\(commit.hash)" }
+    var id: String { "\(kind.actionTitle):\(commit.hash)" }
 }
 
 private enum GitBranchDialogKind {
@@ -2873,6 +2924,11 @@ private struct GitReferenceRowActions {
     let checkout: (GitReference) -> Void
     let updateCurrentBranch: (GitReference) -> Void
     let push: (GitReference) -> Void
+    let copyBranchName: (GitReference) -> Void
+    /// Sets the local branch's tracking branch. A `nil` upstream clears it.
+    let setBranchUpstream: (GitReference, GitReference?) -> Void
+    /// Remote branches offered by the "Tracking Branch" submenu.
+    let remoteBranches: [GitReference]
     let branchOperation: (GitBranchOperationKind, GitReference) -> Void
 }
 
@@ -2887,6 +2943,11 @@ private struct GitReferenceRowView: View, Equatable {
     /// context menu, so this participates in equality to force a re-render when
     /// the active repository changes.
     let isReadOnly: Bool
+    /// The repository's palette slot for the row's leading color bar, or `nil`
+    /// when colors are not shown (single-repository workspaces). The index, not
+    /// the resolved `Color`, participates in equality so the row refresh rule
+    /// stays value-based.
+    let repositoryColorIndex: Int?
     let actions: GitReferenceRowActions
 
     static func == (lhs: Self, rhs: Self) -> Bool {
@@ -2896,6 +2957,7 @@ private struct GitReferenceRowView: View, Equatable {
             && lhs.currentReferenceID == rhs.currentReferenceID
             && lhs.comparisonSourceID == rhs.comparisonSourceID
             && lhs.isReadOnly == rhs.isReadOnly
+            && lhs.repositoryColorIndex == rhs.repositoryColorIndex
     }
 
     var body: some View {
@@ -2956,6 +3018,13 @@ private struct GitReferenceRowView: View, Equatable {
             .padding(.leading, CGFloat(row.depth * 16))
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .overlay(alignment: .leading) {
+                if let repositoryColorIndex {
+                    Rectangle()
+                        .fill(GitRepositoryColor.color(at: repositoryColorIndex))
+                        .frame(width: 2.5)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
             .litheRowHover(
@@ -3075,7 +3144,44 @@ private struct GitReferenceRowView: View, Equatable {
             return .action("Rename…", role: role, isEnabled: isEnabled) {
                 actions.renameBranch(reference)
             }
+        case .copyBranchName:
+            return .action("Copy Branch Name", role: role, isEnabled: isEnabled) {
+                actions.copyBranchName(reference)
+            }
+        case .trackingBranch:
+            return trackingBranchMenu(for: reference, isEnabled: isEnabled)
         }
+    }
+
+    /// Lists the workspace's remote branches so the user can point a local
+    /// branch at one, plus a clear entry that only appears when the branch
+    /// already tracks something.
+    private func trackingBranchMenu(
+        for reference: GitReference,
+        isEnabled: Bool
+    ) -> LitheContextMenuItem {
+        var items: [LitheContextMenuItem] = []
+        if let upstream = reference.upstreamShortName {
+            items.append(.action(upstream, systemImage: "checkmark", isEnabled: false) {})
+            items.append(.action("Stop Tracking Branch", isEnabled: isEnabled) {
+                actions.setBranchUpstream(reference, nil)
+            })
+            items.append(.separator)
+        }
+        if actions.remoteBranches.isEmpty {
+            items.append(.action("No Remote Branches", isEnabled: false) {})
+        } else {
+            for remote in actions.remoteBranches {
+                items.append(.action(
+                    remote.shortName,
+                    systemImage: "network",
+                    isEnabled: isEnabled && remote.shortName != reference.upstreamShortName
+                ) {
+                    actions.setBranchUpstream(reference, remote)
+                })
+            }
+        }
+        return .submenu("Tracking Branch", systemImage: "network", items: items)
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
