@@ -13,9 +13,9 @@ use crate::git::{
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
     GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
     GitRebaseControlRequest, GitRebasePreviewRequest, GitRebaseSessionRequest,
-    GitRebaseStartRequest, GitReferencesRequest, GitStashesRequest, GitStatusRequest,
-    GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest, PatchApplyRequest,
-    PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
+    GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest, GitStashesRequest,
+    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    PatchApplyRequest, PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -1627,6 +1627,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git command response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitRepositoryRoot => {
+            match serde_json::from_value::<GitRepositoryRootRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git repository root request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::discover_repository_root)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git repository root response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
