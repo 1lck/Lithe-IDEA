@@ -12,6 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState, Textarea, TextareaState};
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
@@ -762,7 +763,7 @@ impl SettingsDialog {
             .child(div().flex_shrink_0().child(control))
     }
 
-    /// 开关控件：可点击药丸，圆点指示开关状态（对齐 Tauri Switch 无文字）。
+    /// 开关控件：官方 Switch 滑块样式，选中填充主题色。
     fn render_toggle(
         &self,
         id: &'static str,
@@ -770,36 +771,9 @@ impl SettingsDialog {
         cx: &mut Context<Self>,
         toggle: impl Fn(&mut Self, &mut Context<Self>) + 'static,
     ) -> impl IntoElement {
-        h_flex()
-            .id(id)
-            .items_center()
-            .gap_1p5()
-            .px_2p5()
-            .py_1()
-            .rounded_sm()
-            .border_1()
-            .cursor_pointer()
-            .text_xs()
-            .when(value, |el| {
-                el.bg(ThemeColors::primary())
-                    .border_color(ThemeColors::primary())
-                    .text_color(ThemeColors::foreground())
-            })
-            .when(!value, |el| {
-                el.bg(ThemeColors::background())
-                    .border_color(ThemeColors::border())
-                    .text_color(ThemeColors::subtle_foreground())
-                    .hover(|h| {
-                        h.bg(ThemeColors::accent())
-                            .text_color(ThemeColors::foreground())
-                    })
-            })
-            .child(div().w(px(8.0)).h(px(8.0)).rounded_full().bg(if value {
-                ThemeColors::foreground()
-            } else {
-                ThemeColors::subtle_foreground()
-            }))
-            .on_click(cx.listener(move |this, _event, _window, cx| toggle(this, cx)))
+        Switch::new(id).checked(value).on_click(cx.listener(
+            move |this, _event, _window, cx| toggle(this, cx),
+        ))
     }
 
     /// 数值步进器：减号 + 当前值 + 加号。
@@ -1096,16 +1070,22 @@ impl SettingsDialog {
                     ),
                 ),
             )
-            .child(self.render_group(
-                crate::i18n::menu_text(cx, "settings.mac.files").to_string(),
-                v_flex().w_full().gap_3().child(self.render_row(
-                    crate::i18n::menu_text(cx, "settings.mac.autoSave").to_string(),
-                    None,
-                    self.render_toggle("general-auto-save", s.auto_save, cx, |this, cx| {
-                        this.commit(cx, |s| s.auto_save = !s.auto_save)
-                    }),
-                )),
-            ))
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.mac.files").to_string(),
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.mac.autoSave").to_string(),
+                            None,
+                            Switch::new("general-auto-save")
+                                .checked(s.auto_save)
+                                .on_click(cx.listener(move |this, _event, _window, cx| {
+                                    this.commit(cx, |s| s.auto_save = !s.auto_save)
+                                })),
+                        ),
+                    ),
+                ),
+            )
             .child(self.render_group(
                 crate::i18n::menu_text(cx, "settings.tabs.git").to_string(),
                 v_flex().w_full().gap_3().child(self.render_row(
