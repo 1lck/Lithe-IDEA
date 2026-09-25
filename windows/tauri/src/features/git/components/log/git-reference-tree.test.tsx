@@ -41,6 +41,25 @@ test("single repository keeps the flat reference sections", () => {
   expect(markup).toContain("Local");
   expect(markup).toContain("main");
   expect(markup).not.toContain("repo-a");
+  expect(markup).not.toContain("background-color");
+});
+
+test("multi-repository workspaces tint each repository group with its palette color", () => {
+  const repoA = { ...localReference("main", true), repositoryPath: "C:/repo-a" };
+  const repoB = { ...localReference("develop"), repositoryPath: "C:/repo-b" };
+  const markup = renderTree({
+    repoPath: "C:/repo-a",
+    references: [repoA],
+    repositoryPaths: ["C:/repo-a", "C:/repo-b"],
+    activeRepoPath: "C:/repo-a",
+    referencesByRepository: new Map([
+      ["C:/repo-a", [repoA]],
+      ["C:/repo-b", [repoB]],
+    ]),
+  });
+
+  expect(markup).toContain("background-color:#55d68b14");
+  expect(markup).toContain("background-color:#65a9ff14");
 });
 
 test("multiple repositories group each section set under a repository header", () => {

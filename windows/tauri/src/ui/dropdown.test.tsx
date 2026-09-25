@@ -200,3 +200,38 @@ test("a menu still repositions when its content becomes taller", async () => {
   });
   expect(menu().style.top).toBe("132px");
 });
+
+test("a menu item with children opens a nested submenu", async () => {
+  const select = mock(() => {});
+  await render(
+    <Dropdown
+      isOpen
+      animated={false}
+      point={{ x: 40, y: 60 }}
+      onClose={() => {}}
+      items={[
+        {
+          id: "git",
+          label: "Git",
+          onClick: () => {},
+          children: [{ id: "git-fetch", label: "Fetch", onClick: select }],
+        },
+      ]}
+    />,
+  );
+
+  expect(document.querySelectorAll('[role="menu"]').length).toBe(1);
+
+  const trigger = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+  expect(trigger.getAttribute("aria-haspopup")).toBe("menu");
+  await act(async () => trigger.focus());
+
+  const menus = document.querySelectorAll('[role="menu"]');
+  expect(menus.length).toBe(2);
+
+  const child = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(
+    (button) => button.textContent?.includes("Fetch"),
+  )!;
+  await act(async () => child.click());
+  expect(select).toHaveBeenCalledTimes(1);
+});

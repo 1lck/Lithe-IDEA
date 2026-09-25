@@ -9,9 +9,12 @@ import {
   FileTextIcon as FileText,
   FolderOpenIcon as FolderOpen,
   FolderPlusIcon as FolderPlus,
+  GitBranchIcon as GitBranch,
+  GitGraphIcon as GitGraph,
   ImageIcon,
   InfoIcon as Info,
   LinkIcon as Link,
+  DownloadIcon as Download,
   ArrowClockwiseIcon as RefreshCw,
   ScissorsIcon as Scissors,
   MagnifyingGlassIcon as Search,
@@ -36,10 +39,20 @@ import { useFileClipboardStore } from "@/features/file-explorer/stores/file-expl
 import { useFileTreeStore } from "@/features/file-explorer/stores/file-explorer-tree.store";
 import { pasteIntoExplorerDirectory } from "@/features/file-explorer/lib/paste-into-explorer-directory";
 import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java-class-from-clipboard";
+import { buildGitRepositoryContextMenuItems } from "@/features/file-explorer/lib/file-context-menu-git-items";
+import { createAndCheckoutBranch } from "@/features/git/api/git-branches-api";
+import { normalizeRepositoryPath } from "@/features/git/api/git-repo-api";
+import { fetchChanges } from "@/features/git/api/git-remotes-api";
+import { emitGitChanged } from "@/features/git/events/git-events";
+import { showGitPushDialog } from "@/features/git/services/git-push-dialog-service";
+import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
+import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
+import { isGitRepositoryRoot } from "@/features/git/utils/git-repository-root";
+import { useUIState } from "@/features/window/stores/ui-state.store";
 import type { ContextMenuState } from "@/features/file-system/types/app.types";
 import { Button } from "@/ui/button";
 import { Dropdown, type MenuItem } from "@/ui/dropdown";
-import Dialog from "@/ui/dialog";
+import Dialog, { showPromptDialog } from "@/ui/dialog";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { getBaseName, getDirName, getRelativePath, joinPath } from "@/utils/path-helpers";
@@ -122,7 +135,110 @@ export function useFileExplorerContextMenu({
     null,
   );
   const [propertiesDialog, setPropertiesDialog] = useState<PropertiesDialogState | null>(null);
+  const [isGitOperationRunning, setIsGitOperationRunning] = useState(false);
   const clipboardActions = useFileClipboardStore.getState().actions;
+  const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
+  const selectRepository = useRepositoryStore.use.actions().selectRepository;
+
+  const openGitLogForRepository = useCallback(
+    (path: string) => {
+      selectRepository(path);
+      const uiState = useUIState.getState();
+      uiState.setBottomPaneActiveTab("gitLog");
+      uiState.setIsBottomPaneVisible(true);
+    },
+    [selectRepository],
+  );
+
+  const fetchRepository = useCallback(
+    (path: string) => {
+      selectRepository(path);
+      void (async () => {
+        setIsGitOperationRunning(true);
+        const progressToast = toast.info(t("git.fetchingChanges"), { duration: 0 });
+        try {
+          const result = await fetchChanges(path);
+          toast.dismiss(progressToast);
+          if (result.success) toast.success(t("git.changesFetched"));
+          else toast.error(result.error || t("git.fetchFailed"));
+        } catch (error) {
+          toast.dismiss(progressToast);
+          toast.error(error instanceof Error ? error.message : t("git.fetchFailed"));
+        } finally {
+          setIsGitOperationRunning(false);
+        }
+      })();
+    },
+    [selectRepository, t],
+  );
+
+  const pullRepository = useCallback(
+    (path: string) => {
+      selectRepository(path);
+      void (async () => {
+        setIsGitOperationRunning(true);
+        try {
+          const repoPath = normalizeRepositoryPath(path);
+          // The shared Pull dialog is keyed by the requested repository, so this
+          // action and the Git panels use the same workflow and result reporting.
+          await showGitPullDialog(repoPath, {
+            refresh: async () => {
+              emitGitChanged({
+                repoPath,
+                scopes: ["working-tree", "history", "refs", "remotes"],
+                source: "pull-finished",
+              });
+            },
+          });
+        } finally {
+          setIsGitOperationRunning(false);
+        }
+      })();
+    },
+    [selectRepository],
+  );
+
+  const pushRepository = useCallback(
+    (path: string) => {
+      selectRepository(path);
+      void (async () => {
+        setIsGitOperationRunning(true);
+        try {
+          await showGitPushDialog(path);
+        } finally {
+          setIsGitOperationRunning(false);
+        }
+      })();
+    },
+    [selectRepository],
+  );
+
+  const createRepositoryBranch = useCallback(
+    (path: string) => {
+      selectRepository(path);
+      void (async () => {
+        const name = await showPromptDialog(t("git.log.branchNamePrompt"), {
+          title: t("git.contextMenu.newBranch"),
+          confirmLabel: t("git.newBranch"),
+        });
+        const branchName = name?.trim();
+        if (!branchName) return;
+
+        setIsGitOperationRunning(true);
+        try {
+          await createAndCheckoutBranch(path, branchName, "HEAD");
+          toast.success(t("git.log.branchCreated", { name: branchName }));
+        } catch (error) {
+          toast.error(
+            error instanceof Error ? error.message : t("git.log.branchCreateFailed"),
+          );
+        } finally {
+          setIsGitOperationRunning(false);
+        }
+      })();
+    },
+    [selectRepository, t],
+  );
 
   const createEnvTemplateFile = useCallback(
     async (sourcePath: string, targetFileName: string, options?: { overwrite?: boolean }) => {
@@ -270,6 +386,37 @@ export function useFileExplorerContextMenu({
           onClick: () => {},
         },
       );
+
+      if (isGitRepositoryRoot(contextMenu.path, availableRepoPaths)) {
+        items.push(
+          ...buildGitRepositoryContextMenuItems({
+            labels: {
+              submenu: t("git.contextMenu.submenu"),
+              openGitLog: t("git.contextMenu.openGitLog"),
+              fetch: t("git.contextMenu.fetch"),
+              pull: t("git.contextMenu.pull"),
+              push: t("git.contextMenu.push"),
+              newBranch: t("git.contextMenu.newBranch"),
+            },
+            actions: {
+              openGitLog: () => openGitLogForRepository(contextMenu.path),
+              fetch: () => fetchRepository(contextMenu.path),
+              pull: () => pullRepository(contextMenu.path),
+              push: () => pushRepository(contextMenu.path),
+              newBranch: () => createRepositoryBranch(contextMenu.path),
+            },
+            icons: {
+              submenu: <GitGraph />,
+              openGitLog: <ClockCounterClockwise />,
+              fetch: <RefreshCw />,
+              pull: <Download />,
+              push: <Upload />,
+              newBranch: <GitBranch />,
+            },
+            disabled: isGitOperationRunning,
+          }),
+        );
+      }
 
       if (onGenerateImage) {
         items.push({
@@ -503,10 +650,15 @@ export function useFileExplorerContextMenu({
 
     return items;
   }, [
+    availableRepoPaths,
     canRemoveWorkspaceRootPath,
     clipboardActions,
     contextMenu,
     createEnvTemplateFile,
+    createRepositoryBranch,
+    fetchRepository,
+    isGitOperationRunning,
+    openGitLogForRepository,
     onCreateNewFolderInDirectory,
     onCreateNewFileInDirectory,
     onDeleteRequested,
@@ -522,6 +674,8 @@ export function useFileExplorerContextMenu({
     onStartInlineEditing,
     onUploadFile,
     isWorkspaceRootPath,
+    pullRepository,
+    pushRepository,
     rootFolderPath,
     t,
   ]);

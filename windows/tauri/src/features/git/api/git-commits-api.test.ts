@@ -18,7 +18,8 @@ const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> =
   return null;
 });
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const {
   cherryPickCommit,
@@ -27,6 +28,7 @@ const {
   getGitReferences,
   getGitReferencesAtRoot,
   resetToCommit,
+  revertCommit,
 } = await import("./git-commits-api");
 
 beforeEach(() => {
@@ -83,15 +85,17 @@ describe("Git commit history reads", () => {
 });
 
 describe("Git commit history mutations", () => {
-  test("sends typed reset, cherry-pick, and selected commit requests", async () => {
+  test("sends typed reset, cherry-pick, revert, and selected commit requests", async () => {
     await resetToCommit("C:/repo", "a1", "mixed");
     await cherryPickCommit("C:/repo", "d4");
+    await revertCommit("C:/repo", "e5");
     await commitSelectedChanges("C:/repo", "selected", ["new.txt", "changed.txt"]);
 
     const writes = invoke.mock.calls.filter(([command]) => command === "git.write");
     expect(writes).toEqual([
       ["git.write", { repoPath: "C:/repo", operation: "reset", revision: "a1", mode: "--mixed" }],
       ["git.write", { repoPath: "C:/repo", operation: "cherryPick", revision: "d4" }],
+      ["git.write", { repoPath: "C:/repo", operation: "revert", revision: "e5" }],
       [
         "git.write",
         {

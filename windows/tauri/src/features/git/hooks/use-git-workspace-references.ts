@@ -34,18 +34,26 @@ const defaultScheduler: GitWorkspaceReferencesScheduler = {
 };
 
 /**
- * Loads references for every repository in a workspace so the Git Log reference
- * tree can group branches by repository, while keeping each repository's read
- * independently cancellable.
+ * Loads references per repository for the Git Log reference tree. Only the
+ * active repository is read eagerly; the others stay lazy and are fetched on
+ * demand through `ensureRepository`, then cached until a Git change invalidates
+ * them. Reads stay serialized because resolving sibling worktrees of the same
+ * common dir would otherwise race for the repository write lease.
  */
 export function useGitWorkspaceReferences(
   repositoryPaths: string[],
+  activeRepositoryPath: string | null | undefined,
   scheduler: GitWorkspaceReferencesScheduler = defaultScheduler,
 ) {
   const [state, setState] = useState<GitWorkspaceReferencesState>(EMPTY_STATE);
   const controllerIdRef = useRef<number | null>(null);
   const generationsRef = useRef(new Map<string, number>());
-  const activeOperationIdsRef = useRef(new Set<string>());
+  // Operations keyed by repository so a removed repository can cancel only its
+  // own in-flight read without disturbing another repository's load.
+  const activeOperationsRef = useRef(new Map<string, Set<string>>());
+  const requestedRepositoryKeysRef = useRef(new Set<string>());
+  const loadChainRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingLoadCountRef = useRef(0);
   const repositoryPathsRef = useRef(repositoryPaths);
   const scheduledRefreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRefreshPathsRef = useRef(new Set<string>());
@@ -59,13 +67,22 @@ export function useGitWorkspaceReferences(
     );
   }, []);
 
+  const finishLoad = useCallback(() => {
+    pendingLoadCountRef.current = Math.max(0, pendingLoadCountRef.current - 1);
+    if (pendingLoadCountRef.current === 0) {
+      setState((current) => (current.isLoading ? { ...current, isLoading: false } : current));
+    }
+  }, []);
+
   const loadRepository = useCallback(
     async (repositoryPath: string) => {
       const repositoryKey = normalizeRepositoryPath(repositoryPath);
       const generation = (generationsRef.current.get(repositoryKey) ?? 0) + 1;
       generationsRef.current.set(repositoryKey, generation);
       const operationId = `git-workspace-references-${controllerIdRef.current}-${repositoryKey}-${generation}`;
-      activeOperationIdsRef.current.add(operationId);
+      const operations = activeOperationsRef.current.get(repositoryKey) ?? new Set<string>();
+      operations.add(operationId);
+      activeOperationsRef.current.set(repositoryKey, operations);
 
       try {
         const snapshot = await getGitReferencesAtRoot(repositoryPath, operationId);
@@ -95,18 +112,56 @@ export function useGitWorkspaceReferences(
           return { ...current, referencesByRepository, errorsByRepository, error: message };
         });
       } finally {
-        activeOperationIdsRef.current.delete(operationId);
+        operations.delete(operationId);
+        if (operations.size === 0) activeOperationsRef.current.delete(repositoryKey);
+        finishLoad();
       }
     },
-    [isTrackedRepository],
+    [finishLoad, isTrackedRepository],
   );
 
-  const cancelActiveOperations = useCallback(() => {
-    for (const operationId of activeOperationIdsRef.current) {
-      void cancelGitHistoryOperation(operationId);
-    }
-    activeOperationIdsRef.current.clear();
+  const cancelRepositoryOperations = useCallback((repositoryKey: string) => {
+    const operations = activeOperationsRef.current.get(repositoryKey);
+    if (!operations) return;
+    for (const operationId of operations) void cancelGitHistoryOperation(operationId);
+    activeOperationsRef.current.delete(repositoryKey);
   }, []);
+
+  const cancelAllOperations = useCallback(() => {
+    for (const repositoryKey of [...activeOperationsRef.current.keys()]) {
+      cancelRepositoryOperations(repositoryKey);
+    }
+  }, [cancelRepositoryOperations]);
+
+  const requestRepository = useCallback(
+    (repositoryPath: string, force = false): Promise<void> => {
+      const repositoryKey = normalizeRepositoryPath(repositoryPath);
+      if (!isTrackedRepository(repositoryKey)) return Promise.resolve();
+      if (!force && requestedRepositoryKeysRef.current.has(repositoryKey)) {
+        return Promise.resolve();
+      }
+      requestedRepositoryKeysRef.current.add(repositoryKey);
+      pendingLoadCountRef.current += 1;
+      setState((current) => (current.isLoading ? current : { ...current, isLoading: true }));
+      const task = loadChainRef.current.then(() => loadRepository(repositoryPath));
+      loadChainRef.current = task.then(
+        () => undefined,
+        () => undefined,
+      );
+      return task;
+    },
+    [isTrackedRepository, loadRepository],
+  );
+
+  const ensureRepository = useCallback(
+    (repositoryPath: string) => requestRepository(repositoryPath),
+    [requestRepository],
+  );
+
+  const retryRepository = useCallback(
+    (repositoryPath: string) => requestRepository(repositoryPath, true),
+    [requestRepository],
+  );
 
   const cancelScheduledRefresh = useCallback(() => {
     const timeoutId = scheduledRefreshTimeoutRef.current;
@@ -117,6 +172,7 @@ export function useGitWorkspaceReferences(
 
   const scheduleRefresh = useCallback(
     (repositoryPath: string) => {
+      if (!requestedRepositoryKeysRef.current.has(normalizeRepositoryPath(repositoryPath))) return;
       pendingRefreshPathsRef.current.add(repositoryPath);
       if (scheduledRefreshTimeoutRef.current !== null) return;
 
@@ -124,32 +180,28 @@ export function useGitWorkspaceReferences(
         scheduledRefreshTimeoutRef.current = null;
         const targets = [...pendingRefreshPathsRef.current];
         pendingRefreshPathsRef.current.clear();
-        void (async () => {
-          for (const target of targets) await loadRepository(target);
-        })();
+        for (const target of targets) void requestRepository(target, true);
       }, REFRESH_DEBOUNCE_MS);
     },
-    [loadRepository, scheduler],
+    [requestRepository, scheduler],
   );
 
   const repositoryPathsKey = [...new Set(repositoryPaths.map(normalizeRepositoryPath))].join("\0");
-
-  const retryRepository = useCallback(
-    (repositoryPath: string) => {
-      if (!isTrackedRepository(normalizeRepositoryPath(repositoryPath))) return;
-      void loadRepository(repositoryPath);
-    },
-    [isTrackedRepository, loadRepository],
-  );
+  const activeRepositoryKey = activeRepositoryPath
+    ? normalizeRepositoryPath(activeRepositoryPath)
+    : "";
 
   useEffect(() => {
     cancelScheduledRefresh();
-    cancelActiveOperations();
     const keys = repositoryPathsKey ? repositoryPathsKey.split("\0") : [];
-    for (const key of generationsRef.current.keys()) {
-      if (!keys.includes(key)) {
-        generationsRef.current.set(key, (generationsRef.current.get(key) ?? 0) + 1);
-      }
+    for (const key of [...generationsRef.current.keys()]) {
+      if (keys.includes(key)) continue;
+      generationsRef.current.set(key, (generationsRef.current.get(key) ?? 0) + 1);
+    }
+    for (const key of [...requestedRepositoryKeysRef.current]) {
+      if (keys.includes(key)) continue;
+      requestedRepositoryKeysRef.current.delete(key);
+      cancelRepositoryOperations(key);
     }
     setState((current) => {
       const referencesByRepository = new Map<string, GitReference[]>();
@@ -171,24 +223,14 @@ export function useGitWorkspaceReferences(
       return { ...current, referencesByRepository, errorsByRepository };
     });
 
-    if (keys.length === 0) return;
-    let cancelled = false;
-    setState((current) => ({ ...current, isLoading: true, error: null }));
-    // Load repositories one at a time so a large workspace does not fan out one
-    // native reference read per repository at the same moment.
-    void (async () => {
-      for (const key of keys) {
-        if (cancelled) return;
-        await loadRepository(key);
-      }
-    })().finally(() => {
-      if (!cancelled) setState((current) => ({ ...current, isLoading: false }));
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cancelActiveOperations, cancelScheduledRefresh, loadRepository, repositoryPathsKey]);
+    if (activeRepositoryKey) void requestRepository(activeRepositoryKey);
+  }, [
+    activeRepositoryKey,
+    cancelRepositoryOperations,
+    cancelScheduledRefresh,
+    repositoryPathsKey,
+    requestRepository,
+  ]);
 
   useEffect(() => {
     const unsubscribe = subscribeToGitChanges((change) => {
@@ -208,10 +250,11 @@ export function useGitWorkspaceReferences(
   useEffect(
     () => () => {
       cancelScheduledRefresh();
-      cancelActiveOperations();
+      cancelAllOperations();
       generationsRef.current.clear();
+      requestedRepositoryKeysRef.current.clear();
     },
-    [cancelActiveOperations, cancelScheduledRefresh],
+    [cancelAllOperations, cancelScheduledRefresh],
   );
 
   return {
@@ -219,6 +262,7 @@ export function useGitWorkspaceReferences(
     errorsByRepository: state.errorsByRepository,
     isLoading: state.isLoading,
     error: state.error,
+    ensureRepository,
     retryRepository,
   };
 }

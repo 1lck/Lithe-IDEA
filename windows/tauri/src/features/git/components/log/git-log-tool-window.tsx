@@ -82,11 +82,20 @@ export function GitLogToolWindow() {
   const [panel, setPanel] = useState<"log" | "console">("log");
   const activeRepoPath = useRepositoryStore.use.activeRepoPath();
   const availableRepoPaths = useRepositoryStore.use.availableRepoPaths();
-  const { selectRepository } = useRepositoryStore.use.actions();
+  const { selectRepository, syncWorkspaceRepositories } = useRepositoryStore.use.actions();
   const rootFolderPath = useProjectStore((state) => state.rootFolderPath);
-  const repoPath = activeRepoPath ?? rootFolderPath ?? null;
+  const repoPath = activeRepoPath ?? availableRepoPaths[0] ?? rootFolderPath ?? null;
+  // The Log can be opened before the Source Control view has run repository
+  // discovery; in that case a folder that contains repositories would show
+  // "not a Git repository" until something else discovers them. Trigger it here
+  // so the pane resolves to an active repository on its own.
+  useEffect(() => {
+    if (!rootFolderPath || availableRepoPaths.length > 0) return;
+    void syncWorkspaceRepositories(rootFolderPath);
+  }, [availableRepoPaths.length, rootFolderPath, syncWorkspaceRepositories]);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
+  const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
   const {
     history,
     loadState,
@@ -97,9 +106,9 @@ export function GitLogToolWindow() {
     forgetReference,
     refresh,
     loadMore,
-  } = useGitLogController(repoPath);
-  const { referencesByRepository, errorsByRepository, retryRepository } =
-    useGitWorkspaceReferences(availableRepoPaths);
+  } = useGitLogController(repoPath, pendingReferenceSelectionRef.current);
+  const { referencesByRepository, errorsByRepository, ensureRepository, retryRepository } =
+    useGitWorkspaceReferences(availableRepoPaths, repoPath);
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
@@ -108,7 +117,6 @@ export function GitLogToolWindow() {
   const [showRemoteManager, setShowRemoteManager] = useState(false);
   const emptyContextMenu = useDropdownMenu();
   const selectionAnchorRef = useRef<string | null>(null);
-  const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
   const mainPanelLayout = useGitLogPreferencesStore.use.mainPanelLayout();
   const { setFilterQuery, setMainPanelLayout, renameMarkedReference } =
     useGitLogPreferencesStore.use.actions();
@@ -146,9 +154,10 @@ export function GitLogToolWindow() {
     ) {
       return;
     }
+    // The controller consumed this reference as the initial selection for the
+    // repository switch; clear it so a later switch cannot reuse it.
     pendingReferenceSelectionRef.current = null;
-    selectReference(pendingReference);
-  }, [repoPath, selectReference]);
+  }, [repoPath]);
 
   const clearHistorySelection = useCallback(async () => {
     setSelectedCommitHashes(new Set());
@@ -165,6 +174,7 @@ export function GitLogToolWindow() {
     squashSelectedCommits,
     resetBranchToCommit,
     cherryPickSelectedCommit,
+    revertSelectedCommit,
   } = useGitHistoryMutations({ repoPath, onCompleted: clearHistorySelection });
   const isReferenceMutationPending =
     isReferenceOperating || pullWorkflow.isPulling || isMutatingHistory;
@@ -647,6 +657,7 @@ export function GitLogToolWindow() {
               references={history.references}
               referencesByRepository={referencesByRepository}
               referenceErrorsByRepository={errorsByRepository}
+              onEnsureRepository={ensureRepository}
               onRetryRepository={retryRepository}
               repositoryPaths={availableRepoPaths}
               activeRepoPath={repoPath}
@@ -695,6 +706,7 @@ export function GitLogToolWindow() {
               onOpenDiff={(commit) => openDiff(commit)}
               onCompareWithHead={(commit) => void viewBranchDiff(commit.hash)}
               onCopyHash={(commit) => void copyCommitText(commit.hash, t("git.log.commitHash"))}
+              onCopyShortHash={(commit) => void copyCommitText(commit.shortHash, commit.shortHash)}
               onCopyMessage={(commit) =>
                 void copyCommitText(
                   [commit.message, commit.description].filter(Boolean).join("\n\n"),
@@ -713,6 +725,7 @@ export function GitLogToolWindow() {
               onSquash={(commits) => void squashSelectedCommits(commits)}
               onReset={(commit) => void resetBranchToCommit(commit)}
               onCherryPick={(commit) => void cherryPickSelectedCommit(commit)}
+              onRevert={(commit) => void revertSelectedCommit(commit)}
               onLoadMore={() => void loadMore()}
             />
           </ResizablePanel>

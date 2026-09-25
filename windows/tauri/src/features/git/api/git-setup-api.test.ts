@@ -8,7 +8,8 @@ const invoke = mock(async (_command: string, _payload?: unknown) => {
   if (rejected) throw new Error("Configuration is locked");
   return fixture.unborn;
 });
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 const { getGitRepositorySetup, initializeGitRepository, configureGitIdentity } =
   await import("./git-setup-api");
 beforeEach(() => {

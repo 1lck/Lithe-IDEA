@@ -26,7 +26,10 @@ const EMPTY_HISTORY: GitHistorySnapshot = {
   hasMore: false,
 };
 
-export function useGitLogController(repoPath: string | null) {
+export function useGitLogController(
+  repoPath: string | null,
+  preferredReference: GitReference | null = null,
+) {
   const { t } = useTranslation();
   const [history, setHistory] = useState<GitHistorySnapshot>(EMPTY_HISTORY);
   const [loadState, setLoadState] = useState<GitLogLoadState>("idle");
@@ -42,10 +45,12 @@ export function useGitLogController(repoPath: string | null) {
   const selectedReferenceRef = useRef(selectedReference);
   const repoPathRef = useRef(repoPath);
   const stateRepoPathRef = useRef(repoPath);
+  const preferredReferenceRef = useRef<GitReference | null>(null);
 
   historyRef.current = history;
   selectedReferenceRef.current = selectedReference;
   repoPathRef.current = repoPath;
+  preferredReferenceRef.current = preferredReference;
   if (controllerIdRef.current === null) controllerIdRef.current = ++nextControllerId;
 
   const cancelActiveOperations = useCallback(() => {
@@ -198,9 +203,11 @@ export function useGitLogController(repoPath: string | null) {
     closeActiveCursor();
     stateRepoPathRef.current = repoPath;
     historyRef.current = EMPTY_HISTORY;
-    selectedReferenceRef.current = null;
+    const initialReference = preferredReferenceRef.current;
+    preferredReferenceRef.current = null;
+    selectedReferenceRef.current = initialReference;
     setHistory(EMPTY_HISTORY);
-    setSelectedReferenceState(null);
+    setSelectedReferenceState(initialReference);
     setIsLoadingMore(false);
     setError(null);
 
@@ -208,7 +215,7 @@ export function useGitLogController(repoPath: string | null) {
       setLoadState("idle");
       return;
     }
-    void load({ reference: null });
+    void load({ reference: initialReference });
 
     return () => {
       requestIdRef.current += 1;
@@ -221,6 +228,11 @@ export function useGitLogController(repoPath: string | null) {
   const selectReference = useCallback(
     (reference: GitReference | null) => {
       if (repoPathRef.current !== repoPath) return;
+      // Selecting the reference that is already active is a no-op; reloading it
+      // would make a plain click on HEAD/current branch flash the whole log.
+      if ((selectedReferenceRef.current?.fullName ?? null) === (reference?.fullName ?? null)) {
+        return;
+      }
       selectedReferenceRef.current = reference;
       setSelectedReferenceState(reference);
       closeActiveCursor();
