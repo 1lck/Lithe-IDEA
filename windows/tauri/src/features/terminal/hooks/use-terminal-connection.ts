@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import {
   isFrontendDiagnosticEnabled,
+  subscribeFrontendDiagnosticEnabled,
   submitFrontendLog,
 } from "@/features/logging/frontend-log-runtime";
 import type { TerminalInput, TerminalSize } from "../types/terminal.types";
@@ -73,22 +74,24 @@ export function useTerminalConnection({
 
   const writeInput = useCallback(
     async (activeConnectionId: string, input: TerminalInput) => {
-      const bytes =
-        input.kind === "text"
+      const diagnostics = diagnosticsRef.current;
+      const bytes = diagnostics
+        ? input.kind === "text"
           ? terminalInputEncoder.current.encode(input.data).byteLength
-          : input.data.length;
-      diagnosticsRef.current?.recordTrace("input-ipc", "start", { bytes, kind: input.kind });
+          : input.data.length
+        : 0;
+      diagnostics?.recordTrace("input-ipc", "start", { bytes, kind: input.kind });
       try {
         await invoke(remoteConnectionId ? "remote_terminal_write" : "terminal_write", {
           id: activeConnectionId,
           input,
         });
-        diagnosticsRef.current?.recordTrace("input-ipc", "complete", {
+        diagnostics?.recordTrace("input-ipc", "complete", {
           bytes,
           kind: input.kind,
         });
       } catch (error) {
-        diagnosticsRef.current?.recordTrace("input-ipc", "failure", {
+        diagnostics?.recordTrace("input-ipc", "failure", {
           bytes,
           kind: input.kind,
         });
@@ -208,64 +211,114 @@ export function useTerminalConnection({
 
     const disposables: IDisposable[] = [];
     const inputEncoder = new TextEncoder();
-    const diagnostics = new TerminalProtocolDiagnostics({
-      emit: (payload) => {
-        void submitFrontendLog({
-          level: "debug",
-          scope: "terminal.protocol",
-          message: "terminal protocol activity",
-          payload: { sessionId, ...payload },
-        });
-      },
-      isEnabled: isFrontendDiagnosticEnabled,
-    });
-    diagnosticsRef.current = diagnostics;
-    diagnostics.recordTrace("effect", "setup", {
-      hasRemoteConnection: remoteConnectionId ? 1 : 0,
-    });
-
     const getDiagnosticContainer = () => terminal.element ?? null;
-    const layoutContainer = getDiagnosticContainer();
-    const layoutViewport = layoutContainer?.querySelector<HTMLElement>(".xterm-viewport");
-    const layoutObserver =
-      layoutContainer && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => {
-            if (!isFrontendDiagnosticEnabled()) return;
-            diagnostics.recordResizeObserver();
-            const container = getDiagnosticContainer();
-            if (container) {
-              diagnostics.recordLayout(snapshotTerminalLayout(terminal, container));
-            }
-          })
-        : null;
-    if (layoutObserver && layoutContainer) {
-      layoutObserver.observe(layoutContainer);
-      if (layoutViewport) layoutObserver.observe(layoutViewport);
-      const screen = layoutContainer.querySelector<HTMLElement>(".xterm-screen");
-      if (screen) layoutObserver.observe(screen);
-      for (const canvas of layoutContainer.querySelectorAll("canvas")) {
-        layoutObserver.observe(canvas);
+    let diagnostics: TerminalProtocolDiagnostics | null = null;
+    let diagnosticsHeartbeat: number | null = null;
+    let layoutObserver: ResizeObserver | null = null;
+    const diagnosticEventDisposables: IDisposable[] = [];
+
+    const stopDiagnostics = (reason: string) => {
+      const activeDiagnostics = diagnostics;
+      diagnostics = null;
+      if (diagnosticsRef.current === activeDiagnostics) diagnosticsRef.current = null;
+      if (diagnosticsHeartbeat !== null) {
+        window.clearInterval(diagnosticsHeartbeat);
+        diagnosticsHeartbeat = null;
       }
-    }
-    const diagnosticsHeartbeat = window.setInterval(() => {
-      if (!isFrontendDiagnosticEnabled()) {
-        diagnostics.recordHeartbeat(null);
-        return;
+      layoutObserver?.disconnect();
+      layoutObserver = null;
+      for (const disposable of diagnosticEventDisposables) disposable.dispose();
+      diagnosticEventDisposables.length = 0;
+      activeDiagnostics?.flush(reason);
+    };
+
+    const startDiagnostics = () => {
+      if (diagnostics || !isFrontendDiagnosticEnabled()) return;
+
+      const activeDiagnostics = new TerminalProtocolDiagnostics({
+        emit: (payload) => {
+          void submitFrontendLog({
+            level: "debug",
+            scope: "terminal.protocol",
+            message: "terminal protocol activity",
+            payload: { sessionId, ...payload },
+          });
+        },
+        isEnabled: isFrontendDiagnosticEnabled,
+      });
+      diagnostics = activeDiagnostics;
+      diagnosticsRef.current = activeDiagnostics;
+      activeDiagnostics.recordTrace("effect", "setup", {
+        hasRemoteConnection: remoteConnectionId ? 1 : 0,
+      });
+
+      const layoutContainer = getDiagnosticContainer();
+      const layoutViewport = layoutContainer?.querySelector<HTMLElement>(".xterm-viewport");
+      if (layoutContainer && typeof ResizeObserver !== "undefined") {
+        layoutObserver = new ResizeObserver(() => {
+          if (!isFrontendDiagnosticEnabled()) return;
+          activeDiagnostics.recordResizeObserver();
+          const container = getDiagnosticContainer();
+          if (container) {
+            activeDiagnostics.recordLayout(snapshotTerminalLayout(terminal, container));
+          }
+        });
+        layoutObserver.observe(layoutContainer);
+        if (layoutViewport) layoutObserver.observe(layoutViewport);
+        const screen = layoutContainer.querySelector<HTMLElement>(".xterm-screen");
+        if (screen) layoutObserver.observe(screen);
+        for (const canvas of layoutContainer.querySelectorAll("canvas")) {
+          layoutObserver.observe(canvas);
+        }
       }
-      const container = getDiagnosticContainer();
-      diagnostics.recordHeartbeat(container ? snapshotTerminalLayout(terminal, container) : null);
-    }, 1_000);
+      diagnosticsHeartbeat = window.setInterval(() => {
+        if (!isFrontendDiagnosticEnabled()) return;
+        const container = getDiagnosticContainer();
+        activeDiagnostics.recordHeartbeat(
+          container ? snapshotTerminalLayout(terminal, container) : null,
+        );
+      }, 1_000);
+      diagnosticEventDisposables.push(
+        terminal.onRender(({ start, end }) => {
+          activeDiagnostics.recordRender(start, end, terminal.rows);
+          const viewport = snapshotTerminalViewport(terminal);
+          activeDiagnostics.recordTrace("render", "event", {
+            baseY: viewport.baseY,
+            cursorY: viewport.cursorY,
+            end,
+            start,
+            viewportY: viewport.viewportY,
+          });
+        }),
+      );
+      diagnosticEventDisposables.push(
+        terminal.onScroll((position) => activeDiagnostics.recordScroll(position)),
+      );
+    };
+
+    const unsubscribeDiagnosticSetting = subscribeFrontendDiagnosticEnabled((enabled) => {
+      if (enabled) startDiagnostics();
+      else stopDiagnostics("disabled");
+    });
 
     const outputWriteBuffer = new TerminalOutputWriteBuffer({
       write: (data, onComplete) => {
+        const activeDiagnostics = diagnostics;
+        if (!activeDiagnostics) {
+          terminal.write(data, onComplete);
+          return;
+        }
         const viewportBeforeWrite = snapshotTerminalViewport(terminal);
-        diagnostics.recordTrace("output", "xterm-write-start", {
+        activeDiagnostics.recordTrace("output", "xterm-write-start", {
           beforeBaseY: viewportBeforeWrite.baseY,
           beforeViewportY: viewportBeforeWrite.viewportY,
           bytes: data.byteLength,
         });
         terminal.write(data, () => {
-          diagnostics.recordWriteComplete(viewportBeforeWrite, snapshotTerminalViewport(terminal));
+          activeDiagnostics.recordWriteComplete(
+            viewportBeforeWrite,
+            snapshotTerminalViewport(terminal),
+          );
           onComplete();
         });
       },
@@ -274,7 +327,7 @@ export function useTerminalConnection({
     disposables.push(
       terminal.onData((data) => {
         outputWriteBuffer.flush();
-        diagnostics.recordInput(inputEncoder.encode(data).byteLength);
+        if (diagnostics) diagnostics.recordInput(inputEncoder.encode(data).byteLength);
         write(data);
       }),
     );
@@ -286,24 +339,10 @@ export function useTerminalConnection({
     );
     disposables.push(
       terminal.onResize(() => {
-        diagnostics.recordResize(terminal.cols, terminal.rows);
+        diagnostics?.recordResize(terminal.cols, terminal.rows);
         sendTerminalSize(terminal, "xterm-resize");
       }),
     );
-    disposables.push(
-      terminal.onRender(({ start, end }) => {
-        diagnostics.recordRender(start, end, terminal.rows);
-        const viewport = snapshotTerminalViewport(terminal);
-        diagnostics.recordTrace("render", "event", {
-          baseY: viewport.baseY,
-          cursorY: viewport.cursorY,
-          end,
-          start,
-          viewportY: viewport.viewportY,
-        });
-      }),
-    );
-    disposables.push(terminal.onScroll((position) => diagnostics.recordScroll(position)));
     disposables.push(
       terminal.onSelectionChange(() => {
         const selection = terminal.getSelection();
@@ -317,7 +356,7 @@ export function useTerminalConnection({
     const unsubscribeEvents = subscribeToTerminalEvents(connectionId, (event) => {
       if (event.event === "output") {
         const bytes = Uint8Array.from(event.data);
-        diagnostics.recordOutput(bytes);
+        diagnostics?.recordOutput(bytes);
         queuedOutputBytesRef.current += bytes.byteLength;
 
         const decoded = outputDecoderRef.current.decode(bytes, { stream: true });
@@ -391,12 +430,10 @@ export function useTerminalConnection({
     sendTerminalSize(terminal, "connection");
 
     return () => {
-      diagnostics.recordTrace("effect", "cleanup");
       outputWriteBuffer.dispose();
-      diagnostics.flush("dispose");
-      window.clearInterval(diagnosticsHeartbeat);
-      layoutObserver?.disconnect();
-      if (diagnosticsRef.current === diagnostics) diagnosticsRef.current = null;
+      diagnostics?.recordTrace("effect", "cleanup");
+      unsubscribeDiagnosticSetting();
+      stopDiagnostics("dispose");
       void flush();
       if (outputPausedRef.current) setOutputPaused(false);
       for (const disposable of disposables) disposable.dispose();
