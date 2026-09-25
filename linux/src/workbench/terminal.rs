@@ -1,12 +1,16 @@
-//! Linux 原生 PTY 终端：`portable-pty` 跑 shell，`vte`（Alacritty 解析器）
-//! 做真机解析，键盘字符模式直输（对齐 IDEA 内嵌终端的交互：历史、
-//! 补全、方向键、中断均由 PTY 行规程处理）。
+//! Linux 原生 PTY 终端：`portable-pty` 跑 shell，`alacritty_terminal`
+//!（Alacritty 网格）做真机解析与状态，键盘字符模式直输（对齐 IDEA
+//! 内嵌终端的交互：历史、补全、方向键、中断均由 PTY 行规程处理）。
 //!
-//! 显示模型为行式 + 样式段（非全网格）：处理打印 / 换行 / 回车覆盖 /
-//! 退格 / SGR 颜色 / 擦除 / 光标移动；输出按行累积（上限丢弃最旧）。
-//! 适配声明：多标签、新终端、终端内搜索、复制粘贴、全屏、滚到末尾跟随、
-//! PTY 随窗缩放暂不支持（缺 xterm 级组件与滚动控制，采固定 120x30）。
+//! 渲染取网格可见区，同样式字符合并展示；聚焦时在光标处画反色块。
+//! 适配声明：多标签、新终端、终端内搜索、复制粘贴、滚到末尾跟随、
+//! PTY 随窗缩放暂不支持（缺选择/滚动控制，采固定 120x30 跟随显示）。
 
+use alacritty_terminal::event::VoidListener;
+use alacritty_terminal::grid::Dimensions;
+use alacritty_terminal::term::cell::Flags;
+use alacritty_terminal::term::{Config, Term, TermMode};
+use alacritty_terminal::vte::ansi::{Color as AlacColor, NamedColor, Processor, Rgb};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex};
 use gpui_kit::prelude::FluentBuilder as _;
@@ -18,22 +22,35 @@ use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use vte::{Parser, Perform};
 
 use crate::settings;
 use crate::theme::ThemeColors;
 
 /// PTY 固定尺寸（随窗缩放暂不支持）。
 const TERMINAL_COLS: usize = 120;
-const TERMINAL_ROWS: u16 = 30;
+const TERMINAL_ROWS: usize = 30;
 
-/// 输出行数上限，超出丢弃最旧。
-const MAX_TERMINAL_LINES: usize = 1000;
+/// 网格尺寸（`Term::new` 与 `resize` 共用）。
+struct TermDims {
+    cols: usize,
+    rows: usize,
+}
 
-/// 渲染行数上限（样式段已合并，超出只保留末尾）。
-const MAX_RENDER_LINES: usize = 600;
+impl Dimensions for TermDims {
+    fn total_lines(&self) -> usize {
+        self.rows
+    }
 
-/// xterm 基础 16 色（加粗 0-7 自动取 8-15，标准终端行为）。
+    fn screen_lines(&self) -> usize {
+        self.rows
+    }
+
+    fn columns(&self) -> usize {
+        self.cols
+    }
+}
+
+/// xterm 基础 16 色。
 const ANSI_PALETTE: [(u8, u8, u8); 16] = [
     (0, 0, 0),
     (205, 0, 0),
@@ -82,305 +99,23 @@ fn rgba_of(rgb: (u8, u8, u8)) -> Rgba {
     }
 }
 
-/// 语义颜色：默认色渲染时取主题，索引/RGB 取调色板。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-enum TermColor {
-    #[default]
-    Default,
-    Indexed(u8),
-    Rgb(u8, u8, u8),
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-struct SpanStyle {
-    fg: TermColor,
-    bg: TermColor,
-    bold: bool,
-}
-
-#[derive(Debug, Clone)]
-struct StyledChar {
-    c: char,
-    style: SpanStyle,
-}
-
-/// 终端屏幕：行缓冲（末尾即当前行）+ 光标 + 当前样式 + 保存位。
-struct TermScreen {
-    lines: Vec<Vec<StyledChar>>,
-    row: usize,
-    col: usize,
-    style: SpanStyle,
-    saved: Option<(usize, usize)>,
-}
-
-impl TermScreen {
-    fn new() -> Self {
-        Self {
-            lines: vec![Vec::new()],
-            row: 0,
-            col: 0,
-            style: SpanStyle::default(),
-            saved: None,
+/// 语义颜色解算：`Foreground`/`Background` 取主题，其余取调色板；
+/// 加粗配 0-7 自动取高亮 variant（标准终端行为）。
+fn resolve_color(color: AlacColor, bold: bool, default: Rgba) -> Rgba {
+    match color {
+        AlacColor::Named(NamedColor::Foreground) => default,
+        AlacColor::Named(NamedColor::Background) => default,
+        AlacColor::Named(named) => {
+            let index = named as u8;
+            let index = if bold && index < 8 { index + 8 } else { index };
+            if index < 16 {
+                rgba_of(ANSI_PALETTE[index as usize])
+            } else {
+                default
+            }
         }
-    }
-
-    fn clear_all(&mut self) {
-        self.lines = vec![Vec::new()];
-        self.row = 0;
-        self.col = 0;
-        self.style = SpanStyle::default();
-    }
-
-    /// 保证 `row` 行存在，返回其可变引用（行号超限自动补空行）。
-    fn row_mut(&mut self, row: usize) -> &mut Vec<StyledChar> {
-        while self.lines.len() <= row {
-            self.lines.push(Vec::new());
-        }
-        &mut self.lines[row]
-    }
-
-    /// 换行：光标移到下一行行首，超限丢弃最旧行。
-    fn newline(&mut self) {
-        self.row += 1;
-        self.col = 0;
-        self.row_mut(self.row);
-        if self.lines.len() > MAX_TERMINAL_LINES {
-            let overflow = self.lines.len() - MAX_TERMINAL_LINES;
-            self.lines.drain(..overflow);
-            self.row = self.row.saturating_sub(overflow);
-        }
-    }
-
-    /// 在光标处打印字符（覆盖写，超宽自动换行）。
-    fn put_char(&mut self, c: char) {
-        if self.col >= TERMINAL_COLS {
-            self.newline();
-        }
-        let style = self.style;
-        let col = self.col;
-        let row = self.row;
-        let line = self.row_mut(row);
-        if col < line.len() {
-            line[col] = StyledChar { c, style };
-        } else {
-            while line.len() < col {
-                line.push(StyledChar {
-                    c: ' ',
-                    style: SpanStyle::default(),
-                });
-            }
-            line.push(StyledChar { c, style });
-        }
-        self.col += 1;
-    }
-}
-
-/// 取第 `index` 个参数（无参回退 `default`）。
-fn csi_param(params: &vte::Params, index: usize, default: u16) -> u16 {
-    params
-        .iter()
-        .flat_map(|group| group.iter().copied())
-        .nth(index)
-        .unwrap_or(default)
-}
-
-impl Perform for TermScreen {
-    fn print(&mut self, c: char) {
-        self.put_char(c);
-    }
-
-    fn execute(&mut self, byte: u8) {
-        match byte {
-            b'\n' | b'\x0b' | b'\x0c' => self.newline(),
-            b'\r' => self.col = 0,
-            // 退格：只回退不删除（覆盖写模型）。
-            0x08 => self.col = self.col.saturating_sub(1),
-            // 制表：到下一个 8 列停靠位。
-            b'\t' => self.col = (self.col + 8) & !7,
-            // BEL 等其余控制字符忽略。
-            _ => {}
-        }
-    }
-
-    fn csi_dispatch(
-        &mut self,
-        params: &vte::Params,
-        _intermediates: &[u8],
-        _ignore: bool,
-        action: char,
-    ) {
-        match action {
-            // 光标移动
-            'A' => self.row = self.row.saturating_sub(csi_param(params, 0, 1) as usize),
-            'B' => {
-                let row = self.row + csi_param(params, 0, 1) as usize;
-                self.row = row;
-                self.row_mut(row);
-            }
-            'C' => self.col += csi_param(params, 0, 1) as usize,
-            'D' => self.col = self.col.saturating_sub(csi_param(params, 0, 1) as usize),
-            'E' => {
-                self.row += csi_param(params, 0, 1) as usize;
-                self.col = 0;
-                let row = self.row;
-                self.row_mut(row);
-            }
-            'F' => {
-                self.row = self.row.saturating_sub(csi_param(params, 0, 1) as usize);
-                self.col = 0;
-            }
-            'G' => self.col = csi_param(params, 0, 1).saturating_sub(1) as usize,
-            'H' | 'f' => {
-                self.row = csi_param(params, 0, 1).saturating_sub(1) as usize;
-                self.col = csi_param(params, 1, 1).saturating_sub(1) as usize;
-                let row = self.row;
-                self.row_mut(row);
-            }
-            // 擦除显示
-            'J' => match csi_param(params, 0, 0) {
-                1 => {
-                    self.lines.drain(..self.row.min(self.lines.len()));
-                    self.row = 0;
-                    let row = self.row;
-                    self.row_mut(row).clear();
-                }
-                2 | 3 => self.clear_all(),
-                // 0：光标到末尾清掉
-                _ => {
-                    let row = self.row;
-                    let col = self.col;
-                    let line = self.row_mut(row);
-                    line.truncate(col.min(line.len()));
-                    self.lines.truncate(row + 1);
-                }
-            },
-            // 擦除行
-            'K' => match csi_param(params, 0, 0) {
-                1 => {
-                    let row = self.row;
-                    let col = self.col;
-                    let line = self.row_mut(row);
-                    line.drain(..col.min(line.len()));
-                    self.col = 0;
-                }
-                2 => {
-                    let row = self.row;
-                    self.row_mut(row).clear();
-                    self.col = 0;
-                }
-                // 0：光标到行尾清掉
-                _ => {
-                    let row = self.row;
-                    let col = self.col;
-                    let len = self.row_mut(row).len();
-                    self.row_mut(row).truncate(col.min(len));
-                }
-            },
-            // 上卷：丢弃顶部 n 行
-            'S' => {
-                let n = csi_param(params, 0, 1) as usize;
-                let drop = n.min(self.lines.len().saturating_sub(1));
-                self.lines.drain(..drop);
-                self.row = self.row.saturating_sub(drop);
-            }
-            // 光标存取
-            's' => self.saved = Some((self.row, self.col)),
-            'u' => {
-                if let Some((row, col)) = self.saved {
-                    self.row = row;
-                    self.col = col;
-                    self.row_mut(row);
-                }
-            }
-            // SGR 颜色与属性
-            'm' => {
-                let values: Vec<u16> = params.iter().flat_map(|g| g.iter().copied()).collect();
-                let values = if values.is_empty() { vec![0] } else { values };
-                let mut ix = 0;
-                while ix < values.len() {
-                    match values[ix] {
-                        0 => self.style = SpanStyle::default(),
-                        1 => self.style.bold = true,
-                        22 => self.style.bold = false,
-                        30..=37 => {
-                            self.style.fg = TermColor::Indexed((values[ix] - 30) as u8);
-                        }
-                        39 => self.style.fg = TermColor::Default,
-                        40..=47 => {
-                            self.style.bg = TermColor::Indexed((values[ix] - 40) as u8);
-                        }
-                        49 => self.style.bg = TermColor::Default,
-                        90..=97 => {
-                            self.style.fg = TermColor::Indexed((values[ix] - 90 + 8) as u8);
-                        }
-                        100..=107 => {
-                            self.style.bg = TermColor::Indexed((values[ix] - 100 + 8) as u8);
-                        }
-                        38 | 48 => {
-                            let is_fg = values[ix] == 38;
-                            let color = match values.get(ix + 1).copied() {
-                                Some(5) => values
-                                    .get(ix + 2)
-                                    .copied()
-                                    .map(|v| TermColor::Indexed(v.min(255) as u8)),
-                                Some(2) => match (
-                                    values.get(ix + 2).copied(),
-                                    values.get(ix + 3).copied(),
-                                    values.get(ix + 4).copied(),
-                                ) {
-                                    (Some(r), Some(g), Some(b)) => Some(TermColor::Rgb(
-                                        r.min(255) as u8,
-                                        g.min(255) as u8,
-                                        b.min(255) as u8,
-                                    )),
-                                    _ => None,
-                                },
-                                _ => None,
-                            };
-                            if let Some(color) = color {
-                                if is_fg {
-                                    self.style.fg = color;
-                                } else {
-                                    self.style.bg = color;
-                                }
-                            }
-                            ix += 4;
-                        }
-                        _ => {}
-                    }
-                    ix += 1;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn esc_dispatch(&mut self, _intermediates: &[u8], _ignore: bool, byte: u8) {
-        match byte {
-            // RI：反向换行
-            b'M' => {
-                if self.row == 0 {
-                    self.lines.insert(0, Vec::new());
-                    if self.lines.len() > MAX_TERMINAL_LINES {
-                        self.lines.pop();
-                    }
-                } else {
-                    self.row -= 1;
-                }
-            }
-            // DECSC / DECRC：光标存取
-            b'7' => self.saved = Some((self.row, self.col)),
-            b'8' => {
-                if let Some((row, col)) = self.saved {
-                    self.row = row;
-                    self.col = col;
-                    self.row_mut(row);
-                }
-            }
-            // RIS：全复位
-            b'c' => self.clear_all(),
-            _ => {}
-        }
+        AlacColor::Indexed(i) => rgba_of(palette_256(i)),
+        AlacColor::Spec(Rgb { r, g, b }) => rgba_of((r, g, b)),
     }
 }
 
@@ -394,7 +129,8 @@ pub struct TerminalSession {
 
 impl TerminalSession {
     /// 打开 PTY 会话并起输出线程：线程只透传原始字节块，主线程泵喂给
-    /// `vte` 解析器（输出实时出现，对齐 xterm 的流式展示）。
+    /// 网格解析器（输出实时出现，对齐 xterm 的流式展示）。
+    /// 返回会话、输出 channel 与展示用 shell 名。
     pub fn new(
         cols: u16,
         rows: u16,
@@ -476,8 +212,8 @@ impl TerminalSession {
 pub struct TerminalView {
     pub session: Option<TerminalSession>,
     pub working_dir: String,
-    screen: TermScreen,
-    parser: Parser,
+    term: Term<VoidListener>,
+    processor: Processor,
     focus_handle: FocusHandle,
 }
 
@@ -486,32 +222,36 @@ impl TerminalView {
         let mut view = Self {
             session: None,
             working_dir,
-            screen: TermScreen::new(),
-            parser: Parser::new(),
+            term: Term::new(
+                Config::default(),
+                &TermDims {
+                    cols: TERMINAL_COLS,
+                    rows: TERMINAL_ROWS,
+                },
+                VoidListener,
+            ),
+            processor: Processor::new(),
             focus_handle: cx.focus_handle(),
         };
         view.attach_session(cx);
         view
     }
 
-    /// 打开 PTY 会话并起主线程输出泵（channel 收字节块 → `vte` 解析 → notify）。
+    /// 打开 PTY 会话并起主线程输出泵（channel 收字节块 → 网格解析 → notify）。
     fn attach_session(&mut self, cx: &mut Context<Self>) {
         let shell = Self::resolve_shell(cx);
         match TerminalSession::new(
             TERMINAL_COLS as u16,
-            TERMINAL_ROWS,
+            TERMINAL_ROWS as u16,
             &self.working_dir,
             &shell,
         ) {
             Ok((session, rx, displayed)) => {
                 self.session = Some(session);
-                self.screen.clear_all();
                 let banner =
                     crate::i18n::menu_text(cx, "terminal.session").replace("{shell}", &displayed);
-                for c in banner.chars() {
-                    self.screen.put_char(c);
-                }
-                self.screen.newline();
+                // 首行提示直接画进网格（换行落行）。
+                self.advance(format!("{banner}\r\n").as_bytes());
                 Self::spawn_pump(rx, cx);
             }
             Err(_) => {
@@ -521,7 +261,14 @@ impl TerminalView {
         cx.notify();
     }
 
-    /// 主线程输出泵：后台收字节块，回主线程喂解析器。
+    /// 网格推进（含借用拆分：解析器暂存取出再放回）。
+    fn advance(&mut self, bytes: &[u8]) {
+        let mut processor = std::mem::replace(&mut self.processor, Processor::new());
+        processor.advance(&mut self.term, bytes);
+        self.processor = processor;
+    }
+
+    /// 主线程输出泵：后台收字节块，回主线程喂网格解析器。
     fn spawn_pump(rx: mpsc::Receiver<Vec<u8>>, cx: &mut Context<Self>) {
         let rx = Arc::new(Mutex::new(rx));
         cx.spawn(async move |this, cx| loop {
@@ -537,12 +284,7 @@ impl TerminalView {
                 Some(bytes) => {
                     if this
                         .update(cx, |view, cx| {
-                            view.parser.advance(&mut view.screen, &bytes);
-                            if view.screen.lines.len() > MAX_TERMINAL_LINES {
-                                let overflow = view.screen.lines.len() - MAX_TERMINAL_LINES;
-                                view.screen.lines.drain(..overflow);
-                                view.screen.row = view.screen.row.saturating_sub(overflow);
-                            }
+                            view.advance(&bytes);
                             cx.notify();
                         })
                         .is_err()
@@ -594,18 +336,36 @@ impl TerminalView {
         cx.notify();
     }
 
+    /// 清屏（等价于 shell `clear`：擦除可见区，保留回滚）。
     pub fn clear(&mut self, cx: &mut Context<Self>) {
-        self.screen.clear_all();
-        self.screen
-            .put_str(&crate::i18n::menu_text(cx, "terminal.cleared").to_string());
-        self.screen.newline();
+        if self.session.is_some() {
+            self.advance(b"\x1b[2J\x1b[H");
+        }
         cx.notify();
     }
 
-    /// 用现有工作目录重建 PTY 会话（失败则置空并通知）。
+    /// 用现有工作目录重建 PTY 会话与网格（失败则置空并通知）。
     pub fn respawn(&mut self, cx: &mut Context<Self>) {
         self.session = None;
+        self.term = Term::new(
+            Config::default(),
+            &TermDims {
+                cols: TERMINAL_COLS,
+                rows: TERMINAL_ROWS,
+            },
+            VoidListener,
+        );
+        self.processor = Processor::new();
         self.attach_session(cx);
+    }
+
+    /// 应用光标键模式：程序用 `\x1bO` 系，否则 `\x1b[` 系。
+    fn cursor_key(&self, normal: &[u8], app: &[u8]) -> Vec<u8> {
+        if self.term.mode().contains(TermMode::APP_CURSOR) {
+            app.to_vec()
+        } else {
+            normal.to_vec()
+        }
     }
 
     /// 键盘直输：可打印字符原样写 PTY，控制组合与功能键转义序列，
@@ -645,12 +405,12 @@ impl TerminalView {
                 "backspace" => vec![0x7f],
                 "tab" => b"\t".to_vec(),
                 "escape" => vec![0x1b],
-                "up" => b"\x1b[A".to_vec(),
-                "down" => b"\x1b[B".to_vec(),
-                "right" => b"\x1b[C".to_vec(),
-                "left" => b"\x1b[D".to_vec(),
-                "home" => b"\x1b[H".to_vec(),
-                "end" => b"\x1b[F".to_vec(),
+                "up" => self.cursor_key(b"\x1b[A", b"\x1bOA"),
+                "down" => self.cursor_key(b"\x1b[B", b"\x1bOB"),
+                "right" => self.cursor_key(b"\x1b[C", b"\x1bOC"),
+                "left" => self.cursor_key(b"\x1b[D", b"\x1bOD"),
+                "home" => self.cursor_key(b"\x1b[H", b"\x1bOH"),
+                "end" => self.cursor_key(b"\x1b[F", b"\x1bOF"),
                 "delete" => b"\x1b[3~".to_vec(),
                 "pageup" => b"\x1b[5~".to_vec(),
                 "pagedown" => b"\x1b[6~".to_vec(),
@@ -680,26 +440,42 @@ impl TerminalView {
     }
 }
 
-impl TermScreen {
-    /// 纯文本写入（banner/清空提示用当前默认样式）。
-    fn put_str(&mut self, text: &str) {
-        for c in text.chars() {
-            if c == '\n' {
-                self.newline();
-            } else {
-                self.put_char(c);
-            }
-        }
-    }
-}
-
 impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let focused = self.focus_handle.is_focused(window);
-        let total = self.screen.lines.len();
-        let start = total.saturating_sub(MAX_RENDER_LINES);
         let default_fg = ThemeColors::foreground();
         let default_bg = ThemeColors::background();
+
+        // 可见区按行分组（`display_iter` 即当前视口）。
+        let content = self.term.renderable_content();
+        let mut rows: Vec<(i32, Vec<(usize, char, AlacColor, AlacColor, bool)>)> = Vec::new();
+        for indexed in content.display_iter {
+            let line = indexed.point.line.0;
+            let col = indexed.point.column.0;
+            if rows.last().map(|(number, _)| *number) != Some(line) {
+                rows.push((line, Vec::new()));
+            }
+            let cell = &indexed.cell;
+            let inverse = cell.flags.contains(Flags::INVERSE);
+            let (mut fg, mut bg) = (cell.fg, cell.bg);
+            if inverse {
+                std::mem::swap(&mut fg, &mut bg);
+            }
+            let bold = cell.flags.contains(Flags::BOLD);
+            rows.last_mut()
+                .expect("rows non-empty after push")
+                .1
+                .push((col, cell.c, fg, bg, bold));
+        }
+        let (cursor_line, cursor_col, cursor_visible) = (
+            content.cursor.point.line.0,
+            content.cursor.point.column.0,
+            focused
+                && !matches!(
+                    content.cursor.shape,
+                    alacritty_terminal::vte::ansi::CursorShape::Hidden
+                ),
+        );
 
         v_flex()
             .size_full()
@@ -727,63 +503,50 @@ impl Render for TerminalView {
                     .text_xs()
                     .text_size(px(crate::settings::get(cx).terminal_font_size))
                     .font_family("monospace")
-                    .children(
-                        self.screen.lines[start..]
-                            .iter()
-                            .enumerate()
-                            .map(|(ix, line)| {
-                                render_term_line(
-                                    start + ix,
-                                    line,
-                                    focused && start + ix == self.screen.row,
-                                    self.screen.col,
-                                    default_fg,
-                                    default_bg,
-                                )
-                            })
-                            .collect::<Vec<_>>(),
-                    ),
+                    .children(rows.into_iter().map(|(line, cells)| {
+                        render_term_row(
+                            line,
+                            &cells,
+                            cursor_visible && line == cursor_line,
+                            cursor_col,
+                            default_fg,
+                            default_bg,
+                        )
+                    })),
             )
     }
 }
 
-/// 语义颜色解算（加粗配 0-7 自动取高亮 variant，标准终端行为）。
-fn resolve_color(color: TermColor, bold: bool, default: Rgba) -> Rgba {
-    match color {
-        TermColor::Default => default,
-        TermColor::Indexed(i) => {
-            let i = if bold && i < 8 { i + 8 } else { i };
-            rgba_of(palette_256(i))
-        }
-        TermColor::Rgb(r, g, b) => rgba_of((r, g, b)),
-    }
-}
-
-/// 渲染一行：同样式字符合并为一段；聚焦时在光标处画反色块。
-fn render_term_line(
-    row: usize,
-    line: &[StyledChar],
+/// 渲染网格一行：同样式字符合并为一段；聚焦时在光标处画反色块。
+fn render_term_row(
+    line: i32,
+    cells: &[(usize, char, AlacColor, AlacColor, bool)],
     cursor_here: bool,
     cursor_col: usize,
     default_fg: Rgba,
     default_bg: Rgba,
 ) -> gpui_kit::AnyElement {
-    // 合并同样式段。
-    let mut spans: Vec<(SpanStyle, String)> = Vec::new();
-    for ch in line {
-        if let Some((style, text)) = spans.last_mut() {
-            if *style == ch.style {
-                text.push(ch.c);
+    // 合并同样式段（宽字符占位格视为空格参与合并）。
+    let mut spans: Vec<(AlacColor, AlacColor, bool, String)> = Vec::new();
+    for (col, c, fg, bg, bold) in cells {
+        let _ = col;
+        let key = (*fg, *bg, *bold);
+        if let Some((sfg, sbg, sbold, text)) = spans.last_mut() {
+            if (*sfg, *sbg, *sbold) == key {
+                text.push(*c);
                 continue;
             }
         }
-        spans.push((ch.style, ch.c.to_string()));
+        spans.push((*fg, *bg, *bold, c.to_string()));
     }
-    let total: usize = spans.iter().map(|(_, text)| text.chars().count()).sum();
+    let total: usize = spans
+        .iter()
+        .map(|(_, _, _, text)| text.chars().count())
+        .sum();
     // 光标超出文本末尾时在行尾补空格块。
     let trailing = cursor_here && cursor_col >= total;
     let mut row_el = h_flex()
-        .id(row)
+        .id(format!("term-row-{line}"))
         .w_full()
         .items_center()
         .text_xs()
@@ -794,14 +557,16 @@ fn render_term_line(
             .into_any_element();
     }
     let mut col = 0;
-    for (style, text) in &spans {
-        let fg = resolve_color(style.fg, style.bold, default_fg);
-        let bg = resolve_color(style.bg, false, default_bg);
+    for (fg, bg, bold, text) in &spans {
+        let fg_resolved = resolve_color(*fg, *bold, default_fg);
+        let bg_resolved = resolve_color(*bg, false, default_bg);
         let chunk = |text: String| {
             div()
-                .text_color(fg)
-                .when(style.bg != TermColor::Default, |el| el.bg(bg))
-                .when(style.bold, |el| el.font_weight(FontWeight::BOLD))
+                .text_color(fg_resolved)
+                .when(*bg != AlacColor::Named(NamedColor::Background), |el| {
+                    el.bg(bg_resolved)
+                })
+                .when(*bold, |el| el.font_weight(FontWeight::BOLD))
                 .child(text)
         };
         if trailing {
@@ -827,7 +592,7 @@ fn render_term_line(
         row_el = row_el.child(
             div()
                 .text_color(default_bg)
-                .bg(fg)
+                .bg(fg_resolved)
                 .child(cursor_char.unwrap_or(' ').to_string()),
         );
         if !after.is_empty() {
