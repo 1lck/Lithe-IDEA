@@ -92,6 +92,8 @@ pub struct BranchManagerView {
     selected_index: usize,
     error: Option<String>,
     busy: bool,
+    /// 弹窗打开后需要在下一帧把焦点交给搜索框（只做一次，避免每帧抢焦点）。
+    pending_search_focus: bool,
     search_input: Entity<InputState>,
     _search_subscription: Subscription,
     focus_handle: FocusHandle,
@@ -142,6 +144,7 @@ impl BranchManagerView {
             selected_index: 0,
             error: None,
             busy: false,
+            pending_search_focus: true,
             search_input,
             _search_subscription,
             focus_handle: cx.focus_handle(),
@@ -165,6 +168,8 @@ impl BranchManagerView {
         self.error = None;
         self.busy = false;
         self.selected_index = 0;
+        // 下一次渲染时把焦点交给搜索框。
+        self.pending_search_focus = true;
         // 清空搜索框显示值（`InputState::set_value` 需要 `Window`）。
         if let Some(handle) = cx.active_window() {
             let input = self.search_input.clone();
@@ -182,6 +187,11 @@ impl BranchManagerView {
         self.workspace_root = workspace_root;
     }
 
+    /// 弹窗打开时把焦点交给搜索输入框（否则根节点不持有焦点，键盘无法输入）。
+    pub fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.search_input
+            .update(cx, |state, cx| state.focus(window, cx));
+    }
     /// 并发拉取分支、工作树与仓库列表。
     pub fn reload(&mut self, cx: &mut Context<Self>) {
         self.load_branches(cx);
@@ -648,8 +658,14 @@ fn git_write_payload(root: &str, operation: &str, extra: serde_json::Value) -> s
 
 impl Render for BranchManagerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        window.focus(&self.focus_handle, cx);
-
+        // 注意：这里**不能**每帧 `window.focus(&self.focus_handle)`。
+        // 根节点每帧抢回焦点会把焦点从搜索 `Input` 手里夺走，导致搜索分支 /
+        // 筛选仓库的输入框无法输入（历史 bug）。弹窗打开时只聚焦输入框一次；
+        // 上下键/Esc 经事件冒泡到达根节点的 `on_key_down`。
+        if self.pending_search_focus {
+            self.pending_search_focus = false;
+            self.focus_search(window, cx);
+        }
         let active_tab = self.active_tab;
         let count_text = self.count_text(cx);
         let busy = self.busy;
