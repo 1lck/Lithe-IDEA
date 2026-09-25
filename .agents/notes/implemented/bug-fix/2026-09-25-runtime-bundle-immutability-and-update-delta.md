@@ -26,8 +26,9 @@ ZIP。完整包下载成功掩盖了 bundle 已被运行时修改这一事实。
    生成资源，运行时只能读取它们。
 2. macOS `MacJDTLSLaunchResourceResolver` 对内置 JDTLS 的架构配置读取 `config.ini`，
    用稳定摘要命名 `Caches/Lithe/language-servers/jdtls/configurations/` 下的缓存目录，
-   通过临时目录复制后原子移动。JDTLS 后续产生的 OSGi 状态只进入该缓存；外部 JDTLS
-   仍保留兼容 wrapper 回退。
+   通过临时目录复制后原子移动。解析器同时拒绝词法路径或符号链接解析后落在 bundle
+   内的缓存目标，防止错误的调用方重新把 OSGi 状态写回发行物。JDTLS 后续产生的 OSGi
+   状态只进入该缓存；外部 JDTLS 仍保留兼容 wrapper 回退。
 3. Windows/Tauri 的语言服务状态继续由 `app_cache_dir()` 提供，守护脚本禁止把
    `resource_dir()` 当作缓存目录。
 4. 根目录 `AGENTS.md` 把资源生命周期、可写位置、签名和 delta 影响列为开发与审查要求。

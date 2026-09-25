@@ -22,6 +22,7 @@ fi
 resolver='macos/Sources/Lithe/Platform/MacOS/Runtime/MacJDTLSLaunchResourceResolver.swift'
 for required in \
     'configurationCacheDirectoryURL' \
+    'cacheDirectoryIsOutsideBundle' \
     'SHA256' \
     'copyItem(at: bundledConfigurationURL, to: stagingURL)' \
     'moveItem(at: stagingURL, to: cachedConfigurationURL)'; do

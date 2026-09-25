@@ -92,6 +92,9 @@ struct MacJDTLSLaunchResourceResolver {
               isBundled(executableURL) else {
             return bundledConfigurationURL
         }
+        guard cacheDirectoryIsOutsideBundle(configurationCacheDirectoryURL) else {
+            throw ResolutionError.invalidConfigurationCache
+        }
 
         let configurationName = bundledConfigurationURL.lastPathComponent
         let sourceConfigURL = bundledConfigurationURL.appendingPathComponent("config.ini")
@@ -131,6 +134,27 @@ struct MacJDTLSLaunchResourceResolver {
             throw error
         }
         return cachedConfigurationURL
+    }
+
+    private func cacheDirectoryIsOutsideBundle(_ cacheDirectoryURL: URL) -> Bool {
+        guard let bundledJdtlsRootURL else { return true }
+        let bundleRootPath = bundledJdtlsRootURL.standardizedFileURL.path
+        let bundleResolvedRootPath = bundledJdtlsRootURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let candidatePaths = [
+            cacheDirectoryURL.standardizedFileURL.path,
+            cacheDirectoryURL.resolvingSymlinksInPath().standardizedFileURL.path,
+        ]
+        return candidatePaths.allSatisfy { path in
+            !isPath(path, inside: bundleRootPath)
+                && !isPath(path, inside: bundleResolvedRootPath)
+        }
+    }
+
+    private func isPath(_ path: String, inside rootPath: String) -> Bool {
+        path == rootPath || path.hasPrefix(rootPath + "/")
     }
 
     private func installationRoots(for executableURL: URL) -> [URL] {
@@ -227,11 +251,17 @@ struct MacJDTLSLaunchResourceResolver {
 
     private enum ResolutionError: LocalizedError {
         case incompleteInstallation
+        case invalidConfigurationCache
 
         var errorDescription: String? {
-            "Expected an Equinox launcher JAR, a macOS configuration directory, "
-                + "lombok/lombok.jar, Java Debug and Java Test extension bundles, and the TestNG runner "
-                + "in the selected JDTLS installation."
+            switch self {
+            case .incompleteInstallation:
+                return "Expected an Equinox launcher JAR, a macOS configuration directory, "
+                    + "lombok/lombok.jar, Java Debug and Java Test extension bundles, and the TestNG runner "
+                    + "in the selected JDTLS installation."
+            case .invalidConfigurationCache:
+                return "The JDTLS configuration cache must be outside the installed app bundle."
+            }
         }
     }
 }

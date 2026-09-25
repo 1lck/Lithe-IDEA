@@ -197,6 +197,16 @@ struct JavaLanguageServerRuntimeTests {
             resources.javaTestRunnerURL?.lastPathComponent
                 == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
         )
+
+        let invalidCacheResolver = MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: root,
+            configurationCacheDirectoryURL: root
+        )
+        guard case .unavailable = invalidCacheResolver.resolve(for: executable) else {
+            Issue.record("Expected a cache path inside the bundled JDTLS tree to be rejected")
+            return
+        }
+        #expect(try runtimeBundleSnapshot(at: root) == bundleSnapshotBeforeLaunch)
     }
 
     private func runtimeBundleSnapshot(at root: URL) throws -> [String: String] {
