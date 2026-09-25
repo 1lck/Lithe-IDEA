@@ -1929,6 +1929,7 @@ dependencies = [
  "agent-client-protocol",
  "futures",
  "kill_tree",
+ "libc",
  "serde",
  "serde_json",
  "tokio",

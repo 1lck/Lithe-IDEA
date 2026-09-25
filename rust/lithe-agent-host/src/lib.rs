@@ -6,6 +6,12 @@
 //! credential storage stay with the platform applications.
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
+pub mod catalog;
+pub mod environment;
+pub mod install;
+
+pub use catalog::{KeyDelivery, ModelDelivery, ProviderProtocol};
+
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -44,40 +50,60 @@ const STDERR_TAIL_LINES: usize = 20;
 const GATEWAY_AUTH_METHOD: &str = "gateway";
 
 /// Launch configuration supplied by the owning desktop product.
+///
+/// A catalog agent (`agentId`) is started from its Lithe-managed install and
+/// receives the key the way its adapter requires. Without `agentId`, `command`
+/// runs a user-provided agent that must support gateway sign-in.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentLaunch {
-    pub command: String,
+    #[serde(default)]
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub command: Option<String>,
     #[serde(default)]
     pub args: Vec<String>,
     /// Absolute workspace root; sessions are created and listed for this directory.
     pub cwd: PathBuf,
-    pub gateway: GatewayAuth,
+    /// Directory holding Lithe-managed adapter installs; required with `agentId`.
+    #[serde(default)]
+    pub data_directory: Option<PathBuf>,
+    pub provider: ProviderCredentials,
 }
 
-/// User-supplied OpenAI-compatible Responses endpoint and API key.
-///
-/// The key is sent to the agent only inside the ACP `authenticate` request over
-/// the stdio pipe; it is never placed in arguments, environment, or files.
+/// User-supplied AI provider endpoint and API key.
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GatewayAuth {
-    /// Base URL without the `/responses` suffix, e.g. `https://host/v1`.
+pub struct ProviderCredentials {
+    pub protocol: ProviderProtocol,
+    /// Endpoint as configured, with or without the protocol's path suffix.
     pub base_url: String,
     pub api_key: String,
     #[serde(default)]
-    pub provider_name: Option<String>,
+    pub name: Option<String>,
+    /// Model to request; empty or absent keeps the agent's default.
+    #[serde(default)]
+    pub model: Option<String>,
     /// Allow a plain `http` endpoint, e.g. a local gateway the user opted into.
     #[serde(default)]
     pub allow_insecure_http: bool,
 }
 
-impl GatewayAuth {
-    /// Responses base URL accepted by the agent, from a provider endpoint that
-    /// may already end in `/responses`.
-    fn normalized_base_url(&self) -> Result<String, String> {
+impl ProviderCredentials {
+    /// Responses base URL accepted by gateway sign-in, e.g. `https://host/v1`.
+    fn responses_base_url(&self) -> Result<String, String> {
         let trimmed = self.base_url.trim().trim_end_matches('/');
-        let base = trimmed.strip_suffix("/responses").unwrap_or(trimmed);
+        self.checked(trimmed.strip_suffix("/responses").unwrap_or(trimmed))
+    }
+
+    /// Anthropic base URL without `/v1` or `/v1/messages`, as the SDK expects.
+    fn anthropic_base_url(&self) -> Result<String, String> {
+        let trimmed = self.base_url.trim().trim_end_matches('/');
+        let base = trimmed.strip_suffix("/messages").unwrap_or(trimmed);
+        self.checked(base.strip_suffix("/v1").unwrap_or(base))
+    }
+
+    fn checked(&self, base: &str) -> Result<String, String> {
         let secure = base.starts_with("https://");
         let insecure = base.starts_with("http://");
         if !(secure || insecure && self.allow_insecure_http) {
@@ -94,15 +120,127 @@ impl GatewayAuth {
     }
 }
 
-impl std::fmt::Debug for GatewayAuth {
+impl std::fmt::Debug for ProviderCredentials {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GatewayAuth")
+        f.debug_struct("ProviderCredentials")
+            .field("protocol", &self.protocol)
             .field("base_url", &self.base_url)
             .field("api_key", &"<redacted>")
-            .field("provider_name", &self.provider_name)
+            .field("name", &self.name)
+            .field("model", &self.model)
             .field("allow_insecure_http", &self.allow_insecure_http)
             .finish()
     }
+}
+
+/// Gateway sign-in sent in ACP `authenticate`.
+#[derive(Clone)]
+struct GatewaySignIn {
+    base_url: String,
+    api_key: String,
+    provider_name: Option<String>,
+}
+
+/// A validated launch: what to run and how the key reaches the agent.
+struct ResolvedLaunch {
+    command: PathBuf,
+    args: Vec<String>,
+    cwd: PathBuf,
+    /// Extra environment, used only by adapters that accept no other key input.
+    env: Vec<(String, String)>,
+    gateway: Option<GatewaySignIn>,
+    /// Key to redact from diagnostics.
+    secret: String,
+}
+
+fn resolve(launch: AgentLaunch) -> Result<ResolvedLaunch, String> {
+    let provider = launch.provider;
+    if provider.api_key.trim().is_empty() {
+        return Err("An API key is required".into());
+    }
+    if !launch.cwd.is_absolute() {
+        return Err("The workspace path must be absolute".into());
+    }
+    let gateway = |provider: &ProviderCredentials| -> Result<GatewaySignIn, String> {
+        Ok(GatewaySignIn {
+            base_url: provider.responses_base_url()?,
+            api_key: provider.api_key.clone(),
+            provider_name: provider.name.clone(),
+        })
+    };
+    let Some(agent_id) = launch.agent_id else {
+        let command = launch.command.unwrap_or_default();
+        if command.trim().is_empty() {
+            return Err("Set the ACP Agent executable before starting a conversation".into());
+        }
+        if provider.protocol != ProviderProtocol::Responses {
+            return Err("A custom Agent needs a provider that uses the Responses API".into());
+        }
+        return Ok(ResolvedLaunch {
+            command: PathBuf::from(command),
+            args: launch.args,
+            cwd: launch.cwd,
+            env: Vec::new(),
+            gateway: Some(gateway(&provider)?),
+            secret: provider.api_key,
+        });
+    };
+    let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
+    if provider.protocol != agent.protocol {
+        return Err(format!(
+            "{} needs an AI provider that uses the {} protocol",
+            agent.name,
+            match agent.protocol {
+                ProviderProtocol::Responses => "Responses API",
+                ProviderProtocol::ChatCompletions => "Chat Completions",
+                ProviderProtocol::AnthropicMessages => "Anthropic Messages",
+            }
+        ));
+    }
+    let data_directory = launch
+        .data_directory
+        .ok_or("The Agent install directory is not configured")?;
+    if install::installed_version(&data_directory, agent).is_none() {
+        return Err(format!(
+            "{} is not installed. Install it in Settings › Agents.",
+            agent.name
+        ));
+    }
+    let (mut env, gateway) = match agent.key_delivery {
+        KeyDelivery::Gateway => (Vec::new(), Some(gateway(&provider)?)),
+        KeyDelivery::AnthropicEnvironment => (
+            vec![
+                ("ANTHROPIC_API_KEY".to_owned(), provider.api_key.clone()),
+                (
+                    "ANTHROPIC_BASE_URL".to_owned(),
+                    provider.anthropic_base_url()?,
+                ),
+            ],
+            None,
+        ),
+    };
+    if let Some(model) = provider
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        env.push(match agent.model_delivery {
+            ModelDelivery::CodexConfig => (
+                "CODEX_CONFIG".to_owned(),
+                serde_json::json!({ "model": model }).to_string(),
+            ),
+            ModelDelivery::AnthropicEnvironment => ("ANTHROPIC_MODEL".to_owned(), model.to_owned()),
+        });
+    }
+    Ok(ResolvedLaunch {
+        command: install::installed_command(&data_directory, agent),
+        args: launch.args,
+        cwd: launch.cwd,
+        env,
+        gateway,
+        secret: provider.api_key,
+    })
 }
 
 /// Commands accepted by an open connection, as UTF-8 JSON from the platform.
@@ -394,29 +532,22 @@ fn redact(text: &str, secret: &str) -> String {
     }
 }
 
-/// Child `PATH` with the executable's directory first. Package managers such
-/// as npm install an agent script next to the `node` it runs with, and GUI
-/// apps do not inherit the login shell's `PATH`.
-fn child_path(command: &Path) -> Option<OsString> {
-    let directory = command.parent().filter(|dir| dir.is_absolute())?;
-    let mut paths = vec![directory.to_path_buf()];
-    if let Some(existing) = std::env::var_os("PATH") {
-        paths.extend(std::env::split_paths(&existing));
+/// Child `PATH`: the executable's directory, then `base`. Package managers
+/// such as npm install an agent script next to the `node` it runs with, and
+/// `base` carries the login shell's `PATH`, which GUI apps do not inherit.
+fn child_path(command: &Path, base: Option<OsString>) -> Option<OsString> {
+    let mut paths: Vec<PathBuf> = command
+        .parent()
+        .filter(|dir| dir.is_absolute())
+        .map(Path::to_path_buf)
+        .into_iter()
+        .collect();
+    if let Some(base) = base {
+        paths.extend(std::env::split_paths(&base));
     }
-    std::env::join_paths(paths).ok()
-}
-
-fn validate(launch: &AgentLaunch) -> Result<(), String> {
-    if launch.command.trim().is_empty() {
-        return Err("Set the ACP Agent executable before starting a conversation".into());
-    }
-    if !launch.cwd.is_absolute() {
-        return Err("The workspace path must be absolute".into());
-    }
-    if launch.gateway.api_key.trim().is_empty() {
-        return Err("An API key is required".into());
-    }
-    launch.gateway.normalized_base_url().map(|_| ())
+    (!paths.is_empty())
+        .then(|| std::env::join_paths(paths).ok())
+        .flatten()
 }
 
 async fn run_agent(
@@ -426,10 +557,14 @@ async fn run_agent(
     child_pid: Arc<AtomicU32>,
     emit: Emit,
 ) -> Result<(), String> {
-    validate(&launch)?;
+    let launch = resolve(launch)?;
     let mut command = std::process::Command::new(&launch.command);
-    command.args(&launch.args).current_dir(&launch.cwd);
-    if let Some(path) = child_path(Path::new(&launch.command)) {
+    command
+        .args(&launch.args)
+        .current_dir(&launch.cwd)
+        .envs(launch.env.iter().map(|(key, value)| (key, value)));
+    let search_path = environment::search_path().or_else(|| std::env::var_os("PATH"));
+    if let Some(path) = child_path(&launch.command, search_path) {
         command.env("PATH", path);
     }
     #[cfg(unix)]
@@ -463,7 +598,7 @@ async fn run_agent(
             }
         }
     });
-    let secret = launch.gateway.api_key.clone();
+    let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
         transport,
@@ -517,18 +652,32 @@ async fn terminate_tree(child: &mut tokio::process::Child) {
 }
 
 /// SIGKILL a process and its descendants; a process that already exited is ignored.
+///
+/// Children are started as process-group leaders, so on Unix the whole group is
+/// killed as well: a descendant forked after the tree snapshot would otherwise
+/// survive and keep the output pipes open.
 fn force_kill_tree(process_id: u32) {
     let config = kill_tree::Config {
         signal: "SIGKILL".into(),
         include_target: true,
     };
     let _ = kill_tree::blocking::kill_tree_with_config(process_id, &config);
+    #[cfg(unix)]
+    if let Ok(group) = libc::pid_t::try_from(process_id) {
+        if group > 1 {
+            // SAFETY: `kill` only sends a signal; a negative id addresses the
+            // group this process created with `process_group(0)`.
+            unsafe {
+                libc::kill(-group, libc::SIGKILL);
+            }
+        }
+    }
 }
 
 async fn run_connection<OB, IB>(
     transport: ByteStreams<OB, IB>,
     cwd: PathBuf,
-    gateway: GatewayAuth,
+    gateway: Option<GatewaySignIn>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     permissions: PendingPermissions,
     emit: Emit,
@@ -639,23 +788,27 @@ where
             )
             .await
             .map_err(|_| internal("The Agent did not finish initialization in time"))??;
-            if !initialized
-                .auth_methods
-                .iter()
-                .any(|method| method.id().0.as_ref() == GATEWAY_AUTH_METHOD)
-            {
-                return Err(internal(
-                    "This Agent does not support signing in with a custom API key",
-                ));
+            // Only agents that take the key over ACP sign in here; the others
+            // received it in their environment. Account logins are never used.
+            if let Some(gateway) = &gateway {
+                if !initialized
+                    .auth_methods
+                    .iter()
+                    .any(|method| method.id().0.as_ref() == GATEWAY_AUTH_METHOD)
+                {
+                    return Err(internal(
+                        "This Agent does not support signing in with a custom API key",
+                    ));
+                }
+                tokio::time::timeout(
+                    HANDSHAKE_TIMEOUT,
+                    connection
+                        .send_request(gateway_authentication(gateway))
+                        .block_task(),
+                )
+                .await
+                .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             }
-            tokio::time::timeout(
-                HANDSHAKE_TIMEOUT,
-                connection
-                    .send_request(gateway_authentication(&gateway))
-                    .block_task(),
-            )
-            .await
-            .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             let agent = initialized.agent_info.as_ref();
             emit(AgentEvent::Ready {
                 agent_name: agent.map(|info| info.name.clone()),
@@ -841,12 +994,9 @@ async fn request_with_timeout<T>(
     }
 }
 
-fn gateway_authentication(gateway: &GatewayAuth) -> AuthenticateRequest {
-    let base_url = gateway
-        .normalized_base_url()
-        .unwrap_or_else(|_| gateway.base_url.clone());
+fn gateway_authentication(gateway: &GatewaySignIn) -> AuthenticateRequest {
     let mut settings = serde_json::json!({
-        "baseUrl": base_url,
+        "baseUrl": gateway.base_url,
         "headers": { "Authorization": format!("Bearer {}", gateway.api_key) },
     });
     if let Some(name) = gateway

@@ -40,15 +40,21 @@ Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
 The ACP Agent calls use an opaque handle for one agent process and connection
-per workspace; one connection carries many conversation sessions.
-`lithe_agent_open_json` accepts `{ "command": string, "args": string[],
-"cwd": absolutePath, "gateway": { "baseUrl": string, "apiKey": string,
-"providerName"?: string, "allowInsecureHttp"?: bool } }`. It starts the
-user-installed executable in that workspace with the executable's directory
-first on `PATH`, signs in only through the agent's `gateway` auth method with
-the user's API key (sent over stdio, never through arguments or environment),
-and reports ordered JSON events through a borrowed callback string. Invalid
-settings and launch failures are reported as a `stopped` event with a message.
+per workspace and agent; one connection carries many conversation sessions.
+`lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
+"args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
+"provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
+"baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
+"allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
+installed by `agent.install` under `dataDirectory` and delivers the key the way
+that adapter requires: Codex signs in through the ACP `gateway` method over
+stdio, and Claude receives `ANTHROPIC_API_KEY` and `ANTHROPIC_BASE_URL` in its
+environment because its SDK accepts no other key input. A non-empty `model` is
+passed as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+a user-provided agent that must support gateway sign-in with a Responses
+provider. Agents start with the executable's directory and the login shell's
+`PATH` first. Account logins offered by agents are never used. Invalid settings
+and launch failures are reported as a `stopped` event with a message.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
 `listSessions`, `prompt`, `cancel`, or `permission`. Results arrive as events:
@@ -109,6 +115,20 @@ stable error code and a user-facing message:
 ```
 
 ## Commands
+
+### Agent adapters
+
+`agent.status`, `agent.install`, and `agent.uninstall` manage ACP adapters in
+`<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
+Lithe never installs Node.js or the agents' own command-line tools. `agent.status`
+detects Node.js and npm through the login shell's `PATH` and lists every
+supported agent with its pinned version, installed version, provider protocol,
+and blocking issues. `agent.install` runs `npm install` into a staging directory
+and replaces the previous install only after the adapter executable exists; it
+honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
+`runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with
+its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
+results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
 
 | Command | Purpose |
 | --- | --- |

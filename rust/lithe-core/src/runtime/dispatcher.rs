@@ -50,6 +50,27 @@ pub fn execute_json(request: &str) -> String {
     })
 }
 
+/// Decode an agent management payload and run `operation` on it.
+fn agent_response<T: serde::de::DeserializeOwned>(
+    id: Option<String>,
+    payload: serde_json::Value,
+    operation: fn(T) -> Result<serde_json::Value, CoreError>,
+) -> CoreResponse {
+    match serde_json::from_value::<T>(payload)
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid agent management request",
+            )
+            .with_details(error.to_string())
+        })
+        .and_then(operation)
+    {
+        Ok(data) => CoreResponse::success(id, data),
+        Err(error) => CoreResponse::failure(id, error),
+    }
+}
+
 fn execute(request: &str) -> CoreResponse {
     let parsed: CoreRequest = match serde_json::from_str(request) {
         Ok(request) => request,
@@ -92,6 +113,9 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
+        CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
         CoreCommand::CommunityDiscourseAuthBegin => {
             match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
                 .map_err(|error| {

@@ -9,12 +9,19 @@
 //! cargo test -p lithe-agent-host --test real_agent -- --ignored --nocapture
 //! ```
 //!
-//! `LITHE_ACP_E2E_ARGS` optionally holds newline-separated arguments.
+//! `LITHE_ACP_E2E_MODEL` optionally selects the provider model and
+//! `LITHE_ACP_E2E_ARGS` holds newline-separated arguments. With
+//! `LITHE_ACP_E2E_DATA_DIR` set instead of a command, the Codex adapter is
+//! installed there with the user's npm (if missing) and launched as a catalog
+//! agent, covering the one-click install path.
 
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
-use lithe_agent_host::{AgentCommand, AgentEvent, AgentHandle, AgentLaunch, GatewayAuth};
+use lithe_agent_host::{
+    install, AgentCommand, AgentEvent, AgentHandle, AgentLaunch, ProviderCredentials,
+    ProviderProtocol,
+};
 
 const TURN_DEADLINE: Duration = Duration::from_secs(180);
 
@@ -118,8 +125,17 @@ fn required(name: &str) -> String {
 
 fn open(workspace: &std::path::Path) -> Session {
     let (sender, events) = mpsc::channel();
+    let data_directory = std::env::var_os("LITHE_ACP_E2E_DATA_DIR").map(std::path::PathBuf::from);
+    if let Some(data) = &data_directory {
+        if install::installed_version(data, lithe_agent_host::catalog::find("codex-acp").unwrap())
+            .is_none()
+        {
+            install::install(data, "codex-acp", &|| false).expect("adapter installs with npm");
+        }
+    }
     let launch = AgentLaunch {
-        command: required("LITHE_ACP_E2E_COMMAND"),
+        agent_id: data_directory.as_ref().map(|_| "codex-acp".to_owned()),
+        command: std::env::var("LITHE_ACP_E2E_COMMAND").ok(),
         args: std::env::var("LITHE_ACP_E2E_ARGS")
             .map(|args| {
                 args.lines()
@@ -129,10 +145,13 @@ fn open(workspace: &std::path::Path) -> Session {
             })
             .unwrap_or_default(),
         cwd: workspace.to_path_buf(),
-        gateway: GatewayAuth {
+        data_directory,
+        provider: ProviderCredentials {
+            protocol: ProviderProtocol::Responses,
             base_url: required("LITHE_ACP_E2E_BASE_URL"),
             api_key: required("LITHE_ACP_E2E_API_KEY"),
-            provider_name: Some("Lithe end-to-end test".into()),
+            name: Some("Lithe end-to-end test".into()),
+            model: std::env::var("LITHE_ACP_E2E_MODEL").ok(),
             allow_insecure_http: false,
         },
     };

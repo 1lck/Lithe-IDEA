@@ -13,12 +13,33 @@ fn fixture() -> Value {
     .expect("ACP event fixture")
 }
 
-fn gateway() -> GatewayAuth {
-    GatewayAuth {
+fn provider() -> ProviderCredentials {
+    ProviderCredentials {
+        protocol: ProviderProtocol::Responses,
+        base_url: "https://gateway.example.com/v1".into(),
+        api_key: "test-key-123".into(),
+        name: Some("Example".into()),
+        model: None,
+        allow_insecure_http: false,
+    }
+}
+
+fn gateway() -> Option<GatewaySignIn> {
+    Some(GatewaySignIn {
         base_url: "https://gateway.example.com/v1".into(),
         api_key: "test-key-123".into(),
         provider_name: Some("Example".into()),
-        allow_insecure_http: false,
+    })
+}
+
+fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
+    AgentLaunch {
+        agent_id: None,
+        command: Some(command.into()),
+        args: vec![],
+        cwd: std::env::temp_dir(),
+        data_directory: None,
+        provider,
     }
 }
 
@@ -281,6 +302,34 @@ fn serialized_events_match_the_shared_fixture() {
         stop_reason_name(&agent_client_protocol::schema::v1::StopReason::EndTurn),
         "end_turn"
     );
+}
+
+#[test]
+fn management_status_matches_the_shared_fixture() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../shared/fixtures/agent/agent-management-v1.json"
+    ))
+    .expect("agent management fixture");
+    let data = std::env::temp_dir().join(format!("lithe-status-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    fake_install(&data, "codex-acp");
+    let tool = |version: &str, name: &str| environment::DetectedTool {
+        version: version.into(),
+        path: format!("/opt/example/node/bin/{name}").into(),
+    };
+    let status = install::status_with(
+        &data,
+        environment::RuntimeEnvironment {
+            node: Some(tool("20.11.0", "node")),
+            npm: Some(tool("10.2.4", "npm")),
+            used_login_shell: true,
+        },
+    );
+    assert_eq!(
+        serde_json::to_value(status).unwrap(),
+        fixture["responses"]["status"]
+    );
+    let _ = std::fs::remove_dir_all(&data);
 }
 
 #[test]
@@ -683,11 +732,11 @@ fn stderr_tail_keeps_recent_lines_and_redacts_the_key() {
 }
 
 #[test]
-fn gateway_endpoint_is_normalized_and_must_be_secure() {
-    let endpoint = |url: &str, insecure: bool| GatewayAuth {
+fn provider_endpoints_are_normalized_per_protocol_and_must_be_secure() {
+    let endpoint = |url: &str, insecure: bool| ProviderCredentials {
         base_url: url.into(),
         allow_insecure_http: insecure,
-        ..gateway()
+        ..provider()
     };
     for url in [
         "https://host.example/v1",
@@ -695,16 +744,26 @@ fn gateway_endpoint_is_normalized_and_must_be_secure() {
         " https://host.example/v1/responses ",
     ] {
         assert_eq!(
-            endpoint(url, false).normalized_base_url().unwrap(),
+            endpoint(url, false).responses_base_url().unwrap(),
             "https://host.example/v1"
         );
     }
+    for url in [
+        "https://api.example",
+        "https://api.example/v1",
+        "https://api.example/v1/messages/",
+    ] {
+        assert_eq!(
+            endpoint(url, false).anthropic_base_url().unwrap(),
+            "https://api.example"
+        );
+    }
     assert!(endpoint("http://localhost:1234/v1", false)
-        .normalized_base_url()
+        .responses_base_url()
         .is_err());
     assert_eq!(
         endpoint("http://localhost:1234/v1", true)
-            .normalized_base_url()
+            .responses_base_url()
             .unwrap(),
         "http://localhost:1234/v1"
     );
@@ -715,49 +774,163 @@ fn gateway_endpoint_is_normalized_and_must_be_secure() {
         "https://host.example/v1?key=1",
         "ftp://host",
     ] {
-        assert!(endpoint(url, true).normalized_base_url().is_err(), "{url}");
+        assert!(endpoint(url, true).responses_base_url().is_err(), "{url}");
     }
 }
 
 #[test]
-fn gateway_debug_output_never_contains_the_key() {
-    let rendered = format!("{:?}", gateway());
+fn provider_debug_output_never_contains_the_key() {
+    let rendered = format!("{:?}", provider());
     assert!(!rendered.contains("test-key-123"));
     assert!(rendered.contains("<redacted>"));
 }
 
 #[test]
-fn child_path_puts_the_agent_directory_first() {
+fn child_path_puts_the_agent_directory_before_the_search_path() {
     let directory = std::env::temp_dir().join("lithe-agent-bin");
-    let path = child_path(&directory.join("codex-acp")).expect("absolute command");
-    let first = std::env::split_paths(&path)
-        .next()
-        .expect("first PATH entry");
-    assert_eq!(first, directory);
-    assert!(child_path(Path::new("codex-acp")).is_none());
+    let base = std::env::join_paths(["/shell/node/bin", "/usr/bin"]).unwrap();
+    let path = child_path(&directory.join("codex-acp"), Some(base)).expect("PATH");
+    let entries: Vec<PathBuf> = std::env::split_paths(&path).collect();
+    assert_eq!(
+        entries,
+        [directory, "/shell/node/bin".into(), "/usr/bin".into()]
+    );
+    assert!(child_path(Path::new("codex-acp"), None).is_none());
+}
+
+/// Install a fake adapter the way `install` leaves it, without running npm.
+fn fake_install(data: &Path, agent_id: &str) {
+    let agent = catalog::find(agent_id).unwrap();
+    let command = install::installed_command(data, agent);
+    std::fs::create_dir_all(command.parent().unwrap()).unwrap();
+    std::fs::write(&command, "#!/bin/sh\n").unwrap();
+    std::fs::write(
+        install::agent_directory(data, agent).join("lithe-agent.json"),
+        format!(r#"{{"id":"{agent_id}","version":"{}"}}"#, agent.version),
+    )
+    .unwrap();
+}
+
+#[test]
+fn catalog_agents_resolve_to_their_install_and_key_delivery() {
+    let data = std::env::temp_dir().join(format!("lithe-resolve-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    let launch = |agent_id: &str, provider: ProviderCredentials| AgentLaunch {
+        agent_id: Some(agent_id.into()),
+        command: None,
+        args: vec![],
+        cwd: std::env::temp_dir(),
+        data_directory: Some(data.clone()),
+        provider,
+    };
+    let anthropic = ProviderCredentials {
+        protocol: ProviderProtocol::AnthropicMessages,
+        base_url: "https://api.example/v1/messages".into(),
+        ..provider()
+    };
+    let not_installed = resolve(launch("codex-acp", provider())).err().unwrap();
+    assert!(not_installed.contains("not installed"), "{not_installed}");
+    fake_install(&data, "codex-acp");
+    fake_install(&data, "claude-acp");
+
+    let codex = resolve(launch("codex-acp", provider())).unwrap();
+    assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
+    assert!(
+        codex.env.is_empty(),
+        "gateway agents never get the key in their environment"
+    );
+    assert_eq!(
+        codex.gateway.unwrap().base_url,
+        "https://gateway.example.com/v1"
+    );
+    let with_model = resolve(launch(
+        "codex-acp",
+        ProviderCredentials {
+            model: Some(" gpt-5.5 ".into()),
+            ..provider()
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        with_model.env,
+        [(
+            "CODEX_CONFIG".to_owned(),
+            r#"{"model":"gpt-5.5"}"#.to_owned()
+        )]
+    );
+    assert!(!with_model
+        .env
+        .iter()
+        .any(|(_, value)| value.contains("test-key-123")));
+
+    let claude = resolve(launch(
+        "claude-acp",
+        ProviderCredentials {
+            model: Some("claude-sonnet-5".into()),
+            ..anthropic
+        },
+    ))
+    .unwrap();
+    assert!(claude.gateway.is_none());
+    assert_eq!(
+        claude.env,
+        [
+            ("ANTHROPIC_API_KEY".to_owned(), "test-key-123".to_owned()),
+            (
+                "ANTHROPIC_BASE_URL".to_owned(),
+                "https://api.example".to_owned()
+            ),
+            ("ANTHROPIC_MODEL".to_owned(), "claude-sonnet-5".to_owned()),
+        ]
+    );
+    let mismatch = resolve(launch("claude-acp", provider())).err().unwrap();
+    assert!(mismatch.contains("Anthropic Messages"), "{mismatch}");
+    assert!(resolve(launch("unknown", provider())).is_err());
+    let _ = std::fs::remove_dir_all(&data);
 }
 
 #[test]
 fn invalid_settings_are_reported_without_starting_a_process() {
-    let launch = |command: &str, key: &str, url: &str| AgentLaunch {
-        command: command.into(),
-        args: vec![],
-        cwd: std::env::temp_dir(),
-        gateway: GatewayAuth {
-            api_key: key.into(),
-            base_url: url.into(),
-            ..gateway()
-        },
+    let launch = |command: &str, key: &str, url: &str, protocol: ProviderProtocol| {
+        custom_launch(
+            command,
+            ProviderCredentials {
+                protocol,
+                api_key: key.into(),
+                base_url: url.into(),
+                ..provider()
+            },
+        )
     };
+    let responses = ProviderProtocol::Responses;
     let cases = [
-        (launch(" ", "key", "https://h/v1"), "executable"),
+        (launch(" ", "key", "https://h/v1", responses), "executable"),
         (
-            launch("/lithe/nonexistent-acp-agent", " ", "https://h/v1"),
+            launch(
+                "/lithe/nonexistent-acp-agent",
+                " ",
+                "https://h/v1",
+                responses,
+            ),
             "API key",
         ),
         (
-            launch("/lithe/nonexistent-acp-agent", "key", "http://h/v1"),
+            launch(
+                "/lithe/nonexistent-acp-agent",
+                "key",
+                "http://h/v1",
+                responses,
+            ),
             "https",
+        ),
+        (
+            launch(
+                "/lithe/nonexistent-acp-agent",
+                "key",
+                "https://h",
+                ProviderProtocol::AnthropicMessages,
+            ),
+            "Responses API",
         ),
     ];
     for (launch, expected) in cases {
@@ -788,12 +961,7 @@ fn invalid_settings_are_reported_without_starting_a_process() {
 #[test]
 fn spawn_failure_reports_stopped_with_a_message() {
     let (sender, receiver) = mpsc::channel();
-    let launch = AgentLaunch {
-        command: "/lithe/nonexistent-acp-agent".into(),
-        args: vec![],
-        cwd: std::env::temp_dir(),
-        gateway: gateway(),
-    };
+    let launch = custom_launch("/lithe/nonexistent-acp-agent", provider());
     let handle = AgentHandle::open(
         launch,
         Arc::new(move |event| {

@@ -15,5 +15,8 @@ tokio = { version = "1", features = ["io-util", "process", "rt", "sync", "time"]
 tokio-util = { version = "0.7", features = ["compat"] }
 uuid = { version = "1", features = ["v4"] }
 
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "test-util"] }
