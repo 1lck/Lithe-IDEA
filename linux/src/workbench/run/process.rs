@@ -16,7 +16,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
@@ -552,6 +552,48 @@ fn configure_process_group(command: &mut Command) {
         // 组长，配合 `taskkill /T` 能一并清理其派生进程。
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+    }
+}
+
+/// 终止一个外部拥有的进程组并有界等待它消失，语义与 [`ProcessHandle::stop`]
+/// 完全一致：先 `Terminate`，超过 `grace` 仍未退出再 `Kill`。
+///
+/// 集成终端的 PTY 子进程由 `portable-pty` 拥有，其 reader 线程负责最终
+/// `wait()` 回收，因此这里只负责“信号 + 有界等待”，不负责 join。返回
+/// `true` 表示进程组已在期限内消失（`pgid` 不可用时视为已完成）。
+pub fn terminate_process_group(pgid: Option<i32>, grace: Duration) -> bool {
+    let Some(pgid) = pgid.filter(|value| *value > 1) else {
+        return true;
+    };
+    send_signal(Some(pgid), ProcessSignal::Terminate);
+    if wait_for_process_group_exit(pgid, grace) {
+        return true;
+    }
+    send_signal(Some(pgid), ProcessSignal::Kill);
+    wait_for_process_group_exit(pgid, grace)
+}
+
+/// 轮询进程组是否仍存在；Unix 用 `kill(-pgid, 0)` 探测，Windows 的
+/// `taskkill` 调用本身同步等待完成，直接视为已退出。
+fn wait_for_process_group_exit(pgid: i32, timeout: Duration) -> bool {
+    #[cfg(unix)]
+    {
+        let deadline = Instant::now() + timeout;
+        loop {
+            // 0 号信号只做存在性探测：整组都退出后返回 ESRCH。
+            if unsafe { libc::kill(-pgid, 0) } != 0 {
+                return true;
+            }
+            if Instant::now() >= deadline {
+                return false;
+            }
+            thread::park_timeout(PROCESS_POLL_INTERVAL);
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = (pgid, timeout);
+        true
     }
 }
 

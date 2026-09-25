@@ -33,13 +33,13 @@ use crate::workbench::branch_manager::{BranchManagerEvent, BranchManagerView};
 use crate::workbench::command_palette::{CommandPaletteEvent, CommandPaletteModal};
 use crate::workbench::editor::{EditorTabEvent, EditorView};
 use crate::workbench::extensions_panel::{ExtensionsEvent, ExtensionsView};
+use crate::workbench::global_search_panel::{GlobalSearchEvent, GlobalSearchPanel};
 use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
-use crate::workbench::global_search_panel::{GlobalSearchEvent, GlobalSearchPanel};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
 use crate::workbench::settings_dialog::{SettingsCategory, SettingsDialog, SettingsEvent};
 use crate::workbench::sidebar::{FileEntry, SidebarEvent, SidebarTab, SidebarView};
@@ -2428,21 +2428,16 @@ impl WorkbenchView {
                 self.append_log("[View] Font size reset to 14 px", cx);
                 cx.notify();
             }
-            // ---- Terminal：新建会话 / 关闭面板（只关不开） ----
+            // ---- Terminal：新建会话（真实重启 PTY）/ 关闭会话（终止子进程后折叠） ----
             "terminal.new" => {
-                let _ = self.bottom_panel.update(cx, |bp, cx| {
-                    bp.set_tab(BottomTab::Terminal, cx);
-                    let _ = bp.terminal.update(cx, |term, cx| {
-                        term.respawn(cx);
-                    });
-                });
+                let _ = self
+                    .bottom_panel
+                    .update(cx, |bp, cx| bp.restart_terminal(cx));
             }
             "terminal.close" => {
-                if !self.bottom_panel.read(cx).is_collapsed {
-                    let _ = self.bottom_panel.update(cx, |bp, cx| {
-                        bp.toggle_collapsed(cx);
-                    });
-                }
+                let _ = self
+                    .bottom_panel
+                    .update(cx, |bp, cx| bp.close_terminal_session(cx));
             }
             // ---- Window：全屏（gpui-pre `Window::toggle_fullscreen`） ----
             "window.fullscreen" => {
@@ -2673,10 +2668,8 @@ impl Render for WorkbenchView {
 
                 // 快捷键统一走菜单派生的按键表；命中后交给 `handle_action`，
                 // 与菜单项、命令面板共用同一套动作分支。
-                let stroke = crate::keybindings::KeyStrokeId::from_event(
-                    key,
-                    &event.keystroke.modifiers,
-                );
+                let stroke =
+                    crate::keybindings::KeyStrokeId::from_event(key, &event.keystroke.modifiers);
                 let Some(action_id) = this.keymap.lookup(&stroke) else {
                     return;
                 };
@@ -2732,8 +2725,8 @@ impl Render for WorkbenchView {
             }))
             // 双击 Shift：GPUI 的修饰键变化事件包含按下/抬起两次，
             // 由识别器按时间窗判定，命中后打开全局搜索。
-            .on_modifiers_changed(
-                cx.listener(|this, event: &ModifiersChangedEvent, _window, cx| {
+            .on_modifiers_changed(cx.listener(
+                |this, event: &ModifiersChangedEvent, _window, cx| {
                     let timestamp = this.double_shift_clock();
                     let modifiers = event.modifiers;
                     let has_other = modifiers.control || modifiers.alt || modifiers.platform;
@@ -2744,8 +2737,8 @@ impl Render for WorkbenchView {
                     ) {
                         this.handle_action(crate::keybindings::DOUBLE_SHIFT_ACTION, cx);
                     }
-                }),
-            )
+                },
+            ))
             .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _window, cx| {
                 if this.is_resizing_sidebar {
                     let current_x = f32::from(event.position.x);

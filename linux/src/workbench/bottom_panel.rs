@@ -611,6 +611,9 @@ impl BottomPanelView {
     }
 
     /// 更新工作目录并重探 Run 工程（替代直接写 `working_dir` 字段）。
+    ///
+    /// 终端会话同步跟随：项目切换后旧 shell 的 cwd 与环境已过期，由
+    /// `TerminalView::set_working_dir` 安全重启会话。
     pub fn set_working_dir(&mut self, dir: String, cx: &mut Context<Self>) {
         let _ = self.processes.request_stop("run", None);
         self.maven_seq += 1;
@@ -618,8 +621,72 @@ impl BottomPanelView {
         self.maven_running = false;
         self.pending_run_id = None;
         self.run_on_ready = false;
-        self.working_dir = dir;
+        self.working_dir = dir.clone();
+        let _ = self.terminal.update(cx, |term, cx| {
+            term.set_working_dir(dir, cx);
+        });
         self.reload_run_project(cx);
+    }
+
+    /// 新建终端会话：切到终端页并按当前工作目录重启会话。
+    pub fn restart_terminal(&mut self, cx: &mut Context<Self>) {
+        self.active_tab = BottomTab::Terminal;
+        self.is_collapsed = false;
+        let _ = self.terminal.update(cx, |term, cx| term.restart(cx));
+        cx.notify();
+    }
+
+    /// 关闭终端会话：真正终止 PTY 子进程并回到空态，再折叠面板。
+    /// 只折叠面板会让 shell 继续在后台跑，属于资源泄漏。
+    pub fn close_terminal_session(&mut self, cx: &mut Context<Self>) {
+        let _ = self.terminal.update(cx, |term, cx| term.close_session(cx));
+        self.active_tab = BottomTab::Terminal;
+        self.is_collapsed = true;
+        cx.notify();
+    }
+
+    /// 终端窗格状态区：会话在跑时点亮状态与 shell 名，已退出时展示退出码/信号。
+    fn terminal_status(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let (has_session, running, shell, exit) = {
+            let terminal = self.terminal.read(cx);
+            (
+                terminal.has_session(),
+                terminal.is_running(),
+                terminal.shell().to_string(),
+                terminal
+                    .session_exit()
+                    .map(|exit| exit.detail())
+                    .filter(|detail| !detail.is_empty()),
+            )
+        };
+        if !has_session {
+            return None;
+        }
+        let text = if running {
+            let label = crate::i18n::menu_text(cx, "run.running");
+            if shell.is_empty() {
+                label.to_string()
+            } else {
+                format!("{label} · {shell}")
+            }
+        } else {
+            let label = crate::i18n::menu_text(cx, "terminal.sessionExited");
+            match exit {
+                Some(detail) => format!("{label} · {detail}"),
+                None => label.to_string(),
+            }
+        };
+        Some(
+            div()
+                .text_xs()
+                .text_color(if running {
+                    ThemeColors::accent_green()
+                } else {
+                    ThemeColors::text_muted()
+                })
+                .child(text)
+                .into_any_element(),
+        )
     }
 
     /// 设置 Run 前需要保存的编辑器实体。
@@ -2001,28 +2068,80 @@ impl Render for BottomPanelView {
 
         // 各窗格自带按钮头（对齐 Tauri：底部无标签切换条，切换只走左侧活动栏）。
         let (header, body) = match self.active_tab {
-            BottomTab::Terminal => (
-                self.render_pane_header(
-                    IconName::Terminal,
-                    crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
-                    None,
-                    vec![Self::header_button(
-                        "terminal-clear".to_string(),
-                        IconName::Trash,
-                        crate::i18n::menu_text(cx, "ui.clear").to_string(),
-                        false,
+            BottomTab::Terminal => {
+                let status = self.terminal_status(cx);
+                let (at_bottom, has_session) = {
+                    let terminal = self.terminal.read(cx);
+                    (terminal.is_at_bottom(), terminal.has_session())
+                };
+                (
+                    self.render_pane_header(
+                        IconName::Terminal,
+                        crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
+                        status,
+                        vec![
+                            Self::header_button(
+                                "terminal-restart".to_string(),
+                                IconName::RefreshCw,
+                                crate::i18n::menu_text(cx, "terminal.restartSession").to_string(),
+                                false,
+                                cx,
+                                |this, _window, cx| {
+                                    let _ = this.terminal.update(cx, |term, cx| term.restart(cx));
+                                },
+                            ),
+                            Self::header_button(
+                                "terminal-search".to_string(),
+                                IconName::Search,
+                                crate::i18n::menu_text(cx, "terminal.find").to_string(),
+                                // 搜索栏是会话网格上的浮层，没有会话时无处可显示。
+                                !has_session,
+                                cx,
+                                |this, window, cx| {
+                                    let _ = this
+                                        .terminal
+                                        .update(cx, |term, cx| term.open_search(window, cx));
+                                },
+                            ),
+                            Self::header_button(
+                                "terminal-scroll-bottom".to_string(),
+                                IconName::ArrowDownToLine,
+                                crate::i18n::menu_text(cx, "terminal.scrollToBottom").to_string(),
+                                at_bottom,
+                                cx,
+                                |this, _window, cx| {
+                                    let _ = this
+                                        .terminal
+                                        .update(cx, |term, _cx| term.scroll_to_bottom());
+                                },
+                            ),
+                            Self::header_button(
+                                "terminal-clear".to_string(),
+                                IconName::Trash,
+                                crate::i18n::menu_text(cx, "ui.clear").to_string(),
+                                false,
+                                cx,
+                                |this, _window, cx| {
+                                    let _ = this.terminal.update(cx, |term, cx| term.clear(cx));
+                                },
+                            ),
+                            Self::header_button(
+                                "terminal-close".to_string(),
+                                IconName::X,
+                                crate::i18n::menu_text(cx, "menu.closeTerminal").to_string(),
+                                false,
+                                cx,
+                                |this, _window, cx| this.close_terminal_session(cx),
+                            ),
+                        ],
                         cx,
-                        |this, _window, cx| {
-                            let _ = this.terminal.update(cx, |t, cx| t.clear(cx));
-                        },
-                    )],
-                    cx,
-                ),
-                div()
-                    .size_full()
-                    .child(self.terminal.clone())
-                    .into_any_element(),
-            ),
+                    ),
+                    div()
+                        .size_full()
+                        .child(self.terminal.clone())
+                        .into_any_element(),
+                )
+            }
             BottomTab::Run => (self.render_run_header(cx), self.render_run_panel(cx)),
             BottomTab::Maven => (self.render_maven_header(cx), self.render_maven_panel(cx)),
             BottomTab::Diagnostics => (
