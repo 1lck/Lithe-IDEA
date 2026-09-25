@@ -33,6 +33,10 @@ fn main() {
         fonts::register(cx);
         // rgitui diff 引擎的主题状态（Git 面板的 diff 视图用它选高亮主题）。
         rgitui_theme::init(cx);
+        // rgitui diff 引擎的设置全局：DiffViewer 渲染时直接读
+        // `cx.global::<SettingsState>()`，缺失会 panic（上游约定 app 启动时
+        // 必须调用，见 rgitui_settings::init 文档）。
+        rgitui_settings::init(cx);
 
         // 先加载持久化设置，再据此决定 gpui-component 主题与工作台调色板。
         settings::init(cx);

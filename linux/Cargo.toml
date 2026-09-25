@@ -23,6 +23,7 @@ gpui_xterm = { path = "../third_party/gpui_xterm" }
 rgitui_diff = { path = "../third_party/rgitui/crates/rgitui_diff" }
 rgitui_theme = { path = "../third_party/rgitui/crates/rgitui_theme" }
 rgitui_git = { path = "../third_party/rgitui/crates/rgitui_git" }
+rgitui_settings = { path = "../third_party/rgitui/crates/rgitui_settings" }
 portable-pty = "0.9"
 alacritty_terminal = "0.26"
 serde = { version = "1", features = ["derive"] }
