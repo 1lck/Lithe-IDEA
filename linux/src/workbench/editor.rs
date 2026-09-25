@@ -1,13 +1,16 @@
 use gpui_kit::assets::IconName;
+use gpui_kit::base::input::{InputContextMenuCapabilities, NativeMenu};
+use gpui_kit::base::ElementExt as _;
 use gpui_kit::component::input::{Editor, EditorState, InputEvent, Position};
-use gpui_kit::component::menu::ContextMenuExt as _;
+use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenu};
 use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, relative, AppContext as _, ClipboardItem, Context, Entity, EventEmitter, FontWeight,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Subscription, Task, Window,
+    div, px, relative, AppContext as _, ClipboardItem, Context, DismissEvent, Entity, EventEmitter,
+    Focusable as _, FontWeight, InteractiveElement as _, IntoElement, KeyDownEvent,
+    ParentElement as _, Pixels, Point, Render, StatefulInteractiveElement as _, Styled as _,
+    Subscription, Task, Window,
 };
 
 use std::collections::HashMap;
@@ -46,6 +49,16 @@ impl AutoSaveState {
         self.debounce_requested = false;
         requested
     }
+}
+
+/// 编辑区右键菜单的临时状态。
+///
+/// Linux 的 `NativeMenu` fallback 会把焦点移到 `PopupMenu`，上游编辑器因此
+/// 隐藏选区。这里复用同一个官方菜单与动作，但不让菜单取得编辑器焦点。
+struct EditorContextMenu {
+    menu: Entity<PopupMenu>,
+    position: Point<Pixels>,
+    _subscription: Subscription,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +109,8 @@ pub struct EditorView {
     closed_stack: Vec<(EditorTab, usize)>,
     /// 右键菜单目标标签（UI 层读写，方法层不消费）。
     pub context_menu_tab: Option<usize>,
+    /// 编辑区正文右键菜单；保持编辑器焦点，避免 Linux fallback 隐藏选区。
+    editor_context_menu: Option<EditorContextMenu>,
     /// 所属窗格（工作台装配；`None` 时右键菜单用 0 与空回调兜底）。
     pub pane_id: Option<PaneId>,
     /// 所属窗格锁定镜像（工作台回写，决定锁定项文案）。
@@ -143,6 +158,7 @@ impl EditorView {
             redo_stack: Vec::new(),
             closed_stack: Vec::new(),
             context_menu_tab: None,
+            editor_context_menu: None,
             pane_id: None,
             pane_locked: false,
             on_split: None,
@@ -650,6 +666,72 @@ impl EditorView {
                 editor.insert(text, window, cx);
             });
         }
+    }
+
+    /// 在编辑器完成本帧渲染后接管其右键回调。
+    ///
+    /// `Editor::render` 每帧都会重新安装上游默认的 `NativeMenu` 回调，因此这里
+    /// 必须在子元素的 `on_prepaint` 阶段覆盖它；鼠标按下/释放仍由上游编辑器
+    /// 处理，因此右键到选区外的光标移动语义保持不变。
+    fn install_editor_context_menu_handler(&mut self, cx: &mut Context<Self>) {
+        if self.active_tab_index.is_none() {
+            return;
+        }
+
+        let view = cx.entity().downgrade();
+        self.editor_state.update(cx, |state, _cx| {
+            state.on_context_menu(Rc::new(
+                move |_menu: NativeMenu,
+                      _capabilities: InputContextMenuCapabilities,
+                      position: Point<Pixels>,
+                      window: &mut Window,
+                      cx: &mut gpui_kit::App| {
+                    let Some(view) = view.upgrade() else {
+                        return;
+                    };
+                    view.update(cx, |editor, cx| {
+                        editor.open_editor_context_menu(position, window, cx);
+                    });
+                },
+            ));
+        });
+    }
+
+    /// 打开编辑区正文右键菜单。
+    ///
+    /// gpui-kit 的 Linux `NativeMenu` fallback 会聚焦 `PopupMenu`，从而让上游
+    /// `Editor` 的选区绘制条件失效。这里复用官方 `PopupMenu` 和编辑动作，但
+    /// 不把焦点交给菜单，编辑器因此持续绘制原有蓝色选区。
+    fn open_editor_context_menu(
+        &mut self,
+        position: Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.active_tab_index.is_none() {
+            return;
+        }
+
+        let view = cx.entity();
+        let editor_focus = self
+            .editor_state
+            .read(cx)
+            .presentation()
+            .focus_handle()
+            .clone();
+        let menu = PopupMenu::build(window, cx, move |menu, _window, cx| {
+            build_editor_context_menu(menu, cx, &view).action_context(editor_focus)
+        });
+        let subscription = cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
+            this.editor_context_menu = None;
+            cx.notify();
+        });
+        self.editor_context_menu = Some(EditorContextMenu {
+            menu,
+            position,
+            _subscription: subscription,
+        });
+        cx.notify();
     }
 
     /// 当前光标行（0-based）与编辑器全文。
@@ -1300,6 +1382,60 @@ fn is_code_file(name: &str) -> bool {
         || lower.ends_with(".sql")
 }
 
+/// 构造与上游内置编辑菜单相同的项目，但交给应用自己的非抢焦点浮层。
+fn build_editor_context_menu(
+    mut menu: PopupMenu,
+    cx: &mut Context<PopupMenu>,
+    view: &Entity<EditorView>,
+) -> PopupMenu {
+    let capabilities = view
+        .read(cx)
+        .editor_state
+        .read(cx)
+        .context_menu_capabilities();
+    let enabled = !capabilities.is_disabled();
+    let editable = enabled && !capabilities.is_readonly();
+
+    if capabilities.is_code_editor() {
+        menu = menu
+            .menu_with_disabled(
+                crate::i18n::menu_text(cx, "menu.goToDefinition"),
+                Box::new(gpui_kit::base::input::GoToDefinition),
+                !(enabled && capabilities.has_definition()),
+            )
+            .menu_with_disabled(
+                crate::i18n::menu_text(cx, "menu.showCodeActions"),
+                Box::new(gpui_kit::base::input::ToggleCodeActions),
+                !(editable && capabilities.has_code_actions()),
+            )
+            .separator();
+    }
+
+    menu = menu
+        .menu_with_disabled(
+            crate::i18n::menu_text(cx, "menu.cut"),
+            Box::new(gpui_kit::base::input::Cut),
+            !(editable && capabilities.is_copyable()),
+        )
+        .menu_with_disabled(
+            crate::i18n::menu_text(cx, "menu.copy"),
+            Box::new(gpui_kit::base::input::Copy),
+            !capabilities.is_copyable(),
+        )
+        .menu_with_disabled(
+            crate::i18n::menu_text(cx, "menu.paste"),
+            Box::new(gpui_kit::base::input::Paste),
+            !(editable && cx.read_from_clipboard().is_some()),
+        )
+        .separator()
+        .menu(
+            crate::i18n::menu_text(cx, "menu.selectAll"),
+            Box::new(gpui_kit::base::input::SelectAll),
+        );
+
+    menu
+}
+
 impl Render for EditorView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.sync_active_editor(window, cx);
@@ -1339,6 +1475,30 @@ impl Render for EditorView {
         };
 
         let editor_state = self.editor_state.clone();
+        let editor_view = cx.entity().downgrade();
+        let editor_menu = self
+            .editor_context_menu
+            .as_ref()
+            .map(|menu| menu.menu.clone());
+        let editor_context_menu_overlay = self.editor_context_menu.as_ref().map(|menu| {
+            gpui_kit::deferred(
+                gpui_kit::anchored().child(
+                    div()
+                        .w(window.bounds().size.width)
+                        .h(window.bounds().size.height)
+                        .on_scroll_wheel(|_, _, cx| {
+                            cx.stop_propagation();
+                        })
+                        .child(
+                            gpui_kit::anchored()
+                                .position(menu.position)
+                                .snap_to_window_with_margin(px(8.0))
+                                .child(menu.menu.clone()),
+                        ),
+                ),
+            )
+            .with_priority(gpui_kit::base::POPUP_PRIORITY)
+        });
 
         v_flex()
             .size_full()
@@ -1558,6 +1718,43 @@ impl Render for EditorView {
                     .flex_1()
                     .w_full()
                     .overflow_hidden()
+                    .when_some(editor_menu.as_ref(), |this, menu| {
+                        let menu_focus = menu.focus_handle(cx);
+                        this.capture_key_down(move |event: &KeyDownEvent, window, cx| {
+                            if event.keystroke.modifiers.shift
+                                || event.keystroke.modifiers.control
+                                || event.keystroke.modifiers.alt
+                                || event.keystroke.modifiers.platform
+                            {
+                                return;
+                            }
+                            match event.keystroke.key.as_str() {
+                                "up" => menu_focus.dispatch_action(
+                                    &gpui_kit::base::actions::SelectUp,
+                                    window,
+                                    cx,
+                                ),
+                                "down" => menu_focus.dispatch_action(
+                                    &gpui_kit::base::actions::SelectDown,
+                                    window,
+                                    cx,
+                                ),
+                                "enter" => menu_focus.dispatch_action(
+                                    &gpui_kit::base::actions::Confirm { secondary: false },
+                                    window,
+                                    cx,
+                                ),
+                                "escape" => menu_focus.dispatch_action(
+                                    &gpui_kit::base::actions::Cancel,
+                                    window,
+                                    cx,
+                                ),
+                                _ => return,
+                            }
+                            cx.stop_propagation();
+                            window.prevent_default();
+                        })
+                    })
                     .when_some(
                         active_tab.as_ref().map(|_| editor_state.clone()),
                         |this, state| {
@@ -1616,8 +1813,19 @@ impl Render for EditorView {
                                         ),
                                 ),
                         )
+                    })
+                    .on_prepaint(move |_bounds, _window, cx| {
+                        let Some(view) = editor_view.upgrade() else {
+                            return;
+                        };
+                        view.update(cx, |editor, cx| {
+                            editor.install_editor_context_menu_handler(cx);
+                        });
                     }),
             )
+            .when_some(editor_context_menu_overlay, |this, overlay| {
+                this.child(overlay)
+            })
     }
 }
 

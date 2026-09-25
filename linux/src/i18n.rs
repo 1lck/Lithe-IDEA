@@ -115,6 +115,7 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "menu.goBack" => ("后退", "Go Back"),
         "menu.goForward" => ("前进", "Go Forward"),
         "menu.goToDefinition" => ("转到定义", "Go to Definition"),
+        "menu.showCodeActions" => ("显示代码操作", "Show Code Actions"),
         "menu.goToImplementation" => ("转到实现", "Go to Implementation"),
         "menu.goToTypeDefinition" => ("转到类型定义", "Go to Type Definition"),
         "menu.goToReferences" => ("转到引用", "Go to References"),
