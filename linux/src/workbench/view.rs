@@ -180,11 +180,19 @@ pub struct WorkbenchView {
 
 impl WorkbenchView {
     pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let workspace_root = std::env::current_dir()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
+        // 启动工作区优先级：命令行参数 → 上次打开的项目（最近列表首位）→ 空（显示欢迎页）。
+        //
+        // 不使用 `std::env::current_dir()`：GUI 启动目录由用户敲命令的位置决定，
+        // 把它当作工作区会让「上次打开的项目」在下次启动时变成无关目录。
+        let workspace_root = Self::initial_workspace_root(cx);
         Self::with_root(workspace_root, window, cx)
+    }
+
+    /// 解析启动工作区：`lithe-linux [path]` 参数优先；否则取最近项目里第一个
+    /// 仍存在的目录；都没有则返回空串，由 `with_root` 切到欢迎页。
+    fn initial_workspace_root(cx: &gpui_kit::App) -> String {
+        let cli = std::env::args().nth(1);
+        resolve_initial_workspace(cli.as_deref(), &settings::get(cx).recent_projects)
     }
 
     pub fn with_root(workspace_root: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
@@ -850,7 +858,8 @@ impl WorkbenchView {
             drag_start_x: 0.0,
             drag_start_y: 0.0,
             initial_resize_size: 0.0,
-            show_welcome: false,
+            // 无工作区（命令行与最近项目都为空）时直接进入欢迎页。
+            show_welcome: root.is_empty(),
             show_search_everywhere: false,
             show_quick_open: false,
             show_go_to_line: false,
@@ -937,8 +946,10 @@ impl WorkbenchView {
             );
             view.append_log(&msg, cx);
         }
-        // 启动目录同样记入最近项目（对齐 Tauri 打开即记录）。
-        settings::record_recent_project(cx, &view.workspace_root.clone());
+        // 只有真正打开了工作区才记入最近项目；欢迎页不应把一个空目录写进去。
+        if !view.workspace_root.is_empty() {
+            settings::record_recent_project(cx, &view.workspace_root.clone());
+        }
         // 同步工具栏当前项目行（仿分支同步写法；构造时已传入，此处再确认一次）。
         let root_for_toolbar = view.workspace_root.clone();
         let _ = view.toolbar.update(cx, |tb, cx| {
@@ -2467,6 +2478,25 @@ fn sidebar_tab_for(view_id: &str) -> Option<SidebarTab> {
     }
 }
 
+/// 启动工作区优先级：命令行参数（存在且为目录） → 最近项目里第一个仍存在的
+/// 目录 → 空串（表示显示欢迎页）。
+///
+/// 不使用 `current_dir()`：GUI 启动目录由用户敲命令的位置决定，把它当工作区
+/// 会让下次启动打开一个无关目录。
+fn resolve_initial_workspace(cli_arg: Option<&str>, recent_projects: &[String]) -> String {
+    if let Some(arg) = cli_arg {
+        let trimmed = arg.trim();
+        if !trimmed.is_empty() && std::path::Path::new(trimmed).is_dir() {
+            return trimmed.to_string();
+        }
+    }
+    recent_projects
+        .iter()
+        .find(|path| std::path::Path::new(path).is_dir())
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// 活动栏底部项 id → 底部面板标签（对齐 Tauri `BottomPaneTab`：
 /// `run` 与 `maven` 是两个独立页）。
 fn bottom_tab_for(pane_id: &str) -> Option<BottomTab> {
@@ -2948,5 +2978,69 @@ impl WorkbenchView {
                     cx.notify();
                 }),
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 命令行参数指向真实目录时优先使用它，忽略最近项目。
+    #[test]
+    fn cli_directory_wins_over_recent_projects() {
+        let dir = std::env::temp_dir();
+        let recent = vec!["/definitely/not/here".to_string()];
+        let resolved = resolve_initial_workspace(Some(&dir.to_string_lossy()), &recent);
+        assert_eq!(resolved, dir.to_string_lossy());
+    }
+
+    /// 命令行参数不是目录（或不存在）时回退到最近项目。
+    #[test]
+    fn invalid_cli_argument_falls_back_to_recent_projects() {
+        let dir = std::env::temp_dir();
+        let recent = vec![dir.to_string_lossy().to_string()];
+        let resolved = resolve_initial_workspace(Some("/definitely/not/here"), &recent);
+        assert_eq!(resolved, dir.to_string_lossy());
+    }
+
+    /// 空/空白命令行参数视为未提供，走最近项目。
+    #[test]
+    fn blank_cli_argument_is_ignored() {
+        let dir = std::env::temp_dir();
+        let recent = vec![dir.to_string_lossy().to_string()];
+        assert_eq!(
+            resolve_initial_workspace(Some("   "), &recent),
+            dir.to_string_lossy()
+        );
+        assert_eq!(
+            resolve_initial_workspace(Some(""), &recent),
+            dir.to_string_lossy()
+        );
+    }
+
+    /// 最近项目里失效的路径被跳过，取第一个仍存在的目录。
+    /// 这条守住「打开上次项目」不会因失效记录而打开错目录。
+    #[test]
+    fn skips_missing_recent_projects() {
+        let dir = std::env::temp_dir();
+        let recent = vec![
+            "/definitely/not/here".to_string(),
+            dir.to_string_lossy().to_string(),
+            "/also/missing".to_string(),
+        ];
+        assert_eq!(
+            resolve_initial_workspace(None, &recent),
+            dir.to_string_lossy()
+        );
+    }
+
+    /// 既无命令行参数也无有效最近项目时返回空串，由调用方显示欢迎页。
+    /// 这是本次修复的核心：不退回 `current_dir()`。
+    #[test]
+    fn no_valid_source_yields_welcome_state() {
+        let recent = vec!["/definitely/not/here".to_string()];
+        assert!(resolve_initial_workspace(None, &recent).is_empty());
+        assert!(resolve_initial_workspace(None, &[]).is_empty());
+        assert!(resolve_initial_workspace(Some("/missing"), &recent).is_empty());
     }
 }

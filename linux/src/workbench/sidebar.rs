@@ -178,8 +178,12 @@ impl SidebarView {
             client: CoreClient::new(),
         };
 
-        view.refresh(cx);
-        view.refresh_git(cx);
+        // 无工作区时不做初始扫描：空路径查询只会得到一个错误态，
+        // 而欢迎页此时已遮住侧边栏。首次打开项目时会重新 refresh。
+        if !view.root_path.trim().is_empty() {
+            view.refresh(cx);
+            view.refresh_git(cx);
+        }
         view
     }
 

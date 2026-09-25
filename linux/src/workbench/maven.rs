@@ -461,6 +461,14 @@ impl MavenView {
     /// Profiles（对齐 Tauri 初次展开）；失败只落 `project_status`，
     /// 导航照常展示本地 pom 兜底。
     fn reload(&mut self, cx: &mut Context<Self>) {
+        // 无工作区（欢迎页）时不发起扫描：空根只会得到失败态，
+        // 且入口本身因 `has_projects` 为假而不展示。
+        if self.root.trim().is_empty() {
+            self.poms.clear();
+            self.project = None;
+            self.project_status = MavenStatus::Idle;
+            return;
+        }
         self.rescan();
         self.project_status = MavenStatus::Loading;
         self.scan_seq += 1;
