@@ -329,7 +329,7 @@ struct ModuleRuntimeTests {
                     id: manifest.id,
                     displayName: manifest.displayName,
                     scope: manifest.scope,
-                    defaultState: .enabled,
+                    defaultState: .disabled,
                     activationPolicy: manifest.activationPolicy,
                     sleepPolicy: manifest.sleepPolicy,
                     dependencies: manifest.dependencies,

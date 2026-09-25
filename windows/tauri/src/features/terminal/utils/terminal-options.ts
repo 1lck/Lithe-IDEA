@@ -27,6 +27,7 @@ export function getTerminalCompatibilityOptions(
     macOptionClickForcesSelection: platform === "macos",
     reflowCursorLine: false,
     rescaleOverlappingGlyphs: true,
+    scrollOnEraseInDisplay: true,
     scrollOnUserInput: true,
     smoothScrollDuration: 0,
   };

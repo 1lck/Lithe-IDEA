@@ -18,7 +18,7 @@ public enum BuiltInModuleCatalog {
             id: .database,
             displayName: "Database",
             scope: .workspace,
-            defaultState: .disabled,
+            defaultState: .enabled,
             activationPolicy: .onDemand,
             sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
             dependencies: [.module(.workspace)],
@@ -197,7 +197,6 @@ public enum BuiltInPluginCatalog {
 /// module graph and become available only when their signed package exists.
 public enum OfficialPluginCatalog {
     private static let goLanguageID = "go"
-    public static let linuxDoSupportModuleID = ModuleID("dev.lithe.community.linux-do")
 
     public static let manifests: [PluginManifest] = [
         PluginManifest(
@@ -253,43 +252,6 @@ public enum OfficialPluginCatalog {
                 executionModuleID: .languageExecutionExtension(goLanguageID),
                 testingModuleID: .languageExecutionExtension(goLanguageID)
             )]
-        ),
-        PluginManifest(
-            id: PluginID("dev.lithe.plugin.linux-do-support"),
-            displayName: "LINUX DO Support",
-            version: BuiltInPluginCatalog.hostVersion,
-            hostCompatibility: PluginHostCompatibility(
-                minimum: BuiltInPluginCatalog.hostVersion,
-                maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
-            ),
-            vendor: BuiltInPluginCatalog.vendor,
-            entrypoint: PluginEntrypoint(
-                kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.linux-do-support.bundle",
-                principalClass: "LitheLinuxDoSupportPluginEntrypoint",
-                bundlePath: "LinuxDoSupport.bundle"
-            ),
-            modules: [
-                PluginModuleDeclaration(
-                    manifest: ModuleManifest(
-                        id: linuxDoSupportModuleID,
-                        displayName: "LINUX DO",
-                        scope: .application,
-                        defaultState: .disabled,
-                        activationPolicy: .onDemand
-                    ),
-                    contributions: [ModuleContribution(
-                        id: "community.linux-do",
-                        kind: .toolWindow,
-                        title: "LINUX DO",
-                        icon: "bubble.left.and.bubble.right",
-                        placement: .rightSidebar,
-                        order: 100,
-                        actionID: "community.linux-do.toggle",
-                        rendererID: "community.linux-do.browser"
-                    )]
-                )
-            ]
         )
     ]
 

@@ -11,6 +11,14 @@ interface HiddenPatternDefaultsMigration {
   changes: Array<[string, unknown]>;
 }
 
+// Keys of settings that no longer exist. They are deleted from the persisted store so an
+// upgraded settings.json does not keep carrying values that nothing reads.
+export const RETIRED_SETTINGS_KEYS: readonly string[] = ["horizontalTabScroll"];
+
+export function findRetiredSettingsKeys(entries: ReadonlyMap<string, unknown>): string[] {
+  return RETIRED_SETTINGS_KEYS.filter((key) => entries.has(key));
+}
+
 const isEmptyArray = (value: unknown): value is [] => Array.isArray(value) && value.length === 0;
 
 export function migrateHiddenPatternDefaults(

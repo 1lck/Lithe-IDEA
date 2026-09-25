@@ -50,79 +50,1782 @@
     }
   },
   "features": [
-    {"id":"workspace-open-switch","area":"工作区","group":"工作区生命周期","capability":"打开工作区与切换项目","macos":{"evidence":["macos/Sources/Lithe/Views/Workspace","macos/Sources/Lithe/Services/Workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace","verification":"打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。"},
-    {"id":"workspace-files","area":"工作区","group":"工作区生命周期","capability":"文件树与文件操作","macos":{"evidence":["macos/Sources/Lithe/Views/Workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/file-system"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace","verification":"新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"},
-    {"id":"workspace-document-sync","area":"工作区","group":"工作区生命周期","capability":"脏状态、保存与外部修改","macos":{"evidence":["macos/Sources/Lithe/Models/Editor","macos/Sources/Lithe/Services/Workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/editor","windows/tauri/src/features/file-system"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace","verification":"编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。"},
-    {"id":"workspace-tabs-projects","area":"工作区","group":"工作区生命周期","capability":"多项目与多标签","macos":{"evidence":["macos/Sources/Lithe/Views/Workspace","macos/Sources/Lithe/Views/Editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/workspace","windows/tauri/src/features/tabs"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace","verification":"同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。"},
-    {"id":"editor-text-tabs","area":"编辑器","group":"文本编辑","capability":"文本编辑与标签生命周期","macos":{"evidence":["macos/Sources/Lithe/Views/Editor","macos/Sources/Lithe/Models/Editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/editor","windows/tauri/src/features/tabs"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态。"},
-    {"id":"editor-language-basics","area":"编辑器","group":"文本编辑","capability":"语法高亮与编辑器模型","macos":{"evidence":["macos/Sources/Lithe/Views/Editor","macos/Sources/Lithe/Models/Editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/editor","frontend/editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。"},
-    {"id":"editor-multiline-tabs","area":"编辑器","group":"文本编辑","capability":"多行标签与标签导航","macos":{"evidence":["macos/Sources/Lithe/Views/Editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/tabs"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。"},
-    {"id":"search-quick-open","area":"搜索","group":"搜索与导航","capability":"快速打开文件与符号","macos":{"evidence":["macos/Sources/Lithe/Views/Search","macos/Sources/Lithe/Views/Workbench"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/quick-open"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Search","verification":"使用文件名、路径和符号查询，确认排序、键盘导航和打开位置。"},
-    {"id":"search-project","area":"搜索","group":"搜索与导航","capability":"项目范围文本搜索","macos":{"evidence":["macos/Sources/Lithe/Views/Search","macos/Sources/Lithe/Services/Language"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/file-search"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Search","verification":"使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序。"},
-    {"id":"search-global","area":"搜索","group":"搜索与导航","capability":"全局命令与设置搜索","macos":{"evidence":["macos/Sources/Lithe/Views/Search"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/global-search","windows/tauri/src/features/command-palette"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Search","verification":"使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。"},
-    {"id":"search-replace","area":"搜索","group":"搜索与导航","capability":"项目替换与取消","macos":{"evidence":["macos/Sources/Lithe/Views/Search","macos/Sources/Lithe/Services/Language"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/file-search"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Search","verification":"执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。"},
-    {"id":"git-status-commit","area":"版本控制","group":"Git","capability":"状态、暂存与提交","macos":{"evidence":["macos/Sources/Lithe/Views/Git","macos/Sources/Lithe/Services"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git","shared/contracts/application-boundary.md"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。"},
-    {"id":"git-branches-remotes","area":"版本控制","group":"Git","capability":"分支、标签与远程","macos":{"evidence":["macos/Sources/Lithe/Views/Git"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。"},
-    {"id":"git-diff-review","area":"版本控制","group":"Git","capability":"Diff 与变更审查","macos":{"evidence":["macos/Sources/Lithe/Views/Git","macos/Sources/Lithe/Views/Diff"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git","windows/tauri/src/features/viewer"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位。"},
-    {"id":"git-history","area":"版本控制","group":"Git","capability":"提交历史与图谱","macos":{"evidence":["macos/Sources/Lithe/Views/Git"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。"},
-    {"id":"git-rebase-stash","area":"版本控制","group":"Git","capability":"Rebase 与 Stash","macos":{"evidence":["macos/Sources/Lithe/Views/Git"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。"},
-    {"id":"git-worktrees","area":"版本控制","group":"Git","capability":"Worktree 管理","macos":{"evidence":["macos/Sources/Lithe/Views/Git"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git","verification":"列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"},
-    {"id":"github-prs","area":"协作","group":"GitHub","capability":"Pull Request 列表与详情","macos":{"evidence":["macos/Sources/Lithe/Views/GitHub","macos/Sources/Lithe/Services/GitHub"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/github","shared/contracts/application-boundary.md"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"GitHub","verification":"使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。"},
-    {"id":"github-reviews-comments","area":"协作","group":"GitHub","capability":"Review 与评论","macos":{"evidence":["macos/Sources/Lithe/Views/GitHub"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/github"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"GitHub","verification":"创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。"},
-    {"id":"ai-commit-generation","area":"AI","group":"AI 提交信息","capability":"Provider 配置与提交信息生成","macos":{"evidence":["macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift","macos/Sources/Lithe/Platform/MacOS/AI"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/git/services/ai-commit-service.ts","shared/contracts/ai-commit.md"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Git / AI","verification":"用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。"},
-    {"id":"ai-chat-session","area":"AI","group":"AI 对话","capability":"对话会话与流式响应","macos":{"evidence":["macos/Sources/Lithe/Platform/MacOS/AI"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/ai/components/chat/ai-chat.tsx","windows/tauri/src/features/ai/services/ai-chat-service.ts"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"AI","verification":"Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。"},
-    {"id":"ai-chat-history","area":"AI","group":"AI 对话","capability":"对话历史、置顶与归档","macos":{"evidence":["macos/Sources/Lithe/Platform/MacOS/AI"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/ai/services/ai-chat-history-service.ts","windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"AI","verification":"Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。"},
-    {"id":"ai-chat-providers","area":"AI","group":"AI 对话","capability":"多 Provider 与工作区范围","macos":{"evidence":["macos/Sources/Lithe/Platform/MacOS/AI"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/ai/services/providers","windows/tauri/src/features/ai/lib/ai-workspace-scope.ts"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"AI","verification":"Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。"},
-    {"id":"java-runtime-discovery","area":"Java","group":"Java/Maven","capability":"JDK 与 Maven 工具链发现","macos":{"evidence":["macos/Sources/Lithe/Services/Java","macos/Sources/Lithe/Views/Run"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/maven","windows/tauri/src/features/workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Maven","verification":"配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"},
-    {"id":"java-maven-project","area":"Java","group":"Java/Maven","capability":"项目根、模块与源码集识别","macos":{"evidence":["macos/Sources/Lithe/Services/Java","shared/contracts/application-boundary.md"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/maven","windows/tauri/src/features/workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Maven","verification":"使用单模块、多模块和非标准源码目录 fixture 对比项目模型。"},
-    {"id":"java-maven-profiles-dependencies","area":"Java","group":"Java/Maven","capability":"Profile 与依赖树","macos":{"evidence":["macos/Sources/Lithe/Views/Run","macos/Sources/Lithe/Services/Java"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/maven"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Maven","verification":"切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"},
-    {"id":"java-build-diagnostics","area":"Java","group":"Java/Maven","capability":"构建输出与编译诊断","macos":{"evidence":["macos/Sources/Lithe/Views/Run","macos/Sources/Lithe/Services/Diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/maven","windows/tauri/src/features/diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Maven","verification":"使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。"},
-    {"id":"spring-index","area":"Java","group":"Spring / MyBatis","capability":"Spring 配置、Bean 与 Endpoint 索引","macos":{"evidence":["macos/Sources/Lithe/Application/Features","macos/Sources/Lithe/Views/Run","shared/fixtures/spring"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/spring","shared/fixtures/spring"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Spring","verification":"使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。"},
-    {"id":"spring-navigation","area":"Java","group":"Spring / MyBatis","capability":"Spring 符号导航与代码关联","macos":{"evidence":["macos/Sources/Lithe/Application/Features","macos/Sources/Lithe/Views/Language"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/spring"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / Spring","verification":"从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"},
-    {"id":"mybatis-navigation","area":"Java","group":"Spring / MyBatis","capability":"MyBatis Mapper/XML 导航","macos":{"evidence":["macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift","macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/mybatis"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Java / MyBatis","verification":"使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。"},
-    {"id":"lsp-lifecycle","area":"Java","group":"语言服务","capability":"LSP/JDTLS 启动与工作区准备","macos":{"evidence":["macos/Sources/Lithe/Core/Language","macos/Sources/Lithe/Services/Language"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features","shared/fixtures/lsp"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理。"},
-    {"id":"lsp-completion-hover","area":"Java","group":"语言服务","capability":"补全与 Hover","macos":{"evidence":["macos/Sources/Lithe/Core/Language","shared/fixtures/lsp"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features","shared/fixtures/lsp"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。"},
-    {"id":"lsp-diagnostics","area":"Java","group":"语言服务","capability":"诊断与编译错误定位","macos":{"evidence":["macos/Sources/Lithe/Core/Language","macos/Sources/Lithe/Services/Diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/diagnostics","shared/fixtures/lsp"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"制造语法和类型错误，比较诊断等级、消息、行列号和清理行为。"},
-    {"id":"lsp-navigation-edits","area":"Java","group":"语言服务","capability":"跳转、引用、语义标记与编辑","macos":{"evidence":["macos/Sources/Lithe/Core/Language","shared/contracts/rust-core-api.md"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features","shared/fixtures/lsp"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。"},
-    {"id":"run-discovery","area":"运行与调试","group":"运行配置","capability":"入口点与运行配置发现","macos":{"evidence":["macos/Sources/Lithe/Views/Run","shared/fixtures/run-configuration"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/run","shared/fixtures/run-configuration"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Run","verification":"验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别。"},
-    {"id":"run-save-toolchain","area":"运行与调试","group":"运行配置","capability":"保存前同步与工具链解析","macos":{"evidence":["macos/Sources/Lithe/Views/Run","macos/Sources/Lithe/Services/Java"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/run","windows/tauri/src/features/maven"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Run","verification":"修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。"},
-    {"id":"run-java-test","area":"运行与调试","group":"运行配置","capability":"Java main 与测试运行","macos":{"evidence":["macos/Sources/Lithe/Views/Run","shared/fixtures/debug"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/run","shared/fixtures/debug"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Run","verification":"运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。"},
-    {"id":"debug-breakpoints","area":"运行与调试","group":"调试器","capability":"启动调试与断点","macos":{"evidence":["macos/Sources/Lithe/Views/Debug","shared/fixtures/debug"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/debugger","shared/fixtures/debug"],"implementationStatus":"partial","verificationStatus":"pending"},"owner":"Debug","verification":"设置、命中、禁用和重新定位断点，确认调试会话生命周期。","notes":"Windows 真实调试产品链路仍在 #466 跟进。"},
-    {"id":"debug-state","area":"运行与调试","group":"调试器","capability":"变量、异常与断开策略","macos":{"evidence":["macos/Sources/Lithe/Views/Debug","shared/fixtures/debug"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/debugger","shared/fixtures/debug"],"implementationStatus":"partial","verificationStatus":"pending"},"owner":"Debug","verification":"验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。","notes":"Windows 真实调试产品链路仍在 #466 跟进。"},
-    {"id":"terminal-shell","area":"工作台","group":"终端","capability":"Shell 发现与配置","macos":{"evidence":["macos/Sources/Lithe/Views/Terminal","macos/Sources/Lithe/Services"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/terminal","windows/tauri/src-tauri"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Terminal","verification":"验证默认 Shell、环境变量、工作目录和不可用 Shell 的错误提示。"},
-    {"id":"terminal-sessions","area":"工作台","group":"终端","capability":"多会话与标签","macos":{"evidence":["macos/Sources/Lithe/Views/Terminal"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/terminal"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Terminal","verification":"创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理。"},
-    {"id":"terminal-interaction","area":"工作台","group":"终端","capability":"复制粘贴、搜索与调整大小","macos":{"evidence":["macos/Sources/Lithe/Views/Terminal"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/terminal"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Terminal","verification":"验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。"},
-    {"id":"markdown-rendering","area":"编辑器","group":"Markdown","capability":"Markdown 预览与富文本渲染","macos":{"evidence":["macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift","macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/editor/markdown"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。"},
-    {"id":"markdown-images-links","area":"编辑器","group":"Markdown","capability":"图片导入与链接定位","macos":{"evidence":["macos/Sources/Lithe/Services/Markdown","macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/editor/markdown","windows/tauri/src/features/viewer"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"验证本地图片、远程图片、相对链接和打开源文件行为。"},
-    {"id":"history-snapshots","area":"工作台","group":"本地历史","capability":"快照列表与 Diff","macos":{"evidence":["macos/Sources/Lithe/Views/History","macos/Sources/Lithe/Services"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/local-history"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Local History","verification":"编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。"},
-    {"id":"history-restore","area":"工作台","group":"本地历史","capability":"恢复、删除与持久化","macos":{"evidence":["macos/Sources/Lithe/Views/History"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/local-history"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Local History","verification":"验证恢复、删除、应用重启后持久化和失败回滚。"},
-    {"id":"database-connections","area":"数据库","group":"数据库工作区","capability":"连接配置与 Provider","macos":{"evidence":["macos/Sources/Lithe/Views/Database","macos/Sources/Lithe/Services"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/database"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Database","verification":"创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。"},
-    {"id":"database-schema","area":"数据库","group":"数据库工作区","capability":"Schema、表与列浏览","macos":{"evidence":["macos/Sources/Lithe/Views/Database"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/database"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Database","verification":"展开数据库、Schema、表和列，验证刷新、筛选和空结果展示。"},
-    {"id":"database-query-history","area":"数据库","group":"数据库工作区","capability":"SQL 查询、历史与分页","macos":{"evidence":["macos/Sources/Lithe/Views/Database"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/database"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Database","verification":"执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。"},
-    {"id":"database-crud-export","area":"数据库","group":"数据库工作区","capability":"表数据编辑、CRUD 与导出","macos":{"evidence":["macos/Sources/Lithe/Views/Database"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/database"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Database","verification":"验证新增、编辑、删除、事务失败、复制和结果导出。"},
-    {"id":"file-explorer","area":"工作区","group":"项目浏览","capability":"项目文件树与资源打开","macos":{"evidence":["macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift","macos/Sources/Lithe/Models/Workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/file-explorer","windows/tauri/src/features/sidebar"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace","verification":"浏览目录、展开/折叠、打开资源并在文件变更后刷新树。"},
-    {"id":"dependency-browser","area":"工作区","group":"项目浏览","capability":"项目依赖与模块浏览","macos":{"evidence":["macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/maven","windows/tauri/src/features/sidebar"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workspace / Java","verification":"打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。"},
-    {"id":"outline-symbols","area":"编辑器","group":"代码结构","capability":"当前文件 Outline 与符号树","macos":{"evidence":["macos/Sources/Lithe/Views/Language","macos/Sources/Lithe/Views/Search"],"implementationStatus":"partial","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/outline"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。"},
-    {"id":"references-pane","area":"编辑器","group":"代码结构","capability":"引用结果面板与引用跳转","macos":{"evidence":["macos/Sources/Lithe/Views/Language/JavaReferencesView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/references"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Language Tooling","verification":"从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。"},
-    {"id":"diagnostics-workspace","area":"可观测性","group":"诊断与日志","capability":"工作区诊断与问题面板","macos":{"evidence":["macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift","macos/Sources/Lithe/Views/Language/JavaProblemsView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Diagnostics","verification":"制造多个来源的错误和警告，验证筛选、排序、定位和清除。"},
-    {"id":"diagnostics-export","area":"可观测性","group":"诊断与日志","capability":"诊断包导出与脱敏","macos":{"evidence":["macos/Sources/Lithe/Views/Diagnostics/DiagnosticsExportSheet.swift","macos/Sources/Lithe/Services/Diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/diagnostics"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Diagnostics","verification":"导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制。"},
-    {"id":"application-settings","area":"设置","group":"应用配置","capability":"应用、项目与运行设置","macos":{"evidence":["macos/Sources/Lithe/Views/App/SettingsView.swift","macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/settings"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Settings","verification":"修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示。"},
-    {"id":"keymap-customization","area":"设置","group":"应用配置","capability":"快捷键查看与自定义","macos":{"evidence":["macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift","macos/Sources/Lithe/Models/Keymap"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/keymaps"],"implementationStatus":"partial","verificationStatus":"pending"},"owner":"Settings","verification":"修改快捷键、制造冲突并恢复默认，确认命令实际执行。","notes":"Windows 快捷键设置仍有占位交互，见 #718。"},
-    {"id":"plugin-extension-management","area":"扩展","group":"插件与主题","capability":"插件、语言服务与主题管理","macos":{"evidence":["macos/Sources/Lithe/Views/App/PluginManagementView.swift","macos/Sources/Lithe/Platform/MacOS/Plugins"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/extensions","windows/tauri/src/features/settings"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Extensions","verification":"启用、禁用和恢复插件/主题，确认启动加载、失败隔离和设置持久化。"},
-    {"id":"onboarding-welcome","area":"启动与窗口","group":"首次启动","capability":"欢迎页、项目入口与首次启动引导","macos":{"evidence":["macos/Sources/Lithe/Views/App/WelcomeView.swift","macos/Sources/Lithe/Views/Workspace"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/onboarding","windows/tauri/src/features/bootstrap"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Onboarding","verification":"清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导。"},
-    {"id":"command-palette","area":"工作台","group":"命令与布局","capability":"命令面板与全局动作","macos":{"evidence":["macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift","macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/command-palette"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workbench","verification":"搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"},
-    {"id":"workbench-panes","area":"工作台","group":"命令与布局","capability":"分栏、面板与工具窗布局","macos":{"evidence":["macos/Sources/Lithe/Views/Workbench","macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/panes","windows/tauri/src/features/layout"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workbench","verification":"打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。"},
-    {"id":"embedded-viewers","area":"编辑器","group":"资源预览","capability":"HTML、SVG、媒体、PDF 与二进制预览","macos":{"evidence":["macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift","macos/Sources/Lithe/Views/Editor/MediaViewerView.swift","macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/viewer"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。"},
-    {"id":"docker-compose","area":"运行与调试","group":"项目运行","capability":"Docker / Compose 项目识别与运行","macos":{"evidence":["macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift","macos/Sources/Lithe/Services/Java"],"implementationStatus":"partial","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/docker","windows/tauri/src/features/run"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Run / Docker","verification":"使用 Dockerfile 和 Compose fixture 验证识别、命令参数、输出和进程停止；确认 macOS 是否只有入口识别。"},
-    {"id":"remote-workspace","area":"工作区","group":"远程开发","capability":"远程连接与远程路径工作区","macos":{"evidence":["macos/Sources/Lithe/Services"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/remote","windows/tauri/src/features/file-system"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Remote","verification":"Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。"},
-    {"id":"vim-mode","area":"编辑器","group":"编辑模式","capability":"Vim 模式与命令状态","macos":{"evidence":["macos/Sources/Lithe/Views/Editor"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/vim","windows/tauri/src/features/editor"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Editor","verification":"Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。"},
-    {"id":"workbench-notifications","area":"可观测性","group":"通知与资源","capability":"操作通知、错误提示与自动消失","macos":{"evidence":["macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/notifications"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workbench","verification":"触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。"},
-    {"id":"memory-monitor","area":"可观测性","group":"通知与资源","capability":"应用与语言服务内存监控","macos":{"evidence":["macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/layout/services/memory-api.ts","windows/tauri/src/platform/tauri-core.ts"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Workbench","verification":"打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。"},
-    {"id":"updates-check-download","area":"发行与更新","group":"应用更新","capability":"检查、下载与安装更新","macos":{"evidence":["macos/Sources/Lithe/Views/App/UpdateControl.swift","macos/Sources/Lithe/Platform/MacOS/Updates"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features/layout/components/app-update-control.tsx","windows/tauri/src/features/settings/hooks/use-updater.ts"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Release","verification":"使用 preview 更新清单验证检查、下载、校验、安装和重启。"},
-    {"id":"updates-failure-rollback","area":"发行与更新","group":"应用更新","capability":"失败重试与回滚","macos":{"evidence":["macos/Sources/Lithe/Platform/MacOS/Updates"],"implementationStatus":"partial","verificationStatus":"pending"},"windows":{"evidence":["docs/releases/windows-updater.md","windows/tauri/src/features/settings/hooks/use-updater.ts"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Release","verification":"模拟清单错误、下载失败和安装失败，确认重试、回滚和用户提示。","notes":"macOS 回退更新方案仍在 #734 跟进。"},
-    {"id":"community-feed","area":"社区","group":"LINUX DO 社区","capability":"主题列表与详情","macos":{"evidence":["macos/Sources/Lithe/Views/Community","macos/Sources/Lithe/Application/Features/Community"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"owner":"Community","verification":"macOS 验证 Latest/Top、主题详情、分页和浏览器跳转；Windows 需要补充入口。"},
-    {"id":"community-auth","area":"社区","group":"LINUX DO 社区","capability":"社区认证与请求失败处理","macos":{"evidence":["macos/Sources/Lithe/Application/Features/Community","shared/fixtures/community"],"implementationStatus":"implemented","verificationStatus":"pending"},"windows":{"evidence":["windows/tauri/src/features"],"implementationStatus":"missing","verificationStatus":"not-applicable"},"owner":"Community","verification":"macOS 验证认证、过期、限流和网络错误；Windows 需要统一 Discourse 契约。"},
-    {"id":"wsl-paths","area":"Windows 专属","group":"WSL","capability":"WSL 文件与工作区路径","macos":{"evidence":["macos/Sources/Lithe"],"implementationStatus":"platform-specific","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/wsl","windows/tauri/src/features/file-system"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Windows Platform","verification":"Windows 验证本地文件、WSL 文件、发行版识别和工作区打开。"},
-    {"id":"wsl-boundaries","area":"Windows 专属","group":"WSL","capability":"跨 WSL 边界移动与重命名","macos":{"evidence":["macos/Sources/Lithe"],"implementationStatus":"platform-specific","verificationStatus":"not-applicable"},"windows":{"evidence":["windows/tauri/src/features/wsl","windows/tauri/src/features/file-system"],"implementationStatus":"implemented","verificationStatus":"pending"},"owner":"Windows Platform","verification":"Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。"}
+    {
+      "id": "workspace-open-switch",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "打开工作区与切换项目",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace",
+          "macos/Sources/Lithe/Services/Workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace",
+      "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。"
+    },
+    {
+      "id": "workspace-files",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "文件树与文件操作",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/file-system"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace",
+      "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"
+    },
+    {
+      "id": "workspace-document-sync",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "脏状态、保存与外部修改",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Models/Editor",
+          "macos/Sources/Lithe/Services/Workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor",
+          "windows/tauri/src/features/file-system"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace",
+      "verification": "编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。"
+    },
+    {
+      "id": "workspace-tabs-projects",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "多项目与多标签",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace",
+          "macos/Sources/Lithe/Views/Editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/workspace",
+          "windows/tauri/src/features/tabs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace",
+      "verification": "同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。"
+    },
+    {
+      "id": "editor-text-tabs",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "文本编辑与标签生命周期",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor",
+          "macos/Sources/Lithe/Models/Editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor",
+          "windows/tauri/src/features/tabs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态。"
+    },
+    {
+      "id": "editor-language-basics",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "语法高亮与编辑器模型",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor",
+          "macos/Sources/Lithe/Models/Editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor",
+          "frontend/editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。"
+    },
+    {
+      "id": "editor-multiline-tabs",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "多行标签与标签导航",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/tabs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。"
+    },
+    {
+      "id": "search-quick-open",
+      "area": "搜索",
+      "group": "搜索与导航",
+      "capability": "快速打开文件与符号",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Search",
+          "macos/Sources/Lithe/Views/Workbench"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/quick-open"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Search",
+      "verification": "使用文件名、路径和符号查询，确认排序、键盘导航和打开位置。"
+    },
+    {
+      "id": "search-project",
+      "area": "搜索",
+      "group": "搜索与导航",
+      "capability": "项目范围文本搜索",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Search",
+          "macos/Sources/Lithe/Services/Language"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/file-search"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Search",
+      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序。"
+    },
+    {
+      "id": "search-global",
+      "area": "搜索",
+      "group": "搜索与导航",
+      "capability": "全局命令与设置搜索",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Search"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/global-search",
+          "windows/tauri/src/features/command-palette"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Search",
+      "verification": "使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。"
+    },
+    {
+      "id": "search-replace",
+      "area": "搜索",
+      "group": "搜索与导航",
+      "capability": "项目替换与取消",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Search",
+          "macos/Sources/Lithe/Services/Language"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/file-search"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Search",
+      "verification": "执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。"
+    },
+    {
+      "id": "git-status-commit",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "状态、暂存与提交",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git",
+          "macos/Sources/Lithe/Services"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git",
+          "shared/contracts/application-boundary.md"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。"
+    },
+    {
+      "id": "git-branches-remotes",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "分支、标签与远程",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。"
+    },
+    {
+      "id": "git-diff-review",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "Diff 与变更审查",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git",
+          "macos/Sources/Lithe/Views/Diff"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git",
+          "windows/tauri/src/features/viewer"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位。"
+    },
+    {
+      "id": "git-history",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "提交历史与图谱",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。"
+    },
+    {
+      "id": "git-rebase-stash",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "Rebase 与 Stash",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。"
+    },
+    {
+      "id": "git-worktrees",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "Worktree 管理",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"
+    },
+    {
+      "id": "github-prs",
+      "area": "协作",
+      "group": "GitHub",
+      "capability": "Pull Request 列表与详情",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/GitHub",
+          "macos/Sources/Lithe/Services/GitHub"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/github",
+          "shared/contracts/application-boundary.md"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "GitHub",
+      "verification": "使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。"
+    },
+    {
+      "id": "github-reviews-comments",
+      "area": "协作",
+      "group": "GitHub",
+      "capability": "Review 与评论",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/GitHub"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/github"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "GitHub",
+      "verification": "创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。"
+    },
+    {
+      "id": "ai-commit-generation",
+      "area": "AI",
+      "group": "AI 提交信息",
+      "capability": "Provider 配置与提交信息生成",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
+          "macos/Sources/Lithe/Platform/MacOS/AI"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git/services/ai-commit-service.ts",
+          "shared/contracts/ai-commit.md"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git / AI",
+      "verification": "用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。"
+    },
+    {
+      "id": "ai-chat-session",
+      "area": "AI",
+      "group": "AI 对话",
+      "capability": "对话会话与流式响应",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/AI"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/ai/components/chat/ai-chat.tsx",
+          "windows/tauri/src/features/ai/services/ai-chat-service.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "AI",
+      "verification": "Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。"
+    },
+    {
+      "id": "ai-chat-history",
+      "area": "AI",
+      "group": "AI 对话",
+      "capability": "对话历史、置顶与归档",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/AI"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/ai/services/ai-chat-history-service.ts",
+          "windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "AI",
+      "verification": "Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。"
+    },
+    {
+      "id": "ai-chat-providers",
+      "area": "AI",
+      "group": "AI 对话",
+      "capability": "多 Provider 与工作区范围",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/AI"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/ai/services/providers",
+          "windows/tauri/src/features/ai/lib/ai-workspace-scope.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "AI",
+      "verification": "Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。"
+    },
+    {
+      "id": "java-runtime-discovery",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "JDK 与 Maven 工具链发现",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Services/Java",
+          "macos/Sources/Lithe/Views/Run"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src/features/workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"
+    },
+    {
+      "id": "java-maven-project",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "项目根、模块与源码集识别",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Services/Java",
+          "shared/contracts/application-boundary.md"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src/features/workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "使用单模块、多模块和非标准源码目录 fixture 对比项目模型。"
+    },
+    {
+      "id": "java-maven-profiles-dependencies",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Profile 与依赖树",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run",
+          "macos/Sources/Lithe/Services/Java"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"
+    },
+    {
+      "id": "java-build-diagnostics",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "构建输出与编译诊断",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run",
+          "macos/Sources/Lithe/Services/Diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src/features/diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。"
+    },
+    {
+      "id": "spring-index",
+      "area": "Java",
+      "group": "Spring / MyBatis",
+      "capability": "Spring 配置、Bean 与 Endpoint 索引",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features",
+          "macos/Sources/Lithe/Views/Run",
+          "shared/fixtures/spring"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/spring",
+          "shared/fixtures/spring"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Spring",
+      "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。"
+    },
+    {
+      "id": "spring-navigation",
+      "area": "Java",
+      "group": "Spring / MyBatis",
+      "capability": "Spring 符号导航与代码关联",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features",
+          "macos/Sources/Lithe/Views/Language"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/spring"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Spring",
+      "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"
+    },
+    {
+      "id": "mybatis-navigation",
+      "area": "Java",
+      "group": "Spring / MyBatis",
+      "capability": "MyBatis Mapper/XML 导航",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift",
+          "macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/mybatis"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / MyBatis",
+      "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。"
+    },
+    {
+      "id": "lsp-lifecycle",
+      "area": "Java",
+      "group": "语言服务",
+      "capability": "LSP/JDTLS 启动与工作区准备",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Core/Language",
+          "macos/Sources/Lithe/Services/Language"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features",
+          "shared/fixtures/lsp"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理。"
+    },
+    {
+      "id": "lsp-completion-hover",
+      "area": "Java",
+      "group": "语言服务",
+      "capability": "补全与 Hover",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Core/Language",
+          "shared/fixtures/lsp"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features",
+          "shared/fixtures/lsp"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。"
+    },
+    {
+      "id": "lsp-diagnostics",
+      "area": "Java",
+      "group": "语言服务",
+      "capability": "诊断与编译错误定位",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Core/Language",
+          "macos/Sources/Lithe/Services/Diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/diagnostics",
+          "shared/fixtures/lsp"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为。"
+    },
+    {
+      "id": "lsp-navigation-edits",
+      "area": "Java",
+      "group": "语言服务",
+      "capability": "跳转、引用、语义标记与编辑",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Core/Language",
+          "shared/contracts/rust-core-api.md"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features",
+          "shared/fixtures/lsp"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。"
+    },
+    {
+      "id": "run-discovery",
+      "area": "运行与调试",
+      "group": "运行配置",
+      "capability": "入口点与运行配置发现",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run",
+          "shared/fixtures/run-configuration"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/run",
+          "shared/fixtures/run-configuration"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run",
+      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别。"
+    },
+    {
+      "id": "run-save-toolchain",
+      "area": "运行与调试",
+      "group": "运行配置",
+      "capability": "保存前同步与工具链解析",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run",
+          "macos/Sources/Lithe/Services/Java"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/run",
+          "windows/tauri/src/features/maven"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run",
+      "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。"
+    },
+    {
+      "id": "run-java-test",
+      "area": "运行与调试",
+      "group": "运行配置",
+      "capability": "Java main 与测试运行",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/run",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run",
+      "verification": "运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。"
+    },
+    {
+      "id": "debug-breakpoints",
+      "area": "运行与调试",
+      "group": "调试器",
+      "capability": "启动调试与断点",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Debug",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/debugger",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "Debug",
+      "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。",
+      "notes": "Windows 真实调试产品链路仍在 #466 跟进。"
+    },
+    {
+      "id": "debug-state",
+      "area": "运行与调试",
+      "group": "调试器",
+      "capability": "变量、异常与断开策略",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Debug",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/debugger",
+          "shared/fixtures/debug"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "Debug",
+      "verification": "验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。",
+      "notes": "Windows 真实调试产品链路仍在 #466 跟进。"
+    },
+    {
+      "id": "terminal-shell",
+      "area": "工作台",
+      "group": "终端",
+      "capability": "Shell 发现与配置",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Terminal",
+          "macos/Sources/Lithe/Services"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/terminal",
+          "windows/tauri/src-tauri"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Terminal",
+      "verification": "验证默认 Shell、环境变量、工作目录和不可用 Shell 的错误提示。"
+    },
+    {
+      "id": "terminal-sessions",
+      "area": "工作台",
+      "group": "终端",
+      "capability": "多会话与标签",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Terminal"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/terminal"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Terminal",
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理。"
+    },
+    {
+      "id": "terminal-interaction",
+      "area": "工作台",
+      "group": "终端",
+      "capability": "复制粘贴、搜索与调整大小",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Terminal"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/terminal"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Terminal",
+      "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。"
+    },
+    {
+      "id": "markdown-rendering",
+      "area": "编辑器",
+      "group": "Markdown",
+      "capability": "Markdown 预览与富文本渲染",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift",
+          "macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor/markdown"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。"
+    },
+    {
+      "id": "markdown-images-links",
+      "area": "编辑器",
+      "group": "Markdown",
+      "capability": "图片导入与链接定位",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Services/Markdown",
+          "macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor/markdown",
+          "windows/tauri/src/features/viewer"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。"
+    },
+    {
+      "id": "history-snapshots",
+      "area": "工作台",
+      "group": "本地历史",
+      "capability": "快照列表与 Diff",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/History",
+          "macos/Sources/Lithe/Services"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/local-history"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Local History",
+      "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。"
+    },
+    {
+      "id": "history-restore",
+      "area": "工作台",
+      "group": "本地历史",
+      "capability": "恢复、删除与持久化",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/History"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/local-history"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Local History",
+      "verification": "验证恢复、删除、应用重启后持久化和失败回滚。"
+    },
+    {
+      "id": "database-connections",
+      "area": "数据库",
+      "group": "数据库工作区",
+      "capability": "连接配置与 Provider",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Database",
+          "macos/Sources/Lithe/Services"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Database",
+      "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。"
+    },
+    {
+      "id": "database-schema",
+      "area": "数据库",
+      "group": "数据库工作区",
+      "capability": "Schema、表与列浏览",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Database",
+      "verification": "展开数据库、Schema、表和列，验证刷新、筛选和空结果展示。"
+    },
+    {
+      "id": "database-query-history",
+      "area": "数据库",
+      "group": "数据库工作区",
+      "capability": "SQL 查询、历史与分页",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Database",
+      "verification": "执行查询、取消查询、查看 SQL 历史和分页结果，确认长结果不阻塞界面。"
+    },
+    {
+      "id": "database-crud-export",
+      "area": "数据库",
+      "group": "数据库工作区",
+      "capability": "表数据编辑、CRUD 与导出",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/database"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Database",
+      "verification": "验证新增、编辑、删除、事务失败、复制和结果导出。"
+    },
+    {
+      "id": "file-explorer",
+      "area": "工作区",
+      "group": "项目浏览",
+      "capability": "项目文件树与资源打开",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+          "macos/Sources/Lithe/Models/Workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/file-explorer",
+          "windows/tauri/src/features/sidebar"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace",
+      "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。"
+    },
+    {
+      "id": "dependency-browser",
+      "area": "工作区",
+      "group": "项目浏览",
+      "capability": "项目依赖与模块浏览",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src/features/sidebar"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workspace / Java",
+      "verification": "打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。"
+    },
+    {
+      "id": "outline-symbols",
+      "area": "编辑器",
+      "group": "代码结构",
+      "capability": "当前文件 Outline 与符号树",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Language",
+          "macos/Sources/Lithe/Views/Search"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/outline"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。"
+    },
+    {
+      "id": "references-pane",
+      "area": "编辑器",
+      "group": "代码结构",
+      "capability": "引用结果面板与引用跳转",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/references"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Language Tooling",
+      "verification": "从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。"
+    },
+    {
+      "id": "diagnostics-workspace",
+      "area": "可观测性",
+      "group": "诊断与日志",
+      "capability": "工作区诊断与问题面板",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift",
+          "macos/Sources/Lithe/Views/Language/JavaProblemsView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Diagnostics",
+      "verification": "制造多个来源的错误和警告，验证筛选、排序、定位和清除。"
+    },
+    {
+      "id": "diagnostics-export",
+      "area": "可观测性",
+      "group": "诊断与日志",
+      "capability": "诊断包导出与脱敏",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Diagnostics/DiagnosticsExportSheet.swift",
+          "macos/Sources/Lithe/Services/Diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/diagnostics"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Diagnostics",
+      "verification": "导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制。"
+    },
+    {
+      "id": "application-settings",
+      "area": "设置",
+      "group": "应用配置",
+      "capability": "应用、项目与运行设置",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/SettingsView.swift",
+          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/settings"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Settings",
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示。"
+    },
+    {
+      "id": "keymap-customization",
+      "area": "设置",
+      "group": "应用配置",
+      "capability": "快捷键查看与自定义",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift",
+          "macos/Sources/Lithe/Models/Keymap"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/keymaps"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "Settings",
+      "verification": "修改快捷键、制造冲突并恢复默认，确认命令实际执行。",
+      "notes": "Windows 快捷键设置仍有占位交互，见 #718。"
+    },
+    {
+      "id": "plugin-extension-management",
+      "area": "扩展",
+      "group": "插件与主题",
+      "capability": "插件、语言服务与主题管理",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Plugins"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/extensions",
+          "windows/tauri/src/features/settings"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Extensions",
+      "verification": "启用、禁用和恢复插件/主题，确认启动加载、失败隔离和设置持久化。"
+    },
+    {
+      "id": "onboarding-welcome",
+      "area": "启动与窗口",
+      "group": "首次启动",
+      "capability": "欢迎页、项目入口与首次启动引导",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/WelcomeView.swift",
+          "macos/Sources/Lithe/Views/Workspace"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/onboarding",
+          "windows/tauri/src/features/bootstrap"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Onboarding",
+      "verification": "清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导。"
+    },
+    {
+      "id": "command-palette",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "命令面板与全局动作",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift",
+          "macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/command-palette"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
+    },
+    {
+      "id": "workbench-panes",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "分栏、面板与工具窗布局",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench",
+          "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/panes",
+          "windows/tauri/src/features/layout"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。"
+    },
+    {
+      "id": "embedded-viewers",
+      "area": "编辑器",
+      "group": "资源预览",
+      "capability": "HTML、SVG、媒体、PDF 与二进制预览",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift",
+          "macos/Sources/Lithe/Views/Editor/MediaViewerView.swift",
+          "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/viewer"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。"
+    },
+    {
+      "id": "docker-compose",
+      "area": "运行与调试",
+      "group": "项目运行",
+      "capability": "Docker / Compose 项目识别与运行",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift",
+          "macos/Sources/Lithe/Services/Java"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/docker",
+          "windows/tauri/src/features/run"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run / Docker",
+      "verification": "使用 Dockerfile 和 Compose fixture 验证识别、命令参数、输出和进程停止；确认 macOS 是否只有入口识别。"
+    },
+    {
+      "id": "remote-workspace",
+      "area": "工作区",
+      "group": "远程开发",
+      "capability": "远程连接与远程路径工作区",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Services"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/remote",
+          "windows/tauri/src/features/file-system"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Remote",
+      "verification": "Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。"
+    },
+    {
+      "id": "vim-mode",
+      "area": "编辑器",
+      "group": "编辑模式",
+      "capability": "Vim 模式与命令状态",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/vim",
+          "windows/tauri/src/features/editor"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "verification": "Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。"
+    },
+    {
+      "id": "workbench-notifications",
+      "area": "可观测性",
+      "group": "通知与资源",
+      "capability": "操作通知、错误提示与自动消失",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/notifications"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。"
+    },
+    {
+      "id": "memory-monitor",
+      "area": "可观测性",
+      "group": "通知与资源",
+      "capability": "应用与语言服务内存监控",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/services/memory-api.ts",
+          "windows/tauri/src/platform/tauri-core.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。"
+    },
+    {
+      "id": "updates-check-download",
+      "area": "发行与更新",
+      "group": "应用更新",
+      "capability": "检查、下载与安装更新",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/UpdateControl.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Updates"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/components/app-update-control.tsx",
+          "windows/tauri/src/features/settings/hooks/use-updater.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Release",
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启。"
+    },
+    {
+      "id": "updates-failure-rollback",
+      "area": "发行与更新",
+      "group": "应用更新",
+      "capability": "失败重试与回滚",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/Updates"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "docs/releases/windows-updater.md",
+          "windows/tauri/src/features/settings/hooks/use-updater.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Release",
+      "verification": "模拟清单错误、下载失败和安装失败，确认重试、回滚和用户提示。",
+      "notes": "macOS 回退更新方案仍在 #734 跟进。"
+    },
+    {
+      "id": "community-feed",
+      "area": "社区",
+      "group": "LINUX DO 社区",
+      "capability": "主题列表与详情",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Community",
+      "verification": "如果重新引入社区入口，在 macOS 和 Windows 验证 Latest/Top、主题详情、分页和浏览器跳转。",
+      "notes": "macOS 的 LINUX DO 插件已退役，当前两端均无社区入口。"
+    },
+    {
+      "id": "community-auth",
+      "area": "社区",
+      "group": "LINUX DO 社区",
+      "capability": "社区认证与请求失败处理",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+          "shared/fixtures/community"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Community",
+      "verification": "如果重新引入社区入口，在 macOS 和 Windows 验证认证、过期、限流和网络错误。",
+      "notes": "macOS 的 LINUX DO 插件已退役，现存 fixture 不代表产品接入。"
+    },
+    {
+      "id": "wsl-paths",
+      "area": "Windows 专属",
+      "group": "WSL",
+      "capability": "WSL 文件与工作区路径",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/wsl",
+          "windows/tauri/src/features/file-system"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Windows Platform",
+      "verification": "Windows 验证本地文件、WSL 文件、发行版识别和工作区打开。"
+    },
+    {
+      "id": "wsl-boundaries",
+      "area": "Windows 专属",
+      "group": "WSL",
+      "capability": "跨 WSL 边界移动与重命名",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/wsl",
+          "windows/tauri/src/features/file-system"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Windows Platform",
+      "verification": "Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。"
+    },
+    {
+      "area": "编辑器",
+      "group": "文本编辑",
+      "owner": "Editor",
+      "id": "editor-file-encoding-reopen",
+      "capability": "按指定编码重新打开文本文件",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+          "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
+          "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+          "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
+          "windows/tauri/src/features/editor/services/document-encoding-workflow.ts",
+          "windows/tauri/crates/project/src/document_file.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+    },
+    {
+      "area": "编辑器",
+      "group": "文本编辑",
+      "owner": "Editor",
+      "id": "editor-file-encoding-save",
+      "capability": "按指定编码保存文本文件",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+          "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
+          "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+          "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
+          "windows/tauri/src/features/editor/stores/editor-app.store.ts",
+          "windows/tauri/crates/project/src/document_file.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+    }
   ]
 }

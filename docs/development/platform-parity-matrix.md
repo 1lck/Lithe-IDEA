@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：74
-- macOS：实现：✅ 64 已实现，🟡 3 部分实现，❌ 5 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 67 待验证，— 7 不适用
-- Windows：实现：✅ 69 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 72 待验证，— 2 不适用
+- 功能项：76
+- macOS：实现：✅ 64 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 67 待验证，— 9 不适用
+- Windows：实现：✅ 71 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 74 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -45,7 +45,7 @@
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 9 个能力点</summary>
+<summary><strong>编辑器</strong> · 11 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -58,6 +58,8 @@
 | 代码结构 | **引用结果面板与引用跳转**<br><sub>references-pane</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Language/JavaReferencesView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/references`</sub> | Language Tooling | 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 |  |
 | 资源预览 | **HTML、SVG、媒体、PDF 与二进制预览**<br><sub>embedded-viewers</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift`、`macos/Sources/Lithe/Views/Editor/MediaViewerView.swift`、`macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/viewer`</sub> | Editor | 分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 |  |
 | 编辑模式 | **Vim 模式与命令状态**<br><sub>vim-mode</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/vim`、`windows/tauri/src/features/editor`</sub> | Editor | Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。 |  |
+| 文本编辑 | **按指定编码重新打开文本文件**<br><sub>editor-file-encoding-reopen</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/services/document-encoding-workflow.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
+| 文本编辑 | **按指定编码保存文本文件**<br><sub>editor-file-encoding-save</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/stores/editor-app.store.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
 
 </details>
 
@@ -224,8 +226,8 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| LINUX DO 社区 | **主题列表与详情**<br><sub>community-feed</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Community`、`macos/Sources/Lithe/Application/Features/Community`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Community | macOS 验证 Latest/Top、主题详情、分页和浏览器跳转；Windows 需要补充入口。 |  |
-| LINUX DO 社区 | **社区认证与请求失败处理**<br><sub>community-auth</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/Community`、`shared/fixtures/community`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Community | macOS 验证认证、过期、限流和网络错误；Windows 需要统一 Discourse 契约。 |  |
+| LINUX DO 社区 | **主题列表与详情**<br><sub>community-feed</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Community | 如果重新引入社区入口，在 macOS 和 Windows 验证 Latest/Top、主题详情、分页和浏览器跳转。 | macOS 的 LINUX DO 插件已退役，当前两端均无社区入口。 |
+| LINUX DO 社区 | **社区认证与请求失败处理**<br><sub>community-auth</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`、`shared/fixtures/community`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Community | 如果重新引入社区入口，在 macOS 和 Windows 验证认证、过期、限流和网络错误。 | macOS 的 LINUX DO 插件已退役，现存 fixture 不代表产品接入。 |
 
 </details>
 

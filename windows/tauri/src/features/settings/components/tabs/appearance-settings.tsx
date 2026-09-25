@@ -2,6 +2,7 @@ import { invoke } from "@/platform/tauri-core";
 import { FilePlusIcon, TrashIcon, UploadIcon } from "@/ui/icons";
 import { iconThemeRegistry } from "@/extensions/icon-themes/icon-theme-registry";
 import { useRegisteredIconThemes } from "@/extensions/icon-themes/use-registered-icon-themes";
+import { builtinIconThemes } from "@/extensions/icon-themes/builtin-icon-themes";
 import { themeRegistry } from "@/extensions/themes/theme-registry";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
 import { useMemo, useState } from "react";
@@ -112,11 +113,12 @@ export const AppearanceSettings = () => {
   );
 
   const iconThemeOptions = useMemo(
-    () =>
-      registeredIconThemes.map((theme) => ({
-        value: theme.id,
-        label: theme.name,
-      })),
+    () => [
+      ...builtinIconThemes.map((theme) => ({ value: theme.id, label: theme.name })),
+      ...registeredIconThemes
+        .filter((theme) => !builtinIconThemes.some((builtin) => builtin.id === theme.id))
+        .map((theme) => ({ value: theme.id, label: theme.name })),
+    ],
     [registeredIconThemes],
   );
 
@@ -289,7 +291,7 @@ export const AppearanceSettings = () => {
           label={t("settings.appearance.customThemes")}
           description={
             <>
-              {t("settings.appearance.customThemesDescription")} {" "}
+              {t("settings.appearance.customThemesDescription")}{" "}
               <a
                 href={themeDocsUrl}
                 target="_blank"
@@ -487,7 +489,9 @@ export const AppearanceSettings = () => {
             className={SETTINGS_CONTROL_WIDTHS.number}
             size="sm"
             disabled={!settings.activityRailExpanded}
-            aria-label={t("settings.appearance.activityBarWidthAria", { size: settings.activityRailWidth })}
+            aria-label={t("settings.appearance.activityBarWidthAria", {
+              size: settings.activityRailWidth,
+            })}
           />
         </SettingRow>
 

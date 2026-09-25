@@ -15,6 +15,7 @@ import { parseThemeFile, toThemeDefinition } from "./theme-file";
 import type { ThemeFile } from "./theme-schema";
 import tokyoNightThemes from "./builtin/tokyo-night.json";
 import vitesseThemes from "./builtin/vitesse.json";
+import { vercelThemes } from "./builtin/vercel";
 import type { ThemeDefinition } from "./theme.types";
 
 class ThemeLoader extends BaseThemeExtension {
@@ -41,14 +42,17 @@ class ThemeLoader extends BaseThemeExtension {
         vitesseThemes as ThemeFile,
       ];
 
-      const allThemes = allThemeFiles.flatMap((file) => file.themes);
+      const allThemes = [...allThemeFiles.flatMap((file) => file.themes), ...vercelThemes];
 
       this.themes = allThemes.map(toThemeDefinition);
 
       // Register themes with the theme registry
       const { themeRegistry } = await import("./theme-registry");
       this.themes.forEach((theme) => {
-        themeRegistry.registerTheme(theme);
+        themeRegistry.registerTheme(theme, {
+          extensionId: "builtin.themes",
+          isBundled: true,
+        });
       });
     } catch (error) {
       console.error("ThemeLoader: Failed to load JSON themes:", error);

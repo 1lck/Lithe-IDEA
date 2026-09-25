@@ -1,5 +1,6 @@
 import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { WrapText } from "lucide-react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -104,6 +105,8 @@ export default function RunPane() {
   const setSelectedServiceIDs = useRunPreferencesStore((state) => state.actions.setSelectedServiceIDs);
   const scrollOutputToEnd = useRunPreferencesStore((state) => state.scrollOutputToEnd);
   const setScrollOutputToEnd = useRunPreferencesStore((state) => state.actions.setScrollOutputToEnd);
+  const wrapOutputLines = useRunPreferencesStore((state) => state.wrapOutputLines);
+  const setWrapOutputLines = useRunPreferencesStore((state) => state.actions.setWrapOutputLines);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
   const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
   const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
@@ -239,6 +242,18 @@ export default function RunPane() {
             aria-pressed={scrollOutputToEnd}
           >
             <ArrowFatLineDownIcon />
+          </Button>
+        </Tooltip>
+        <Tooltip content={t("run.wrapOutputLines")} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            active={wrapOutputLines}
+            onClick={() => setWrapOutputLines(!wrapOutputLines)}
+            aria-label={t("run.wrapOutputLines")}
+            aria-pressed={wrapOutputLines}
+          >
+            <WrapText className="size-3.5" />
           </Button>
         </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
@@ -413,6 +428,9 @@ export default function RunPane() {
                   title={t("run.processOutput")}
                   source={output}
                   emptyLabel={t("run.emptyOutput")}
+                  wrapLines={wrapOutputLines}
+                  wrapLabel={t("run.wrapOutputLines")}
+                  onToggleWrapLines={() => setWrapOutputLines(!wrapOutputLines)}
                 />
               </div>
               {isSelectedRunning ? (

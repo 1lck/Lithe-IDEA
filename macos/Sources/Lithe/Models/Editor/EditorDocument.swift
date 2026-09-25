@@ -70,6 +70,19 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         get { storedText }
         set { replaceText(newValue, publish: true) }
     }
+    /// Codec used to decode the current in-memory text. Changing it never
+    /// changes the codec selected for a future write.
+    @Published private(set) var readEncoding: DocumentEncoding
+    /// Codec selected for the next write. It is intentionally independent from
+    /// ``readEncoding`` so opening a file differently cannot silently convert it.
+    @Published private(set) var saveEncoding: DocumentEncoding
+    /// Codec used by the last successful write confirmed on disk.
+    private(set) var storageEncoding: DocumentEncoding
+    /// Compatibility view for integrations compiled against the original
+    /// single-encoding document model. New code must choose a role explicitly.
+    var encoding: DocumentEncoding { readEncoding }
+    private(set) var diskIdentity: String?
+    private(set) var externalDiskIdentity: String?
     @Published private(set) var savedText: String
     private(set) var lifecycleState: DocumentLifecycleState
     private(set) var lastKnownModificationDate: Date?
@@ -78,17 +91,21 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     private(set) var externalDiskContent: String?
     private(set) var hasObservedDiskConflict = false
     var expectedDiskContent: String? { hasAcknowledgedDiskContent ? acknowledgedDiskContent : savedText }
-    var externalFileMissing: Bool { hasObservedDiskConflict && externalDiskContent == nil }
+    var externalFileMissing: Bool {
+        hasObservedDiskConflict && externalDiskContent == nil && externalDiskIdentity == nil
+    }
 
-    func observeDiskConflict(_ content: String?) {
+    func observeDiskConflict(_ content: String?, identity: String? = nil) {
         objectWillChange.send()
         externalDiskContent = content
+        externalDiskIdentity = identity
         hasObservedDiskConflict = true
     }
 
     func acknowledgeObservedDiskContent() {
         guard hasObservedDiskConflict else { return }
         acknowledgedDiskContent = externalDiskContent
+        diskIdentity = externalDiskIdentity
         hasAcknowledgedDiskContent = true
         hasObservedDiskConflict = false
     }
@@ -101,7 +118,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         modificationDate: Date?,
         isReadOnly: Bool = false,
         isFileWritable: Bool = true,
-        displayPath: String? = nil
+        displayPath: String? = nil,
+        encoding: DocumentEncoding = .utf8,
+        saveEncoding: DocumentEncoding? = nil,
+        diskIdentity: String? = nil
     ) {
         self.url = url
         self.isProductReadOnly = isReadOnly
@@ -109,6 +129,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         self.displayPath = displayPath
         self.storedText = text
         self.savedText = text
+        self.readEncoding = encoding
+        self.saveEncoding = saveEncoding ?? encoding
+        self.storageEncoding = encoding
+        self.diskIdentity = diskIdentity
         self.lifecycleState = .clean(revision: 0)
         self.lastKnownModificationDate = modificationDate
     }
@@ -221,22 +245,49 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         textDidChange.send()
     }
 
-    func save() throws {
+    func save(using files: any WorkspaceFileOperations) throws {
         guard !needsEditorSynchronization else { throw DocumentError.editorNotSynchronized }
         guard !isReadOnly else { throw DocumentError.readOnly }
-        try text.write(to: url, atomically: true, encoding: .utf8)
-        markSavedWithoutWriting()
+        switch try files.writeDocumentText(text, to: url, expectedContent: expectedDiskContent,
+                                          encoding: saveEncoding, expectedIdentity: diskIdentity) {
+        case .saved(let identity):
+            updatePersistence(encoding: saveEncoding, identity: identity)
+            markSavedWithoutWriting()
+        case .conflict(let content, let identity):
+            observeDiskConflict(content, identity: identity)
+            throw CocoaError(.fileWriteUnknown)
+        }
     }
 
-    func reloadFromDisk() throws {
-        let contents = try String(contentsOf: url, encoding: .utf8)
-        replaceWithDiskContent(contents)
+    func reloadFromDisk(using files: any WorkspaceFileOperations) throws {
+        guard let snapshot = try files.readDocumentDetails(from: url, encoding: readEncoding) else {
+            throw CocoaError(.fileReadNoSuchFile)
+        }
+        replaceWithDiskContent(snapshot.text, encoding: snapshot.encoding, identity: snapshot.identity)
     }
 
-    func replaceWithDiskContent(_ contents: String) {
+    func updatePersistence(encoding: DocumentEncoding, identity: String?) {
+        self.saveEncoding = encoding
+        self.storageEncoding = encoding
+        diskIdentity = identity
+    }
+
+    func updateReadEncoding(_ encoding: DocumentEncoding) {
+        readEncoding = encoding
+    }
+
+    func updateSaveEncoding(_ encoding: DocumentEncoding) {
+        saveEncoding = encoding
+    }
+
+    func replaceWithDiskContent(_ contents: String, encoding: DocumentEncoding? = nil, identity: String? = nil) {
         storedText = contents
         textDidChange.send()
         savedText = contents
+        if let encoding {
+            readEncoding = encoding
+        }
+        diskIdentity = identity
         hasAcknowledgedDiskContent = false
         hasObservedDiskConflict = false
         lifecycleState = .clean(revision: lifecycleState.revision + 1)

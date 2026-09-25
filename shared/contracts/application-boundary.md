@@ -23,7 +23,7 @@ verification scripts are the executable source of boundary checks.
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
-| Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
+| Documents | relative-path validation, decoded text, selected encoding, dirty/save state, and conflict outcome | native byte conversion, atomic write, and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
 | Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
@@ -38,6 +38,18 @@ verification scripts are the executable source of boundary checks.
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 | Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Document encoding
+
+Local text documents expose the selected encoding in the editor status bar. The
+supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
+and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
+when opening a file; an explicit reopen request decodes with the selected codec
+and exposes replacement characters for invalid byte sequences. “Save
+with Encoding” converts the current Unicode buffer only after the target codec
+accepts every character. Both products preserve the raw-byte identity of the
+last acknowledged disk snapshot and reject a save when another process changed
+those bytes.
 
 ## Module Lifecycle Contract
 
