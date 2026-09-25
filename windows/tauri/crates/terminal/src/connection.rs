@@ -619,6 +619,7 @@ impl TerminalConnection {
                Ok(Some(invocation)) => invocation.into_bytes(),
                Ok(None) => data.into_bytes(),
                Err(error) => {
+                  drop(writer_guard);
                   (self.event_handler)(
                      &self.id,
                      TerminalEvent::Error {
