@@ -6625,10 +6625,14 @@ mod tests {
         .unwrap();
         drop(lease);
 
+        let expected_root = super::canonicalize_simplified(&repository.0)
+            .expect("temporary repository should canonicalize")
+            .to_string_lossy()
+            .replace('\\', "/");
         assert_eq!(response["ok"], true, "{response}");
         assert_eq!(
             response["data"],
-            serde_json::json!(root.replace('\\', "/")),
+            serde_json::json!(expected_root),
             "{response}"
         );
     }
