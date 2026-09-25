@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "events": {
+    "ready": {
+      "kind": "ready",
+      "sessionId": "session-1"
+    },
+    "permission": {
+      "kind": "permission",
+      "requestId": "permission-1",
+      "request": {
+        "sessionId": "session-1",
+        "toolCall": { "title": "Run command" },
+        "options": [
+          { "optionId": "allow_once", "name": "Allow Once", "kind": "allow_once" }
+        ]
+      }
+    },
+    "turnFinished": {
+      "kind": "turnFinished",
+      "stopReason": "Cancelled"
+    }
+  }
+}

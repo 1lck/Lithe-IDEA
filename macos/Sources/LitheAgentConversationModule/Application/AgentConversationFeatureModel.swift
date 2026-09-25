@@ -37,6 +37,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
 
     private let transport: any AgentConversationTransport
     private var session: (any AgentConversationSession)?
+    private var stopTask: Task<Void, Never>?
     private var sessionGeneration = UUID()
     private var workspaceURL: URL?
     private var pendingText = ""
@@ -52,6 +53,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
         let prompt = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !prompt.isEmpty else { return }
         guard !isResponding else { return }
+        guard stopTask == nil else { throw AgentConversationError.sessionStopping }
         guard !configuration.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw AgentConversationError.missingCommand
         }
@@ -89,6 +91,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
     }
 
     public func cancel() {
+        answerPermission(optionID: nil)
         session?.cancel()
     }
 
@@ -99,6 +102,24 @@ public final class AgentConversationFeatureModel: ObservableObject {
     }
 
     public func stop() async {
+        let oldSession = detachSession()
+        await oldSession?.stop()
+        if let stopTask { await stopTask.value }
+    }
+
+    /// Clears a backgrounded project session before its asynchronous process cleanup.
+    public func stopForProjectDeactivation() {
+        let oldSession = detachSession()
+        messages.removeAll()
+        errorMessage = nil
+        guard let oldSession else { return }
+        stopTask = Task { [weak self] in
+            await oldSession.stop()
+            self?.stopTask = nil
+        }
+    }
+
+    private func detachSession() -> (any AgentConversationSession)? {
         sessionGeneration = UUID()
         flushPendingText()
         flushTask?.cancel()
@@ -109,7 +130,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
         workspaceURL = nil
         isConnecting = false
         isResponding = false
-        await oldSession?.stop()
+        return oldSession
     }
 
     public func startNewConversation() async {
@@ -118,7 +139,7 @@ public final class AgentConversationFeatureModel: ObservableObject {
         errorMessage = nil
     }
 
-    private func receive(_ json: String) {
+    func receive(_ json: String) {
         guard let data = json.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let kind = object["kind"] as? String else { return }
@@ -191,13 +212,15 @@ public final class AgentConversationFeatureModel: ObservableObject {
     }
 }
 
-public enum AgentConversationError: LocalizedError {
+public enum AgentConversationError: LocalizedError, Equatable {
     case missingCommand
+    case sessionStopping
     case workspaceChanged
 
     public var errorDescription: String? {
         switch self {
         case .missingCommand: "Set an ACP Agent command before sending a message."
+        case .sessionStopping: "The previous Agent session is still stopping. Try again shortly."
         case .workspaceChanged: "Close this conversation before switching workspaces."
         }
     }

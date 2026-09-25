@@ -128,7 +128,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")

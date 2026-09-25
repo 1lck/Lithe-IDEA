@@ -608,6 +608,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         if !isActive {
             searchSessionFeature.isSearchEverywhereVisible = false
             cancelJavaLanguageServerPreparation()
+            agentConversationFeatureIfActive?.stopForProjectDeactivation()
         }
     }
 

@@ -70,7 +70,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "在 macOS 安装兼容 ACP Agent，验证启用、对话、流式输出、权限选择、取消及禁用或切换工作区后进程退出；Windows 待接入 UI 和宿主。"
+      "verification": "在 macOS 安装兼容 ACP Agent，验证启用、对话、流式输出、权限选择、取消及禁用、切换项目标签或关闭工作区后进程退出；Windows 待接入 UI 和宿主。"
     },
     {
       "id": "workspace-open-switch",

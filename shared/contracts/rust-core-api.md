@@ -50,6 +50,10 @@ through a borrowed callback string. `lithe_agent_permission` accepts an event's
 each handle exactly once; closing revokes callbacks and stops the process tree.
 The callback context must remain valid until close returns. This API is owned
 by `lithe-agent-host` and is separate from the synchronous JSON command envelope.
+The event field names are fixed by `shared/fixtures/agent/acp-events-v1.json`:
+`sessionId`, `requestId`, and `stopReason` use camel case. Cancelling a turn
+rejects pending tool permissions; if the Agent does not finish within five
+seconds, the host ends that session and stops its process tree.
 
 ## Envelope
 
