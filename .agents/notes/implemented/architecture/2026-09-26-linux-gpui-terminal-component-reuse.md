@@ -89,6 +89,14 @@ KILL，最后兜底 `ChildKiller::kill` 并 join 等待线程。每一步都是�
 TUI 重排。Ctrl+F 由宿主的按键钩子（`with_key_handler`）从组件手里吞掉，再由宿主
 容器打开搜索栏，避免组件把 `^F` 写进 PTY 后工作台再收到同一个按键。
 
+### 主题：运行时切换也要跟随
+
+组件用 `TerminalConfig.colors` 决定配色，切换主题后不会自己变色。宿主在 `Render`
+里检测主题背景色是否变化，变了就调用组件已有的 `TerminalView::update_config`
+（集成终端在 `terminal.rs`，Run/Maven 控制台在 `console.rs`，由 `bottom_panel`
+在调色板变化时统一推）。**不要只在建会话时设一次配色**，否则运行时切到深色主题后
+终端/控制台仍是旧配色，必须重启才生效。
+
 ### 复制：宿主侧兜底，不改上游剪贴板代码
 
 上游每次复制都新建一个 `arboard::Clipboard` 并立即 drop。X11 下 arboard 是在 drop

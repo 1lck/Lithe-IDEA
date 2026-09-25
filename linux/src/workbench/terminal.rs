@@ -930,6 +930,9 @@ pub struct TerminalView {
     applied_font_size: f32,
     /// 最近一次应用到组件的字体族；编辑器字体变化时用于触发 `update_config`。
     applied_font_family: String,
+    /// 最近一次应用到组件的主题背景色；主题切换时用于触发 `update_config`，
+    /// 让终端配色跟随深浅主题（否则切到深色后终端仍是浅色）。
+    applied_background: Rgba,
     /// 终端内搜索状态。
     search: SearchState,
     /// 搜索输入框（懒创建，复用工作台唯一输入实现）。
@@ -947,6 +950,7 @@ impl TerminalView {
             session_seq: 0,
             applied_font_size: settings::get(cx).terminal_font_size,
             applied_font_family: crate::fonts::mono_family(cx).to_string(),
+            applied_background: theme::palette().background,
             search: SearchState::new(),
             search_input: None,
             search_subscription: None,
@@ -1026,6 +1030,7 @@ impl TerminalView {
                 });
                 self.applied_font_size = settings::get(cx).terminal_font_size;
                 self.applied_font_family = crate::fonts::mono_family(cx).to_string();
+                self.applied_background = theme::palette().background;
                 self.xterm = Some(xterm);
                 self.session = Some(session);
                 Self::spawn_event_pump(rx, seq, cx);
@@ -1348,17 +1353,20 @@ impl TerminalView {
 
 impl Render for TerminalView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // 字号或编辑器字体变化时把新配置推给组件（回滚缓冲只在建会话时生效）。
+        // 字号、编辑器字体或主题变化时把新配置推给组件（回滚缓冲只在建会话时生效）。
         let font_size = settings::get(cx).terminal_font_size;
         let font_family = crate::fonts::mono_family(cx).to_string();
+        let background = theme::palette().background;
         if let Some(xterm) = self.xterm.clone() {
             let size_changed = (font_size - self.applied_font_size).abs() > f32::EPSILON;
             let family_changed = font_family != self.applied_font_family;
-            if size_changed || family_changed {
+            let theme_changed = background != self.applied_background;
+            if size_changed || family_changed || theme_changed {
                 let config = self.xterm_config(cx);
                 xterm.update(cx, |view, cx| view.update_config(config, cx));
                 self.applied_font_size = font_size;
                 self.applied_font_family = font_family;
+                self.applied_background = background;
             }
         }
 

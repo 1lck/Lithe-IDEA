@@ -171,6 +171,15 @@ impl OutputConsole {
         });
     }
 
+    /// 主题变化时把新调色板/字体推给控制台。
+    ///
+    /// 走组件已有的 `TerminalView::update_config`；不推的话切到深色主题后控制台
+    /// 仍保持创建时的浅色配色。
+    pub fn apply_config(&self, cx: &mut App) {
+        let config = console_config(cx);
+        self.view.update(cx, |view, cx| view.update_config(config, cx));
+    }
+
     /// 把控制台当前选区写入 GPUI 的平台剪贴板。
     ///
     /// 与集成终端同理：组件的复制用临时 `arboard` 句柄，X11 下可能丢数据，宿主

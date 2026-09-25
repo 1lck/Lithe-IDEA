@@ -9,7 +9,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::EventEmitter;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, StatefulInteractiveElement as _,
+    IntoElement, MouseButton, ParentElement as _, Render, Rgba, StatefulInteractiveElement as _,
     Styled as _, WeakEntity, Window,
 };
 
@@ -135,6 +135,8 @@ pub struct BottomPanelView {
     pub(crate) maven_title: Option<String>,
     /// Maven 任务输出控制台（同 [`Self::run_console`]）。
     pub(crate) maven_console: OutputConsole,
+    /// 最近一次应用到输出控制台的主题背景色；主题切换时用于同步配色。
+    console_background: Rgba,
     /// Maven 任务是否在跑。
     pub(crate) maven_running: bool,
     /// core 客户端（`reload_run_project` / `createLaunchPlan` 经它走 core JSON 命令）。
@@ -450,6 +452,7 @@ impl BottomPanelView {
             run_follow_end: crate::settings::get(cx).run_scroll_to_end,
             maven_title: None,
             maven_console: OutputConsole::new(cx),
+            console_background: crate::theme::palette().background,
             maven_running: false,
             client: CoreClient::new(),
             workbench: None,
@@ -2008,6 +2011,15 @@ impl Render for BottomPanelView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.is_collapsed {
             return div().h(px(0.0));
+        }
+
+        // 主题切换时把新调色板同步给 Run/Maven 输出控制台（与集成终端一致）；
+        // 否则切到深色后控制台仍保持创建时的浅色配色。
+        let background = crate::theme::palette().background;
+        if background != self.console_background {
+            self.run_console.apply_config(cx);
+            self.maven_console.apply_config(cx);
+            self.console_background = background;
         }
 
         // 各窗格自带按钮头（对齐 Tauri：底部无标签切换条，切换只走左侧活动栏）。
