@@ -681,6 +681,7 @@ struct LitheApp: App {
         }
         .defaultSize(width: 1040, height: 720)
         .windowResizability(.contentMinSize)
+        .windowStyle(.hiddenTitleBar)
     }
 
     private static var startupProjectURL: URL? {
@@ -778,6 +779,7 @@ struct SettingsAppearanceContainer<Content: View>: View {
 
     var body: some View {
         content.preferredColorScheme(themePreference.preferredColorScheme)
+            .background { LitheTheme.settingsSurface.ignoresSafeArea() }
     }
 }
 
