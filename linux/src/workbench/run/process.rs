@@ -1,8 +1,10 @@
 //! Run/Maven 进程解析与受管会话（跨平台）。
 //!
 //! 每个执行由一个 session/execution 身份拥有。一个后台线程顺序执行所有步骤，
-//! stdout/stderr 各自有明确归属并在进程结束后 join；停止操作向独立进程组
-//! 发送 TERM，超时后再 KILL，调用方通过 `ProcessHandle::join` 完成回收。
+//! 每个步骤跑在自己的 PTY 上：子进程因此看到真正的 TTY，Maven/JDK/Spring 才会
+//! 输出彩色与 `\r` 进度；PTY 输出以原始字节流交给宿主（由终端组件渲染），
+//! 读取线程在进程结束后 join。停止操作向独立进程组发送 TERM，超时后再 KILL，
+//! 调用方通过 `ProcessHandle::join` 完成回收。
 //!
 //! 进程组信号是平台能力：Unix 用 `setpgid` + `kill(-pgid)` 覆盖整棵进程树，
 //! Windows 没有等价的原生进程组信号，改用 `taskkill /T` 终止同一 pid 的
@@ -10,14 +12,14 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+use portable_pty::{native_pty_system, Child as PtyChild, CommandBuilder, PtySize};
 use serde_json::Value;
 
 use super::config::{
@@ -62,21 +64,16 @@ pub struct ProcessStep {
     pub command: ProcessCommand,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OutputStream {
-    Stdout,
-    Stderr,
-}
-
 #[derive(Debug)]
 pub enum ProcessEvent {
     Started {
         index: usize,
         label: String,
     },
+    /// PTY 原始输出字节。stdout/stderr 已由 PTY 合并，保留 ANSI 序列，
+    /// 由宿主的终端组件渲染。
     Output {
-        stream: OutputStream,
-        text: String,
+        bytes: Vec<u8>,
     },
     Finished {
         exit_code: Option<i32>,
@@ -179,12 +176,16 @@ impl ProcessManager {
     }
 
     /// 启动一个 session；步骤失败会由同一个 worker 停止后续步骤。
+    ///
+    /// `terminal_size` 是宿主输出控制台当前的行列数，用作每个步骤 PTY 的初始
+    /// 尺寸；子进程看到的终端宽度因此与实际渲染宽度一致。
     pub fn start(
         &self,
         session_id: &str,
         execution_id: &str,
         steps: Vec<ProcessStep>,
         sender: mpsc::Sender<ProcessEvent>,
+        terminal_size: PtySize,
     ) -> Result<ProcessHandle, String> {
         if session_id.trim().is_empty() || execution_id.trim().is_empty() {
             return Err("A process session and execution id are required".to_string());
@@ -213,7 +214,7 @@ impl ProcessManager {
         let worker = thread::Builder::new()
             .name("lithe-run-process".to_string())
             .spawn(move || {
-                let outcome = execute_steps(&steps, &sender, &worker_control);
+                let outcome = execute_steps(&steps, &sender, &worker_control, terminal_size);
                 if let Err(error) = outcome {
                     let _ = sender.send(ProcessEvent::Finished {
                         exit_code: Some(1),
@@ -387,6 +388,7 @@ fn execute_steps(
     steps: &[ProcessStep],
     sender: &mpsc::Sender<ProcessEvent>,
     control: &Control,
+    terminal_size: PtySize,
 ) -> Result<(), String> {
     for (index, step) in steps.iter().enumerate() {
         if control.is_stop_requested() {
@@ -406,7 +408,7 @@ fn execute_steps(
         {
             return Ok(());
         }
-        let outcome = execute_step(&step.command, sender, control)?;
+        let outcome = execute_step(&step.command, sender, control, terminal_size)?;
         let Some(code) = outcome else {
             let _ = sender.send(ProcessEvent::Finished {
                 exit_code: None,
@@ -433,79 +435,99 @@ fn execute_steps(
 }
 
 /// Returns `Some(exit_code)` for a completed child, or `None` when stopped.
+///
+/// 步骤跑在自己的 PTY 上：子进程因此看到 TTY（彩色输出、`\r` 进度、宽度感知），
+/// stdout/stderr 由 PTY 合并为一路原始字节流，交给宿主的输出控制台渲染。
 fn execute_step(
     spec: &ProcessCommand,
     sender: &mpsc::Sender<ProcessEvent>,
     control: &Control,
+    terminal_size: PtySize,
 ) -> Result<Option<i32>, String> {
-    let mut command = Command::new(&spec.program);
-    command
-        .args(&spec.arguments)
-        .current_dir(&spec.working_directory)
-        .envs(&spec.environment)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_process_group(&mut command);
-    let mut child = command
-        .spawn()
-        .map_err(|error| format!("Unable to start process {}: {error}", spec.program))?;
-    let pgid = child.id() as i32;
-    control.set_pgid(pgid);
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let stdout_thread = spawn_reader(stdout, OutputStream::Stdout, sender.clone());
-    let stderr_thread = spawn_reader(stderr, OutputStream::Stderr, sender.clone());
+    let pty_system = native_pty_system();
+    let pair = pty_system
+        .openpty(terminal_size)
+        .map_err(|error| format!("Unable to allocate a pty for {}: {error}", spec.program))?;
 
-    let status = wait_for_child(&mut child, control);
-    // A child can exit while a forked descendant still owns the pipe. Kill the
-    // whole process group before joining readers so the reader threads cannot
-    // remain blocked on inherited descriptors.
-    send_signal(Some(pgid), ProcessSignal::Kill);
-    if let Some(thread) = stdout_thread {
-        let _ = thread.join();
+    let mut command = CommandBuilder::new(&spec.program);
+    command.args(&spec.arguments);
+    if !spec.working_directory.trim().is_empty() {
+        command.cwd(&spec.working_directory);
     }
-    if let Some(thread) = stderr_thread {
-        let _ = thread.join();
+    for (key, value) in &spec.environment {
+        command.env(key, value);
     }
+
+    let mut child = pair
+        .slave
+        .spawn_command(command)
+        .map_err(|error| format!("Unable to start process {}: {error}", spec.program))?;
+    // `portable-pty` 让子进程 `setsid`，因此它的 pid 就是进程组 id，停止信号
+    // 按组覆盖整棵进程树时直接用该值。
+    let pgid = child.process_id().and_then(|pid| i32::try_from(pid).ok());
+    if let Some(pgid) = pgid {
+        control.set_pgid(pgid);
+    }
+    // 父进程必须释放 slave，否则 PTY 永远看不到 hangup/EOT。
+    drop(pair.slave);
+
+    let reader = pair
+        .master
+        .try_clone_reader()
+        .map_err(|error| format!("Unable to read process output: {error}"))?;
+    let reader_thread = spawn_reader(reader, sender.clone());
+
+    let status = wait_for_child(child.as_mut(), control);
+    // 直接子进程可能先退出，而派生的子孙仍持有 PTY；先杀整组，再 join 读取
+    // 线程，避免它永远阻塞在继承来的描述符上。
+    if let Some(pgid) = pgid {
+        send_signal(Some(pgid), ProcessSignal::Kill);
+    }
+    let _ = reader_thread.join();
     if control.is_stop_requested() {
         return Ok(None);
     }
     let status = status?;
-    status.code().map(Some).ok_or_else(|| {
-        format!(
-            "Process {} was terminated without an exit code",
+    if let Some(signal) = status.signal() {
+        return Err(format!(
+            "Process {} was terminated by signal {signal}",
             spec.program
-        )
+        ));
+    }
+    Ok(Some(status.exit_code() as i32))
+}
+
+/// 读取 PTY 原始字节并转成输出事件；读取结束（EOF 或错误）即退出。
+fn spawn_reader<R>(mut reader: R, sender: mpsc::Sender<ProcessEvent>) -> JoinHandle<()>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(count) => {
+                    if sender
+                        .send(ProcessEvent::Output {
+                            bytes: buffer[..count].to_vec(),
+                        })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(_) => break,
+            }
+        }
     })
 }
 
-fn spawn_reader<R>(
-    reader: Option<R>,
-    stream: OutputStream,
-    sender: mpsc::Sender<ProcessEvent>,
-) -> Option<JoinHandle<()>>
-where
-    R: std::io::Read + Send + 'static,
-{
-    let reader = reader?;
-    Some(thread::spawn(move || {
-        for line in BufReader::new(reader).lines() {
-            let Ok(line) = line else { break };
-            if sender
-                .send(ProcessEvent::Output { stream, text: line })
-                .is_err()
-            {
-                break;
-            }
-        }
-    }))
-}
-
 fn wait_for_child(
-    child: &mut Child,
+    child: &mut (dyn PtyChild + Send + Sync),
     control: &Control,
-) -> Result<std::process::ExitStatus, String> {
+) -> Result<portable_pty::ExitStatus, String> {
     loop {
         match child.try_wait() {
             Ok(Some(status)) => return Ok(status),
@@ -533,26 +555,6 @@ fn stop_control(control: &Control) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// 把子进程放进独立进程组，使停止操作能覆盖子进程派生的整棵进程树。
-///
-/// Unix 用 `setpgid(0, 0)`；Windows 用 `CREATE_NEW_PROCESS_GROUP`，二者都让
-/// 后续终止按组/树进行，而不是只杀掉直接子进程。
-fn configure_process_group(command: &mut Command) {
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt as _;
-        // CREATE_NEW_PROCESS_GROUP (0x0000_0200)：让子进程成为新进程组
-        // 组长，配合 `taskkill /T` 能一并清理其派生进程。
-        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
-        command.creation_flags(CREATE_NEW_PROCESS_GROUP);
-    }
 }
 
 /// 终止一个外部拥有的进程组并有界等待它消失，语义与 [`ProcessHandle::stop`]
@@ -1211,6 +1213,16 @@ mod tests {
         }
     }
 
+    /// 测试用 PTY 尺寸；受管进程现在跑在 PTY 上，启动必须给出行列数。
+    fn test_size() -> PtySize {
+        PtySize {
+            cols: 80,
+            rows: 24,
+            pixel_width: 0,
+            pixel_height: 0,
+        }
+    }
+
     fn fixture(name: &str) -> Fixture {
         let root = std::env::temp_dir().join(format!(
             "lithe-linux-process-{name}-{}-{}",
@@ -1275,7 +1287,7 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let handle = fixture
             .manager
-            .start("test", "execution-1", steps, sender)
+            .start("test", "execution-1", steps, sender, test_size())
             .expect("start");
         let events = wait_for_finished(&receiver, Duration::from_secs(2));
         handle.join().expect("join");
@@ -1300,14 +1312,16 @@ mod tests {
         let (sender, receiver) = mpsc::channel();
         let handle = fixture
             .manager
-            .start("test", "execution-2", steps, sender)
+            .start("test", "execution-2", steps, sender, test_size())
             .expect("start");
         let mut child_pid = None;
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline && child_pid.is_none() {
             let remaining = deadline.saturating_duration_since(Instant::now());
             match receiver.recv_timeout(remaining) {
-                Ok(ProcessEvent::Output { text, .. }) => {
+                Ok(ProcessEvent::Output { bytes }) => {
+                    // PTY 下的换行是 CRLF，trim 后再解析 pid。
+                    let text = String::from_utf8_lossy(&bytes);
                     if let Ok(pid) = text.trim().parse::<i32>() {
                         child_pid = Some(pid);
                     }

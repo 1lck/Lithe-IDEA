@@ -779,7 +779,9 @@ fn rgb8(color: Rgba) -> (u8, u8, u8) {
 
 /// 由工作台主题派生终端调色板：8 个基础色取 `terminal_*` token，亮色变体向前景
 /// 混合，前景/背景/光标取主题对应色。仓库里不再保留第二份硬编码 ANSI 调色板。
-fn terminal_color_palette() -> ColorPalette {
+///
+/// 集成终端与 Run/Maven 输出控制台共用这一份，避免两套配色漂移。
+pub(crate) fn terminal_color_palette() -> ColorPalette {
     let p = theme::palette();
     let bright = |base: Rgba| rgb8(theme::mix(base, p.foreground, BRIGHT_MIX));
     ColorPalette::builder()

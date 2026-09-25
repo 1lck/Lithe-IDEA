@@ -3,6 +3,7 @@ pub mod bottom_panel;
 pub mod branch_manager;
 pub mod branch_manager_logic;
 pub mod command_palette;
+pub mod console;
 pub mod editor;
 pub mod extensions_panel;
 pub mod file_icon;

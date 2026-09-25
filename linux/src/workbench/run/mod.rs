@@ -12,4 +12,4 @@ pub use config::{
     sequence_is_current, toolchain_candidates, write_generated_documents, write_toolchain_paths,
     LaunchPlan, RunConfigItem, ToolchainPaths,
 };
-pub use process::{OutputStream, ProcessEvent, ProcessManager};
+pub use process::{ProcessEvent, ProcessManager};
