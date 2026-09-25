@@ -605,6 +605,32 @@
       "verification": "配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"
     },
     {
+      "id": "windows-mvnd-toolchain",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Windows mvnd 工具链目录选择与 Maven 全局配置",
+      "macos": {
+        "evidence": [
+          ".agents/notes/implemented/feature/2026-09-25-windows-mvnd-toolchain.md"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src-tauri/src/run.rs",
+          "rust/lithe-core/src/project/maven.rs",
+          "rust/lithe-core/src/tests/languages.rs",
+          ".agents/notes/implemented/feature/2026-09-25-windows-mvnd-toolchain.md",
+          "windows/tauri/src/i18n/locale.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "在 Windows 选择 mvnd 根目录、bin 目录和启动文件，验证发现、版本、显式执行路径以及 JDT LS 全局配置；真实 mvnd 执行最小 Maven 构建。 自动入口仅显示“自动”，手动选择显示路径，未找到时提示选择安装目录。"
+    },
+    {
       "id": "java-maven-project",
       "area": "Java",
       "group": "Java/Maven",
