@@ -43,40 +43,76 @@ extension AppModel {
         }
     }
 
-    /// Start this project's Agent when the panel is shown; errors stay in the panel.
+    /// Directory holding Lithe-managed ACP adapter installs.
+    var agentDataDirectory: URL {
+        services.fileStorage.applicationSupportDirectory()
+            .appendingPathComponent("Lithe", isDirectory: true)
+    }
+
+    /// Agents with a provider assigned in Settings › Agents, for the panel.
+    var configuredAgentOptions: [AgentOption] {
+        settings.agentConfigurations
+            .filter { id, configuration in
+                configuration.providerID != nil
+                    && (id != AgentConfiguration.customAgentID
+                        || !settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+            .map { AgentOption(id: $0.key, name: $0.value.name) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Refresh the panel's agents and start the selected one if needed.
     func connectAgentConversation() {
-        guard let feature = agentConversationFeatureIfActive, !feature.hasActiveConnection else { return }
+        guard let feature = agentConversationFeatureIfActive else { return }
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }
+        feature.setAgents(configuredAgentOptions)
+        guard let agentID = feature.selectedAgentID else { return }
+        let connection = feature.connection(for: agentID)
+        guard !connection.hasActiveConnection else { return }
         do {
-            try feature.connect(configuration: agentLaunchConfiguration())
+            try connection.connect(configuration: agentLaunchConfiguration(agentID: agentID))
         } catch {
             // The panel shows the reason and offers a retry.
-            feature.reportConnectionFailure(error.localizedDescription)
+            connection.reportConnectionFailure(error.localizedDescription)
         }
     }
 
-    func agentLaunchConfiguration() throws -> AgentLaunchConfiguration {
+    func selectAgentConversationAgent(_ agentID: String) {
+        agentConversationFeatureIfActive?.selectAgent(agentID)
+        connectAgentConversation()
+    }
+
+    func agentLaunchConfiguration(agentID: String) throws -> AgentLaunchConfiguration {
         guard let workspaceURL else { throw AgentConversationError.notConnected }
-        let command = settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !command.isEmpty else { throw AgentConversationError.missingCommand }
-        guard let provider = settings.agentProvider else { throw AgentConversationError.missingProvider }
+        guard let provider = settings.agentProvider(for: agentID) else {
+            throw AgentConversationError.missingProvider
+        }
         let apiKey = services.credentialResolver.readAPIKey(for: provider)?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !apiKey.isEmpty else { throw AgentConversationError.missingAPIKey }
+        let isCustom = agentID == AgentConfiguration.customAgentID
+        let command = settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isCustom && command.isEmpty { throw AgentConversationError.missingCommand }
         // One argument per line, passed to the process without shell parsing.
-        let arguments = settings.agentArguments
-            .components(separatedBy: .newlines)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+        let arguments = isCustom
+            ? settings.agentArguments
+                .components(separatedBy: .newlines)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            : []
         return AgentLaunchConfiguration(
+            agentID: isCustom ? nil : agentID,
             command: command,
             arguments: arguments,
             workspaceURL: workspaceURL,
-            gatewayBaseURL: provider.endpoint,
+            dataDirectory: agentDataDirectory,
+            providerProtocol: provider.apiProtocol.rawValue,
+            providerEndpoint: provider.endpoint,
             apiKey: apiKey,
             providerName: provider.name,
+            model: provider.model,
             allowsInsecureHTTP: provider.allowsInsecureHTTP
         )
     }

@@ -627,6 +627,7 @@ final class MacServiceContainer {
             databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
+            agentManagement: RustAgentManagementService(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),

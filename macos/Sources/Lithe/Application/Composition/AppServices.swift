@@ -44,6 +44,8 @@ final class AppServices {
     let databaseSecureStore: any SecureStore
     let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
+    /// Detects Node.js and installs ACP adapters for the Agents settings page.
+    let agentManagement: any AgentManagementService
     let aiConfigurationSources: [any AIConfigurationSource]
     let recentProjectsStore: RecentProjectsStore
     let workspaceSessionStore: WorkspaceSessionStore
@@ -82,6 +84,7 @@ final class AppServices {
         databaseSecureStore: any SecureStore,
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
+        agentManagement: any AgentManagementService = UnavailableAgentManagementService(),
         aiConfigurationSources: [any AIConfigurationSource],
         recentProjectsStore: RecentProjectsStore,
         workspaceSessionStore: WorkspaceSessionStore,
@@ -128,6 +131,7 @@ final class AppServices {
         self.databaseSecureStore = databaseSecureStore
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
+        self.agentManagement = agentManagement
         self.aiConfigurationSources = aiConfigurationSources
         self.recentProjectsStore = recentProjectsStore
         self.workspaceSessionStore = workspaceSessionStore

@@ -35,7 +35,7 @@ final class AppSettings: ObservableObject {
         static let commitMessageAI = "settings.commitMessageAI"
         static let agentCommand = "settings.agentCommand"
         static let agentArguments = "settings.agentArguments"
-        static let agentProviderID = "settings.agentProviderID"
+        static let agentConfigurations = "settings.agentConfigurations"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
@@ -128,8 +128,14 @@ final class AppSettings: ObservableObject {
     /// One command argument per line, so paths with spaces need no shell parser.
     @Published var agentArguments: String { didSet { defaults.set(agentArguments, forKey: Key.agentArguments) } }
     /// AI provider whose endpoint and API key the Agent uses; `nil` until chosen.
-    @Published var agentProviderID: UUID? {
-        didSet { defaults.set(agentProviderID?.uuidString, forKey: Key.agentProviderID) }
+    /// Per-agent setup from Settings › Agents, keyed by ACP registry id or
+    /// `AgentConfiguration.customAgentID`.
+    @Published var agentConfigurations: [String: AgentConfiguration] {
+        didSet {
+            if let data = try? JSONEncoder().encode(agentConfigurations) {
+                defaults.set(data, forKey: Key.agentConfigurations)
+            }
+        }
     }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
     @Published private(set) var customLogDirectory: URL?
@@ -209,7 +215,8 @@ final class AppSettings: ObservableObject {
         }
         agentCommand = defaults.string(forKey: Key.agentCommand) ?? ""
         agentArguments = defaults.string(forKey: Key.agentArguments) ?? ""
-        agentProviderID = defaults.string(forKey: Key.agentProviderID).flatMap(UUID.init(uuidString:))
+        agentConfigurations = defaults.data(forKey: Key.agentConfigurations)
+            .flatMap { try? JSONDecoder().decode([String: AgentConfiguration].self, from: $0) } ?? [:]
         if let data = defaults.data(forKey: Key.javaBuildFailurePolicies),
            let saved = try? JSONDecoder().decode([String: JavaBuildFailurePolicy].self, from: data) {
             javaBuildFailurePolicies = saved
@@ -344,7 +351,7 @@ final class AppSettings: ObservableObject {
         commitMessageAI = .default
         agentCommand = ""
         agentArguments = ""
-        agentProviderID = nil
+        agentConfigurations = [:]
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
@@ -358,13 +365,19 @@ final class AppSettings: ObservableObject {
         saveKeyboardShortcutOverrides()
     }
 
-    /// Providers the Agent can use: phase one supports Responses API gateways.
-    var agentProviderCandidates: [AIProviderProfile] {
-        commitMessageAI.providers.filter { $0.apiProtocol == .responses }
+    /// Providers an agent speaking `apiProtocol` can use.
+    func agentProviderCandidates(for apiProtocol: CommitMessageAPIProtocol) -> [AIProviderProfile] {
+        commitMessageAI.providers.filter { $0.apiProtocol == apiProtocol }
     }
 
-    var agentProvider: AIProviderProfile? {
-        agentProviderCandidates.first { $0.id == agentProviderID }
+    /// The provider assigned to `agentID`, if it still exists.
+    func agentProvider(for agentID: String) -> AIProviderProfile? {
+        guard let providerID = agentConfigurations[agentID]?.providerID else { return nil }
+        return commitMessageAI.providers.first { $0.id == providerID }
+    }
+
+    func setAgentProvider(_ providerID: UUID?, for agentID: String, name: String) {
+        agentConfigurations[agentID] = AgentConfiguration(name: name, providerID: providerID)
     }
 
     var activeCommitMessageProvider: AIProviderProfile? {
@@ -388,6 +401,37 @@ final class AppSettings: ObservableObject {
         _ = value.addProvider()
         value.codexImportCompleted = true
         commitMessageAI = value
+    }
+
+    /// Edit any provider without changing which one commit messages use.
+    func updateAIProvider(_ id: UUID, _ update: (inout AIProviderProfile) -> Void) {
+        var value = commitMessageAI
+        guard let index = value.providers.firstIndex(where: { $0.id == id }) else { return }
+        update(&value.providers[index])
+        commitMessageAI = value
+    }
+
+    /// Add a provider; commit messages switch to it only when none was selected.
+    @discardableResult
+    func addAIProvider() -> UUID {
+        var value = commitMessageAI
+        let previous = value.activeProviderID
+        let provider = value.addProvider()
+        if previous != nil { value.activeProviderID = previous }
+        value.codexImportCompleted = true
+        commitMessageAI = value
+        return provider.id
+    }
+
+    /// Remove a provider and every reference to it.
+    func removeAIProvider(_ id: UUID) {
+        var value = commitMessageAI
+        value.providers.removeAll { $0.id == id }
+        if value.activeProviderID == id { value.activeProviderID = value.providers.first?.id }
+        commitMessageAI = value
+        for (agentID, configuration) in agentConfigurations where configuration.providerID == id {
+            agentConfigurations[agentID]?.providerID = nil
+        }
     }
 
     func removeActiveCommitMessageProvider() {
@@ -755,4 +799,15 @@ enum TerminalShell: String, CaseIterable, Identifiable {
         case .bash: "/bin/bash"
         }
     }
+}
+
+/// Agent setup chosen in Settings › Agents.
+struct AgentConfiguration: Codable, Equatable {
+    /// Identifier of the user-provided command agent configured by
+    /// `agentCommand` and `agentArguments`.
+    static let customAgentID = "custom"
+
+    /// Display name recorded when the agent was set up, for the Agent panel.
+    var name: String
+    var providerID: UUID?
 }

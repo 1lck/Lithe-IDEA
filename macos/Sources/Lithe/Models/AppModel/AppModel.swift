@@ -80,6 +80,11 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
     /// An Agent conversation in this project waits for a permission decision.
     @Published var agentConversationNeedsAttention = false
+    /// Settings › Agents state, created when the page is first shown.
+    lazy var agentManagementFeature = AgentManagementFeatureModel(
+        service: services.agentManagement,
+        dataDirectory: agentDataDirectory
+    )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {

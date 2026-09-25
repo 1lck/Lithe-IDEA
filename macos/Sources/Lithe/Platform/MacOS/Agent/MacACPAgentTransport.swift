@@ -8,17 +8,24 @@ final class MacACPAgentTransport: AgentConversationTransport {
         configuration: AgentLaunchConfiguration,
         onEvent: @escaping @Sendable (String) -> Void
     ) throws -> any AgentConnection {
-        let configurationJSON: [String: Any] = [
-            "command": configuration.command,
+        var configurationJSON: [String: Any] = [
             "args": configuration.arguments,
             "cwd": configuration.workspaceURL.path,
-            "gateway": [
-                "baseUrl": configuration.gatewayBaseURL,
+            "dataDirectory": configuration.dataDirectory.path,
+            "provider": [
+                "protocol": configuration.providerProtocol,
+                "baseUrl": configuration.providerEndpoint,
                 "apiKey": configuration.apiKey,
-                "providerName": configuration.providerName,
+                "name": configuration.providerName,
+                "model": configuration.model,
                 "allowInsecureHttp": configuration.allowsInsecureHTTP
             ]
         ]
+        if let agentID = configuration.agentID {
+            configurationJSON["agentId"] = agentID
+        } else {
+            configurationJSON["command"] = configuration.command
+        }
         let data = try JSONSerialization.data(withJSONObject: configurationJSON)
         let json = String(decoding: data, as: UTF8.self)
         let callback = AgentEventCallback(onEvent: onEvent)

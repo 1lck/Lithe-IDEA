@@ -108,7 +108,7 @@ struct AgentConversationFeatureModelTests {
     @Test
     func agentExitKeepsTranscriptAndRequiresReloadAfterReconnect() async throws {
         let transport = TestAgentTransport()
-        let feature = AgentConversationFeatureModel(transport: transport)
+        let feature = AgentConnectionModel(transport: transport)
         try feature.connect(configuration: configuration)
         try feature.receive(event("ready"))
         try feature.send("Explain this project")
@@ -144,26 +144,67 @@ struct AgentConversationFeatureModelTests {
 
     private var configuration: AgentLaunchConfiguration {
         AgentLaunchConfiguration(
-            command: "test-agent",
+            agentID: "codex-acp",
+            command: "",
             arguments: [],
             workspaceURL: URL(fileURLWithPath: "/tmp/lithe-acp-test"),
-            gatewayBaseURL: "https://gateway.example.com/v1",
+            dataDirectory: URL(fileURLWithPath: "/tmp/lithe-acp-data"),
+            providerProtocol: "responses",
+            providerEndpoint: "https://gateway.example.com/v1",
             apiKey: "test-key",
             providerName: "Example",
+            model: "",
             allowsInsecureHTTP: false
         )
     }
 
-    private func connectedFeature() throws -> (AgentConversationFeatureModel, TestAgentConnection) {
+    @Test
+    func panelKeepsOneLazyConnectionPerAgentAndAggregatesAttention() async throws {
         let transport = TestAgentTransport()
-        let feature = AgentConversationFeatureModel(transport: transport)
+        let panel = AgentConversationFeatureModel(transport: transport)
+        var attention: [Bool] = []
+        panel.onAttentionChanged = { attention.append($0) }
+        #expect(panel.selectedConnection == nil)
+
+        panel.setAgents([AgentOption(id: "codex-acp", name: "Codex"), AgentOption(id: "claude-acp", name: "Claude")])
+        #expect(panel.selectedAgentID == "codex-acp")
+        #expect(transport.connections.isEmpty, "selecting an agent starts nothing")
+        let codex = try #require(panel.selectedConnection)
+        #expect(panel.connection(for: "codex-acp") === codex)
+
+        try codex.connect(configuration: configuration)
+        try codex.receive(event("ready"))
+        try codex.send("Explain this project")
+        try codex.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+        try codex.receive(event("permission"))
+        #expect(attention == [true])
+
+        panel.selectAgent("claude-acp")
+        let claude = try #require(panel.selectedConnection)
+        #expect(claude !== codex)
+        panel.selectAgent("unknown")
+        #expect(panel.selectedAgentID == "claude-acp")
+        codex.cancel()
+        #expect(attention == [true, false])
+
+        panel.setAgents([AgentOption(id: "codex-acp", name: "Codex")])
+        #expect(panel.selectedAgentID == "codex-acp", "a removed agent falls back to the first one")
+        #expect(panel.hasActiveConnection)
+        await panel.stop()
+        #expect(!panel.hasActiveConnection)
+        #expect(transport.connections[0].closeCount == 1)
+    }
+
+    private func connectedFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
         try feature.connect(configuration: configuration)
         #expect(feature.connectionState == .connecting)
         try feature.receive(event("ready"))
         return (feature, transport.connections[0])
     }
 
-    private func respondingFeature() throws -> (AgentConversationFeatureModel, TestAgentConnection) {
+    private func respondingFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
         let (feature, connection) = try connectedFeature()
         try feature.send("Explain this project")
         try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))

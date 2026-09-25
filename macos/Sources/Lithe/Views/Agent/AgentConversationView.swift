@@ -1,15 +1,58 @@
 import SwiftUI
 import LitheAgentConversationModule
 
+/// Agent panel: picks one of the agents set up in Settings › Agents and shows
+/// that agent's conversations in this project.
 struct AgentConversationView: View {
     @ObservedObject var feature: AgentConversationFeatureModel
     let onConnect: () -> Void
+    let onSelectAgent: (String) -> Void
+    let onOpenSettings: () -> Void
+
+    var body: some View {
+        Group {
+            if let connection = feature.selectedConnection {
+                AgentConnectionView(
+                    feature: connection,
+                    agents: feature.agents,
+                    selectedAgentID: feature.selectedAgentID,
+                    onSelectAgent: onSelectAgent,
+                    onConnect: onConnect,
+                    onOpenSettings: onOpenSettings
+                )
+                .id(feature.selectedAgentID)
+            } else {
+                VStack(spacing: 0) {
+                    LitheToolWindowHeader(title: "Agent") { EmptyView() }
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("No Agent is set up yet. Install an Agent and choose its AI provider to start.")
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Button("Open Agent Settings", action: onOpenSettings)
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(12)
+                }
+            }
+        }
+        .onAppear(perform: onConnect)
+    }
+}
+
+private struct AgentConnectionView: View {
+    @ObservedObject var feature: AgentConnectionModel
+    let agents: [AgentOption]
+    let selectedAgentID: String?
+    let onSelectAgent: (String) -> Void
+    let onConnect: () -> Void
+    let onOpenSettings: () -> Void
     @State private var draft = ""
     @State private var localError: String?
 
     var body: some View {
         VStack(spacing: 0) {
             LitheToolWindowHeader(title: "Agent") {
+                agentMenu
                 sessionMenu
                 Button {
                     feature.startNewConversation()
@@ -35,12 +78,39 @@ struct AgentConversationView: View {
                         .foregroundStyle(LitheTheme.warning)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Retry", action: onConnect)
+                    HStack {
+                        Button("Retry", action: onConnect)
+                        Button("Agent Settings", action: onOpenSettings)
+                    }
                 }
             case .ready:
                 conversationView
             }
         }
+    }
+
+    private var agentMenu: some View {
+        Menu {
+            ForEach(agents) { agent in
+                Button {
+                    onSelectAgent(agent.id)
+                } label: {
+                    if agent.id == selectedAgentID {
+                        Label(agent.name, systemImage: "checkmark")
+                    } else {
+                        Text(agent.name)
+                    }
+                }
+            }
+            Divider()
+            Button("Agent Settings…", action: onOpenSettings)
+        } label: {
+            Text(agents.first { $0.id == selectedAgentID }?.name ?? "Agent")
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Agent")
     }
 
     private var sessionMenu: some View {
