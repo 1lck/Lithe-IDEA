@@ -206,7 +206,7 @@ impl WorkbenchView {
         let toolbar = cx.new(|_cx| ToolbarView::new(&root));
         let activity_rail = cx.new(|cx| ActivityRailView::new(cx));
         let plugin_rail = cx.new(|_cx| PluginActivityRailView::new());
-        let sidebar = cx.new(|cx| SidebarView::new(root.clone(), cx));
+        let sidebar = cx.new(|cx| SidebarView::new(root.clone(), window, cx));
         let pane_tree = PaneTree::new();
         let initial_pane = pane_tree.active().unwrap_or(0);
         let editor = cx.new(|cx| EditorView::new(root.clone(), window, cx));
@@ -2637,6 +2637,18 @@ impl Render for WorkbenchView {
                 // 弹窗打开时输入框要能正常打字：除 Esc 外不抢占快捷键，
                 // 与 Tauri 模态捕获按键的语义一致。
                 if this.modal_visible() {
+                    return;
+                }
+
+                // 文本输入框（如侧边栏文件树过滤、输入型控件）聚焦时，全局快捷键
+                // 不得抢占按键：否则 Ctrl+V/Ctrl+C/Ctrl+A 会被派给编辑器而不是
+                // 输入框，中文 IME 组字也会受干扰。`Input` 组件渲染时设置
+                // key context "Input"，这里据此识别。
+                if window
+                    .context_stack()
+                    .iter()
+                    .any(|context| context.contains("Input"))
+                {
                     return;
                 }
 
