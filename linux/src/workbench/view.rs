@@ -231,7 +231,7 @@ impl WorkbenchView {
         });
         let project_dialog = cx.new(|cx| ProjectDialog::new(cx));
         let branch_manager_root = root.clone();
-        let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, cx));
+        let branch_manager = cx.new(|cx| BranchManagerView::new(branch_manager_root, window, cx));
         let welcome_screen = cx.new(|cx| WelcomeScreenView::new(cx));
         let maven = cx.new(|cx| MavenView::new(root.clone(), cx));
         let notifications = cx.new(|cx| NotificationsView::new(cx));
@@ -605,8 +605,11 @@ impl WorkbenchView {
                     ToolbarEvent::OpenBranchManager => {
                         let root = this.workspace_root.clone();
                         let current = this.sidebar.read(cx).git_branch.clone();
+                        let workspace_root = this.workspace_root.clone();
                         let _ = this.branch_manager.update(cx, |bm, cx| {
                             bm.set_repo(root, current, cx);
+                            // 仓库副行显示相对工作区根的路径。
+                            bm.set_workspace_root(workspace_root);
                         });
                         this.show_branch_manager = true;
                         cx.notify();
@@ -797,6 +800,10 @@ impl WorkbenchView {
                     cx.notify();
                 }
                 BranchManagerEvent::OpenWorktree(path) => {
+                    this.show_branch_manager = false;
+                    this.open_project_path(path.clone(), cx);
+                }
+                BranchManagerEvent::SelectRepository(path) => {
                     this.show_branch_manager = false;
                     this.open_project_path(path.clone(), cx);
                 }

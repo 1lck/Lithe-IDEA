@@ -1,6 +1,7 @@
 pub mod activity_rail;
 pub mod bottom_panel;
 pub mod branch_manager;
+pub mod branch_manager_logic;
 pub mod command_palette;
 pub mod editor;
 pub mod extensions_panel;

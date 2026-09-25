@@ -860,10 +860,11 @@ impl SidebarView {
                     .text_color(ThemeColors::text_muted()),
             )
             .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .child(Input::new(&self.tree_search_input).small().appearance(false)),
+                div().flex_1().min_w_0().child(
+                    Input::new(&self.tree_search_input)
+                        .small()
+                        .appearance(false),
+                ),
             )
             .child(
                 Button::new("sidebar-filter-clear")

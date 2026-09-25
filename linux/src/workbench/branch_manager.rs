@@ -1,25 +1,36 @@
-//! 分支管理器弹窗：对齐 Tauri `GitBranchManager`（`GitCommandSurface` 弹窗）。
+//! 分支管理器弹窗：对齐 Tauri `GitBranchManager`（`GitCommandSurface` 弹窗）
+//! 与 macOS `BranchSwitcherPopover` 的共同可见行为。
 //!
-//! - 顶部三个 tab（仓库 / 分支 / 工作树），按 tab 切换搜索框占位与计数。
-//! - 分支行点击经 core 直连 `git.write` 检出，当前分支打勾；
-//!   搜索串无精确匹配时首行可建分支（`createBranch` 后再 `checkout` 切过去）。
-//! - 工作树行点击把路径交给父级（`OpenWorktree`），由父级打开对应项目。
-//! - 成功统一发射 [`BranchManagerEvent::CheckoutDone`]（父级刷新+关弹窗）；
-//!   失败只在弹窗内显示错误行，不发射。
-//! - 遮罩 + 卡片布局与键盘输入仿 `quick_open.rs`；core 调用模式照抄
-//!   `sidebar.rs`（`CoreClient` + `cx.spawn`）与 `view.rs` 的分支解析。
+//! 三个 tab（仓库 / 分支 / 工作树）：
+//! - 顶部 tab 行切换分区，搜索框占位与计数随之变化；搜索框为真实 `Input`，
+//!   支持 IME 组字与剪贴板粘贴。
+//! - 分支 tab：当前分支置顶、其余按名称排序；查询无精确匹配时首行可建分支并
+//!   切过去；上下键移动选中、回车执行。
+//! - 工作树 tab：过滤掉 bare / prunable，当前工作树置顶；无分支时按
+//!   detached / no branch 文案显示；查询非空且不重复时首行可创建工作树。
+//! - 仓库 tab：列出工作区内发现的仓库（当前仓库置顶），点击切换。
+//! - 底部动作行：按 tab 提供 新建分支 / 创建工作树 / 添加仓库 与 刷新。
+//!
+//! 排序、过滤、标签与建名规则集中在 `branch_manager_logic`（纯逻辑，可单测）；
+//! core 调用模式沿用 `sidebar.rs`（`CoreClient` + `cx.spawn`）。
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{h_flex, v_flex, Icon, Selectable as _, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, rgba, Context, EventEmitter, FocusHandle, FontWeight, InteractiveElement as _,
-    IntoElement, KeyDownEvent, ParentElement as _, Render, StatefulInteractiveElement as _,
-    Styled as _, Window,
+    div, px, rgba, AppContext as _, Context, Entity, EventEmitter, FocusHandle, FontWeight,
+    InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Subscription, Window,
 };
 
+use super::branch_manager_logic::{
+    clamp_index, create_branch_name, create_worktree_path, filtered_branches,
+    filtered_repositories, filtered_worktrees, folder_name, move_index, query_matches,
+    relative_path, worktree_label, WorktreeInfo,
+};
 use crate::core::CoreClient;
 use crate::theme::ThemeColors;
 
@@ -58,28 +69,31 @@ pub enum BranchManagerEvent {
     CheckoutDone,
     /// 请求打开指定工作树路径的项目（父级关弹窗后打开）。
     OpenWorktree(String),
+    /// 请求切换到指定仓库路径（父级关弹窗后打开）。
+    SelectRepository(String),
     /// 请求关闭弹窗（遮罩点击 / Esc）。
     Close,
-}
-
-/// 工作树列表项（字段形状对齐 core `GitWorktreeResponse` 的 camelCase 返回）。
-#[derive(Debug, Clone)]
-pub struct WorktreeInfo {
-    pub path: String,
-    pub branch: Option<String>,
-    pub is_current: bool,
 }
 
 /// 居中的分支管理器弹窗（宽 560、高 420，仿 `project_dialog` 卡片）。
 pub struct BranchManagerView {
     repo_path: String,
+    /// 工作区根路径：仓库行的副行显示相对此根的路径（对齐 `getRelativePath`）。
+    workspace_root: String,
     current_branch: Option<String>,
     active_tab: BranchTab,
     query: String,
     branches: Vec<String>,
     worktrees: Vec<WorktreeInfo>,
+    repositories: Vec<String>,
+    is_discovering_repos: bool,
+    is_loading_worktrees: bool,
+    /// 键盘导航：命令列表中的选中下标。
+    selected_index: usize,
     error: Option<String>,
     busy: bool,
+    search_input: Entity<InputState>,
+    _search_subscription: Subscription,
     focus_handle: FocusHandle,
     client: CoreClient,
 }
@@ -87,16 +101,49 @@ pub struct BranchManagerView {
 impl EventEmitter<BranchManagerEvent> for BranchManagerView {}
 
 impl BranchManagerView {
-    pub fn new(repo_path: String, cx: &mut Context<Self>) -> Self {
+    pub fn new(repo_path: String, window: &mut Window, cx: &mut Context<Self>) -> Self {
+        let search_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(crate::i18n::menu_text(cx, "git.searchBranches"))
+        });
+        let input_source = search_input.clone();
+        let _search_subscription = cx.subscribe(
+            &search_input,
+            move |this: &mut Self, _, event: &InputEvent, cx| match event {
+                InputEvent::Change => {
+                    this.query = input_source.read(cx).value().to_string();
+                    this.selected_index = 0;
+                    this.error = None;
+                    cx.notify();
+                }
+                InputEvent::PressEnter { shift, .. } => {
+                    // 回车执行当前选中项；Shift+回车回退一格（列表导航习惯）。
+                    if *shift {
+                        this.move_selection(-1, cx);
+                    } else {
+                        this.activate_selection(cx);
+                    }
+                }
+                _ => {}
+            },
+        );
+
         let mut view = Self {
             repo_path,
+            workspace_root: String::new(),
             current_branch: None,
             active_tab: BranchTab::Branches,
             query: String::new(),
             branches: Vec::new(),
             worktrees: Vec::new(),
+            repositories: Vec::new(),
+            is_discovering_repos: false,
+            is_loading_worktrees: false,
+            selected_index: 0,
             error: None,
             busy: false,
+            search_input,
+            _search_subscription,
             focus_handle: cx.focus_handle(),
             client: CoreClient::new(),
         };
@@ -104,36 +151,56 @@ impl BranchManagerView {
         view
     }
 
-    /// 更新仓库并重载分支与工作树（打开弹窗时由父级调用）。
+    /// 更新仓库并重载分支、工作树与仓库列表（打开弹窗时由父级调用）。
     pub fn set_repo(&mut self, path: String, current: Option<String>, cx: &mut Context<Self>) {
-        self.repo_path = path;
+        self.repo_path = path.clone();
+        if self.workspace_root.is_empty() {
+            self.workspace_root = path;
+        }
         self.current_branch = current;
         self.query.clear();
+        self.branches.clear();
+        self.worktrees.clear();
+        self.repositories.clear();
         self.error = None;
         self.busy = false;
+        self.selected_index = 0;
+        // 清空搜索框显示值（`InputState::set_value` 需要 `Window`）。
+        if let Some(handle) = cx.active_window() {
+            let input = self.search_input.clone();
+            handle
+                .update(cx, |_, window, cx| {
+                    input.update(cx, |state, cx| state.set_value("", window, cx));
+                })
+                .ok();
+        }
         self.reload(cx);
     }
 
-    /// 并发拉取 `git.references` 与 `worktrees`，分支排序去重。
+    /// 设置工作区根（仓库副行显示相对此根的路径）。
+    pub fn set_workspace_root(&mut self, workspace_root: String) {
+        self.workspace_root = workspace_root;
+    }
+
+    /// 并发拉取分支、工作树与仓库列表。
     pub fn reload(&mut self, cx: &mut Context<Self>) {
+        self.load_branches(cx);
+        self.load_worktrees(cx);
+        self.load_repositories(cx);
+    }
+
+    fn load_branches(&mut self, cx: &mut Context<Self>) {
         let client = self.client.clone();
         let root = self.repo_path.clone();
-        let root_wt = self.repo_path.clone();
         cx.spawn(async move |this, cx| {
-            let refs_task = client.execute::<serde_json::Value, serde_json::Value>(
+            let task = client.execute::<serde_json::Value, serde_json::Value>(
                 &cx,
                 "git.references",
                 serde_json::json!({ "root": root }),
             );
-            let wt_task = client.execute::<serde_json::Value, serde_json::Value>(
-                &cx,
-                "worktrees",
-                serde_json::json!({ "root": root_wt }),
-            );
-            let refs_val = refs_task.await.unwrap_or(serde_json::Value::Null);
-            let wt_val = wt_task.await.unwrap_or(serde_json::Value::Null);
+            let value = task.await.unwrap_or(serde_json::Value::Null);
             // 分支解析照抄 view.rs observer：kind == local 的 shortName。
-            let mut branches: Vec<String> = refs_val
+            let mut branches: Vec<String> = value
                 .get("references")
                 .and_then(|r| r.as_array())
                 .map(|arr| {
@@ -149,39 +216,69 @@ impl BranchManagerView {
                 .unwrap_or_default();
             branches.sort();
             branches.dedup();
-            let worktrees: Vec<WorktreeInfo> = wt_val
+            let _ = this.update(cx, |view, cx| {
+                view.branches = branches;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn load_worktrees(&mut self, cx: &mut Context<Self>) {
+        self.is_loading_worktrees = true;
+        let client = self.client.clone();
+        let root = self.repo_path.clone();
+        cx.spawn(async move |this, cx| {
+            // 真源命令名为 `git.worktrees`（core `CoreCommand::GitWorktrees`）。
+            let task = client.execute::<serde_json::Value, serde_json::Value>(
+                &cx,
+                "git.worktrees",
+                serde_json::json!({ "root": root }),
+            );
+            let value = task.await.unwrap_or(serde_json::Value::Null);
+            let worktrees: Vec<WorktreeInfo> = value
                 .get("worktrees")
                 .and_then(|w| w.as_array())
+                .map(|arr| arr.iter().filter_map(parse_worktree).collect())
+                .unwrap_or_default();
+            let _ = this.update(cx, |view, cx| {
+                view.worktrees = worktrees;
+                view.is_loading_worktrees = false;
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    fn load_repositories(&mut self, cx: &mut Context<Self>) {
+        self.is_discovering_repos = true;
+        let client = self.client.clone();
+        let root = self.repo_path.clone();
+        cx.spawn(async move |this, cx| {
+            let task = client.execute::<serde_json::Value, serde_json::Value>(
+                &cx,
+                "workspace.repositories",
+                serde_json::json!({ "root": root }),
+            );
+            let value = task.await.unwrap_or(serde_json::Value::Null);
+            let mut repositories: Vec<String> = value
+                .get("repositories")
+                .and_then(|r| r.as_array())
                 .map(|arr| {
                     arr.iter()
                         .filter_map(|item| {
-                            let path = item
-                                .get("path")
+                            item.get("path")
                                 .and_then(|p| p.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            if path.is_empty() {
-                                return None;
-                            }
-                            Some(WorktreeInfo {
-                                path,
-                                branch: item
-                                    .get("branch")
-                                    .and_then(|b| b.as_str())
-                                    .map(|s| s.to_string()),
-                                is_current: item
-                                    .get("isCurrent")
-                                    .and_then(|b| b.as_bool())
-                                    .unwrap_or(false),
-                            })
+                                .map(|s| s.to_string())
                         })
                         .collect()
                 })
                 .unwrap_or_default();
+            repositories.sort();
+            repositories.dedup();
             let _ = this.update(cx, |view, cx| {
-                view.branches = branches;
-                view.worktrees = worktrees;
-                view.error = None;
+                view.repositories = repositories;
+                view.is_discovering_repos = false;
                 cx.notify();
             });
         })
@@ -286,47 +383,168 @@ impl BranchManagerView {
         .detach();
     }
 
-    /// 当前 tab 下按 query 过滤后的分支（大小写不敏感包含）。
+    /// 创建工作树（新分支模式）。失败只显示错误行。
+    fn create_worktree(&mut self, destination: String, cx: &mut Context<Self>) {
+        let destination = destination.trim().to_string();
+        if self.busy || destination.is_empty() {
+            return;
+        }
+        self.busy = true;
+        self.error = None;
+        cx.notify();
+        let client = self.client.clone();
+        // 对齐 Windows：无显式分支时用 newBranch 模式，名称取目标目录名。
+        let name = folder_name(&destination);
+        let payload = git_write_payload(
+            &self.repo_path,
+            "createWorktree",
+            serde_json::json!({
+                "destination": destination,
+                "worktreeMode": "newBranch",
+                "noCheckout": false,
+                "name": name,
+            }),
+        );
+        cx.spawn(async move |this, cx| {
+            let task =
+                client.execute::<serde_json::Value, serde_json::Value>(&cx, "git.write", payload);
+            match task.await {
+                Ok(_) => {
+                    let _ = this.update(cx, |view, cx| {
+                        view.busy = false;
+                        view.load_worktrees(cx);
+                    });
+                }
+                Err(err) => {
+                    let _ = this.update(cx, |view, cx| {
+                        view.busy = false;
+                        view.error = Some(err);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// 当前 tab 下命令列表的条目数（含首行“创建”项）。
+    fn command_len(&self) -> usize {
+        match self.active_tab {
+            BranchTab::Branches => {
+                let create = usize::from(self.create_branch_name().is_some());
+                self.filtered_branches().len() + create
+            }
+            BranchTab::Worktrees => {
+                let create = usize::from(self.create_worktree_path().is_some());
+                self.filtered_worktrees().len() + create
+            }
+            BranchTab::Repositories => self.repo_rows().len(),
+        }
+    }
+
+    /// 上下移动选择：夹紧在 `[0, len-1]`，不循环（对齐 `moveCommandListIndex`）。
+    fn move_selection(&mut self, delta: i32, cx: &mut Context<Self>) {
+        let len = self.command_len();
+        self.selected_index = if delta > 0 {
+            move_index(self.selected_index, len, true)
+        } else {
+            self.selected_index = clamp_index(self.selected_index, len);
+            move_index(self.selected_index, len, false)
+        };
+        cx.notify();
+    }
+
+    /// 执行当前选中项（对齐 `handleCommandSelect`）。
+    fn activate_selection(&mut self, cx: &mut Context<Self>) {
+        let index = self.selected_index;
+        match self.active_tab {
+            BranchTab::Branches => {
+                let has_create = self.create_branch_name().is_some();
+                if has_create && index == 0 {
+                    if let Some(name) = self.create_branch_name() {
+                        self.create_and_checkout(name, cx);
+                    }
+                    return;
+                }
+                let offset = index.saturating_sub(usize::from(has_create));
+                if let Some(branch) = self.filtered_branches().get(offset).cloned() {
+                    self.checkout(branch, cx);
+                }
+            }
+            BranchTab::Worktrees => {
+                let has_create = self.create_worktree_path().is_some();
+                if has_create && index == 0 {
+                    if let Some(path) = self.create_worktree_path() {
+                        self.create_worktree(path, cx);
+                    }
+                    return;
+                }
+                let offset = index.saturating_sub(usize::from(has_create));
+                if let Some(info) = self.filtered_worktrees().get(offset).cloned() {
+                    self.open_worktree(info, cx);
+                }
+            }
+            BranchTab::Repositories => {
+                if let Some(path) = self.repo_rows().get(index).cloned() {
+                    self.select_repository(path, cx);
+                }
+            }
+        }
+    }
+
+    fn open_worktree(&mut self, info: WorktreeInfo, cx: &mut Context<Self>) {
+        if info.path == self.repo_path {
+            return;
+        }
+        cx.emit(BranchManagerEvent::OpenWorktree(info.path));
+    }
+
+    fn select_repository(&mut self, path: String, cx: &mut Context<Self>) {
+        if path == self.repo_path {
+            return;
+        }
+        cx.emit(BranchManagerEvent::SelectRepository(path));
+    }
+
     fn filtered_branches(&self) -> Vec<String> {
-        let q = self.query.trim().to_lowercase();
-        self.branches
-            .iter()
-            .filter(|b| q.is_empty() || b.to_lowercase().contains(&q))
-            .cloned()
-            .collect()
+        let current = self.current_branch.clone().unwrap_or_default();
+        filtered_branches(&self.branches, &current, &self.query)
     }
 
-    /// 当前 tab 下按 query 过滤后的工作树（按分支名或路径匹配）。
     fn filtered_worktrees(&self) -> Vec<WorktreeInfo> {
-        let q = self.query.trim().to_lowercase();
-        self.worktrees
-            .iter()
-            .filter(|w| {
-                q.is_empty()
-                    || w.path.to_lowercase().contains(&q)
-                    || w.branch
-                        .as_deref()
-                        .unwrap_or("")
-                        .to_lowercase()
-                        .contains(&q)
-            })
-            .cloned()
-            .collect()
+        filtered_worktrees(&self.worktrees, &self.repo_path, &self.query)
     }
 
-    /// 当前仓库在 repositories tab 下是否匹配 query。
-    fn repo_matches(&self) -> bool {
-        let q = self.query.trim().to_lowercase();
-        q.is_empty()
-            || self.repo_path.to_lowercase().contains(&q)
-            || repo_name(&self.repo_path).to_lowercase().contains(&q)
+    /// 仓库列表：core 未返回时退回展示当前仓库（单仓库场景）。
+    fn repo_rows(&self) -> Vec<String> {
+        let rows = filtered_repositories(&self.repositories, Some(&self.repo_path), &self.query);
+        if rows.is_empty()
+            && self.repositories.is_empty()
+            && !self.repo_path.is_empty()
+            && query_matches(&self.query, &[&folder_name(&self.repo_path)])
+        {
+            return vec![self.repo_path.clone()];
+        }
+        rows
+    }
+
+    fn create_branch_name(&self) -> Option<String> {
+        let current = self.current_branch.clone().unwrap_or_default();
+        create_branch_name(&self.branches, &current, &self.query)
+    }
+
+    fn create_worktree_path(&self) -> Option<String> {
+        create_worktree_path(&self.worktrees, &self.query)
     }
 
     /// 计数行文案（`{count}` 占位在渲染时替换，单复数按英文区分键）。
     fn count_text(&self, cx: &gpui_kit::App) -> String {
         let (key, count) = match self.active_tab {
             BranchTab::Repositories => {
-                let n = usize::from(self.repo_matches());
+                let n = self
+                    .repositories
+                    .len()
+                    .max(usize::from(!self.repo_path.is_empty()));
                 (
                     if n == 1 {
                         "git.repositoryCount"
@@ -337,7 +555,7 @@ impl BranchManagerView {
                 )
             }
             BranchTab::Branches => {
-                let n = self.filtered_branches().len();
+                let n = self.branches.len();
                 (
                     if n == 1 {
                         "git.branchCount"
@@ -348,7 +566,7 @@ impl BranchManagerView {
                 )
             }
             BranchTab::Worktrees => {
-                let n = self.filtered_worktrees().len();
+                let n = self.worktrees.len();
                 (
                     if n == 1 {
                         "git.worktreeCount"
@@ -361,6 +579,40 @@ impl BranchManagerView {
         };
         crate::i18n::menu_text(cx, key).replace("{count}", &count.to_string())
     }
+}
+
+/// 解析 core `git.worktrees` 的单条记录；path 缺失时返回 `None`。
+fn parse_worktree(item: &serde_json::Value) -> Option<WorktreeInfo> {
+    let path = item.get("path").and_then(|p| p.as_str())?.to_string();
+    if path.is_empty() {
+        return None;
+    }
+    let branch = item
+        .get("branch")
+        .and_then(|b| b.as_str())
+        .map(|s| s.trim_start_matches("refs/heads/").to_string());
+    let bool_of = |key: &str| item.get(key).and_then(|b| b.as_bool()).unwrap_or(false);
+    Some(WorktreeInfo {
+        path,
+        head: item
+            .get("head")
+            .and_then(|h| h.as_str())
+            .unwrap_or("")
+            .to_string(),
+        branch,
+        is_current: bool_of("isCurrent"),
+        is_primary: bool_of("isPrimary"),
+        is_bare: bool_of("isBare"),
+        is_detached: bool_of("isDetached"),
+        is_locked: bool_of("isLocked"),
+        // prunable：core 用 isPrunable + pruneReason，任一存在即视为不可打开。
+        is_prunable: bool_of("isPrunable")
+            || item
+                .get("pruneReason")
+                .and_then(|r| r.as_str())
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false),
+    })
 }
 
 /// 构造 `git.write` 全字段 camelCase payload（String 无值传 null，bool 传 false）。
@@ -378,6 +630,8 @@ fn git_write_payload(root: &str, operation: &str, extra: serde_json::Value) -> s
         "remote": null,
         "destination": null,
         "mode": null,
+        "worktreeMode": null,
+        "noCheckout": false,
         "includeUntracked": false,
         "checkout": false,
         "amend": false,
@@ -392,32 +646,25 @@ fn git_write_payload(root: &str, operation: &str, extra: serde_json::Value) -> s
     payload
 }
 
-/// 仓库显示名：路径最后一段。
-fn repo_name(path: &str) -> String {
-    path.rsplit('/').next().unwrap_or(path).to_string()
-}
-
 impl Render for BranchManagerView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         window.focus(&self.focus_handle, cx);
 
         let active_tab = self.active_tab;
-        let placeholder: String =
-            crate::i18n::menu_text(cx, active_tab.placeholder_key()).to_string();
         let count_text = self.count_text(cx);
         let busy = self.busy;
 
-        // 分支 tab：精确匹配存在时不展示建分支行。
-        let trimmed_query = self.query.trim().to_string();
-        let has_exact_match =
-            !trimmed_query.is_empty() && self.branches.iter().any(|b| *b == trimmed_query);
-        let show_create_row =
-            active_tab == BranchTab::Branches && !trimmed_query.is_empty() && !has_exact_match;
-        let create_label = if show_create_row {
-            crate::i18n::menu_text(cx, "git.createNewBranch").replace("{name}", &trimmed_query)
-        } else {
-            String::new()
-        };
+        // 首行“创建”项：分支 tab 用建名，工作树 tab 用建路径。
+        let create_branch = self.create_branch_name();
+        let create_branch_label = create_branch
+            .as_ref()
+            .map(|name| crate::i18n::menu_text(cx, "git.createNewBranch").replace("{name}", name))
+            .unwrap_or_default();
+        let create_worktree = self.create_worktree_path();
+        let create_worktree_label = create_worktree
+            .as_ref()
+            .map(|path| crate::i18n::menu_text(cx, "git.createWorktree").replace("{path}", path))
+            .unwrap_or_default();
 
         div()
             .id("branch-manager-backdrop")
@@ -429,40 +676,13 @@ impl Render for BranchManagerView {
             .items_center()
             .justify_center()
             .on_key_down(cx.listener(|this, event: &KeyDownEvent, _window, cx| {
-                let key = event.keystroke.key.as_str();
-                match key {
-                    "escape" => {
-                        cx.emit(BranchManagerEvent::Close);
-                    }
-                    "backspace" => {
-                        this.query.pop();
-                        this.error = None;
-                        cx.notify();
-                    }
-                    "space" => {
-                        this.query.push(' ');
-                        this.error = None;
-                        cx.notify();
-                    }
-                    _ => {
-                        if !event.keystroke.modifiers.control
-                            && !event.keystroke.modifiers.alt
-                            && !event.keystroke.modifiers.platform
-                        {
-                            let mut changed = false;
-                            if let Some(ch) = &event.keystroke.key_char {
-                                this.query.push_str(ch);
-                                changed = true;
-                            } else if key.chars().count() == 1 {
-                                this.query.push_str(key);
-                                changed = true;
-                            }
-                            if changed {
-                                this.error = None;
-                                cx.notify();
-                            }
-                        }
-                    }
+                // 字符输入 / 退格由内层 `Input` 处理（含 IME 与粘贴）；
+                // 这里接管方向键与 Esc。
+                match event.keystroke.key.as_str() {
+                    "escape" => cx.emit(BranchManagerEvent::Close),
+                    "up" => this.move_selection(-1, cx),
+                    "down" => this.move_selection(1, cx),
+                    _ => {}
                 }
             }))
             .on_mouse_down(
@@ -489,7 +709,7 @@ impl Render for BranchManagerView {
                         }),
                     )
                     .child(self.render_tabs(cx))
-                    .child(self.render_search_row(placeholder))
+                    .child(self.render_search_row(cx))
                     .child(
                         div()
                             .w_full()
@@ -499,7 +719,8 @@ impl Render for BranchManagerView {
                             .text_color(ThemeColors::subtle_foreground())
                             .child(count_text),
                     )
-                    .child(self.render_list(show_create_row, create_label, busy, cx))
+                    .child(self.render_list(create_branch_label, create_worktree_label, busy, cx))
+                    .child(self.render_footer(active_tab, busy, cx))
                     .when(self.error.is_some(), |card| {
                         card.child(
                             div()
@@ -541,15 +762,25 @@ impl BranchManagerView {
                     .ghost()
                     .label(label)
                     .selected(selected)
-                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                    .on_click(cx.listener(move |this, _event, window, cx| {
                         this.active_tab = tab;
+                        this.selected_index = 0;
+                        // 切 tab 后刷新占位与焦点（对齐 `handleTabChange`）。
+                        let placeholder: gpui_kit::SharedString =
+                            crate::i18n::menu_text(cx, tab.placeholder_key()).into();
+                        this.search_input.update(cx, |state, cx| {
+                            state.set_placeholder(placeholder, window, cx);
+                            state.focus(window, cx);
+                        });
                         cx.notify();
                     }))
             }))
     }
 
-    /// 搜索行：图标 + 查询串/占位 + 静态光标（仿 quick_open 输入行）。
-    fn render_search_row(&self, placeholder: String) -> impl IntoElement {
+    /// 搜索行：图标 + 真实 `Input`（IME / 粘贴由组件处理）。
+    /// `appearance(false)` 关闭组件自带背景/边框/焦点环，保持与外层卡片一致。
+    fn render_search_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let _ = cx;
         h_flex()
             .h(px(48.0))
             .w_full()
@@ -564,38 +795,25 @@ impl BranchManagerView {
                     .text_color(ThemeColors::primary()),
             )
             .child(
-                h_flex()
+                div()
                     .flex_1()
-                    .items_center()
-                    .gap_1()
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(if self.query.is_empty() {
-                                ThemeColors::subtle_foreground()
-                            } else {
-                                ThemeColors::foreground()
-                            })
-                            .child(if self.query.is_empty() {
-                                placeholder
-                            } else {
-                                self.query.clone()
-                            }),
-                    )
-                    .child(div().w(px(2.0)).h(px(16.0)).bg(ThemeColors::primary())),
+                    .min_w_0()
+                    .text_sm()
+                    .child(Input::new(&self.search_input).appearance(false)),
             )
     }
 
     /// 按当前 tab 渲染滚动列表。
     fn render_list(
         &self,
-        show_create_row: bool,
-        create_label: String,
+        create_branch_label: String,
+        create_worktree_label: String,
         busy: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
         let tab = self.active_tab;
         let query_empty = self.query.trim().is_empty();
+        let selected_index = self.selected_index;
         div()
             .flex_1()
             .w_full()
@@ -603,63 +821,235 @@ impl BranchManagerView {
             .py_1()
             .when(tab == BranchTab::Branches, |list| {
                 let filtered = self.filtered_branches();
-                let empty_key = if query_empty {
-                    "git.noBranchesFound"
-                } else {
-                    "git.noMatchingBranches"
-                };
-                let empty_text: String = crate::i18n::menu_text(cx, empty_key).to_string();
-                let current = self.current_branch.clone();
-                list.when(show_create_row, |list| {
-                    list.child(create_branch_row(create_label, busy, cx))
-                })
-                .when(filtered.is_empty(), |list| {
-                    list.child(empty_row(empty_text))
-                })
-                .children(
-                    filtered
-                        .into_iter()
-                        .enumerate()
-                        .map(|(ix, name)| branch_row(ix, name, current.clone(), busy, cx)),
+                let has_create = !create_branch_label.is_empty();
+                let empty_text: String = crate::i18n::menu_text(
+                    cx,
+                    if query_empty {
+                        "git.noBranchesFound"
+                    } else {
+                        "git.noMatchingBranches"
+                    },
                 )
+                .to_string();
+                let current = self.current_branch.clone();
+                let create_label = create_branch_label.clone();
+                list.when(has_create, |list| {
+                    list.child(create_row(
+                        "branch-manager-create-branch",
+                        create_label.clone(),
+                        selected_index == 0,
+                        busy,
+                        cx,
+                        |this, cx| {
+                            if let Some(name) = this.create_branch_name() {
+                                this.create_and_checkout(name, cx);
+                            }
+                        },
+                    ))
+                })
+                .when(filtered.is_empty() && !has_create, |list| {
+                    list.child(empty_row(empty_text.clone()))
+                })
+                .children(filtered.into_iter().enumerate().map(|(ix, name)| {
+                    let row_index = ix + usize::from(has_create);
+                    branch_row(
+                        ix,
+                        name,
+                        current.clone(),
+                        row_index == selected_index,
+                        busy,
+                        cx,
+                    )
+                }))
             })
             .when(tab == BranchTab::Worktrees, |list| {
                 let filtered = self.filtered_worktrees();
-                let empty_text: String =
-                    crate::i18n::menu_text(cx, "git.noMatchingBranches").to_string();
-                list.when(filtered.is_empty(), |list| {
-                    list.child(empty_row(empty_text))
+                let has_create = !create_worktree_label.is_empty();
+                let no_branch = crate::i18n::menu_text(cx, "git.noBranch").to_string();
+                let detached = crate::i18n::menu_text(cx, "git.detachedHead").to_string();
+                let empty_text: String = if self.is_loading_worktrees {
+                    crate::i18n::menu_text(cx, "git.loadingWorktrees").to_string()
+                } else if query_empty {
+                    crate::i18n::menu_text(cx, "git.noWorktreesFound").to_string()
+                } else {
+                    crate::i18n::menu_text(cx, "git.noMatchingWorktrees").to_string()
+                };
+                let repo_path = self.repo_path.clone();
+                let create_label = create_worktree_label.clone();
+                list.when(has_create, |list| {
+                    list.child(create_row(
+                        "branch-manager-create-worktree",
+                        create_label.clone(),
+                        selected_index == 0,
+                        busy || self.is_loading_worktrees,
+                        cx,
+                        |this, cx| {
+                            if let Some(path) = this.create_worktree_path() {
+                                this.create_worktree(path, cx);
+                            }
+                        },
+                    ))
                 })
-                .children(
-                    filtered
-                        .into_iter()
-                        .enumerate()
-                        .map(|(ix, info)| worktree_row(ix, info, busy, cx)),
-                )
+                .when(filtered.is_empty() && !has_create, |list| {
+                    list.child(empty_row(empty_text.clone()))
+                })
+                .children(filtered.into_iter().enumerate().map(|(ix, info)| {
+                    let row_index = ix + usize::from(has_create);
+                    worktree_row(
+                        ix,
+                        info,
+                        &repo_path,
+                        &detached,
+                        &no_branch,
+                        row_index == selected_index,
+                        busy,
+                        cx,
+                    )
+                }))
             })
             .when(tab == BranchTab::Repositories, |list| {
-                if self.repo_matches() {
-                    list.child(repository_row(
-                        repo_name(&self.repo_path),
-                        self.repo_path.clone(),
-                    ))
+                let rows = self.repo_rows();
+                let empty_text: String = if self.is_discovering_repos && rows.is_empty() {
+                    crate::i18n::menu_text(cx, "git.detectingRepositories").to_string()
+                } else if query_empty {
+                    crate::i18n::menu_text(cx, "git.noRepositoriesFound").to_string()
                 } else {
-                    let empty_text: String =
-                        crate::i18n::menu_text(cx, "git.noMatchingBranches").to_string();
+                    crate::i18n::menu_text(cx, "git.noMatchingRepositories").to_string()
+                };
+                if rows.is_empty() {
                     list.child(empty_row(empty_text))
+                } else {
+                    let workspace_root = self.workspace_root.clone();
+                    list.children(rows.into_iter().enumerate().map(|(ix, path)| {
+                        let is_current = path == self.repo_path;
+                        repository_row(path, &workspace_root, is_current, ix == selected_index, cx)
+                    }))
                 }
+            })
+    }
+
+    /// 底部动作行：按 tab 提供 新建 / 刷新 / 添加。
+    fn render_footer(
+        &self,
+        tab: BranchTab,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let new_branch = crate::i18n::menu_text(cx, "git.newBranch").to_string();
+        let refresh = crate::i18n::menu_text(cx, "git.refresh").to_string();
+        let create_worktree = crate::i18n::menu_text(cx, "git.worktreeDialog.manage").to_string();
+        let add = crate::i18n::menu_text(cx, "git.add").to_string();
+        let can_create_branch = self.create_branch_name().is_some();
+        let can_create_worktree = self.create_worktree_path().is_some();
+        let loading_worktrees = self.is_loading_worktrees;
+        let discovering = self.is_discovering_repos;
+        h_flex()
+            .w_full()
+            .items_center()
+            .gap_1()
+            .px_3()
+            .py_2()
+            .border_t_1()
+            .border_color(ThemeColors::border())
+            .when(tab == BranchTab::Branches, |footer| {
+                footer
+                    .child(footer_action(
+                        "branch-manager-footer-new",
+                        IconName::Plus,
+                        new_branch,
+                        busy || !can_create_branch,
+                        cx,
+                        |this, cx| {
+                            if let Some(name) = this.create_branch_name() {
+                                this.create_and_checkout(name, cx);
+                            }
+                        },
+                    ))
+                    .child(footer_action(
+                        "branch-manager-footer-refresh-branches",
+                        IconName::RotateCw,
+                        refresh.clone(),
+                        busy,
+                        cx,
+                        |this, cx| this.load_branches(cx),
+                    ))
+            })
+            .when(tab == BranchTab::Worktrees, |footer| {
+                footer
+                    .child(footer_action(
+                        "branch-manager-footer-worktree",
+                        IconName::Plus,
+                        create_worktree,
+                        busy || loading_worktrees || !can_create_worktree,
+                        cx,
+                        |this, cx| {
+                            if let Some(path) = this.create_worktree_path() {
+                                this.create_worktree(path, cx);
+                            }
+                        },
+                    ))
+                    .child(footer_action(
+                        "branch-manager-footer-refresh-worktrees",
+                        IconName::RotateCw,
+                        refresh.clone(),
+                        busy || loading_worktrees,
+                        cx,
+                        |this, cx| this.load_worktrees(cx),
+                    ))
+            })
+            .when(tab == BranchTab::Repositories, |footer| {
+                footer
+                    .child(footer_action(
+                        "branch-manager-footer-add",
+                        IconName::Plus,
+                        add,
+                        busy || discovering,
+                        cx,
+                        |this, cx| this.load_repositories(cx),
+                    ))
+                    .child(footer_action(
+                        "branch-manager-footer-refresh-repos",
+                        IconName::RotateCw,
+                        refresh.clone(),
+                        busy || discovering,
+                        cx,
+                        |this, cx| this.load_repositories(cx),
+                    ))
             })
     }
 }
 
-/// 建分支首行（点击从搜索串建分支并切过去）。
-fn create_branch_row(
+/// 底部动作按钮。
+fn footer_action(
+    id: &'static str,
+    icon: IconName,
     label: String,
+    disabled: bool,
+    cx: &mut Context<BranchManagerView>,
+    on_click: fn(&mut BranchManagerView, &mut Context<BranchManagerView>),
+) -> impl IntoElement {
+    Button::new(id)
+        .small()
+        .ghost()
+        .disabled(disabled)
+        .icon(icon)
+        .label(label)
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            on_click(this, cx);
+        }))
+}
+
+/// 首行“创建”项（分支 / 工作树共用）。
+fn create_row(
+    id: &'static str,
+    label: String,
+    selected: bool,
     busy: bool,
     cx: &mut Context<BranchManagerView>,
+    on_click: fn(&mut BranchManagerView, &mut Context<BranchManagerView>),
 ) -> impl IntoElement {
     h_flex()
-        .id("branch-manager-create")
+        .id(id)
         .h(px(32.0))
         .w_full()
         .mx_2()
@@ -668,6 +1058,7 @@ fn create_branch_row(
         .gap_2()
         .rounded_md()
         .cursor_pointer()
+        .when(selected, |row| row.bg(ThemeColors::accent()))
         .hover(|h| h.bg(ThemeColors::accent()))
         .child(
             Icon::new(IconName::Plus)
@@ -681,26 +1072,27 @@ fn create_branch_row(
         .child(
             div()
                 .flex_1()
+                .truncate()
                 .text_sm()
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(ThemeColors::foreground())
                 .child(label),
         )
-        .on_click(cx.listener(|this, _event, _window, cx| {
-            if this.busy {
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            if busy {
                 return;
             }
-            let name = this.query.trim().to_string();
-            this.create_and_checkout(name, cx);
+            on_click(this, cx);
         }))
         .into_any_element()
 }
 
-/// 分支行：名 + 当前分支打勾，点击检出。
+/// 分支行：当前分支打勾、非当前显示分支图标，点击检出；选中态高亮。
 fn branch_row(
     ix: usize,
     name: String,
     current: Option<String>,
+    selected: bool,
     busy: bool,
     cx: &mut Context<BranchManagerView>,
 ) -> gpui_kit::AnyElement {
@@ -716,15 +1108,20 @@ fn branch_row(
         .gap_2()
         .rounded_md()
         .cursor_pointer()
+        .when(selected, |row| row.bg(ThemeColors::accent()))
         .hover(|h| h.bg(ThemeColors::accent()))
         .child(
-            Icon::new(IconName::GitBranch)
-                .size(px(14.0))
-                .text_color(if is_current {
-                    ThemeColors::primary()
-                } else {
-                    ThemeColors::muted_foreground()
-                }),
+            Icon::new(if is_current {
+                IconName::Check
+            } else {
+                IconName::GitBranch
+            })
+            .size(px(14.0))
+            .text_color(if is_current {
+                ThemeColors::success()
+            } else {
+                ThemeColors::muted_foreground()
+            }),
         )
         .child(
             div()
@@ -737,9 +1134,10 @@ fn branch_row(
         )
         .when(is_current, |row| {
             row.child(
-                Icon::new(IconName::Check)
-                    .size(px(14.0))
-                    .text_color(ThemeColors::primary()),
+                div()
+                    .text_xs()
+                    .text_color(ThemeColors::success())
+                    .child(crate::i18n::menu_text(cx, "git.current").to_string()),
             )
         })
         .on_click(cx.listener(move |this, _event, _window, cx| {
@@ -751,16 +1149,21 @@ fn branch_row(
         .into_any_element()
 }
 
-/// 工作树行：分支名（无分支显示路径）+ 路径副行 + 当前打勾，点击打开对应项目。
+/// 工作树行：目录名 + 分支标签（无分支显示 detached / no branch）副行，当前打勾。
 fn worktree_row(
     ix: usize,
     info: WorktreeInfo,
+    repo_path: &str,
+    detached: &str,
+    no_branch: &str,
+    selected: bool,
     busy: bool,
     cx: &mut Context<BranchManagerView>,
 ) -> gpui_kit::AnyElement {
     let path = info.path.clone();
-    let title = info.branch.clone().unwrap_or_else(|| info.path.clone());
-    let is_current = info.is_current;
+    let title = folder_name(&info.path);
+    let label = worktree_label(&info, detached, no_branch);
+    let is_current = info.is_current || info.path == repo_path;
     h_flex()
         .id(("branch-manager-worktree", ix))
         .h(px(40.0))
@@ -771,11 +1174,105 @@ fn worktree_row(
         .gap_2()
         .rounded_md()
         .cursor_pointer()
+        .when(selected, |row| row.bg(ThemeColors::accent()))
         .hover(|h| h.bg(ThemeColors::accent()))
         .child(
-            Icon::new(IconName::Folder)
-                .size(px(14.0))
-                .text_color(ThemeColors::muted_foreground()),
+            Icon::new(if is_current {
+                IconName::Check
+            } else {
+                IconName::Folder
+            })
+            .size(px(14.0))
+            .text_color(if is_current {
+                ThemeColors::success()
+            } else {
+                ThemeColors::muted_foreground()
+            }),
+        )
+        .child(
+            v_flex()
+                .flex_1()
+                .min_w_0()
+                .child(
+                    div()
+                        .w_full()
+                        .truncate()
+                        .text_sm()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(ThemeColors::foreground())
+                        .child(title),
+                )
+                .child(
+                    h_flex()
+                        .gap_1()
+                        .child(
+                            Icon::new(IconName::GitBranch)
+                                .size(px(12.0))
+                                .text_color(ThemeColors::subtle_foreground()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .truncate()
+                                .text_xs()
+                                .text_color(ThemeColors::subtle_foreground())
+                                .child(label),
+                        ),
+                ),
+        )
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            if busy || path == this.repo_path {
+                return;
+            }
+            cx.emit(BranchManagerEvent::OpenWorktree(path.clone()));
+        }))
+        .into_any_element()
+}
+
+/// 仓库行：仓库名 + 相对路径 + 当前打勾，点击切换。
+fn repository_row(
+    full_path: String,
+    workspace_root: &str,
+    is_current: bool,
+    selected: bool,
+    cx: &mut Context<BranchManagerView>,
+) -> gpui_kit::AnyElement {
+    let title = folder_name(&full_path);
+    // Windows 用 workspaceRootPath 计算相对路径；根为空时回退完整路径。
+    let description = if workspace_root.is_empty() {
+        full_path.clone()
+    } else {
+        let rel = relative_path(&full_path, workspace_root);
+        if rel.is_empty() {
+            full_path.clone()
+        } else {
+            rel
+        }
+    };
+    h_flex()
+        .id("branch-manager-repo")
+        .h(px(40.0))
+        .w_full()
+        .mx_2()
+        .px_2p5()
+        .items_center()
+        .gap_2()
+        .rounded_md()
+        .cursor_pointer()
+        .when(selected, |row| row.bg(ThemeColors::accent()))
+        .hover(|h| h.bg(ThemeColors::accent()))
+        .child(
+            Icon::new(if is_current {
+                IconName::Check
+            } else {
+                IconName::Folder
+            })
+            .size(px(14.0))
+            .text_color(if is_current {
+                ThemeColors::success()
+            } else {
+                ThemeColors::muted_foreground()
+            }),
         )
         .child(
             v_flex()
@@ -796,68 +1293,23 @@ fn worktree_row(
                         .truncate()
                         .text_xs()
                         .text_color(ThemeColors::subtle_foreground())
-                        .child(info.path.clone()),
+                        .child(description),
                 ),
         )
         .when(is_current, |row| {
             row.child(
-                Icon::new(IconName::Check)
-                    .size(px(14.0))
-                    .text_color(ThemeColors::primary()),
+                div()
+                    .text_xs()
+                    .text_color(ThemeColors::success())
+                    .child(crate::i18n::menu_text(cx, "git.current").to_string()),
             )
         })
-        .on_click(cx.listener(move |_this, _event, _window, cx| {
-            if busy {
+        .on_click(cx.listener(move |this, _event, _window, cx| {
+            if full_path == this.repo_path {
                 return;
             }
-            cx.emit(BranchManagerEvent::OpenWorktree(path.clone()));
+            cx.emit(BranchManagerEvent::SelectRepository(full_path.clone()));
         }))
-        .into_any_element()
-}
-
-/// 仓库行：当前仓库名 + 路径 + 打勾，点击无动作。
-fn repository_row(name: String, path: String) -> gpui_kit::AnyElement {
-    h_flex()
-        .id("branch-manager-repo")
-        .h(px(40.0))
-        .w_full()
-        .mx_2()
-        .px_2p5()
-        .items_center()
-        .gap_2()
-        .rounded_md()
-        .child(
-            Icon::new(IconName::Folder)
-                .size(px(14.0))
-                .text_color(ThemeColors::primary()),
-        )
-        .child(
-            v_flex()
-                .flex_1()
-                .min_w_0()
-                .child(
-                    div()
-                        .w_full()
-                        .truncate()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .text_color(ThemeColors::foreground())
-                        .child(name),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .truncate()
-                        .text_xs()
-                        .text_color(ThemeColors::subtle_foreground())
-                        .child(path),
-                ),
-        )
-        .child(
-            Icon::new(IconName::Check)
-                .size(px(14.0))
-                .text_color(ThemeColors::primary()),
-        )
         .into_any_element()
 }
 
