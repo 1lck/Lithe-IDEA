@@ -22,11 +22,16 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
       "@lithe/v0": path.resolve(__dirname, "../../Plugins/win/Official/V0Support"),
       "@tauri-apps/plugin-http": path.resolve(__dirname, "./node_modules/@tauri-apps/plugin-http"),
+      // Keep Zustand's Immer middleware on the ESM path so it shares the app's Immer runtime.
+      "zustand/middleware/immer": path.resolve(
+        __dirname,
+        "./node_modules/zustand/esm/middleware/immer.mjs",
+      ),
       "zustand": path.resolve(__dirname, "./node_modules/zustand"),
       // Consume live shared sources; Bun's local file dependency may retain an older copy.
       "@lithe/editor": path.resolve(__dirname, "../../frontend/editor/src"),
     },
-    dedupe: ["react", "react-dom", "monaco-editor"],
+    dedupe: ["react", "react-dom", "monaco-editor", "immer"],
   },
   test: {
     testTimeout: 10_000,
