@@ -2,6 +2,7 @@ import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
+import { isMissingExternalDocument } from "@/features/editor/services/document-external-change-workflow";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 
@@ -19,7 +20,8 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
   });
   const missing = useBufferStore((state) => {
     const buffer = getBufferById(state.buffers, bufferId);
-    return buffer?.type === "editor" && buffer.externalDiskContent === null;
+    return buffer?.type === "editor" &&
+      isMissingExternalDocument(buffer.externalDiskContent, buffer.externalDiskIdentity);
   });
   const resolveExternalConflict = useBufferStore.use.actions().resolveExternalConflict;
 

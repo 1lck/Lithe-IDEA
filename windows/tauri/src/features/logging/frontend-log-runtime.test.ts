@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   sanitizeFrontendLogPayload,
   serializeConsoleArguments,
+  setFrontendDiagnosticEnabled,
   setFrontendLogWorkspaceRoots,
+  subscribeFrontendDiagnosticEnabled,
 } from "./frontend-log-runtime";
 
 describe("frontend log serialization", () => {
@@ -41,5 +43,18 @@ describe("frontend log serialization", () => {
       workspaceFolders: ["<workspace>", "two"],
       root: "outside.txt",
     });
+  });
+
+  test("notifies subscribers when diagnostic logging changes", () => {
+    const changes: boolean[] = [];
+    const initial = false;
+    setFrontendDiagnosticEnabled(initial);
+    const unsubscribe = subscribeFrontendDiagnosticEnabled((enabled) => changes.push(enabled));
+
+    setFrontendDiagnosticEnabled(true);
+    setFrontendDiagnosticEnabled(false);
+    unsubscribe();
+
+    expect(changes).toEqual([initial, true, false]);
   });
 });

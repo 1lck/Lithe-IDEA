@@ -12,6 +12,7 @@ interface LoadedExtension {
   manifest: ExtensionManifest;
   worker?: Worker;
   entryPointUrl?: string;
+  unloading?: boolean;
   nextRequestId: number;
   pending: Map<
     number,
@@ -57,6 +58,9 @@ class UIExtensionHost {
         extensionId,
         entrypoint: manifest.main,
       });
+      if (loaded.unloading || this.loaded.get(extensionId) !== loaded) {
+        throw new Error(`Extension ${extensionId} was unloaded during activation`);
+      }
       loaded.entryPointUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
       const worker = new Worker(new URL("./ui-extension-worker-runtime.ts", import.meta.url), {
         type: "module",
@@ -97,12 +101,19 @@ class UIExtensionHost {
         worker.addEventListener("message", onReady);
         worker.addEventListener("error", onError);
       });
+      if (loaded.unloading || this.loaded.get(extensionId) !== loaded) {
+        throw new Error(`Extension ${extensionId} was unloaded during activation`);
+      }
       actions.updateExtensionState(extensionId, "active");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      actions.updateExtensionState(extensionId, "error", message);
+      if (!loaded.unloading) {
+        actions.updateExtensionState(extensionId, "error", message);
+      }
       this.disposeWorker(loaded);
-      this.loaded.delete(extensionId);
+      if (this.loaded.get(extensionId) === loaded) {
+        this.loaded.delete(extensionId);
+      }
       throw error;
     }
   }
@@ -117,6 +128,8 @@ class UIExtensionHost {
       else pending.resolve(message.result);
       return;
     }
+
+    if (loaded.unloading || this.loaded.get(loaded.extensionId) !== loaded) return;
 
     if (message.type === "host-call") {
       try {
@@ -193,6 +206,7 @@ class UIExtensionHost {
   async unloadExtension(extensionId: string): Promise<void> {
     const loaded = this.loaded.get(extensionId);
     if (!loaded) return;
+    loaded.unloading = true;
     if (loaded.worker) {
       await this.request(extensionId, "deactivate", []).catch(() => undefined);
     }

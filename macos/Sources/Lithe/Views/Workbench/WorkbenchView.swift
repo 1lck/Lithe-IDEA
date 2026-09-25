@@ -191,13 +191,9 @@ struct WorkbenchView: View {
     @EnvironmentObject private var settings: AppSettings
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
-    @State private var hoveredRightSidebarContributionID: String?
-    @State private var isRightSidebarPanelHovered = false
-    @State private var rightSidebarDismissTask: Task<Void, Never>?
     @State private var topPaneHeight: CGFloat?
     @State private var isBranchSwitcherPresented = false
     @State private var newBranchReference: GitReference?
@@ -214,7 +210,7 @@ struct WorkbenchView: View {
     @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
-        let closeConfirmationID = model.pendingCloseConfirmationID
+        let encodingRequest = model.pendingEncodingReopen
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
@@ -230,7 +226,7 @@ struct WorkbenchView: View {
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
-                rightHoverRegion
+                pluginActivityBar
             }
 
             statusBar
@@ -340,10 +336,7 @@ struct WorkbenchView: View {
         }
         .confirmationDialog(
             "Save changes before closing?",
-            isPresented: Binding(
-                get: { model.pendingCloseDocument != nil },
-                set: { if !$0 { model.dismissPendingCloseConfirmation(closeConfirmationID) } }
-            ),
+            isPresented: pendingCloseConfirmationBinding,
             titleVisibility: .visible
         ) {
             Button("Save") { model.closePendingDocument(discardingChanges: false) }
@@ -354,6 +347,22 @@ struct WorkbenchView: View {
                 .lithePointer()
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .confirmationDialog(
+            "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
+            isPresented: pendingEncodingReopenBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
+                .lithePointer()
+            Button("Discard Changes", role: .destructive) {
+                model.resolvePendingEncodingReopen(saveChanges: false)
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) { model.cancelEncodingChange() }
+                .lithePointer()
+        } message: {
+            Text(encodingRequest?.document.url.lastPathComponent ?? "")
         }
         .confirmationDialog(
             model.pendingDiscardChange?.isUntracked == true ? "Delete this untracked file?" : "Discard changes to this file?",
@@ -942,6 +951,28 @@ struct WorkbenchView: View {
         )
     }
 
+    private var pendingCloseConfirmationBinding: Binding<Bool> {
+        let confirmationID = model.pendingCloseConfirmationID
+        return Binding(
+            get: { model.pendingCloseDocument != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingCloseConfirmation(confirmationID)
+            }
+        )
+    }
+
+    private var pendingEncodingReopenBinding: Binding<Bool> {
+        let requestID = model.pendingEncodingReopen?.id
+        return Binding(
+            get: { model.pendingEncodingReopen != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingEncodingReopen(requestID)
+            }
+        )
+    }
+
     private var instantBranchSwitcherPresentation: Binding<Bool> {
         Binding(
             get: { isBranchSwitcherPresented },
@@ -1320,19 +1351,6 @@ struct WorkbenchView: View {
                         isSelected: renderer.isSelected(model),
                         action: { moduleUIRegistry.perform(contribution, model: model) }
                     )
-                    .onHover { isHovering in
-                        guard renderer.rightSidebarBehavior == .hover else { return }
-                        if isHovering {
-                            rightSidebarDismissTask?.cancel()
-                            hoveredRightSidebarContributionID = contribution.id
-                            if !renderer.isSelected(model) {
-                                moduleUIRegistry.perform(contribution, model: model)
-                            }
-                        } else {
-                            hoveredRightSidebarContributionID = nil
-                            scheduleRightSidebarDismissal()
-                        }
-                    }
                 }
             }
             Spacer()
@@ -1346,83 +1364,9 @@ struct WorkbenchView: View {
         model.notifications.lazy.filter { !$0.isRead }.count
     }
 
-    private var rightHoverRegion: some View {
-        HStack(spacing: 0) {
-            if isHoverSidebarVisible {
-                moduleUIRegistry.selectedToolContent(
-                    from: hoverSidebarContributions,
-                    model: model
-                )
-                .equatable()
-                .environmentObject(linuxDoWebSession)
-                .frame(width: rightSidebarWidth)
-                .frame(maxHeight: .infinity)
-                .workbenchPaneChrome(
-                    background: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.editor,
-                    surrounding: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar,
-                    roundsCorners: !model.workbenchBackgroundFeature.hasImage
-                )
-                .padding(WorkbenchWorkspaceMetrics.paneInset)
-                .background(
-                    model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar
-                )
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .move(edge: .trailing).combined(with: .opacity)
-                )
-                .onHover { isHovering in
-                    isRightSidebarPanelHovered = isHovering
-                    if isHovering {
-                        rightSidebarDismissTask?.cancel()
-                    } else {
-                        scheduleRightSidebarDismissal()
-                    }
-                }
-            }
-            pluginActivityBar
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.14),
-            value: isHoverSidebarVisible
-        )
-    }
-
-    private func scheduleRightSidebarDismissal() {
-        rightSidebarDismissTask?.cancel()
-        rightSidebarDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 60_000_000)
-            guard !Task.isCancelled,
-                  hoveredRightSidebarContributionID == nil,
-                  !isRightSidebarPanelHovered else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.10)) {
-                model.isDiscourseCommunityVisible = false
-            }
-        }
-    }
-
-    private var hoverSidebarContributions: [ModuleContribution] {
-        model.rightSidebarContributions.filter {
-            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .hover
-        }
-    }
-
     private var dockedSidebarContributions: [ModuleContribution] {
         model.rightSidebarContributions.filter {
             moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .docked
-        }
-    }
-
-    private var isHoverSidebarVisible: Bool {
-        hoverSidebarContributions.contains { contribution in
-            moduleUIRegistry.renderer(for: contribution)?.isSelected(model) == true
         }
     }
 
@@ -1748,7 +1692,49 @@ struct WorkbenchView: View {
     private var detailedStatusItems: some View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
-            Text("UTF-8")
+            if let document = model.activeDocument, document.url.isFileURL {
+                Menu {
+                    Section("Reopen with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.reopenDocument(document, with: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.readEncoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Section("Save with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.saveDocument(document, encoding: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.saveEncoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .disabled(document.isReadOnly)
+                        }
+                    }
+                } label: {
+                    Text(document.readEncoding.displayName)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("File encoding")
+            }
             Text("\(settings.tabWidth) spaces")
             Button {
                 model.saveActiveDocument()

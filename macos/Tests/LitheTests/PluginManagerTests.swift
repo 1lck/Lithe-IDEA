@@ -44,12 +44,6 @@ struct PluginManagerTests {
         #expect(officialLanguagePlugins.flatMap(\.modules).allSatisfy {
             $0.manifest.defaultState == .disabled
         })
-        let linuxDoPlugin = try #require(OfficialPluginCatalog.manifest(
-            forModule: OfficialPluginCatalog.linuxDoSupportModuleID
-        ))
-        #expect(linuxDoPlugin.modules.allSatisfy {
-            $0.manifest.defaultState == .disabled
-        })
         _ = try ValidatedPluginCatalog(
             manifests: BuiltInPluginCatalog.manifests
                 + BundledLanguagePluginCatalog.manifests
@@ -81,13 +75,12 @@ struct PluginManagerTests {
     }
 
     @Test
-    func selectedBuiltInModuleIsShownAsBundledPluginAndCanBeEnabled() async throws {
+    func internalDatabaseModuleIsNotShownAsAPlugin() async throws {
         let root = temporaryRoot()
         defer { try? FileManager.default.removeItem(at: root) }
         let preferences = PluginManagerKeyValueStore()
         let configuration = MacModuleConfigurationStore(store: preferences)
         let runtime = ModuleRuntime(configurationStore: configuration, recoveryStore: configuration)
-        let manifest = try #require(BuiltInPluginCatalog.manifest(forModule: .database))
         let manager = MacPluginManager(
             packageStore: MacPluginPackageStore(rootURL: root),
             moduleRuntime: runtime,
@@ -99,17 +92,12 @@ struct PluginManagerTests {
                 factoriesByPlugin: [:],
                 issues: []
             ),
-            managedBuiltInPlugins: [manifest]
+            managedBuiltInPlugins: []
         )
 
-        let initial = try #require(manager.snapshots.first)
-        #expect(initial.origin == .bundled)
-        #expect(!initial.isEnabled)
-
-        try await manager.setEnabled(true, for: manifest.id)
-
-        #expect(configuration.enabledState(for: .database) == true)
-        #expect(try #require(manager.snapshots.first).isEnabled)
+        #expect(manager.snapshots.isEmpty)
+        #expect(try #require(BuiltInModuleCatalog.manifests.first { $0.id == .database }).defaultState == .enabled)
+        #expect(configuration.enabledState(for: .database) == nil)
     }
 
     @Test
