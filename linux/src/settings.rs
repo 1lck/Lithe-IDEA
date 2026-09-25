@@ -148,6 +148,18 @@ impl Default for AiCommitSettings {
     }
 }
 
+/// 将显示语言值规范化为设置下拉框使用的稳定标识。
+pub fn normalized_display_language(value: &str) -> String {
+    let value = value.trim().to_ascii_lowercase().replace('_', "-");
+    if value.starts_with("zh") {
+        "zh-CN".to_string()
+    } else if value.starts_with("en") {
+        "en-US".to_string()
+    } else {
+        "zh-CN".to_string()
+    }
+}
+
 /// 应用设置真源，字段名与 Tauri `defaultSettings` 的 camelCase 键一一对应。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -283,7 +295,7 @@ impl Default for Settings {
             terminal_default_shell_id: String::new(),
             run_scroll_to_end: true,
             ui_font_size: 13.0,
-            display_language: "zh-CN".to_string(),
+            display_language: normalized_display_language("zh-CN"),
             reduce_motion: false,
             show_status_bar: true,
             show_tab_icons: true,
@@ -403,7 +415,9 @@ pub fn load() -> Settings {
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Settings::default();
     };
-    serde_json::from_str::<Settings>(&text).unwrap_or_default()
+    let mut settings = serde_json::from_str::<Settings>(&text).unwrap_or_default();
+    settings.display_language = normalized_display_language(&settings.display_language);
+    settings
 }
 
 /// 将设置写回磁盘（临时文件 + 原子替换）。
@@ -434,6 +448,8 @@ pub fn init(cx: &mut App) {
 /// 修改设置：写全局、落盘并刷新所有窗口。
 pub fn update(cx: &mut App, f: impl FnOnce(&mut Settings)) {
     f(get_mut(cx));
+    let settings = get_mut(cx);
+    settings.display_language = normalized_display_language(&settings.display_language);
     let snapshot = get(cx).clone();
     persist(&snapshot);
     cx.refresh_windows();
@@ -467,4 +483,21 @@ pub fn resolved_theme_id(settings: &Settings, system_is_dark: bool) -> String {
 pub fn apply_theme(theme_id: &str) {
     let palette = ThemePalette::for_theme_id(theme_id).unwrap_or_else(ThemePalette::dark);
     crate::theme::set_palette(palette);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_display_language;
+
+    #[test]
+    fn display_language_aliases_match_settings_options() {
+        assert_eq!(normalized_display_language("zh"), "zh-CN");
+        assert_eq!(normalized_display_language("zh_CN"), "zh-CN");
+        assert_eq!(normalized_display_language("en_US"), "en-US");
+    }
+
+    #[test]
+    fn unknown_display_language_uses_product_default() {
+        assert_eq!(normalized_display_language("fr-FR"), "zh-CN");
+    }
 }
