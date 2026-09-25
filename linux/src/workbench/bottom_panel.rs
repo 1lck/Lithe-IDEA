@@ -1,4 +1,5 @@
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
@@ -9,10 +10,11 @@ use gpui_kit::EventEmitter;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, ScrollHandle, StatefulInteractiveElement as _,
-    Styled as _, Window,
+    Styled as _, WeakEntity, Window,
 };
 
 use crate::core::CoreClient;
+use crate::lsp;
 use crate::theme::ThemeColors;
 use crate::workbench::editor::EditorView;
 use crate::workbench::run::{
@@ -22,6 +24,7 @@ use crate::workbench::run::{
     ProcessEvent, ProcessManager, RunConfigItem,
 };
 use crate::workbench::terminal::TerminalView;
+use crate::workbench::view::WorkbenchView;
 
 /// 运行历史上限。
 const MAX_RUN_HISTORY: usize = 50;
@@ -142,6 +145,8 @@ pub struct BottomPanelView {
     pub(crate) maven_running: bool,
     /// core 客户端（`reload_run_project` / `createLaunchPlan` 经它走 core JSON 命令）。
     client: CoreClient,
+    /// 工作台持有的 Java LSP owner；使用弱引用避免父子 Entity 循环。
+    workbench: Option<WeakEntity<WorkbenchView>>,
     /// 所有 Run/Maven 子进程的 session/execution 所有者。
     processes: ProcessManager,
     /// Maven 启动序号，丢弃过期 `launchPlan` 结果。
@@ -161,6 +166,269 @@ pub struct BottomPanelView {
 }
 
 impl EventEmitter<BottomPanelEvent> for BottomPanelView {}
+
+/// 等待 Workbench 轮询到指定 Core LSP 操作结果，并拒绝 workspace/session 替换。
+async fn wait_for_lsp_operation(
+    workbench: &Entity<WorkbenchView>,
+    session_id: &str,
+    operation_id: &str,
+    timeout: Duration,
+    run_guard: Option<(&Entity<BottomPanelView>, u64, u64)>,
+    cx: &mut gpui_kit::AsyncApp,
+) -> Result<serde_json::Value, String> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some((owner, reload_seq, execution_seq)) = run_guard {
+            if !owner.read_with(cx, |view, _app| {
+                view.is_current_run_execution(reload_seq, execution_seq)
+            }) {
+                return Err(
+                    "Run was replaced or cancelled before Java preparation completed.".to_string(),
+                );
+            }
+        }
+        let status = workbench.read_with(cx, |workbench, _app| workbench.java_lsp_status());
+        if status.session_id.as_deref() != Some(session_id) {
+            return Err(
+                "Java language-server session was replaced before the request completed."
+                    .to_string(),
+            );
+        }
+        if status.state == "failed" || status.state == "stopped" {
+            return Err(status.error.unwrap_or_else(|| {
+                "Java language-server session stopped before the request completed.".to_string()
+            }));
+        }
+        if let Some(result) = workbench.update(cx, |workbench, _cx| {
+            workbench.take_lsp_operation_result(session_id, operation_id)
+        }) {
+            return result;
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "Java language-server request {operation_id} timed out after {} seconds.",
+                timeout.as_secs()
+            ));
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(100))
+            .await;
+    }
+}
+
+async fn wait_for_java_entrypoints(
+    workbench: &Entity<WorkbenchView>,
+    client: &CoreClient,
+    timeout: Duration,
+    cx: &mut gpui_kit::AsyncApp,
+) -> Result<Option<serde_json::Value>, String> {
+    workbench.update(cx, |workbench, cx| workbench.ensure_java_lsp(cx));
+    let deadline = Instant::now() + timeout;
+    loop {
+        let status = workbench.read_with(cx, |workbench, _app| workbench.java_lsp_status());
+        if status.state == "failed" || status.state == "stopped" {
+            return Ok(None);
+        }
+        if lsp::java_lsp_allows_run(&status) {
+            let Some(session_id) = status.session_id else {
+                return Err("Java language service became ready without a session id.".to_string());
+            };
+            let operation = client
+                .execute::<serde_json::Value, serde_json::Value>(
+                    cx,
+                    "lsp.request",
+                    lsp::java_entrypoints_request(&session_id),
+                )
+                .await?;
+            let operation_id = operation
+                .get("operationId")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    "Java entrypoint request did not return an operationId.".to_string()
+                })?;
+            let result = wait_for_lsp_operation(
+                workbench,
+                &session_id,
+                operation_id,
+                Duration::from_secs(35),
+                None,
+                cx,
+            )
+            .await?;
+            return lsp::parse_java_entrypoints(&result).map(Some);
+        }
+        if Instant::now() >= deadline {
+            return Err(
+                "Java language service did not reach a runnable project state before the configuration deadline."
+                    .to_string(),
+            );
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(200))
+            .await;
+    }
+}
+
+async fn prepare_java_run_launch(
+    workbench: &Entity<WorkbenchView>,
+    client: &CoreClient,
+    item: &RunConfigItem,
+    root: &str,
+    run_guard: (&Entity<BottomPanelView>, u64, u64),
+    cx: &mut gpui_kit::AsyncApp,
+) -> Result<(serde_json::Value, String), String> {
+    let source_path = item
+        .source
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| "Java run configuration is missing its source path.".to_string())?;
+    let configured_main = item.main_class.as_deref();
+    let source_key = std::path::Path::new(source_path)
+        .strip_prefix(root)
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| source_path.to_string());
+    let source_for_build = lsp::absolute_path(root, source_path);
+    workbench.update(cx, |workbench, cx| workbench.ensure_java_lsp(cx));
+    let ready_deadline = Instant::now() + Duration::from_secs(10 * 60);
+    let session_id = loop {
+        if !run_guard.0.read_with(cx, |view, _app| {
+            view.is_current_run_execution(run_guard.1, run_guard.2)
+        }) {
+            return Err(
+                "Run was replaced or cancelled before Java preparation completed.".to_string(),
+            );
+        }
+        let status = workbench.read_with(cx, |workbench, _app| workbench.java_lsp_status());
+        if status.state == "failed" || status.state == "stopped" {
+            return Err(status
+                .error
+                .unwrap_or_else(|| "Java language service is not ready.".to_string()));
+        }
+        if lsp::java_lsp_allows_run(&status) {
+            if let Some(session_id) = status.session_id {
+                break session_id;
+            }
+        }
+        if Instant::now() >= ready_deadline {
+            return Err(
+                "Java language service did not reach ServiceReady before the run deadline."
+                    .to_string(),
+            );
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(200))
+            .await;
+    };
+
+    let entrypoints_operation = client
+        .execute::<serde_json::Value, serde_json::Value>(
+            cx,
+            "lsp.request",
+            lsp::java_entrypoints_request(&session_id),
+        )
+        .await?;
+    let entrypoints_operation_id = entrypoints_operation
+        .get("operationId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Java entrypoint request did not return an operationId.".to_string())?;
+    let entrypoints = lsp::parse_java_entrypoints(
+        &wait_for_lsp_operation(
+            workbench,
+            &session_id,
+            entrypoints_operation_id,
+            Duration::from_secs(35),
+            Some(run_guard),
+            cx,
+        )
+        .await?,
+    )?;
+    let entrypoint = lsp::select_java_entrypoint(&entrypoints, &source_key, configured_main)?;
+    let main_class = entrypoint
+        .get("mainClass")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Java entrypoint result is missing mainClass.".to_string())?;
+    let project_name = entrypoint
+        .get("projectName")
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+
+    let build_operation = client
+        .execute::<serde_json::Value, serde_json::Value>(
+            cx,
+            "lsp.request",
+            lsp::java_build_request(
+                &session_id,
+                &source_for_build,
+                main_class,
+                project_name.as_deref(),
+            ),
+        )
+        .await?;
+    let build_operation_id = build_operation
+        .get("operationId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Java build request did not return an operationId.".to_string())?;
+    let build_result = wait_for_lsp_operation(
+        workbench,
+        &session_id,
+        build_operation_id,
+        Duration::from_secs(10 * 60),
+        Some(run_guard),
+        cx,
+    )
+    .await;
+    let build_error = match &build_result {
+        Ok(value) => lsp::parse_java_build_result(value).err(),
+        Err(error) => Some(error.clone()),
+    };
+
+    let classpath_operation = client
+        .execute::<serde_json::Value, serde_json::Value>(
+            cx,
+            "lsp.request",
+            lsp::java_classpath_request(&session_id, main_class, project_name.as_deref()),
+        )
+        .await?;
+    let classpath_operation_id = classpath_operation
+        .get("operationId")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| "Java classpath request did not return an operationId.".to_string())?;
+    let classpath = match wait_for_lsp_operation(
+        workbench,
+        &session_id,
+        classpath_operation_id,
+        Duration::from_secs(35),
+        Some(run_guard),
+        cx,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(error) => {
+            if let Some(build_error) = &build_error {
+                return Err(format!(
+                    "Java project build failed: {build_error}; runtime classpath resolution failed: {error}"
+                ));
+            }
+            return Err(error);
+        }
+    };
+    let launch = match lsp::java_launch_payload(&entrypoint, &classpath) {
+        Ok(launch) => launch,
+        Err(error) => {
+            if let Some(build_error) = &build_error {
+                return Err(format!(
+                    "Java project build failed: {build_error}; runtime classpath result was invalid: {error}"
+                ));
+            }
+            return Err(error);
+        }
+    };
+    if let Some(error) = build_error {
+        return Err(format!("Java project build failed: {error}"));
+    }
+    Ok((launch, session_id))
+}
 
 impl BottomPanelView {
     pub fn new(working_dir: String, cx: &mut Context<Self>) -> Self {
@@ -192,6 +460,7 @@ impl BottomPanelView {
             maven_output: Vec::new(),
             maven_running: false,
             client: CoreClient::new(),
+            workbench: None,
             processes: ProcessManager::new(),
             maven_seq: 0,
             last_maven_goal: None,
@@ -359,6 +628,12 @@ impl BottomPanelView {
         cx.notify();
     }
 
+    /// 设置工作台 Java LSP owner。Run 不直接创建第二个 JDT session。
+    pub fn set_workbench(&mut self, workbench: Entity<WorkbenchView>, cx: &mut Context<Self>) {
+        self.workbench = Some(workbench.downgrade());
+        cx.notify();
+    }
+
     /// 重探 Run 工程：先 inspect，再按需 generate，随后持久化并 resolve。
     pub fn reload_run_project(&mut self, cx: &mut Context<Self>) {
         self.run_seq += 1;
@@ -378,6 +653,7 @@ impl BottomPanelView {
 
         let client = self.client.clone();
         let root = self.working_dir.clone();
+        let workbench = self.workbench.as_ref().and_then(WeakEntity::upgrade);
         cx.spawn(async move |this, cx| {
             let inspection = client
                 .execute::<serde_json::Value, serde_json::Value>(
@@ -423,15 +699,44 @@ impl BottomPanelView {
             };
             if status != "ready" {
                 let paths = list_java_sources(&root);
+                let java_entrypoints = if paths.is_empty() {
+                    None
+                } else if let Some(workbench) = workbench.as_ref() {
+                    match wait_for_java_entrypoints(
+                        workbench,
+                        &client,
+                        Duration::from_secs(10 * 60),
+                        cx,
+                    )
+                    .await
+                    {
+                        Ok(value) => value,
+                        Err(error) => {
+                            let _ = this.update(cx, |view, cx| {
+                                if view.run_seq == seq {
+                                    view.run_state = RunProjectState::Failed(error);
+                                    cx.notify();
+                                }
+                            });
+                            return;
+                        }
+                    }
+                } else {
+                    None
+                };
+                let mut generate_payload = serde_json::json!({
+                    "root": root,
+                    "paths": paths,
+                    "modulePaths": []
+                });
+                if let Some(entrypoints) = java_entrypoints {
+                    generate_payload["javaEntrypoints"] = entrypoints;
+                }
                 let generated = client
                     .execute::<serde_json::Value, serde_json::Value>(
                         &cx,
                         "runConfig.generate",
-                        serde_json::json!({
-                            "root": root,
-                            "paths": paths,
-                            "modulePaths": []
-                        }),
+                        generate_payload,
                     )
                     .await;
                 let generated = match generated {
@@ -615,14 +920,26 @@ impl BottomPanelView {
                 item.name
             ),
         );
+        if Self::needs_java_project_preparation(&item) {
+            push_run_line(
+                &mut self.run_output,
+                run_ui_text(
+                    cx,
+                    "等待 Java 语言服务完成项目准备…",
+                    "Waiting for Java language service preparation…",
+                ),
+            );
+        }
         cx.notify();
         let launch_seq = self.run_seq;
         let launch_execution_seq = execution_seq;
         let client = self.client.clone();
         let root = self.working_dir.clone();
         let editor = self.run_editor.clone();
+        let workbench = self.workbench.as_ref().and_then(WeakEntity::upgrade);
         let processes = self.processes.clone();
         cx.spawn(async move |this, cx| {
+            let run_owner = this.upgrade().expect("Run owner must remain alive while preparing");
             if let Some(editor) = editor.as_ref() {
                 let save = editor.update(cx, |editor, cx| editor.save_active_task(cx));
                 if let Err(error) = save.await {
@@ -661,12 +978,70 @@ impl BottomPanelView {
             let maven_context = item
                 .uses_maven()
                 .then(|| maven_context_for_configuration(&item, &toolchains));
+            let java_launch = if Self::needs_java_project_preparation(&item) {
+                match workbench.as_ref() {
+                    Some(workbench) => {
+                        prepare_java_run_launch(
+                            workbench,
+                            &client,
+                            &item,
+                            &root,
+                            (&run_owner, launch_seq, launch_execution_seq),
+                            cx,
+                        )
+                        .await
+                        .map(Some)
+                    }
+                    None => Err(
+                        "Java language service is unavailable because the workbench owner is missing."
+                            .to_string(),
+                    ),
+                }
+            } else {
+                Ok(None)
+            };
+            let java_launch = match java_launch {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            view.run_exit_code = Some(1);
+                            view.run_diagnostics.push(error.clone());
+                            view.run_diagnostics.dedup();
+                            push_run_line(&mut view.run_output, error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            if let (Some((_, session_id)), Some(workbench)) =
+                (java_launch.as_ref(), workbench.as_ref())
+            {
+                let current_session = workbench
+                    .read_with(cx, |workbench, _app| workbench.java_lsp_status())
+                    .session_id;
+                if current_session.as_deref() != Some(session_id.as_str()) {
+                    let error = "Java language-server session changed before launch planning.";
+                    let _ = this.update(cx, |view, cx| {
+                        if view.is_current_run_execution(launch_seq, launch_execution_seq) {
+                            view.run_running = false;
+                            view.run_exit_code = Some(1);
+                            view.run_diagnostics.push(error.to_string());
+                            push_run_line(&mut view.run_output, error.to_string());
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            }
             let payload = create_launch_plan_request(
                 &root,
                 &item,
                 current_file.as_deref(),
                 maven_context.as_ref(),
-                None,
+                java_launch.as_ref().map(|(value, _)| value),
             );
             let plan = client
                 .execute::<serde_json::Value, serde_json::Value>(
@@ -1076,6 +1451,23 @@ impl BottomPanelView {
                 cx,
             );
         }
+    }
+
+    /// 判断配置是否必须由 JDT/Core 准备项目运行时路径。
+    pub fn needs_java_project_preparation(item: &RunConfigItem) -> bool {
+        let has_target = item
+            .source
+            .as_deref()
+            .is_some_and(|source| !source.trim().is_empty())
+            && item
+                .main_class
+                .as_deref()
+                .is_some_and(|main| !main.trim().is_empty());
+        has_target
+            && (item.toolchains.contains_key("maven")
+                || item.provider == "spring-boot.maven"
+                || item.provider == "maven.module")
+            && (item.provider == "java.main" || item.provider == "spring-boot.maven")
     }
 
     fn is_current_run_execution(&self, reload_seq: u64, execution_seq: u64) -> bool {
@@ -1816,5 +2208,92 @@ fn git_log_failed_text(cx: &gpui_kit::App) -> &'static str {
         "加载提交记录失败"
     } else {
         "Failed to load git log"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(
+        provider: &str,
+        source: Option<&str>,
+        main_class: Option<&str>,
+        module: Option<&str>,
+    ) -> RunConfigItem {
+        let mut extensions = serde_json::Map::new();
+        if let Some(source) = source {
+            extensions.insert("java".to_string(), serde_json::json!({ "source": source }));
+        }
+        let mut maven = serde_json::Map::new();
+        if let Some(module) = module {
+            maven.insert("module".to_string(), serde_json::json!(module));
+        }
+        if let Some(main_class) = main_class {
+            maven.insert("mainClass".to_string(), serde_json::json!(main_class));
+        }
+        extensions.insert("maven".to_string(), serde_json::Value::Object(maven));
+        let mut toolchains = serde_json::Map::new();
+        toolchains.insert("java".to_string(), serde_json::json!("project-jdk"));
+        if module.is_some() || provider.contains("maven") {
+            toolchains.insert("maven".to_string(), serde_json::json!("project-maven"));
+        }
+        let value = serde_json::json!({
+            "id": "test",
+            "name": "Test",
+            "provider": provider,
+            "toolchains": toolchains,
+            "extensions": extensions,
+        });
+        RunConfigItem::from_value(&value).expect("run config")
+    }
+
+    #[test]
+    fn only_maven_backed_java_and_spring_targets_require_jdt() {
+        assert!(BottomPanelView::needs_java_project_preparation(&item(
+            "java.main",
+            Some("src/App.java"),
+            Some("demo.App"),
+            Some(".")
+        )));
+        assert!(BottomPanelView::needs_java_project_preparation(&item(
+            "spring-boot.maven",
+            Some("src/App.java"),
+            Some("demo.App"),
+            Some(".")
+        )));
+        assert!(!BottomPanelView::needs_java_project_preparation(&item(
+            "quarkus.maven",
+            Some("src/App.java"),
+            Some("demo.App"),
+            Some(".")
+        )));
+        assert!(!BottomPanelView::needs_java_project_preparation(&item(
+            "java.main",
+            Some("src/App.java"),
+            Some("demo.App"),
+            None
+        )));
+        assert!(!BottomPanelView::needs_java_project_preparation(&item(
+            "java.main",
+            None,
+            Some("demo.App"),
+            Some(".")
+        )));
+
+        let standalone = RunConfigItem::from_value(&serde_json::json!({
+            "id": "standalone",
+            "name": "Standalone",
+            "provider": "java.main",
+            "toolchains": {"java": "project-jdk"},
+            "extensions": {
+                "java": {"source": "src/App.java"},
+                "maven": {"module": ".", "mainClass": "demo.App"}
+            }
+        }))
+        .expect("standalone config");
+        assert!(!BottomPanelView::needs_java_project_preparation(
+            &standalone
+        ));
     }
 }

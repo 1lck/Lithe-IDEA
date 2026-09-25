@@ -47,6 +47,8 @@ use crate::workbench::tab_menu::{SplitCallback, ToggleLockCallback};
 use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
 use crate::workbench::welcome_screen::{WelcomeEvent, WelcomeScreenView};
 
+const MAX_LSP_OPERATION_RESULTS: usize = 256;
+
 /// 右侧工具窗口当前视图，对齐 Tauri `activeRightSidebarView`
 ///（`notifications` / `maven` / 扩展）。`None` 即隐藏，不持久化，重启丢失。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,6 +129,16 @@ pub struct WorkbenchView {
     lsp_pending_documents: HashMap<String, Vec<PendingDocument>>,
     /// LSP：工作区相对路径 → 该文件最新诊断，供底部面板聚合展示。
     lsp_diagnostics: HashMap<String, Vec<DiagnosticEntry>>,
+    /// 工作区代数；切换项目后旧 LSP 结果不能写回新工作区。
+    lsp_workspace_generation: u64,
+    /// Java session 的展示状态；Run 只通过 Workbench 读取它。
+    java_lsp_state: String,
+    /// Java session 最近一次启动或轮询错误。
+    java_lsp_error: Option<String>,
+    /// Core 轮询返回的 Java 项目准备快照。
+    java_lsp_project_preparation: Option<serde_json::Value>,
+    /// 已完成但尚未由 Run 取走的 Core LSP 请求结果。
+    lsp_operation_results: HashMap<String, lsp::LspOperationResult>,
     /// 侧边栏面板 (Files / Git / Search)
     pub sidebar: Entity<SidebarView>,
     /// 多窗格布局模型（`Split{Horizontal}` 左右并排，`{Vertical}` 上下堆叠）
@@ -189,8 +201,10 @@ impl WorkbenchView {
         pane_editors.insert(initial_pane, editor.clone());
         Self::wire_pane_editor(&pane_tree, cx.entity(), initial_pane, &editor, cx);
         let bottom_panel = cx.new(|cx| BottomPanelView::new(root.clone(), cx));
+        let workbench_entity = cx.entity();
         bottom_panel.update(cx, |panel, cx| {
             panel.set_run_editor(Some(editor.clone()), cx);
+            panel.set_workbench(workbench_entity.clone(), cx);
         });
         let status_bar = cx.new(|_cx| StatusBarView::new());
         let search_everywhere = cx.new(|cx| SearchEverywhereModal::new(cx));
@@ -852,6 +866,11 @@ impl WorkbenchView {
             lsp_document_versions: HashMap::new(),
             lsp_pending_documents: HashMap::new(),
             lsp_diagnostics: HashMap::new(),
+            lsp_workspace_generation: 0,
+            java_lsp_state: "idle".to_string(),
+            java_lsp_error: None,
+            java_lsp_project_preparation: None,
+            lsp_operation_results: HashMap::new(),
             toolbar,
             activity_rail,
             plugin_rail,
@@ -1055,10 +1074,46 @@ impl WorkbenchView {
         cx.notify();
     }
 
+    fn lsp_invalidate_workspace(&mut self, cx: &mut Context<Self>) {
+        self.lsp_workspace_generation = self.lsp_workspace_generation.wrapping_add(1);
+        let sessions = self.lsp_sessions.drain().collect::<Vec<_>>();
+        self.lsp_starting.clear();
+        self.lsp_polling.clear();
+        self.lsp_document_versions.clear();
+        self.lsp_pending_documents.clear();
+        self.lsp_diagnostics.clear();
+        self.lsp_operation_results.clear();
+        self.java_lsp_state = "idle".to_string();
+        self.java_lsp_error = None;
+        self.java_lsp_project_preparation = None;
+        self.sync_diagnostics_panel(cx);
+        for (_provider_id, session) in sessions {
+            let client = self.client.clone();
+            cx.spawn(async move |_this, cx| {
+                let _ = client
+                    .execute::<_, serde_json::Value>(
+                        &cx,
+                        "lsp.stopServer",
+                        serde_json::json!({ "sessionId": session }),
+                    )
+                    .await;
+                let _ = client
+                    .execute::<_, serde_json::Value>(
+                        &cx,
+                        "lsp.destroyServer",
+                        serde_json::json!({ "sessionId": session }),
+                    )
+                    .await;
+            })
+            .detach();
+        }
+    }
+
     fn open_project_path(&mut self, path: String, cx: &mut Context<Self>) {
         if self.show_project_dialog {
             self.show_project_dialog = false;
         }
+        self.lsp_invalidate_workspace(cx);
         self.workspace_root = path.clone();
         self.show_welcome = false;
         let _ = self
@@ -1191,25 +1246,95 @@ impl WorkbenchView {
             .update(cx, |panel, cx| panel.set_run_editor(editor, cx));
     }
 
+    /// 返回 Run 所见的 Java session 状态。
+    pub fn java_lsp_status(&self) -> lsp::JavaLspStatus {
+        lsp::JavaLspStatus {
+            session_id: self.lsp_sessions.get(lsp::JAVA_PROVIDER_ID).cloned(),
+            state: self.java_lsp_state.clone(),
+            error: self.java_lsp_error.clone(),
+            generation: self.lsp_workspace_generation,
+            project_preparation: self.java_lsp_project_preparation.clone(),
+        }
+    }
+
+    /// 确保当前工作区拥有唯一的 Java Core session。
+    pub fn ensure_java_lsp(&mut self, cx: &mut Context<Self>) {
+        if self.lsp_sessions.contains_key(lsp::JAVA_PROVIDER_ID)
+            || self.lsp_starting.contains(lsp::JAVA_PROVIDER_ID)
+        {
+            return;
+        }
+        let root = self.workspace_root.clone();
+        let launch = match lsp::resolve_java_lsp_launch(&root) {
+            Ok(launch) => launch,
+            Err(error) => {
+                self.lsp_push_error(lsp::JAVA_PROVIDER_ID, &error, cx);
+                return;
+            }
+        };
+        self.lsp_start_java_server(launch, root, cx);
+    }
+
+    /// 取走一个属于指定 session 的请求结果；旧 session 的结果永远不能被 Run 消费。
+    pub fn take_lsp_operation_result(
+        &mut self,
+        session_id: &str,
+        operation_id: &str,
+    ) -> Option<Result<serde_json::Value, String>> {
+        let key = format!("{session_id}\u{0}{operation_id}");
+        let result = self.lsp_operation_results.remove(&key)?;
+        if result.session_id != session_id {
+            return None;
+        }
+        Some(match result.error {
+            Some(error) => Err(error),
+            None => result
+                .result
+                .ok_or_else(|| "Language-server request returned no result.".to_string()),
+        })
+    }
+
     /// 编辑器文档变化：选择语言服务器、按需启动会话并同步全文。
-    /// 未知语言或本机无对应可执行文件时静默跳过，不影响编辑。
+    /// Java 文档使用 Core `java` provider 和平台解析的 JDT LS 资源。
     fn lsp_on_document_changed(&mut self, path: String, text: String, cx: &mut Context<Self>) {
-        let Some((provider, executable)) = lsp::resolve_provider(&path) else {
+        let Some(provider) = lsp::provider_for_path(&path) else {
             return;
         };
         let root = self.workspace_root.clone();
         let uri = lsp::file_uri(&root, &path);
         let language_id = lsp::language_id_for_path(&path, provider).to_string();
 
+        if provider.id == lsp::JAVA_PROVIDER_ID {
+            if let Some(session) = self.lsp_sessions.get(provider.id).cloned() {
+                self.lsp_sync_document(&session, uri, language_id, text, cx);
+            } else {
+                self.queue_pending_document(provider.id, uri, language_id, text);
+                self.ensure_java_lsp(cx);
+            }
+            return;
+        }
+
+        let Some((_, executable)) = lsp::resolve_provider(&path) else {
+            return;
+        };
         if let Some(session) = self.lsp_sessions.get(provider.id).cloned() {
             self.lsp_sync_document(&session, uri, language_id, text, cx);
             return;
         }
+        self.queue_pending_document(provider.id, uri, language_id, text);
+        self.lsp_start_server(provider, executable, root, cx);
+    }
 
-        // 会话未就绪：先暂存最新全文，会话 ready 后统一 flush。
+    fn queue_pending_document(
+        &mut self,
+        provider_id: &str,
+        uri: String,
+        language_id: String,
+        text: String,
+    ) {
         let pending = self
             .lsp_pending_documents
-            .entry(provider.id.to_string())
+            .entry(provider_id.to_string())
             .or_default();
         if let Some(existing) = pending.iter_mut().find(|document| document.uri == uri) {
             existing.text = text;
@@ -1220,10 +1345,9 @@ impl WorkbenchView {
                 text,
             });
         }
-        self.lsp_start_server(provider, executable, root, cx);
     }
 
-    /// 启动一个语言服务器会话；同一 provider 同时只允许一个启动任务。
+    /// 启动一个非 Java 语言服务器会话；同一 provider 同时只允许一个启动任务。
     fn lsp_start_server(
         &mut self,
         provider: LanguageProvider,
@@ -1231,36 +1355,207 @@ impl WorkbenchView {
         root: String,
         cx: &mut Context<Self>,
     ) {
-        if self.lsp_starting.contains(provider.id) || self.lsp_sessions.contains_key(provider.id) {
+        let provider_id = provider.id.to_string();
+        if self.lsp_starting.contains(&provider_id) || self.lsp_sessions.contains_key(&provider_id)
+        {
             return;
         }
-        self.lsp_starting.insert(provider.id.to_string());
-
-        let client = self.client.clone();
-        let cache_directory = format!("{root}/.lithe/lsp/{}", provider.id);
+        self.lsp_starting.insert(provider_id.clone());
+        let cache_directory = format!("{root}/.lithe/lsp/{provider_id}");
         let payload = lsp::start_payload(provider, &executable, &root, &cache_directory);
+        self.spawn_lsp_start(provider_id, payload, cx);
+    }
+
+    fn lsp_start_java_server(
+        &mut self,
+        launch: lsp::JavaLspLaunch,
+        root: String,
+        cx: &mut Context<Self>,
+    ) {
+        let provider_id = lsp::JAVA_PROVIDER_ID.to_string();
+        if self.lsp_starting.contains(&provider_id) || self.lsp_sessions.contains_key(&provider_id)
+        {
+            return;
+        }
+        self.lsp_starting.insert(provider_id.clone());
+        self.java_lsp_state = "starting".to_string();
+        self.java_lsp_error = None;
+        self.java_lsp_project_preparation = None;
+        self.lsp_diagnostics.remove("__lsp__java");
+        self.sync_diagnostics_panel(cx);
+        let client = self.client.clone();
+        let generation = self.lsp_workspace_generation;
+        let cache_directory = format!("{root}/.lithe/lsp/java");
+        let fingerprint_request = lsp::workspace_fingerprint_request(&root, &launch.jdtls_version);
+        let maven_context = lsp::maven_context_for_workspace(&root);
+        cx.spawn(async move |this, cx| {
+            let fingerprint = match client
+                .execute::<serde_json::Value, serde_json::Value>(
+                    &cx,
+                    "java.jdtWorkspaceFingerprint",
+                    fingerprint_request,
+                )
+                .await
+            {
+                Ok(value) => value
+                    .get("workspaceFingerprint")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
+                Err(error) => {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.lsp_workspace_generation == generation {
+                            this.lsp_starting.remove(lsp::JAVA_PROVIDER_ID);
+                            this.lsp_push_error(lsp::JAVA_PROVIDER_ID, &error, cx);
+                        }
+                    });
+                    return;
+                }
+            };
+            let Some(fingerprint) = fingerprint else {
+                let _ = this.update(cx, |this, cx| {
+                    if this.lsp_workspace_generation == generation {
+                        this.lsp_starting.remove(lsp::JAVA_PROVIDER_ID);
+                        this.lsp_push_error(
+                            lsp::JAVA_PROVIDER_ID,
+                            "java.jdtWorkspaceFingerprint returned no workspace fingerprint",
+                            cx,
+                        );
+                    }
+                });
+                return;
+            };
+            let payload = lsp::java_start_payload(
+                &launch,
+                &root,
+                &cache_directory,
+                Some(&fingerprint),
+                maven_context.as_ref(),
+            );
+            let result = client
+                .execute::<_, serde_json::Value>(&cx, "lsp.startServer", payload)
+                .await;
+            let stale_session = result.as_ref().ok().and_then(lsp::parse_session_id);
+            let accepted = this
+                .update(cx, |this, cx| {
+                    if this.lsp_workspace_generation != generation {
+                        return false;
+                    }
+                    this.lsp_starting.remove(lsp::JAVA_PROVIDER_ID);
+                    match result {
+                        Ok(value) => match lsp::parse_session_id(&value) {
+                            Some(session) => {
+                                this.lsp_sessions
+                                    .insert(lsp::JAVA_PROVIDER_ID.to_string(), session.clone());
+                                this.java_lsp_state = value
+                                    .get("state")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or("initializing")
+                                    .to_string();
+                                this.java_lsp_error = None;
+                                this.lsp_start_poll(
+                                    lsp::JAVA_PROVIDER_ID.to_string(),
+                                    session.clone(),
+                                    generation,
+                                    cx,
+                                );
+                                this.lsp_flush_pending(lsp::JAVA_PROVIDER_ID, &session, cx);
+                            }
+                            None => this.lsp_push_error(
+                                lsp::JAVA_PROVIDER_ID,
+                                "lsp.startServer 未返回 sessionId",
+                                cx,
+                            ),
+                        },
+                        Err(error) => this.lsp_push_error(lsp::JAVA_PROVIDER_ID, &error, cx),
+                    }
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !accepted {
+                if let Some(session) = stale_session {
+                    let _ = client
+                        .execute::<_, serde_json::Value>(
+                            &cx,
+                            "lsp.stopServer",
+                            serde_json::json!({ "sessionId": session }),
+                        )
+                        .await;
+                    let _ = client
+                        .execute::<_, serde_json::Value>(
+                            &cx,
+                            "lsp.destroyServer",
+                            serde_json::json!({ "sessionId": session }),
+                        )
+                        .await;
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn spawn_lsp_start(
+        &mut self,
+        provider_id: String,
+        payload: serde_json::Value,
+        cx: &mut Context<Self>,
+    ) {
+        let client = self.client.clone();
+        let generation = self.lsp_workspace_generation;
         cx.spawn(async move |this, cx| {
             let result = client
                 .execute::<_, serde_json::Value>(&cx, "lsp.startServer", payload)
                 .await;
-            let _ = this.update(cx, |this, cx| {
-                this.lsp_starting.remove(provider.id);
-                match result {
-                    Ok(value) => match lsp::parse_session_id(&value) {
-                        Some(session) => {
-                            this.lsp_sessions
-                                .insert(provider.id.to_string(), session.clone());
-                            this.lsp_start_poll(provider.id, session.clone(), cx);
-                            this.lsp_flush_pending(provider.id, &session, cx);
-                        }
-                        None => {
-                            this.lsp_push_error(provider.id, "lsp.startServer 未返回 sessionId", cx)
-                        }
-                    },
-                    Err(error) => this.lsp_push_error(provider.id, &error, cx),
+            let stale_session = result.as_ref().ok().and_then(lsp::parse_session_id);
+            let accepted = this
+                .update(cx, |this, cx| {
+                    if this.lsp_workspace_generation != generation {
+                        return false;
+                    }
+                    this.lsp_starting.remove(&provider_id);
+                    match result {
+                        Ok(value) => match lsp::parse_session_id(&value) {
+                            Some(session) => {
+                                this.lsp_sessions
+                                    .insert(provider_id.clone(), session.clone());
+                                this.lsp_start_poll(
+                                    provider_id.clone(),
+                                    session.clone(),
+                                    generation,
+                                    cx,
+                                );
+                                this.lsp_flush_pending(&provider_id, &session, cx);
+                            }
+                            None => this.lsp_push_error(
+                                &provider_id,
+                                "lsp.startServer 未返回 sessionId",
+                                cx,
+                            ),
+                        },
+                        Err(error) => this.lsp_push_error(&provider_id, &error, cx),
+                    }
+                    cx.notify();
+                    true
+                })
+                .unwrap_or(false);
+            if !accepted {
+                if let Some(session) = stale_session {
+                    let _ = client
+                        .execute::<_, serde_json::Value>(
+                            &cx,
+                            "lsp.stopServer",
+                            serde_json::json!({ "sessionId": session }),
+                        )
+                        .await;
+                    let _ = client
+                        .execute::<_, serde_json::Value>(
+                            &cx,
+                            "lsp.destroyServer",
+                            serde_json::json!({ "sessionId": session }),
+                        )
+                        .await;
                 }
-                cx.notify();
-            });
+            }
         })
         .detach();
     }
@@ -1291,7 +1586,9 @@ impl WorkbenchView {
         cx: &mut Context<Self>,
     ) {
         let client = self.client.clone();
+        let session_id = session.to_string();
         let key = format!("{session}\u{0}{uri}");
+        let generation = self.lsp_workspace_generation;
         let payload = lsp::sync_payload(session, &uri, &language_id, &text);
         cx.spawn(async move |this, cx| {
             let result = client
@@ -1302,11 +1599,18 @@ impl WorkbenchView {
                     .get("documentVersion")
                     .and_then(serde_json::Value::as_i64);
                 let _ = this.update(cx, |this, _cx| {
+                    if this.lsp_workspace_generation != generation
+                        || !this
+                            .lsp_sessions
+                            .values()
+                            .any(|current| current == &session_id)
+                    {
+                        return;
+                    }
                     match version {
                         Some(version) => {
                             this.lsp_document_versions.insert(key, version);
                         }
-                        // 保留会话-文档映射，便于后续清理时识别归属。
                         None => {
                             this.lsp_document_versions.entry(key).or_insert(0);
                         }
@@ -1320,8 +1624,9 @@ impl WorkbenchView {
     /// 为会话启动唯一的事件轮询循环，直至服务器停止或命令失败。
     fn lsp_start_poll(
         &mut self,
-        provider_id: &'static str,
+        provider_id: String,
         session: String,
+        generation: u64,
         cx: &mut Context<Self>,
     ) {
         if !self.lsp_polling.insert(session.clone()) {
@@ -1337,23 +1642,85 @@ impl WorkbenchView {
                     .await;
                 let finished = match result {
                     Ok(value) => {
-                        let diagnostics = lsp::diagnostics_from_poll(&value, &root);
-                        let finished = lsp::session_finished(&value);
-                        let provider = provider_id.to_string();
+                        let diagnostics = lsp::diagnostics_from_poll_for(&value, &root, &session);
+                        let finished = lsp::session_finished_for(&value, &session);
+                        let results = lsp::operation_results_from_poll(&value, &session);
+                        let java_state = lsp::java_lifecycle_state_for(&value, Some(&session));
+                        let preparation = value.get("projectPreparation").cloned();
+                        let provider = provider_id.clone();
                         let session_key = session.clone();
                         let _ = this.update(cx, |this, cx| {
+                            if this.lsp_workspace_generation != generation
+                                || this.lsp_sessions.get(&provider).map(String::as_str)
+                                    != Some(session_key.as_str())
+                            {
+                                return;
+                            }
                             if !diagnostics.is_empty() {
                                 this.lsp_apply_diagnostics(diagnostics, cx);
                             }
-                            if finished {
-                                this.lsp_forget_session(&provider, &session_key, cx);
+                            for (operation_id, result) in results {
+                                let key = format!("{session_key}\u{0}{operation_id}");
+                                if !this.lsp_operation_results.contains_key(&key)
+                                    && this.lsp_operation_results.len() >= MAX_LSP_OPERATION_RESULTS
+                                {
+                                    if let Some(evicted) =
+                                        this.lsp_operation_results.keys().next().cloned()
+                                    {
+                                        this.lsp_operation_results.remove(&evicted);
+                                    }
+                                }
+                                this.lsp_operation_results.insert(key, result);
                             }
+                            if provider == lsp::JAVA_PROVIDER_ID {
+                                if let Some(state) = java_state.clone() {
+                                    this.java_lsp_state = state;
+                                    if this.java_lsp_state == "ready" {
+                                        this.java_lsp_error = None;
+                                    }
+                                }
+                                this.java_lsp_project_preparation = preparation;
+                            }
+                            if finished {
+                                let java_failed = provider == lsp::JAVA_PROVIDER_ID
+                                    && java_state.as_deref() == Some("failed");
+                                this.lsp_forget_session(&provider, &session_key, cx);
+                                if java_failed {
+                                    this.java_lsp_state = "failed".to_string();
+                                    this.java_lsp_error = Some(
+                                        "Java language-server session reported a terminal failure."
+                                            .to_string(),
+                                    );
+                                }
+                            }
+                            cx.notify();
                         });
                         finished
                     }
-                    Err(_) => true,
+                    Err(error) => {
+                        let provider = provider_id.clone();
+                        let session_key = session.clone();
+                        let _ = this.update(cx, |this, cx| {
+                            if this.lsp_workspace_generation != generation
+                                || this.lsp_sessions.get(&provider).map(String::as_str)
+                                    != Some(session_key.as_str())
+                            {
+                                return;
+                            }
+                            this.lsp_forget_session(&provider, &session_key, cx);
+                            this.lsp_push_error(&provider, &error, cx);
+                        });
+                        true
+                    }
                 };
                 if finished {
+                    let _ = client
+                        .execute::<_, serde_json::Value>(
+                            &cx,
+                            "lsp.destroyServer",
+                            serde_json::json!({ "sessionId": session }),
+                        )
+                        .await;
                     break;
                 }
                 cx.background_executor()
@@ -1361,7 +1728,9 @@ impl WorkbenchView {
                     .await;
             }
             let _ = this.update(cx, |this, _cx| {
-                this.lsp_polling.remove(&session);
+                if this.lsp_workspace_generation == generation {
+                    this.lsp_polling.remove(&session);
+                }
             });
         })
         .detach();
@@ -1369,11 +1738,18 @@ impl WorkbenchView {
 
     /// 会话终止后的清理：移除会话、轮询标记、文档版本与错误占位。
     fn lsp_forget_session(&mut self, provider_id: &str, session: &str, cx: &mut Context<Self>) {
+        if self.lsp_sessions.get(provider_id).map(String::as_str) != Some(session) {
+            return;
+        }
         self.lsp_sessions.remove(provider_id);
         self.lsp_polling.remove(session);
         let prefix = format!("{session}\u{0}");
         self.lsp_document_versions
             .retain(|key, _| !key.starts_with(&prefix));
+        if provider_id == lsp::JAVA_PROVIDER_ID {
+            self.java_lsp_state = "stopped".to_string();
+            self.java_lsp_project_preparation = None;
+        }
         let error_key = format!("__lsp__{provider_id}");
         if self.lsp_diagnostics.remove(&error_key).is_some() {
             self.sync_diagnostics_panel(cx);
@@ -1402,6 +1778,10 @@ impl WorkbenchView {
 
     /// 启动/同步失败时在诊断面板留一条错误记录，便于定位缺失的服务器。
     fn lsp_push_error(&mut self, provider_id: &str, message: &str, cx: &mut Context<Self>) {
+        if provider_id == lsp::JAVA_PROVIDER_ID {
+            self.java_lsp_state = "failed".to_string();
+            self.java_lsp_error = Some(message.to_string());
+        }
         let entry = DiagnosticEntry {
             severity: "error".to_string(),
             file_path: provider_id.to_string(),

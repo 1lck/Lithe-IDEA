@@ -36,12 +36,23 @@ classpath/module-path；随后 Run 模块只启动一次项目 JDK。Maven 仍�
 4. Rust Core 接收结构化 `javaLaunch`，生成 `project-jdk` 直启计划；
 5. macOS/Windows 宿主按各自路径分隔符拼接参数并启动一个 JVM。
 
-Linux 第一阶段沿用同一条配置边界：`bottom_panel.rs` 只发 Core 命令和展示
-状态，`workbench/run/config.rs` 持久化 Core 生成结果、解析工具链与启动计划，
-`workbench/run/process.rs` 独占 session、子进程组和输出事件。Linux 不读取旧
-`name/type/mainClass` 文档作为主路径，不再用源码正则补入口，也不在计划失败
-后伪造 `mvn compile`。Maven 项目里的 `java.main` 仍因缺少 JDT 返回的
-`javaLaunch` 明确失败，直到 Linux 接入同一 Java 项目准备能力。
+Linux 第二阶段已经接入同一 Java 项目准备能力：`linux/src/lsp.rs` 只解析
+JDT LS 直启资源、Core workspace fingerprint 和请求形状；Workbench 持有唯一的
+`java` Core session，并把 `ServiceReady` 与 `projectPreparation.blocksRun` 快照
+交给 Run。Linux 路径优先使用 `LITHE_JDTLS_ROOT` / `LITHE_JDK_ROOT`，默认从
+工作区 `.artifacts/jdtls-linux` 与 `.artifacts/jdk-linux` 解析；正式资源目录
+存在但不完整时直接报可操作错误，外部 `jdtls` wrapper 只作为兼容回退。
+
+`bottom_panel.rs` 对 Maven-backed `java.main` 和带 Java 入口的 Spring Boot 配置
+先等待对应 session ready，再按 Core `javaEntrypoints` →
+`vscode.java.buildWorkspace` → `vscode.java.resolveClasspath` 顺序准备目标，
+最后把 JDT 返回的 `{mainClass, projectName, classPaths, modulePaths}` 作为
+`javaLaunch` 传给 `runConfig.createLaunchPlan`。Linux 不扫描源码决定入口，也
+不在 UI 拼接 classpath；构建失败保留 Core 的 build diagnostics，阻止主进程，
+并通过再次 Run 重试。没有 JDT 元数据时，framework Maven goal 与独立 Java
+`javac -> java` 仍沿用第一阶段 Core 计划，Maven-backed `java.main` 明确显示等待
+或准备失败。Linux 仍不读取旧 `name/type/mainClass` 文档作为主路径，不用源码
+正则补入口，也不在计划失败后伪造 `mvn compile`。
 
 Run 和 Debug 共用同一套 Java 项目准备逻辑。配置中的 Maven 信息仍用于 JDT LS
 导入、Profile、settings.xml 和项目模型；Maven 工具窗口、框架 goal、测试与显式
@@ -214,8 +225,10 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
   Run/Debug 共用的 Store 测试覆盖同一次启动继续、取消、记忆选择和索引恢复。
 - Linux：`cargo test --manifest-path linux/Cargo.toml --lib --bins` 覆盖 Core
   process/Spring Boot 计划、`javac -> java`、POSIX classpath、工具链映射、
-  pre-launch 失败门禁、过期 sequence 与完整进程组停止；测试不依赖本机
-  Maven/JDK/网络。
+  JDT 资源排序与 payload、入口/classpath/build 结果解析、Core Java provider 门禁、
+  过期 session/sequence、pre-launch 失败门禁与完整进程组停止；测试不依赖本机
+  Maven/JDK/网络。资源解析测试只创建临时目录和 fixture
+  JSON。
 - 共享契约：`shared/contracts/rust-core-api.md` 与
   `shared/contracts/application-boundary.md`，跨平台样例为
   `shared/fixtures/lsp/java-build-report-v1.json`。
@@ -227,6 +240,7 @@ Run 控件，也不在 `java-run-launch` 或平台 adapter 再做一次 `blocksR
   `rust/lithe-core/src/lsp/interface/engine.rs`
 - macOS：`LanguageToolingSessionManager`、`AppModel+RunConfiguration`、`RunService`
 - Windows：`java-run-launch.ts`、`lsp-core-adapter.ts`、`run.store.ts`
-- Linux：`linux/src/workbench/bottom_panel.rs`、`linux/src/workbench/run/`
+- Linux：`linux/src/lsp.rs`、`linux/src/workbench/view.rs`、
+  `linux/src/workbench/bottom_panel.rs`、`linux/src/workbench/run/`
 - 相关笔记：
   `.agents/notes/implemented/feature/2026-09-17-standalone-java-compile-then-run.md`
