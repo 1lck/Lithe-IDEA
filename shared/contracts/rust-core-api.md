@@ -123,7 +123,12 @@ stable error code and a user-facing message:
 Lithe never installs Node.js or the agents' own command-line tools. `agent.status`
 detects Node.js and npm through the login shell's `PATH` and lists every
 supported agent with its pinned version, installed version, provider protocol,
-and blocking issues. `agent.install` runs `npm install` into a staging directory
+and blocking issues. Adapters that drive the agent's own CLI (Codex) report the
+CLI found on that `PATH` with its minimum version; they are installed with
+`--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
+with the user's CLI through the adapter's variable (`CODEX_PATH`). A missing or
+too old CLI is an issue for the user to resolve, never installed by Lithe.
+`agent.install` runs `npm install` into a staging directory
 and replaces the previous install only after the adapter executable exists; it
 honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
 `runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with

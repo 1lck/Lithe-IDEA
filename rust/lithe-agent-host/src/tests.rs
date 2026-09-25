@@ -324,6 +324,7 @@ fn management_status_matches_the_shared_fixture() {
             npm: Some(tool("10.2.4", "npm")),
             used_login_shell: true,
         },
+        &|command| (command == "codex").then(|| tool("0.156.1", "codex")),
     );
     assert_eq!(
         serde_json::to_value(status).unwrap(),
@@ -828,6 +829,13 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         base_url: "https://api.example/v1/messages".into(),
         ..provider()
     };
+    let codex_cli = |command: &str| {
+        (command == "codex").then(|| environment::DetectedTool {
+            version: "0.156.1".into(),
+            path: "/opt/example/bin/codex".into(),
+        })
+    };
+    let resolve = |launch: AgentLaunch| resolve_with(launch, &codex_cli);
     let not_installed = resolve(launch("codex-acp", provider())).err().unwrap();
     assert!(not_installed.contains("not installed"), "{not_installed}");
     fake_install(&data, "codex-acp");
@@ -835,9 +843,10 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
 
     let codex = resolve(launch("codex-acp", provider())).unwrap();
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
-    assert!(
-        codex.env.is_empty(),
-        "gateway agents never get the key in their environment"
+    // The adapter drives the user's own Codex; the key never enters the environment.
+    assert_eq!(
+        codex.env,
+        [("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned())]
     );
     assert_eq!(
         codex.gateway.unwrap().base_url,
@@ -853,11 +862,30 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     .unwrap();
     assert_eq!(
         with_model.env,
-        [(
-            "CODEX_CONFIG".to_owned(),
-            r#"{"model":"gpt-5.5"}"#.to_owned()
-        )]
+        [
+            ("CODEX_PATH".to_owned(), "/opt/example/bin/codex".to_owned()),
+            (
+                "CODEX_CONFIG".to_owned(),
+                r#"{"model":"gpt-5.5"}"#.to_owned()
+            ),
+        ]
     );
+    let missing_cli = resolve_with(launch("codex-acp", provider()), &|_| None)
+        .err()
+        .unwrap();
+    assert!(
+        missing_cli.contains("Codex CLI was not found"),
+        "{missing_cli}"
+    );
+    let old_cli = resolve_with(launch("codex-acp", provider()), &|_| {
+        Some(environment::DetectedTool {
+            version: "0.150.0".into(),
+            path: "/opt/example/bin/codex".into(),
+        })
+    })
+    .err()
+    .unwrap();
+    assert!(old_cli.contains("0.156.0 or later"), "{old_cli}");
     assert!(!with_model
         .env
         .iter()

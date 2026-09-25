@@ -154,6 +154,16 @@ struct ResolvedLaunch {
 }
 
 fn resolve(launch: AgentLaunch) -> Result<ResolvedLaunch, String> {
+    resolve_with(launch, &|command| {
+        environment::detect_tool(command, &|| false)
+    })
+}
+
+/// [`resolve`] with an injectable lookup for the user's agent CLI.
+fn resolve_with(
+    launch: AgentLaunch,
+    find_cli: &dyn Fn(&str) -> Option<environment::DetectedTool>,
+) -> Result<ResolvedLaunch, String> {
     let provider = launch.provider;
     if provider.api_key.trim().is_empty() {
         return Err("An API key is required".into());
@@ -219,6 +229,18 @@ fn resolve(launch: AgentLaunch) -> Result<ResolvedLaunch, String> {
             None,
         ),
     };
+    if let Some(cli) = &agent.cli {
+        let detected = find_cli(cli.command);
+        if let Some(issue) = install::cli_issue(cli, detected.as_ref()) {
+            return Err(issue);
+        }
+        if let Some(tool) = detected {
+            env.push((
+                cli.path_env.to_owned(),
+                tool.path.to_string_lossy().into_owned(),
+            ));
+        }
+    }
     if let Some(model) = provider
         .model
         .as_deref()

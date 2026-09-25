@@ -38,6 +38,23 @@ pub enum ModelDelivery {
     AnthropicEnvironment,
 }
 
+/// The agent's own command-line tool, which the user installs and updates.
+///
+/// Adapters that can drive an existing CLI are installed without their bundled
+/// copy, so Lithe never downloads an agent the user already has.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AgentCli {
+    /// Executable searched on the login shell's `PATH`.
+    pub command: &'static str,
+    pub name: &'static str,
+    /// Lowest version the pinned adapter supports, from its dependency range.
+    pub minimum_version: &'static str,
+    /// Environment variable that tells the adapter which executable to run.
+    pub path_env: &'static str,
+    /// How users usually install or update the CLI, shown when it is missing.
+    pub install_hint: &'static str,
+}
+
 /// One installable ACP adapter distributed as an npm package.
 #[derive(Debug, PartialEq, Eq)]
 pub struct CatalogAgent {
@@ -55,6 +72,8 @@ pub struct CatalogAgent {
     pub protocol: ProviderProtocol,
     pub key_delivery: KeyDelivery,
     pub model_delivery: ModelDelivery,
+    /// The user's CLI the adapter drives, if it does not bundle one we use.
+    pub cli: Option<AgentCli>,
     /// Whether sign-in and a conversation were verified against a real
     /// provider with this version.
     pub verified: bool,
@@ -73,6 +92,15 @@ pub const CATALOG: &[CatalogAgent] = &[
         protocol: ProviderProtocol::Responses,
         key_delivery: KeyDelivery::Gateway,
         model_delivery: ModelDelivery::CodexConfig,
+        // `@openai/codex ^0.156.1` in the adapter; its platform binaries are
+        // optional dependencies that the install skips.
+        cli: Some(AgentCli {
+            command: "codex",
+            name: "Codex CLI",
+            minimum_version: "0.156.0",
+            path_env: "CODEX_PATH",
+            install_hint: "npm install -g @openai/codex",
+        }),
         verified: true,
     },
     CatalogAgent {
@@ -86,6 +114,7 @@ pub const CATALOG: &[CatalogAgent] = &[
         protocol: ProviderProtocol::AnthropicMessages,
         key_delivery: KeyDelivery::AnthropicEnvironment,
         model_delivery: ModelDelivery::AnthropicEnvironment,
+        cli: None,
         verified: false,
     },
 ];

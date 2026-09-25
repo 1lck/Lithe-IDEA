@@ -178,11 +178,55 @@ fn tool_version(
         command.env("PATH", path);
     }
     let output = run_bounded(command, VERSION_TIMEOUT, cancel).ok()?;
-    let version = output
+    let line = output
         .lines()
         .map(str::trim)
         .find(|line| !line.is_empty())?;
-    Some(version.trim_start_matches('v').to_owned())
+    // `v22.3.1`, `10.2.4`, or a named banner such as `codex-cli 0.156.1`.
+    let version = line
+        .split_whitespace()
+        .map(|token| token.trim_start_matches('v'))
+        .find(|token| token.starts_with(|c: char| c.is_ascii_digit()))
+        .unwrap_or(line);
+    Some(version.to_owned())
+}
+
+/// Find `command` on the agent search path and read its version.
+pub fn detect_tool(command: &str, cancel: &dyn Fn() -> bool) -> Option<DetectedTool> {
+    let path = search_path();
+    let executable = find_executable(command, path.as_deref())?;
+    let version = tool_version(&executable, path.as_deref(), cancel)?;
+    Some(DetectedTool {
+        version,
+        path: executable,
+    })
+}
+
+/// Whether dotted `version` is at least `minimum`, comparing numeric parts;
+/// pre-release suffixes such as `-alpha.1` are ignored.
+pub fn version_at_least(version: &str, minimum: &str) -> bool {
+    let parts = |value: &str| -> Vec<u64> {
+        value
+            .trim()
+            .trim_start_matches('v')
+            .split(['-', '+'])
+            .next()
+            .unwrap_or_default()
+            .split('.')
+            .map(|part| part.parse().unwrap_or(0))
+            .collect()
+    };
+    let (version, minimum) = (parts(version), parts(minimum));
+    for index in 0..version.len().max(minimum.len()) {
+        let (left, right) = (
+            version.get(index).copied().unwrap_or(0),
+            minimum.get(index).copied().unwrap_or(0),
+        );
+        if left != right {
+            return left > right;
+        }
+    }
+    true
 }
 
 /// Major version of `22.3.1` or `v22.3.1`.
@@ -319,6 +363,16 @@ mod tests {
     }
 
     #[test]
+    fn versions_compare_numerically() {
+        assert!(version_at_least("0.156.1", "0.156.0"));
+        assert!(version_at_least("0.160.0", "0.156.0"));
+        assert!(version_at_least("1.0.0", "0.156.0"));
+        assert!(!version_at_least("0.99.9", "0.156.0"));
+        assert!(!version_at_least("0.155.9-alpha.1", "0.156.0"));
+        assert!(version_at_least("v22", "22.0.0"));
+    }
+
+    #[test]
     fn major_versions_parse_with_or_without_prefix() {
         assert_eq!(parse_major("v22.3.1"), Some(22));
         assert_eq!(parse_major("20.11.0"), Some(20));
@@ -359,7 +413,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("lithe-env-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let tool = directory.join("lithe-tool");
-        std::fs::write(&tool, "#!/bin/sh\necho v1.2.3\n").unwrap();
+        std::fs::write(&tool, "#!/bin/sh\necho lithe-tool v1.2.3\n").unwrap();
         let path = OsString::from(directory.as_os_str());
         assert_eq!(
             find_executable("lithe-tool", Some(&path)),

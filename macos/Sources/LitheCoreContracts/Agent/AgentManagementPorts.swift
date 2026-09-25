@@ -25,6 +25,23 @@ public struct AgentRuntimeEnvironment: Decodable, Equatable, Sendable {
     }
 }
 
+/// The user's own agent CLI that an adapter drives, e.g. the Codex CLI.
+public struct AgentCliStatus: Decodable, Equatable, Sendable {
+    public let name: String
+    public let command: String
+    public let minimumVersion: String
+    public let installHint: String
+    public let detected: AgentRuntimeTool?
+
+    public init(name: String, command: String, minimumVersion: String, installHint: String, detected: AgentRuntimeTool?) {
+        self.name = name
+        self.command = command
+        self.minimumVersion = minimumVersion
+        self.installHint = installHint
+        self.detected = detected
+    }
+}
+
 /// One supported ACP agent and its Lithe-managed adapter install.
 public struct AgentCatalogStatus: Decodable, Equatable, Identifiable, Sendable {
     public let id: String
@@ -38,12 +55,15 @@ public struct AgentCatalogStatus: Decodable, Equatable, Identifiable, Sendable {
     public let `protocol`: String
     public let minimumNodeMajor: Int
     public let verified: Bool
+    /// The user's CLI the adapter runs; `nil` when the adapter is self-contained.
+    public let cli: AgentCliStatus?
     /// Reasons the adapter cannot be installed or started now.
     public let issues: [String]
 
     public init(
         id: String, name: String, description: String, package: String, version: String,
-        installedVersion: String?, protocol: String, minimumNodeMajor: Int, verified: Bool, issues: [String]
+        installedVersion: String?, protocol: String, minimumNodeMajor: Int, verified: Bool,
+        cli: AgentCliStatus? = nil, issues: [String]
     ) {
         self.id = id
         self.name = name
@@ -54,6 +74,7 @@ public struct AgentCatalogStatus: Decodable, Equatable, Identifiable, Sendable {
         self.protocol = `protocol`
         self.minimumNodeMajor = minimumNodeMajor
         self.verified = verified
+        self.cli = cli
         self.issues = issues
     }
 

@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::catalog::{CatalogAgent, ProviderProtocol, CATALOG};
-use crate::environment::{self, RunError, RuntimeEnvironment};
+use crate::catalog::{AgentCli, CatalogAgent, ProviderProtocol, CATALOG};
+use crate::environment::{self, DetectedTool, RunError, RuntimeEnvironment};
 
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MARKER: &str = "lithe-agent.json";
@@ -46,6 +46,17 @@ struct Marker {
     version: String,
 }
 
+/// The user's own agent CLI that an adapter drives.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliStatus {
+    pub name: String,
+    pub command: String,
+    pub minimum_version: String,
+    pub install_hint: String,
+    pub detected: Option<DetectedTool>,
+}
+
 /// Status of one catalog agent on this machine.
 #[derive(Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -60,6 +71,8 @@ pub struct AgentStatus {
     pub protocol: ProviderProtocol,
     pub minimum_node_major: u32,
     pub verified: bool,
+    /// The user's CLI this adapter runs, when it does not bundle one.
+    pub cli: Option<CliStatus>,
     /// User-facing reasons the agent cannot be installed or started now.
     pub issues: Vec<String>,
 }
@@ -74,32 +87,68 @@ pub struct ManagementStatus {
 
 /// Detect the runtime and report each catalog agent's installation state.
 pub fn status(data_directory: &Path, cancel: &dyn Fn() -> bool) -> ManagementStatus {
-    status_with(data_directory, environment::detect(cancel))
+    let environment = environment::detect(cancel);
+    status_with(data_directory, environment, &|command| {
+        environment::detect_tool(command, cancel)
+    })
 }
 
-/// Catalog statuses for an already detected runtime.
+/// Catalog statuses for an already detected runtime; `find_cli` looks up an
+/// agent CLI on the search path.
 pub(crate) fn status_with(
     data_directory: &Path,
     environment: RuntimeEnvironment,
+    find_cli: &dyn Fn(&str) -> Option<DetectedTool>,
 ) -> ManagementStatus {
     let agents = CATALOG
         .iter()
-        .map(|agent| AgentStatus {
-            id: agent.id.into(),
-            name: agent.name.into(),
-            description: agent.description.into(),
-            package: agent.package.into(),
-            version: agent.version.into(),
-            installed_version: installed_version(data_directory, agent),
-            protocol: agent.protocol,
-            minimum_node_major: agent.minimum_node_major,
-            verified: agent.verified,
-            issues: runtime_issues(agent, &environment),
+        .map(|agent| {
+            let cli = agent.cli.as_ref().map(|cli| CliStatus {
+                name: cli.name.into(),
+                command: cli.command.into(),
+                minimum_version: cli.minimum_version.into(),
+                install_hint: cli.install_hint.into(),
+                detected: find_cli(cli.command),
+            });
+            let mut issues = runtime_issues(agent, &environment);
+            if let (Some(cli), Some(status)) = (&agent.cli, &cli) {
+                issues.extend(cli_issue(cli, status.detected.as_ref()));
+            }
+            AgentStatus {
+                id: agent.id.into(),
+                name: agent.name.into(),
+                description: agent.description.into(),
+                package: agent.package.into(),
+                version: agent.version.into(),
+                installed_version: installed_version(data_directory, agent),
+                protocol: agent.protocol,
+                minimum_node_major: agent.minimum_node_major,
+                verified: agent.verified,
+                cli,
+                issues,
+            }
         })
         .collect();
     ManagementStatus {
         environment,
         agents,
+    }
+}
+
+/// Why the user's CLI cannot be used, if it is missing or too old.
+pub(crate) fn cli_issue(cli: &AgentCli, detected: Option<&DetectedTool>) -> Option<String> {
+    match detected {
+        None => Some(format!(
+            "{} was not found. Install it (for example `{}`), then check again.",
+            cli.name, cli.install_hint
+        )),
+        Some(tool) if !environment::version_at_least(&tool.version, cli.minimum_version) => {
+            Some(format!(
+                "{} {} or later is required; found {}. Update it, then check again.",
+                cli.name, cli.minimum_version, tool.version
+            ))
+        }
+        Some(_) => None,
     }
 }
 
@@ -222,6 +271,9 @@ fn run_npm_install(
         .arg("--prefix")
         .arg(prefix)
         .args(["--no-audit", "--no-fund", "--omit=dev", "--loglevel=error"])
+        // Adapters that drive the user's CLI skip their bundled copy, which is
+        // an optional dependency of several hundred megabytes.
+        .args(agent.cli.as_ref().map(|_| "--omit=optional"))
         .arg(format!("{}@{}", agent.package, agent.version))
         .current_dir(prefix);
     if let Some(path) = environment::search_path() {

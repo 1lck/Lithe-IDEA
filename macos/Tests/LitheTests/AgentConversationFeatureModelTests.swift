@@ -140,6 +140,29 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.connectionState == .ready)
     }
 
+    @Test
+    func managementStatusFixtureDecodesIntoContractTypes() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/agent-management-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let responses = try #require(fixture["responses"] as? [String: Any])
+        let status = try JSONDecoder().decode(
+            AgentManagementStatus.self,
+            from: JSONSerialization.data(withJSONObject: try #require(responses["status"]))
+        )
+        #expect(status.environment.node?.version == "20.11.0")
+        let codex = try #require(status.agents.first)
+        #expect(codex.isInstalled && !codex.needsUpdate)
+        #expect(codex.cli?.detected?.version == "0.156.1")
+        #expect(codex.cli?.minimumVersion == "0.156.0")
+        let claude = try #require(status.agents.last)
+        #expect(claude.cli == nil)
+        #expect(!claude.isInstalled)
+        #expect(claude.issues.count == 1)
+    }
+
     // MARK: Helpers
 
     private var configuration: AgentLaunchConfiguration {

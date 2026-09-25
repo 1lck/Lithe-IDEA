@@ -101,6 +101,10 @@ struct AgentsSettingsView: View {
         Text(installState(agent))
             .font(.system(size: 11.5, design: .monospaced))
             .foregroundStyle(LitheTheme.secondaryText)
+        if let cli = agent.cli {
+            toolRow(cli.name, cli.detected)
+            hint("\(agent.name) runs the \(cli.name) installed on this Mac (\(cli.minimumVersion) or later), so Lithe does not download another copy.")
+        }
         ForEach(agent.issues, id: \.self) { issue in
             Label(issue, systemImage: "exclamationmark.triangle")
                 .font(LitheTheme.smallFont)
@@ -156,7 +160,9 @@ struct AgentsSettingsView: View {
             }
         }
         if isBusy || !agent.isInstalled {
-            hint("The adapter is installed with your npm into Lithe's application data. The first install can download several hundred megabytes and take a few minutes.")
+            hint(agent.cli == nil
+                 ? "The adapter is installed with your npm into Lithe's application data. The first install can download a large runtime and take a few minutes."
+                 : "The adapter is installed with your npm into Lithe's application data.")
         }
     }
 

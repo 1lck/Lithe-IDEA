@@ -23,6 +23,13 @@
           "protocol": "responses",
           "minimumNodeMajor": 20,
           "verified": true,
+          "cli": {
+            "name": "Codex CLI",
+            "command": "codex",
+            "minimumVersion": "0.156.0",
+            "installHint": "npm install -g @openai/codex",
+            "detected": { "version": "0.156.1", "path": "/opt/example/node/bin/codex" }
+          },
           "issues": []
         },
         {
@@ -35,6 +42,7 @@
           "protocol": "anthropicMessages",
           "minimumNodeMajor": 22,
           "verified": false,
+          "cli": null,
           "issues": ["Claude needs Node.js 22 or later; found 20.11.0."]
         }
       ]
