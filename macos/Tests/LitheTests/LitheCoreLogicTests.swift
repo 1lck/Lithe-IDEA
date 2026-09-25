@@ -3668,12 +3668,13 @@ struct EditorDocumentTests {
             .appendingPathComponent("lithe-editor-document-\(UUID().uuidString).txt")
         defer { try? FileManager.default.removeItem(at: url) }
 
+        try Data("before".utf8).write(to: url)
         let document = EditorDocument(url: url, text: "before", modificationDate: nil)
         #expect(!document.isDirty)
 
         document.text = "after"
         #expect(document.isDirty)
-        try document.save()
+        try document.save(using: MacWorkspaceFileOperations())
 
         #expect(!document.isDirty)
         #expect(try String(contentsOf: url, encoding: .utf8) == "after")
@@ -3784,7 +3785,7 @@ struct EditorDocumentTests {
         )
 
         #expect(throws: EditorDocument.DocumentError.self) {
-            try document.save()
+            try document.save(using: MacWorkspaceFileOperations())
         }
     }
 
