@@ -13,6 +13,16 @@ use gpui_kit::*;
 use workbench::WorkbenchView;
 
 fn main() {
+    // TEMP_DIAG: 临时日志，用于定位 XIM/IME 问题。
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive("gpui=debug".parse().unwrap())
+                .add_directive("gpui_pre_linux=debug".parse().unwrap())
+                .add_directive("xim=debug".parse().unwrap()),
+        )
+        .init();
     // 工作台使用大量 Lucide 图标，默认 `Assets` 仅内嵌 101 个，需用全量目录。
     let app = gpui_kit::application().with_assets(gpui_kit::assets::AllAssets);
 

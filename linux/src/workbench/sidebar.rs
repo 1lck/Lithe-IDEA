@@ -839,6 +839,9 @@ impl SidebarView {
 
     /// 文件树过滤输入行：真实 `Input`，由组件负责 IME 组字、Ctrl+V 粘贴、
     /// 选区、光标与回车提交（`InputEvent::PressEnter`）。
+    ///
+    /// `Input` 用 `appearance(false)` 关掉自带的背景/边框/焦点环，保留外层
+    /// 行现有的紧凑样式，避免多出一层阴影或双层边框。
     fn render_filter_row(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .h(px(28.0))
@@ -860,8 +863,7 @@ impl SidebarView {
                 div()
                     .flex_1()
                     .min_w_0()
-                    .text_xs()
-                    .child(Input::new(&self.tree_search_input)),
+                    .child(Input::new(&self.tree_search_input).small().appearance(false)),
             )
             .child(
                 Button::new("sidebar-filter-clear")
