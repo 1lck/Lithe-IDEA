@@ -337,13 +337,6 @@ struct PluginManagementView: View {
 
     private func presentation(for plugin: PluginManagementSnapshot) -> PluginPresentation {
         let id = plugin.id.rawValue
-        if id == "dev.lithe.plugin.database" {
-            return PluginPresentation(
-                systemImage: "cylinder.split.1x2",
-                tint: LitheTheme.warning,
-                summary: "Connect to databases, browse schemas, edit data, run SQL, and manage backups from the Database workspace."
-            )
-        }
         if id == "dev.lithe.plugin.go-support" {
             return PluginPresentation(
                 systemImage: "g.circle.fill",

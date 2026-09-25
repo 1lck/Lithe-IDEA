@@ -12,14 +12,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   buildV0DesignSystemProfileFromRegistry,
-  createV0DesignSystemId,
-  normalizeV0DesignSystems,
   parseV0DesignSystemDirectory,
   SHADCN_REGISTRY_DIRECTORY_URL,
   SUGGESTED_V0_DESIGN_SYSTEMS,
   type V0DesignSystemSuggestion,
-} from "@/extensions/v0/lib/v0-design-systems";
-import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
+} from "@lithe/v0/lib/v0-design-systems";
+import {
+  createV0DesignSystemId,
+  normalizeV0DesignSystems,
+  type V0DesignSystemProfile,
+} from "@/features/settings/lib/v0-design-system-profiles";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import Badge from "@/ui/badge";

@@ -8,6 +8,7 @@
 @import "@fontsource/geist-mono/700.css";
 
 @import "tailwindcss";
+@source "../../../Plugins/win/Official/V0Support";
 
 @import "./styles/theme.css";
 @import "./styles/base.css";
