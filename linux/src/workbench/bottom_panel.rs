@@ -2100,31 +2100,105 @@ impl Render for BottomPanelView {
             }
             BottomTab::Run => (self.render_run_header(cx), self.render_run_panel(cx)),
             BottomTab::Maven => (self.render_maven_header(cx), self.render_maven_panel(cx)),
-            BottomTab::Diagnostics => (
-                self.render_pane_header(
-                    IconName::TriangleAlert,
-                    format!(
-                        "{} ({})",
-                        crate::i18n::menu_text(cx, "workbench.diagnostics"),
-                        self.diagnostics.len()
-                    ),
-                    None,
-                    vec![Self::header_button(
-                        "diagnostics-clear".to_string(),
-                        IconName::Trash,
-                        crate::i18n::menu_text(cx, "ui.clear").to_string(),
-                        self.diagnostics.is_empty(),
+            BottomTab::Diagnostics => {
+                // 严重级统计：总数摘要按最高严重级着色（对齐 Tauri
+                // DiagnosticsPane 的 problemSummary/problemSummaryTone），
+                // 非零 error/warning 用图标计数（对齐 macOS Problems 头部徽标）。
+                let error_count = self
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.severity == "error")
+                    .count();
+                let warning_count = self
+                    .diagnostics
+                    .iter()
+                    .filter(|diagnostic| diagnostic.severity == "warning")
+                    .count();
+                let info_count = self.diagnostics.len() - error_count - warning_count;
+                let total = self.diagnostics.len();
+                let summary_color = if error_count > 0 {
+                    ThemeColors::destructive()
+                } else if warning_count > 0 {
+                    ThemeColors::warning()
+                } else if info_count > 0 {
+                    ThemeColors::accent_blue()
+                } else {
+                    ThemeColors::text_muted()
+                };
+                let count_key = if total == 1 {
+                    "diagnostics.problemCountOne"
+                } else {
+                    "diagnostics.problemCount"
+                };
+                let summary =
+                    crate::i18n::menu_text(cx, count_key).replace("{count}", &total.to_string());
+                let mut status = h_flex()
+                    .gap_2()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(summary_color)
+                            .child(summary),
+                    );
+                if error_count > 0 {
+                    status = status.child(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                Icon::new(IconName::OctagonX)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::destructive()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::destructive())
+                                    .child(error_count.to_string()),
+                            ),
+                    );
+                }
+                if warning_count > 0 {
+                    status = status.child(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                Icon::new(IconName::TriangleAlert)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::warning()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::warning())
+                                    .child(warning_count.to_string()),
+                            ),
+                    );
+                }
+                (
+                    self.render_pane_header(
+                        IconName::TriangleAlert,
+                        crate::i18n::menu_text(cx, "workbench.diagnostics").to_string(),
+                        Some(status.into_any_element()),
+                        vec![Self::header_button(
+                            "diagnostics-clear".to_string(),
+                            IconName::Trash,
+                            crate::i18n::menu_text(cx, "ui.clear").to_string(),
+                            self.diagnostics.is_empty(),
+                            cx,
+                            |this, _window, cx| {
+                                this.diagnostics.clear();
+                                cx.emit(BottomPanelEvent::ClearDiagnostics);
+                                cx.notify();
+                            },
+                        )],
                         cx,
-                        |this, _window, cx| {
-                            this.diagnostics.clear();
-                            cx.emit(BottomPanelEvent::ClearDiagnostics);
-                            cx.notify();
-                        },
-                    )],
-                    cx,
-                ),
-                self.render_diagnostics_panel(cx),
-            ),
+                    ),
+                    self.render_diagnostics_panel(cx),
+                )
+            }
             BottomTab::GitLog => (
                 self.render_pane_header(
                     IconName::GitGraph,

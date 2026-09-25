@@ -315,6 +315,11 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "ui.clear" => ("清空", "Clear"),
         // ---- 空态 / 面板标题 ----
         "diagnostics.empty" => ("未检测到问题", "No problems detected"),
+        "diagnostics.problemCount" => ("{count} 个问题", "{count} problems"),
+        "diagnostics.problemCountOne" => ("{count} 个问题", "{count} problem"),
+        "diagnostics.errors" => ("错误", "Errors"),
+        "diagnostics.warnings" => ("警告", "Warnings"),
+        "diagnostics.info" => ("信息", "Info"),
         "extensions.title" => ("扩展", "Extensions"),
         "extensions.all" => ("全部", "All"),
         "extensions.languages" => ("语言", "Languages"),
