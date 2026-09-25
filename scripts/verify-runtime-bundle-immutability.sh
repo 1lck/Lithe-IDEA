@@ -23,6 +23,7 @@ resolver='macos/Sources/Lithe/Platform/MacOS/Runtime/MacJDTLSLaunchResourceResol
 for required in \
     'configurationCacheDirectoryURL' \
     'cacheDirectoryIsOutsideBundle' \
+    'isBundled(installationRootURL)' \
     'SHA256' \
     'copyItem(at: bundledConfigurationURL, to: stagingURL)' \
     'moveItem(at: stagingURL, to: cachedConfigurationURL)'; do

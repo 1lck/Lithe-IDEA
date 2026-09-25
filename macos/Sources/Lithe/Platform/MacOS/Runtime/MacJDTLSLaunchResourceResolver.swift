@@ -67,7 +67,7 @@ struct MacJDTLSLaunchResourceResolver {
             }
             let configurationURL = try writableConfigurationDirectory(
                 bundledConfigurationURL,
-                for: executableURL
+                in: rootURL
             )
             return JDTLSLaunchResources(
                 launcherJarURL: launcherURL,
@@ -86,10 +86,10 @@ struct MacJDTLSLaunchResourceResolver {
     /// still match the shipped application bytes.
     private func writableConfigurationDirectory(
         _ bundledConfigurationURL: URL,
-        for executableURL: URL
+        in installationRootURL: URL
     ) throws -> URL {
         guard let configurationCacheDirectoryURL,
-              isBundled(executableURL) else {
+              isBundled(installationRootURL) else {
             return bundledConfigurationURL
         }
         guard cacheDirectoryIsOutsideBundle(configurationCacheDirectoryURL) else {
@@ -243,10 +243,20 @@ struct MacJDTLSLaunchResourceResolver {
             && isDirectory.boolValue
     }
 
-    private func isBundled(_ executableURL: URL) -> Bool {
+    private func isBundled(_ url: URL) -> Bool {
         guard let bundledJdtlsRootURL else { return false }
-        let rootPath = bundledJdtlsRootURL.path + "/"
-        return executableURL.standardizedFileURL.path.hasPrefix(rootPath)
+        let rootPath = bundledJdtlsRootURL.standardizedFileURL.path
+        let resolvedRootPath = bundledJdtlsRootURL
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+            .path
+        let candidatePaths = [
+            url.standardizedFileURL.path,
+            url.resolvingSymlinksInPath().standardizedFileURL.path,
+        ]
+        return candidatePaths.contains { path in
+            isPath(path, inside: rootPath) || isPath(path, inside: resolvedRootPath)
+        }
     }
 
     private enum ResolutionError: LocalizedError {

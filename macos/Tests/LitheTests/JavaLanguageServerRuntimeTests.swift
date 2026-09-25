@@ -198,6 +198,22 @@ struct JavaLanguageServerRuntimeTests {
                 == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
         )
 
+        let symlinkRoot = root.deletingLastPathComponent()
+            .appendingPathComponent("lithe-jdtls-link-(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: symlinkRoot) }
+        try fileManager.createSymbolicLink(at: symlinkRoot, withDestinationURL: root)
+        let symlinkResolver = MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: root,
+            configurationCacheDirectoryURL: configurationCache
+        )
+        guard case .direct(let symlinkResources) = symlinkResolver.resolve(
+            for: symlinkRoot.appendingPathComponent("bin/jdtls")
+        ) else {
+            Issue.record("Expected a symlink to bundled JDTLS to keep using the external cache")
+            return
+        }
+        #expect(symlinkResources.configurationDirectoryURL.path.hasPrefix(configurationCache.path + "/"))
+
         let invalidCacheResolver = MacJDTLSLaunchResourceResolver(
             bundledJdtlsRootURL: root,
             configurationCacheDirectoryURL: root
