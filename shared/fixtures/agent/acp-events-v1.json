@@ -1,24 +1,78 @@
 {
   "version": 1,
+  "commands": {
+    "newSession": { "kind": "newSession", "token": "token-1" },
+    "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
+    "listSessions": { "kind": "listSessions", "token": "token-3" },
+    "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
+    "cancel": { "kind": "cancel", "sessionId": "session-1" },
+    "allowPermission": { "kind": "permission", "requestId": "permission-1", "optionId": "allow_once" },
+    "denyPermission": { "kind": "permission", "requestId": "permission-1", "optionId": null }
+  },
   "events": {
     "ready": {
       "kind": "ready",
-      "sessionId": "session-1"
+      "agentName": "example-agent",
+      "agentVersion": "1.0.0",
+      "canLoadSessions": true,
+      "canListSessions": true
+    },
+    "sessionCreated": { "kind": "sessionCreated", "token": "token-1", "sessionId": "session-1" },
+    "sessionLoaded": { "kind": "sessionLoaded", "token": "token-2", "sessionId": "session-1" },
+    "sessions": {
+      "kind": "sessions",
+      "token": "token-3",
+      "sessions": [
+        { "sessionId": "session-1", "title": "Explain this project", "updatedAt": "2026-09-25T10:00:00Z" },
+        { "sessionId": "session-2", "title": null, "updatedAt": null }
+      ]
+    },
+    "userMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": "Explain this project" } }
+    },
+    "agentMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "This project **builds** an IDE." } }
+    },
+    "toolCall": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Run tests", "kind": "execute" }
+    },
+    "toolCallUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed" }
+    },
+    "sessionInfo": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "title": "Project overview" }
     },
     "permission": {
       "kind": "permission",
+      "sessionId": "session-1",
       "requestId": "permission-1",
       "request": {
         "sessionId": "session-1",
-        "toolCall": { "title": "Run command" },
+        "toolCall": { "toolCallId": "call-1", "title": "Run tests" },
         "options": [
-          { "optionId": "allow_once", "name": "Allow Once", "kind": "allow_once" }
+          { "optionId": "allow_once", "name": "Allow Once", "kind": "allow_once" },
+          { "optionId": "reject_once", "name": "Reject", "kind": "reject_once" }
         ]
       }
     },
-    "turnFinished": {
-      "kind": "turnFinished",
-      "stopReason": "Cancelled"
-    }
+    "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
+    "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },
+    "requestFailed": {
+      "kind": "requestFailed",
+      "token": null,
+      "sessionId": "session-1",
+      "message": "The Agent is still responding in this conversation"
+    },
+    "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
   }
 }

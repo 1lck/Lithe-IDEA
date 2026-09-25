@@ -13,9 +13,7 @@ char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
 void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
-int32_t lithe_agent_prompt(void *handle, const char *prompt);
-int32_t lithe_agent_cancel(void *handle);
-int32_t lithe_agent_permission(void *handle, const char *request_id, const char *option_id);
+int32_t lithe_agent_send_json(void *handle, const char *command);
 void lithe_agent_close(void *handle);
 ```
 
@@ -41,19 +39,34 @@ process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
-The ACP Agent calls use an opaque per-session handle. `lithe_agent_open_json`
-accepts `{ "command": string, "args": string[], "cwd": absolutePath }` and
-starts the user-installed executable in that workspace. It reports ordered
-JSON events (`ready`, `update`, `permission`, `turnFinished`, `error`, `stopped`)
-through a borrowed callback string. `lithe_agent_permission` accepts an event's
-`requestId` and an advertised option ID, or null to deny. The caller must close
-each handle exactly once; closing revokes callbacks and stops the process tree.
-The callback context must remain valid until close returns. This API is owned
-by `lithe-agent-host` and is separate from the synchronous JSON command envelope.
-The event field names are fixed by `shared/fixtures/agent/acp-events-v1.json`:
-`sessionId`, `requestId`, and `stopReason` use camel case. Cancelling a turn
-rejects pending tool permissions; if the Agent does not finish within five
-seconds, the host ends that session and stops its process tree.
+The ACP Agent calls use an opaque handle for one agent process and connection
+per workspace; one connection carries many conversation sessions.
+`lithe_agent_open_json` accepts `{ "command": string, "args": string[],
+"cwd": absolutePath, "gateway": { "baseUrl": string, "apiKey": string,
+"providerName"?: string, "allowInsecureHttp"?: bool } }`. It starts the
+user-installed executable in that workspace with the executable's directory
+first on `PATH`, signs in only through the agent's `gateway` auth method with
+the user's API key (sent over stdio, never through arguments or environment),
+and reports ordered JSON events through a borrowed callback string. Invalid
+settings and launch failures are reported as a `stopped` event with a message.
+
+`lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
+`listSessions`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
+`turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+their camel-case field names, are fixed by
+`shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
+can correlate concurrent requests. `stopReason` uses ACP wire names such as
+`end_turn` and `cancelled`.
+
+A `cancel` answers the turn's pending permissions with `cancelled`, sends one
+ACP `session/cancel`, and reports `turnFinished` with `cancelled` at once. The
+host keeps awaiting the agent's reply in the background and drops it, so the
+session accepts a new prompt immediately. The caller must close each handle
+exactly once; closing revokes callbacks and stops the process tree, force
+killing processes that do not exit after a short grace period. The callback
+context must remain valid until close returns. This API is owned by
+`lithe-agent-host` and is separate from the synchronous JSON command envelope.
 
 ## Envelope
 

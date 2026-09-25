@@ -152,7 +152,7 @@ pub unsafe extern "C" fn lithe_core_git_askpass(prompt: *const c_char) -> i32 {
     crate::git_askpass_main(&CStr::from_ptr(prompt).to_string_lossy())
 }
 
-/// Opens a shared ACP session and delivers UTF-8 JSON events on a worker thread.
+/// Starts one ACP agent connection and delivers UTF-8 JSON events on a worker thread.
 ///
 /// The returned opaque handle must be closed once with [`lithe_agent_close`].
 ///
@@ -203,58 +203,30 @@ pub unsafe extern "C" fn lithe_agent_open_json(
     }
 }
 
-/// Queues one prompt on an ACP session; returns 1 when accepted.
+/// Queues one UTF-8 JSON command on an ACP connection; returns 1 when accepted.
+///
+/// Commands follow `shared/fixtures/agent/acp-events-v1.json`. Results arrive
+/// asynchronously as events; 0 means the JSON was invalid, the permission
+/// request is gone, or the connection has stopped.
 ///
 /// # Safety
-/// `handle` must be an open handle from `lithe_agent_open_json`; `prompt` must
+/// `handle` must be an open handle from `lithe_agent_open_json`; `command` must
 /// be a readable NUL-terminated string for this call.
 #[no_mangle]
-pub unsafe extern "C" fn lithe_agent_prompt(
+pub unsafe extern "C" fn lithe_agent_send_json(
     handle: *mut std::ffi::c_void,
-    prompt: *const c_char,
+    command: *const c_char,
 ) -> i32 {
-    if handle.is_null() || prompt.is_null() {
+    if handle.is_null() || command.is_null() {
         return 0;
     }
     let handle = &*(handle as *mut AgentFFIHandle);
-    handle
-        .handle
-        .prompt(CStr::from_ptr(prompt).to_string_lossy().into_owned())
-        .is_ok() as i32
-}
-
-/// Requests cancellation of the active ACP prompt.
-///
-/// # Safety
-/// `handle` must be an open handle from `lithe_agent_open_json`.
-#[no_mangle]
-pub unsafe extern "C" fn lithe_agent_cancel(handle: *mut std::ffi::c_void) -> i32 {
-    if handle.is_null() {
+    let Ok(command) = serde_json::from_slice::<lithe_agent_host::AgentCommand>(
+        CStr::from_ptr(command).to_bytes(),
+    ) else {
         return 0;
-    }
-    let handle = &*(handle as *mut AgentFFIHandle);
-    handle.handle.cancel().is_ok() as i32
-}
-
-/// Resolves an ACP permission request; null `option_id` rejects it.
-///
-/// # Safety
-/// `handle` must be open and `request_id` and any `option_id` must be readable
-/// NUL-terminated strings for this call.
-#[no_mangle]
-pub unsafe extern "C" fn lithe_agent_permission(
-    handle: *mut std::ffi::c_void,
-    request_id: *const c_char,
-    option_id: *const c_char,
-) -> i32 {
-    if handle.is_null() || request_id.is_null() {
-        return 0;
-    }
-    let handle = &*(handle as *mut AgentFFIHandle);
-    let request_id = CStr::from_ptr(request_id).to_string_lossy();
-    let option =
-        (!option_id.is_null()).then(|| CStr::from_ptr(option_id).to_string_lossy().into_owned());
-    handle.handle.respond_permission(&request_id, option) as i32
+    };
+    handle.handle.send(command).is_ok() as i32
 }
 
 /// Revokes callbacks, stops the agent tree, and frees an ACP handle.
