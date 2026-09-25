@@ -108,7 +108,7 @@ public enum BuiltInModuleCatalog {
 
     public static let contributions: [ModuleID: [ModuleContribution]] = [
         .agentConversation: [
-            ModuleContribution(id: "agent.conversation", kind: .toolWindow, title: "Agent", icon: "sparkles", placement: .activityBar, order: 250, actionID: "agent.conversation.toggle", rendererID: "agent.conversation")
+            ModuleContribution(id: "agent.conversation", kind: .toolWindow, title: "Agent", icon: "sparkles", placement: .rightSidebar, order: 200, actionID: "agent.conversation.toggle", rendererID: "agent.conversation")
         ],
         .aiAssistance: [
             ModuleContribution(id: "ai.commit-message", kind: .command, title: "Generate Commit Message", icon: "wand.and.stars"),
