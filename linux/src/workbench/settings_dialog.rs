@@ -981,47 +981,9 @@ impl SettingsDialog {
                     v_flex()
                         .w_full()
                         .gap_3()
-                        .child(self.render_row(
-                            crate::i18n::menu_text(cx, "settings.mac.colorTheme").to_string(),
-                            None,
-                            self.render_dropdown(
-                                "general-theme",
-                                s.theme.clone(),
-                                160.0,
-                                vec![
-                                        (
-                                            "lithe-dark",
-                                            crate::i18n::menu_text(cx, "settings.mac.dark")
-                                                .to_string(),
-                                        ),
-                                        (
-                                            "lithe-light",
-                                            crate::i18n::menu_text(cx, "settings.mac.light")
-                                                .to_string(),
-                                        ),
-                                    ],
-                                cx,
-                                |this, theme_id, cx| {
-                                    // 跟随系统时写入对应的自动主题，否则直接切换主题。
-                                    let sync = settings::get(cx).sync_system_theme;
-                                    this.commit_theme(cx, |s| {
-                                        if sync {
-                                            if crate::theme::ThemePalette::is_light(theme_id) {
-                                                s.auto_theme_light = theme_id.to_string();
-                                            } else {
-                                                s.auto_theme_dark = theme_id.to_string();
-                                            }
-                                        } else {
-                                            s.theme = theme_id.to_string();
-                                        }
-                                    })
-                                },
-                            ),
-                        ))
                         .child(
                             self.render_row(
                                 crate::i18n::menu_text(cx, "settings.mac.appearanceMode")
-                                    .to_string()
                                     .to_string(),
                                 Some(
                                     crate::i18n::menu_text(

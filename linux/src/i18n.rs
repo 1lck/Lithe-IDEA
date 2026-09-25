@@ -166,7 +166,6 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         ),
         "terminal.cleared" => ("终端已清空。", "Terminal cleared."),
         "terminal.unavailable" => ("PTY 不可用", "PTY unavailable"),
-        "terminal.searchPlaceholder" => ("在终端中查找", "Find in terminal"),
         "workbench.settings" => ("设置", "Settings"),
         "workbench.sourceControl" => ("源代码管理", "Source Control"),
         "fileExplorer.searchFiles" => ("搜索文件", "Search files"),
@@ -355,11 +354,10 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "ui.save" => ("保存", "Save"),
         // ---- 设置对话框内容：常规（与 Tauri macos-settings-panels.tsx 对齐） ----
         "settings.mac.appearance" => ("外观", "Appearance"),
-        "settings.mac.colorTheme" => ("配色主题", "Color theme"),
         "settings.mac.appearanceMode" => ("外观模式", "Appearance mode"),
         "settings.mac.appearanceDescription" => (
-            "选择配色主题，并设置是否跟随系统外观。",
-            "Choose a color theme and whether Lithe follows the system appearance.",
+            "选择界面外观，可固定为浅色或深色，或跟随系统。",
+            "Choose the interface appearance: light, dark, or follow the system.",
         ),
         "settings.mac.followSystem" => ("跟随系统", "Follow System"),
         "settings.mac.light" => ("浅色", "Light"),
