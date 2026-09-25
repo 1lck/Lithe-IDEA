@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const invoke = mock(async (command: string): Promise<unknown> => {
+const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> => {
   if (command === "git_discover_repo") return "C:/repo";
   if (command === "git_blame_file") return { lines: [] };
   throw new Error(`Unexpected command: ${command}`);
