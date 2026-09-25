@@ -109,3 +109,21 @@ describe("editor tab layout mode normalization", () => {
     ).toBe("singleLine");
   });
 });
+
+describe("v0 profile persistence", () => {
+  test("normalizes saved profiles while the plugin is inactive", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.v0DesignSystems = [
+      { id: "", name: " Starter ", registryUrl: " https://example.test/registry.json " },
+      { id: "duplicate", name: "Duplicate", registryUrl: "https://example.test/registry.json" },
+    ];
+
+    expect(normalizeSettings(settings).v0DesignSystems).toEqual([
+      {
+        id: "starter-example-test-registry-json",
+        name: "Starter",
+        registryUrl: "https://example.test/registry.json",
+      },
+    ]);
+  });
+});

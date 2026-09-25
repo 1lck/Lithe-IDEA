@@ -46,3 +46,8 @@
   资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
   说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
   和 LSP workspace 状态不得跨 worktree 共享。
+
+## 跨平台功能同步
+
+跨平台功能矩阵的字段、状态语义、更新流程和 CI 例外规则以
+`.agents/skills/develop-lithe/SKILL.md` 为准。开始涉及用户可观察功能或跨平台行为时，先读取该 Skill；不要在本文件复制一份会漂移的规则。

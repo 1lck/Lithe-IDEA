@@ -157,7 +157,6 @@ jobs:
             --report .artifacts/test-stability/macos-unit.json \
             --suite-timeout-seconds 660 -- \
             --skip fullSignedDiskImageStagesWithoutChangingInstalledApp \
-            --skip WebKitIntegrationTests \
             --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \
             --skip LitheGitPerformanceTests \
@@ -199,15 +198,6 @@ jobs:
             --max-seconds 60 --suite-timeout-seconds 150 -- \
             --skip-build \
             --filter StableRollbackDiskImageIntegrationTests
-
-      - name: Run WebKit lifecycle integration tests
-        timeout-minutes: 3
-        run: |
-          ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
-            --report .artifacts/test-stability/macos-webkit.json \
-            --max-seconds 60 --suite-timeout-seconds 150 -- \
-            --skip-build \
-            --filter WebKitIntegrationTests
 
       - name: Generate combined Swift test report
         if: always()
