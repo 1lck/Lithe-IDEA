@@ -23,6 +23,7 @@ import {
 } from "@/features/layout/config/item-order";
 import { normalizeUiFontSize } from "@/features/settings/lib/ui-font-size";
 import type { Settings, SettingsSection } from "@/features/settings/types/settings.types";
+import { normalizeDisplayLanguage } from "@/i18n/locale";
 
 const AI_MODEL_MIGRATIONS: Record<string, Record<string, string>> = {
   anthropic: {
@@ -514,6 +515,9 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.windowChromeDensity = normalizeWindowChromeDensity(
     (normalizedSettings as { windowChromeDensity?: unknown }).windowChromeDensity,
   );
+  normalizedSettings.displayLanguage = normalizeDisplayLanguage(
+    (normalizedSettings as { displayLanguage?: unknown }).displayLanguage,
+  );
   normalizedSettings.fileTreeSortOrder = normalizeFileTreeSortOrder(
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
   );
@@ -584,6 +588,7 @@ export function normalizeSettingValue<K extends keyof Settings>(
   if (key === "aiCommit") return normalizeCommitAI(value) as Settings[K];
   if (key === "gitFetchSubmodules") return (["inherit", "no", "onDemand", "yes"].includes(String(value)) ? value : "inherit") as Settings[K];
   if (key === "gitFetchTags") return (["inherit", "all", "none", "prune"].includes(String(value)) ? value : "inherit") as Settings[K];
+  if (key === "displayLanguage") return normalizeDisplayLanguage(value) as Settings[K];
   if (key === "uiFontSize") {
     return normalizeUiFontSize(value as number) as Settings[K];
   }

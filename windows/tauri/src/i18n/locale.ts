@@ -3,6 +3,16 @@ export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
 export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
+/** Convert persisted and legacy locale values to the settings option values. */
+export function normalizeDisplayLanguage(value: unknown): DisplayLanguage {
+  if (typeof value !== "string") return "zh-CN";
+
+  const language = value.trim().toLowerCase().replace("_", "-");
+  if (language.startsWith("zh")) return "zh-CN";
+  if (language.startsWith("en")) return "en-US";
+  return "zh-CN";
+}
+
 const catalogs = {
   "en-US": {
     ...aiCommitEnglish,
