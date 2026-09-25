@@ -38,6 +38,9 @@ extension AppModel {
     var standaloneFileLoadState: StandaloneFileLoadState {
         documentFeature.standaloneFileLoadState
     }
+    var pendingEncodingReopen: DocumentFeatureModel.EncodingReopenRequest? {
+        documentFeature.pendingEncodingReopen
+    }
     var projectTreeRevealRequest: ProjectTreeRevealRequest? {
         documentFeature.projectTreeRevealRequest
     }

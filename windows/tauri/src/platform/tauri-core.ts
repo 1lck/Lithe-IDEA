@@ -26,6 +26,8 @@ const nativeCommands = new Set([
   "core_cancel",
   "core_execute",
   "read_document_file",
+  "read_document_file_details",
+  "read_document_file_change",
   "save_document_file",
   "set_document_watches",
   "create_app_window",

@@ -75,7 +75,7 @@ import {
   createNewFile,
   deleteFileOrDirectory,
   readDirectoryContents,
-  readFileContent,
+  readFileContentWithEncoding,
 } from "../controllers/file-operations";
 import {
   chooseProjectOpenDestination,
@@ -276,7 +276,6 @@ const readProviderDirectoryEntries = async (
   return sortFileEntries(await readDirectoryContents(path, workspaceRoot));
 };
 
-const textFileDecoder = new TextDecoder("utf-8");
 const pendingWorkspaceSessionWrites = new Map<string, ReturnType<typeof setTimeout>>();
 
 const scheduleWorkspaceSessionWrite = (projectPath: string, write: () => void) => {
@@ -342,6 +341,8 @@ const serializeWorkspaceBuffer = (
       isPinned: buffer.isPinned,
       isPreview: buffer.isPreview,
       workspaceScope: getEditorWorkspaceScope(buffer.path, workspaceRootPath, workspaceFolderPaths),
+      readEncoding: buffer.readEncoding ?? buffer.encoding,
+      saveEncoding: buffer.saveEncoding ?? buffer.readEncoding ?? buffer.encoding,
       editorState: buildPersistedEditorViewState(buffer),
     };
   }
@@ -1051,9 +1052,16 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               name: buffer.name,
               isPinned: buffer.isPinned,
               isPreview: buffer.isPreview ?? false,
+              readEncoding: buffer.readEncoding ?? buffer.encoding,
+              saveEncoding: buffer.saveEncoding ?? buffer.readEncoding ?? buffer.encoding,
               editorState: buffer.editorState,
             });
-            editorJobs.push({ bufferId, path: buffer.path, editorState: buffer.editorState });
+            editorJobs.push({
+              bufferId,
+              path: buffer.path,
+              encoding: buffer.readEncoding ?? buffer.encoding,
+              editorState: buffer.editorState,
+            });
           }
           sessionRestoreJobs = new Map(editorJobs.map((job) => [job.bufferId, job]));
 
@@ -1065,6 +1073,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 bufferId,
                 loaded.content ?? "",
                 loaded.language,
+                loaded.encoding,
+                loaded.diskIdentity,
                 editorState,
               ),
             markFailed: (bufferId, error) => bufferActions.markBufferLoadFailed(bufferId, error),
@@ -1558,7 +1568,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         const {
           buffers,
           activeBufferId,
-          actions: { convertPreviewToDefinite, setActiveBuffer },
+          actions: { convertPreviewToDefinite, setActiveBuffer, setBufferEncoding },
         } = useBufferStore.getStore(workspaceId).getState();
         const workspaceRootPath = get().rootFolderPath;
         const fileName = getFilenameFromPath(path);
@@ -1733,8 +1743,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           );
           fileOpenBenchmark.finish(path, "binary-buffer-opened");
         } else {
-          let preloadedLocalText: string | null = null;
-
           const wslInfo = parseWslPath(path);
 
           const resolvedKnownTextPath =
@@ -1776,7 +1784,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 return;
               }
 
-              preloadedLocalText = textFileDecoder.decode(fileData);
             } catch (error) {
               console.error("Failed to inspect file bytes before opening:", error);
             }
@@ -1816,7 +1823,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
                 return;
               }
 
-              preloadedLocalText = textFileDecoder.decode(bytes);
             } catch (error) {
               console.error("Failed to inspect WSL file bytes before opening:", error);
             }
@@ -1864,6 +1870,8 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           }
 
           let content: string;
+          let encoding: import("@/platform/document-files").FileEncoding | undefined;
+          let diskIdentity: string | undefined;
 
           // Check if this is a remote file
           if (path.startsWith("remote://")) {
@@ -1880,26 +1888,25 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
               }),
             );
           } else if (wslInfo) {
-            content =
-              preloadedLocalText ??
-              (await readFileOnce(`wsl-text:${wslInfo.distro}:${wslInfo.linuxPath}`, () =>
+            content = await readFileOnce(`wsl-text:${wslInfo.distro}:${wslInfo.linuxPath}`, () =>
                 invoke<string>("wsl_read_file", {
                   distro: wslInfo.distro,
                   filePath: wslInfo.linuxPath,
                 }),
-              ));
+              );
           } else {
-            content =
-              preloadedLocalText ??
-              (await readFileOnce(`local-text:${resolvedPath}`, () =>
-                readFileContent(resolvedPath),
-              ));
+            const details = await readFileOnce(`local-details:${resolvedPath}`, () =>
+              readFileContentWithEncoding(resolvedPath),
+            );
+            content = details.content ?? "";
+            encoding = details.encoding;
+            diskIdentity = details.identity;
           }
           fileOpenBenchmark.mark(path, "file-read", `${content.length} chars`);
 
           if (isStaleRequest()) return;
 
-          openBuffer(
+          const openedBufferId = openBuffer(
             path,
             fileName,
             content,
@@ -1914,6 +1921,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             undefined,
             isPreview,
           );
+          if (encoding) setBufferEncoding(openedBufferId, encoding, diskIdentity);
           fileOpenBenchmark.mark(path, "buffer-opened");
 
           // Handle navigation to specific line/column

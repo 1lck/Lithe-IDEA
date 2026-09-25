@@ -111,6 +111,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             document::read_document_file,
+            document::read_document_file_details,
+            document::read_document_file_change,
             document::save_document_file,
             document::set_document_watches,
             core::core_execute,

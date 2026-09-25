@@ -5,6 +5,7 @@ import { createWorkspaceSessionSaveQueue } from "./workspace-session-save-queue"
 import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { buildPersistedEditorViewState } from "./editor-session-state";
 import { getBufferById } from "../utils/buffer-index";
+import { getReadEncoding, getSaveEncoding } from "@/platform/document-files";
 
 const SAVE_SESSION_DEBOUNCE_MS = 300;
 
@@ -20,6 +21,8 @@ const serializeBufferForSession = (
       isPinned: buffer.isPinned,
       isPreview: buffer.isPreview,
       workspaceScope: getEditorWorkspaceScope(buffer.path, workspaceRootPath),
+      readEncoding: getReadEncoding(buffer),
+      saveEncoding: getSaveEncoding(buffer),
       editorState: buildPersistedEditorViewState(buffer),
     };
   }

@@ -2,6 +2,7 @@ import { appDataDir } from "@tauri-apps/api/path";
 import { ClockCounterClockwiseIcon as History } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
+import { EncodingPickerContent } from "@/features/command-palette/components/encoding-picker";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
@@ -430,6 +431,8 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
           onBack={popView}
           onClose={onClose}
         />
+      ) : currentView === "encoding" ? (
+        <EncodingPickerContent onClose={onClose} onBack={popView} />
       ) : extensionView ? (
         extensionView.render({
           isActive: true,
