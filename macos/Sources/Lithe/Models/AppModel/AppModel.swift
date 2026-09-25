@@ -95,7 +95,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
     var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
     @Published var debugBreakpointPresentation = DebugBreakpointPresentationState()
-    @Published var isDiscourseCommunityVisible = false
     @Published var isImplementationChooserVisible = false
     var languageProviderCatalog: LanguageProviderCatalog { languageToolingFeature.catalog }
     var languageProviderCatalogSnapshot: LanguageProviderCatalogSnapshot { languageToolingFeature.catalogSnapshot }
@@ -163,9 +162,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let debugPortAvailabilityChecker: any DebugPortAvailabilityChecking
     var workspaceFeature: WorkspaceFeatureModel { featureGraph.workspace }
     var githubFeature: GitHubFeatureModel { featureGraph.github }
-    var discourseCommunityFeature: DiscourseCommunityFeatureModel {
-        featureGraph.discourseCommunity
-    }
     var diagnosticsFeature: DiagnosticsFeatureModel { featureGraph.diagnostics }
     var editorTabOrderFeature: EditorTabOrderFeatureModel { featureGraph.editorTabOrder }
     var mediaFeature: MediaDocumentFeatureModel { featureGraph.media }

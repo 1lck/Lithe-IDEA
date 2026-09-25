@@ -5,7 +5,6 @@ import {
   getBundledContributionExtensions,
   isBundledContributionExtension,
 } from "../bundled/bundled-contribution-extensions";
-import { getDatabaseProviderExtensions } from "../database/database-provider-extensions";
 import { extensionInstaller } from "../installer/extension-installer";
 import { getFullExtensions } from "../languages/full-extensions";
 import { getPackagedLanguageExtensions } from "../languages/language-packager";
@@ -29,17 +28,16 @@ import {
   uninstallExtensionLifecycle,
   updateExtensionLifecycle,
 } from "./extension-store-lifecycle";
-import { markExtensionDisabled, markExtensionEnabled } from "./extension-enabled-state";
+import {
+  markExtensionDisabled,
+  markExtensionEnabled,
+  readDisabledExtensionIds,
+} from "./extension-enabled-state";
 import { isRetiredExtensionId } from "./retired-extensions";
 import { resolveInstalledExtensionId } from "./extension-store-runtime";
 import type { AvailableExtension, ExtensionInstallationMetadata } from "./extension-store-types";
 import type { ExtensionManifest } from "../types/extension-manifest";
-import { getManifestDatabaseContributions } from "../types/extension-contributions";
 import { readInstalledBundledContributionExtensionIds } from "./bundled-contribution-install-state";
-
-function isBuiltInDatabaseExtension(manifest: ExtensionManifest): boolean {
-  return getManifestDatabaseContributions(manifest).some((provider) => provider.id === "sqlite");
-}
 
 interface ExtensionStoreState {
   availableExtensions: Map<string, AvailableExtension>;
@@ -53,7 +51,7 @@ interface ExtensionStoreState {
     loadInstalledExtensions: () => Promise<void>;
     isExtensionInstalled: (extensionId: string) => boolean;
     getExtensionForFile: (filePath: string) => AvailableExtension | undefined;
-    installExtension: (extensionId: string) => Promise<void>;
+    installExtension: (extensionId: string, activateAfterInstall?: boolean) => Promise<void>;
     uninstallExtension: (extensionId: string) => Promise<void>;
     enableExtension: (extensionId: string) => Promise<void>;
     disableExtension: (extensionId: string) => Promise<void>;
@@ -91,7 +89,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
 
           for (const manifest of [
             ...languageExtensions,
-            ...getDatabaseProviderExtensions(),
             ...bundledContributionExtensions,
             ...marketplaceExtensions,
           ]) {
@@ -104,6 +101,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           // Check which extensions are installed
           const installed = get().installedExtensions;
           const installedBundledContributions = readInstalledBundledContributionExtensionIds();
+          const disabledExtensionIds = readDisabledExtensionIds();
 
           for (const manifest of extensions) {
             const existing = extensionRegistry.getExtension(manifest.id);
@@ -111,15 +109,16 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               continue;
             }
 
-            const isBuiltInDatabase = isBuiltInDatabaseExtension(manifest);
             const isBundledContributionInstalled =
               isBundledContributionExtension(manifest) &&
               installedBundledContributions.has(manifest.id);
-            const isInstalled =
-              installed.has(manifest.id) || isBuiltInDatabase || isBundledContributionInstalled;
-            const isEnabled = installed.get(manifest.id)?.enabled ?? isInstalled;
+            const isInstalled = installed.has(manifest.id) || isBundledContributionInstalled;
+            const isEnabled =
+              isInstalled &&
+              !disabledExtensionIds.has(manifest.id) &&
+              (installed.get(manifest.id)?.enabled ?? true);
             extensionRegistry.registerExtension(manifest, {
-              isBundled: isBuiltInDatabase,
+              isBundled: false,
               state: isInstalled ? (isEnabled ? "installed" : "deactivated") : "not-installed",
               isEnabled,
             });
@@ -128,16 +127,17 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           set((state) => {
             // Add all language extensions as installable
             for (const manifest of extensions) {
-              const isBuiltInDatabase = isBuiltInDatabaseExtension(manifest);
               const isBundledContributionInstalled =
                 isBundledContributionExtension(manifest) &&
                 installedBundledContributions.has(manifest.id);
-              const isInstalled =
-                installed.has(manifest.id) || isBuiltInDatabase || isBundledContributionInstalled;
+              const isInstalled = installed.has(manifest.id) || isBundledContributionInstalled;
               state.availableExtensions.set(manifest.id, {
                 manifest,
                 isInstalled,
-                isEnabled: installed.get(manifest.id)?.enabled ?? isInstalled,
+                isEnabled:
+                  isInstalled &&
+                  !disabledExtensionIds.has(manifest.id) &&
+                  (installed.get(manifest.id)?.enabled ?? true),
                 isInstalling: false,
                 runtimeIssues: [],
               });
@@ -173,6 +173,18 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             availableExtensions,
           });
 
+          for (const [extensionId, metadata] of installedExtensions) {
+            const extension = availableExtensions.get(extensionId);
+            if (!extension) continue;
+            const existing = extensionRegistry.getExtension(extensionId);
+            if (existing?.state === "installed" && metadata.enabled) continue;
+            extensionRegistry.registerExtension(existing?.manifest ?? extension.manifest, {
+              isBundled: existing?.isBundled ?? false,
+              isEnabled: metadata.enabled !== false,
+              state: metadata.enabled === false ? "deactivated" : "installed",
+            });
+          }
+
           await Promise.all(
             Array.from(installedExtensions.entries()).map(async ([extensionId, metadata]) => {
               if (metadata.enabled === false) return;
@@ -185,17 +197,17 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           set((state) => {
             state.installedExtensions = installedExtensions;
             state.isLoadingInstalled = false;
+            const disabledExtensionIds = readDisabledExtensionIds();
 
             for (const [id, ext] of state.availableExtensions) {
-              ext.isInstalled =
-                state.installedExtensions.has(id) || isBuiltInDatabaseExtension(ext.manifest);
+              ext.isInstalled = state.installedExtensions.has(id);
               ext.isEnabled = ext.isInstalled
-                ? (state.installedExtensions.get(id)?.enabled ?? true)
+                ? !disabledExtensionIds.has(id) &&
+                  (state.installedExtensions.get(id)?.enabled ?? true)
                 : false;
               ext.runtimeIssues = runtimeIssues.get(id) || [];
             }
           });
-
         } catch (error) {
           console.error("Failed to load installed extensions:", error);
           set((state) => {
@@ -205,18 +217,14 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
       },
 
       isExtensionInstalled: (extensionId: string) => {
-        const extension = get().availableExtensions.get(extensionId);
-        return (
-          get().installedExtensions.has(extensionId) ||
-          Boolean(extension && isBuiltInDatabaseExtension(extension.manifest))
-        );
+        return get().installedExtensions.has(extensionId);
       },
 
       getExtensionForFile: (filePath: string) => {
         return findExtensionForFile(filePath, get().availableExtensions);
       },
 
-      installExtension: async (extensionId: string) => {
+      installExtension: async (extensionId: string, activateAfterInstall = true) => {
         const extension = get().availableExtensions.get(extensionId);
         if (!extension) {
           throw new Error(`Extension ${extensionId} not found in registry`);
@@ -240,6 +248,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           await installExtensionLifecycle({
             extensionId,
             extension,
+            activateAfterInstall,
             onProgress: (progress) => {
               set((state) => {
                 const ext = state.availableExtensions.get(extensionId);
@@ -254,14 +263,14 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = true;
+                  ext.isEnabled = activateAfterInstall;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   ext.manifest = runtimeManifest;
                   ext.runtimeIssues = runtimeIssues || [];
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext),
+                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
@@ -273,12 +282,12 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                 if (ext) {
                   ext.isInstalling = false;
                   ext.isInstalled = true;
-                  ext.isEnabled = true;
+                  ext.isEnabled = activateAfterInstall;
                   ext.installProgress = 100;
                   ext.installError = undefined;
                   state.installedExtensions.set(
                     extensionId,
-                    buildInstalledExtensionMetadata(extensionId, ext),
+                    buildInstalledExtensionMetadata(extensionId, ext, activateAfterInstall),
                   );
                 }
                 state.availableExtensions = new Map(state.availableExtensions);
@@ -286,7 +295,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             },
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
-
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error);
 
@@ -337,7 +345,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             },
             reloadInstalledExtensions: get().actions.loadInstalledExtensions,
           });
-
         } catch (error) {
           console.error(`Failed to uninstall extension ${extensionId}:`, error);
           throw error;
@@ -431,7 +438,6 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             state.isCheckingUpdates = false;
           });
 
-
           return updates;
         } catch (error) {
           console.error("Failed to check for extension updates:", error);
@@ -462,9 +468,9 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               }
             });
           },
-          reinstall: () => get().actions.installExtension(extensionId),
+          reinstall: (activateAfterInstall) =>
+            get().actions.installExtension(extensionId, activateAfterInstall),
         });
-
       },
     },
   })),

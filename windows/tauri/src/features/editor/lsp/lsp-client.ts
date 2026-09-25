@@ -145,6 +145,7 @@ type TrackedLspDocument = {
 
 type PendingFileStart = {
   scope: WorkspaceLaunchScope;
+  languageId: string | undefined;
   task: Promise<LspFileAttachmentOutcome>;
 };
 
@@ -309,7 +310,7 @@ export class LspClient {
       await waitForExtensionStoreInitialization();
 
       const extension = useExtensionStore.getState().actions.getExtensionForFile(filePath);
-      if (!extension?.isInstalled || !extension.manifest.lsp) {
+      if (!extension?.isInstalled || !extension.isEnabled || !extension.manifest.lsp) {
         return { kind: "unavailable", reason: "extensionUnavailable" };
       }
 
@@ -323,6 +324,12 @@ export class LspClient {
         repairMissing: true,
       });
       const runtimeManifest = buildRuntimeManifest(extension.manifest, resolvedTools.toolPaths);
+
+      // A disable may complete while tool repair is in flight. Do not revive
+      // its registry entry or start a server after the user turned it off.
+      if (!extensionRegistry.getExtension(extension.manifest.id)?.isEnabled) {
+        return { kind: "unavailable", reason: "extensionUnavailable" };
+      }
 
       useExtensionStore.setState((state) => {
         const availableExtensions = new Map(state.availableExtensions);
@@ -897,7 +904,11 @@ export class LspClient {
         this.fileStartTasks.delete(attachmentKey);
       }
     });
-    this.fileStartTasks.set(attachmentKey, { scope, task });
+    this.fileStartTasks.set(attachmentKey, {
+      scope,
+      languageId: languageIdForEditorFile(filePath),
+      task,
+    });
     return task;
   }
 
@@ -1160,7 +1171,12 @@ export class LspClient {
 
     try {
       logger.debug("LSPClient", "Stopping LSP for file:", filePath);
-      const languageId = languageIdForEditorFile(filePath);
+      // Disabling an extension hides it from language lookup before teardown.
+      // Use the tracked server identity so cleanup still removes that session.
+      const trackedServerKey = this.findServerKeyForFile(filePath);
+      const languageId = trackedServerKey
+        ? this.parseServerKey(trackedServerKey).languageId
+        : languageIdForEditorFile(filePath);
       await invoke<void>("lsp_stop_for_file", { filePath, attachmentId });
 
       // A newer editor attachment owns the same path now. The adapter ignored
@@ -1205,6 +1221,38 @@ export class LspClient {
     } catch (error) {
       logger.error("LSPClient", "Failed to stop LSP for file:", error);
       throw error;
+    }
+  }
+
+  async stopLanguageServers(languageIds: readonly string[]): Promise<void> {
+    const ownedLanguages = new Set(languageIds);
+    // File attachment tasks can start after their workspace task resolves.
+    // Drain both stages before taking the list of sessions to stop.
+    await Promise.allSettled(
+      [...this.fileStartTasks.values()]
+        .filter((pending) => pending.languageId && ownedLanguages.has(pending.languageId))
+        .map((pending) => pending.task),
+    );
+    const pendingStarts = [...this.workspaceStartTasks.entries()]
+      .filter(([key]) => ownedLanguages.has(this.parseServerKey(key).languageId))
+      .map(([, pending]) => pending.task);
+    await Promise.allSettled(pendingStarts);
+
+    const serverKeys = [...this.activeLanguageServers].filter((key) =>
+      ownedLanguages.has(this.parseServerKey(key).languageId),
+    );
+    for (const serverKey of serverKeys) {
+      const paths = [...(this.activeServerFiles.get(serverKey) ?? [])];
+      for (const path of paths) {
+        await this.stopForFile(path);
+      }
+      if (this.activeLanguageServers.has(serverKey)) {
+        throw new Error(`Language server remained active after disabling ${serverKey}`);
+      }
+      const { workspacePath, languageId } = this.parseServerKey(serverKey);
+      if (getLspWorkspaceSessionSnapshot({ workspacePath, languageId })) {
+        throw new Error(`Language server session remained active after disabling ${serverKey}`);
+      }
     }
   }
 

@@ -1,19 +1,6 @@
-import type { ExtensionManifest } from "@/extensions/types/extension-manifest";
+import type { Theme } from "../theme-schema";
 
-export const vercelThemeManifest: ExtensionManifest = {
-  id: "lithe.theme.vercel",
-  name: "vercel",
-  displayName: "Vercel Theme",
-  description: "Light and dark themes inspired by Vercel's dashboard and documentation.",
-  version: "1.0.0",
-  publisher: "Lithe",
-  categories: ["Theme"],
-  activationEvents: ["onTheme:vercel-light", "onTheme:vercel-dark"],
-  license: "MIT",
-  installation: {
-    type: "bundled",
-  },
-  themes: [
+export const vercelThemes: Theme[] = [
     {
       id: "vercel-light",
       name: "Vercel Light",
@@ -104,5 +91,4 @@ export const vercelThemeManifest: ExtensionManifest = {
         attribute: "#7928ca",
       },
     },
-  ],
-};
+];
