@@ -1020,9 +1020,14 @@ impl EditorView {
 /// 编辑器标签派发的事件（右键菜单动作由 UI 层触发，父视图订阅处理）。
 #[derive(Debug, Clone)]
 pub enum EditorTabEvent {
-    OpenInTerminal { dir: String },
+    OpenInTerminal {
+        dir: String,
+    },
     /// 活动标签的内容或身份发生变化，父视图据此同步 LSP 文档态。
-    DocumentChanged { path: String, text: String },
+    DocumentChanged {
+        path: String,
+        text: String,
+    },
 }
 
 impl EventEmitter<EditorTabEvent> for EditorView {}

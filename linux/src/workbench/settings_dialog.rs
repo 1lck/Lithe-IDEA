@@ -978,59 +978,51 @@ impl SettingsDialog {
             .child(
                 self.render_group(
                     crate::i18n::menu_text(cx, "settings.mac.appearance").to_string(),
-                    v_flex()
-                        .w_full()
-                        .gap_3()
-                        .child(
-                            self.render_row(
-                                crate::i18n::menu_text(cx, "settings.mac.appearanceMode")
+                    v_flex().w_full().gap_3().child(
+                        self.render_row(
+                            crate::i18n::menu_text(cx, "settings.mac.appearanceMode").to_string(),
+                            Some(
+                                crate::i18n::menu_text(cx, "settings.mac.appearanceDescription")
                                     .to_string(),
-                                Some(
-                                    crate::i18n::menu_text(
-                                        cx,
-                                        "settings.mac.appearanceDescription",
-                                    )
-                                    .to_string(),
-                                ),
-                                self.render_dropdown(
-                                    "general-appearance-mode",
-                                    appearance_mode,
-                                    160.0,
-                                    vec![
-                                        (
-                                            "system",
-                                            crate::i18n::menu_text(cx, "settings.mac.followSystem")
-                                                .to_string(),
-                                        ),
-                                        (
-                                            "light",
-                                            crate::i18n::menu_text(cx, "settings.mac.light")
-                                                .to_string(),
-                                        ),
-                                        (
-                                            "dark",
-                                            crate::i18n::menu_text(cx, "settings.mac.dark")
-                                                .to_string(),
-                                        ),
-                                    ],
-                                    cx,
-                                    |this, mode, cx| {
-                                        this.commit_theme(cx, |s| {
-                                            if mode == "system" {
-                                                s.sync_system_theme = true;
+                            ),
+                            self.render_dropdown(
+                                "general-appearance-mode",
+                                appearance_mode,
+                                160.0,
+                                vec![
+                                    (
+                                        "system",
+                                        crate::i18n::menu_text(cx, "settings.mac.followSystem")
+                                            .to_string(),
+                                    ),
+                                    (
+                                        "light",
+                                        crate::i18n::menu_text(cx, "settings.mac.light")
+                                            .to_string(),
+                                    ),
+                                    (
+                                        "dark",
+                                        crate::i18n::menu_text(cx, "settings.mac.dark").to_string(),
+                                    ),
+                                ],
+                                cx,
+                                |this, mode, cx| {
+                                    this.commit_theme(cx, |s| {
+                                        if mode == "system" {
+                                            s.sync_system_theme = true;
+                                        } else {
+                                            s.sync_system_theme = false;
+                                            s.theme = if mode == "light" {
+                                                "lithe-light".to_string()
                                             } else {
-                                                s.sync_system_theme = false;
-                                                s.theme = if mode == "light" {
-                                                    "lithe-light".to_string()
-                                                } else {
-                                                    "lithe-dark".to_string()
-                                                };
-                                            }
-                                        })
-                                    },
-                                ),
+                                                "lithe-dark".to_string()
+                                            };
+                                        }
+                                    })
+                                },
                             ),
                         ),
+                    ),
                 ),
             )
             .child(self.render_group(
@@ -3122,8 +3114,8 @@ fn executable_candidates(dir: &std::path::Path, name: &str) -> Vec<std::path::Pa
     {
         let mut candidates = vec![dir.join(name)];
         if std::path::Path::new(name).extension().is_none() {
-            let pathext = std::env::var("PATHEXT")
-                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            let pathext =
+                std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
             for extension in pathext.split(';').filter(|value| !value.is_empty()) {
                 candidates.push(dir.join(format!("{name}{extension}")));
             }

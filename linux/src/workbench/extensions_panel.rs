@@ -917,7 +917,11 @@ fn classify_text(text: &str) -> ExtensionCategory {
 /// 启用状态落盘路径：`<config>/lithe/extensions.json`
 ///（配置目录规则见 `settings::config_dir`）。
 fn extensions_state_path() -> Option<PathBuf> {
-    Some(crate::settings::config_dir()?.join("lithe").join("extensions.json"))
+    Some(
+        crate::settings::config_dir()?
+            .join("lithe")
+            .join("extensions.json"),
+    )
 }
 
 fn load_enabled() -> HashMap<String, bool> {

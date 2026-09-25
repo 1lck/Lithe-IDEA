@@ -136,11 +136,7 @@ impl CoreClient {
     }
 
     /// 获取工作区快照
-    pub fn snapshot(
-        &self,
-        cx: &gpui_kit::AsyncApp,
-        root: &str,
-    ) -> Task<Result<Value, String>> {
+    pub fn snapshot(&self, cx: &gpui_kit::AsyncApp, root: &str) -> Task<Result<Value, String>> {
         self.execute(
             cx,
             "workspace.snapshot",
@@ -273,11 +269,7 @@ impl CoreClient {
     }
 
     /// 获取 Git 状态
-    pub fn git_status(
-        &self,
-        cx: &gpui_kit::AsyncApp,
-        root: &str,
-    ) -> Task<Result<Value, String>> {
+    pub fn git_status(&self, cx: &gpui_kit::AsyncApp, root: &str) -> Task<Result<Value, String>> {
         self.execute(
             cx,
             "git.status",

@@ -70,8 +70,8 @@ fn shell_candidates(dir: &std::path::Path, name: &str) -> Vec<std::path::PathBuf
     {
         let mut candidates = vec![dir.join(name)];
         if std::path::Path::new(name).extension().is_none() {
-            let pathext = std::env::var("PATHEXT")
-                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            let pathext =
+                std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
             for extension in pathext.split(';').filter(|value| !value.is_empty()) {
                 candidates.push(dir.join(format!("{name}{extension}")));
             }

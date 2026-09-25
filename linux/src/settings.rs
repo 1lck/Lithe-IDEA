@@ -458,9 +458,7 @@ pub fn data_dir() -> Option<PathBuf> {
         std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .filter(|path| !path.as_os_str().is_empty())
-            .or_else(|| {
-                user_home_dir().map(|home| home.join("AppData").join("Local"))
-            })
+            .or_else(|| user_home_dir().map(|home| home.join("AppData").join("Local")))
     }
 }
 

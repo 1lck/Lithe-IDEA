@@ -46,7 +46,10 @@ fn jdtls_configuration_name() -> &'static str {
     {
         "config_linux_arm"
     }
-    #[cfg(all(target_os = "linux", not(any(target_arch = "aarch64", target_arch = "arm"))))]
+    #[cfg(all(
+        target_os = "linux",
+        not(any(target_arch = "aarch64", target_arch = "arm"))
+    ))]
     {
         "config_linux"
     }
@@ -244,8 +247,8 @@ fn executable_candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
     {
         let mut candidates = vec![dir.join(name)];
         if Path::new(name).extension().is_none() {
-            let pathext = std::env::var("PATHEXT")
-                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
+            let pathext =
+                std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string());
             for extension in pathext.split(';').filter(|value| !value.is_empty()) {
                 candidates.push(dir.join(format!("{name}{extension}")));
             }

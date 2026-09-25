@@ -355,8 +355,14 @@ mod tests {
         let id = KeyStrokeId::parse("Ctrl+B").expect("parse");
         assert_ne!(index.lookup(&id), Some("go.references"));
         // F5/F9 等调试快捷键后端未接入，不应绑定。
-        assert_eq!(index.lookup(&KeyStrokeId::parse("F5").expect("parse")), None);
-        assert_eq!(index.lookup(&KeyStrokeId::parse("F9").expect("parse")), None);
+        assert_eq!(
+            index.lookup(&KeyStrokeId::parse("F5").expect("parse")),
+            None
+        );
+        assert_eq!(
+            index.lookup(&KeyStrokeId::parse("F9").expect("parse")),
+            None
+        );
     }
 
     #[test]
