@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
+
 SWIFT_ARGS=(
     test --disable-sandbox
     -Xswiftc -Xfrontend

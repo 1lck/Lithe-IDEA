@@ -83,6 +83,33 @@ Later versions can use deltas. Sparkle falls back to the full archive when a del
 is unavailable or cannot be applied. `brew upgrade --cask lithe` continues to
 download the full DMG.
 
+## Keep the runtime bundle immutable
+
+The app bundle inside a published ZIP is the exact byte baseline used to build
+Sparkle deltas. It is therefore a read-only input after installation. Runtime
+files such as language-server indexes, Eclipse/OSGi state, downloaded archives,
+plugin state, logs, and lock files belong in the platform cache, Application
+Support, temporary storage, or the user's workspace. A resource resolver may
+read `Bundle.main.resourceURL`, but it must never use that path as a write
+destination.
+
+JDTLS is the one bundled runtime that writes next to its own files: Equinox
+stores its framework state in the `-configuration` directory. Rust Core copies
+the packaged `config.ini` into
+`Caches/Lithe/language-servers/jdtls-configuration/<sha256>/configuration/` and
+passes that directory instead, so its OSGi files cannot modify
+`Contents/Resources`. The Windows product uses the same Core path with
+`app_cache_dir()`. New runtime resources must document their lifecycle, owner,
+writable location, and whether they affect signing or delta generation in the
+code or an Agent Note.
+
+The full ZIP fallback is not a successful differential update: it only means
+Sparkle recovered by downloading the complete archive. Before publishing, run
+the bundle immutability guard and the resolver test, then exercise a signed app's
+typical startup and language-service workflow and compare the app bundle file
+list and SHA-256 values with the clean release artifact. If a workflow changes
+the bundle, fix its storage boundary before generating another delta.
+
 ## Follow the preview channel
 
 The scheduled macOS Preview workflow builds the `preview` branch daily. It pins
@@ -205,6 +232,7 @@ its own update channel (Sparkle or the legacy updater, depending on its version)
 Run the focused Swift timing harness, the full macOS suite, and package checks:
 
 ```sh
+./scripts/verify-runtime-bundle-immutability.sh
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'StableRollbackTests|UpdateCheckerTests|UpdateManifestTests'
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
