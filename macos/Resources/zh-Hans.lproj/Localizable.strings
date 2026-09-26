@@ -748,6 +748,9 @@
 "Working Tree" = "工作区";
 "Working tree matches this reference" = "工作区与此引用一致";
 "Run a Maven lifecycle phase to see output." = "运行 Maven 生命周期阶段后会显示输出。";
+"Run selected Maven lifecycle phase" = "运行选中的 Maven 生命周期阶段";
+"Execute Maven goal" = "执行 Maven 目标";
+"Maven settings" = "Maven 设置";
 "Reload Maven project" = "重新加载 Maven 项目";
 "Stop Maven task" = "停止 Maven 任务";
 "Clear build output" = "清除构建输出";
