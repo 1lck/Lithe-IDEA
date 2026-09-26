@@ -9,6 +9,7 @@ export type RunActionSource =
   | "just"
   | "go"
   | "python"
+  | "php"
   | "lsp";
 
 export interface RunActionItem {
@@ -19,6 +20,7 @@ export interface RunActionItem {
   source: RunActionSource;
   sourceLabel: string;
   workingDirectory?: string;
+  pluginCommand?: { executable: string; arguments: string[] };
   codeLens?: CodeLensItem;
   mavenTest?: {
     filePath: string;

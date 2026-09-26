@@ -1,3 +1,4 @@
+import { phpProcessOwner } from "@lithe/php/process-owner";
 import { invoke } from "@/platform/tauri-core";
 import { wasmParserLoader } from "@/features/editor/lib/wasm-parser/loader";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -26,6 +27,18 @@ import {
   resolveToolPaths,
 } from "./extension-store-runtime";
 import type { AvailableExtension, ExtensionInstallationMetadata } from "./extension-store-types";
+
+const languageInstalls = new Map<string, { cancelled: boolean; done: Promise<void> }>();
+
+async function cancelLanguageInstall(extensionId: string, languageIds: string[]) {
+  const pending = languageInstalls.get(extensionId);
+  if (pending) pending.cancelled = true;
+  for (const id of languageIds) extensionInstaller.cancelInstallation(id);
+  await Promise.all(
+    languageIds.map((languageId) => invoke("cancel_language_tool_install", { languageId })),
+  );
+  if (pending) await pending.done.catch(() => undefined);
+}
 
 async function refreshSyntaxHighlightingForActiveBuffer(extension: AvailableExtension) {
   const languages = getManifestLanguageContributions(extension.manifest);
@@ -159,43 +172,78 @@ export async function installExtensionLifecycle(params: {
 
   const languageConfigs = getManifestLanguageContributions(extension.manifest);
   if (languageConfigs.length > 0) {
-    await installLanguageExtensionManifest(extensionId, extension.manifest, onProgress);
+    if (languageInstalls.has(extensionId))
+      throw new Error("Extension installation is already running");
+    let complete!: () => void;
+    const pending = {
+      cancelled: false,
+      done: new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+    };
+    languageInstalls.set(extensionId, pending);
+    const checkCancelled = () => {
+      if (pending.cancelled) throw new Error("Extension installation cancelled");
+    };
+    try {
+      await installLanguageExtensionManifest(extensionId, extension.manifest, onProgress);
+      checkCancelled();
 
-    const primaryLanguageId = languageConfigs[0].id;
-    const resolvedTools = await resolveToolPaths(primaryLanguageId, extension.manifest, {
-      ensureInstalled: true,
-    });
-    const runtimeManifest = buildRuntimeManifest(extension.manifest, resolvedTools.toolPaths);
+      const primaryLanguageId = languageConfigs[0].id;
+      const resolvedTools = await resolveToolPaths(primaryLanguageId, extension.manifest, {
+        ensureInstalled: true,
+      });
+      checkCancelled();
+      const runtimeManifest = buildRuntimeManifest(extension.manifest, resolvedTools.toolPaths);
 
-    if (extension.manifest.lsp && !runtimeManifest.lsp) {
-      const runtimeIssue =
-        resolvedTools.issues.find((issue) => issue.tool === "lsp")?.message ||
-        "Language server could not be installed. Reinstall the language tools.";
-      throw new Error(runtimeIssue);
-    }
+      if (extension.manifest.lsp && !runtimeManifest.lsp) {
+        const runtimeIssue =
+          resolvedTools.issues.find((issue) => issue.tool === "lsp")?.message ||
+          "Language server could not be installed. Reinstall the language tools.";
+        throw new Error(runtimeIssue);
+      }
 
-    extensionRegistry.registerExtension(runtimeManifest, {
-      isBundled: false,
-      isEnabled: activateAfterInstall,
-      state: activateAfterInstall ? "installed" : "deactivated",
-    });
+      extensionRegistry.registerExtension(runtimeManifest, {
+        isBundled: false,
+        isEnabled: activateAfterInstall,
+        state: activateAfterInstall ? "installed" : "deactivated",
+      });
 
-    onLanguageInstalled(runtimeManifest, resolvedTools.issues);
-
-    if (activateAfterInstall) {
-      await Promise.all(
-        languageConfigs.map((languageConfig) =>
-          registerLanguageProvider({
-            extensionId,
-            languageId: languageConfig.id,
-            displayName: extension.manifest.displayName,
-            version: extension.manifest.version,
-            extensions: languageConfig.extensions,
-            aliases: languageConfig.aliases,
-          }),
-        ),
-      );
-      await refreshSyntaxHighlightingForActiveBuffer(extension);
+      if (activateAfterInstall) {
+        await Promise.all(
+          languageConfigs.map((languageConfig) =>
+            registerLanguageProvider({
+              extensionId,
+              languageId: languageConfig.id,
+              displayName: extension.manifest.displayName,
+              version: extension.manifest.version,
+              extensions: languageConfig.extensions,
+              aliases: languageConfig.aliases,
+            }),
+          ),
+        );
+        checkCancelled();
+        await refreshSyntaxHighlightingForActiveBuffer(extension);
+      }
+      checkCancelled();
+      onLanguageInstalled(runtimeManifest, resolvedTools.issues);
+    } catch (error) {
+      if (!extension.isInstalled) {
+        extensionRegistry.registerExtension(extension.manifest, {
+          isBundled: false,
+          isEnabled: false,
+          state: "not-installed",
+        });
+        await unloadLanguageProviders(
+          extensionId,
+          languageConfigs.map((language) => language.id),
+        );
+        await uninstallLanguageArtifacts(languageConfigs.map((language) => language.id));
+      }
+      throw error;
+    } finally {
+      languageInstalls.delete(extensionId);
+      complete();
     }
     return;
   }
@@ -251,6 +299,9 @@ export async function uninstallExtensionLifecycle(params: {
 
     await disableExtensionLifecycle({ extensionId, extension });
     await uninstallLanguageArtifacts(languageIds);
+    await Promise.all(
+      languageIds.map((languageId) => invoke("uninstall_language_tools", { languageId })),
+    );
     extensionRegistry.registerExtension(extension.manifest, {
       isBundled: false,
       isEnabled: false,
@@ -286,32 +337,53 @@ export async function enableExtensionLifecycle(params: {
   const languageConfigs = getManifestLanguageContributions(extension.manifest);
 
   if (languageConfigs.length > 0) {
-    const primaryLanguageId = languageConfigs[0].id;
-    const resolvedTools = await resolveToolPaths(primaryLanguageId, extension.manifest, {
-      ensureInstalled: false,
-    });
-    const runtimeManifest = buildRuntimeManifest(extension.manifest, resolvedTools.toolPaths);
+    if (languageInstalls.has(extensionId))
+      throw new Error("A language operation is already running");
+    let complete!: () => void;
+    const pending = {
+      cancelled: false,
+      done: new Promise<void>((resolve) => {
+        complete = resolve;
+      }),
+    };
+    languageInstalls.set(extensionId, pending);
+    const checkCancelled = () => {
+      if (pending.cancelled) throw new Error("Extension activation cancelled");
+    };
+    try {
+      const primaryLanguageId = languageConfigs[0].id;
+      const resolvedTools = await resolveToolPaths(primaryLanguageId, extension.manifest, {
+        ensureInstalled: false,
+      });
+      checkCancelled();
+      const runtimeManifest = buildRuntimeManifest(extension.manifest, resolvedTools.toolPaths);
 
-    extensionRegistry.registerExtension(runtimeManifest, {
-      isBundled: false,
-      isEnabled: true,
-      state: "installed",
-    });
+      extensionRegistry.registerExtension(runtimeManifest, {
+        isBundled: false,
+        isEnabled: true,
+        state: "installed",
+      });
 
-    await Promise.all(
-      languageConfigs.map((languageConfig) =>
-        registerLanguageProvider({
-          extensionId,
-          languageId: languageConfig.id,
-          displayName: extension.manifest.displayName,
-          version: extension.manifest.version,
-          extensions: languageConfig.extensions,
-          aliases: languageConfig.aliases,
-        }),
-      ),
-    );
+      await Promise.all(
+        languageConfigs.map((languageConfig) =>
+          registerLanguageProvider({
+            extensionId,
+            languageId: languageConfig.id,
+            displayName: extension.manifest.displayName,
+            version: extension.manifest.version,
+            extensions: languageConfig.extensions,
+            aliases: languageConfig.aliases,
+          }),
+        ),
+      );
 
-    await refreshSyntaxHighlightingForActiveBuffer(extension);
+      checkCancelled();
+      await refreshSyntaxHighlightingForActiveBuffer(extension);
+      checkCancelled();
+    } finally {
+      languageInstalls.delete(extensionId);
+      complete();
+    }
     return;
   }
 
@@ -340,6 +412,18 @@ export async function disableExtensionLifecycle(params: {
       state: "deactivated",
     });
     try {
+      await cancelLanguageInstall(
+        extensionId,
+        languageConfigs.map((language) => language.id),
+      );
+      // Cancellation may race a provider registration: close the gate again
+      // after installation has settled before stopping its resources.
+      extensionRegistry.registerExtension(previous?.manifest ?? extension.manifest, {
+        isBundled: previous?.isBundled ?? false,
+        isEnabled: false,
+        state: "deactivated",
+      });
+      if (extensionId === "lithe.php") await phpProcessOwner.stop();
       const { LspClient } = await import("@/features/editor/lsp/lsp-client");
       await LspClient.getInstance().stopLanguageServers(
         languageConfigs.map((language) => language.id),

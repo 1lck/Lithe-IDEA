@@ -69,8 +69,9 @@ export async function loadInstalledExtensionsSnapshot(
 
       if (extension) {
         const resolvedTools = await resolveToolPaths(languageId, extension, {
-          repairMissing: true,
+          repairMissing: languageId !== "php",
         });
+        if (readDisabledExtensionIds().has(extensionId)) return;
         const runtimeManifest = buildRuntimeManifest(extension, resolvedTools.toolPaths);
         extensionRegistry.registerExtension(runtimeManifest, {
           isBundled: false,

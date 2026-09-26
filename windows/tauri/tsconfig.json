@@ -20,6 +20,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@lithe/v0/*": ["../../Plugins/win/Official/V0Support/*"],
+      "@lithe/php/*": ["../../Plugins/win/Official/PhpSupport/*"],
       "@tauri-apps/plugin-http": ["./node_modules/@tauri-apps/plugin-http"],
       "react": ["./node_modules/@types/react"],
       "react/*": ["./node_modules/@types/react/*"],

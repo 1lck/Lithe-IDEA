@@ -1,3 +1,4 @@
+import { runPhpAction } from "@lithe/php/run-actions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BACKEND_UNAVAILABLE_TOOLTIP,
@@ -114,7 +115,11 @@ export default function RunActionsButton() {
     useRunActionsStore.getState().actions;
   const activeProject = projectTabs.find((tab) => tab.isActive);
   const workspacePath = activeProject?.path || rootFolderPath || undefined;
-  const workspaceLabel = getWorkspaceLabel(workspacePath, activeProject?.name, t("workbench.project"));
+  const workspaceLabel = getWorkspaceLabel(
+    workspacePath,
+    activeProject?.name,
+    t("workbench.project"),
+  );
   const customActions = useMemo(
     () => getActionsForWorkspace(workspacePath),
     [allCustomActions, getActionsForWorkspace, workspacePath],
@@ -179,13 +184,24 @@ export default function RunActionsButton() {
   };
 
   const runAction = (action: RunActionItem) => {
+    if (action.source === "php") {
+      if (workspacePath)
+        void runPhpAction(action, workspaceId, workspacePath).catch((error) =>
+          toast.error(String(error)),
+        );
+      closeMenu();
+      return;
+    }
     if (action.mavenTest && workspacePath) {
       openMavenRunPane();
-      void runMavenTestAction(action.mavenTest.filePath, action.mavenTest.method, workspaceId)
-        .catch((error) => {
-          const message = error instanceof Error ? error.message : t("maven.testRunFailed");
-          toast.error(message);
-        });
+      void runMavenTestAction(
+        action.mavenTest.filePath,
+        action.mavenTest.method,
+        workspaceId,
+      ).catch((error) => {
+        const message = error instanceof Error ? error.message : t("maven.testRunFailed");
+        toast.error(message);
+      });
       closeMenu();
       return;
     }
@@ -330,7 +346,11 @@ export default function RunActionsButton() {
 
         <div className="max-h-[min(420px,60vh)] overflow-y-auto overscroll-contain">
           <div className="py-1">
-            <RunActionSection label={t("run.currentFile")} actions={visibleLspActions} onRun={runAction} />
+            <RunActionSection
+              label={t("run.currentFile")}
+              actions={visibleLspActions}
+              onRun={runAction}
+            />
             <RunActionSection
               label={t("run.detectedInProject")}
               actions={visibleProjectActions}
@@ -363,8 +383,7 @@ export default function RunActionsButton() {
                   <EmptyDescription>
                     {query
                       ? t("run.tryAnotherActionSearch")
-                      : (discoveryError ??
-                        t("run.addCustomCommandHint"))}
+                      : (discoveryError ?? t("run.addCustomCommandHint"))}
                   </EmptyDescription>
                 </EmptyHeader>
               </Empty>

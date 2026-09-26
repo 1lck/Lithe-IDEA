@@ -258,6 +258,8 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
               });
             },
             onLanguageInstalled: (runtimeManifest, runtimeIssues) => {
+              if (activateAfterInstall) markExtensionEnabled(extensionId);
+              else markExtensionDisabled(extensionId);
               set((state) => {
                 const ext = state.availableExtensions.get(extensionId);
                 if (ext) {
@@ -395,7 +397,7 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         if (!extension) {
           throw new Error(`Extension ${extensionId} not found`);
         }
-        if (!extension.isInstalled) {
+        if (!extension.isInstalled && !extension.isInstalling) {
           throw new Error(`Extension ${extensionId} is not installed`);
         }
 

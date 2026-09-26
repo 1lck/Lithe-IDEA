@@ -150,6 +150,10 @@ try {
   assert.match(result.stdout, /^cargo\t\.artifacts\/cargo-home\/registry\/cache$/m);
   assert.match(result.stdout, /^jdk\t\.artifacts\/jdk-downloads$/m);
 
+  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "language-tools"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /language-tools is isolated/);
+
   process.stdout.write("Worktree resource reuse tests passed.\n");
 } finally {
   await fs.rm(testRoot, { force: true, recursive: true });

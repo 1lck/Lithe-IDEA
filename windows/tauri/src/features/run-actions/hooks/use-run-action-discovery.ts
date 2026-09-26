@@ -1,3 +1,4 @@
+import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { getBufferByPath } from "@/features/editor/utils/buffer-index";
@@ -18,6 +19,10 @@ export function useRunActionDiscovery(
   includeCodeLenses: boolean,
   enabled = true,
 ) {
+  const phpEnabled = useExtensionStore((state) => {
+    const php = state.availableExtensions.get("lithe.php");
+    return php?.isInstalled === true && php.isEnabled === true;
+  });
   const [projectActions, setProjectActions] = useState<RunActionItem[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -26,7 +31,7 @@ export function useRunActionDiscovery(
   const codeLenses = useCodeLens(activeFilePath, enabled && includeCodeLenses);
   const activeFileContent = useBufferStore((state) => {
     const buffer = getBufferByPath(state.buffers, activeFilePath);
-    return buffer?.type === "editor" ? buffer.content ?? "" : "";
+    return buffer?.type === "editor" ? (buffer.content ?? "") : "";
   });
   const javaTestScope = useMemo(
     () => (workspacePath ? { workspaceId, root: workspacePath } : null),
@@ -50,7 +55,7 @@ export function useRunActionDiscovery(
     setIsDiscovering(true);
     setDiscoveryError(null);
 
-    void discoverProjectRunActions(workspacePath)
+    void discoverProjectRunActions(workspacePath, undefined, phpEnabled)
       .then((actions) => {
         if (!cancelled) setProjectActions(actions);
       })
@@ -66,7 +71,7 @@ export function useRunActionDiscovery(
     return () => {
       cancelled = true;
     };
-  }, [enabled, revision, workspacePath]);
+  }, [enabled, revision, workspacePath, phpEnabled]);
 
   useEffect(() => {
     if (!enabled || !workspacePath || !activeFilePath || !/\.java$/i.test(activeFilePath)) {
@@ -89,9 +94,7 @@ export function useRunActionDiscovery(
     () =>
       activeFilePath
         ? [
-            ...(mavenTestsAvailable
-              ? javaTestActionsForFile(activeFilePath, javaTestMethods)
-              : []),
+            ...(mavenTestsAvailable ? javaTestActionsForFile(activeFilePath, javaTestMethods) : []),
             ...codeLensesToRunActions(codeLenses, activeFilePath),
           ]
         : [],
@@ -100,7 +103,9 @@ export function useRunActionDiscovery(
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   return {
-    projectActions,
+    projectActions: phpEnabled
+      ? projectActions
+      : projectActions.filter((action) => action.source !== "php"),
     lspActions,
     isDiscovering,
     discoveryError,

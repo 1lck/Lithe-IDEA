@@ -77,6 +77,12 @@ async function readRegistry() {
     }
     identifiers.add(resource.id);
   }
+  for (const excluded of registry.excludedResources ?? []) {
+    if (!excluded.id || !excluded.path || !excluded.reason || identifiers.has(excluded.id)) {
+      throw new Error("Excluded resources need a unique id, path and isolation reason");
+    }
+    identifiers.add(excluded.id);
+  }
   return registry.resources;
 }
 
@@ -353,6 +359,11 @@ async function main() {
   }
   if (!options.source) throw new Error(`--source is required\n\n${usage()}`);
 
+  const registry = JSON.parse(await fs.readFile(REGISTRY_PATH, "utf8"));
+  for (const id of options.resources) {
+    const excluded = registry.excludedResources?.find((resource) => resource.id === id);
+    if (excluded) throw new Error(`Resource ${id} is isolated: ${excluded.reason}`);
+  }
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
       const resource = resources.find((candidate) => candidate.id === identifier);

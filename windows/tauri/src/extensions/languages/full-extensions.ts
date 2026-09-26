@@ -10,10 +10,6 @@ import type {
   LspConfiguration,
   ToolRuntime,
 } from "../types/extension-manifest";
-import { getServiceUrls } from "@/config/services";
-
-// CDN base URL for extensions
-const CDN_BASE_URL = getServiceUrls().extensionsCdnBaseUrl;
 
 function parserInstallation(languageId: string): ExtensionManifest["installation"] {
   return {
@@ -142,12 +138,14 @@ const fullExtensions: ExtensionManifest[] = [
       },
     ],
     activationEvents: ["onLanguage:php"],
+    // Intelephense ships as an npm package, so the server is resolved through
+    // the bun runtime like TypeScript and Pyright instead of a CDN binary.
+    // The same executable and arguments are used by the macOS PhpSupport plugin.
     lsp: {
-      server: {
-        darwin: "lsp/intelephense-darwin-arm64",
-        linux: "lsp/intelephense-linux-x64",
-        win32: "lsp/intelephense-win32-x64.exe",
-      },
+      name: "intelephense",
+      runtime: "bun",
+      package: "intelephense",
+      server: { default: "intelephense" },
       args: ["--stdio"],
       fileExtensions: [
         ".php",
@@ -174,34 +172,7 @@ const fullExtensions: ExtensionManifest[] = [
         category: "PHP",
       },
     ],
-    installation: {
-      downloadUrl: `${CDN_BASE_URL}/php/php-darwin-arm64.tar.gz`,
-      size: 52681335,
-      checksum: "5c21da47f7c17cfa798fa2cfd0df905992824f520e8d9930640fcfa5e44ece4d",
-      minEditorVersion: "0.2.0",
-      platformArch: {
-        "darwin-arm64": {
-          downloadUrl: `${CDN_BASE_URL}/php/php-darwin-arm64.tar.gz`,
-          size: 52681335,
-          checksum: "5c21da47f7c17cfa798fa2cfd0df905992824f520e8d9930640fcfa5e44ece4d",
-        },
-        "darwin-x64": {
-          downloadUrl: `${CDN_BASE_URL}/php/php-darwin-x64.tar.gz`,
-          size: 56850520,
-          checksum: "6fa06325af8518b346235f7c86d887a88d04c970398657ac8c8c21482fcb180c",
-        },
-        "linux-x64": {
-          downloadUrl: `${CDN_BASE_URL}/php/php-linux-x64.tar.gz`,
-          size: 55510926,
-          checksum: "a29aa4bbb04f623bc22826a38d86ccb9590d1f9bf3ad7ddbc05f79522d8f835a",
-        },
-        "win32-x64": {
-          downloadUrl: `${CDN_BASE_URL}/php/php-win32-x64.tar.gz`,
-          size: 52036166,
-          checksum: "40f2d64fb15330bb950fbc59b44c74dcc74368abafcd8ff502e18b956a478cc5",
-        },
-      },
-    },
+    installation: parserInstallation("php"),
   },
   createLanguageToolExtension({
     id: "lithe.typescript",
@@ -481,7 +452,5 @@ const fullExtensions: ExtensionManifest[] = [
  * Get all full extension manifests
  */
 export function getFullExtensions(): ExtensionManifest[] {
-  return fullExtensions.filter(
-    (extension) => extension.id !== "lithe.php" || Boolean(CDN_BASE_URL),
-  );
+  return fullExtensions;
 }

@@ -21,6 +21,7 @@ export default defineConfig({
     alias: {
       "@": path.resolve(__dirname, "./src"),
       "@lithe/v0": path.resolve(__dirname, "../../Plugins/win/Official/V0Support"),
+      "@lithe/php": path.resolve(__dirname, "../../Plugins/win/Official/PhpSupport"),
       "@tauri-apps/plugin-http": path.resolve(__dirname, "./node_modules/@tauri-apps/plugin-http"),
       // Keep Zustand's Immer middleware on the ESM path so it shares the app's Immer runtime.
       "zustand/middleware/immer": path.resolve(

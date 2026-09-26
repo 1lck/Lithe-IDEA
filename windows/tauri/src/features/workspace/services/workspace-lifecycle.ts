@@ -1,3 +1,4 @@
+import { phpProcessOwner } from "@lithe/php/process-owner";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { WorkspaceRuntimeDescriptor } from "@/features/workspace/types/workspace-runtime.types";
@@ -236,6 +237,7 @@ export async function closeWorkspaceRuntime(
   if (wasActive) {
     persist?.();
   }
+  await phpProcessOwner.stop(workspaceId);
   await dispose?.(tab.path);
 
   workspaceTabs.actions.removeProjectTab(workspaceId);
