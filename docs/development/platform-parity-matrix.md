@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：80
-- macOS：实现：✅ 68 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 71 待验证，— 9 不适用
-- Windows：实现：✅ 74 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 78 待验证，— 2 不适用
+- 功能项：81
+- macOS：实现：✅ 69 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 72 待验证，— 9 不适用
+- Windows：实现：✅ 75 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 79 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -50,7 +50,7 @@
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 文本编辑 | **文本编辑与标签生命周期**<br><sub>editor-text-tabs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`、`macos/Sources/Lithe/Models/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`windows/tauri/src/features/tabs`</sub> | Editor | 打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态。 |  |
-| 文本编辑 | **语法高亮与编辑器模型**<br><sub>editor-language-basics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`、`macos/Sources/Lithe/Models/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`frontend/editor`</sub> | Editor | 分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。 |  |
+| 文本编辑 | **语法高亮与编辑器模型**<br><sub>editor-language-basics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`、`macos/Sources/Lithe/Models/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`frontend/editor`、`windows/tauri/src/features/editor/engines/monaco/theme.ts`</sub> | Editor | 分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。 |  |
 | 文本编辑 | **多行标签与标签导航**<br><sub>editor-multiline-tabs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/tabs`</sub> | Editor | 打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 |  |
 | Markdown | **Markdown 预览与富文本渲染**<br><sub>markdown-rendering</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift`、`macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`</sub> | Editor | 使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。 |  |
 | Markdown | **图片导入与链接定位**<br><sub>markdown-images-links</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Services/Markdown`、`macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`、`windows/tauri/src/features/viewer`</sub> | Editor | 验证本地图片、远程图片、相对链接和打开源文件行为。 |  |
@@ -146,7 +146,7 @@
 </details>
 
 <details>
-<summary><strong>工作台</strong> · 8 个能力点</summary>
+<summary><strong>工作台</strong> · 9 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -158,6 +158,7 @@
 | 命令与布局 | **命令面板与全局动作**<br><sub>command-palette</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`、`macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette`</sub> | Workbench | 搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 |  |
 | 命令与布局 | **分栏、面板与工具窗布局**<br><sub>workbench-panes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench`、`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/panes`、`windows/tauri/src/features/layout`</sub> | Workbench | 打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间。 |  |
 | 工作台布局 | **活动栏图标的稳定悬停说明**<br><sub>workbench-activity-tooltips</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift`、`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx`、`windows/tauri/src/features/layout/components/footer/footer-tab-control.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`</sub> | Workbench | 逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。 |  |
+| 工作台布局 | **活动栏贴合窗口外沿**<br><sub>workbench-activity-rail-window-edge</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/main-layout.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`、`windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx`</sub> | Workbench | 打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。 |  |
 
 </details>
 

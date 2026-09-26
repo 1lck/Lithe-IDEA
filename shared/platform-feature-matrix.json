@@ -183,13 +183,14 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/editor",
-          "frontend/editor"
+          "frontend/editor",
+          "windows/tauri/src/features/editor/engines/monaco/theme.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。"
+      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。"
     },
     {
       "id": "editor-multiline-tabs",
@@ -1553,6 +1554,30 @@
       },
       "owner": "Workbench",
       "verification": "逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。"
+    },
+    {
+      "id": "workbench-activity-rail-window-edge",
+      "area": "工作台",
+      "group": "工作台布局",
+      "capability": "活动栏贴合窗口外沿",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/components/main-layout.tsx",
+          "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx",
+          "windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。"
     },
     {
       "id": "embedded-viewers",
