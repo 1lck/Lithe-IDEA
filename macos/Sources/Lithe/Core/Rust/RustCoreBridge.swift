@@ -427,6 +427,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             let scope: String
             let resolution: String
             let selectedVersion: String?
+            let premanagedVersion: String?
+            let premanagedScope: String?
+            let originalScope: String?
+            let ignoredScope: String?
             let children: [Dependency]
 
             enum CodingKeys: String, CodingKey {
@@ -439,6 +443,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 case scope
                 case resolution
                 case selectedVersion
+                case premanagedVersion
+                case premanagedScope
+                case originalScope
+                case ignoredScope
                 case children
             }
 
@@ -460,6 +468,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                     scope: scope,
                     resolution: resolution,
                     selectedVersion: selectedVersion,
+                    premanagedVersion: premanagedVersion,
+                    premanagedScope: premanagedScope,
+                    originalScope: originalScope,
+                    ignoredScope: ignoredScope,
                     children: try children.map { try $0.makeModel() }
                 )
             }
@@ -1509,6 +1521,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let root: String
         let context: MavenLaunchContext
         let module: String?
+        let outputFile: String
     }
 
     private struct MarkdownRenderRequest: Encodable {
@@ -1978,7 +1991,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct MavenDependenciesRequest: Encodable {
         let modulePath: String
-        let output: String
+        let outputFile: String
     }
 
     private struct RunConfigurationInspectRequest: Encodable {
@@ -2522,25 +2535,30 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func mavenDependencyPlan(
         at rootURL: URL,
         context: MavenLaunchContext,
-        module: String?
+        module: String?,
+        outputFile: URL
     ) -> Result<MavenLaunchPlanPayload, CoreCallError> {
         executeResult(
             command: "maven.dependencyPlan",
             payload: MavenDependencyPlanRequest(
                 root: rootURL.standardizedFileURL.path,
                 context: context,
-                module: module
+                module: module,
+                outputFile: outputFile.standardizedFileURL.path
             )
         )
     }
 
     func mavenDependencies(
         modulePath: String,
-        output: String
+        outputFile: URL
     ) -> Result<MavenDependenciesPayload, CoreCallError> {
         executeResult(
             command: "maven.dependencies",
-            payload: MavenDependenciesRequest(modulePath: modulePath, output: output)
+            payload: MavenDependenciesRequest(
+                modulePath: modulePath,
+                outputFile: outputFile.standardizedFileURL.path
+            )
         )
     }
 

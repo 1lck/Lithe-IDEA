@@ -373,7 +373,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位。"
+      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。"
     },
     {
       "id": "git-history",
@@ -636,20 +636,25 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Run",
-          "macos/Sources/Lithe/Services/Java"
+          "macos/Sources/Lithe/Services/Java",
+          "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift",
+          "rust/lithe-core/src/project/maven_dependency_tree.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/maven"
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src-tauri/src/maven.rs",
+          "rust/lithe-core/src/project/maven_dependency_tree.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"
+      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。"
     },
     {
       "id": "java-maven-toolbar-tooltips",

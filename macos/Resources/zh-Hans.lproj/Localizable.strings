@@ -1520,9 +1520,15 @@
 "Dependency resolution cancelled" = "依赖解析已取消";
 "No dependencies" = "无依赖";
 "Open module pom.xml" = "打开所属模块的 pom.xml";
-" (duplicate omitted)" = "（重复依赖已省略）";
-" (conflict -> %@)" = "（版本冲突 → %@）";
 "selected version" = "已选版本";
+" (%@)" = "（%@）";
+"; " = "；";
+"duplicate omitted" = "重复依赖已省略";
+"conflict -> %@" = "版本冲突 → %@";
+"version managed from %@" = "依赖管理前版本为 %@";
+"scope managed from %@" = "依赖管理前 scope 为 %@";
+"scope updated from %@" = "scope 由 %@ 提升";
+"scope not updated to %@" = "未提升为 %@ scope";
 "Unable to create the Maven dependency plan." = "无法创建 Maven 依赖解析计划。";
 "No Maven executable was found. Choose Maven Home or an executable in Maven Settings." = "未找到 Maven 可执行文件，请在 Maven 设置中选择 Maven 主目录或可执行文件。";
 "Unable to start Maven dependency resolution: %@" = "无法启动 Maven 依赖解析：%@";
@@ -1530,7 +1536,6 @@
 "Maven dependency resolution exited with code %@." = "Maven 依赖解析已退出，退出码为 %@。";
 "Unable to parse Maven dependencies for this module." = "无法解析此模块的 Maven 依赖。";
 "Unable to resolve Maven dependencies." = "无法解析 Maven 依赖。";
-"Maven dependency output exceeded the supported limit." = "Maven 依赖输出超出支持的大小限制。";
 "Source Roots" = "源码目录";
 "main Java" = "主代码";
 "main resources" = "主资源";
