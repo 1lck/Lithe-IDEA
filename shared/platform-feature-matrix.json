@@ -183,13 +183,14 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/editor",
-          "frontend/editor"
+          "frontend/editor",
+          "windows/tauri/src/features/editor/engines/monaco/theme.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。"
+      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。"
     },
     {
       "id": "editor-multiline-tabs",
