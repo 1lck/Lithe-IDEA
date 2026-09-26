@@ -22,6 +22,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     let flexibleMinimum: CGFloat?
     /// Clip a pane with content wider than the dragged size at the split boundary.
     let clipsSizedPane: Bool
+    let trackBackground: Color
     let showsIdleDivider: Bool
     /// Called with the final size when a drag ends. Hosts that persist the size
     /// write it here; the container then defers to `defaultSize` again so the
@@ -42,6 +43,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         maximum: CGFloat,
         flexibleMinimum: CGFloat? = nil,
         clipsSizedPane: Bool = false,
+        trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
         onCommit: ((CGFloat) -> Void)? = nil,
         @ViewBuilder sized: () -> Sized,
@@ -54,6 +56,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.maximum = maximum
         self.flexibleMinimum = flexibleMinimum
         self.clipsSizedPane = clipsSizedPane
+        self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
         self.onCommit = onCommit
         self.sized = sized()
@@ -126,6 +129,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     private func handle(_ size: CGFloat) -> some View {
         SplitHandleView(
             axis: axis,
+            trackBackground: trackBackground,
             showsIdleDivider: showsIdleDivider,
             onDragStarted: { dragStart = size },
             onDragChanged: { translation in
