@@ -446,7 +446,8 @@ const TerminalTabBar = ({
     const rect = event.currentTarget.getBoundingClientRect();
     setProfileMenu({
       isOpen: true,
-      position: { x: rect.right - 220, y: rect.bottom + 8 },
+      // Left-align with the trigger; the dropdown clamps itself inside the viewport.
+      position: { x: rect.left, y: rect.bottom + 8 },
     });
   };
 
@@ -458,6 +459,38 @@ const TerminalTabBar = ({
   });
   const sortedTerminalIds = sortedTerminals.map((terminal) => terminal.id);
   const terminalProfiles = getAllTerminalProfiles(availableShells, customProfiles);
+  const newTerminalActions = (
+    <div className="flex shrink-0 items-center gap-0.5">
+      <Button
+        onClick={onNewTerminal}
+        variant="ghost"
+        size="icon-xs"
+        tooltip={t("terminal.newTerminal")}
+        commandId="terminal.new"
+        tooltipSide="bottom"
+        aria-label={t("terminal.newTerminal")}
+      >
+        <Plus />
+      </Button>
+      {onNewTerminalWithProfile && (
+        <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
+          <Button
+            ref={profileMenuButtonRef}
+            onClick={openProfileMenu}
+            aria-label={t("terminal.chooseTerminalProfile")}
+            aria-haspopup="menu"
+            aria-expanded={profileMenu.isOpen}
+            variant="ghost"
+            size="icon-xs"
+          >
+            <ChevronDown />
+          </Button>
+        </Tooltip>
+      )}
+    </div>
+  );
+  // Horizontal tab bars keep "new terminal" next to the last tab (see the tab list below), so
+  // the trailing toolbar only holds panel-level actions there.
   const terminalToolbarActions = (
     <div
       className={cn(
@@ -478,34 +511,7 @@ const TerminalTabBar = ({
           <Search />
         </Button>
       )}
-      <div className="flex shrink-0 items-center gap-0.5">
-        <Button
-          onClick={onNewTerminal}
-          variant="ghost"
-          size="icon-xs"
-          tooltip={t("terminal.newTerminal")}
-          commandId="terminal.new"
-          tooltipSide="bottom"
-          aria-label={t("terminal.newTerminal")}
-        >
-          <Plus />
-        </Button>
-        {onNewTerminalWithProfile && (
-          <Tooltip content={t("terminal.chooseTerminalProfile")} side="bottom">
-            <Button
-              ref={profileMenuButtonRef}
-              onClick={openProfileMenu}
-              aria-label={t("terminal.chooseTerminalProfile")}
-              aria-haspopup="menu"
-              aria-expanded={profileMenu.isOpen}
-              variant="ghost"
-              size="icon-xs"
-            >
-              <ChevronDown />
-            </Button>
-          </Tooltip>
-        )}
-      </div>
+      {orientation === "vertical" && newTerminalActions}
       {onFullScreen && (
         <Tooltip
           content={isFullScreen ? t("terminal.exitFullScreen") : t("terminal.fullScreenTerminal")}
@@ -840,10 +846,12 @@ const TerminalTabBar = ({
 
               <div
                 className={cn(
-                  "scrollbar-hidden min-w-0 flex-1",
+                  "scrollbar-hidden min-w-0",
+                  // Horizontally the list only grows to fit its tabs so the new-terminal actions
+                  // follow the last tab, then shrinks and scrolls once the tabs overflow.
                   orientation === "vertical"
-                    ? "flex flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
-                    : "flex items-center gap-0.5 overflow-x-auto overflow-y-hidden",
+                    ? "flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
+                    : "flex flex-initial items-center gap-0.5 overflow-x-auto overflow-y-hidden",
                 )}
                 data-tab-container
                 onWheel={(e) => {
@@ -898,6 +906,7 @@ const TerminalTabBar = ({
                   );
                 })}
               </div>
+              {orientation === "horizontal" && newTerminalActions}
             </div>
           </SortableContext>
 

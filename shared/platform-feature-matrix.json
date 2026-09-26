@@ -1011,7 +1011,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理。"
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见。"
     },
     {
       "id": "terminal-interaction",
