@@ -28,7 +28,7 @@ jobs:
   release:
     name: Build and publish Linux preview
     if: github.actor == github.repository_owner || github.event_name == 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04  # glibc 2.35 floor; ubuntu-latest (24.04) would require GLIBC_2.39.
     timeout-minutes: 60
     permissions:
       contents: write
