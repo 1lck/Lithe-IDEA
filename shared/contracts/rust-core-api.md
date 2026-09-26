@@ -65,6 +65,15 @@ their camel-case field names, are fixed by
 can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
+`prompt` retains `text` and optionally carries ordered `files` entries with `uri`
+(a native `file://` URL) and `name` (the display filename). The host validates up to
+32 references and sends upstream ACP `resource_link` blocks after the text block;
+empty text is allowed when files are present. It never reads, copies, or embeds
+file bytes. These native resource URLs identify user-selected context, not portable
+workspace records; the agent owns reading, permissions, and history. Invalid
+references produce `requestFailed` before reserving a turn. Older text-only callers
+remain compatible by omitting `files`.
+
 `sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
 `setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
 string `value`; the host uses ACP `session/set_config_option`. Its acknowledged

@@ -1130,3 +1130,12 @@
 "Low" = "Low";
 "Fast mode" = "Fast mode";
 "Plan before making changes" = "Plan before making changes";
+
+// Agent file references
+"Attach files" = "Attach files";
+"Drop files here" = "Drop files here";
+"Drag files here or click to choose files" = "Drag files here or click to choose files";
+"Remove file %@" = "Remove file %@";
+"Only local files can be attached to an Agent message." = "Only local files can be attached to an Agent message.";
+"Attach up to 32 files per message." = "Attach up to 32 files per message.";
+"The Agent is still responding in this conversation." = "The Agent is still responding in this conversation.";

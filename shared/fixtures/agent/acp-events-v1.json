@@ -5,6 +5,8 @@
     "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
     "listSessions": { "kind": "listSessions", "token": "token-3" },
     "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
+    "promptWithFiles": { "kind": "prompt", "sessionId": "session-1", "text": "Explain these files", "files": [{ "uri": "file:///example/project/Hello%20World.swift", "name": "Hello World.swift" }, { "uri": "file:///example/project/README.md", "name": "README.md" }] },
+    "fileOnlyPrompt": { "kind": "prompt", "sessionId": "session-1", "text": "", "files": [{ "uri": "file:///example/project/README.md", "name": "README.md" }] },
     "cancel": { "kind": "cancel", "sessionId": "session-1" },
     "setConfigOption": { "kind": "setConfigOption", "token": "config-1", "sessionId": "session-1", "configId": "model", "value": "example-model" },
     "allowPermission": { "kind": "permission", "requestId": "permission-1", "optionId": "allow_once" },

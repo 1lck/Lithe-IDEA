@@ -93,7 +93,7 @@ private struct AgentUnconfiguredConversationView: View {
                 selectedAgent: nil,
                 isResponding: false,
                 isBlocked: false,
-                onSend: { _ in throw setupError ?? .moduleStarting },
+                onSend: { _, _ in throw setupError ?? .moduleStarting },
                 onCancel: {},
                 onSelectAgent: { _ in },
                 onOpenSettings: onOpenSettings,
@@ -167,7 +167,7 @@ private struct AgentConnectionView: View {
                 isBlocked: feature.isCreatingSession
                     || feature.selectedConversation?.isLoading == true
                     || feature.connectionState != .ready,
-                onSend: { try feature.send($0) },
+                onSend: { try feature.send($0, files: $1) },
                 onCancel: { feature.cancel() },
                 onSelectAgent: onSelectAgent,
                 onOpenSettings: onOpenSettings,

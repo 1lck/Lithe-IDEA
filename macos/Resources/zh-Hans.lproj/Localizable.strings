@@ -2360,3 +2360,12 @@
 "Low" = "低";
 "Fast mode" = "快速模式";
 "Plan before making changes" = "先制定计划，再进行修改。";
+
+// Agent file references
+"Attach files" = "添加文件";
+"Drop files here" = "拖放文件到这里";
+"Drag files here or click to choose files" = "拖入文件，或点击选择文件";
+"Remove file %@" = "移除文件 %@";
+"Only local files can be attached to an Agent message." = "Agent 消息仅支持添加本地文件。";
+"Attach up to 32 files per message." = "每条消息最多添加 32 个文件。";
+"The Agent is still responding in this conversation." = "Agent 仍在回复当前对话。";

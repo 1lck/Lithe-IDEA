@@ -102,6 +102,7 @@ impl Session {
         self.send(AgentCommand::Prompt {
             session_id: session_id.into(),
             text: text.into(),
+            files: vec![],
         });
         let mut reply = String::new();
         let reason = self.wait(
@@ -190,6 +191,7 @@ fn real_agent_conversation_cancel_history_and_cleanup() {
     session.send(AgentCommand::Prompt {
         session_id: second.clone(),
         text: "Write a numbered list of 40 facts about the ocean. Do not use tools.".into(),
+        files: vec![],
     });
     session.send(AgentCommand::Cancel {
         session_id: second.clone(),
@@ -290,6 +292,7 @@ fn real_agent_reads_edits_tests_and_continues_in_temporary_project() {
     session.send(AgentCommand::Prompt {
         session_id: id.clone(),
         text: "Work only in this temporary project. Read sum.cjs and sum.test.cjs, fix the implementation, then execute node sum.test.cjs. Do not install dependencies, access network, or change any file outside this directory. Report the actual test result.".into(),
+        files: vec![],
     });
     let mut tools = 0;
     let mut result_seen = false;

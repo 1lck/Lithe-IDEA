@@ -10,9 +10,11 @@ pub mod catalog;
 pub mod cli_update;
 pub mod environment;
 pub mod install;
+mod prompt;
 mod session_defaults;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
+pub use prompt::PromptFile;
 
 use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
@@ -23,11 +25,11 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
-    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
+    AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities,
     InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
-    SetSessionConfigOptionRequest, TextContent,
+    SetSessionConfigOptionRequest,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -298,6 +300,8 @@ pub enum AgentCommand {
     Prompt {
         session_id: String,
         text: String,
+        #[serde(default)]
+        files: Vec<PromptFile>,
     },
     Cancel {
         session_id: String,
@@ -974,7 +978,14 @@ where
                             });
                         });
                     }
-                    AgentCommand::Prompt { session_id, text } => {
+                    AgentCommand::Prompt { session_id, text, files } => {
+                        let content = match prompt::content(text, files) {
+                            Ok(content) => content,
+                            Err(message) => {
+                                emit(failed(None, Some(session_id), message));
+                                continue;
+                            }
+                        };
                         let generation = generations.fetch_add(1, Ordering::SeqCst) + 1;
                         let busy = match turns.lock() {
                             Ok(mut turns) if !turns.contains_key(&session_id) => {
@@ -993,7 +1004,7 @@ where
                         }
                         let request = PromptRequest::new(
                             session_id.clone(),
-                            vec![ContentBlock::Text(TextContent::new(text))],
+                            content,
                         );
                         let response = connection.send_request(request).block_task();
                         let emit = emit.clone();

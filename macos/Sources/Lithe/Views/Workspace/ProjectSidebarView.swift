@@ -455,7 +455,7 @@ private struct FileNodeRow: View {
                 }
             }
         } else {
-            fileRow
+            fileRow.draggable(node.url)
         }
     }
 

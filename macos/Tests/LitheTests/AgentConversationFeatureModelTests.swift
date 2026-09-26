@@ -90,7 +90,7 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.selectedConversation?.permission == nil)
         try feature.receive(event("toolCall"))
         feature.cancel()
-        try feature.send("Must not enter the stopping turn")
+        #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Must not enter the stopping turn") }
         #expect(connection.commands.count == count)
         try feature.receive(event("turnCancelled"))
         #expect(feature.selectedConversation?.isResponding == false)
@@ -351,6 +351,59 @@ struct AgentConversationFeatureModelTests {
         #expect(transport.connections[0].closeCount == 1)
     }
 
+    @Test
+    func droppedFilesStayWithFirstMessageUntilSessionCreation() throws {
+        let (feature, connection) = try connectedFeature()
+        let files = try AgentFileReference.adding([
+            URL(fileURLWithPath: "/example/project/中文 File.swift"),
+            URL(fileURLWithPath: "/example/project/README.md")
+        ], to: [])
+        try feature.send("Explain these files", files: files)
+        let create = try #require(connection.commands.last)
+        #expect(create["kind"] as? String == "newSession")
+        #expect(feature.pendingNewConversationPrompt?.contains("中文 File.swift") == true)
+        try feature.receive(event("sessionCreated", ["token": create["token"] as Any]))
+        let prompt = try #require(connection.commands.last)
+        let references = try #require(prompt["files"] as? [[String: String]])
+        #expect(references.map { $0["uri"] } == files.map { Optional($0.id) })
+        #expect(references.map { $0["name"] } == ["中文 File.swift", "README.md"])
+        #expect(feature.selectedConversation?.messages.last?.text.contains("README.md") == true)
+    }
+
+    @Test
+    func fileOnlyMessageWaitsForHistoryLoadAndKeepsItsSession() throws {
+        let (feature, connection) = try connectedFeature()
+        feature.selectSession("session-2")
+        let load = try #require(connection.commands.last)
+        let file = try AgentFileReference(url: URL(fileURLWithPath: "/example/project/notes.txt"))
+        try feature.send("  ", files: [file])
+        feature.selectSession("session-1")
+        try feature.receive(event("sessionLoaded", ["token": load["token"] as Any, "sessionId": "session-2"]))
+        let prompt = try #require(connection.commands.last)
+        #expect(prompt["sessionId"] as? String == "session-2")
+        #expect(prompt["text"] as? String == "")
+        #expect((prompt["files"] as? [[String: String]])?.first?["uri"] == file.id)
+        #expect(feature.selectedSessionID == "session-1")
+    }
+
+    @Test
+    func failedSendCanRetryTheSameFilesWithoutDuplicatingTranscript() throws {
+        let (feature, connection) = try connectedFeature()
+        feature.prepareConversation()
+        try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+        let files = try AgentFileReference.adding([URL(fileURLWithPath: "/example/project/notes.txt")], to: [])
+        connection.sendFailure = AgentConversationError.notConnected
+        #expect(throws: AgentConversationError.sendFailed(AgentConversationError.notConnected.localizedDescription)) {
+            try feature.send("Read this", files: files)
+        }
+        #expect(feature.selectedConversation?.messages.isEmpty == true)
+        #expect(feature.selectedConversation?.isResponding == false)
+        connection.sendFailure = nil
+        try feature.send("Read this", files: files)
+        #expect(feature.selectedConversation?.messages.count == 1)
+        #expect((connection.commands.last?["files"] as? [[String: String]])?.count == 1)
+    }
+
     private func connectedFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
         let transport = TestAgentTransport()
         let feature = AgentConnectionModel(transport: transport)
@@ -398,8 +451,10 @@ private final class TestAgentTransport: AgentConversationTransport {
 private final class TestAgentConnection: AgentConnection {
     var commands: [[String: Any]] = []
     var closeCount = 0
+    var sendFailure: AgentConversationError?
 
     func send(commandJSON: String) throws {
+        if let sendFailure { throw sendFailure }
         let object = try JSONSerialization.jsonObject(with: Data(commandJSON.utf8))
         commands.append(try #require(object as? [String: Any]))
     }

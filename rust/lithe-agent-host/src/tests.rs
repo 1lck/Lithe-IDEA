@@ -1194,3 +1194,83 @@ fn spawn_failure_reports_stopped_with_a_message() {
     }
     handle.close();
 }
+
+// Protect the actual SDK wire boundary, not just the local command DTO.
+#[tokio::test]
+async fn selected_files_reach_the_agent_as_acp_resource_links() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    let fixture = fixture();
+    for name in ["promptWithFiles", "fileOnlyPrompt"] {
+        harness.send(fixture["commands"][name].clone());
+        let request = harness.agent.expect("session/prompt").await;
+        let content = request["params"]["prompt"]
+            .as_array()
+            .expect("prompt content");
+        let files = fixture["commands"][name]["files"].as_array().unwrap();
+        let offset = usize::from(name == "promptWithFiles");
+        assert_eq!(content.len(), files.len() + offset);
+        if offset == 1 {
+            assert_eq!(
+                content[0],
+                json!({ "type": "text", "text": "Explain these files" })
+            );
+        }
+        for (actual, file) in content[offset..].iter().zip(files) {
+            assert_eq!(
+                actual,
+                &json!({ "type": "resource_link", "uri": file["uri"], "name": file["name"] })
+            );
+        }
+        harness
+            .agent
+            .reply(&request, json!({ "stopReason": "end_turn" }))
+            .await;
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::TurnFinished { .. }
+        ));
+    }
+    harness.stop().await.expect("owned connection stopped");
+}
+
+#[tokio::test]
+async fn invalid_file_reference_does_not_reserve_or_finish_a_turn() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    for files in [
+        json!([{ "uri": "https://example.com/file.txt", "name": "file.txt" }]),
+        json!([{ "uri": "file:///example/file.txt?secret", "name": "file.txt" }]),
+        json!((0..33)
+            .map(
+                |index| json!({ "uri": format!("file:///example/{index}.txt"), "name": "file.txt" })
+            )
+            .collect::<Vec<_>>()),
+    ] {
+        harness.send(
+            json!({ "kind": "prompt", "sessionId": "session-1", "text": "Read", "files": files }),
+        );
+        assert!(matches!(
+            harness.event().await,
+            AgentEvent::RequestFailed {
+                session_id: Some(_),
+                ..
+            }
+        ));
+    }
+    harness.send(fixture()["commands"]["prompt"].clone());
+    let request = harness.agent.expect("session/prompt").await;
+    assert_eq!(
+        request["params"]["prompt"],
+        json!([{ "type": "text", "text": "Explain this project" }])
+    );
+    harness
+        .agent
+        .reply(&request, json!({ "stopReason": "end_turn" }))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { .. }
+    ));
+    harness.stop().await.expect("owned connection stopped");
+}

@@ -41,7 +41,7 @@ public final class AgentConnectionModel: ObservableObject {
     private var nextToken = 0
     /// Prompts waiting for a session: keyed by new-session token or by the
     /// session ID being loaded.
-    private var queuedPrompts: [String: String] = [:]
+    private var queuedPrompts: [String: AgentPrompt] = [:]
     private var loadTokens: [String: String] = [:]
     private var pendingText: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
@@ -167,25 +167,30 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
-    public func send(_ text: String) throws {
-        let prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    public func send(_ text: String, files: [AgentFileReference] = []) throws {
+        let prompt = AgentPrompt(
+            text: text.trimmingCharacters(in: .whitespacesAndNewlines),
+            files: try AgentFileReference.adding(files.map(\.url), to: [])
+        )
         guard !prompt.isEmpty else { return }
         guard connection != nil else { throw AgentConversationError.notConnected }
         guard let sessionID = selectedSessionID else {
             if createToken == nil { prepareConversation() }
             guard let token = createToken else { throw AgentConversationError.notConnected }
             queuedPrompts[token] = prompt
-            pendingNewConversationPrompt = prompt
+            pendingNewConversationPrompt = prompt.displayText
             errorMessage = nil
             return
         }
         let conversation = conversations[sessionID] ?? AgentConversation()
-        guard !conversation.isResponding else { return }
+        guard !conversation.isResponding else { throw AgentConversationError.sessionBusy }
         guard conversation.pendingConfigToken == nil else { throw AgentConversationError.configurationPending }
         if conversation.isLoading {
             queuedPrompts[sessionID] = prompt
         } else if conversation.isAttached {
-            startPrompt(prompt, in: sessionID)
+            guard startPrompt(prompt, in: sessionID) else {
+                throw AgentConversationError.sendFailed(errorMessage ?? AgentConversationError.notConnected.localizedDescription)
+            }
         } else if canLoadSessions {
             queuedPrompts[sessionID] = prompt
             beginLoad(sessionID)
@@ -297,7 +302,7 @@ public final class AgentConnectionModel: ObservableObject {
         createToken = nil
         let prompt = queuedPrompts.removeValue(forKey: token)
         if !sessions.contains(where: { $0.id == sessionID }) {
-            sessions.insert(AgentSessionSummary(id: sessionID, title: prompt.map(Self.provisionalTitle)), at: 0)
+            sessions.insert(AgentSessionSummary(id: sessionID, title: prompt.map { Self.provisionalTitle($0.displayText) }), at: 0)
         }
         var conversation = conversations[sessionID] ?? AgentConversation()
         conversation.isAttached = true
@@ -435,15 +440,17 @@ public final class AgentConnectionModel: ObservableObject {
 
     // MARK: Helpers
 
-    private func startPrompt(_ prompt: String, in sessionID: String) {
+    @discardableResult
+    private func startPrompt(_ prompt: AgentPrompt, in sessionID: String) -> Bool {
+        var command: [String: Any] = ["kind": "prompt", "sessionId": sessionID, "text": prompt.text]
+        if !prompt.files.isEmpty { command["files"] = prompt.files.map(\.commandValue) }
+        guard sendCommand(command) else { return false }
         var conversation = conversations[sessionID] ?? AgentConversation()
-        conversation.messages.append(AgentConversationMessage(role: .user, text: prompt))
+        conversation.messages.append(AgentConversationMessage(role: .user, text: prompt.displayText))
         conversation.isResponding = true
         conversation.errorMessage = nil
         conversations[sessionID] = conversation
-        if !sendCommand(["kind": "prompt", "sessionId": sessionID, "text": prompt]) {
-            conversations[sessionID]?.isResponding = false
-        }
+        return true
     }
 
     private func beginLoad(_ sessionID: String) {
@@ -577,6 +584,8 @@ public enum AgentConversationError: LocalizedError, Equatable {
     case sessionStopping
     case cannotResume
     case configurationPending
+    case sessionBusy
+    case sendFailed(String)
 
     public var errorDescription: String? {
         switch self {
@@ -589,6 +598,8 @@ public enum AgentConversationError: LocalizedError, Equatable {
         case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
         case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
         case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
+        case .sessionBusy: String(localized: "The Agent is still responding in this conversation.")
+        case .sendFailed(let message): message
         case .configurationPending: String(localized: "Wait for the Agent configuration to finish updating.")
         }
     }

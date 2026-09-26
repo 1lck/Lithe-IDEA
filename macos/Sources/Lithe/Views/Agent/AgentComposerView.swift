@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import LitheAgentConversationModule
 
 /// Context strip, flexible writing area, and a compact bottom command bar.
@@ -7,7 +8,7 @@ struct AgentComposerView: View {
     let selectedAgent: AgentOption?
     let isResponding: Bool
     let isBlocked: Bool
-    let onSend: (String) throws -> Void
+    let onSend: (String, [AgentFileReference]) throws -> Void
     let onCancel: () -> Void
     let onSelectAgent: (String) -> Void
     let onOpenSettings: () -> Void
@@ -18,14 +19,20 @@ struct AgentComposerView: View {
     var isCancelling = false
     var onSetConfig: (String, String) -> Void = { _, _ in }
     @State private var draft = ""
+    @State private var files: [AgentFileReference] = []
+    @State private var isDropTargeted = false
+    @State private var showsFilePicker = false
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
-    private var hasText: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var hasContent: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
 
     var body: some View {
         VStack(spacing: 0) {
             contextBar
+            if !files.isEmpty {
+                AgentFileReferenceList(files: files) { id in files.removeAll { $0.id == id } }
+            }
             ScrollView {
                 TextField("Message the Agent", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -46,8 +53,20 @@ struct AgentComposerView: View {
         .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .stroke(isFocused || isHovering ? AgentPanelStyle.focus : AgentPanelStyle.secondary.opacity(0.45), lineWidth: 1)
+                .stroke(isFocused || isHovering || isDropTargeted ? AgentPanelStyle.focus : AgentPanelStyle.secondary.opacity(0.45), lineWidth: 1)
                 .allowsHitTesting(false)
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            addFiles(urls)
+        } isTargeted: { isDropTargeted = $0 }
+        .fileImporter(isPresented: $showsFilePicker, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
+            switch result {
+            case .success(let urls): _ = addFiles(urls)
+            case .failure(let error): onError(error.localizedDescription)
+            }
+        }
+        .onChange(of: sessionID) { newSessionID in
+            if newSessionID != nil { files.removeAll() }
         }
         .onHover { isHovering = $0 }
         .padding(.horizontal, 8)
@@ -58,7 +77,11 @@ struct AgentComposerView: View {
 
     private var contextBar: some View {
         HStack(spacing: 8) {
-            Label("Project files", systemImage: "folder")
+            Button { showsFilePicker = true } label: {
+                Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip")
+            }
+            .buttonStyle(.plain)
+            .help("Drag files here or click to choose files")
             Spacer(minLength: 0)
         }
         .font(.system(size: 11))
@@ -99,13 +122,13 @@ struct AgentComposerView: View {
             Button(action: isResponding ? onCancel : send) {
                 Image(systemName: isResponding ? "stop.fill" : "paperplane")
                     .font(.system(size: 13))
-                    .foregroundStyle(isResponding ? LitheTheme.error : (hasText ? AgentPanelStyle.text : AgentPanelStyle.muted))
+                    .foregroundStyle(isResponding ? LitheTheme.error : (hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted))
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
             }
             .buttonStyle(.plain)
             .lithePointer()
-            .disabled(isCancelling || (!isResponding && (!hasText || isBlocked || isConfiguring)))
+            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isConfiguring)))
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
         }
         .padding(.horizontal, 5)
@@ -140,15 +163,29 @@ struct AgentComposerView: View {
         .accessibilityLabel("Switch Agent")
     }
 
+    private func addFiles(_ urls: [URL]) -> Bool {
+        guard !urls.isEmpty else { return false }
+        do {
+            files = try AgentFileReference.adding(urls, to: files)
+            onError(nil)
+            isFocused = true
+            return true
+        } catch {
+            onError(error.localizedDescription)
+            return false
+        }
+    }
+
     private func send() {
-        guard hasText, !isResponding else { return }
+        guard hasContent, !isResponding else { return }
         if isBlocked {
             onError(String(localized: "The conversation is still being prepared. Try again in a moment."))
             return
         }
         do {
-            try onSend(draft)
+            try onSend(draft, files)
             draft = ""
+            files.removeAll()
             onError(nil)
         } catch {
             onError(error.localizedDescription)
