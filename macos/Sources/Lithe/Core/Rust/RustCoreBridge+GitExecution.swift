@@ -34,6 +34,14 @@ private final class GitExecutionReceiver {
 }
 
 extension RustCoreBridge {
+    func executeObserving(
+        _ request: String, onEvent: (@Sendable (String) -> Void)?,
+        context: GitExecutionContext?, journal: GitExecutionJournal?
+    ) -> UnsafeMutablePointer<CChar>? {
+        if let onEvent { return executeAgentObserving(request, receive: onEvent) }
+        return executeGitObserving(request, context: context, journal: journal)
+    }
+
     func executeGitObserving(
         _ request: String, context: GitExecutionContext?, journal: GitExecutionJournal? = nil
     ) -> UnsafeMutablePointer<CChar>? {

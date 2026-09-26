@@ -2320,3 +2320,11 @@
 "Result" = "结果";
 "Output" = "输出";
 "More session settings" = "更多会话设置";
+
+"Downloaded %@ · %@/s" = "已下载 %@ · %@/秒";
+"Elapsed %lld s" = "已用时 %lld 秒";
+"Waiting for download data. Check your network or proxy if this continues." = "正在等待下载数据。如果持续无进展，请检查网络或代理。";
+"Stopping installation…" = "正在停止安装…";
+"Preparing download…" = "正在准备下载…";
+"Downloading packages…" = "正在下载软件包…";
+"Installing packages…" = "正在安装软件包…";

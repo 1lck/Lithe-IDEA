@@ -79,3 +79,42 @@ fn invalid_management_requests_fail_with_stable_codes() {
         "removing a missing install succeeds: {removed}"
     );
 }
+
+#[test]
+fn install_progress_is_request_scoped_and_uses_the_operation_identifier() {
+    use std::sync::{Arc, Mutex};
+    let captured = Arc::new(Mutex::new(Vec::<Value>::new()));
+    let capture = captured.clone();
+    let request = json!({"command":"agent.installCli", "operationId":"progress-fixture",
+                         "payload":{"dataDirectory":std::env::temp_dir(), "agentId":"unknown"}});
+    let result: Value = serde_json::from_str(&crate::execute_json_with_events(
+        &request.to_string(),
+        Arc::new(move |event| {
+            capture
+                .lock()
+                .unwrap()
+                .push(serde_json::from_str(event).unwrap());
+        }),
+    ))
+    .unwrap();
+    assert_eq!(result["ok"], false);
+    let events = captured.lock().unwrap();
+    let event = events
+        .iter()
+        .find(|e| e["kind"] == "agentInstallProgress")
+        .unwrap();
+    assert_eq!(event["operationId"], "progress-fixture");
+    assert_eq!(event["progress"]["downloadedBytes"], 0);
+    assert_eq!(
+        event["progress"],
+        fixture()["events"]["preparing"]["progress"]
+    );
+    let count = events.len();
+    drop(events);
+    crate::execute_json(&request.to_string());
+    assert_eq!(
+        captured.lock().unwrap().len(),
+        count,
+        "the callback must not escape its request"
+    );
+}

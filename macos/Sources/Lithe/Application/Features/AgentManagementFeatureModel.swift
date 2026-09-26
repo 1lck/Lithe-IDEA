@@ -21,6 +21,11 @@ final class AgentManagementFeatureModel: ObservableObject {
     /// Last install or removal failure per agent.
     @Published private(set) var errors: [String: String] = [:]
 
+    @Published private(set) var installProgress: AgentInstallProgress?
+    @Published private(set) var isCancelling = false
+    private(set) var operationStartedAt: Date?
+    private var operationID: UUID?
+
     private let service: any AgentManagementService
     private let dataDirectory: URL
     private var operation: Task<Void, Never>?
@@ -42,45 +47,61 @@ final class AgentManagementFeatureModel: ObservableObject {
     }
 
     func install(_ agentID: String) {
-        run(agentID) { service, directory in
-            _ = try await service.install(agentID: agentID, dataDirectory: directory)
+        run(agentID) { service, directory, progress in
+            _ = try await service.install(agentID: agentID, dataDirectory: directory, onProgress: progress)
         }
     }
 
     func uninstall(_ agentID: String) {
-        run(agentID) { service, directory in
+        run(agentID) { service, directory, _ in
             try await service.uninstall(agentID: agentID, dataDirectory: directory)
         }
     }
 
     /// Install or update the agent's own CLI globally with the user's npm.
     func installCli(_ agentID: String) {
-        run(agentID) { service, directory in
-            _ = try await service.installCli(agentID: agentID, dataDirectory: directory)
+        run(agentID) { service, directory, progress in
+            _ = try await service.installCli(agentID: agentID, dataDirectory: directory, onProgress: progress)
         }
     }
 
     /// Stops a running npm install; the previous install stays intact.
     func cancelOperation() {
+        guard operation != nil else { return }
+        isCancelling = true
         operation?.cancel()
     }
 
     private func run(
         _ agentID: String,
-        _ work: @escaping @Sendable (any AgentManagementService, URL) async throws -> Void
+        _ work: @escaping @Sendable (any AgentManagementService, URL, @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> Void
     ) {
         guard busyAgentID == nil else { return }
+        let id = UUID()
+        operationID = id
+        operationStartedAt = Date()
+        installProgress = nil
+        isCancelling = false
         busyAgentID = agentID
         errors[agentID] = nil
         let service = service
         let directory = dataDirectory
         operation = Task { [weak self] in
             do {
-                try await work(service, directory)
+                try await work(service, directory) { [weak self] progress in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.operationID == id, !self.isCancelling else { return }
+                        self.installProgress = progress
+                    }
+                }
             } catch is CancellationError {
             } catch {
                 if !Task.isCancelled { self?.errors[agentID] = error.localizedDescription }
             }
+            self?.operationID = nil
+            self?.installProgress = nil
+            self?.operationStartedAt = nil
+            self?.isCancelling = false
             self?.busyAgentID = nil
             self?.operation = nil
             await self?.refresh()

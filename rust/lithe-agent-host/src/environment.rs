@@ -5,7 +5,7 @@
 //! nvm or fnm are invisible unless the shell is asked for its `PATH`.
 
 use std::ffi::OsString;
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
@@ -263,6 +263,17 @@ pub(crate) fn run_bounded_status(
     timeout: Duration,
     cancel: &dyn Fn() -> bool,
 ) -> Result<(bool, String), RunError> {
+    run_bounded_status_observed(command, timeout, cancel, &mut |_| {})
+}
+
+/// Streams bounded output lines on the caller thread while retaining a diagnostic tail.
+/// Observers must not block; their lifetime ends before this function returns.
+pub(crate) fn run_bounded_status_observed(
+    command: &mut Command,
+    timeout: Duration,
+    cancel: &dyn Fn() -> bool,
+    observe: &mut dyn FnMut(&str),
+) -> Result<(bool, String), RunError> {
     command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -277,30 +288,68 @@ pub(crate) fn run_bounded_status(
     let mut child = command
         .spawn()
         .map_err(|error| RunError::Start(error.to_string()))?;
-    let (output_tx, output_rx) = std::sync::mpsc::channel();
+    let (output_tx, output_rx) = std::sync::mpsc::sync_channel::<Option<Vec<u8>>>(32);
     let readers = [
         child
             .stdout
             .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+            .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
         child
             .stderr
             .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+            .map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
     ]
     .into_iter()
     .flatten()
-    .map(|mut pipe| {
-        let output_tx = output_tx.clone();
+    .map(|pipe| {
+        let sender = output_tx.clone();
         std::thread::spawn(move || {
-            let mut bytes = Vec::new();
-            let _ = pipe.read_to_end(&mut bytes);
-            let _ = output_tx.send(bytes);
-        })
+            let mut reader = BufReader::new(pipe);
+            // Bound individual lines even if a child never writes a newline.
+            loop {
+                let mut bytes = Vec::new();
+                let read = std::io::Read::by_ref(&mut reader)
+                    .take(8192)
+                    .read_until(b'\n', &mut bytes);
+                match read {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) if sender.send(Some(bytes)).is_err() => return,
+                    _ => {}
+                }
+            }
+            let _ = sender.send(None);
+        });
+        1
     })
-    .count();
+    .sum::<usize>();
+    drop(output_tx);
+    let mut output = String::new();
+    let ended = std::cell::Cell::new(0);
+    let mut collect = |event: Option<Vec<u8>>| {
+        if let Some(bytes) = event {
+            let text = String::from_utf8_lossy(&bytes);
+            observe(&text);
+            output.push_str(&text);
+            if output.len() > 65536 {
+                let mut first = output.len() - 65536;
+                while !output.is_char_boundary(first) {
+                    first += 1;
+                }
+                output.drain(..first);
+            }
+        } else {
+            ended.set(ended.get() + 1);
+        }
+    };
     let deadline = Instant::now() + timeout;
     let outcome = loop {
+        // A chatty process must not starve cancellation or its deadline.
+        for _ in 0..32 {
+            match output_rx.try_recv() {
+                Ok(event) => collect(event),
+                Err(_) => break,
+            }
+        }
         match child.try_wait() {
             Ok(Some(status)) => break Ok(status.success()),
             Ok(None) if cancel() => break Err(RunError::Cancelled),
@@ -316,15 +365,15 @@ pub(crate) fn run_bounded_status(
     // A descendant that left the process group can hold a pipe open; do not
     // let it block the caller past a short grace period.
     let output_deadline = Instant::now() + OUTPUT_GRACE;
-    let output = (0..readers)
-        .map_while(|_| {
-            output_rx
-                .recv_timeout(output_deadline.saturating_duration_since(Instant::now()))
-                .ok()
-        })
-        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
-        .collect::<Vec<_>>()
-        .join("\n");
+    while ended.get() < readers {
+        match output_rx.recv_timeout(output_deadline.saturating_duration_since(Instant::now())) {
+            Ok(event) => {
+                collect(event);
+            }
+            Err(_) => break,
+        }
+    }
+    drop(collect);
     outcome.map(|success| (success, output))
 }
 

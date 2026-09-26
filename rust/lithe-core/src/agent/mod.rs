@@ -55,15 +55,20 @@ pub(crate) fn status(request: AgentStatusRequest) -> Result<Value, CoreError> {
 /// Install the pinned adapter version with the user's npm.
 pub(crate) fn install(request: AgentInstallRequest) -> Result<Value, CoreError> {
     absolute(&request.data_directory)?;
-    install::install(&request.data_directory, &request.agent_id, &cancelled)
-        .map(|version| serde_json::json!({ "agentId": request.agent_id, "installedVersion": version }))
-        .map_err(core_error)
+    install::install_with_progress(
+        &request.data_directory,
+        &request.agent_id,
+        &cancelled,
+        &emit_progress,
+    )
+    .map(|version| serde_json::json!({ "agentId": request.agent_id, "installedVersion": version }))
+    .map_err(core_error)
 }
 
 /// Install or update the agent's own CLI globally with the user's npm.
 pub(crate) fn install_cli(request: AgentInstallRequest) -> Result<Value, CoreError> {
     absolute(&request.data_directory)?;
-    install::install_cli(&request.agent_id, &cancelled)
+    install::install_cli_with_progress(&request.agent_id, &cancelled, &emit_progress)
         .map(|version| serde_json::json!({ "agentId": request.agent_id, "cliVersion": version }))
         .map_err(core_error)
 }
@@ -92,4 +97,49 @@ fn core_error(error: ManagementError) -> CoreError {
         ManagementError::TimedOut => ErrorCode::TimedOut,
     };
     CoreError::new(code, error.message())
+}
+
+/// Request-scoped install event destination. No callbacks outlive a synchronous request.
+#[derive(Clone)]
+struct ProgressContext {
+    sink: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
+    operation_id: Option<String>,
+}
+thread_local! {
+    static PROGRESS: std::cell::RefCell<Option<ProgressContext>> = const { std::cell::RefCell::new(None) };
+}
+
+struct ProgressScope(Option<ProgressContext>);
+impl Drop for ProgressScope {
+    fn drop(&mut self) {
+        PROGRESS.with(|p| *p.borrow_mut() = self.0.take());
+    }
+}
+
+/// Shares the existing event ABI with npm management, preserving nested request scopes.
+pub(crate) fn with_progress_sink<T>(
+    request: &str,
+    sink: std::sync::Arc<dyn Fn(&str) + Send + Sync>,
+    work: impl FnOnce() -> T,
+) -> T {
+    let request: Value = serde_json::from_str(request).unwrap_or(Value::Null);
+    let operation_id = request
+        .get("operationId")
+        .or_else(|| request.get("id"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let _scope =
+        ProgressScope(PROGRESS.with(|p| p.replace(Some(ProgressContext { sink, operation_id }))));
+    work()
+}
+
+fn emit_progress(progress: install::InstallProgress) {
+    // Temporarily revoke the scope while delivering: a callback may re-enter Core.
+    let context = PROGRESS.with(|p| p.take());
+    let _restore = ProgressScope(context.clone());
+    if let Some(context) = context {
+        (context.sink)(&serde_json::json!({
+            "kind": "agentInstallProgress", "operationId": context.operation_id, "progress": progress
+        }).to_string());
+    }
 }

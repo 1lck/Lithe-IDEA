@@ -96,6 +96,25 @@ public struct AgentManagementStatus: Decodable, Equatable, Sendable {
     }
 }
 
+/// Numbers-only npm progress; total package bytes are unknown until npm finishes.
+public struct AgentInstallProgress: Decodable, Equatable, Sendable {
+    public enum Stage: String, Decodable, Sendable { case preparing, downloading, installing }
+    public let stage: Stage
+    public let downloadedBytes: UInt64
+    public let bytesPerSecond: UInt64
+    public let elapsedMilliseconds: UInt64
+    public let idleMilliseconds: UInt64
+
+    public init(stage: Stage, downloadedBytes: UInt64, bytesPerSecond: UInt64,
+                elapsedMilliseconds: UInt64, idleMilliseconds: UInt64) {
+        self.stage = stage
+        self.downloadedBytes = downloadedBytes
+        self.bytesPerSecond = bytesPerSecond
+        self.elapsedMilliseconds = elapsedMilliseconds
+        self.idleMilliseconds = idleMilliseconds
+    }
+}
+
 /// Detects the user's runtime and installs ACP adapters with the user's npm.
 /// Lithe never installs Node.js or the agents' own command-line tools.
 public protocol AgentManagementService: Sendable {
@@ -106,6 +125,21 @@ public protocol AgentManagementService: Sendable {
     /// Installs or updates the agent's own CLI with the user's npm; returns
     /// the CLI version found afterwards.
     func installCli(agentID: String, dataDirectory: URL) async throws -> String
+    func install(agentID: String, dataDirectory: URL,
+                 onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String
+    func installCli(agentID: String, dataDirectory: URL,
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String
+}
+
+public extension AgentManagementService {
+    func install(agentID: String, dataDirectory: URL,
+                 onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
+        try await install(agentID: agentID, dataDirectory: dataDirectory)
+    }
+    func installCli(agentID: String, dataDirectory: URL,
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
+        try await installCli(agentID: agentID, dataDirectory: dataDirectory)
+    }
 }
 
 /// Used where no platform adapter is composed, such as focused tests.

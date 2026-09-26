@@ -76,13 +76,15 @@
       "id": "agent-management",
       "area": "AI",
       "group": "Agent 对话",
-      "capability": "Agent 管理：面板内设置、Node.js/npm 检测、预检清单、ACP 适配器与 Agent CLI 一键安装或升级、一键获取本机 CLI 配置",
+      "capability": "Agent 管理：面板内设置、Node.js/npm 检测、预检清单、ACP 适配器与 Agent CLI 一键安装或升级、一键获取本机 CLI 配置、实时下载数据量/速度/耗时与等待提示",
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift",
           "macos/Sources/Lithe/Application/Features/AgentManagementFeatureModel.swift",
           "rust/lithe-agent-host/src/install.rs",
-          "rust/lithe-core/src/agent/mod.rs"
+          "rust/lithe-core/src/agent/mod.rs",
+          "rust/lithe-agent-host/src/npm-progress.mjs",
+          "macos/Tests/LitheTests/AgentManagementFeatureModelTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -95,7 +97,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时一键升级；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。"
+      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时一键升级，确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。"
     },
     {
       "id": "workspace-open-switch",

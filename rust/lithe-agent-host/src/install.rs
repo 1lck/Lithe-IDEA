@@ -205,12 +205,88 @@ pub fn installed_version(data_directory: &Path, agent: &CatalogAgent) -> Option<
     (marker.id == agent.id && bin_path(&root, agent).exists()).then_some(marker.version)
 }
 
+/// Live npm transfer counters. The package set and its total size are not known
+/// in advance, so these counters intentionally do not claim an overall percentage.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallProgress {
+    pub stage: InstallStage,
+    pub downloaded_bytes: u64,
+    pub bytes_per_second: u64,
+    pub elapsed_milliseconds: u64,
+    /// Time since the last received package bytes; not an install timeout.
+    pub idle_milliseconds: u64,
+}
+
+/// Observable npm stage, independent of whether the overall install succeeded.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum InstallStage {
+    Preparing,
+    Downloading,
+    Installing,
+}
+
+impl InstallProgress {
+    fn preparing() -> Self {
+        Self {
+            stage: InstallStage::Preparing,
+            downloaded_bytes: 0,
+            bytes_per_second: 0,
+            elapsed_milliseconds: 0,
+            idle_milliseconds: 0,
+        }
+    }
+}
+
+/// Load a built-in, numbers-only observer in npm's Node process. A data URL
+/// avoids writing executable helpers or a second download cache to disk.
+fn observe_npm(command: &mut Command) {
+    let original = std::env::var("NODE_OPTIONS").unwrap_or_default();
+    let encoded = include_bytes!("npm-progress.mjs")
+        .iter()
+        .map(|byte| format!("%{byte:02X}"))
+        .collect::<String>();
+    command
+        .env("LITHE_NPM_ORIGINAL_NODE_OPTIONS", &original)
+        .env(
+            "NODE_OPTIONS",
+            format!("{original} --import=data:text/javascript,{encoded}"),
+        );
+}
+
+fn run_observed_npm(
+    command: &mut Command,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(InstallProgress),
+) -> Result<(bool, String), environment::RunError> {
+    observe_npm(command);
+    environment::run_bounded_status_observed(command, INSTALL_TIMEOUT, cancel, &mut |line| {
+        if let Some(json) = line.strip_prefix("LITHE_NPM_PROGRESS ") {
+            if let Ok(event) = serde_json::from_str::<InstallProgress>(json.trim()) {
+                progress(event);
+            }
+        }
+    })
+}
+
 /// Install or replace `agent_id` with its pinned version using the user's npm.
 pub fn install(
     data_directory: &Path,
     agent_id: &str,
     cancel: &dyn Fn() -> bool,
 ) -> Result<String, ManagementError> {
+    install_with_progress(data_directory, agent_id, cancel, &|_| {})
+}
+
+/// Installs an adapter and publishes live npm counters on the calling thread.
+pub fn install_with_progress(
+    data_directory: &Path,
+    agent_id: &str,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(InstallProgress),
+) -> Result<String, ManagementError> {
+    progress(InstallProgress::preparing());
     let agent = crate::catalog::find(agent_id)
         .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
     let environment = environment::detect(cancel);
@@ -228,7 +304,7 @@ pub fn install(
     std::fs::create_dir_all(&staging).map_err(|error| {
         ManagementError::Failed(format!("Could not create {}: {error}", staging.display()))
     })?;
-    let result = run_npm_install(&npm, &staging, agent, cancel).and_then(|()| {
+    let result = run_npm_install_observed(&npm, &staging, agent, cancel, progress).and_then(|()| {
         if !bin_path(&staging, agent).exists() {
             return Err(ManagementError::Failed(format!(
                 "npm finished, but `{}` was not installed",
@@ -256,6 +332,16 @@ pub fn install(
 /// This is the one place Lithe touches a global npm install; it runs only on
 /// an explicit click and uses the same npm the user would.
 pub fn install_cli(agent_id: &str, cancel: &dyn Fn() -> bool) -> Result<String, ManagementError> {
+    install_cli_with_progress(agent_id, cancel, &|_| {})
+}
+
+/// Updates the user's CLI and publishes live npm counters on the calling thread.
+pub fn install_cli_with_progress(
+    agent_id: &str,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(InstallProgress),
+) -> Result<String, ManagementError> {
+    progress(InstallProgress::preparing());
     let agent = crate::catalog::find(agent_id)
         .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
     let cli = agent.cli.as_ref().ok_or_else(|| {
@@ -280,7 +366,7 @@ pub fn install_cli(agent_id: &str, cancel: &dyn Fn() -> bool) -> Result<String, 
     if let Some(path) = environment::search_path() {
         command.env("PATH", path);
     }
-    match environment::run_bounded_status(&mut command, INSTALL_TIMEOUT, cancel) {
+    match run_observed_npm(&mut command, cancel, progress) {
         Ok((true, _)) => {}
         Ok((false, output)) => {
             return Err(ManagementError::Failed(format!(
@@ -319,11 +405,22 @@ pub fn uninstall(data_directory: &Path, agent_id: &str) -> Result<(), Management
     }
 }
 
+#[cfg(test)]
 fn run_npm_install(
     npm: &Path,
     prefix: &Path,
     agent: &CatalogAgent,
     cancel: &dyn Fn() -> bool,
+) -> Result<(), ManagementError> {
+    run_npm_install_observed(npm, prefix, agent, cancel, &|_| {})
+}
+
+fn run_npm_install_observed(
+    npm: &Path,
+    prefix: &Path,
+    agent: &CatalogAgent,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(InstallProgress),
 ) -> Result<(), ManagementError> {
     let mut command = Command::new(npm);
     command
@@ -339,7 +436,7 @@ fn run_npm_install(
     if let Some(path) = environment::search_path() {
         command.env("PATH", path);
     }
-    match environment::run_bounded_status(&mut command, INSTALL_TIMEOUT, cancel) {
+    match run_observed_npm(&mut command, cancel, progress) {
         Ok((true, _)) => Ok(()),
         Ok((false, output)) => Err(ManagementError::Failed(format!(
             "npm could not install {}:\n{}",
@@ -421,6 +518,44 @@ mod tests {
 
     fn codex() -> &'static CatalogAgent {
         crate::catalog::find("codex-acp").unwrap()
+    }
+
+    #[test]
+    fn live_npm_progress_arrives_before_cancel_and_preserves_cancellation() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        // A fake npm reports bytes, then stays alive until the observer cancels.
+        // No network, installed npm, or sleep is needed to control this sequence.
+        let root = temp_directory("progress-cancel");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let npm = fake_npm(&root, true);
+        std::fs::write(&npm, r#"#!/bin/sh
+printf '%s\n' 'LITHE_NPM_PROGRESS {"stage":"downloading","downloadedBytes":1234,"bytesPerSecond":123,"elapsedMilliseconds":1000,"idleMilliseconds":0}'
+while :; do :; done
+"#).unwrap();
+        let cancelled = AtomicBool::new(false);
+        let received = std::cell::RefCell::new(Vec::new());
+        // If the observer regresses, stop the fake child locally rather than
+        // leaving it running until the production install timeout.
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let result = run_npm_install_observed(
+            &npm,
+            &root,
+            codex(),
+            &|| cancelled.load(Ordering::SeqCst) || std::time::Instant::now() >= deadline,
+            &|event| {
+                received.borrow_mut().push(event);
+                cancelled.store(true, Ordering::SeqCst);
+            },
+        );
+        assert!(matches!(result, Err(ManagementError::Cancelled)));
+        assert_eq!(received.borrow().len(), 1);
+        assert_eq!(received.borrow()[0].downloaded_bytes, 1234);
     }
 
     #[test]

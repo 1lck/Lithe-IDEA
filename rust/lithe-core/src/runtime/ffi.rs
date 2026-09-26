@@ -109,7 +109,7 @@ fn response_pointer(value: &str) -> *mut c_char {
         .into_raw()
 }
 
-/// Executes JSON with request-scoped Git diagnostic callbacks. Each event string
+/// Executes JSON with request-scoped Git diagnostics and Agent install progress. Each event string
 /// is borrowed only during the callback; the response uses the normal ownership.
 ///
 /// # Safety

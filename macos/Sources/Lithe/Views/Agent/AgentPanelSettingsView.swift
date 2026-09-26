@@ -279,17 +279,7 @@ private struct AgentDetailView: View {
     var body: some View {
         header
         if isBusy {
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Working with npm…")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer()
-                Button("Cancel") { feature.cancelOperation() }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
-            }
-            .padding(10)
-            .background(LitheTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+            AgentInstallProgressView(feature: feature)
         }
         if let error = feature.errors[agent.id] {
             AgentSettingsIssue(error)
@@ -675,5 +665,57 @@ struct AgentSettingsIssue: View {
         .font(LitheTheme.smallFont)
         .foregroundStyle(LitheTheme.warning)
         .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// The download's total size is owned by npm and not known in advance.
+/// Report actual received bytes and rate instead of inventing an install percentage.
+private struct AgentInstallProgressView: View {
+    @ObservedObject var feature: AgentManagementFeatureModel
+
+    var body: some View {
+        TimelineView(.periodic(from: feature.operationStartedAt ?? Date(), by: 1)) { timeline in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(title).font(.system(size: 12))
+                    Spacer()
+                    Button("Cancel") { feature.cancelOperation() }
+                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+                        .disabled(feature.isCancelling)
+                }
+                if let progress = feature.installProgress, progress.downloadedBytes > 0 {
+                    Text(String(format: String(localized: "Downloaded %@ · %@/s"),
+                                bytes(progress.downloadedBytes), bytes(progress.bytesPerSecond)))
+                        .monospacedDigit()
+                }
+                let elapsed = max(0, Int(timeline.date.timeIntervalSince(feature.operationStartedAt ?? timeline.date)))
+                Text(String(format: String(localized: "Elapsed %lld s"), elapsed))
+                    .monospacedDigit()
+                if let progress = feature.installProgress, progress.stage == .downloading,
+                   progress.idleMilliseconds >= 15_000, !feature.isCancelling {
+                    Text("Waiting for download data. Check your network or proxy if this continues.")
+                        .foregroundStyle(LitheTheme.warning)
+                }
+            }
+            .font(.system(size: 11))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(10)
+            .background(LitheTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))
+        }
+    }
+
+    private var title: String {
+        if feature.isCancelling { return String(localized: "Stopping installation…") }
+        switch feature.installProgress?.stage {
+        case .preparing: return String(localized: "Preparing download…")
+        case .downloading: return String(localized: "Downloading packages…")
+        case .installing: return String(localized: "Installing packages…")
+        case nil: return String(localized: "Working with npm…")
+        }
+    }
+
+    private func bytes(_ value: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: value), countStyle: .file)
     }
 }

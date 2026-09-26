@@ -102,5 +102,40 @@
       "agentId": "codex-acp",
       "cliVersion": "0.156.1"
     }
+  },
+  "events": {
+    "preparing": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "preparing",
+        "downloadedBytes": 0,
+        "bytesPerSecond": 0,
+        "elapsedMilliseconds": 0,
+        "idleMilliseconds": 0
+      }
+    },
+    "downloading": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "downloading",
+        "downloadedBytes": 25000000,
+        "bytesPerSecond": 75000,
+        "elapsedMilliseconds": 300000,
+        "idleMilliseconds": 0
+      }
+    },
+    "waiting": {
+      "kind": "agentInstallProgress",
+      "operationId": "install-example",
+      "progress": {
+        "stage": "downloading",
+        "downloadedBytes": 25000000,
+        "bytesPerSecond": 0,
+        "elapsedMilliseconds": 320000,
+        "idleMilliseconds": 20000
+      }
+    }
   }
 }

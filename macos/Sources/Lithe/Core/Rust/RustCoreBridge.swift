@@ -3797,12 +3797,14 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func executeResult<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload,
-        operationID: String? = nil
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Data, CoreCallError> {
         let outcome: Result<Envelope<Data>, CoreCallError> = decodeEnvelope(
             command: command,
             payload: payload,
-            operationID: operationID
+            operationID: operationID,
+            onEvent: onEvent
         )
         return outcome.flatMap { envelope in
             guard let value = envelope.data else {
@@ -3830,7 +3832,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     private func decodeEnvelope<Payload: Encodable, Data: Decodable>(
         command: String,
         payload: Payload,
-        operationID: String? = nil
+        operationID: String? = nil,
+        onEvent: (@Sendable (String) -> Void)? = nil
     ) -> Result<Envelope<Data>, CoreCallError> {
         guard isAvailable else {
             return .failure(CoreCallError(
@@ -3859,7 +3862,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
             )
         ),
         let request = String(data: requestData, encoding: .utf8),
-        let responsePointer = executeGitObserving(request, context: execution,
+        let responsePointer = executeObserving(request, onEvent: onEvent, context: execution,
             journal: observesGit && execution == nil ? gitExecutionJournal : nil) else {
             return .failure(CoreCallError(
                 code: "unknown",

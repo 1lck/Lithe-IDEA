@@ -31,6 +31,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **环境检测**：通过登录 shell 读取 `PATH`，所以 nvm、fnm 装的 Node 也能找到。检测 Node 和 npm 的版本，每个 Agent 各有最低 Node 版本（Codex 20、Claude 22），版本不够时只提示。
   - **一键安装**：用用户的 npm 把固定版本的适配器装到 `Application Support/Lithe/agents/<id>`。先装到临时目录，确认可执行文件存在后再替换旧目录，所以失败或取消不会破坏已经能用的旧版本。
   - **复用用户本机的 Agent CLI**：两个适配器都自带一份 Agent 的原生程序，都是可选依赖，单个平台约 200–370 MB，而用户本机本来就有。所以安装时加上 `--omit=optional`（Codex 装完约 18 MB）。启动时在登录 shell 的 PATH 里找到用户的 CLI 交给适配器：Codex 用 `CODEX_PATH`（最低 0.156.0），Claude Code 用 `CLAUDE_CODE_EXECUTABLE`（最低 2.1.280，对应 SDK 的 `claudeCodeVersion`）。CLI 找不到或版本太旧时，预检项旁提供一键安装或升级按钮，由 `agent.installCli` 用用户本机的 npm 执行 `npm install -g <包>@latest`；这是 Lithe 唯一会做的全局 npm 安装，只在用户明确点击时运行，Node.js 和 npm 仍由用户自己安装。CLI 过旧不阻止安装适配器，只有 Node.js 或 npm 不可用才阻止。
+  - **下载进度以 npm 的真实传输为准**：安装与 CLI 升级通过现有 Core 事件回调报告已接收软件包字节数、最近采样速度、耗时和等待时间。npm 没有提供整次安装的总量，且会继续发现依赖，所以不显示总体百分比。内嵌的 Node 观察模块只统计 HTTP 响应进入流缓冲区的字节，不添加消费数据的监听器，也不重写下载、代理、重试、校验或缓存行为。模块通过内存中的 data URL 加载，启动后先恢复用户原有 `NODE_OPTIONS`，防止 npm 子脚本继承观察器；不生成辅助文件或新的可复用缓存。正确做法是显示“已下载 25 MB、75 KB/秒、已用时 300 秒”；不要把 npm 静默时的日志时间或整个共享缓存大小当成下载进度。Core 事件只携带数字和阶段，界面按操作标识丢弃迟到事件，完成、失败或取消后清除进度。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
   - **Key 和模型的传法**：所有适配器都通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置放在面板里，只有 Agent 管理一页**：Agent 的开关、预检清单（Node、npm、CLI、适配器、本机配置）、适配器和 CLI 的一键安装都在 Agent 面板右上角的设置视图里，不进全局设置窗口。布局仿照 Codeg 和 CC GUI：左侧图标栏，右侧标题加分段切换各个 Agent。
@@ -75,6 +76,10 @@ Zed 就是这么做的。但会装 Agent 的用户本机通常已经有 Node。�
 
 `OPENAI_API_KEY` 这类环境变量只适用于官方地址，也更容易泄露。隔离 `CODEX_HOME` 会让 Agent 读不到用户自己的 MCP 服务器、Skills 和全局指令；而一旦设置了网关，请求本来就不会用到用户的账号登录，所以没有必要隔离。
 
+### 用 npm 日志或另写下载器提供进度
+
+npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输出，无法解释长时间下载；轮询用户共享缓存也会把其他 npm 进程的写入误算进来。另写下载器会重复 npm 的代理、重试和缓存边界。因此采用一个只观察实际流字节的 Node 模块，保留 npm 完整安装行为；代价是必须用本地 HTTP 测试保护 Node 观察点和流的背压（消费者来不及处理时暂停接收）语义。
+
 ## 后果
 
 两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目只起一个进程，会话再多也一样。
@@ -92,6 +97,7 @@ Zed 就是这么做的。但会装 Agent 的用户本机通常已经有 Node。�
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
 - 配置选项与确认、部分工具更新、停止期间拒绝新消息、虚拟时钟驱动的取消超时、加载失败恢复记录均有回归测试。真实 Agent 集成测试在自动清理的临时项目执行“读取、修改、运行 Node 测试、继续追问”，另验证配置切换、取消恢复及进程重启后历史加载；不操作用户项目代码。
+- `node --test rust/lithe-agent-host/tests/npm-progress.test.mjs`（本地 HTTP 响应不被观察器消费，归档字节计数准确，元数据与重定向不计入）
 - `./scripts/verify-module-boundaries.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - 在 Mac 上实测：连续对话、权限选择、刚发出就取消、切换项目标签后旧会话继续运行、打开历史会话、关闭项目后进程全部退出。

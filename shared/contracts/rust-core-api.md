@@ -162,6 +162,20 @@ found on the search path as `cliVersion`. It is the only global npm install
 Lithe performs and runs only on an explicit user action; it never installs
 Node.js or npm.
 
+`agent.install` and `agent.installCli` publish `agentInstallProgress` through the
+existing synchronous `execute_json_with_events`/C ABI event callback. Each event
+carries the request's `operationId` and a `progress` object: `stage` (`preparing`,
+`downloading`, `installing`), `downloadedBytes` (received archive body bytes),
+`bytesPerSecond` (most recent sample), `elapsedMilliseconds`, and
+`idleMilliseconds` (since the last archive bytes). Counters contain no URLs,
+headers, credentials, or paths. npm still owns fetching, proxies, retries, cache,
+and extraction. A built-in Node observer counts bytes without consuming its
+stream and restores inherited `NODE_OPTIONS` before npm starts child scripts.
+No total or overall percentage is supplied: npm can discover additional packages
+and may use cached packages. Events stop before the final response, including
+failure, timeout, and cancellation. Hosts reject stale operation IDs and clear
+live counters at completion. Examples are in `agent-management-v1.json`.
+
 | Command | Purpose |
 | --- | --- |
 | `core.ping` | Verify the ABI and protocol version |
