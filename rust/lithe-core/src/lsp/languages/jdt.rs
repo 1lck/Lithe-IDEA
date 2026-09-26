@@ -228,6 +228,9 @@ pub(crate) fn maven_profile_fingerprint(
 #[serde(rename_all = "camelCase")]
 pub(crate) struct JdtDirectLaunchResources {
     pub launcher_jar_path: PathBuf,
+    /// Writable Equinox configuration area passed as `-configuration`. The
+    /// engine supplies the cache copy from `jdt_configuration`, never the
+    /// packaged directory, because Equinox writes its state here.
     pub configuration_directory: PathBuf,
     pub lombok_agent_path: PathBuf,
     #[serde(default)]

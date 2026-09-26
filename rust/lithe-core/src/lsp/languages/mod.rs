@@ -9,6 +9,7 @@ pub(crate) mod java_tests;
 mod java_workspace;
 pub(crate) mod jdt;
 pub(crate) mod jdt_build;
+mod jdt_configuration;
 pub(crate) mod jdt_navigation;
 pub(crate) mod jdt_progress;
 mod jdt_project_metadata;
@@ -23,4 +24,5 @@ pub(crate) use java_workspace::{
     JavaWorkspacePolicyRequest, JdtCacheRetentionRequest, JdtWorkspaceFingerprintRequest,
 };
 pub(crate) use jdt::{resolve_workspace_key, workspace_key, JdtWorkspaceKeyRequest};
+pub(crate) use jdt_configuration::prepare_configuration_area as prepare_jdt_configuration_area;
 pub(crate) use jdt_project_metadata::prepare_workspace as prepare_jdt_workspace;

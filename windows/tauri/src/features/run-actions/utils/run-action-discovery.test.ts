@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { javaTestActionsForFile } from "./run-action-discovery";
+import { discoverProjectRunActions, javaTestActionsForFile } from "./run-action-discovery";
 
 describe("Java Maven run actions", () => {
   test("keeps the class action when Core finds no test methods", () => {
@@ -22,4 +22,13 @@ describe("Java Maven run actions", () => {
     ]);
     expect(actions[1]?.description).toBe("CalculatorTest.java:5");
   });
+});
+
+test("host discovery does not read optional language manifests", async () => {
+  const reads: string[] = [];
+  await discoverProjectRunActions("/work/api", async (path) => {
+    reads.push(path);
+    throw new Error("absent");
+  });
+  expect(reads.some((path) => /composer|phpunit/.test(path))).toBe(false);
 });

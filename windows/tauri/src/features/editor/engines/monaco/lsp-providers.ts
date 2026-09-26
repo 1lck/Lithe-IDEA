@@ -10,7 +10,11 @@ import {
   LspClient,
 } from "@/features/editor/lsp/lsp-client";
 import { formatHoverContents } from "@/features/editor/lsp/hover-content";
-import { lspDocumentTargetForEditorPath } from "@/features/editor/lsp/lsp-document-target";
+import {
+  lspDocumentTargetForEditorPath,
+  type LspDocumentTarget,
+} from "@/features/editor/lsp/lsp-document-target";
+import { flushLspDocumentChanges } from "@/features/editor/lsp/pending-document-changes";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import {
@@ -20,6 +24,12 @@ import {
   type LspTextEdit,
 } from "@/features/editor/lsp/workspace-edit";
 import { MONACO_HIGHLIGHT_LANGUAGE_IDS } from "./language";
+import {
+  attachLspCompletionOrigin,
+  lspCompletionOrigin,
+  mergeResolvedCompletionSuggestion,
+  toMonacoCompletionSuggestion,
+} from "./lsp-completion";
 import { filePathFromLitheModelUri } from "./model-uri";
 import { createMonacoSemanticTokenProvider } from "./semantic-token-provider";
 
@@ -62,44 +72,25 @@ function toMonacoTextEdit(edit: LspTextEdit): Monaco.languages.TextEdit {
   };
 }
 
-function completionLabelText(label: CompletionItem["label"]): string {
-  return label;
-}
-
-
-function markupDocumentation(
-  value: CompletionItem["documentation"] | CompletionItem["detail"],
-): Monaco.IMarkdownString | string | undefined {
-  if (!value) return undefined;
-  if (typeof value === "string") return value;
-  if (typeof value === "object" && "value" in value && typeof value.value === "string") {
-    return { value: value.value };
-  }
-  return undefined;
-}
-
 function toCompletionItem(
   item: CompletionItem,
   range: Monaco.IRange,
 ): Monaco.languages.CompletionItem {
-  const label = completionLabelText(item.label);
-  const insertText =
-    item.textEdit && "newText" in item.textEdit ? item.textEdit.newText : item.insertText || label;
-
+  const suggestion = toMonacoCompletionSuggestion(item, range);
   return {
-    label,
+    label: suggestion.label,
     kind: mapCompletionKind(item.kind),
-    detail: item.detail,
-    documentation: markupDocumentation(item.documentation),
-    insertText,
-    range: item.textEdit && "range" in item.textEdit ? toMonacoRange(item.textEdit.range) : range,
-    sortText: item.sortText,
-    filterText: item.filterText,
+    detail: suggestion.detail,
+    documentation: suggestion.documentation,
+    insertText: suggestion.insertText,
+    range: suggestion.range,
+    sortText: suggestion.sortText,
+    filterText: suggestion.filterText,
+    additionalTextEdits: suggestion.additionalTextEdits,
     commitCharacters: item.commitCharacters,
-    insertTextRules:
-      item.insertTextFormat === 2
-        ? languages.CompletionItemInsertTextRule.InsertAsSnippet
-        : undefined,
+    insertTextRules: suggestion.snippet
+      ? languages.CompletionItemInsertTextRule.InsertAsSnippet
+      : undefined,
   };
 }
 
@@ -156,12 +147,21 @@ export function registerMonacoLspProviders() {
       : null;
   };
 
+  const completionOrigins = new WeakMap<
+    Monaco.languages.CompletionItem,
+    { item: CompletionItem; target: LspDocumentTarget; range: Monaco.IRange }
+  >();
   languages.registerCompletionItemProvider(selector, {
-    triggerCharacters: [".", ":", "<", '"', "'", "/", "@", "#"],
+    triggerCharacters: [".", ":", "<", '"', "'", "/", "@", "#", "$", "\\"],
     async provideCompletionItems(model, position) {
       const target = availableTarget(model, "completion");
       if (!target) return { suggestions: [] };
 
+      // This request comes from the keystroke that produced the current word,
+      // whose document change is still waiting out the debounce. Servers answer
+      // completion from the text they hold, so without flushing the cursor sits
+      // one character past what they know and the answer is empty.
+      await flushLspDocumentChanges(target.filePath);
       const completions = await lspClient.getCompletions(
         target,
         position.lineNumber - 1,
@@ -176,7 +176,42 @@ export function registerMonacoLspProviders() {
       );
 
       return {
-        suggestions: completions.map((item) => toCompletionItem(item, range)),
+        suggestions: completions.map((item) => {
+          const suggestion = toCompletionItem(item, range);
+          const origin = { item, target, range };
+          completionOrigins.set(suggestion, origin);
+          return attachLspCompletionOrigin(suggestion, origin);
+        }),
+      };
+    },
+    async resolveCompletionItem(item, token) {
+      const origin =
+        lspCompletionOrigin<LspDocumentTarget>(item) ?? completionOrigins.get(item);
+      if (!origin) return item;
+      const availability = lspClient.getDocumentAvailability(origin.target, "completionResolve");
+      if (availability.phase === "ready" && availability.feature === "unsupported") {
+        return item;
+      }
+      const resolved = await lspClient.resolveCompletion(origin.target, origin.item);
+      if (!resolved || token.isCancellationRequested) return item;
+      const merged = mergeResolvedCompletionSuggestion(
+        toMonacoCompletionSuggestion(origin.item, origin.range),
+        resolved,
+        origin.range,
+      );
+      return {
+        ...item,
+        label: merged.label,
+        insertText: merged.insertText,
+        range: merged.range,
+        detail: merged.detail,
+        documentation: merged.documentation,
+        filterText: merged.filterText,
+        sortText: merged.sortText,
+        additionalTextEdits: merged.additionalTextEdits,
+        insertTextRules: merged.snippet
+          ? languages.CompletionItemInsertTextRule.InsertAsSnippet
+          : item.insertTextRules,
       };
     },
   });

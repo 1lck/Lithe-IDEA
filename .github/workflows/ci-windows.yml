@@ -173,6 +173,32 @@ jobs:
         shell: pwsh
         run: bun run typecheck
 
+      - name: Build and verify optional PHP worker plugin
+        shell: pwsh
+        run: |
+          bun scripts/build-windows-php-plugin.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-windows-plugin-isolation.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
+
+      - name: Verify PHP is absent from the application bundle
+        shell: pwsh
+        run: |
+          Push-Location windows/tauri
+          try {
+            bun run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          node scripts/verify-windows-plugin-isolation.mjs --dist
+
+      - name: Upload optional PHP plugin package
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-php-plugin
+          path: .artifacts/windows-plugins/*.lithe-extension
+          if-no-files-found: error
+
       - name: Verify Windows boundaries
         shell: pwsh
         run: ./scripts/verify-windows-boundaries.ps1

@@ -36,7 +36,7 @@ use crate::lsp::languages::jdt_build::{
 use crate::lsp::languages::jdt_build::{JavaBuildMarkerScope, JavaBuildRecovery};
 use crate::lsp::languages::jdt_navigation::{JavaNavigationMarkerBatch, MAX_JAVA_NAVIGATION_TASKS};
 use crate::lsp::languages::jdt_progress::JavaPreparationDiagnostics;
-use crate::lsp::languages::prepare_jdt_workspace;
+use crate::lsp::languages::{prepare_jdt_configuration_area, prepare_jdt_workspace};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1024,22 +1024,38 @@ impl LspEngine {
                 paths
             })
             .unwrap_or_default();
+        // The packaged configuration directory belongs to the installed
+        // product and must stay byte-identical; Equinox receives a writable
+        // copy in the host cache instead.
+        let configuration_area = request
+            .jdtls_launch_resources
+            .as_ref()
+            .map(|resources| {
+                prepare_jdt_configuration_area(
+                    &data_root,
+                    Path::new(&resources.configuration_directory),
+                    unix_seconds_now(),
+                )
+            })
+            .transpose()?;
         let adaptation = adapt_start(&JdtStartContext {
             provider_id: request.provider_id.clone(),
             workspace_root: workspace_root.clone(),
             data_root,
             selected_java_executable,
-            direct_launch_resources: request.jdtls_launch_resources.as_ref().map(|resources| {
-                JdtDirectLaunchResources {
+            direct_launch_resources: request
+                .jdtls_launch_resources
+                .as_ref()
+                .zip(configuration_area.as_ref())
+                .map(|(resources, configuration_area)| JdtDirectLaunchResources {
                     launcher_jar_path: PathBuf::from(&resources.launcher_jar_path),
-                    configuration_directory: PathBuf::from(&resources.configuration_directory),
+                    configuration_directory: configuration_area.directory.clone(),
                     lombok_agent_path: PathBuf::from(&resources.lombok_agent_path),
                     java_debug_bundle_path: resources
                         .java_debug_bundle_path
                         .as_deref()
                         .map(PathBuf::from),
-                }
-            }),
+                }),
             arguments: request.arguments.clone(),
             workspace_fingerprint: request.workspace_fingerprint.clone(),
         });
@@ -1199,6 +1215,22 @@ impl LspEngine {
                 "Maven local repository override was not applied",
                 Some(detail),
             );
+        }
+        if let Some(area) = configuration_area {
+            if !area.removed_keys.is_empty() {
+                session.log(
+                    "info",
+                    "Removed unused Java language-server configuration areas",
+                    Some(json!({ "removedKeys": area.removed_keys }).to_string()),
+                );
+            }
+            if let Some(failure) = area.cleanup_failure {
+                session.log(
+                    "warn",
+                    "Unused Java language-server configuration areas could not be removed",
+                    Some(failure),
+                );
+            }
         }
 
         self.lock_sessions()?
@@ -3907,6 +3939,14 @@ fn ensure_not_terminal(lifecycle: LspLifecycleState) -> Result<(), CoreError> {
     }
 }
 
+/// Wall-clock seconds used only to age cache directories; a clock before the
+/// Unix epoch makes every area look freshly used rather than expired.
+fn unix_seconds_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
+}
+
 fn java_executable_from_environment(environment: &BTreeMap<String, String>) -> Option<PathBuf> {
     environment.get("JAVA_HOME").map(|home| {
         let executable = if cfg!(windows) { "java.exe" } else { "java" };
@@ -4979,6 +5019,19 @@ mod tests {
             "completionProvider": {},
             "renameProvider": true
         })
+    }
+
+    /// Contents of the one file Core reads from a packaged configuration directory.
+    const PACKAGED_JDTLS_CONFIG_INI: &str =
+        "osgi.bundles=reference\\:file\\:org.eclipse.jdt.ls.core_1.61.0.jar@4\\:start\n";
+
+    /// Creates `installation/jdtls/config_mac` holding only the shipped `config.ini`.
+    fn packaged_jdtls_configuration(installation: &Path) -> PathBuf {
+        let configuration = installation.join("jdtls").join("config_mac");
+        std::fs::create_dir_all(&configuration).expect("packaged configuration should be created");
+        std::fs::write(configuration.join("config.ini"), PACKAGED_JDTLS_CONFIG_INI)
+            .expect("packaged config.ini should be written");
+        configuration
     }
 
     fn start_request(server: &ScriptedServer) -> StartServerRequest {
@@ -6453,14 +6506,20 @@ mod tests {
     fn structured_jdtls_resources_launch_the_runtime_executable_directly() {
         let server = ScriptedServer::new();
         let engine = LspEngine::with_launcher(server.launcher());
-        let cache = std::env::temp_dir().join("lithe-core-direct-jdtls-tests");
+        let root = std::env::temp_dir().join(format!(
+            "lithe-core-direct-jdtls-tests-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        let cache = root.join("cache");
+        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
         let mut request = start_request(&server);
         request.provider_id = "java".to_string();
         request.arguments = vec!["--jvm-arg=-Duser.language=en".to_string()];
         request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
         request.jdtls_launch_resources = Some(JdtlsLaunchResources {
             launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-            configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+            configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
             lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
             java_debug_bundle_path: Some(
                 "/opt/lithe/jdtls/java-debug/com.microsoft.java.debug.plugin-0.53.1.jar"
@@ -6494,18 +6553,30 @@ mod tests {
                 .map(|index| spec.arguments[index + 1].as_str()),
             Some("/opt/lithe/jdtls/plugins/equinox.jar")
         );
-        assert_eq!(
-            spec.arguments
-                .iter()
-                .position(|argument| argument == "-configuration")
-                .map(|index| spec.arguments[index + 1].as_str()),
-            Some("/opt/lithe/jdtls/config_mac")
-        );
+        // Equinox writes into -configuration, so it must name the writable
+        // copy in the cache and never the packaged directory.
+        let configuration = spec
+            .arguments
+            .iter()
+            .position(|argument| argument == "-configuration")
+            .map(|index| PathBuf::from(&spec.arguments[index + 1]))
+            .expect("direct launch must pass a configuration area");
+        let copied_config = std::fs::read(configuration.join("config.ini"));
+        let packaged_entries = std::fs::read_dir(&packaged_configuration)
+            .expect("packaged configuration should stay readable")
+            .count();
         assert!(!spec
             .arguments
             .iter()
             .any(|argument| argument.starts_with("--java-executable")));
-        let _ = std::fs::remove_dir_all(&cache);
+        let _ = std::fs::remove_dir_all(&root);
+
+        assert!(configuration.starts_with(cache.join("jdtls-configuration")));
+        assert_eq!(
+            copied_config.ok().as_deref(),
+            Some(PACKAGED_JDTLS_CONFIG_INI.as_bytes())
+        );
+        assert_eq!(packaged_entries, 1, "only the shipped config.ini remains");
     }
 
     /// A write that fails mid-session is a transport failure, not a silent drop.
@@ -7031,14 +7102,19 @@ mod tests {
 
     #[test]
     fn java_start_enables_and_normalizes_class_file_navigation() {
-        let cache = std::env::temp_dir().join("lithe-core-java-navigation-tests");
+        let root = std::env::temp_dir().join(format!(
+            "lithe-core-java-navigation-tests-{}",
+            std::process::id()
+        ));
+        let cache = root.join("cache");
+        let packaged_configuration = packaged_jdtls_configuration(&root.join("installation"));
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
             request.cache_directory = Some(cache.to_string_lossy().into_owned());
             request.runtime_executable_path = Some("/opt/lithe/jdk/bin/java".to_string());
             request.jdtls_launch_resources = Some(JdtlsLaunchResources {
                 launcher_jar_path: "/opt/lithe/jdtls/plugins/equinox.jar".to_string(),
-                configuration_directory: "/opt/lithe/jdtls/config_mac".to_string(),
+                configuration_directory: packaged_configuration.to_string_lossy().into_owned(),
                 lombok_agent_path: "/opt/lithe/jdtls/lombok/lombok.jar".to_string(),
                 java_debug_bundle_path: Some("/plugins/java-debug.jar".to_string()),
                 java_extension_bundle_paths: vec![
@@ -7107,7 +7183,7 @@ mod tests {
         assert_eq!(location["isReadOnly"], true);
         assert_eq!(location["displayPath"], "java.base/java/lang/String.java");
 
-        let _ = std::fs::remove_dir_all(cache);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

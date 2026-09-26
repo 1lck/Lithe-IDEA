@@ -97,6 +97,20 @@ export interface ImageDiffViewerProps {
   commitHash?: string;
 }
 
+/**
+ * Repository-owned identity of a working-tree file diff. Refreshes reuse it so
+ * they read the same repository, path, and HEAD-to-worktree semantics as the
+ * initial open instead of re-deriving them from workspace display paths.
+ */
+export interface WorkingTreeDiffTarget {
+  repoPath: string;
+  /** Path relative to repoPath. */
+  filePath: string;
+  /** Repository-relative source path for renames. */
+  originalPath?: string;
+  untracked: boolean;
+}
+
 export interface MultiFileDiff {
   title?: string;
   repoPath?: string;
@@ -113,6 +127,8 @@ export interface MultiFileDiff {
   fileLabels?: string[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
+  /** Working-tree refresh identities keyed by file key. */
+  workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
   isLoading?: boolean;
   indexingProgress?: {
     processed: number;

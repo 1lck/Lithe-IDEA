@@ -5,7 +5,7 @@ export const backendCapabilities = {
   database: false,
   debugger: true,
   docker: false,
-  extensions: false,
+  extensions: true,
   git: true,
   github: false,
   remote: false,

@@ -19,35 +19,10 @@ if [[ -n "$bundle_write_violations" ]]; then
     exit 1
 fi
 
-resolver='macos/Sources/Lithe/Platform/MacOS/Runtime/MacJDTLSLaunchResourceResolver.swift'
-for required in \
-    'configurationCacheDirectoryURL' \
-    'SHA256' \
-    'copyItem(at: bundledConfigurationURL, to: stagingURL)' \
-    'moveItem(at: stagingURL, to: cachedConfigurationURL)'; do
-    if ! /usr/bin/grep -Fq -- "$required" "$resolver"; then
-        print -u2 -- "JDTLS bundle immutability guard is incomplete: missing $required"
-        exit 1
-    fi
-done
-
-container='macos/Sources/Lithe/Platform/MacOS/MacServiceContainer.swift'
-if ! /usr/bin/grep -Fq -- 'configurationCacheDirectoryURL: languageServerCacheDirectory' "$container"; then
-    print -u2 -- "MacServiceContainer must route JDTLS mutable configuration into the cache"
-    exit 1
-fi
-
-windows_lsp='windows/tauri/src-tauri/src/lsp.rs'
-windows_cache_body=$(
-    sed -n '/fn language_server_cache_directory/,/^}/p' "$windows_lsp"
-)
-if [[ "$windows_cache_body" != *'app_cache_dir()'* ]]; then
-    print -u2 -- "Windows language-server state must use Tauri app_cache_dir()"
-    exit 1
-fi
-if [[ "$windows_cache_body" == *'resource_dir()'* ]]; then
-    print -u2 -- "Windows language-server cache must not use resource_dir()"
-    exit 1
-fi
+# JDT LS is the one runtime that writes into a packaged directory by design.
+# Rust Core redirects its Equinox configuration area into the host cache for
+# both products; `jdt_configuration` tests and the real JDT LS smoke test
+# prove the installation stays byte-identical, so no source pattern is
+# duplicated here.
 
 print -- "Runtime bundle immutability verification passed"

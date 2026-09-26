@@ -5,6 +5,7 @@ import { isEditorLspSupported } from "@/features/editor/lsp/built-in-language-su
 import { LspClient } from "@/features/editor/lsp/lsp-client";
 import {
   hasLspDocumentChanges,
+  registerLspDocumentChangeFlusher,
   subscribeLspDocumentChanges,
   takeLspDocumentChanges,
 } from "@/features/editor/lsp/pending-document-changes";
@@ -253,6 +254,30 @@ export const useLspIntegration = ({
       scheduleFlush(true);
     });
 
+    // Sends whatever the debounce is still holding and waits for the in-flight
+    // send, so a request issued from the same keystroke is answered against the
+    // text the editor actually shows. Bounded so continuous typing cannot
+    // starve the request.
+    const flushBeforeRequest = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const owner = documentOwnersRef.current.get(filePath);
+        if (owner?.state.phase !== "open") return;
+        if (owner.changes.phase === "scheduled") {
+          clearTimeout(owner.changes.timer);
+          owner.changes = { phase: "idle", completion: owner.changes.completion };
+        }
+        if (!hasLspDocumentChanges(filePath)) {
+          await documentOwnersRef.current.get(filePath)?.changes.completion;
+          return;
+        }
+        if (owner.changes.phase === "idle") {
+          flushDocumentChange(true);
+        }
+        await documentOwnersRef.current.get(filePath)?.changes.completion;
+      }
+    };
+    const unregisterFlusher = registerLspDocumentChangeFlusher(filePath, flushBeforeRequest);
+
     if (hasLspDocumentChanges(filePath)) {
       scheduleFlush(true);
     } else if (
@@ -264,6 +289,7 @@ export const useLspIntegration = ({
 
     return () => {
       unsubscribe();
+      unregisterFlusher();
       const owner = documentOwnersRef.current.get(filePath);
       if (owner?.changes.phase === "scheduled") {
         clearTimeout(owner.changes.timer);

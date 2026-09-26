@@ -5,6 +5,7 @@ use crate::project::{
 };
 use serde_json::Value;
 use std::fs;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn java_launch_command_json_reuses_the_shared_argfile_planner() {
@@ -468,9 +469,79 @@ fn maven_launch_plan_matches_the_shared_compatibility_fixture() {
     fs::remove_dir_all(root).expect("Maven launch-plan fixture should be removable");
 }
 
+/// Temporary directory that is removed even when an assertion fails.
+struct TreeDirectory(PathBuf);
+
+impl TreeDirectory {
+    fn new(label: &str) -> Self {
+        let path = temporary_root(label);
+        fs::create_dir_all(&path).expect("temporary directory should be creatable");
+        Self(path)
+    }
+
+    fn write(&self, name: &str, contents: impl AsRef<[u8]>) -> PathBuf {
+        let path = self.0.join(name);
+        fs::write(&path, contents).expect("dependency-tree file should be writable");
+        path
+    }
+}
+
+impl Drop for TreeDirectory {
+    fn drop(&mut self) {
+        if let Err(error) = fs::remove_dir_all(&self.0) {
+            eprintln!("Could not remove dependency-tree fixture: {error}");
+        }
+    }
+}
+
+fn maven_dependency_plan(root: &Path, module: Value, output_file: Value) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-dependency-plan",
+            "command": "maven.dependencyPlan",
+            "payload": {
+                "root": root,
+                "context": {
+                    "version": 1,
+                    "reactorPath": ".",
+                    "profiles": ["dev"]
+                },
+                "module": module,
+                "outputFile": output_file
+            }
+        })
+        .to_string(),
+    ))
+    .expect("Maven dependency-plan response should be JSON")
+}
+
+fn maven_dependencies(module_path: &str, output_file: &Path) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "maven-dependencies",
+            "command": "maven.dependencies",
+            "payload": {"modulePath": module_path, "outputFile": output_file}
+        })
+        .to_string(),
+    ))
+    .expect("Maven dependency response should be JSON")
+}
+
+/// One tree line per node, as the pinned plugin writes a flat direct list.
+fn flat_tree(nodes: usize) -> String {
+    let mut tree = String::from("com.example:service:jar:1.0.0\n");
+    for index in 0..nodes {
+        tree.push_str(&format!(
+            "+- org.example.application.platform.dependencies:library-{index}:jar:1.0.0:compile (version managed from 0.9.0)\n"
+        ));
+    }
+    tree
+}
+
 #[test]
-fn maven_dependency_plan_is_fixed_and_module_scoped() {
-    let root = temporary_root("maven-dependency-plan");
+fn maven_dependency_plan_writes_one_module_tree_to_the_platform_file() {
+    let workspace = TreeDirectory::new("maven-dependency-plan");
+    let root = &workspace.0;
     fs::create_dir_all(root.join("service")).expect("Maven module should be creatable");
     fs::write(
         root.join("pom.xml"),
@@ -482,100 +553,242 @@ fn maven_dependency_plan_is_fixed_and_module_scoped() {
         r#"<project><artifactId>service</artifactId></project>"#,
     )
     .expect("module pom should be writable");
+    let output_file = root.join("scratch/tree.txt");
+    let tree_arguments = |output_file: &Path| {
+        vec![
+            Value::from("org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree"),
+            Value::from("-Dverbose=true"),
+            Value::from("-DoutputType=text"),
+            Value::from("-Dtokens=standard"),
+            Value::from(format!("-DoutputFile={}", output_file.display())),
+            Value::from("-DoutputEncoding=UTF-8"),
+            Value::from("-DappendOutput=false"),
+            Value::from("-Dstyle.color=never"),
+            Value::from("-Duser.language=en"),
+            Value::from("-Duser.country=US"),
+        ]
+    };
 
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "maven-dependency-plan",
-            "command": "maven.dependencyPlan",
-            "payload": {
-                "root": root,
-                "context": {
-                    "version": 1,
-                    "reactorPath": ".",
-                    "profiles": ["dev"]
-                },
-                "module": "service"
-            }
-        })
-        .to_string(),
-    ))
-    .expect("Maven dependency-plan response should be JSON");
+    let module =
+        maven_dependency_plan(root, Value::from("service"), serde_json::json!(output_file));
+    assert_eq!(module["ok"], true, "{module}");
+    let mut expected = vec![
+        Value::from("-B"),
+        Value::from("-ntp"),
+        Value::from("-P"),
+        Value::from("dev"),
+        Value::from("-pl"),
+        Value::from("service"),
+    ];
+    expected.extend(tree_arguments(&output_file));
+    assert_eq!(module["data"]["arguments"], Value::Array(expected));
 
-    assert_eq!(response["ok"], true, "{response}");
-    assert_eq!(
-        response["data"]["arguments"],
-        serde_json::json!([
-            "-B",
-            "-ntp",
-            "-P",
-            "dev",
-            "-pl",
-            "service",
-            "org.apache.maven.plugins:maven-dependency-plugin:3.8.1:tree",
-            "-Dverbose=true",
-            "-DoutputType=text",
-            "-Dstyle.color=never",
-            "-Duser.language=en",
-            "-Duser.country=US"
-        ])
-    );
-    assert!(!response["data"]["arguments"]
-        .as_array()
-        .expect("arguments should be an array")
-        .iter()
-        .any(|argument| argument == "-am"));
-    fs::remove_dir_all(root).expect("Maven dependency-plan fixture should be removable");
+    // Without `-N` every reactor project would overwrite the same file, and
+    // the root query would return whichever module Maven visited last.
+    for root_module in [Value::Null, Value::from(".")] {
+        let reactor =
+            maven_dependency_plan(root, root_module.clone(), serde_json::json!(output_file));
+        assert_eq!(reactor["ok"], true, "{root_module}: {reactor}");
+        let mut expected = vec![
+            Value::from("-B"),
+            Value::from("-ntp"),
+            Value::from("-P"),
+            Value::from("dev"),
+            Value::from("-N"),
+        ];
+        expected.extend(tree_arguments(&output_file));
+        assert_eq!(
+            reactor["data"]["arguments"],
+            Value::Array(expected),
+            "{root_module}"
+        );
+    }
+}
+
+#[test]
+fn maven_dependency_plan_rejects_output_paths_maven_would_misread() {
+    let workspace = TreeDirectory::new("maven-dependency-plan-output");
+    let root = &workspace.0;
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>demo</artifactId></project>"#,
+    )
+    .expect("pom should be writable");
+    let absolute = root.join("tree.txt").display().to_string();
+    for (name, output_file) in [
+        ("missing", Value::Null),
+        ("empty", Value::from("")),
+        ("relative", Value::from("scratch/tree.txt")),
+        ("padded", Value::from(format!(" {absolute}"))),
+        (
+            "control",
+            Value::from(format!("{absolute}\n-Dverbose=false")),
+        ),
+    ] {
+        let response = maven_dependency_plan(root, Value::Null, output_file);
+        assert_eq!(response["ok"], false, "case {name}: {response}");
+        assert_eq!(response["error"]["code"], "invalid_request", "case {name}");
+    }
 }
 
 #[test]
 fn maven_dependencies_match_the_shared_compatibility_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
-        "../../../../shared/fixtures/maven/dependency-tree-v1.json"
+        "../../../../shared/fixtures/maven/dependency-tree-v2.json"
     ))
     .expect("Maven dependency-tree fixture should be valid JSON");
-    let response: Value = serde_json::from_str(&execute_json(
-        &serde_json::json!({
-            "id": "maven-dependencies",
-            "command": "maven.dependencies",
-            "payload": {
-                "modulePath": fixture["modulePath"],
-                "output": fixture["output"]
-            }
-        })
-        .to_string(),
-    ))
-    .expect("Maven dependency response should be JSON");
+    let directory = TreeDirectory::new("maven-dependencies-fixture");
+    let tree = fixture["treeFile"]
+        .as_str()
+        .expect("fixture tree should be text");
+    let module_path = fixture["modulePath"]
+        .as_str()
+        .expect("fixture module should be text");
 
-    assert_eq!(response["ok"], true, "{response}");
-    assert_eq!(response["data"], fixture["expected"]);
+    // The plugin writes with the JVM line separator, so Windows produces CRLF.
+    for (name, contents) in [
+        ("lf", tree.to_string()),
+        ("crlf", tree.replace('\n', "\r\n")),
+    ] {
+        let file = directory.write(&format!("{name}.txt"), contents);
+        let response = maven_dependencies(module_path, &file);
+        assert_eq!(response["ok"], true, "case {name}: {response}");
+        assert_eq!(response["data"], fixture["expected"], "case {name}");
+    }
 }
 
 #[test]
-fn maven_dependencies_reject_bounded_output_node_and_depth_overflow() {
-    let oversized_output = "x".repeat(500_001);
-    let too_many_nodes = (0..10_001)
-        .map(|index| format!("[INFO] +- example:dependency-{index}:jar:1:compile"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let too_deep = format!("[INFO] {}\\- example:deep:jar:1:compile", "|  ".repeat(64));
+fn maven_dependencies_accept_a_large_tree_that_exceeded_the_console_budget() {
+    // Issue #890: 6,000 nodes are about 700 KB of text, above the former
+    // 500,000-character console budget but well inside the node limit.
+    let directory = TreeDirectory::new("maven-dependencies-large");
+    let tree = flat_tree(6_000);
+    assert!(tree.len() > 500_000);
+    let response = maven_dependencies(".", &directory.write("tree.txt", tree));
+    assert_eq!(response["ok"], true, "{}", response["error"]);
+    let dependencies = response["data"]["dependencies"]
+        .as_array()
+        .expect("dependencies should be an array");
+    assert_eq!(dependencies.len(), 6_000);
+    assert!(dependencies
+        .iter()
+        .all(|dependency| dependency["premanagedVersion"] == "0.9.0"));
 
-    for (name, output) in [
-        ("output", oversized_output),
-        ("nodes", too_many_nodes),
-        ("depth", too_deep),
+    let limit = maven_dependencies(".", &directory.write("limit.txt", flat_tree(10_000)));
+    assert_eq!(limit["ok"], true, "{}", limit["error"]);
+}
+
+#[test]
+fn maven_dependencies_reject_trees_beyond_their_bounds() {
+    let directory = TreeDirectory::new("maven-dependencies-bounds");
+    let oversized = directory.0.join("oversized.txt");
+    // A sparse file reaches the byte limit without writing tens of megabytes.
+    fs::File::create(&oversized)
+        .and_then(|file| file.set_len((10_000 + 1) * 4 * 1024 + 1))
+        .expect("oversized tree should be creatable");
+    let long_line = format!(
+        "com.example:service:jar:1.0.0\n+- org.example:{}:jar:1:compile\n",
+        "a".repeat(4 * 1024)
+    );
+    let too_deep = format!(
+        "com.example:service:jar:1.0.0\n{}\\- example:deep:jar:1:compile\n",
+        "|  ".repeat(64)
+    );
+
+    for (name, file, details) in [
+        ("bytes", oversized, "maximumBytes="),
+        (
+            "nodes",
+            directory.write("nodes.txt", flat_tree(10_001)),
+            "maximumNodes=10000",
+        ),
+        ("line", directory.write("line.txt", long_line), "line=2"),
+        (
+            "depth",
+            directory.write("depth.txt", too_deep),
+            "maximumDepth=64",
+        ),
     ] {
-        let response: Value = serde_json::from_str(&execute_json(
-            &serde_json::json!({
-                "id": name,
-                "command": "maven.dependencies",
-                "payload": {"modulePath": ".", "output": output}
-            })
-            .to_string(),
-        ))
-        .expect("bounded Maven dependency response should be JSON");
+        let response = maven_dependencies(".", &file);
+        assert_eq!(response["ok"], false, "case {name}: {response}");
+        assert_eq!(response["error"]["code"], "parse_failed", "case {name}");
+        assert!(
+            response["error"]["details"]
+                .as_str()
+                .is_some_and(|value| value.starts_with(details)),
+            "case {name}: {response}"
+        );
+    }
+}
+
+#[test]
+fn maven_dependencies_report_unexpected_file_contents_instead_of_a_partial_tree() {
+    // Each case would previously have been skipped line by line and shown as
+    // a shorter tree. A project POM can override the plugin's output type or
+    // tokens, so the file format is validated rather than assumed.
+    let directory = TreeDirectory::new("maven-dependencies-format");
+    for (name, contents) in [
+        ("empty", String::new()),
+        (
+            "dot",
+            "digraph \"com.example:service:jar:1.0.0\" {\n\t\"com.example:service:jar:1.0.0\" -> \"org.example:lib:jar:1.0:compile\" ;\n }\n".to_string(),
+        ),
+        (
+            "extended-tokens",
+            "com.example:service:jar:1.0.0\n\u{251C}\u{2500} org.example:lib:jar:1.0:compile\n".to_string(),
+        ),
+        (
+            "console-log",
+            "com.example:service:jar:1.0.0\n+- org.example:lib:jar:1.0:compile\n[INFO] BUILD SUCCESS\n".to_string(),
+        ),
+        (
+            "unknown-annotation",
+            "com.example:service:jar:1.0.0\n+- org.example:lib:jar:1.0:compile (version selected from range [1.0,2.0))\n".to_string(),
+        ),
+        (
+            "omitted-without-reason",
+            "com.example:service:jar:1.0.0\n+- (org.example:lib:jar:1.0:compile - version managed from 0.9)\n".to_string(),
+        ),
+        (
+            "included-with-omission",
+            "com.example:service:jar:1.0.0\n+- org.example:lib:jar:1.0:compile (omitted for duplicate)\n".to_string(),
+        ),
+        (
+            "invalid-utf8",
+            "com.example:service:jar:1.0.0\n+- org.example:lib-\u{FFFD}:jar:1.0:compile\n".to_string(),
+        ),
+    ] {
+        let mut bytes = contents.into_bytes();
+        if name == "invalid-utf8" {
+            let replacement = "\u{FFFD}".as_bytes();
+            let index = bytes
+                .windows(replacement.len())
+                .position(|window| window == replacement)
+                .expect("placeholder should be present");
+            bytes.splice(index..index + replacement.len(), [0xFF]);
+        }
+        let response = maven_dependencies(".", &directory.write(&format!("{name}.txt"), bytes));
         assert_eq!(response["ok"], false, "case {name}: {response}");
         assert_eq!(response["error"]["code"], "parse_failed", "case {name}");
     }
+
+    let root_only = maven_dependencies(
+        ".",
+        &directory.write("root-only.txt", "com.example:service:jar:1.0.0\n"),
+    );
+    assert_eq!(root_only["ok"], true, "{root_only}");
+    assert_eq!(root_only["data"]["dependencies"], serde_json::json!([]));
+}
+
+#[test]
+fn maven_dependencies_report_a_missing_tree_file_as_a_process_failure() {
+    let directory = TreeDirectory::new("maven-dependencies-missing");
+    let response = maven_dependencies(".", &directory.0.join("never-written.txt"));
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "process_failed");
+
+    let relative = maven_dependencies(".", Path::new("tree.txt"));
+    assert_eq!(relative["error"]["code"], "invalid_request", "{relative}");
 }
 
 #[test]
