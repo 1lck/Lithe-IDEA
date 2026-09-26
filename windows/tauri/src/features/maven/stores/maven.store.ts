@@ -1216,7 +1216,7 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-                  });
+            });
             if (previousModulePath) {
               setDependencyLoad(previousModulePath, {
                 status: "cancelled",
@@ -1246,7 +1246,7 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: sessionId,
             activeDependencyModulePath: modulePath,
-              });
+          });
           setDependencyLoad(modulePath, { status: "loading", dependencies: [], error: null });
 
           try {
@@ -1307,7 +1307,7 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-                  });
+            });
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
             releaseDependencySession(sessionId);
           }
@@ -1331,7 +1331,7 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: null,
             activeDependencyModulePath: null,
-              });
+          });
           setDependencyLoad(modulePath, { status: "cancelled", dependencies: [], error: null });
           if (!sessionId) return;
           try {
