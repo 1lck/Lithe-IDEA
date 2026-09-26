@@ -363,7 +363,8 @@ final class MacServiceContainer {
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
-                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
+                            configurationStore: MacMavenConfigurationStore(storage: fileStorage),
+                            dependencyOutputs: MacMavenDependencyOutputStore()
                         ),
                         run: RunService(
                             runtime: runtimeService,

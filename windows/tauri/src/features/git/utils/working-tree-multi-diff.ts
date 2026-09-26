@@ -1,5 +1,5 @@
 import { loadWorkingTreeFileDiff } from "../services/working-tree-file-diff";
-import type { MultiFileDiff } from "../types/git-diff.types";
+import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
 
@@ -29,24 +29,29 @@ export const createSingleFileWorkingTreeDiff = ({
   fileKey,
   diff,
   title = WORKING_TREE_TITLE,
+  target,
 }: {
   repoPath: string;
   fileKey: string;
-  diff: GitDiff;
+  /** A null diff keeps the file identity but renders the empty state. */
+  diff: GitDiff | null;
   title?: string;
+  target?: WorkingTreeDiffTarget;
 }): MultiFileDiff => {
-  const stats = countDiffStats([diff]);
+  const files = diff ? [diff] : [];
+  const stats = countDiffStats(files);
 
   return {
     title,
     repoPath,
     commitHash: "working-tree",
-    files: [diff],
-    totalFiles: 1,
+    files,
+    totalFiles: files.length,
     totalAdditions: stats.additions,
     totalDeletions: stats.deletions,
-    fileKeys: [fileKey],
+    fileKeys: diff ? [fileKey] : [],
     initiallyExpandedFileKey: fileKey,
+    ...(target ? { workingTreeTargets: { [fileKey]: target } } : {}),
     isLoading: false,
   };
 };

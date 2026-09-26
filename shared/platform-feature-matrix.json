@@ -373,7 +373,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位。"
+      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。"
     },
     {
       "id": "git-history",
@@ -636,20 +636,49 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Run",
-          "macos/Sources/Lithe/Services/Java"
+          "macos/Sources/Lithe/Services/Java",
+          "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift",
+          "rust/lithe-core/src/project/maven_dependency_tree.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/maven"
+          "windows/tauri/src/features/maven",
+          "windows/tauri/src-tauri/src/maven.rs",
+          "rust/lithe-core/src/project/maven_dependency_tree.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"
+      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。"
+    },
+    {
+      "id": "java-maven-toolbar-tooltips",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Maven 工具栏图标悬停说明",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/MavenView.swift",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
+          "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven/components/maven-pane.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。"
     },
     {
       "id": "java-build-diagnostics",
@@ -1358,6 +1387,7 @@
       "capability": "应用、项目与运行设置",
       "macos": {
         "evidence": [
+          "macos/Sources/Lithe/LitheApp.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
         ],
@@ -1372,7 +1402,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示。"
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。"
     },
     {
       "id": "keymap-customization",
@@ -1491,7 +1521,33 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间。"
+    },
+    {
+      "id": "workbench-activity-tooltips",
+      "area": "工作台",
+      "group": "工作台布局",
+      "capability": "活动栏图标的稳定悬停说明",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+          "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+          "windows/tauri/src/features/layout/components/footer/footer-tab-control.tsx",
+          "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。"
     },
     {
       "id": "embedded-viewers",

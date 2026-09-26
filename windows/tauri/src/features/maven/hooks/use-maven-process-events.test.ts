@@ -9,7 +9,6 @@ const windowListen = mock(async (event: string, handler: (event: { payload: unkn
 });
 const globalListen = mock(async () => () => {});
 const appendOutput = mock(() => undefined);
-const appendDependencyOutput = mock(() => undefined);
 const finishProcess = mock(() => undefined);
 const finishDependencyProcess = mock(async () => undefined);
 const releaseMavenSessionWorkspace = mock(() => undefined);
@@ -26,7 +25,6 @@ mock.module("./maven-process-session", () => ({
     getState: () => ({
       actions: {
         appendOutput,
-        appendDependencyOutput,
         finishProcess,
         finishDependencyProcess,
       },
@@ -40,7 +38,6 @@ const { ensureMavenProcessListeners } = await import("./use-maven-process-events
 describe("maven process event listeners", () => {
   beforeEach(() => {
     appendOutput.mockClear();
-    appendDependencyOutput.mockClear();
     finishProcess.mockClear();
     finishDependencyProcess.mockClear();
     releaseMavenSessionWorkspace.mockClear();
@@ -79,7 +76,7 @@ describe("maven process event listeners", () => {
     expect(appendOutput).toHaveBeenCalledWith("maven:task-1", "BUILD SUCCESS\n");
   });
 
-  test("routes dependency sessions without mutating build output", () => {
+  test("finishes dependency sessions without treating their log as data", () => {
     const outputHandler = eventHandlers.get("run-output");
     const exitHandler = eventHandlers.get("run-exit");
     expect(outputHandler).toBeDefined();
@@ -92,10 +89,7 @@ describe("maven process event listeners", () => {
       payload: { sessionId: "maven-dependency:task-1", exitCode: 0 },
     });
 
-    expect(appendDependencyOutput).toHaveBeenCalledWith(
-      "maven-dependency:task-1",
-      "[INFO] tree\n",
-    );
+    // The tree arrives in the session's output file, so the log reaches no store.
     expect(appendOutput).not.toHaveBeenCalled();
     expect(finishDependencyProcess).toHaveBeenCalledWith("maven-dependency:task-1", 0);
   });
