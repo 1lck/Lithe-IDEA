@@ -12,6 +12,7 @@ struct SplitHandleView: View {
     // depend on landing on a single pixel row or column.
     static let thickness: CGFloat = 5
     static let hitThickness: CGFloat = 10
+    static let visibleTrackThickness: CGFloat = 2
 
     let axis: LitheSplitAxis
     let trackBackground: Color
@@ -45,8 +46,8 @@ struct SplitHandleView: View {
         ZStack {
             trackBackground
                 .frame(
-                    width: axis == .horizontal ? Self.thickness : nil,
-                    height: axis == .vertical ? Self.thickness : nil
+                    width: axis == .horizontal ? Self.visibleTrackThickness : nil,
+                    height: axis == .vertical ? Self.visibleTrackThickness : nil
                 )
             Color.clear
             dividerLine

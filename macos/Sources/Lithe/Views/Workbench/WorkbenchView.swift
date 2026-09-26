@@ -1985,7 +1985,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     defaultSize: resolvedSidebarWidth,
                     minimum: minimumSidebarWidth,
                     maximum: maximumSidebarWidth,
-                    trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar : .clear,
+                    trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                     showsIdleDivider: false,
                     onCommit: actions.onSidebarWidthCommitted,
                     sized: {
@@ -2017,7 +2017,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         defaultSize: resolvedTopPaneHeight,
                         minimum: minimumTopPaneHeight,
                         maximum: maximumTopPaneHeight,
-                        trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar : .clear,
+                        trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                         showsIdleDivider: false,
                         onCommit: actions.onTopPaneHeightCommitted,
                         sized: {

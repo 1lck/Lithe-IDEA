@@ -64,7 +64,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width),
                 minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width),
                 maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width),
-                trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar : .clear,
+                trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                 showsIdleDivider: false,
                 onCommit: { width in
                     guard let committedWidth = WorkbenchRightToolGeometry.committedWidth(
