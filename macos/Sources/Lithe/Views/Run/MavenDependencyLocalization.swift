@@ -16,18 +16,34 @@ struct MavenDependencyLocalization {
 
     func subtitle(_ dependency: MavenDependency) -> String {
         let classifier = dependency.classifier.map { ":" + $0 } ?? ""
-        let marker: String
+        // Maven's own verbose annotations, in the order `dependency:tree` prints them.
+        var markers: [String] = []
+        if let version = dependency.premanagedVersion {
+            markers.append(String(format: text("version managed from %@"), version))
+        }
+        if let scope = dependency.premanagedScope {
+            markers.append(String(format: text("scope managed from %@"), scope))
+        }
+        if let scope = dependency.originalScope {
+            markers.append(String(format: text("scope updated from %@"), scope))
+        }
+        if let scope = dependency.ignoredScope {
+            markers.append(String(format: text("scope not updated to %@"), scope))
+        }
         switch dependency.resolution {
         case .resolved:
-            marker = ""
+            break
         case .omittedDuplicate:
-            marker = text(" (duplicate omitted)")
+            markers.append(text("duplicate omitted"))
         case .omittedConflict:
-            marker = String(format: text(" (conflict -> %@)"),
-                            dependency.selectedVersion ?? text("selected version"))
+            markers.append(String(format: text("conflict -> %@"),
+                                  dependency.selectedVersion ?? text("selected version")))
         }
+        let annotations = markers.isEmpty
+            ? ""
+            : String(format: text(" (%@)"), markers.joined(separator: text("; ")))
         return dependency.groupID + ":" + dependency.version + ":" + dependency.type
-            + classifier + " [" + dependency.scope + "]" + marker
+            + classifier + " [" + dependency.scope + "]" + annotations
     }
 
     func error(_ message: String) -> String {

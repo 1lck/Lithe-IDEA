@@ -146,19 +146,112 @@ struct MavenRuntimeTests {
         let fixture = try Self.dependencyTreeFixture()
         let tree = try fixture.expected.makeModel()
 
-        #expect(fixture.version == 1)
+        #expect(fixture.version == 2)
         #expect(tree.modulePath == fixture.modulePath)
-        #expect(fixture.output.contains("omitted for conflict with 2.0"))
+        #expect(fixture.treeFile.contains("omitted for conflict with 2.0"))
         #expect(tree.dependencies.map(\.artifactID) == [
-            "compile-lib", "provided-lib", "runtime-lib", "test-lib"
+            "compile-lib", "managed-lib", "provided-lib", "runtime-lib", "test-lib"
         ])
         let compileDependency = try #require(tree.dependencies.first)
         let conflict = try #require(compileDependency.children.first)
         #expect(conflict.resolution == .omittedConflict)
         #expect(conflict.selectedVersion == "2.0")
+        #expect(conflict.premanagedVersion == "1.1")
+        let managed = try #require(tree.dependencies.first { $0.artifactID == "managed-lib" })
+        #expect(managed.premanagedVersion == "0.9.0")
+        #expect(managed.ignoredScope == "compile")
+        let provided = try #require(tree.dependencies.first { $0.artifactID == "provided-lib" })
+        #expect(provided.premanagedScope == "compile")
+        let runtime = try #require(tree.dependencies.first { $0.artifactID == "runtime-lib" })
+        #expect(runtime.children.first?.originalScope == "test")
         let testDependency = try #require(tree.dependencies.last)
         #expect(testDependency.classifier == "tests")
         #expect(testDependency.scope == "test")
+    }
+
+    @Test
+    func mavenDependencyTreeFileIsPlannedAndReadThroughCore() throws {
+        let fixture = try Self.dependencyTreeFixture()
+        let testRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-maven-tree-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: testRoot) }
+        try FileManager.default.createDirectory(at: testRoot, withIntermediateDirectories: true)
+        try Data("<project><artifactId>service</artifactId></project>".utf8)
+            .write(to: testRoot.appendingPathComponent("pom.xml"))
+        let outputFile = testRoot.appendingPathComponent("scratch/tree.txt")
+        let operations = RustJavaMavenOperations(core: RustCoreBridge())
+
+        let plan = try operations.mavenDependencyPlan(
+            at: testRoot,
+            context: MavenLaunchContext(
+                reactorPath: ".",
+                profiles: [],
+                settingsPath: nil,
+                skipTests: false,
+                mavenExecutablePath: nil,
+                javaHomePath: nil
+            ),
+            module: nil,
+            outputFile: outputFile
+        )
+        #expect(plan.arguments.contains("-DoutputFile=" + outputFile.standardizedFileURL.path))
+        #expect(plan.arguments.contains("-N"))
+
+        try Data(fixture.treeFile.utf8).write(to: testRoot.appendingPathComponent("tree.txt"))
+        let tree = try operations.mavenDependencies(
+            modulePath: fixture.modulePath,
+            outputFile: testRoot.appendingPathComponent("tree.txt")
+        )
+        #expect(tree == (try fixture.expected.makeModel()))
+
+        #expect(throws: MavenOperationError.self) {
+            try operations.mavenDependencies(
+                modulePath: fixture.modulePath,
+                outputFile: testRoot.appendingPathComponent("never-written.txt")
+            )
+        }
+    }
+
+    @Test
+    func dependencyOutputStoreKeepsFilesPerProcessAndRemovesAbandonedOnes() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-maven-outputs-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let running = root.appendingPathComponent("200", isDirectory: true)
+        let exited = root.appendingPathComponent("300", isDirectory: true)
+        let unrelated = root.appendingPathComponent("notes", isDirectory: true)
+        for directory in [running, exited, unrelated] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+
+        let store = MacMavenDependencyOutputStore(
+            rootURL: root,
+            processIdentifier: 100,
+            isProcessRunning: { $0 == 200 }
+        )
+
+        // Another running Lithe keeps its files; an exited one's are removed.
+        #expect(FileManager.default.fileExists(atPath: running.path))
+        #expect(!FileManager.default.fileExists(atPath: exited.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+
+        let operationID = UUID().uuidString
+        let file = try store.makeDependencyOutputFile(operationID: operationID)
+        #expect(file.deletingLastPathComponent().lastPathComponent == "100")
+        try Data("stale".utf8).write(to: file)
+        #expect(try store.makeDependencyOutputFile(operationID: operationID) == file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+
+        try Data("tree".utf8).write(to: file)
+        store.removeDependencyOutputFile(file)
+        #expect(!FileManager.default.fileExists(atPath: file.path))
+        store.removeDependencyOutputFile(file)
+
+        for operationID in ["", "../escape", "a/b", "a b"] {
+            #expect(throws: MavenOperationError.self) {
+                try store.makeDependencyOutputFile(operationID: operationID)
+            }
+        }
     }
 
     @Test
@@ -484,7 +577,7 @@ struct MavenRuntimeTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = repositoryRoot.appendingPathComponent(
-            "shared/fixtures/maven/dependency-tree-v1.json"
+            "shared/fixtures/maven/dependency-tree-v2.json"
         )
         return try JSONDecoder().decode(
             MavenDependencyTreeFixture.self,
@@ -508,7 +601,7 @@ private struct MavenPlatformContractFixture: Decodable {
 private struct MavenDependencyTreeFixture: Decodable {
     let version: Int
     let modulePath: String
-    let output: String
+    let treeFile: String
     let expected: RustCoreBridge.MavenDependenciesPayload
 }
 

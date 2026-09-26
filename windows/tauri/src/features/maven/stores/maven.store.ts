@@ -6,13 +6,15 @@ import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createMavenDependencyPlan,
   createMavenLaunchPlan,
-  parseMavenDependencies,
+  readMavenDependencies,
   parseMavenDiagnostics,
   parseMavenTestResults,
   scanMavenProject,
 } from "../api/maven-core-api";
 import {
+  createMavenDependencyOutput,
   loadMavenConfiguration,
+  removeMavenDependencyOutput,
   resolveMavenLaunch,
   startMavenProcess,
   stopMavenProcess,
@@ -48,7 +50,6 @@ import {
 } from "../utils/maven-test-selection";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
-const MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS = 500_000;
 const MAVEN_DEPENDENCY_TIMEOUT_MILLISECONDS = 60_000;
 const MAVEN_TEST_TIMEOUT_MILLISECONDS = 120_000;
 const MAVEN_TEST_ALLOW_EMPTY_UPSTREAM_MODULES = "-Dsurefire.failIfNoSpecifiedTests=false";
@@ -63,12 +64,14 @@ const mavenProjectLoads = new Map<string, MavenProjectLoad>();
 
 export interface MavenStoreDependencies {
   createMavenPomWatchOperations: typeof createMavenPomWatchOperations;
+  createMavenDependencyOutput: typeof createMavenDependencyOutput;
   createMavenDependencyPlan: typeof createMavenDependencyPlan;
   createMavenLaunchPlan: typeof createMavenLaunchPlan;
   loadMavenConfiguration: typeof loadMavenConfiguration;
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
-  parseMavenDependencies: typeof parseMavenDependencies;
+  readMavenDependencies: typeof readMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  removeMavenDependencyOutput: typeof removeMavenDependencyOutput;
   resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
   resolveJavaTestClass: typeof resolveJavaTestClass;
@@ -82,12 +85,14 @@ export interface MavenStoreDependencies {
 
 const defaultMavenStoreDependencies: MavenStoreDependencies = {
   createMavenPomWatchOperations,
+  createMavenDependencyOutput,
   createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
   parseMavenDiagnostics,
-  parseMavenDependencies,
+  readMavenDependencies,
   parseMavenTestResults,
+  removeMavenDependencyOutput,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   resolveJavaTestClass,
@@ -159,7 +164,6 @@ export interface MavenState {
   dependencyLoads: Record<string, MavenDependencyLoad>;
   activeDependencySessionId: string | null;
   activeDependencyModulePath: string | null;
-  dependencyOutput: string;
   actions: {
     loadProject: (root: string, visiblePaths?: string[]) => Promise<void>;
     markPomReloadRequired: (changedPath: string) => void;
@@ -197,7 +201,6 @@ export interface MavenState {
     finishProcess: (sessionId: string, exitCode: number) => void;
     loadDependencies: (modulePath: string) => Promise<void>;
     cancelDependencies: (modulePath: string) => Promise<void>;
-    appendDependencyOutput: (sessionId: string, chunk: string) => void;
     finishDependencyProcess: (sessionId: string, exitCode: number) => Promise<void>;
   };
 }
@@ -407,6 +410,24 @@ export const createMavenStore = (
       }));
     };
 
+    // Maven writes each session's tree to its own host scratch file. Every
+    // path that ends a session releases it here, after which the session can
+    // no longer produce a result, so no tree outlives the session that wrote it.
+    const dependencyOutputFiles = new Map<string, string>();
+    const releaseDependencySession = (sessionId: string) => {
+      releaseMavenSessionWorkspace(sessionId);
+      dependencyOutputFiles.delete(sessionId);
+      void dependencies.removeMavenDependencyOutput(sessionId).catch((error: unknown) => {
+        // The host clears the scratch directory at startup, so a file the
+        // dying Maven process still held open is removed on the next launch.
+        dependencies.trace("warn", "maven.dependencies", "Dependency tree file was not removed", {
+          workspaceId,
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    };
+
     const invalidateDependencies = () => {
       dependencyRevision += 1;
       clearDependencyTimer();
@@ -415,7 +436,6 @@ export const createMavenStore = (
         dependencyLoads: {},
         activeDependencySessionId: null,
         activeDependencyModulePath: null,
-        dependencyOutput: "",
       });
       if (!sessionId) return;
       void dependencies
@@ -424,7 +444,7 @@ export const createMavenStore = (
           // Invalidation owns stale-result rejection even if the native process
           // has already exited before the stop request reaches it.
         })
-        .finally(() => releaseMavenSessionWorkspace(sessionId));
+        .finally(() => releaseDependencySession(sessionId));
     };
 
     const failDependencySession = async (
@@ -443,7 +463,6 @@ export const createMavenStore = (
       set({
         activeDependencySessionId: null,
         activeDependencyModulePath: null,
-        dependencyOutput: "",
       });
       setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
       try {
@@ -452,7 +471,7 @@ export const createMavenStore = (
         // The failure state remains actionable when the process exited while
         // the stop request was in flight.
       } finally {
-        releaseMavenSessionWorkspace(sessionId);
+        releaseDependencySession(sessionId);
       }
     };
 
@@ -585,7 +604,6 @@ export const createMavenStore = (
       dependencyLoads: {},
       activeDependencySessionId: null,
       activeDependencyModulePath: null,
-      dependencyOutput: "",
       actions: {
         loadProject: async (root, visiblePaths = []) => {
           const revision = ++projectLoadRevision;
@@ -1198,8 +1216,7 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-              dependencyOutput: "",
-            });
+                  });
             if (previousModulePath) {
               setDependencyLoad(previousModulePath, {
                 status: "cancelled",
@@ -1214,7 +1231,7 @@ export const createMavenStore = (
                 // A superseded request remains cancelled when its native process
                 // completed before the stop reached the host.
               } finally {
-                releaseMavenSessionWorkspace(previousSessionId);
+                releaseDependencySession(previousSessionId);
               }
             }
           }
@@ -1229,23 +1246,25 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: sessionId,
             activeDependencyModulePath: modulePath,
-            dependencyOutput: "",
-          });
+              });
           setDependencyLoad(modulePath, { status: "loading", dependencies: [], error: null });
 
           try {
             await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+            const outputFile = await dependencies.createMavenDependencyOutput(sessionId);
+            dependencyOutputFiles.set(sessionId, outputFile);
             const plan = await dependencies.createMavenDependencyPlan(
               root,
               context,
               modulePath === "." ? null : modulePath,
+              outputFile,
             );
             const resolved = await dependencies.resolveMavenLaunch(root, context, plan);
             if (
               dependencyRevision !== revision ||
               get().activeDependencySessionId !== sessionId
             ) {
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
               return;
             }
             dependencyTimer = dependencyScheduler.setTimer(
@@ -1270,14 +1289,14 @@ export const createMavenStore = (
             ) {
               clearDependencyTimer();
               await dependencies.stopMavenProcess(sessionId).catch(() => undefined);
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
             }
           } catch (error) {
             if (
               dependencyRevision !== revision ||
               get().activeDependencySessionId !== sessionId
             ) {
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
               return;
             }
             clearDependencyTimer();
@@ -1288,10 +1307,9 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-              dependencyOutput: "",
-            });
+                  });
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
-            releaseMavenSessionWorkspace(sessionId);
+            releaseDependencySession(sessionId);
           }
         },
 
@@ -1313,8 +1331,7 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: null,
             activeDependencyModulePath: null,
-            dependencyOutput: "",
-          });
+              });
           setDependencyLoad(modulePath, { status: "cancelled", dependencies: [], error: null });
           if (!sessionId) return;
           try {
@@ -1326,28 +1343,8 @@ export const createMavenStore = (
                 : "Unable to stop Maven dependency resolution.";
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
           } finally {
-            releaseMavenSessionWorkspace(sessionId);
+            releaseDependencySession(sessionId);
           }
-        },
-
-        appendDependencyOutput: (sessionId, chunk) => {
-          const state = get();
-          if (
-            state.activeDependencySessionId !== sessionId ||
-            !state.activeDependencyModulePath
-          ) {
-            return;
-          }
-          const output = (state.dependencyOutput + chunk).replace(/\r/g, "");
-          if (output.length > MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS) {
-            void failDependencySession(
-              sessionId,
-              state.activeDependencyModulePath,
-              "Maven dependency output exceeded the supported limit.",
-            );
-            return;
-          }
-          set({ dependencyOutput: output });
         },
 
         finishDependencyProcess: async (sessionId, exitCode) => {
@@ -1357,24 +1354,23 @@ export const createMavenStore = (
           }
           const revision = dependencyRevision;
           const modulePath = state.activeDependencyModulePath;
-          const output = state.dependencyOutput;
+          const outputFile = dependencyOutputFiles.get(sessionId);
           clearDependencyTimer();
-          releaseMavenSessionWorkspace(sessionId);
-          set({
-            activeDependencySessionId: null,
-            dependencyOutput: "",
-          });
-          if (exitCode !== 0) {
-            set({ activeDependencyModulePath: null });
-            setDependencyLoad(modulePath, {
-              status: "failed",
-              dependencies: [],
-              error: `Maven dependency resolution exited with code ${exitCode}.`,
-            });
-            return;
-          }
+          set({ activeDependencySessionId: null });
           try {
-            const result = await dependencies.parseMavenDependencies(modulePath, output);
+            if (exitCode !== 0 || !outputFile) {
+              set({ activeDependencyModulePath: null });
+              setDependencyLoad(modulePath, {
+                status: "failed",
+                dependencies: [],
+                error:
+                  exitCode !== 0
+                    ? `Maven dependency resolution exited with code ${exitCode}.`
+                    : "Unable to parse Maven dependencies for this module.",
+              });
+              return;
+            }
+            const result = await dependencies.readMavenDependencies(modulePath, outputFile);
             if (
               dependencyRevision !== revision ||
               get().activeDependencyModulePath !== modulePath ||
@@ -1405,6 +1401,9 @@ export const createMavenStore = (
                   ? error.message
                   : "Unable to parse Maven dependencies for this module.",
             });
+          } finally {
+            // Core has finished reading, successfully or not, before the file goes.
+            releaseDependencySession(sessionId);
           }
         },
       },
