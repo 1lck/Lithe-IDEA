@@ -43,12 +43,10 @@ import {
 } from "@/ui/dropdown";
 import Tooltip from "@/ui/tooltip";
 import { SEARCH_TOGGLE_ICONS, SearchPopover } from "@/ui/search";
-import { getFileDiff } from "../../api/git-diff-api";
 import { getRemotes } from "../../api/git-remotes-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../../events/git-events";
 import type { MultiFileDiff } from "../../types/git-diff.types";
 import type { GitDiff } from "../../types/git.types";
-import { gitDiffCache } from "../../utils/git-diff-cache";
 import { getFileStatus } from "../../utils/git-diff-helpers";
 import { resolveDiffViewMode } from "../../utils/git-diff-split-layout";
 import {
@@ -57,7 +55,10 @@ import {
   type MultiDiffSearchMatch,
 } from "../../utils/multi-diff-search";
 import { getInitialExpandedDiffFileKeys } from "../../utils/diff-viewer-scale";
-import { createSingleFileWorkingTreeDiff } from "../../utils/working-tree-multi-diff";
+import {
+  refreshWorkingTreeFileDiff,
+  type WorkingTreeDiffBufferPort,
+} from "../../services/working-tree-diff-refresh";
 import { workingTreeStagingContext, type DiffStagingContext } from "../../utils/monaco-diff-hunk-actions";
 
 import ImageDiffViewer from "./git-diff-image";
@@ -82,9 +83,21 @@ function countStats(diff: GitDiff) {
   return { additions, deletions };
 }
 
-function hasRenderableDiff(diff: GitDiff | null): diff is GitDiff {
-  return !!diff && (diff.lines.length > 0 || diff.is_image === true || diff.is_binary === true);
-}
+const workingTreeDiffBuffers: WorkingTreeDiffBufferPort = {
+  read: (bufferId) => {
+    const buffer = getBufferById(useBufferStore.getState().buffers, bufferId);
+    if (buffer?.type !== "diff" || !buffer.diffData || !("files" in buffer.diffData)) {
+      return null;
+    }
+    return buffer.diffData.commitHash === "working-tree" ? buffer.diffData : null;
+  },
+  replace: (bufferId, diff) => {
+    useBufferStore.getState().actions.updateBufferContent(bufferId, "", false, diff);
+  },
+  close: (bufferId) => {
+    useBufferStore.getState().actions.closeBuffer(bufferId);
+  },
+};
 
 const statusTextClass: Record<string, string> = {
   added: "text-git-added",
@@ -188,6 +201,7 @@ const DiffFileBody = memo(function DiffFileBody({
   searchQuery,
   searchOptions,
   staging,
+  fillsView = false,
 }: {
   diff: GitDiff;
   sectionKey: string;
@@ -198,6 +212,8 @@ const DiffFileBody = memo(function DiffFileBody({
   searchQuery: string;
   searchOptions: SearchOptions;
   staging?: DiffStagingContext;
+  /** Owns the whole diff area and scrolls itself instead of sizing to a stack section. */
+  fillsView?: boolean;
 }) {
   const filePath = diff.new_path || diff.old_path || diff.file_path;
   const fileName = filePath.split("/").pop() || filePath;
@@ -212,7 +228,7 @@ const DiffFileBody = memo(function DiffFileBody({
   }
 
   return <MonacoGitDiff diff={diff} viewMode={displayViewMode} showWhitespace={showWhitespace}
-    embedded staging={staging} searchMatches={searchMatches} currentSearchMatch={currentSearchMatch} />;
+    embedded={!fillsView} staging={staging} searchMatches={searchMatches} currentSearchMatch={currentSearchMatch} />;
 });
 
 const DiffFileSection = memo(function DiffFileSection({
@@ -315,8 +331,6 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const activeBuffer = useBufferStore((state) => {
     return getBufferById(state.buffers, state.activeBufferId);
   });
-  const updateBufferContent = useBufferStore.use.actions().updateBufferContent;
-  const closeBuffer = useBufferStore.use.actions().closeBuffer;
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const isFindVisible = useUIState((state) => state.isFindVisible);
   const setIsFindVisible = useUIState((state) => state.setIsFindVisible);
@@ -459,6 +473,14 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     isWorkingTree && selectedDiffFile
       ? resolveDiffViewMode(selectedDiffFile.diff, viewMode)
       : viewMode;
+  // A single working-tree text diff owns the whole area like the macOS review:
+  // Monaco is the only scroller, so wheel input and the visible scrollbar agree
+  // and the last lines are never clipped by an outer scroll viewport.
+  const workingTreeTextDiffFillsView =
+    isWorkingTree &&
+    selectedDiffFile !== null &&
+    !selectedDiffFile.diff.is_image &&
+    !selectedDiffFile.diff.is_binary;
   const splitViewDisabled =
     isWorkingTree &&
     selectedDiffFile !== null &&
@@ -643,14 +665,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     return () => document.removeEventListener("keydown", handleSearchShortcut, { capture: true });
   }, [isActiveMultiDiff, navigateSearch, searchMatches.length, setIsFindVisible]);
 
+  // The selected file can have no remaining diff while it is still changed, so
+  // the refresh identity falls back to the key the diff was opened with.
+  const refreshFileKey = selectedDiffFile?.sectionKey ?? multiDiff.initiallyExpandedFileKey;
+  const refreshTarget = refreshFileKey ? multiDiff.workingTreeTargets?.[refreshFileKey] : undefined;
+
   const refreshWorkingTreeBuffer = useCallback(async () => {
-    if (
-      !isWorkingTree ||
-      !isWorkingTreeBuffer ||
-      !rootFolderPath ||
-      !activeBuffer ||
-      !selectedDiffFile
-    ) {
+    if (!isWorkingTree || !isWorkingTreeBuffer || !activeBuffer || !refreshFileKey) {
       return;
     }
     if (isRefreshingRef.current) return;
@@ -658,55 +679,21 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
     isRefreshingRef.current = true;
 
     try {
-      gitDiffCache.invalidate(rootFolderPath);
-      const selectedFileKey = selectedDiffFile.sectionKey;
-      const selectedFilePath = selectedFileKey.replace(/^(staged|unstaged):/, "");
-      let isStaged = selectedFileKey.startsWith("staged:");
-      let nextDiff = await getFileDiff(rootFolderPath, selectedFilePath, isStaged);
-
-      if (!hasRenderableDiff(nextDiff)) {
-        isStaged = !isStaged;
-        nextDiff = await getFileDiff(rootFolderPath, selectedFilePath, isStaged);
-      }
-
-      if (!hasRenderableDiff(nextDiff)) {
-        closeBuffer(activeBuffer.id);
-        return;
-      }
-
-      const nextFileKey = `${isStaged ? "staged" : "unstaged"}:${selectedFilePath}`;
-      updateBufferContent(
-        activeBuffer.id,
-        "",
-        false,
-        createSingleFileWorkingTreeDiff({
-          repoPath: rootFolderPath,
-          fileKey: nextFileKey,
-          diff: nextDiff,
-          title: multiDiff.title,
-        }),
+      await refreshWorkingTreeFileDiff(
+        { bufferId: activeBuffer.id, fileKey: refreshFileKey },
+        { buffers: workingTreeDiffBuffers },
       );
     } finally {
       isRefreshingRef.current = false;
     }
-  }, [
-    activeBuffer,
-    closeBuffer,
-    isWorkingTree,
-    isWorkingTreeBuffer,
-    multiDiff.title,
-    rootFolderPath,
-    selectedDiffFile,
-    updateBufferContent,
-  ]);
+  }, [activeBuffer, isWorkingTree, isWorkingTreeBuffer, refreshFileKey]);
 
   useEffect(() => {
-    if (!isWorkingTree) return;
+    if (!isWorkingTree || !refreshTarget) return;
 
     let timeoutId: number | null = null;
     const unsubscribe = subscribeToGitChanges((change) => {
-      const selectedFilePath = selectedDiffFile?.sectionKey.replace(/^(staged|unstaged):/, "");
-      if (!isGitChangeRelevant(change, multiDiff.repoPath ?? rootFolderPath, selectedFilePath)) {
+      if (!isGitChangeRelevant(change, refreshTarget.repoPath, refreshTarget.filePath)) {
         return;
       }
       if (timeoutId !== null) window.clearTimeout(timeoutId);
@@ -719,13 +706,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
       unsubscribe();
       if (timeoutId !== null) window.clearTimeout(timeoutId);
     };
-  }, [
-    isWorkingTree,
-    multiDiff.repoPath,
-    refreshWorkingTreeBuffer,
-    rootFolderPath,
-    selectedDiffFile?.sectionKey,
-  ]);
+  }, [isWorkingTree, refreshTarget, refreshWorkingTreeBuffer]);
 
   useEffect(() => {
     if (isWorkingTree || multiDiff.commitHash.startsWith("stash@{")) {
@@ -1133,7 +1114,10 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 
           <div
             ref={diffStackScrollRef}
-            className="min-h-0 flex-1 overflow-auto"
+            className={cn(
+              "min-h-0 flex-1",
+              workingTreeTextDiffFillsView ? "overflow-hidden" : "overflow-auto",
+            )}
             style={{ overflowAnchor: "none" }}
             data-diff-stack-scroll-container
           >
@@ -1142,9 +1126,13 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 <div
                   key={selectedDiffFile.sectionKey}
                   ref={(node) => registerSectionElement(selectedDiffFile.sectionKey, node)}
-                  className="min-w-0 max-w-full overflow-hidden bg-background"
+                  className={cn(
+                    "min-w-0 max-w-full overflow-hidden bg-background",
+                    workingTreeTextDiffFillsView && "h-full",
+                  )}
                 >
                   <DiffFileBody
+                    fillsView={workingTreeTextDiffFillsView}
                     diff={selectedDiffFile.diff}
                     sectionKey={selectedDiffFile.sectionKey}
                     staging={workingTreeStagingContext(multiDiff, selectedDiffFile.sectionKey)}
@@ -1164,7 +1152,11 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
                 </div>
               ) : (
                 <Empty className="h-full rounded-none bg-background">
-                  <EmptyDescription>{t("git.diff.noChangedFileSelected")}</EmptyDescription>
+                  <EmptyDescription>
+                    {multiDiff.files.length === 0
+                      ? t("git.diff.emptyChanges")
+                      : t("git.diff.noChangedFileSelected")}
+                  </EmptyDescription>
                 </Empty>
               )
             ) : (
