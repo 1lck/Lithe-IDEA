@@ -261,25 +261,48 @@ fn executable_candidates(dir: &Path, name: &str) -> Vec<PathBuf> {
     }
 }
 
+/// 发行包布局解析：可执行文件同级或上一级的
+/// `share/LanguageServers/<name>`（tar.gz 解包为 `<root>/bin/<exe>` 与
+/// `<root>/share/LanguageServers/…`，扁平安装则同级）。开发环境没有打包
+/// 运行时目录时返回 `None`，由调用方回退到工作区 `.artifacts`。
+fn installed_runtime_root(name: &str) -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    [
+        exe_dir.join("share").join("LanguageServers").join(name),
+        exe_dir
+            .join("..")
+            .join("share")
+            .join("LanguageServers")
+            .join(name),
+        exe_dir.join("LanguageServers").join(name),
+    ]
+    .into_iter()
+    .find(|candidate| candidate.is_dir())
+}
+
 /// 解析 Linux Java 语言服务器资源。
 ///
-/// 正式运行路径优先使用工作区 `.artifacts` 或环境覆盖；只有正式目录不存在时，
-/// 才允许回退到外部 `jdtls` wrapper。正式目录存在但资源不完整时直接返回错误，
-/// 避免悄悄退回另一套 JDT 安装。
+/// 查找顺序与其他端对齐：环境变量覆盖 → 安装目录 `share/LanguageServers`
+/// （发行包布局，见 `scripts/package-linux.sh`）→ 工作区 `.artifacts`
+/// （开发路径）。只有全部候选都不存在时，才允许回退到外部 `jdtls`
+/// wrapper。正式目录存在但资源不完整时直接返回错误，避免悄悄退回另一套
+/// JDT 安装。
 pub fn resolve_java_lsp_launch(root: &str) -> Result<JavaLspLaunch, String> {
     let workspace = Path::new(root);
     let explicit_jdtls_root = std::env::var_os("LITHE_JDTLS_ROOT")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty());
-    let jdtls_root = explicit_jdtls_root
-        .clone()
-        .unwrap_or_else(|| workspace.join(".artifacts").join("jdtls-linux"));
+    let jdtls_root = explicit_jdtls_root.clone().unwrap_or_else(|| {
+        installed_runtime_root("jdtls")
+            .unwrap_or_else(|| workspace.join(".artifacts").join("jdtls-linux"))
+    });
     let explicit_jdk_root = std::env::var_os("LITHE_JDK_ROOT")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty());
-    let jdk_root = explicit_jdk_root
-        .clone()
-        .unwrap_or_else(|| workspace.join(".artifacts").join("jdk-linux"));
+    let jdk_root = explicit_jdk_root.clone().unwrap_or_else(|| {
+        installed_runtime_root("jdk")
+            .unwrap_or_else(|| workspace.join(".artifacts").join("jdk-linux"))
+    });
 
     if jdtls_root.exists() {
         let resources = resolve_direct_jdtls_resources(&jdtls_root)?;

@@ -70,7 +70,18 @@ if [[ -f "$ICON_SRC" ]]; then
     cp "$ICON_SRC" "$STAGE_DIR/share/icons/hicolor/512x512/apps/lithe.png" || true
 fi
 
-# 5. Create tar.gz archive
+# 5. Bundle the Java language-server runtime, aligned with the macOS and
+# Windows installers (`LanguageServers/jdtls` + `LanguageServers/jdk`).
+# Set LITHE_BUNDLE_RUNTIME=0 to skip (e.g. compile-only CI checks).
+if [[ "${LITHE_BUNDLE_RUNTIME:-1}" != "0" ]]; then
+    mkdir -p "$STAGE_DIR/share/LanguageServers"
+    JDTLS_ROOT="$("$SCRIPT_DIR/prepare-jdtls-linux.sh")"
+    cp -R "$JDTLS_ROOT" "$STAGE_DIR/share/LanguageServers/jdtls"
+    JDK_ROOT="$("$SCRIPT_DIR/prepare-jdk-linux.sh")"
+    cp -R "$JDK_ROOT" "$STAGE_DIR/share/LanguageServers/jdk"
+fi
+
+# 6. Create tar.gz archive
 mkdir -p "$DIST_DIR"
 TARBALL="$DIST_DIR/${PACKAGE_NAME}.tar.gz"
 tar -czf "$TARBALL" -C "$DIST_DIR" "$PACKAGE_NAME"

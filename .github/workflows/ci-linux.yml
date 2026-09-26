@@ -68,6 +68,10 @@ jobs:
           ./scripts/build-linux.sh --release
 
       - name: Package Linux application
+        # CI only validates the build; the Java runtime is bundled by the
+        # release workflow to keep this job light.
+        env:
+          LITHE_BUNDLE_RUNTIME: "0"
         run: |
           ./scripts/package-linux.sh --release
 

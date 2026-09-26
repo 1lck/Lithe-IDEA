@@ -135,7 +135,9 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 以下目录不应直接复制或跨工作树共享：
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
-- `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
+- `.artifacts/jdtls/`、`.artifacts/jdtls-linux/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出
+  （Linux 由 `scripts/prepare-jdtls-linux.sh` 与 `scripts/prepare-jdk-linux.sh` 基于同一份
+  下载缓存重新生成）；
 - `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；

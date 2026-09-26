@@ -74,6 +74,16 @@ jobs:
           restore-keys: |
             cargo-linux-22.04-
 
+      - name: Restore Java runtime downloads
+        uses: actions/cache@v6
+        with:
+          path: |
+            .artifacts/jdtls-downloads
+            .artifacts/jdk-downloads
+          key: lithe-${{ runner.os }}-${{ runner.arch }}-java-runtime-v1-${{ hashFiles('third_party/jdtls/manifest.json', 'third_party/jdk/manifest.json') }}
+          restore-keys: |
+            lithe-${{ runner.os }}-${{ runner.arch }}-java-runtime-v1-
+
       - name: Package Linux application
         env:
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
