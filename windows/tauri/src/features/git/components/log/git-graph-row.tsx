@@ -1,14 +1,10 @@
 import { cn } from "@/utils/cn";
+import { graphColor } from "../../utils/git-graph-colors";
 import type { GitGraphLabel, GitGraphRow as GraphRow } from "../../utils/git-graph-layout";
 
 const ROW_HEIGHT = 30;
 const LANE_GAP = 13;
 const GRAPH_PADDING = 8;
-const GRAPH_COLORS = ["#55d68b", "#65a9ff", "#d77eea", "#f3aa59", "#e76c72", "#56c7cf"];
-
-function graphColor(index: number) {
-  return GRAPH_COLORS[index % GRAPH_COLORS.length];
-}
 
 export function gitGraphLabelClassName(label: GitGraphLabel) {
   switch (label.kind) {

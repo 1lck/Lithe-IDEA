@@ -1616,6 +1616,10 @@ of an overridden effective `cwd`. Core derives this read-only ownership value
 when resolving existing generated documents as well; regeneration is not
 required. Overrides cannot move a configuration to another reactor. Current
 File and configurations without detected Maven ownership omit this field.
+Resolution checks that `extensions.maven.module` exists relative to this
+reactor, or relative to `root` when the field is absent, and never relative to
+an overridden `cwd`: setting a module's own directory as the working directory
+keeps the configuration available.
 Module menus first match reactor and module, then apply the default preference;
 they must not infer ownership from an overridden working directory. The shared
 `run-configuration/maven-module-ownership.json` fixture covers independent
@@ -1667,7 +1671,11 @@ document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
 file and performs the atomic write. These commands never write files. An empty
-`workingDirectory` removes the layer's `cwd` override. Optional
+`workingDirectory` removes the layer's `cwd` override. A non-empty value must
+name an existing directory inside `root`, given relative to it or as an
+absolute path, and is stored project-relative. Values are literal paths; editor
+variables such as `${workspaceFolder}` are rejected rather than stored, because
+resolution disables and omits a configuration whose `cwd` does not exist. Optional
 `mavenSkipTests` writes `extensions.maven.skipTests`; omission removes the
 override so the project Maven context is inherited, while explicit `false`
 continues to run tests even when the project default skips them.

@@ -1295,6 +1295,20 @@ package enum GitPullStrategy: String, Sendable {
     case rebase
 }
 
+/// How far a reset moves HEAD, the index, and the working tree when the user
+/// resets the current branch to a commit.
+package enum GitResetMode: String, Sendable, CaseIterable {
+    /// Move HEAD only; the index and working tree keep their changes staged.
+    case soft
+    /// Move HEAD and the index; the working tree keeps its changes unstaged.
+    case mixed
+    /// Move HEAD, the index, and the working tree, discarding local changes.
+    case hard
+
+    /// The argument Rust Core parses in the `reset` write operation.
+    package var argument: String { "--\(rawValue)" }
+}
+
 package enum GitOperationKind: String, Equatable, Sendable {
     case merge
     case rebase

@@ -151,6 +151,13 @@ struct AppLocalizationTests {
         #expect(translations["Cherry-pick Commit…"] == "拣选提交…")
         #expect(translations["Revert Commit…"] == "反向提交（保留历史）…")
         #expect(translations["Reset Current Branch to Here…"] == "将当前分支重置到这里…")
+        #expect(translations["Copy Branch Name"] == "复制分支名称")
+        #expect(translations["Tracking Branch"] == "跟踪的分支")
+        #expect(translations["Stop Tracking Branch"] == "停止跟踪分支")
+        #expect(translations["No Remote Branches"] == "没有远程分支")
+        #expect(translations["Soft Reset (Keep Changes Staged)"] == "软重置（保留暂存更改）")
+        #expect(translations["Mixed Reset (Keep Changes Unstaged)"] == "混合重置（保留未暂存更改）")
+        #expect(translations["Hard Reset (Discard Changes)"] == "硬重置（丢弃更改）")
         #expect(translations["Undo Commit…"] == "撤销最近一次提交（保留更改）…")
         #expect(translations["Edit Commit Message…"] == "编辑提交消息…")
         #expect(translations["Squash Commits…"] == "合并所选提交…")
@@ -283,8 +290,10 @@ struct GitLocalizationTests {
         let keys = [
             "Revert this commit?", "Revert", "Create a new commit that reverses %@.",
             "Cherry-pick this commit?", "Apply %@ to the current branch.",
-            "Reset current branch?", "Reset (Mixed)",
+            "Reset current branch?", "Reset (Soft)", "Reset (Mixed)", "Reset (Hard)",
+            "Move the current branch to %@ and keep changes staged.",
             "Move the current branch to %@ and keep changes unstaged.",
+            "Move the current branch to %@ and discard all working-tree changes.",
             "Delete branch?", "Merge branch?", "Rebase branch?",
             "Checkout and rebase branch?", "Pull remote branch with rebase?",
             "Pull remote branch with merge?", "New Tag", "Tag name",
@@ -294,7 +303,10 @@ struct GitLocalizationTests {
             "Last 7 Days", "Last 30 Days", "Loading commits…", "Load more commits",
             "Clear Git console", "Git exited with code %d", "%lld files",
             "%lld worktrees", "Worktree action unavailable", "Invalid Git tag name.",
-            "Show worktree repositories", "Hide worktree repositories"
+            "Show worktree repositories", "Hide worktree repositories",
+            "Copy Branch Name", "Tracking Branch", "Stop Tracking Branch", "No Remote Branches",
+            "Soft Reset (Keep Changes Staged)", "Mixed Reset (Keep Changes Unstaged)",
+            "Hard Reset (Discard Changes)"
         ]
         let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
         for key in keys {

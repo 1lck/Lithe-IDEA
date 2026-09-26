@@ -120,3 +120,21 @@ export function buildGitReferenceTree(
   sortNodes(roots);
   return roots;
 }
+
+/**
+ * `refs/remotes/<remote>/HEAD` is a symbolic alias for the remote's default
+ * branch, not a distinct branch a user can check out or diff; listing it next
+ * to the real branches is noise (selecting it also cannot resolve to a commit
+ * of its own). It is therefore hidden from the reference tree.
+ */
+export function isRemoteSymbolicHeadReference(reference: GitReference): boolean {
+  return (
+    reference.kind === "remote" &&
+    (reference.shortName.endsWith("/HEAD") || reference.fullName.endsWith("/HEAD"))
+  );
+}
+
+/** References the tree renders, excluding remote symbolic HEAD aliases. */
+export function filterSelectableGitReferences(references: GitReference[]): GitReference[] {
+  return references.filter((reference) => !isRemoteSymbolicHeadReference(reference));
+}

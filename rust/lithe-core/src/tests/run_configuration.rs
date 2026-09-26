@@ -427,7 +427,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
         .filter_map(Value::as_str)
         .any(|argument| argument == "-am" || argument == "spring-boot:run"));
 
-    fs::create_dir_all(root.join("custom-run/service")).unwrap();
+    fs::create_dir_all(root.join("custom-run")).unwrap();
     fs::write(
         root.join(".lithe/run/configurations.json"),
         serde_json::json!({
@@ -3623,4 +3623,228 @@ fn an_unknown_java_entrypoint_schema_is_rejected() {
     );
     assert_eq!(response["ok"], false, "{response}");
     fs::remove_dir_all(root).unwrap();
+}
+
+fn run_config_command(command: &str, payload: Value) -> Value {
+    serde_json::from_str(&execute_json(
+        &serde_json::json!({ "id": command, "command": command, "payload": payload }).to_string(),
+    ))
+    .unwrap()
+}
+
+/// Issue #861: a multi-module Spring Boot service whose working directory is
+/// set to its own module must stay in the run list. `maven.module` is relative
+/// to the owning reactor, so resolving it against the overridden `cwd` looked
+/// for `shop-web/shop-web` and silently dropped the entry.
+#[test]
+fn working_directory_override_keeps_reactor_module_configurations() {
+    let root = temporary_root("run-config-module-cwd");
+    // The guard also removes the workspace when an assertion fails.
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let source = "shop-web/src/main/java/com/example/WebApp.java";
+    fs::create_dir_all(root.join("shop-web/src/main/java/com/example")).unwrap();
+    fs::create_dir_all(root.join("shop-api")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        r#"<project><artifactId>shop</artifactId><packaging>pom</packaging><modules><module>shop-web</module><module>shop-api</module></modules></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("shop-web/pom.xml"),
+        r#"<project><artifactId>shop-web</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("shop-api/pom.xml"),
+        r#"<project><artifactId>shop-api</artifactId></project>"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join(source),
+        "package com.example; @SpringBootApplication class WebApp { public static void main(String[] args) {} }",
+    )
+    .unwrap();
+
+    let generated = generate_with(
+        &root,
+        &[source],
+        Some(jdt_entrypoints(&[(source, "com.example.WebApp")])),
+    );
+    assert_eq!(generated["ok"], true, "{generated}");
+    let service = generated["data"]["generated"]["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["provider"] == "spring-boot.maven")
+        .cloned()
+        .unwrap_or_else(|| panic!("missing Spring Boot service in {generated}"));
+    assert_eq!(service["cwd"], ".");
+    assert_eq!(service["extensions"]["maven"]["module"], "shop-web");
+    write_generated_run_document(&root, &generated["data"]["generated"]);
+
+    // A user-authored Maven Module entry has no detected reactor; its module was
+    // validated against the project root when it was created.
+    let created = run_config_command(
+        "runConfig.createUserConfiguration",
+        serde_json::json!({
+            "root": root, "scope": "project", "name": "API", "type": "mavenModule",
+            "module": "shop-api"
+        }),
+    );
+    assert_eq!(created["ok"], true, "{created}");
+    fs::write(
+        root.join(".lithe/run/configurations.json"),
+        created["data"]["document"].as_str().unwrap(),
+    )
+    .unwrap();
+    let user_module_id = created["data"]["id"].as_str().unwrap().to_string();
+
+    for (scope, id, directory) in [
+        ("local", service["id"].as_str().unwrap(), "shop-web"),
+        ("project", user_module_id.as_str(), "shop-api"),
+    ] {
+        let updated = run_config_command(
+            "runConfig.updateOptions",
+            serde_json::json!({
+                "root": root, "scope": scope, "configurationId": id,
+                "workingDirectory": directory
+            }),
+        );
+        assert_eq!(updated["ok"], true, "{updated}");
+        let file = if scope == "local" {
+            "local.json"
+        } else {
+            "configurations.json"
+        };
+        fs::write(
+            root.join(".lithe/run").join(file),
+            updated["data"]["document"].as_str().unwrap(),
+        )
+        .unwrap();
+    }
+
+    let resolved = run_config_command("runConfig.resolve", serde_json::json!({ "root": root }));
+    assert_eq!(resolved["ok"], true, "{resolved}");
+    let configurations = resolved["data"]["configurations"].as_array().unwrap();
+    for (id, directory) in [
+        (service["id"].as_str().unwrap(), "shop-web"),
+        (user_module_id.as_str(), "shop-api"),
+    ] {
+        let configuration = configurations
+            .iter()
+            .find(|value| value["id"] == id)
+            .unwrap_or_else(|| panic!("{id} was dropped: {resolved}"));
+        assert_eq!(configuration["cwd"], directory);
+        assert!(
+            !resolved["data"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value["id"] == id),
+            "{resolved}"
+        );
+    }
+    let service_configuration = configurations
+        .iter()
+        .find(|value| value["id"] == service["id"])
+        .unwrap();
+    assert_eq!(
+        service_configuration["extensions"]["maven"]["reactorPath"],
+        "."
+    );
+
+    let plan = run_config_command(
+        "runConfig.createLaunchPlan",
+        serde_json::json!({
+            "root": root,
+            "configurationId": service["id"],
+            "javaLaunch": {
+                "mainClass": "com.example.WebApp",
+                "classPaths": ["/workspace/shop-web/target/classes"],
+                "modulePaths": []
+            },
+            "mavenContext": {"version": 1, "reactorPath": ".", "profiles": [], "skipTests": false}
+        }),
+    );
+    assert_eq!(plan["ok"], true, "{plan}");
+    assert_eq!(plan["data"]["workingDirectory"], "shop-web");
+    assert_eq!(
+        plan["data"]["arguments"],
+        serde_json::json!(["com.example.WebApp"])
+    );
+}
+
+/// Issue #861: resolution hides a configuration whose `cwd` is missing, so a
+/// value that cannot name a project directory is rejected when saved, where
+/// the editor shows the error, instead of making the entry vanish. Editor
+/// variables are not expanded even when the directory they point at exists.
+#[test]
+fn working_directory_override_must_name_an_existing_project_directory() {
+    let root = temporary_root("run-config-invalid-cwd");
+    // The guard also removes the workspace when an assertion fails.
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::create_dir_all(root.join("backend")).unwrap();
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        r#"{"version":2,"configurations":[{
+            "id":"python:api","name":"API","provider":"python.script",
+            "command":"python3","args":["app.py"],"cwd":".","toolchains":{}
+        }]}"#,
+    )
+    .unwrap();
+
+    for (directory, message) in [
+        (
+            "${workspaceFolder}/backend",
+            "Working directory variables are not supported; use a path relative to the project",
+        ),
+        (
+            "$PROJECT_DIR$/backend",
+            "Working directory variables are not supported; use a path relative to the project",
+        ),
+        ("frontend", "Project configuration directory does not exist"),
+        (
+            "../outside",
+            "Project configuration paths must stay inside the project",
+        ),
+    ] {
+        for scope in ["local", "project"] {
+            let updated = run_config_command(
+                "runConfig.updateOptions",
+                serde_json::json!({
+                    "root": root, "scope": scope, "configurationId": "python:api",
+                    "workingDirectory": directory
+                }),
+            );
+            assert_eq!(updated["ok"], false, "{directory}: {updated}");
+            assert_eq!(updated["error"]["code"], "invalid_request");
+            assert_eq!(updated["error"]["message"], message, "{directory}");
+        }
+    }
+
+    let absolute = root.join("backend").canonicalize().unwrap();
+    let updated = run_config_command(
+        "runConfig.updateOptions",
+        serde_json::json!({
+            "root": root, "scope": "local", "configurationId": "python:api",
+            "workingDirectory": absolute
+        }),
+    );
+    assert_eq!(updated["ok"], true, "{updated}");
+    let document: Value =
+        serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
+    assert_eq!(document["configurations"][0]["cwd"], "backend");
 }
