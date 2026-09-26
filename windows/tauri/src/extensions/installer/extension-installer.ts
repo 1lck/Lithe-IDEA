@@ -19,6 +19,7 @@ interface InstallOptions {
   onProgress?: (progress: DownloadProgress) => void;
   retryCount?: number;
   timeout?: number;
+  signal?: AbortSignal;
 }
 
 class ExtensionInstaller {
@@ -34,15 +35,15 @@ class ExtensionInstaller {
     const { onProgress, retryCount = 3, timeout = 30000 } = options;
 
     for (let attempt = 1; attempt <= retryCount; attempt++) {
+      options.signal?.throwIfAborted();
+      const abortController = new AbortController();
+      const cancel = () => abortController.abort();
+      options.signal?.addEventListener("abort", cancel, { once: true });
+      const timeoutId = setTimeout(cancel, timeout);
       try {
-        const abortController = new AbortController();
-        const timeoutId = setTimeout(() => abortController.abort(), timeout);
-
         const response = await fetch(url, {
           signal: abortController.signal,
         });
-
-        clearTimeout(timeoutId);
 
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}: ${response.statusText}`);
@@ -88,6 +89,7 @@ class ExtensionInstaller {
 
         return result.buffer;
       } catch (error) {
+        options.signal?.throwIfAborted();
         if (attempt === retryCount) {
           throw error;
         }
@@ -98,8 +100,10 @@ class ExtensionInstaller {
           error,
         );
 
-        // Exponential backoff
-        await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        // Retry immediately; cancellation never waits behind a backoff timer.
+      } finally {
+        clearTimeout(timeoutId);
+        options.signal?.removeEventListener("abort", cancel);
       }
     }
 
@@ -161,6 +165,7 @@ class ExtensionInstaller {
       logger.debug("ExtensionInstaller", `Downloading WASM from: ${wasmUrl}`);
 
       const wasmData = await this.downloadWithProgress(wasmUrl, {
+        signal: abortController.signal,
         onProgress: (progress) => {
           // Scale progress to 0-70% for WASM download
           onProgress?.({
@@ -184,15 +189,12 @@ class ExtensionInstaller {
 
       let highlightQuery = "";
       try {
-        const queryResponse = await fetch(highlightQueryUrl);
-        if (queryResponse.ok) {
-          highlightQuery = await queryResponse.text();
-        } else {
-          logger.warn(
-            "ExtensionInstaller",
-            `Failed to download highlight query (${queryResponse.status}), continuing without it`,
-          );
-        }
+        highlightQuery = new TextDecoder().decode(
+          await this.downloadWithProgress(highlightQueryUrl, {
+            signal: abortController.signal,
+            retryCount: 1,
+          }),
+        );
       } catch (error) {
         logger.warn(
           "ExtensionInstaller",
@@ -200,6 +202,8 @@ class ExtensionInstaller {
           error,
         );
       }
+
+      abortController.signal.throwIfAborted();
 
       // Report 80% progress after downloads
       onProgress?.({
@@ -223,7 +227,12 @@ class ExtensionInstaller {
         sourceUrl: wasmUrl,
       };
 
+      abortController.signal.throwIfAborted();
       await indexedDBParserCache.set(cacheEntry);
+      if (abortController.signal.aborted) {
+        await this.uninstallLanguage(languageId);
+        abortController.signal.throwIfAborted();
+      }
 
       // Report 100% progress
       onProgress?.({

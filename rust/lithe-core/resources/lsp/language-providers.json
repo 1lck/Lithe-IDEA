@@ -199,12 +199,12 @@
       "id": "php",
       "displayName": "PHP",
       "fileExtensions": ["php", "phtml"],
-      "capabilities": ["languageServer", "formatting"],
+      "capabilities": ["run", "languageServer", "formatting", "testing"],
       "activationPolicy": "onDemand",
       "languageId": "php",
       "languageServerLaunch": {
-        "executableNames": ["intelephense", "phpactor"],
-        "arguments": []
+        "executableNames": ["intelephense"],
+        "arguments": ["--stdio"]
       },
       "languageServerInstallation": {
         "officialDownloadURL": "https://intelephense.com/"

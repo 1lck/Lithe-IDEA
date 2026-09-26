@@ -40,9 +40,10 @@ public struct BundledLanguagePluginSpecification: Sendable {
     }
 }
 
+// Note: PHP 升级为官方原生插件后不再属于内置清单，归属与启动契约见 .agents/notes/implemented/architecture/2026-09-18-php-support-plugin-ownership-and-plans.md
 /// Describes bundled non-Java language recognition and the process-backed
-/// features that are independently manageable as plugins. Go remains an
-/// official native package and is therefore not duplicated here.
+/// features that are independently manageable as plugins. Go and PHP remain
+/// official native packages and are therefore not duplicated here.
 public enum BundledLanguagePluginCatalog {
     public static let specifications: [BundledLanguagePluginSpecification] = [
         .init(id: "python", displayName: "Python", fileExtensions: ["py", "pyw"], executableNames: ["basedpyright-langserver", "pyright-langserver"], arguments: ["--stdio"], supportsExecution: true),
@@ -56,7 +57,6 @@ public enum BundledLanguagePluginCatalog {
         .init(id: "scala", displayName: "Scala", fileExtensions: ["scala", "sc"], executableNames: ["metals"]),
         .init(id: "groovy", displayName: "Groovy", fileExtensions: ["groovy"]),
         .init(id: "ruby", displayName: "Ruby", fileExtensions: ["rb", "rake", "gemspec"], fileNames: ["Rakefile", "Gemfile"], executableNames: ["ruby-lsp"]),
-        .init(id: "php", displayName: "PHP", fileExtensions: ["php", "phtml"], executableNames: ["intelephense", "phpactor"]),
         .init(id: "dart", displayName: "Dart", fileExtensions: ["dart"]),
         .init(id: "lua", displayName: "Lua", fileExtensions: ["lua"]),
         .init(id: "shell", displayName: "Shell", fileExtensions: ["sh", "bash", "zsh", "fish", "ksh"], executableNames: ["bash-language-server"], arguments: ["start"], languageIdentifier: "shellscript"),

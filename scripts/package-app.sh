@@ -129,10 +129,10 @@ fi
 OFFICIAL_PLUGIN_DESTINATION="$APP_DIR/Contents/Resources/OfficialPlugins"
 mkdir -p "$OFFICIAL_PLUGIN_DESTINATION"
 if [[ "$ARCH" == "universal" ]]; then
-    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    arm64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$ARM64_TRIPLE")
-    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    x86_64_plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$X86_64_TRIPLE")
     for arm64_plugin in "$arm64_plugin_root"/*(/N); do
@@ -153,7 +153,7 @@ if [[ "$ARCH" == "universal" ]]; then
             "$OFFICIAL_PLUGIN_DESTINATION/$plugin_id/$bundle_path"
     done
 else
-    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh \
+    plugin_root=$(LITHE_CODESIGN_IDENTITY="$SIGNING_IDENTITY" scripts/build-official-plugins.sh --bundled-only \
         --configuration release \
         --triple "$ARCH-apple-macosx")
     for plugin_package in "$plugin_root"/*(/N); do
