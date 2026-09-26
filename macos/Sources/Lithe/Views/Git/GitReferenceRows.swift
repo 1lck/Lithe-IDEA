@@ -91,6 +91,29 @@ enum GitReferenceRowsBuilder {
     }
 }
 
+/// Values that decide whether a rendered reference row must be rebuilt.
+///
+/// `GitReferenceRowView` compares itself with `==` so a `LazyVStack` row is
+/// only re-evaluated when something it displays changes. Everything the row —
+/// or its context menu — reads therefore has to be part of this key. The row's
+/// `actions` struct is deliberately absent: its closures are rebuilt on every
+/// body pass and are stable in behavior.
+struct GitReferenceRowRenderKey: Equatable {
+    let row: GitReferenceRow
+    let isSelected: Bool
+    let isPerformingBranchOperation: Bool
+    let currentReferenceID: String?
+    let comparisonSourceID: String?
+    let isReadOnly: Bool
+    /// Palette slot for the row's leading color bar; `nil` when colors are off.
+    let repositoryColorIndex: Int?
+    /// Remote branches backing the "Tracking Branch" submenu. A `refs` refresh
+    /// can add or remove remote branches while every other field of a local row
+    /// stays identical; without this the row keeps the menu it built earlier
+    /// and offers a stale — or still empty — remote branch list.
+    let remoteBranches: [GitReference]
+}
+
 /// One entry of a reference row's context menu, stripped of closures and
 /// localization so the menu's *policy* is testable without a SwiftUI host. The
 /// view maps every entry to a `LitheContextMenuItem` and supplies the closure.
@@ -116,6 +139,8 @@ enum GitReferenceMenuAction: Equatable {
     case push
     case delete
     case rename
+    case copyBranchName
+    case trackingBranch
 }
 
 /// Builds the context menu a reference row shows.
@@ -165,6 +190,8 @@ enum GitReferenceRowMenu {
             entries.append(.separator)
             entries.append(.action(.pullRebase, isEnabled: !isPerformingBranchOperation, isDestructive: false))
             entries.append(.action(.pullMerge, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
         }
 
         if kind == .local {
@@ -178,6 +205,9 @@ enum GitReferenceRowMenu {
 
             entries.append(.separator)
             entries.append(.action(.rename, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.action(.trackingBranch, isEnabled: !isPerformingBranchOperation, isDestructive: false))
+            entries.append(.separator)
+            entries.append(.action(.copyBranchName, isEnabled: true, isDestructive: false))
         }
 
         return entries

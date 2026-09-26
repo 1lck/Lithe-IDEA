@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：81
-- macOS：实现：✅ 69 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 72 待验证，— 9 不适用
-- Windows：实现：✅ 75 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 79 待验证，— 2 不适用
+- 功能项：82
+- macOS：实现：✅ 70 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 73 待验证，— 9 不适用
+- Windows：实现：✅ 76 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 80 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -76,7 +76,7 @@
 </details>
 
 <details>
-<summary><strong>版本控制</strong> · 6 个能力点</summary>
+<summary><strong>版本控制</strong> · 7 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -86,6 +86,7 @@
 | Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。 |  |
 | Git | **Rebase 与 Stash**<br><sub>git-rebase-stash</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。 |  |
 | Git | **Worktree 管理**<br><sub>git-worktrees</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 |  |
+| Git | **多仓库引用面板：分组、配色与引用操作**<br><sub>git-multi-repository-references</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。 |  |
 
 </details>
 

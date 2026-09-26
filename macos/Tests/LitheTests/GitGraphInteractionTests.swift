@@ -381,7 +381,7 @@ struct GitGraphInteractionTests {
 
     private func actions(_ select: @escaping (GitCommit) -> Void) -> GitGraphRowActions {
         GitGraphRowActions(onSelect: select, onCherryPick: { _ in }, onRevert: { _ in },
-                           onReset: { _ in }, onCreateTag: { _ in })
+                           onReset: { _, _ in }, onCreateTag: { _ in })
     }
 }
 
