@@ -5,6 +5,8 @@ import {
   collectGitReferenceGroupIds,
   countGitReferencesByKind,
   filterGitLogReferences,
+  filterSelectableGitReferences,
+  isRemoteSymbolicHeadReference,
 } from "./git-reference-tree";
 
 const reference = (shortName: string): GitReference => ({
@@ -111,5 +113,36 @@ describe("Git reference tree", () => {
         true,
       ).map((item) => item.shortName),
     ).toEqual(["main", "feature/orders", "origin/main"]);
+  });
+});
+
+describe("remote symbolic HEAD references", () => {
+  test("treats refs/remotes/<remote>/HEAD as a symbolic alias, not a branch", () => {
+    expect(isRemoteSymbolicHeadReference(reference("origin/HEAD"))).toBe(true);
+    expect(isRemoteSymbolicHeadReference(reference("upstream/HEAD"))).toBe(true);
+    expect(isRemoteSymbolicHeadReference(reference("origin/main"))).toBe(false);
+    expect(
+      isRemoteSymbolicHeadReference({
+        fullName: "refs/heads/HEAD",
+        shortName: "HEAD",
+        kind: "local",
+        peelsToCommit: true,
+        isCurrent: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("hides remote HEAD aliases while keeping every real reference", () => {
+    const references = [
+      reference("origin/HEAD"),
+      reference("origin/main"),
+      reference("origin/release"),
+      { ...reference("upstream/HEAD") },
+    ];
+
+    expect(filterSelectableGitReferences(references).map((item) => item.shortName)).toEqual([
+      "origin/main",
+      "origin/release",
+    ]);
   });
 });

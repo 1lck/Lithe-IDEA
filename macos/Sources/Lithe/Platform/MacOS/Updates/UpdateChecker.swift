@@ -158,6 +158,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
     var isBusy: Bool { stableRollback.state.isActive || rollbackRequested || isChecking || (isInstalling && status != .waitingForTermination) }
     var willRelaunchForUpdate: (() -> Void)?
     var didFinishUpdateCycle: (() -> Void)?
+    /// Opens the Software Update window. A live scene installs it because only
+    /// SwiftUI views can reach `openWindow`.
+    var presentDetailsWindow: (() -> Void)?
+    /// Set when a menu or button check should show the update it finds, so the
+    /// person can install it without locating the title bar indicator.
+    private var presentsFoundUpdate = false
     private let bundle: Bundle
     private var updater: SPUUpdater?
     private var userDriver: LitheSparkleUserDriver?
@@ -174,8 +180,17 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         rollbackObservation = stableRollback.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }
     }
 
-    func checkForUpdates(manual: Bool = false) async {
+    /// Starts an update check. `presentingDetails` opens the Software Update
+    /// window when the manual check finds an update; Settings leaves it off
+    /// because its install button sits next to the check button.
+    func checkForUpdates(manual: Bool = false, presentingDetails: Bool = false) async {
         guard !stableRollback.state.isActive, !rollbackRequested else { return }
+        // An offer that is still waiting for a choice is shown again rather
+        // than starting another Sparkle session.
+        if manual, presentingDetails, updateInfo != nil, userDriver?.hasPendingReply == true {
+            presentDetails()
+            return
+        }
         // Local builds deliberately omit both values. Malformed or partial
         // configurations still surface an error instead of silently disabling updates.
         if !manual, bundle.object(forInfoDictionaryKey: "SUFeedURL") == nil,
@@ -184,7 +199,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             if !started {
                 try Self.validateConfiguration(bundle.infoDictionary ?? [:])
                 let driver = LitheSparkleUserDriver(hostBundle: bundle, delegate: nil)
-                driver.presentUpdate = { [weak self] item in self?.present(item) }
+                driver.presentUpdate = { [weak self] item in self?.receiveOffer(item) }
                 driver.installationWaiting = { [weak self] waiting in
                     self?.installationWaitingForTermination(waiting)
                 }
@@ -200,6 +215,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             }
             // Sparkle owns automatic scheduling and persisted skip/check preferences.
             if manual, let updater, updater.canCheckForUpdates {
+                presentsFoundUpdate = presentingDetails
                 updater.checkForUpdates()
             }
         } catch {
@@ -215,6 +231,12 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         guard !stableRollback.state.isActive, !rollbackRequested else { return }
         if let reply = userDriver?.takeReply() { reply(.install) }
         else { await checkForUpdates(manual: true) }
+    }
+
+    /// Shows the offered update, with its release notes and install action.
+    func presentDetails() {
+        guard updateInfo != nil else { return }
+        presentDetailsWindow?()
     }
 
     func remindLater() { userDriver?.takeReply()?(.dismiss) }
@@ -237,10 +259,16 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
         status = waiting ? .waitingForTermination : .installing(version: updateInfo?.targetVersion ?? currentVersion)
     }
 
-    private func present(_ item: SUAppcastItem) {
+    /// Records an update Sparkle offers and waits for the person's choice.
+    /// Scheduled offers stay in the title bar; a manual check opens the window.
+    func receiveOffer(_ item: SUAppcastItem) {
         updateInfo = buildIdentity.updateInfo(version: currentVersion, targetVersion: item.displayVersionString,
             targetBuild: item.versionString, date: item.date, notes: item.itemDescription, infoURL: item.infoURL)
         status = .available(version: item.displayVersionString, url: item.infoURL ?? buildIdentity.releaseURL)
+        if presentsFoundUpdate {
+            presentsFoundUpdate = false
+            presentDetails()
+        }
     }
 
     func openRelease(_ url: URL?) { if let url { NSWorkspace.shared.open(url) } }
@@ -310,6 +338,7 @@ final class UpdateChecker: NSObject, ObservableObject, SPUUpdaterDelegate {
             }
         }
         didFinishUpdateCycle?()
+        presentsFoundUpdate = false
         updateInfo = nil
         isChecking = false
         isInstalling = false

@@ -258,6 +258,14 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "renameBranch", gitReference: reference, name: name)
     }
 
+    func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "setUpstream", gitReference: upstream, name: branch.shortName)
+    }
+
+    func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult? {
+        write(at: rootURL, operation: "unsetUpstream", name: branch.shortName)
+    }
+
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "deleteBranch", gitReference: reference)
     }

@@ -183,13 +183,14 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/editor",
-          "frontend/editor"
+          "frontend/editor",
+          "windows/tauri/src/features/editor/engines/monaco/theme.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换。"
+      "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。"
     },
     {
       "id": "editor-multiline-tabs",
@@ -440,6 +441,28 @@
       },
       "owner": "Git",
       "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"
+    },
+    {
+      "id": "git-multi-repository-references",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "多仓库引用面板：分组、配色与引用操作",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。"
     },
     {
       "id": "github-prs",
@@ -783,7 +806,8 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Core/Language",
-          "macos/Sources/Lithe/Services/Language"
+          "macos/Sources/Lithe/Services/Language",
+          "rust/lithe-core/src/lsp/languages/jdt_configuration.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -791,13 +815,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features",
+          "windows/tauri/src-tauri/src/lsp.rs",
+          "rust/lithe-core/src/lsp/languages/jdt_configuration.rs",
           "shared/fixtures/lsp"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Language Tooling",
-      "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理。"
+      "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。"
     },
     {
       "id": "lsp-completion-hover",
@@ -893,7 +919,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Run",
-      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别。"
+      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因。"
     },
     {
       "id": "run-save-toolchain",
@@ -942,6 +968,31 @@
       },
       "owner": "Run",
       "verification": "运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。"
+    },
+    {
+      "id": "run-java-long-classpath",
+      "area": "运行与调试",
+      "group": "运行配置",
+      "capability": "超长 Java 类路径自动缩短",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacJavaLaunchArgumentPreparer.swift",
+          "macos/Sources/LitheExecutionModule/Services/RunService.swift",
+          "rust/lithe-core/src/execution/launch_command.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src-tauri/src/run/launch_arguments.rs",
+          "rust/lithe-core/src/execution/launch_command.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Run",
+      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。"
     },
     {
       "id": "debug-breakpoints",
@@ -1060,6 +1111,30 @@
       },
       "owner": "Terminal",
       "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。"
+    },
+    {
+      "id": "terminal-long-command-input",
+      "area": "工作台",
+      "group": "终端",
+      "capability": "Windows Shell 超长命令输入",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Terminal"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/crates/terminal/src/connection.rs",
+          "windows/tauri/src-tauri/src/terminal.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Terminal",
+      "verification": "在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。",
+      "notes": "仅在 IDE 后端为 cmd.exe/PowerShell 的超长多行文本创建一次性脚本；不修改系统 Shell 配置。"
     },
     {
       "id": "markdown-rendering",
@@ -1349,7 +1424,9 @@
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/diagnostics"
+          "windows/tauri/src/features/diagnostics",
+          "windows/tauri/src/features/logging",
+          "windows/tauri/src/ui/dialog.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1378,7 +1455,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Diagnostics",
-      "verification": "导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制。"
+      "verification": "导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制；检查预览说明和文件列表在确认弹窗内完整显示、长内容正常换行且不溢出。"
     },
     {
       "id": "application-settings",
@@ -1557,6 +1634,30 @@
       "verification": "逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。"
     },
     {
+      "id": "workbench-activity-rail-window-edge",
+      "area": "工作台",
+      "group": "工作台布局",
+      "capability": "活动栏贴合窗口外沿",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/components/main-layout.tsx",
+          "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx",
+          "windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。"
+    },
+    {
       "id": "embedded-viewers",
       "area": "编辑器",
       "group": "资源预览",
@@ -1703,6 +1804,7 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/App/UpdateControl.swift",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Platform/MacOS/Updates"
         ],
         "implementationStatus": "implemented",
@@ -1711,13 +1813,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/layout/components/app-update-control.tsx",
+          "windows/tauri/src/features/layout/components/app-update-details-dialog.tsx",
+          "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
           "windows/tauri/src/features/settings/hooks/use-updater.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从菜单或欢迎页手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
     },
     {
       "id": "updates-failure-rollback",
@@ -1889,6 +1993,59 @@
         "verificationStatus": "pending"
       },
       "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+    },
+    {
+      "id": "php-optional-plugin",
+      "area": "语言支持",
+      "group": "PHP",
+      "capability": "PHP 按需安装与插件生命周期",
+      "macos": {
+        "evidence": [
+          "Plugins/mac/Official/PhpSupport",
+          "scripts/official-plugin-distribution.mjs",
+          "macos/Sources/Lithe/Platform/MacOS/Plugins"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "Plugins/win/Official/PhpSupport",
+          "windows/tauri/src/extensions/registry/extension-store-lifecycle.ts",
+          "windows/tauri/src-tauri/src/language_tools.rs",
+          "windows/tauri/src/extensions/packages/local-extension-package.ts",
+          "scripts/verify-windows-plugin-isolation.mjs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "PHP Support",
+      "verification": "在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。 Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
+    },
+    {
+      "id": "php-run-test",
+      "area": "语言支持",
+      "group": "PHP",
+      "capability": "PHP 插件运行与 PHPUnit 测试",
+      "macos": {
+        "evidence": [
+          "Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift",
+          "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "Plugins/win/Official/PhpSupport/plugin.ts",
+          "windows/tauri/src/extensions/run",
+          "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "PHP Support",
+      "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
     }
   ]
 }

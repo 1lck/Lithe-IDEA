@@ -6,6 +6,7 @@ enum LitheWindowID {
     static let welcome = "welcome"
     static let settings = "settings"
     static let project = "project"
+    static let softwareUpdate = "software-update"
 }
 
 private struct ProjectWindowScopeKey: EnvironmentKey {
@@ -23,6 +24,7 @@ extension EnvironmentValues {
 /// they are not tied to the primary window's lifetime alone.
 private struct ProjectWindowSceneBridge: View {
     @EnvironmentObject private var projectWindowLauncher: ProjectWindowLauncher
+    @EnvironmentObject private var updateChecker: UpdateChecker
     @Environment(\.openWindow) private var openWindow
 
     var body: some View {
@@ -41,6 +43,9 @@ private struct ProjectWindowSceneBridge: View {
         }
         projectWindowLauncher.presentPrimaryWindow = {
             openWindow(id: LitheWindowID.welcome)
+        }
+        updateChecker.presentDetailsWindow = {
+            openWindow(id: LitheWindowID.softwareUpdate)
         }
     }
 }

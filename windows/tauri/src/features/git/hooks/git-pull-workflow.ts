@@ -2,6 +2,7 @@ import type {
   GitOperationState,
   GitPullPreflight,
   GitPullResult,
+  GitReference,
   PullStrategy,
 } from "../types/git.types";
 
@@ -13,12 +14,25 @@ interface RemoteActionResult {
 export interface GitPullWorkflowDependencies {
   fetch: (repoPath: string) => Promise<RemoteActionResult>;
   preflight: (repoPath: string) => Promise<GitPullPreflight>;
-  pull: (repoPath: string, strategy: PullStrategy) => Promise<RemoteActionResult>;
+  /** Pulls the configured upstream, or the explicit `reference` when the Pull dialog chose another branch. */
+  pull: (
+    repoPath: string,
+    strategy: PullStrategy,
+    reference?: GitReference,
+  ) => Promise<RemoteActionResult>;
   operationState: (repoPath: string) => Promise<GitOperationState | null>;
 }
 
 export interface GitPullWorkflowOptions {
   refresh: () => Promise<void>;
+  /**
+   * Strategy confirmed in the Pull dialog. When present the divergent-history
+   * prompt is skipped because the user already chose explicitly; a fast-forward
+   * strategy on divergent history still falls back to the prompt as a safety net.
+   */
+  strategy?: PullStrategy;
+  /** Remote branch to pull into the current branch instead of the configured upstream. */
+  reference?: GitReference;
 }
 
 export interface GitPullWorkflowSnapshot {
@@ -90,7 +104,9 @@ export class GitPullWorkflow {
         };
       }
 
-      if (!preflight.upstream) {
+      // A dialog-selected branch is pulled explicitly, so the current branch's
+      // upstream must not gate it; Git rejects an incompatible target itself.
+      if (!options.reference && !preflight.upstream) {
         return {
           status: "blocked",
           reason: "no-upstream",
@@ -104,15 +120,19 @@ export class GitPullWorkflow {
         };
       }
 
-      if (preflight.behind === 0 && !preflight.diverged) {
+      // "Up to date" is a property of the configured upstream, not of an
+      // arbitrary branch the user chose to pull from.
+      if (!options.reference && preflight.behind === 0 && !preflight.diverged) {
         return {
           status: "blocked",
           reason: "up-to-date",
         };
       }
 
-      let strategy: PullStrategy = "ffOnly";
-      if (preflight.diverged) {
+      let strategy: PullStrategy = options.strategy ?? "ffOnly";
+      // A user-chosen merge/rebase already resolved divergence; only a missing
+      // choice or a fast-forward strategy still requires the explicit prompt.
+      if (preflight.diverged && (!options.strategy || options.strategy === "ffOnly")) {
         const selectedStrategy = await this.waitForStrategy(preflight);
         if (!selectedStrategy) {
           return { status: "cancelled" };
@@ -150,7 +170,7 @@ export class GitPullWorkflow {
         strategy = selectedStrategy;
       }
 
-      const pulled = await this.dependencies.pull(repoPath, strategy);
+      const pulled = await this.dependencies.pull(repoPath, strategy, options.reference);
       if (pulled.success) {
         return { status: "pulled", strategy };
       }

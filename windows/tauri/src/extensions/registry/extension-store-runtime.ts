@@ -20,6 +20,7 @@ type BackendToolRuntime = Extract<
 >;
 
 interface BackendToolConfig {
+  requiredExecutables?: string[];
   name: string;
   command?: string;
   runtime: BackendToolRuntime;
@@ -284,6 +285,7 @@ export function resolveToolCommandForManifest(input: { name?: string }): string 
 
 function toBackendToolConfig(
   input: {
+    requiredExecutables?: string[];
     name?: string;
     runtime?: ToolRuntime;
     package?: string;
@@ -324,6 +326,7 @@ function toBackendToolConfig(
     name,
     ...(command ? { command } : {}),
     runtime: input.runtime,
+    ...(input.requiredExecutables ? { requiredExecutables: input.requiredExecutables } : {}),
     ...(input.package ? { package: input.package } : {}),
     ...(input.packages ? { packages: input.packages } : {}),
     ...(downloadUrl ? { downloadUrl } : {}),
@@ -340,6 +343,7 @@ export function getLanguageToolConfigSet(
   const lsp = manifest.lsp
     ? toBackendToolConfig(
         {
+          requiredExecutables: manifest.lsp.requiredExecutables,
           name: manifest.lsp.name || getCommandDefault(manifest.lsp.server),
           runtime: manifest.lsp.runtime,
           package: manifest.lsp.package,

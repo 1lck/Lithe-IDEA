@@ -15,4 +15,5 @@ docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
+.planning/
 /node_modules/

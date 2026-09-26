@@ -1,0 +1,74 @@
+{
+  "id": "lithe.php",
+  "name": "PHP",
+  "displayName": "PHP Support",
+  "description": "PHP language support with Intelephense, Composer scripts and PHPUnit. Requires locally installed PHP, Bun and Node.js.",
+  "version": "1.0.0",
+  "publisher": "Lithe",
+  "categories": [
+    "Language"
+  ],
+  "main": "plugin.js",
+  "languages": [
+    {
+      "id": "php",
+      "extensions": [
+        ".php",
+        ".phtml",
+        ".php3",
+        ".php4",
+        ".php5",
+        ".php7",
+        ".php8",
+        ".phar",
+        ".phps"
+      ],
+      "aliases": [
+        "PHP",
+        "php"
+      ]
+    }
+  ],
+  "lsp": {
+    "name": "intelephense",
+    "runtime": "bun",
+    "package": "intelephense",
+    "server": {
+      "default": "intelephense"
+    },
+    "args": [
+      "--stdio"
+    ],
+    "fileExtensions": [
+      ".php",
+      ".phtml",
+      ".php3",
+      ".php4",
+      ".php5",
+      ".php7",
+      ".php8",
+      ".phar",
+      ".phps"
+    ],
+    "languageIds": [
+      "php"
+    ],
+    "requiredExecutables": [
+      "node"
+    ]
+  },
+  "runActions": {
+    "manifestFiles": [
+      "composer.json",
+      "phpunit.xml",
+      "phpunit.xml.dist"
+    ],
+    "executables": [
+      "composer",
+      "php"
+    ]
+  },
+  "installation": {
+    "type": "local"
+  }
+}

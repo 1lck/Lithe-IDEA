@@ -6,7 +6,11 @@ const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> =
   throw new Error(`Unexpected command: ${command}`);
 });
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+// Spread the real module so the override stays scoped to `invoke`; a partial
+// mock would strip the sibling exports (Channel, …) from this shared module
+// registry for every other test file.
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const { getResolvedGitBlame } = await import("./git-blame-api");
 const { clearRepositoryDiscoveryCache } = await import("./git-repo-api");

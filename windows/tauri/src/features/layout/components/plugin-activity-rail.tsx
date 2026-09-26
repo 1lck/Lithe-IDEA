@@ -31,7 +31,7 @@ export function PluginActivityRail() {
   return (
     <aside
       aria-label={activityViewsLabel}
-      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center rounded-r-xl border-border border-r bg-surface pt-1"
+      className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center bg-surface pt-1"
     >
       <Button
         type="button"

@@ -335,7 +335,8 @@ export function useMenuEventsWrapper() {
       await openUrl("https://github.com/1lck/Lithe-IDEA/issues/new?template=02-feature.yml");
     },
     onCheckForUpdates: async () => {
-      const result = await checkForUpdates({ ignoreSuppression: true });
+      // An available update opens the shared details dialog from the store.
+      const result = await checkForUpdates({ userInitiated: true });
       if (result === "up-to-date") {
         showToast({ message: "You're on the latest version", type: "success" });
       } else if (result === "failed") {

@@ -1,3 +1,7 @@
+import { localExtensionPackages } from "@/extensions/packages/local-extension-package";
+import { extensionRegistry } from "@/extensions/registry/extension-registry";
+import { discoverExtensionActions } from "@/extensions/run/extension-run-discovery";
+import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { invoke } from "@/platform/tauri-core";
 import { createElement } from "react";
 import type { ExtensionManifest } from "@/extensions/types/extension-manifest";
@@ -13,6 +17,8 @@ interface LoadedExtension {
   worker?: Worker;
   entryPointUrl?: string;
   unloading?: boolean;
+  ready?: boolean;
+  cancelActivation?: () => void;
   nextRequestId: number;
   pending: Map<
     number,
@@ -35,6 +41,11 @@ class UIExtensionHost {
 
   async loadExtension(manifest: ExtensionManifest, _extensionPath?: string): Promise<void> {
     const extensionId = manifest.id;
+    if (
+      manifest.installation?.type === "local" &&
+      extensionRegistry.getExtension(extensionId)?.isEnabled !== true
+    )
+      return;
     if (this.loaded.has(extensionId)) return;
 
     const actions = useUIExtensionStore.getState().actions;
@@ -54,11 +65,24 @@ class UIExtensionHost {
         return;
       }
 
-      const source = await invoke<string>("read_extension_entrypoint", {
-        extensionId,
-        entrypoint: manifest.main,
-      });
-      if (loaded.unloading || this.loaded.get(extensionId) !== loaded) {
+      const localPackage =
+        manifest.installation?.type === "local"
+          ? localExtensionPackages.get(extensionId)
+          : undefined;
+      if (manifest.installation?.type === "local" && !localPackage)
+        throw new Error("Plugin package is missing. Import it again.");
+      const source =
+        localPackage?.source ??
+        (await invoke<string>("read_extension_entrypoint", {
+          extensionId,
+          entrypoint: manifest.main,
+        }));
+      if (
+        loaded.unloading ||
+        this.loaded.get(extensionId) !== loaded ||
+        (manifest.installation?.type === "local" &&
+          extensionRegistry.getExtension(extensionId)?.isEnabled !== true)
+      ) {
         throw new Error(`Extension ${extensionId} was unloaded during activation`);
       }
       loaded.entryPointUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
@@ -73,37 +97,47 @@ class UIExtensionHost {
       worker.addEventListener("error", (event) => {
         actions.updateExtensionState(extensionId, "error", event.message);
       });
-      worker.postMessage({ type: "activate", entryPointUrl: loaded.entryPointUrl });
 
       await new Promise<void>((resolve, reject) => {
+        const cleanup = () => {
+          window.clearTimeout(timeout);
+          worker.removeEventListener("message", onReady);
+          worker.removeEventListener("error", onError);
+          loaded.cancelActivation = undefined;
+        };
+        const fail = (error: Error) => {
+          cleanup();
+          reject(error);
+        };
         const timeout = window.setTimeout(
-          () => reject(new Error("Extension activation timed out")),
+          () => fail(new Error("Extension activation timed out")),
           REQUEST_TIMEOUT_MS,
         );
         const onReady = (event: MessageEvent<ExtensionWorkerMessage>) => {
           if (event.data.type !== "event") return;
-          if (event.data.event !== "ready" && event.data.event !== "activation.error") return;
-          window.clearTimeout(timeout);
-          worker.removeEventListener("message", onReady);
-          worker.removeEventListener("error", onError);
-          if (event.data.event === "activation.error") {
-            reject(new Error(String(event.data.payload?.message ?? "Extension activation failed")));
-          } else {
+          if (event.data.event === "activation.error")
+            fail(new Error(String(event.data.payload?.message ?? "Extension activation failed")));
+          else if (event.data.event === "ready") {
+            cleanup();
             resolve();
           }
         };
-        const onError = (event: ErrorEvent) => {
-          window.clearTimeout(timeout);
-          worker.removeEventListener("message", onReady);
-          worker.removeEventListener("error", onError);
-          reject(new Error(event.message || "Extension activation failed"));
-        };
+        const onError = (event: ErrorEvent) =>
+          fail(new Error(event.message || "Extension activation failed"));
+        loaded.cancelActivation = () => fail(new Error("Extension activation cancelled"));
         worker.addEventListener("message", onReady);
         worker.addEventListener("error", onError);
+        worker.postMessage({ type: "activate", entryPointUrl: loaded.entryPointUrl });
       });
-      if (loaded.unloading || this.loaded.get(extensionId) !== loaded) {
+      if (
+        loaded.unloading ||
+        this.loaded.get(extensionId) !== loaded ||
+        (manifest.installation?.type === "local" &&
+          extensionRegistry.getExtension(extensionId)?.isEnabled !== true)
+      ) {
         throw new Error(`Extension ${extensionId} was unloaded during activation`);
       }
+      loaded.ready = true;
       actions.updateExtensionState(extensionId, "active");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -207,7 +241,10 @@ class UIExtensionHost {
     const loaded = this.loaded.get(extensionId);
     if (!loaded) return;
     loaded.unloading = true;
-    if (loaded.worker) {
+    loaded.cancelActivation?.();
+    // A local package has no native handles in the worker. Termination is its
+    // cancellation boundary; host-owned runs are stopped by the lifecycle.
+    if (loaded.worker && loaded.manifest.installation?.type !== "local") {
       await this.request(extensionId, "deactivate", []).catch(() => undefined);
     }
     this.disposeWorker(loaded);
@@ -216,6 +253,7 @@ class UIExtensionHost {
   }
 
   private disposeWorker(loaded: LoadedExtension) {
+    loaded.cancelActivation?.();
     loaded.worker?.terminate();
     if (loaded.entryPointUrl) URL.revokeObjectURL(loaded.entryPointUrl);
     for (const request of loaded.pending.values()) {
@@ -223,6 +261,26 @@ class UIExtensionHost {
       request.reject(new Error("Extension was unloaded"));
     }
     loaded.pending.clear();
+  }
+
+  async discoverRunActions(workspacePath: string) {
+    const groups = await Promise.all(
+      [...this.loaded.values()].map((loaded) => {
+        const isActive = () =>
+          !loaded.unloading &&
+          loaded.ready === true &&
+          this.loaded.get(loaded.extensionId) === loaded &&
+          extensionRegistry.getExtension(loaded.extensionId)?.isEnabled === true;
+        return discoverExtensionActions(
+          loaded.manifest,
+          workspacePath,
+          readFileContent,
+          (files) => this.request(loaded.extensionId, "discoverRunActions", [files]),
+          isActive,
+        );
+      }),
+    );
+    return groups.flat();
   }
 
   isLoaded(extensionId: string): boolean {

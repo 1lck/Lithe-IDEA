@@ -363,6 +363,7 @@
 "Local changes would be overwritten" = "本地更改将被覆盖";
 "Your changes to these files conflict with '%@':" = "你对这些文件的更改与“%@”冲突：";
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "智能检出会先贮藏你的更改，切换分支后再恢复。强制检出会直接切换并丢弃这些更改。";
+"Soft Reset (Keep Changes Staged)" = "软重置（保留暂存更改）";
 "Smart Checkout" = "智能检出";
 "Force Checkout" = "强制检出";
 "Merge in progress" = "正在合并";
@@ -374,6 +375,7 @@
 "Continue Cherry-pick" = "继续拣选";
 "Continue Revert" = "继续还原";
 "Step %lld of %lld" = "第 %lld 步，共 %lld 步";
+"Stop Tracking Branch" = "停止跟踪分支";
 "Resolve %lld conflicted file(s), stage them, then continue." = "请解决 %lld 个冲突文件并暂存，然后继续。";
 "All conflicts resolved. Continue to finish, or abort to undo." = "冲突已全部解决。继续以完成操作，或中止以撤销。";
 "Skip Commit" = "跳过该提交";
@@ -397,6 +399,7 @@
 "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it." = "贮藏会先把这些更改放到一边，执行操作后再恢复。如果操作因冲突中断，这些更改会一直保留在贮藏中，直到你完成该操作。";
 "Stash and Continue" = "贮藏并继续";
 "Merge into Current Branch" = "合并到当前分支";
+"Mixed Reset (Keep Changes Unstaged)" = "混合重置（保留未暂存更改）";
 "Delete Branch" = "删除分支";
 "No commits match this view" = "没有提交匹配当前视图";
 "Commit details" = "提交详情";
@@ -719,6 +722,7 @@
 "Previous difference" = "上一个差异";
 "Next difference" = "下一个差异";
 "Highlight words" = "高亮单词";
+"Hard Reset (Discard Changes)" = "硬重置（丢弃更改）";
 "Parent version" = "父版本";
 "Commit version" = "提交版本";
 "This removes the stash from Git and cannot be undone." = "这会从 Git 中删除 Stash，且无法撤销。";
@@ -809,6 +813,7 @@
 "Me" = "我";
 "Search users" = "搜索用户";
 "No matching users" = "没有匹配的用户";
+"No Remote Branches" = "没有远程分支";
 "Create" = "创建";
 "Create from '%@'." = "从“%@”创建。";
 "Checkout branch after creation" = "创建后检出分支";
@@ -845,6 +850,7 @@
 "Compare changes" = "比较更改";
 "Show file history" = "显示文件历史";
 "Toggle preview" = "切换预览";
+"Tracking Branch" = "跟踪的分支";
 "New Branch from '%@'…" = "从“%@”新建分支…";
 "Show Diff with Working Tree" = "显示与工作区的 Diff";
 "Update" = "更新";
@@ -1113,6 +1119,7 @@
 "Jump to latest" = "跳转到最新位置";
 "Settings…" = "设置…";
 "Copy" = "复制";
+"Copy Branch Name" = "复制分支名称";
 "Host" = "主机";
 "JDWP port" = "JDWP 端口";
 "Local JDK Home (optional)" = "本地 JDK 主目录（可选）";
@@ -1713,10 +1720,14 @@
 "Reset current branch?" = "重置当前分支？";
 "Cherry-pick" = "拣选";
 "Revert" = "反向提交";
+"Reset (Soft)" = "软重置";
 "Reset (Mixed)" = "混合重置";
+"Reset (Hard)" = "硬重置";
 "Apply %@ to the current branch." = "将提交 %@ 应用到当前分支。";
 "Create a new commit that reverses %@." = "创建一个新提交，撤销提交 %@ 的更改。";
+"Move the current branch to %@ and keep changes staged." = "将当前分支移动到 %@，并将更改保留为已暂存状态。";
 "Move the current branch to %@ and keep changes unstaged." = "将当前分支移动到 %@，并将更改保留为未暂存状态。";
+"Move the current branch to %@ and discard all working-tree changes." = "将当前分支移动到 %@，并丢弃所有工作区更改。";
 "Delete branch?" = "删除分支？";
 "Merge branch?" = "合并分支？";
 "Rebase branch?" = "变基分支？";
@@ -1870,6 +1881,8 @@
 "Preview Update" = "预览版更新";
 "Install Preview" = "安装预览版";
 "Skip Build" = "跳过此构建";
+"Software Update" = "软件更新";
+"Skip Version" = "跳过此版本";
 "Continue Installation" = "继续安装";
 "Return to Stable" = "回到正式版";
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "正式版缺少有效的发布者签名，未执行安装。请等待新版本，或从可信来源手动安装。";

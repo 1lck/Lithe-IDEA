@@ -234,6 +234,27 @@ Windows/Tauri Rust crates, generated code, or third-party sources.
 - Test fixtures may use clearly fake values, but must not contain real secrets
   or machine-specific paths.
 
+## Keep installed packages read-only
+
+The installed macOS app bundle and the Windows installation directory are the
+release baseline: Sparkle builds differential updates against their exact
+bytes, and a runtime write turns the next update into a full download.
+
+- Runtime state (caches, indexes, Eclipse/OSGi state, downloads, extracted
+  archives, logs, and locks) goes to the platform cache, Application Support,
+  temporary storage, or the workspace, resolved through the platform storage
+  adapter. Never derive a write destination from `Bundle.main.resourceURL`,
+  `resource_dir()`, or the installation directory.
+- A packaged tool that writes next to its own files, as Equinox does with
+  `-configuration`, receives a writable copy of its inputs in the cache
+  instead; see `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`.
+- Cover a new packaged runtime with a test that compares the installation's
+  file listing before and after a typical workflow, and keep
+  `scripts/verify-runtime-bundle-immutability.sh` passing.
+
+The decision record is
+`.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md`.
+
 ## Handle failures explicitly
 
 - Do not silently discard errors. Return, translate, or log them at the layer

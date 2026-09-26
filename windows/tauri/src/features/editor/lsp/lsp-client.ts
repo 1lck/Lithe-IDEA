@@ -1364,6 +1364,22 @@ export class LspClient {
     }
   }
 
+  async resolveCompletion(
+    target: LspDocumentTargetInput,
+    item: CompletionItem,
+  ): Promise<CompletionItem | null> {
+    const document = normalizeLspDocumentTarget(target);
+    try {
+      return await invoke<CompletionItem | null>("lsp_resolve_completion", {
+        ...lspDocumentRequestArgs(document),
+        completionItem: item,
+      });
+    } catch (error) {
+      logger.error("LSPClient", "LSP completion resolve error:", error);
+      return null;
+    }
+  }
+
   async getHover(
     target: LspDocumentTargetInput,
     line: number,
