@@ -1985,8 +1985,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     defaultSize: resolvedSidebarWidth,
                     minimum: minimumSidebarWidth,
                     maximum: maximumSidebarWidth,
-                    showsIdleDivider: hasWorkbenchBackground,
-                    idleDividerColor: LitheTheme.secondaryText,
+                    trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar : .clear,
+                    showsIdleDivider: false,
                     onCommit: actions.onSidebarWidthCommitted,
                     sized: {
                         sidebar
@@ -2017,8 +2017,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         defaultSize: resolvedTopPaneHeight,
                         minimum: minimumTopPaneHeight,
                         maximum: maximumTopPaneHeight,
-                        showsIdleDivider: hasWorkbenchBackground,
-                        idleDividerColor: LitheTheme.secondaryText,
+                        trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar : .clear,
+                        showsIdleDivider: false,
                         onCommit: actions.onTopPaneHeightCommitted,
                         sized: {
                             topContent

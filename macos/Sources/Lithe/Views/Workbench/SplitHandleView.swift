@@ -14,10 +14,8 @@ struct SplitHandleView: View {
     static let hitThickness: CGFloat = 10
 
     let axis: LitheSplitAxis
-    let leadingBackground: Color
-    let trailingBackground: Color
+    let trackBackground: Color
     let showsIdleDivider: Bool
-    let idleDividerColor: Color
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
@@ -29,19 +27,15 @@ struct SplitHandleView: View {
 
     init(
         axis: LitheSplitAxis,
-        leadingBackground: Color = .clear,
-        trailingBackground: Color = .clear,
+        trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
-        idleDividerColor: Color = LitheTheme.divider,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
     ) {
         self.axis = axis
-        self.leadingBackground = leadingBackground
-        self.trailingBackground = trailingBackground
+        self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
-        self.idleDividerColor = idleDividerColor
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -50,6 +44,10 @@ struct SplitHandleView: View {
     var body: some View {
         ZStack {
             trackBackground
+                .frame(
+                    width: axis == .horizontal ? Self.thickness : nil,
+                    height: axis == .vertical ? Self.thickness : nil
+                )
             Color.clear
             dividerLine
         }
@@ -113,29 +111,10 @@ struct SplitHandleView: View {
     }
 
     @ViewBuilder
-    private var trackBackground: some View {
-        if axis == .horizontal {
-            HStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            VStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-    }
-
-    @ViewBuilder
     private var dividerLine: some View {
         if showsIdleDivider {
             let color = isDragging ? LitheTheme.primaryText
-                : (isHovering ? LitheTheme.secondaryText : idleDividerColor)
+                : (isHovering ? LitheTheme.secondaryText : LitheTheme.divider)
             if axis == .horizontal {
                 Rectangle()
                     .fill(color)

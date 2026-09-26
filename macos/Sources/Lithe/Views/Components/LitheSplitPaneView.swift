@@ -20,8 +20,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     /// Minimum size reserved for the flexible pane, when the hosted content
     /// has a product-level usability requirement of its own.
     let flexibleMinimum: CGFloat?
+    let trackBackground: Color
     let showsIdleDivider: Bool
-    let idleDividerColor: Color
     /// Called with the final size when a drag ends. Hosts that persist the size
     /// write it here; the container then defers to `defaultSize` again so the
     /// persisted value is the single source of truth.
@@ -40,8 +40,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         minimum: CGFloat,
         maximum: CGFloat,
         flexibleMinimum: CGFloat? = nil,
+        trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
-        idleDividerColor: Color = LitheTheme.divider,
         onCommit: ((CGFloat) -> Void)? = nil,
         @ViewBuilder sized: () -> Sized,
         @ViewBuilder flexible: () -> Flexible
@@ -52,8 +52,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.minimum = minimum
         self.maximum = maximum
         self.flexibleMinimum = flexibleMinimum
+        self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
-        self.idleDividerColor = idleDividerColor
         self.onCommit = onCommit
         self.sized = sized()
         self.flexible = flexible()
@@ -111,8 +111,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     private func handle(_ size: CGFloat) -> some View {
         SplitHandleView(
             axis: axis,
+            trackBackground: trackBackground,
             showsIdleDivider: showsIdleDivider,
-            idleDividerColor: idleDividerColor,
             onDragStarted: { dragStart = size },
             onDragChanged: { translation in
                 draggedSize = resolved(from: translation)
