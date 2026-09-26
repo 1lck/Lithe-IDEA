@@ -1,0 +1,25 @@
+[package]
+name = "rgitui_diff"
+version = "0.4.1"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+similar.workspace = true
+gpui.workspace = true
+rgitui_theme.workspace = true
+rgitui_ui.workspace = true
+rgitui_git.workspace = true
+rgitui_settings.workspace = true
+anyhow.workspace = true
+# Only for parsing a hex OID out of a `DiffSource` when building the tree pair
+# an apply/revert patch comes from.
+git2.workspace = true
+log.workspace = true
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+
+[features]
+perf = []

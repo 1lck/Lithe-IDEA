@@ -1,8 +1,9 @@
 .DS_Store
 .build/
-rust/target/
+target/
 .swiftpm/
 .idea/
+.vscode/
 DerivedData/
 /windows/build*/
 dist/
@@ -15,4 +16,11 @@ docs/visual-qa/
 .reasonix/
 reasonix.toml
 .codex/
+.codegraph/
 /node_modules/
+*.swp
+*.swo
+*~
+*.tar.gz
+*.deb
+*.AppImage

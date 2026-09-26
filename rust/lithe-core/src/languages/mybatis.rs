@@ -216,8 +216,9 @@ fn collect_types(
             }
         }
         // Reverse the push order to preserve the recursive walk's source preorder.
+        // tree-sitter 0.26 起 `Node::child` 取 `u32`，`child_count` 仍为 `usize`。
         for index in (0..node.child_count()).rev() {
-            if let Some(child) = node.child(index) {
+            if let Some(child) = node.child(index as u32) {
                 pending.push(child);
             }
         }

@@ -1,0 +1,35 @@
+# Lithe vendored copy of Modolet/gpui_xterm.
+#
+# Upstream: https://github.com/Modolet/gpui_xterm
+# Revision: 4bdcdbbeab4211f7938f31919819b06d755a1733 (2026-06-05, "chore: 适配 git 版本 GPUI")
+# License:  MIT (see LICENSE)
+#
+# The upstream manifest depends on `gpui` from the Zed git repository and on
+# `gpui-component` from the longbridge git repository. Lithe renders through the
+# published `gpui-pre`/`gpui-component` crate family (re-exported by `gpui-kit`),
+# which Cargo treats as different package identities. This manifest re-points the
+# same source at Lithe's crate family and pins `alacritty_terminal` to the version
+# already used by the Linux product, so both share one terminal engine version.
+# Keep this file as the single place that records the dependency adaptation.
+
+[package]
+name = "gpui_xterm"
+version = "0.1.1"
+edition = "2024"
+description = "Reusable xterm-like terminal component for GPUI (Lithe vendored copy)"
+license = "MIT"
+publish = false
+
+[lib]
+name = "gpui_xterm"
+path = "src/lib.rs"
+doctest = false
+
+[dependencies]
+alacritty_terminal = "0.26"
+anyhow = "1"
+arboard = { version = "3", features = ["wayland-data-control"] }
+flume = "0.12"
+gpui = { package = "gpui-pre", version = "0.3.6" }
+gpui-component = "0.6.6"
+parking_lot = "0.12"

@@ -1,0 +1,40 @@
+[package]
+name = "lithe-linux"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rfd = "0.16"
+gpui-kit = { version = "0.6", features = [
+    "tree-sitter-bash",
+    "tree-sitter-java",
+    "tree-sitter-javascript",
+    "tree-sitter-markdown",
+    "tree-sitter-markdown-inline",
+    "tree-sitter-rust",
+    "tree-sitter-sql",
+    "tree-sitter-toml",
+    "tree-sitter-tsx",
+    "tree-sitter-typescript",
+    "tree-sitter-yaml",
+] }
+lithe-core = { path = "../rust/lithe-core" }
+gpui_xterm = { path = "../third_party/gpui_xterm" }
+rgitui_diff = { path = "../third_party/rgitui/crates/rgitui_diff" }
+rgitui_theme = { path = "../third_party/rgitui/crates/rgitui_theme" }
+rgitui_git = { path = "../third_party/rgitui/crates/rgitui_git" }
+rgitui_settings = { path = "../third_party/rgitui/crates/rgitui_settings" }
+portable-pty = "0.9"
+alacritty_terminal = "0.26"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+regex = "1.11"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# `libc` 只用于 Unix 进程组信号；Windows 由 `taskkill` 终止进程树。
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
