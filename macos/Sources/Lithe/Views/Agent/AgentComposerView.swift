@@ -46,7 +46,7 @@ struct AgentComposerView: View {
                             Menu {
                                 configChoices(option)
                             } label: {
-                                Label(option.currentLabel, systemImage: configIcon(option.category))
+                                configLabel(option)
                                     .font(.system(size: 11))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
@@ -181,10 +181,21 @@ struct AgentComposerView: View {
 
     private func configIcon(_ category: String?) -> String {
         switch category {
-        case "model": "cpu"
         case "mode": "lock.shield"
         case "thought_level": "brain"
         default: "slider.horizontal.3"
+        }
+    }
+
+    @ViewBuilder
+    private func configLabel(_ option: AgentSessionConfigOption) -> some View {
+        if option.category == "model" {
+            HStack(spacing: 5) {
+                AgentBrandIcon(name: selectedAgent?.name, size: 12)
+                Text(option.currentLabel)
+            }
+        } else {
+            Label(option.currentLabel, systemImage: configIcon(option.category))
         }
     }
 

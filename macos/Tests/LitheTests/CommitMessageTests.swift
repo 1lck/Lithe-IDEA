@@ -375,6 +375,60 @@ private let testCommitMessageInput = CommitMessageInput(
 @MainActor
 struct CommitMessageSettingsTests {
     @Test
+    func linkedAgentModelsRefreshWithoutChangingOtherProviderSettings() throws {
+        let store = InMemoryKeyValueStore()
+        let settings = AppSettings(store: store)
+        let codex = AIProviderProfile(name: "Codex", endpoint: "https://old.example.test/v1", model: "obsolete-model",
+            apiProtocol: .responses, apiKeyIdentifier: "codex-key", credentialSource: .codex)
+        let claude = AIProviderProfile(name: "Claude", endpoint: "https://claude.example.test", model: "old-claude",
+            apiProtocol: .anthropicMessages, apiKeyIdentifier: "claude-key", credentialSource: .claude)
+        let manual = AIProviderProfile(name: "Manual", endpoint: "https://manual.example.test/v1", model: "manual-model",
+            apiProtocol: .responses, apiKeyIdentifier: "manual-key", credentialSource: .local)
+        let unlinked = AIProviderProfile(name: "Unlinked", endpoint: codex.endpoint, model: codex.model,
+            apiProtocol: .responses, apiKeyIdentifier: "unlinked-key", credentialSource: .codex)
+        var initial = settings.commitMessageAI
+        initial.providers = [codex, claude, manual, unlinked]
+        initial.activeProviderID = manual.id
+        settings.commitMessageAI = initial
+        settings.setAgentProvider(codex.id, for: "codex-acp", name: "Codex")
+        settings.setAgentProvider(claude.id, for: "claude-acp", name: "Claude")
+        settings.setAgentProvider(manual.id, for: "custom", name: "Manual")
+        let snapshots: [AIConfigurationSnapshot] = [
+            .init(source: .codex, providerName: "Current", endpoint: "https://new.example.test/v1", model: "current-codex",
+                apiProtocol: .responses, reasoningEffort: nil, requiresAPIKey: true, apiKey: "test-secret"),
+            .init(source: .claude, providerName: "Current", endpoint: "https://new.example.test", model: "current-claude",
+                apiProtocol: .anthropicMessages, reasoningEffort: nil, requiresAPIKey: true, apiKey: "test-secret")
+        ]
+        settings.refreshAgentModels(from: snapshots)
+        var expected = initial
+        expected.providers[0].model = "current-codex"
+        expected.providers[1].model = "current-claude"
+        #expect(settings.commitMessageAI == expected)
+        #expect(settings.agentProvider(for: "codex-acp")?.model == "current-codex")
+        #expect(AppSettings(store: store).commitMessageAI == expected, "the next connection must not restore the stale import")
+        let saved = try #require(store.data(forKey: "settings.commitMessageAI"))
+        #expect(!String(decoding: saved, as: UTF8.self).contains("test-secret"))
+    }
+
+    @Test
+    func agentModelRefreshKeepsMissingSourcesAndSupportsAnEmptyCliDefault() {
+        let settings = AppSettings(store: InMemoryKeyValueStore())
+        let provider = AIProviderProfile(name: "Codex", endpoint: "https://example.test/v1", model: "saved-model",
+            apiProtocol: .responses, apiKeyIdentifier: "codex-key", credentialSource: .codex)
+        var initial = settings.commitMessageAI
+        initial.providers = [provider]
+        initial.activeProviderID = provider.id
+        settings.commitMessageAI = initial
+        settings.setAgentProvider(provider.id, for: "codex-acp", name: "Codex")
+        settings.refreshAgentModels(from: [])
+        #expect(settings.commitMessageAI == initial, "missing configuration must not invent a model")
+        settings.refreshAgentModels(from: [.init(source: .codex, providerName: "Current",
+            endpoint: provider.endpoint, model: "", apiProtocol: .responses, reasoningEffort: nil,
+            requiresAPIKey: true, apiKey: nil)])
+        #expect(settings.agentProvider(for: "codex-acp")?.model == "", "an empty local model delegates to the agent")
+    }
+
+    @Test
     func legacyAISettingsGainPullRequestDefaults() throws {
         var object = try #require(
             JSONSerialization.jsonObject(

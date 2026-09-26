@@ -141,7 +141,9 @@ extension AppModel {
         let connection = feature.connection(for: agentID)
         guard !connection.hasActiveConnection else { return }
         do {
-            try connection.connect(configuration: agentLaunchConfiguration(agentID: agentID))
+            let configuration = try agentLaunchConfiguration(agentID: agentID)
+            feature.setAgents(configuredAgentOptions)
+            try connection.connect(configuration: configuration)
         } catch {
             // The panel shows the reason and offers a retry.
             connection.reportConnectionFailure(error.localizedDescription)
@@ -155,6 +157,9 @@ extension AppModel {
 
     func agentLaunchConfiguration(agentID: String) throws -> AgentLaunchConfiguration {
         guard let workspaceURL else { throw AgentConversationError.notConnected }
+        // A saved import is not the current CLI default. Read through the same
+        // configuration ports used for credentials, once at connection startup.
+        settings.refreshAgentModels(from: loadAIConfigurations())
         guard let provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider
         }

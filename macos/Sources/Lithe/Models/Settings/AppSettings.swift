@@ -380,6 +380,21 @@ final class AppSettings: ObservableObject {
         agentConfigurations[agentID] = AgentConfiguration(name: name, providerID: providerID)
     }
 
+    /// Refresh linked agents' default models without changing the commit provider
+    /// selection, endpoints, credentials, or manually configured models.
+    func refreshAgentModels(from configurations: [AIConfigurationSnapshot]) {
+        let linkedIDs = Set(agentConfigurations.values.compactMap(\.providerID))
+        var value = commitMessageAI
+        for index in value.providers.indices {
+            let provider = value.providers[index]
+            guard linkedIDs.contains(provider.id),
+                  let source = provider.credentialSource.configurationSource,
+                  let snapshot = configurations.first(where: { $0.source == source }) else { continue }
+            value.providers[index].model = snapshot.model
+        }
+        if value != commitMessageAI { commitMessageAI = value }
+    }
+
     var activeCommitMessageProvider: AIProviderProfile? {
         commitMessageAI.activeProvider
     }
