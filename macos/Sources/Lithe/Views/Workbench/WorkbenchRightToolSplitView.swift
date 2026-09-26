@@ -38,6 +38,7 @@ enum WorkbenchRightToolGeometry {
 struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     let width: CGFloat
     let hasWorkbenchBackground: Bool
+    let showsFrameGradient: Bool
     let onCommit: (CGFloat) -> Void
     private let workspace: Workspace
     private let tool: Tool
@@ -45,12 +46,14 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     init(
         width: CGFloat,
         hasWorkbenchBackground: Bool,
+        showsFrameGradient: Bool = false,
         onCommit: @escaping (CGFloat) -> Void,
         @ViewBuilder workspace: () -> Workspace,
         @ViewBuilder tool: () -> Tool
     ) {
         self.width = width
         self.hasWorkbenchBackground = hasWorkbenchBackground
+        self.showsFrameGradient = showsFrameGradient
         self.onCommit = onCommit
         self.workspace = workspace()
         self.tool = tool()
@@ -64,6 +67,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width),
                 minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width),
                 maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width),
+                clipsSizedPane: true,
                 trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                 showsIdleDivider: false,
                 onCommit: { width in
@@ -75,17 +79,17 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 },
                 sized: {
                     tool
-                        .frame(maxHeight: .infinity)
-                        .workbenchPaneChrome(
+                        .workbenchResizablePaneChrome(
                             background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                             surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                            roundsCorners: !hasWorkbenchBackground
+                            alignment: .topTrailing,
+                            roundsCorners: !hasWorkbenchBackground,
+                            showsFrameGradient: showsFrameGradient
                         )
-                        .clipped()
                 },
                 flexible: { workspace }
             )
-            .background(hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar)
+            .background(hasWorkbenchBackground || showsFrameGradient ? Color.clear : LitheTheme.titlebar)
         }
     }
 }

@@ -20,6 +20,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     /// Minimum size reserved for the flexible pane, when the hosted content
     /// has a product-level usability requirement of its own.
     let flexibleMinimum: CGFloat?
+    /// Clip a pane with content wider than the dragged size at the split boundary.
+    let clipsSizedPane: Bool
     let trackBackground: Color
     let showsIdleDivider: Bool
     /// Called with the final size when a drag ends. Hosts that persist the size
@@ -40,6 +42,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         minimum: CGFloat,
         maximum: CGFloat,
         flexibleMinimum: CGFloat? = nil,
+        clipsSizedPane: Bool = false,
         trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
         onCommit: ((CGFloat) -> Void)? = nil,
@@ -52,6 +55,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.minimum = minimum
         self.maximum = maximum
         self.flexibleMinimum = flexibleMinimum
+        self.clipsSizedPane = clipsSizedPane
         self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
         self.onCommit = onCommit
@@ -93,9 +97,23 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     @ViewBuilder
     private func sizedPane(_ size: CGFloat) -> some View {
         if axis == .horizontal {
-            sized.frame(width: size)
+            if clipsSizedPane {
+                sized
+                    .frame(width: size, alignment: placement == .leading ? .leading : .trailing)
+                    .clipped()
+                    .contentShape(Rectangle())
+            } else {
+                sized.frame(width: size)
+            }
         } else {
-            sized.frame(height: size)
+            if clipsSizedPane {
+                sized
+                    .frame(height: size, alignment: placement == .leading ? .top : .bottom)
+                    .clipped()
+                    .contentShape(Rectangle())
+            } else {
+                sized.frame(height: size)
+            }
         }
     }
 

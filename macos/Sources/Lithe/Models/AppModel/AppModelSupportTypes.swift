@@ -104,22 +104,13 @@ enum SidebarDestination: String, CaseIterable, Identifiable {
         case .database: "Database"
         }
     }
-    var systemImage: String {
+    var ideaAssetPath: String {
         switch self {
-        case .project: "folder"
-        case .changes: "slider.horizontal.3"
-        case .pullRequests: "arrow.triangle.pull"
-        case .search: "magnifyingglass"
-        case .database: "cylinder.split.1x2"
-        }
-    }
-    var ideaAssetPath: String? {
-        switch self {
-        case .project: "toolwindows/toolWindowProject.svg"
-        case .changes: "toolwindows/toolWindowCommit.svg"
-        case .pullRequests: nil
-        case .search: "toolwindows/toolWindowFind.svg"
-        case .database: "toolwindows/toolWindowDatabase.svg"
+        case .project: "expui/toolwindows/project@20x20.svg"
+        case .changes: "expui/toolwindows/commit@20x20.svg"
+        case .pullRequests: "expui/toolwindows/vcs@20x20.svg"
+        case .search: "expui/toolwindows/find@20x20.svg"
+        case .database: "expui/toolwindows/toolWindowDataView@20x20.svg"
         }
     }
 
