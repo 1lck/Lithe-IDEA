@@ -71,9 +71,7 @@ export function GitGraphRow({ row, showDecorations }: { row: GraphRow; showDecor
           cy={middleY}
           r={4.3}
           fill="var(--background)"
-          stroke={graphColor(
-            row.incomingLaneColors[row.lane] ?? row.parentEdges[0]?.colorIndex ?? 0,
-          )}
+          stroke={graphColor(row.colorIndex)}
           strokeWidth={2}
         />
       </svg>

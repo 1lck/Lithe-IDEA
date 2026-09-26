@@ -395,7 +395,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方。"
     },
     {
       "id": "git-rebase-stash",
@@ -972,6 +972,7 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Terminal",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Services"
         ],
         "implementationStatus": "implemented",
@@ -980,13 +981,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/terminal",
+          "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+          "windows/tauri/src/features/settings/lib/default-shell-options.ts",
           "windows/tauri/src-tauri"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "验证默认 Shell、环境变量、工作目录和不可用 Shell 的错误提示。"
+      "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效，以及环境变量、工作目录和不可用 Shell 的提示。"
     },
     {
       "id": "terminal-sessions",
@@ -1008,7 +1011,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理。"
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
     },
     {
       "id": "terminal-interaction",
