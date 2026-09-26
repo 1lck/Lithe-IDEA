@@ -652,6 +652,28 @@
       "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"
     },
     {
+      "id": "java-maven-toolbar-tooltips",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Maven 工具栏图标悬停说明",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/MavenView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven/components/maven-pane.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。"
+    },
+    {
       "id": "java-build-diagnostics",
       "area": "Java",
       "group": "Java/Maven",
