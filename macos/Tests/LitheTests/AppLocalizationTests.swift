@@ -89,6 +89,15 @@ struct AppLocalizationTests {
     }
 
     @Test
+    func simplifiedChineseResourcesCoverSoftwareUpdateWindow() throws {
+        let translations = try simplifiedChineseTranslations()
+        #expect(translations["Software Update"] == "软件更新")
+        #expect(translations["Skip Version"] == "跳过此版本")
+        #expect(translations["Install"] == "安装")
+        #expect(translations["Later"] == "稍后")
+    }
+
+    @Test
     func simplifiedChineseResourcesCoverGitHubPullRequests() throws {
         let translations = try simplifiedChineseTranslations()
 

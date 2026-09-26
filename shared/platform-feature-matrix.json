@@ -1797,6 +1797,7 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/App/UpdateControl.swift",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Platform/MacOS/Updates"
         ],
         "implementationStatus": "implemented",
@@ -1805,13 +1806,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/layout/components/app-update-control.tsx",
+          "windows/tauri/src/features/layout/components/app-update-details-dialog.tsx",
+          "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
           "windows/tauri/src/features/settings/hooks/use-updater.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从菜单或欢迎页手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
     },
     {
       "id": "updates-failure-rollback",

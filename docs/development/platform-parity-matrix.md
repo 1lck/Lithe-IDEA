@@ -222,7 +222,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 应用更新 | **检查、下载与安装更新**<br><sub>updates-check-download</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/UpdateControl.swift`、`macos/Sources/Lithe/Platform/MacOS/Updates`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/app-update-control.tsx`、`windows/tauri/src/features/settings/hooks/use-updater.ts`</sub> | Release | 使用 preview 更新清单验证检查、下载、校验、安装和重启。 |  |
+| 应用更新 | **检查、下载与安装更新**<br><sub>updates-check-download</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/UpdateControl.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Platform/MacOS/Updates`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/app-update-control.tsx`、`windows/tauri/src/features/layout/components/app-update-details-dialog.tsx`、`windows/tauri/src/features/settings/components/macos-settings-panels.tsx`、`windows/tauri/src/features/settings/hooks/use-updater.ts`</sub> | Release | 使用 preview 更新清单验证检查、下载、校验、安装和重启；从菜单或欢迎页手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。 |  |
 | 应用更新 | **失败重试与回滚**<br><sub>updates-failure-rollback</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/Updates`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`docs/releases/windows-updater.md`、`windows/tauri/src/features/settings/hooks/use-updater.ts`</sub> | Release | 模拟清单错误、下载失败和安装失败，确认重试、回滚和用户提示。 | macOS 回退更新方案仍在 #734 跟进。 |
 
 </details>
