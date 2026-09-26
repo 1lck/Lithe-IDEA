@@ -21,6 +21,9 @@ use tauri::{AppHandle, Emitter, Manager};
 
 mod launch_arguments;
 
+const MAVEN_LAUNCHERS: &[&str] = &["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"];
+const MVND_LAUNCHERS: &[&str] = &["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"];
+
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
@@ -1218,7 +1221,17 @@ fn maven_executable_candidates(project_root: Option<&Path>) -> Vec<PathBuf> {
         executables.push(home.join("bin").join("mvn.cmd"));
         executables.push(home.join("bin").join("mvn"));
     }
-    for name in ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"] {
+    // Preserve ordinary Maven discovery precedence; mvnd is an additional
+    // installation, not a reason to replace an existing project wrapper.
+    for name in MAVEN_LAUNCHERS {
+        if let Some(path) = lookup_on_path(name) {
+            executables.push(path);
+        }
+    }
+    if let Some(home) = std::env::var_os("MVND_HOME") {
+        executables.extend(custom_maven_executable_candidates(Path::new(&home)));
+    }
+    for name in MVND_LAUNCHERS {
         if let Some(path) = lookup_on_path(name) {
             executables.push(path);
         }
@@ -1230,13 +1243,17 @@ fn custom_maven_executable_candidates(path: &Path) -> Vec<PathBuf> {
     if path.is_file() {
         return vec![path.to_path_buf()];
     }
-    let bin = path.join("bin");
-    let mut candidates = ["mvn.cmd", "mvn.bat", "mvn.exe", "mvn"]
+    // Settings accept an installation root, its bin directory, or a launcher.
+    // Never substitute mvnd's embedded mvn: that silently disables the daemon.
+    [path.join("bin"), path.to_path_buf()]
         .into_iter()
-        .map(|name| bin.join(name))
-        .collect::<Vec<_>>();
-    candidates.push(path.to_path_buf());
-    candidates
+        .flat_map(|bin| {
+            MVND_LAUNCHERS
+                .iter()
+                .chain(MAVEN_LAUNCHERS)
+                .map(move |name| bin.join(name))
+        })
+        .collect()
 }
 
 pub(crate) fn probe_java_home(home: &Path) -> Option<JavaRuntime> {
@@ -1507,14 +1524,10 @@ fn resolve_maven_executable(
         } else {
             root.join(configured)
         };
-        let candidates = [
-            path.clone(),
-            path.join("bin").join("mvn.cmd"),
-            path.join("bin").join("mvn.bat"),
-            path.join("bin").join("mvn.exe"),
-            path.join("bin").join("mvn"),
-        ];
-        if let Some(found) = candidates.into_iter().find(|candidate| candidate.is_file()) {
+        if let Some(found) = custom_maven_executable_candidates(&path)
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+        {
             return Ok(normalize_path(&found).to_string_lossy().into_owned());
         }
         return Err("Maven executable path does not exist.".into());
@@ -1835,8 +1848,13 @@ fn java_version(output: &str) -> Option<String> {
 
 fn maven_version(output: &str) -> Option<String> {
     output.lines().find_map(|line| {
-        let rest = line.trim().strip_prefix("Apache Maven")?;
-        rest.split_whitespace().next().map(str::to_string)
+        // mvnd prints "Apache Maven Daemon ..." before the embedded Maven
+        // version. Do not report "Daemon" as the Maven version.
+        let rest = line.trim().strip_prefix("Apache Maven ")?;
+        let version = rest.split_whitespace().next()?;
+        version
+            .starts_with(|c: char| c.is_ascii_digit())
+            .then(|| version.to_string())
     })
 }
 
@@ -2312,6 +2330,92 @@ mod tests {
         assert!(contents.contains("toolchains/local.json\n"));
         assert!(contents.contains("**/*.tmp\n"));
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn mvnd_paths_resolve_consistently_for_import_discovery_and_execution() {
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                if let Err(error) = fs::remove_dir_all(&self.0) {
+                    eprintln!("Could not clean mvnd fixture: {error}");
+                }
+            }
+        }
+        let fixture = Fixture(temp_project());
+        for name in ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"] {
+            let home = fixture.0.join(format!("maven daemon {name}"));
+            let launcher = home.join("bin").join(name);
+            fs::create_dir_all(launcher.parent().unwrap()).unwrap();
+            fs::write(&launcher, "fixture; never executed").unwrap();
+            // A distribution also contains ordinary Maven. Selecting mvnd must
+            // retain its daemon client, rather than silently selecting mvn.
+            fs::create_dir_all(home.join("mvn/bin")).unwrap();
+            fs::write(home.join("mvn/bin/mvn.cmd"), "embedded Maven").unwrap();
+            fs::write(fixture.0.join("mvnw.cmd"), "wrapper").unwrap();
+            let expected = normalize_path(&launcher).to_string_lossy().into_owned();
+            for configured in [home.clone(), home.join("bin"), launcher.clone()] {
+                let configured = configured.to_string_lossy();
+                assert_eq!(
+                    maven_executable_without_probing(&fixture.0, Some(&configured)),
+                    Some(expected.clone())
+                );
+                assert_eq!(
+                    resolve_maven_executable(&fixture.0, &fixture.0, &configured).unwrap(),
+                    expected
+                );
+                let discovered =
+                    discover_maven_candidates(vec![launcher.clone()], Some(&configured), |path| {
+                        path.is_file().then(|| MavenRuntime {
+                            executable_path: normalize_path(path).to_string_lossy().into_owned(),
+                            version: "3.9.16".into(),
+                        })
+                    });
+                assert_eq!(discovered.len(), 1);
+                assert_eq!(discovered[0].executable_path, expected);
+            }
+        }
+        let invalid = fixture
+            .0
+            .join("missing-mvnd")
+            .to_string_lossy()
+            .into_owned();
+        assert!(maven_executable_without_probing(&fixture.0, Some(&invalid)).is_none());
+        assert!(resolve_maven_executable(&fixture.0, &fixture.0, &invalid).is_err());
+    }
+
+    #[test]
+    fn mvnd_version_uses_embedded_maven_instead_of_daemon_banner() {
+        let output = "Apache Maven Daemon (mvnd) 1.0.6 windows-amd64 native client\nTerminal: DumbTerminal\nApache Maven 3.9.16 (revision)\nMaven home: example/mvnd/mvn";
+        assert_eq!(maven_version(output).as_deref(), Some("3.9.16"));
+        assert_eq!(
+            maven_version("Apache Maven 3.9.9 (revision)").as_deref(),
+            Some("3.9.9")
+        );
+        assert_eq!(maven_version("Apache Maven Daemon (mvnd) 1.0.6"), None);
+    }
+
+    #[test]
+    #[ignore = "integration: requires LITHE_TEST_MVND_HOME pointing to a real distribution"]
+    fn mvnd_installed_distribution_resolves_without_spawning_a_daemon() {
+        let home = PathBuf::from(
+            std::env::var_os("LITHE_TEST_MVND_HOME").expect("set LITHE_TEST_MVND_HOME"),
+        );
+        let expected = normalize_path(&home.join("bin/mvnd.exe"))
+            .to_string_lossy()
+            .into_owned();
+        assert!(Path::new(&expected).is_file());
+        for configured in [home.clone(), home.join("bin"), home.join("bin/mvnd.exe")] {
+            let configured = configured.to_string_lossy();
+            assert_eq!(
+                maven_executable_without_probing(&home, Some(&configured)),
+                Some(expected.clone())
+            );
+            assert_eq!(
+                resolve_maven_executable(&home, &home, &configured).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

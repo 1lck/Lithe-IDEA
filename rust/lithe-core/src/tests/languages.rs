@@ -1288,6 +1288,60 @@ fn maven_installation_settings_reach_jdt_for_a_home_or_a_launcher() {
 }
 
 #[test]
+fn mvnd_installation_settings_reach_jdt_from_home_bin_and_launcher() {
+    struct Fixture(std::path::PathBuf);
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            if let Err(error) = fs::remove_dir_all(&self.0) {
+                eprintln!("Could not clean mvnd settings fixture: {error}");
+            }
+        }
+    }
+    let fixture = Fixture(maven_reactor_root("mvnd-jdt-settings"));
+    let home = fixture.0.join("maven daemon");
+    fs::create_dir_all(home.join("bin")).unwrap();
+    fs::create_dir_all(home.join("mvn/conf")).unwrap();
+    fs::create_dir_all(home.join("conf")).unwrap();
+    let launcher = home.join("bin/mvnd.exe");
+    fs::write(&launcher, "fixture; never executed").unwrap();
+    let settings = home.join("mvn").join("conf").join("settings.xml");
+    fs::write(&settings, "<settings/>").unwrap();
+    // The daemon's conf is not the embedded Maven installation's conf.
+    fs::write(home.join("conf/settings.xml"), "<settings/>").unwrap();
+    for configured in [home.clone(), home.join("bin"), launcher] {
+        let configuration = jdt_configuration(
+            fixture.0.to_str().unwrap(),
+            maven_jdt_context(Some(configured.to_string_lossy().into_owned())),
+        )
+        .unwrap();
+        assert_eq!(
+            configuration.global_settings_path.as_deref(),
+            settings.to_str()
+        );
+    }
+    // Explicit ordinary Maven must not inherit the adjacent daemon's settings.
+    let maven_launcher = home.join("bin").join("mvn.cmd");
+    fs::write(&maven_launcher, "fixture; never executed").unwrap();
+    let configuration = jdt_configuration(
+        fixture.0.to_str().unwrap(),
+        maven_jdt_context(Some(maven_launcher.to_string_lossy().into_owned())),
+    )
+    .unwrap();
+    let maven_settings = home.join("conf").join("settings.xml");
+    assert_eq!(
+        configuration.global_settings_path.as_deref(),
+        maven_settings.to_str()
+    );
+    fs::remove_file(settings).unwrap();
+    let configuration = jdt_configuration(
+        fixture.0.to_str().unwrap(),
+        maven_jdt_context(Some(home.to_string_lossy().into_owned())),
+    )
+    .unwrap();
+    assert_eq!(configuration.global_settings_path, None);
+}
+
+#[test]
 fn maven_installation_settings_are_absent_for_wrappers_and_bare_installations() {
     let root = maven_reactor_root("maven-jdt-global-settings-absent");
     // A wrapper lives outside an installation, so Maven itself would fall back

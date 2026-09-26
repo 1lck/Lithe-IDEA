@@ -465,7 +465,15 @@ fn settings_parse_error(error: quick_xml::Error) -> CoreError {
 fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<String> {
     let configured = Path::new(maven_executable_path?);
     let home = if configured.is_dir() {
-        configured.to_path_buf()
+        if configured
+            .file_name()?
+            .to_str()?
+            .eq_ignore_ascii_case("bin")
+        {
+            configured.parent()?.to_path_buf()
+        } else {
+            configured.to_path_buf()
+        }
     } else {
         // Only the `<home>/bin/mvn*` layout identifies an installation root.
         let bin = configured.parent()?;
@@ -474,7 +482,24 @@ fn installation_settings_path(maven_executable_path: Option<&str>) -> Option<Str
         }
         bin.parent()?.to_path_buf()
     };
-    let settings = home.join("conf").join("settings.xml");
+    // mvnd embeds Maven under `mvn`; its own `conf` contains daemon settings.
+    // Select the same global settings as its Maven engine, including when the
+    // user has saved the distribution root rather than the resolved launcher.
+    let mvnd_launchers = ["mvnd.exe", "mvnd.cmd", "mvnd.bat", "mvnd"];
+    let is_mvnd = if configured.is_dir() {
+        mvnd_launchers
+            .iter()
+            .any(|name| home.join("bin").join(name).is_file())
+    } else {
+        // An explicit Maven launcher must retain its own settings even when
+        // a daemon client is installed beside it.
+        let name = configured.file_name()?.to_str()?;
+        mvnd_launchers
+            .iter()
+            .any(|launcher| name.eq_ignore_ascii_case(launcher))
+    };
+    let maven_home = if is_mvnd { home.join("mvn") } else { home };
+    let settings = maven_home.join("conf").join("settings.xml");
     settings
         .is_file()
         .then(|| settings.to_string_lossy().into_owned())
