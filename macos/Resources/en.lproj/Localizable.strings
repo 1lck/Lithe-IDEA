@@ -175,6 +175,9 @@
 "Package" = "Package";
 "Open pom.xml" = "Open pom.xml";
 "Execute Maven Goal" = "Execute Maven Goal";
+"Execute Maven goal" = "Execute Maven goal";
+"Run selected Maven lifecycle phase" = "Run selected Maven lifecycle phase";
+"Maven settings" = "Maven settings";
 "Test" = "Test";
 "Choose a Run configuration for this Maven module" = "Choose a Run configuration for this Maven module";
 "Normal Folder" = "Normal Folder";

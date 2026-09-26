@@ -12,6 +12,7 @@ struct MavenView: View {
     @State private var customProfile = ""
     @State private var goalModule: MavenModule?
     @State private var goalProject: MavenProject?
+    @State private var hoveredToolbarAction: MavenToolbarAction?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,6 +42,27 @@ struct MavenView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
+        .overlayPreferenceValue(MavenToolbarAnchorPreferenceKey.self) { anchors in
+            GeometryReader { geometry in
+                if let hoveredToolbarAction, let anchor = anchors[hoveredToolbarAction] {
+                    let buttonFrame = geometry[anchor]
+                    MavenToolbarTooltipLayout(buttonFrame: buttonFrame) {
+                        Text(toolbarHelp(for: hoveredToolbarAction))
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 5))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 5).stroke(LitheTheme.divider)
+                            }
+                    }
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+            }
+            .allowsHitTesting(false)
+        }
         .onAppear {
             if expandedNodeIDs.isEmpty {
                 resetTreeState()
@@ -68,65 +90,108 @@ struct MavenView: View {
     private var navigationToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                Button {
-                    if isMavenTaskRunning {
-                        model.stopMaven()
-                    } else {
-                        runSelected()
+                toolbarAction(.run) {
+                    Button {
+                        if isMavenTaskRunning {
+                            model.stopMaven()
+                        } else {
+                            runSelected()
+                        }
+                    } label: {
+                        LitheSystemIcon(systemImage: isMavenTaskRunning ? "stop.fill" : "play.fill")
                     }
-                } label: {
-                    LitheSystemIcon(systemImage: isMavenTaskRunning ? "stop.fill" : "play.fill")
+                    .litheIconButton()
+                    .foregroundStyle(isMavenTaskRunning ? LitheTheme.warning : LitheTheme.secondaryText)
+                    .disabled(!isMavenTaskRunning && (selectedPhase == nil || model.isMavenOperationBusy))
+                    .accessibilityLabel(toolbarHelp(for: .run))
                 }
-                .litheIconButton()
-                .foregroundStyle(isMavenTaskRunning ? LitheTheme.warning : LitheTheme.secondaryText)
-                .disabled(!isMavenTaskRunning && (selectedPhase == nil || model.isMavenOperationBusy))
-                .help(isMavenTaskRunning
-                      ? String(localized: "Stop Maven task")
-                      : String(localized: "Run selected Maven lifecycle phase"))
 
-                Button {
-                    presentGoal(for: selectedModule)
-                } label: {
-                    LitheSystemIcon(systemImage: "terminal")
+                toolbarAction(.goal) {
+                    Button {
+                        presentGoal(for: selectedModule)
+                    } label: {
+                        LitheSystemIcon(systemImage: "terminal")
+                    }
+                    .litheIconButton()
+                    .disabled(model.isMavenOperationBusy)
+                    .accessibilityLabel(toolbarHelp(for: .goal))
                 }
-                .litheIconButton()
-                .disabled(model.isMavenOperationBusy)
-                .help("Execute Maven goal")
 
-                Button(action: refreshProject) {
-                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                toolbarAction(.reload) {
+                    Button(action: refreshProject) {
+                        LitheSystemIcon(systemImage: "arrow.clockwise")
+                    }
+                    .litheIconButton()
+                    .accessibilityLabel(toolbarHelp(for: .reload))
+                    .disabled(model.isMavenOperationBusy)
                 }
-                .litheIconButton()
-                .help("Reload Maven project")
-                .disabled(model.isMavenOperationBusy)
 
-                Button {
-                    feature.setSkipTests(!feature.skipTests)
-                } label: {
-                    LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
+                toolbarAction(.skipTests) {
+                    Button {
+                        feature.setSkipTests(!feature.skipTests)
+                    } label: {
+                        LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
+                    }
+                    .litheIconButton()
+                    .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
+                    .accessibilityLabel(toolbarHelp(for: .skipTests))
                 }
-                .litheIconButton()
-                .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
-                .help("Skip tests")
 
-                Button {
-                    expandedNodeIDs.removeAll()
-                } label: {
-                    LitheSystemIcon(systemImage: "rectangle.compress.vertical")
+                toolbarAction(.collapse) {
+                    Button {
+                        expandedNodeIDs.removeAll()
+                    } label: {
+                        LitheSystemIcon(systemImage: "rectangle.compress.vertical")
+                    }
+                    .litheIconButton()
+                    .accessibilityLabel(toolbarHelp(for: .collapse))
                 }
-                .litheIconButton()
-                .help("Collapse all")
 
-                Button(action: { model.showSettings(category: .project) }) {
-                    LitheSystemIcon(systemImage: "slider.horizontal.3")
+                toolbarAction(.settings) {
+                    Button(action: { model.showSettings(category: .project) }) {
+                        LitheSystemIcon(systemImage: "slider.horizontal.3")
+                    }
+                    .litheIconButton()
+                    .accessibilityLabel(toolbarHelp(for: .settings))
                 }
-                .litheIconButton()
-                .help("Maven settings")
             }
             .padding(.horizontal, 10)
         }
         .frame(height: 36)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
+    }
+
+    private func toolbarAction<Content: View>(
+        _ action: MavenToolbarAction,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        ZStack { content() }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+            .anchorPreference(key: MavenToolbarAnchorPreferenceKey.self, value: .bounds) {
+                [action: $0]
+            }
+            .onHover { isHovered in
+                if isHovered {
+                    hoveredToolbarAction = action
+                } else if hoveredToolbarAction == action {
+                    hoveredToolbarAction = nil
+                }
+            }
+    }
+
+    private func toolbarHelp(for action: MavenToolbarAction) -> String {
+        switch action {
+        case .run:
+            isMavenTaskRunning
+                ? String(localized: "Stop Maven task")
+                : String(localized: "Run selected Maven lifecycle phase")
+        case .goal: String(localized: "Execute Maven goal")
+        case .reload: String(localized: "Reload Maven project")
+        case .skipTests: String(localized: "Skip tests")
+        case .collapse: String(localized: "Collapse all")
+        case .settings: String(localized: "Maven settings")
+        }
     }
 
     private func refreshProject() {
@@ -839,5 +904,48 @@ struct MavenView: View {
             }
             return ids
         } ?? []
+    }
+}
+
+private enum MavenToolbarAction: Hashable {
+    case run
+    case goal
+    case reload
+    case skipTests
+    case collapse
+    case settings
+}
+
+private struct MavenToolbarTooltipLayout: Layout {
+    let buttonFrame: CGRect
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let tooltip = subviews.first else { return }
+        let edgeInset: CGFloat = 8
+        let maximumWidth = min(236, max(bounds.width - edgeInset * 2, 0))
+        // Measure the text and padding before clamping the tooltip to the panel edges.
+        let size = tooltip.sizeThatFits(ProposedViewSize(width: maximumWidth, height: nil))
+        let maximumX = max(edgeInset, bounds.width - size.width - edgeInset)
+        let x = min(max(buttonFrame.midX - size.width / 2, edgeInset), maximumX)
+        tooltip.place(
+            at: CGPoint(x: bounds.minX + x, y: bounds.minY + buttonFrame.maxY + 6),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(size)
+        )
+    }
+}
+
+private struct MavenToolbarAnchorPreferenceKey: PreferenceKey {
+    static var defaultValue: [MavenToolbarAction: Anchor<CGRect>] = [:]
+
+    static func reduce(
+        value: inout [MavenToolbarAction: Anchor<CGRect>],
+        nextValue: () -> [MavenToolbarAction: Anchor<CGRect>]
+    ) {
+        value.merge(nextValue()) { _, latest in latest }
     }
 }
