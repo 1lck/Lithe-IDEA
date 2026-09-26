@@ -605,6 +605,31 @@
       "verification": "配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"
     },
     {
+      "id": "java-maven-project-settings",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "按项目配置 Maven 工具链、settings.xml 与本地仓库",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
+          "macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.tsx",
+          "windows/tauri/src/features/maven/stores/maven.store.ts",
+          "windows/tauri/src-tauri/src/maven.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。"
+    },
+    {
       "id": "java-maven-project",
       "area": "Java",
       "group": "Java/Maven",

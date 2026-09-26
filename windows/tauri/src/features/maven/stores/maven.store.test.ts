@@ -86,7 +86,9 @@ const dependencyTree: MavenDependenciesResponse = {
   ],
 };
 
-const scanMavenProject = mock(async (_root: string, _paths?: string[]) => project);
+const scanMavenProject = mock(
+  async (_root: string, _paths?: string[]): Promise<MavenProject | null> => project,
+);
 const createMavenLaunchPlan = mock(async () => launchPlan);
 const createMavenDependencyPlan = mock(async () => launchPlan);
 const parseMavenDependencies = mock(
@@ -121,6 +123,17 @@ const resolveMavenLaunch = mock(async () => ({
   environment: {},
 }));
 const saveWorkspaceBeforeLaunch = mock(async (_workspaceId: string): Promise<void> => undefined);
+const effectiveConfiguration = {
+  settingsPath: "C:/Users/example/.m2/settings.xml",
+  localRepositoryPath: "C:/Users/example/.m2/repository",
+  mavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
+  javaHomePath: "C:/Java/jdk-21",
+  detectedSettingsPath: "C:/Users/example/.m2/settings.xml",
+  detectedLocalRepositoryPath: "C:/Users/example/.m2/repository",
+  detectedMavenExecutablePath: "D:/Tools/apache-maven/bin/mvn.cmd",
+  detectedJavaHomePath: "C:/Java/jdk-21",
+};
+const resolveMavenEffectiveConfiguration = mock(async () => effectiveConfiguration);
 const startMavenProcess = mock(async () => undefined);
 const stopMavenProcess = mock(async () => undefined);
 const trace = mock(() => undefined);
@@ -147,6 +160,7 @@ const dependencies = {
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   resolveJavaTestClass,
+  resolveMavenEffectiveConfiguration,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -186,6 +200,8 @@ beforeEach(() => {
   parseMavenDependencies.mockReset();
   parseMavenDependencies.mockResolvedValue(dependencyTree);
   resolveMavenLaunch.mockClear();
+  resolveMavenEffectiveConfiguration.mockReset();
+  resolveMavenEffectiveConfiguration.mockResolvedValue(effectiveConfiguration);
   saveWorkspaceBeforeLaunch.mockReset();
   saveWorkspaceBeforeLaunch.mockResolvedValue(undefined);
   startMavenProcess.mockClear();
@@ -478,6 +494,149 @@ describe("Maven workspace state", () => {
       mavenExecutablePath: "D:/Tools/apache-maven",
       javaHomePath: "C:/Java/jdk-21",
     });
+  });
+
+  test("skips seeding when no Maven project is loaded", () => {
+    const store = createMavenStore("workspace", dependencies);
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+    });
+    expect(store.getState().mavenExecutablePath).toBe("");
+  });
+
+  test("imports a legacy toolchain only before Maven settings exist", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+    expect(store.getState().mavenExecutablePath).toBe("");
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+    expect(store.getState().javaHomePath).toBe("C:/Java/jdk-21");
+    expect(store.getState().reloadRequired).toBe(false);
+
+    store.getState().actions.seedLocalConfiguration({
+      settingsPath: "C:/Other/settings.xml",
+      mavenExecutablePath: "D:/Other/maven",
+    });
+    expect(store.getState().settingsPath).toBe("");
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+  });
+
+  test("imports a legacy toolchain after a project loads with no saved settings", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    expect(store.getState().mavenExecutablePath).toBe("");
+
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+    });
+
+    expect(store.getState().mavenExecutablePath).toBe("D:/Tools/apache-maven");
+    expect(store.getState().reloadRequired).toBe(false);
+  });
+
+  test("keeps automatic fields empty after Maven settings are saved", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "C:/custom/settings.xml",
+      localRepositoryPath: "",
+      mavenExecutablePath: "",
+      javaHomePath: "",
+    });
+    store.getState().actions.acknowledgeReload();
+    expect(store.getState().reloadRequired).toBe(false);
+
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+      javaHomePath: "C:/Java/jdk-21",
+    });
+
+    expect(store.getState().settingsPath).toBe("C:/custom/settings.xml");
+    expect(store.getState().mavenExecutablePath).toBe("");
+    expect(store.getState().javaHomePath).toBe("");
+  });
+
+  test("does not import a legacy toolchain over a saved automatic configuration", async () => {
+    loadMavenConfiguration.mockResolvedValue({
+      local: {
+        version: 1,
+        settingsPath: null,
+        localRepositoryPath: null,
+        mavenExecutablePath: null,
+        javaHomePath: null,
+      },
+    });
+    const store = createMavenStore("workspace", dependencies);
+    store.getState().actions.seedLocalConfiguration({
+      mavenExecutablePath: "D:/Tools/apache-maven",
+    });
+
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().mavenExecutablePath).toBe("");
+  });
+
+  test("shares the effective machine configuration with every surface", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    // Loading the project already refreshes the detected values.
+    expect(store.getState().effectiveConfiguration).toEqual(effectiveConfiguration);
+    expect(resolveMavenEffectiveConfiguration).toHaveBeenCalledWith(
+      "D:/work",
+      "reactor",
+      expect.objectContaining({ mavenExecutablePath: "", javaHomePath: "" }),
+    );
+
+    // A detection failure hides the detected values instead of reporting one.
+    resolveMavenEffectiveConfiguration.mockRejectedValueOnce(new Error("detection failed"));
+    await store.getState().actions.resolveEffectiveConfiguration();
+    expect(store.getState().effectiveConfiguration).toBeNull();
+  });
+
+  test("clears the effective configuration for a workspace without Maven", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    expect(store.getState().effectiveConfiguration).toEqual(effectiveConfiguration);
+    resolveMavenEffectiveConfiguration.mockClear();
+
+    // A workspace without a detected Maven project never shows detected values,
+    // and never asks the host to detect them either.
+    scanMavenProject.mockResolvedValue(null);
+    await store.getState().actions.loadProject("D:/plain", []);
+    await store.getState().actions.resolveEffectiveConfiguration();
+
+    expect(store.getState().effectiveConfiguration).toBeNull();
+    expect(resolveMavenEffectiveConfiguration).not.toHaveBeenCalled();
+  });
+
+  test("ignores Maven detection that returns after switching to a non-Maven project", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const releaseDetection = deferred<typeof effectiveConfiguration>();
+    resolveMavenEffectiveConfiguration.mockImplementationOnce(() => releaseDetection.promise);
+
+    const pendingDetection = store.getState().actions.resolveEffectiveConfiguration();
+    try {
+      expect(resolveMavenEffectiveConfiguration).toHaveBeenCalledTimes(2);
+      scanMavenProject.mockResolvedValue(null);
+      await store.getState().actions.loadProject("D:/plain", []);
+      await store.getState().actions.resolveEffectiveConfiguration();
+      expect(store.getState().effectiveConfigurationStatus).toBe("idle");
+
+      releaseDetection.resolve(effectiveConfiguration);
+      await pendingDetection;
+      expect(store.getState().effectiveConfiguration).toBeNull();
+      expect(store.getState().effectiveConfigurationStatus).toBe("idle");
+    } finally {
+      releaseDetection.resolve(effectiveConfiguration);
+      await pendingDetection;
+    }
   });
 
   test("serializes rapid configuration writes so the newest value wins", async () => {

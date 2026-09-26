@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：76
-- macOS：实现：✅ 64 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 67 待验证，— 9 不适用
-- Windows：实现：✅ 71 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 74 待验证，— 2 不适用
+- 功能项：77
+- macOS：实现：✅ 65 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 68 待验证，— 9 不适用
+- Windows：实现：✅ 72 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 75 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -112,11 +112,12 @@
 </details>
 
 <details>
-<summary><strong>Java</strong> · 11 个能力点</summary>
+<summary><strong>Java</strong> · 12 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Java/Maven | **JDK 与 Maven 工具链发现**<br><sub>java-runtime-discovery</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Services/Java`、`macos/Sources/Lithe/Views/Run`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/workspace`</sub> | Java / Maven | 配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。 |  |
+| Java/Maven | **按项目配置 Maven 工具链、settings.xml 与本地仓库**<br><sub>java-maven-project-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、`macos/Sources/Lithe/Services/Java/ProjectRuntimeService.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings/components/tabs/maven-settings-panel.tsx`、`windows/tauri/src/features/maven/stores/maven.store.ts`、`windows/tauri/src-tauri/src/maven.rs`</sub> | Java / Maven | 在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 |  |
 | Java/Maven | **项目根、模块与源码集识别**<br><sub>java-maven-project</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Services/Java`、`shared/contracts/application-boundary.md`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/workspace`</sub> | Java / Maven | 使用单模块、多模块和非标准源码目录 fixture 对比项目模型。 |  |
 | Java/Maven | **Profile 与依赖树**<br><sub>java-maven-profiles-dependencies</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Java`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`</sub> | Java / Maven | 切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。 |  |
 | Java/Maven | **构建输出与编译诊断**<br><sub>java-build-diagnostics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Diagnostics`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/diagnostics`</sub> | Java / Maven | 使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 |  |

@@ -43,7 +43,11 @@ pub async fn platform_invoke(
             | "git.configureIdentity"
     ) || matches!(
         command.as_str(),
-        "git_add_remote" | "git_remove_remote" | "git_create_tag" | "git_delete_tag" | "git.command"
+        "git_add_remote"
+            | "git_remove_remote"
+            | "git_create_tag"
+            | "git_delete_tag"
+            | "git.command"
     );
     // Observe every Git request at the shared boundary. Core suppresses its
     // parser-only probes, so new operation entry points cannot miss the console.
@@ -97,7 +101,9 @@ pub async fn platform_invoke(
 }
 
 fn observes_git_execution(command: &str) -> bool {
-    command.starts_with("git.") && command != "git.authRespond" && command != "git.consolePresentation"
+    command.starts_with("git.")
+        && command != "git.authRespond"
+        && command != "git.consolePresentation"
 }
 
 fn core_response(
