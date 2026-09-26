@@ -788,7 +788,7 @@ private final class SettingsWindowReference: ObservableObject {
     weak var window: NSWindow?
 }
 
-private final class SettingsTitlebarBackgroundView: NSView {
+final class SettingsTitlebarBackgroundView: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
@@ -829,31 +829,35 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             reference.window = window
-            window.title = title
-            window.level = .floating
-            let windowAppearance = themePreference.windowAppearance
-            if window.appearance?.name != windowAppearance?.name {
-                window.appearance = windowAppearance
-            }
-            if window.contentView?.appearance?.name != windowAppearance?.name {
-                window.contentView?.appearance = windowAppearance
-            }
-            window.styleMask.insert(.fullSizeContentView)
-            window.titlebarAppearsTransparent = true
-            window.titleVisibility = .visible
-            window.titlebarSeparatorStyle = .none
-            window.isOpaque = true
-            let settingsSurface = LitheTheme.settingsSurfaceNSColor(
-                for: window.effectiveAppearance
-            )
-            window.backgroundColor = settingsSurface
-            applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
-            window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
-            window.standardWindowButton(.zoomButton)?.isEnabled = true
+            SettingsWindowChrome.configure(window, title: title, themePreference: themePreference)
         }
     }
+}
 
-    private func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
+enum SettingsWindowChrome {
+    static func configure(_ window: NSWindow, title: String, themePreference: AppThemePreference) {
+        window.title = title
+        window.level = .floating
+        let windowAppearance = themePreference.windowAppearance
+        if window.appearance?.name != windowAppearance?.name {
+            window.appearance = windowAppearance
+        }
+        if window.contentView?.appearance?.name != windowAppearance?.name {
+            window.contentView?.appearance = windowAppearance
+        }
+        window.styleMask.insert(.fullSizeContentView)
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .visible
+        window.titlebarSeparatorStyle = .none
+        window.isOpaque = true
+        let settingsSurface = LitheTheme.settingsSurfaceNSColor(for: window.effectiveAppearance)
+        window.backgroundColor = settingsSurface
+        applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
+        window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
+        window.standardWindowButton(.zoomButton)?.isEnabled = true
+    }
+
+    private static func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {
         // AppKit places the titlebar in multiple nested views. Styling only
         // the close-button's immediate superview leaves the opaque theme
         // frame above it untouched, which is the extra strip seen in the
