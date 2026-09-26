@@ -656,7 +656,7 @@ impl TerminalConnection {
             }
          }
          LongInputShell::PowerShell => {
-            if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT {
+            if !Self::is_submitted_long_input(input) {
                return Ok(None);
             }
          }
@@ -687,7 +687,7 @@ impl TerminalConnection {
             }
          }
          LongInputShell::PowerShell => {
-            if input.encode_utf16().count() <= WINDOWS_INTERACTIVE_INPUT_LIMIT {
+            if !Self::is_submitted_long_input(input) {
                return Ok(None);
             }
          }
@@ -736,6 +736,10 @@ impl TerminalConnection {
 
    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
    fn cmd_input_can_use_script(input: &str) -> Result<bool> {
+      if !Self::is_submitted_long_input(input) {
+         return Ok(false);
+      }
+
       let lines = input.lines().collect::<Vec<_>>();
       let mut total_bytes = 0;
       for line in &lines {
@@ -749,6 +753,13 @@ impl TerminalConnection {
          total_bytes += encoded_len;
       }
       Ok(lines.len() > 1 && total_bytes > WINDOWS_INTERACTIVE_INPUT_LIMIT)
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn is_submitted_long_input(input: &str) -> bool {
+      (input.len() > WINDOWS_INTERACTIVE_INPUT_LIMIT
+         || input.encode_utf16().count() > WINDOWS_INTERACTIVE_INPUT_LIMIT)
+         && input.contains(['\r', '\n'])
    }
 
    #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
@@ -993,8 +1004,9 @@ mod tests {
          LongInputShell::Cmd,
          &single_line,
          directory.path(),
-      );
-      assert!(cmd_result.unwrap_err().to_string().contains("encoded bytes"));
+      )
+      .unwrap();
+      assert!(cmd_result.is_none());
 
       let powershell_result = TerminalConnection::create_long_input_script(
          LongInputShell::PowerShell,
@@ -1002,14 +1014,48 @@ mod tests {
          directory.path(),
       )
       .unwrap();
-      let (_, path) = powershell_result.expect("PowerShell can evaluate a file-backed command");
-      fs::remove_file(path).unwrap();
+      assert!(powershell_result.is_none());
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+   }
+
+   #[test]
+   fn short_unicode_cmd_input_does_not_require_script_encoding() {
+      let directory = crate::test_support::TestDirectory::new();
+      let input = "echo \u{1f600}\r\n";
+
+      assert!(!TerminalConnection::cmd_input_can_use_script(input).unwrap());
+      assert!(
+         TerminalConnection::create_long_input_script(LongInputShell::Cmd, input, directory.path())
+            .unwrap()
+            .is_none()
+      );
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+   }
+
+   #[test]
+   fn unsubmitted_long_powershell_input_remains_unscripted() {
+      let directory = crate::test_support::TestDirectory::new();
+      let input = format!("Write-Output 'probe'{}", " ".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT));
+
+      assert!(
+         TerminalConnection::create_long_input_script(
+            LongInputShell::PowerShell,
+            &input,
+            directory.path(),
+         )
+         .unwrap()
+         .is_none()
+      );
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
    }
 
    #[test]
    fn cmd_scripts_require_multiple_safe_length_lines() {
       let oversized_line = "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT + 1);
-      assert!(TerminalConnection::cmd_input_can_use_script(&oversized_line).is_err());
+      assert!(!TerminalConnection::cmd_input_can_use_script(&oversized_line).unwrap());
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "{oversized_line}\r\n"
+      )).is_err());
       assert!(TerminalConnection::cmd_input_can_use_script(&format!(
          "{oversized_line}\necho finish"
       )).is_err());
