@@ -53,6 +53,10 @@ struct AgentConversationFeatureModelTests {
         // The update carries only a status, so the tool keeps its title.
         #expect(messages[2].text == "Run tests")
         #expect(messages[2].toolStatus == .completed)
+        #expect(messages[2].toolDetails.input?.contains("node --test") == true)
+        #expect(messages[2].toolDetails.output?.contains("exitCode") == true)
+        #expect(messages[2].toolDetails.locations.first?.line == 1)
+        #expect(messages[2].toolDetails.content.first?.text == "1 test passed")
         #expect(feature.selectedConversation?.isResponding == false)
         #expect(feature.sessions.first?.title == "Project overview")
     }
@@ -64,6 +68,7 @@ struct AgentConversationFeatureModelTests {
         feature.onAttentionChanged = { attention.append($0) }
 
         try feature.receive(event("permission"))
+        #expect(feature.selectedConversation?.permission?.details.input?.contains("node --test") == true)
         #expect(feature.selectedConversation?.permission?.choices.map(\.id) == ["allow_once", "reject_once"])
         feature.answerPermission(optionID: "allow_once")
         let answer = try #require(connection.commands.last)
@@ -79,8 +84,18 @@ struct AgentConversationFeatureModelTests {
         feature.cancel()
         #expect(feature.selectedConversation?.permission == nil)
         #expect(connection.commands.last?["kind"] as? String == "cancel")
+        #expect(feature.selectedConversation?.isCancelling == true)
+        let count = connection.commands.count
+        try feature.receive(event("permission"))
+        #expect(feature.selectedConversation?.permission == nil)
+        try feature.receive(event("toolCall"))
+        feature.cancel()
+        try feature.send("Must not enter the stopping turn")
+        #expect(connection.commands.count == count)
         try feature.receive(event("turnCancelled"))
         #expect(feature.selectedConversation?.isResponding == false)
+        #expect(feature.selectedConversation?.isCancelling == false)
+        #expect(feature.selectedConversation?.messages.last?.toolStatus == .interrupted)
         #expect(attention == [true, false, true, false, true, false])
     }
 
@@ -191,6 +206,94 @@ struct AgentConversationFeatureModelTests {
     }
 
     // MARK: Helpers
+
+    @Test
+    func concurrentPermissionsArePresentedInOrderAndCancelClearsTheQueue() throws {
+        let (feature, connection) = try respondingFeature()
+        try feature.receive(event("permission"))
+        try feature.receive(event("permission", ["requestId": "permission-2"]))
+        #expect(feature.selectedConversation?.permission?.id == "permission-1")
+        feature.answerPermission(optionID: "allow_once")
+        #expect(connection.commands.last?["requestId"] as? String == "permission-1")
+        #expect(feature.selectedConversation?.permission?.id == "permission-2")
+        #expect(feature.hasPendingPermission)
+        feature.cancel()
+        #expect(!feature.hasPendingPermission)
+    }
+
+    @Test
+    func configurationIsAvailableBeforeFirstPromptAndOnlyChangesOnAcknowledgement() throws {
+        let (feature, connection) = try connectedFeature()
+        feature.prepareConversation()
+        let token = try #require(connection.commands.last?["token"])
+        let configured = try #require(JSONSerialization.jsonObject(with: Data(event("sessionConfigured").utf8)) as? [String: Any])
+        try feature.receive(event("sessionCreated", ["token": token, "configOptions": configured["configOptions"] as Any]))
+        #expect(feature.selectedConversation?.messages.isEmpty == true)
+        #expect(feature.selectedConversation?.configOptions.map(\.category) == ["model", "mode", "thought_level"])
+        feature.setConfigOption("reasoning_effort", value: "high")
+        let command = try #require(connection.commands.last)
+        #expect(command["kind"] as? String == "setConfigOption")
+        #expect(command["value"] as? String == "high")
+        #expect(feature.selectedConversation?.configOptions.last?.currentValue == "medium")
+        #expect(throws: AgentConversationError.configurationPending) { try feature.send("Wait") }
+        try feature.receive(event("sessionConfigured", ["token": "stale"]))
+        #expect(feature.selectedConversation?.pendingConfigToken != nil)
+        try feature.receive(event("requestFailed", ["token": command["token"] as Any, "message": "Unsupported value"]))
+        #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        #expect(feature.selectedConversation?.configurationError == "Unsupported value")
+        #expect(feature.selectedConversation?.configOptions.last?.currentValue == "medium")
+        feature.setConfigOption("reasoning_effort", value: "high")
+        var options = try #require(configured["configOptions"] as? [[String: Any]])
+        options[2]["currentValue"] = "high"
+        try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any, "configOptions": options]))
+        #expect(feature.selectedConversation?.configOptions.last?.currentValue == "high")
+        #expect(feature.selectedConversation?.pendingConfigToken == nil)
+        try feature.send("Now send")
+        #expect(connection.commands.last?["kind"] as? String == "prompt")
+    }
+
+    @Test
+    func failedHistoryReloadRestoresTranscriptAndDropsPartialReplay() async throws {
+        let (feature, _) = try respondingFeature()
+        try feature.receive(event("turnFinished"))
+        let messages = feature.selectedConversation?.messages
+        await feature.stop()
+        try feature.connect(configuration: configuration)
+        try feature.receive(event("ready"))
+        feature.selectSession("session-1")
+        try feature.receive(event("agentMessageChunk"))
+        // list=1, create=2, reconnect list=3, load=4
+        try feature.receive(event("requestFailed", ["token": "lithe-4", "message": "Load failed"]))
+        #expect(feature.selectedConversation?.messages == messages)
+        #expect(feature.selectedConversation?.isLoading == false)
+        #expect(feature.selectedConversation?.errorMessage == "Load failed")
+        await feature.stop()
+        #expect(feature.selectedConversation?.messages == messages)
+    }
+
+    @Test
+    func groupedConfigChoicesAndPartialToolUpdatesPreserveUpstreamData() {
+        let options = AgentSessionConfigOption.parse([[
+            "id": "model", "name": "Model", "type": "select", "currentValue": "a",
+            "options": [["name": "Provider", "options": [["value": "a", "name": "Model A"]]]]
+        ]])
+        #expect(options.first?.choices.first?.group == "Provider")
+        #expect(options.first?.currentLabel == "Model A")
+        var details = AgentToolDetails()
+        details.merge(["kind": "edit", "rawInput": ["path": "main.js"],
+                       "content": [["type": "diff", "path": "main.js", "oldText": "before", "newText": "after"]]])
+        details.merge(["status": "completed"])
+        #expect(details.kind == "edit")
+        #expect(details.content.first?.text == "---\nbefore\n+++\nafter")
+        details.merge(["rawOutput": String(repeating: "x", count: 100_000)])
+        #expect((details.output?.count ?? 0) < 33_000)
+        details.merge(["rawInput": NSNull(), "content": []])
+        #expect(details.input == nil && details.content.isEmpty)
+        let root = URL(fileURLWithPath: "/tmp/example-project", isDirectory: true)
+        #expect(AgentToolDetails.Location(path: "main.js", line: 1).fileURL(in: root)?.path == "/tmp/example-project/main.js")
+        #expect(AgentToolDetails.Location(path: "../outside.js", line: nil).fileURL(in: root) == nil)
+        #expect(AgentToolDetails.Location(path: "/tmp/example-project-other/main.js", line: nil).fileURL(in: root) == nil)
+    }
 
     private var configuration: AgentLaunchConfiguration {
         AgentLaunchConfiguration(

@@ -4,6 +4,18 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    func openAgentFile(_ location: AgentToolDetails.Location) {
+        guard let workspaceURL, let url = location.fileURL(in: workspaceURL) else {
+            showNotification(String(localized: "This file is outside the current project."))
+            return
+        }
+        if let line = location.line {
+            navigateToEditorLocation(url: url, line: line - 1, utf16Column: 0)
+        } else {
+            openFile(url)
+        }
+    }
+
     var isAgentConversationEnabled: Bool {
         guard let snapshot = try? services.moduleRuntime.snapshot(for: .agentConversation) else { return false }
         return snapshot.state != .disabled

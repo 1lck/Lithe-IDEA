@@ -57,18 +57,38 @@ provider. Agents start with the executable's directory and the login shell's
 and launch failures are reported as a `stopped` event with a message.
 
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`listSessions`, `setConfigOption`, `prompt`, `cancel`, or `permission`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
 can correlate concurrent requests. `stopReason` uses ACP wire names such as
 `end_turn` and `cancelled`.
 
-A `cancel` answers the turn's pending permissions with `cancelled`, sends one
-ACP `session/cancel`, and reports `turnFinished` with `cancelled` at once. The
-host keeps awaiting the agent's reply in the background and drops it, so the
-session accepts a new prompt immediately. The caller must close each handle
+`sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
+`setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
+string `value`; the host uses ACP `session/set_config_option`. Its acknowledged
+full option list arrives as `sessionConfigured`. Consumers also accept ACP
+`config_option_update` notifications. Agent-provided IDs, choices and current
+values remain authoritative; unsupported controls are not synthesized.
+Configuration failure echoes the token and does not finish a prompt.
+
+A `cancel` answers pending permissions with `cancelled`, sends one
+ACP `session/cancel`, and reports `turnCancelling`. The session remains busy
+until its prompt response arrives. A second prompt and configuration changes
+are rejected while it is busy. If the agent fails to acknowledge within ten
+seconds, the connection fails and its process tree is stopped; clients retain
+the visible transcript and offer reconnect followed by `session/load`. This
+explicit recovery prevents another message from entering a lost cancelled turn.
+Other sessions on the same process are also detached on this failure.
+Normal cancellation does not restart the process.
+
+Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
+`content` (including diffs). Partial updates replace only fields supplied by
+the agent. Permission displays combine already received tool details with the
+permission request, and distinguish allow/reject option kinds.
+
+The caller must close each handle
 exactly once; closing revokes callbacks and stops the process tree, force
 killing processes that do not exit after a short grace period. The callback
 context must remain valid until close returns. This API is owned by

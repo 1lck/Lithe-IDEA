@@ -2,67 +2,6 @@ import Combine
 import Foundation
 import LitheCoreContracts
 
-/// One entry of the agent-owned conversation history for the workspace.
-public struct AgentSessionSummary: Identifiable, Equatable, Sendable {
-    public let id: String
-    public var title: String?
-    public var updatedAt: String?
-
-    public init(id: String, title: String? = nil, updatedAt: String? = nil) {
-        self.id = id
-        self.title = title
-        self.updatedAt = updatedAt
-    }
-}
-
-public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
-    public enum Role: Equatable, Sendable { case user, agent, tool }
-    /// ACP tool call status; absent means `pending`.
-    public enum ToolStatus: String, Equatable, Sendable {
-        case pending
-        case inProgress = "in_progress"
-        case completed
-        case failed
-    }
-
-    public let id: String
-    public let role: Role
-    public var text: String
-    public var toolStatus: ToolStatus?
-
-    public init(id: String = UUID().uuidString, role: Role, text: String, toolStatus: ToolStatus? = nil) {
-        self.id = id
-        self.role = role
-        self.text = text
-        self.toolStatus = toolStatus
-    }
-}
-
-public struct AgentPermissionChoice: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let label: String
-}
-
-public struct AgentPermissionPrompt: Identifiable, Equatable, Sendable {
-    public let id: String
-    public let title: String
-    public let choices: [AgentPermissionChoice]
-}
-
-/// Display state of one conversation session.
-public struct AgentConversation: Equatable, Sendable {
-    public var messages: [AgentConversationMessage] = []
-    public var isResponding = false
-    public var isLoading = false
-    /// Whether the current connection knows this session (created or loaded on
-    /// it). A new agent process must load a session before prompting it again.
-    public var isAttached = false
-    public var permission: AgentPermissionPrompt?
-    public var errorMessage: String?
-
-    public init() {}
-}
-
 /// Owns one agent's connection and conversations within a project, and
 /// batches streaming text before UI updates.
 @MainActor
@@ -107,13 +46,15 @@ public final class AgentConnectionModel: ObservableObject {
     private var pendingText: [String: String] = [:]
     private var flushTask: Task<Void, Never>?
     private var needsAttention = false
+    @Published private var createToken: String?
+    private var loadBackups: [String: AgentConversation] = [:]
 
     public init(transport: any AgentConversationTransport) {
         self.transport = transport
     }
 
     public var hasActiveConnection: Bool { connection != nil }
-    public var isCreatingSession: Bool { pendingNewConversationPrompt != nil }
+    public var isCreatingSession: Bool { createToken != nil }
     public var hasPendingPermission: Bool { conversations.values.contains { $0.permission != nil } }
     public var selectedConversation: AgentConversation? {
         selectedSessionID.flatMap { conversations[$0] }
@@ -141,6 +82,7 @@ public final class AgentConnectionModel: ObservableObject {
         // One consumer keeps events in the order the connection produced them.
         eventTask = Task { [weak self] in
             for await event in events {
+                guard !Task.isCancelled else { break }
                 self?.receive(event)
             }
         }
@@ -167,10 +109,38 @@ public final class AgentConnectionModel: ObservableObject {
     // MARK: Conversations
 
     public func startNewConversation() {
+        guard !isCreatingSession else { return }
         selectedSessionID = nil
         errorMessage = nil
+        prepareConversation()
     }
 
+    /// Prepare an empty session so upstream settings are available before sending.
+    public func prepareConversation() {
+        guard connectionState == .ready else { return }
+        if let sessionID = selectedSessionID {
+            if conversations[sessionID]?.isAttached != true { selectSession(sessionID) }
+            return
+        }
+        guard createToken == nil else { return }
+        let token = makeToken()
+        createToken = token
+        if !sendCommand(["kind": "newSession", "token": token]) { createToken = nil }
+    }
+
+    public func setConfigOption(_ id: String, value: String) {
+        guard let sessionID = selectedSessionID, let conversation = conversations[sessionID],
+              conversation.isAttached, !conversation.isResponding, !conversation.isLoading,
+              conversation.pendingConfigToken == nil,
+              let option = conversation.configOptions.first(where: { $0.id == id }),
+              option.choices.contains(where: { $0.id == value }), option.currentValue != value else { return }
+        let token = makeToken()
+        conversations[sessionID]?.pendingConfigToken = token
+        conversations[sessionID]?.configurationError = nil
+        if !sendCommand(["kind": "setConfigOption", "token": token, "sessionId": sessionID, "configId": id, "value": value]) {
+            conversations[sessionID]?.pendingConfigToken = nil
+        }
+    }
     public func selectSession(_ sessionID: String) {
         selectedSessionID = sessionID
         errorMessage = nil
@@ -186,7 +156,8 @@ public final class AgentConnectionModel: ObservableObject {
     /// permission decision stays open so its outcome is not lost.
     public func closeConversation(_ sessionID: String) {
         guard let conversation = conversations[sessionID],
-              !conversation.isResponding, conversation.permission == nil else { return }
+              !conversation.isResponding, !conversation.isLoading,
+              conversation.pendingConfigToken == nil, conversation.permission == nil else { return }
         openSessionIDs.removeAll { $0 == sessionID }
         conversations[sessionID] = nil
         pendingText[sessionID] = nil
@@ -201,16 +172,16 @@ public final class AgentConnectionModel: ObservableObject {
         guard !prompt.isEmpty else { return }
         guard connection != nil else { throw AgentConversationError.notConnected }
         guard let sessionID = selectedSessionID else {
-            guard !isCreatingSession else { return }
-            let token = makeToken()
+            if createToken == nil { prepareConversation() }
+            guard let token = createToken else { throw AgentConversationError.notConnected }
             queuedPrompts[token] = prompt
             pendingNewConversationPrompt = prompt
             errorMessage = nil
-            sendCommand(["kind": "newSession", "token": token])
             return
         }
         let conversation = conversations[sessionID] ?? AgentConversation()
         guard !conversation.isResponding else { return }
+        guard conversation.pendingConfigToken == nil else { throw AgentConversationError.configurationPending }
         if conversation.isLoading {
             queuedPrompts[sessionID] = prompt
         } else if conversation.isAttached {
@@ -225,20 +196,20 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func cancel() {
         guard let sessionID = selectedSessionID,
-              conversations[sessionID]?.isResponding == true else { return }
-        // The host answers pending permissions with `cancelled` and reports
-        // the turn as cancelled without waiting for the agent.
-        conversations[sessionID]?.permission = nil
+              conversations[sessionID]?.isResponding == true,
+              conversations[sessionID]?.isCancelling != true else { return }
+        conversations[sessionID]?.isCancelling = true
+        conversations[sessionID]?.pendingPermissions.removeAll()
         updateAttention()
         if !sendCommand(["kind": "cancel", "sessionId": sessionID]) {
-            conversations[sessionID]?.isResponding = false
+            conversations[sessionID]?.isCancelling = false
         }
     }
 
     public func answerPermission(optionID: String?) {
         guard let sessionID = selectedSessionID,
               let permission = conversations[sessionID]?.permission else { return }
-        conversations[sessionID]?.permission = nil
+        conversations[sessionID]?.pendingPermissions.removeFirst()
         updateAttention()
         sendCommand([
             "kind": "permission",
@@ -266,30 +237,44 @@ public final class AgentConnectionModel: ObservableObject {
         case "sessions":
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
         case "sessionCreated":
-            guard let sessionID, let token else { return }
+            guard let sessionID, let token, token == createToken else { return }
+            conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(event["configOptions"])
             sessionCreated(sessionID, token: token)
         case "sessionLoaded":
             guard let sessionID, let token, loadTokens.removeValue(forKey: token) != nil else { return }
             flushPendingText()
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
+            loadBackups[sessionID] = nil
+            conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
             if let prompt = queuedPrompts.removeValue(forKey: sessionID) {
                 startPrompt(prompt, in: sessionID)
             }
+        case "sessionConfigured":
+            guard let sessionID, conversations[sessionID]?.pendingConfigToken == token else { return }
+            conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            conversations[sessionID]?.pendingConfigToken = nil
+        case "turnCancelling":
+            guard let sessionID else { return }
+            conversations[sessionID]?.isCancelling = true
         case "update":
             guard let sessionID, let update = event["update"] as? [String: Any] else { return }
             apply(update, to: sessionID)
         case "permission":
             guard let sessionID,
+                  conversations[sessionID]?.isCancelling != true,
                   let requestID = event["requestId"] as? String,
                   let request = event["request"] as? [String: Any] else { return }
-            conversations[sessionID, default: AgentConversation()].permission = permissionPrompt(requestID, request)
+            let prompt = permissionPrompt(requestID, request, sessionID: sessionID)
+            conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
             updateAttention()
         case "turnFinished":
             guard let sessionID else { return }
             flushPendingText()
             conversations[sessionID]?.isResponding = false
-            conversations[sessionID]?.permission = nil
+            conversations[sessionID]?.isCancelling = false
+            conversations[sessionID]?.interruptPendingTools()
+            conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.errorMessage = stopReasonMessage(event["stopReason"] as? String)
             updateAttention()
         case "requestFailed":
@@ -308,6 +293,8 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func sessionCreated(_ sessionID: String, token: String) {
+        guard token == createToken else { return }
+        createToken = nil
         let prompt = queuedPrompts.removeValue(forKey: token)
         if !sessions.contains(where: { $0.id == sessionID }) {
             sessions.insert(AgentSessionSummary(id: sessionID, title: prompt.map(Self.provisionalTitle)), at: 0)
@@ -316,24 +303,36 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.isAttached = true
         conversations[sessionID] = conversation
         openTab(sessionID)
-        guard let prompt else { return }
         pendingNewConversationPrompt = nil
-        selectedSessionID = sessionID
-        startPrompt(prompt, in: sessionID)
+        if selectedSessionID == nil { selectedSessionID = sessionID }
+        if let prompt { startPrompt(prompt, in: sessionID) }
     }
 
     private func requestFailed(token: String?, sessionID: String?, message: String) {
-        if let token, queuedPrompts.removeValue(forKey: token) != nil {
+        if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
+            conversations[sessionID]?.pendingConfigToken = nil
+            conversations[sessionID]?.configurationError = message
+        } else if let token, token == createToken {
+            queuedPrompts.removeValue(forKey: token)
+            createToken = nil
             pendingNewConversationPrompt = nil
             errorMessage = message
         } else if let token, let loading = loadTokens.removeValue(forKey: token) {
             queuedPrompts.removeValue(forKey: loading)
+            pendingText[loading] = nil
+            if let backup = loadBackups.removeValue(forKey: loading) { conversations[loading] = backup }
             conversations[loading]?.isLoading = false
             conversations[loading]?.errorMessage = message
+        } else if token != nil {
+            errorMessage = message
         } else if let sessionID, conversations[sessionID] != nil {
             flushPendingText()
             conversations[sessionID]?.isResponding = false
+            conversations[sessionID]?.isCancelling = false
+            conversations[sessionID]?.interruptPendingTools()
+            conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.errorMessage = message
+            updateAttention()
         } else {
             errorMessage = message
         }
@@ -356,6 +355,8 @@ public final class AgentConnectionModel: ObservableObject {
 
     private func apply(_ update: [String: Any], to sessionID: String) {
         switch update["sessionUpdate"] as? String {
+        case "config_option_update":
+            conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(update["configOptions"])
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
             pendingText[sessionID, default: ""] += text
@@ -398,6 +399,7 @@ public final class AgentConnectionModel: ObservableObject {
         if let index = conversation.messages.firstIndex(where: { $0.id == id }) {
             if let title { conversation.messages[index].text = title }
             if let status { conversation.messages[index].toolStatus = status }
+            conversation.messages[index].toolDetails.merge(update)
         } else {
             conversation.messages.append(AgentConversationMessage(
                 id: id,
@@ -405,21 +407,30 @@ public final class AgentConnectionModel: ObservableObject {
                 text: title ?? "Tool call",
                 toolStatus: status ?? .pending
             ))
+            conversation.messages[conversation.messages.count - 1].toolDetails.merge(update)
         }
         conversations[sessionID] = conversation
     }
 
-    private func permissionPrompt(_ requestID: String, _ request: [String: Any]) -> AgentPermissionPrompt {
+    private func permissionPrompt(_ requestID: String, _ request: [String: Any], sessionID: String) -> AgentPermissionPrompt {
         let tool = request["toolCall"] as? [String: Any]
         let options = (request["options"] as? [[String: Any]] ?? []).compactMap { option -> AgentPermissionChoice? in
             guard let id = option["optionId"] as? String, let label = option["name"] as? String else { return nil }
-            return AgentPermissionChoice(id: id, label: label)
+            return AgentPermissionChoice(id: id, label: label, kind: option["kind"] as? String)
         }
-        return AgentPermissionPrompt(
+        var prompt = AgentPermissionPrompt(
             id: requestID,
             title: tool?["title"] as? String ?? "Allow the Agent to continue?",
             choices: options
         )
+        if let tool {
+            if let id = tool["toolCallId"] as? String,
+               let known = conversations[sessionID]?.messages.first(where: { $0.id == "tool:\(id)" }) {
+                prompt.details = known.toolDetails
+            }
+            prompt.details.merge(tool)
+        }
+        return prompt
     }
 
     // MARK: Helpers
@@ -438,12 +449,15 @@ public final class AgentConnectionModel: ObservableObject {
     private func beginLoad(_ sessionID: String) {
         let token = makeToken()
         loadTokens[token] = sessionID
+        loadBackups[sessionID] = conversations[sessionID]
         pendingText[sessionID] = nil
         // The agent replays the whole history, so rebuild it from scratch.
         var conversation = AgentConversation()
         conversation.isLoading = true
         conversations[sessionID] = conversation
-        sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID])
+        if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {
+            requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? "The Agent request failed.")
+        }
     }
 
     /// Returns false and records the error when the command could not be queued.
@@ -479,12 +493,18 @@ public final class AgentConnectionModel: ObservableObject {
         canListSessions = false
         queuedPrompts.removeAll()
         loadTokens.removeAll()
+        for (id, backup) in loadBackups { conversations[id] = backup }
+        loadBackups.removeAll()
+        createToken = nil
         pendingNewConversationPrompt = nil
         for id in conversations.keys {
             conversations[id]?.isResponding = false
+            conversations[id]?.interruptPendingTools()
+            conversations[id]?.isCancelling = false
+            conversations[id]?.pendingConfigToken = nil
             conversations[id]?.isLoading = false
             conversations[id]?.isAttached = false
-            conversations[id]?.permission = nil
+            conversations[id]?.pendingPermissions.removeAll()
         }
         updateAttention()
         return old
@@ -556,6 +576,7 @@ public enum AgentConversationError: LocalizedError, Equatable {
     case notConnected
     case sessionStopping
     case cannotResume
+    case configurationPending
 
     public var errorDescription: String? {
         switch self {
@@ -568,6 +589,7 @@ public enum AgentConversationError: LocalizedError, Equatable {
         case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
         case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
         case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
+        case .configurationPending: String(localized: "Wait for the Agent configuration to finish updating.")
         }
     }
 }

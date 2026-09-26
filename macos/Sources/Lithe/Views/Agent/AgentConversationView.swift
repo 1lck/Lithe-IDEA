@@ -25,7 +25,8 @@ struct AgentConversationView: View {
                     selectedAgentID: feature.selectedAgentID,
                     onSelectAgent: { model.selectAgentConversationAgent($0) },
                     onConnect: { model.connectAgentConversation() },
-                    onOpenSettings: { showsSettings = true }
+                    onOpenSettings: { showsSettings = true },
+                    onOpenFile: { model.openAgentFile($0) }
                 )
                 .id(feature.selectedAgentID)
             } else {
@@ -35,7 +36,7 @@ struct AgentConversationView: View {
                 )
             }
         }
-        .background(LitheTheme.editor)
+        .background(AgentPanelStyle.canvas)
         .onAppear { model.activateAgentConversation() }
     }
 }
@@ -49,16 +50,19 @@ private struct AgentPanelHeader<Actions: View>: View {
     var body: some View {
         HStack(spacing: 2) {
             Text(title)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.toolWindowText)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(AgentPanelStyle.text)
                 .lineLimit(1)
             Spacer(minLength: 12)
             actions
         }
-        .padding(.leading, 12)
+        .padding(.leading, 20)
         .padding(.trailing, 6)
-        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .frame(height: 44)
+        .background(AgentPanelStyle.header)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(AgentPanelStyle.border).frame(height: 1)
+        }
     }
 }
 
@@ -72,27 +76,30 @@ private struct AgentUnconfiguredConversationView: View {
     var body: some View {
         AgentPanelHeader(title: String(localized: "New conversation")) {
             Button(action: onOpenSettings) { Image(systemName: "gearshape") }
-                .litheIconButton()
+                .buttonStyle(AgentToolbarButtonStyle())
                 .help("Agent Settings")
         }
-        AgentSessionTabStrip(tabs: [], showsNewTab: true, isNewTabBusy: false, onSelect: { _ in }, onClose: { _ in }, onNew: {})
-        Divider().overlay(LitheTheme.divider)
-        AgentHeroView(agentName: nil, agentVersion: nil, onTap: onOpenSettings)
-        AgentActivitySummaryBar(messages: [])
-        if let notice {
-            AgentInlineNotice(text: notice, actionTitle: "Open Agent Settings", action: onOpenSettings)
+        AgentConversationLayout {
+            VStack(spacing: 0) {
+                AgentHeroView(agentName: nil, agentVersion: nil, onTap: onOpenSettings)
+                AgentActivitySummaryBar(messages: [])
+                if let notice {
+                    AgentInlineNotice(text: notice, actionTitle: "Open Agent Settings", action: onOpenSettings)
+                }
+            }
+        } composer: {
+            AgentComposerView(
+                agents: [],
+                selectedAgent: nil,
+                isResponding: false,
+                isBlocked: false,
+                onSend: { _ in throw setupError ?? .moduleStarting },
+                onCancel: {},
+                onSelectAgent: { _ in },
+                onOpenSettings: onOpenSettings,
+                onError: { notice = $0 }
+            )
         }
-        AgentComposerView(
-            agents: [],
-            selectedAgent: nil,
-            isResponding: false,
-            isBlocked: false,
-            onSend: { _ in throw setupError ?? .moduleStarting },
-            onCancel: {},
-            onSelectAgent: { _ in },
-            onOpenSettings: onOpenSettings,
-            onError: { notice = $0 }
-        )
     }
 }
 
@@ -103,21 +110,81 @@ private struct AgentConnectionView: View {
     let onSelectAgent: (String) -> Void
     let onConnect: () -> Void
     let onOpenSettings: () -> Void
+    let onOpenFile: (AgentToolDetails.Location) -> Void
     @State private var localError: String?
+    @State private var showsSearch = false
+    @State private var searchText = ""
+    @State private var showsTabs = false
 
     private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
 
     var body: some View {
         AgentPanelHeader(title: headerTitle) {
+            Button { showsSearch.toggle(); searchText = "" } label: { Image(systemName: "magnifyingglass") }
+                .buttonStyle(AgentToolbarButtonStyle())
+                .help("Search conversation")
             Button { feature.startNewConversation() } label: { Image(systemName: "plus") }
-                .litheIconButton()
+                .buttonStyle(AgentToolbarButtonStyle())
                 .help("New conversation")
                 .disabled(feature.selectedSessionID == nil)
+            Button { showsTabs.toggle() } label: { Image(systemName: "rectangle.split.2x1") }
+                .buttonStyle(AgentToolbarButtonStyle())
+                .help("Conversation tabs")
             AgentHistoryMenu(feature: feature)
             Button(action: onOpenSettings) { Image(systemName: "gearshape") }
-                .litheIconButton()
+                .buttonStyle(AgentToolbarButtonStyle())
                 .help("Agent Settings")
         }
+        if showsSearch {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass").foregroundStyle(AgentPanelStyle.secondary)
+                TextField("Search conversation", text: $searchText).textFieldStyle(.plain)
+                Button { showsSearch = false; searchText = "" } label: { Image(systemName: "xmark") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("Close search")
+            }
+            .padding(.leading, 12)
+            .padding(.trailing, 6)
+            .frame(height: 34)
+            .background(AgentPanelStyle.context)
+        }
+        if showsTabs || feature.openSessionIDs.count > 1
+            || (feature.selectedSessionID == nil && !feature.openSessionIDs.isEmpty) {
+            sessionTabs
+        }
+        AgentConversationLayout {
+            VStack(spacing: 0) {
+                transcript
+                if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
+                    AgentInlineNotice(text: error)
+                }
+            }
+        } composer: {
+            AgentComposerView(
+                agents: agents,
+                selectedAgent: selectedAgent,
+                isResponding: feature.selectedConversation?.isResponding == true,
+                isBlocked: feature.isCreatingSession
+                    || feature.selectedConversation?.isLoading == true
+                    || feature.connectionState != .ready,
+                onSend: { try feature.send($0) },
+                onCancel: { feature.cancel() },
+                onSelectAgent: onSelectAgent,
+                onOpenSettings: onOpenSettings,
+                onError: { localError = $0 },
+                configOptions: feature.selectedConversation?.configOptions ?? [],
+                isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
+                isCancelling: feature.selectedConversation?.isCancelling == true,
+                onSetConfig: { feature.setConfigOption($0, value: $1) }
+            )
+        }
+        .onAppear { feature.prepareConversation() }
+        .onChange(of: feature.connectionState) { state in
+            if state == .ready { feature.prepareConversation() }
+        }
+    }
+
+    private var sessionTabs: some View {
         AgentSessionTabStrip(
             tabs: feature.openSessionIDs.map { id in
                 AgentSessionTabItem(
@@ -135,7 +202,10 @@ private struct AgentConnectionView: View {
             onClose: { feature.closeConversation($0) },
             onNew: { feature.startNewConversation() }
         )
-        Divider().overlay(LitheTheme.divider)
+    }
+
+    @ViewBuilder
+    private var transcript: some View {
         switch feature.connectionState {
         case .idle, .connecting:
             AgentEmptyStateView(
@@ -148,6 +218,15 @@ private struct AgentConnectionView: View {
                 if feature.connectionState == .idle { onConnect() }
             }
         case .failed(let message):
+            if feature.selectedConversation?.messages.isEmpty == false {
+                AgentTranscriptView(
+                    feature: feature, agentName: selectedAgent?.name ?? feature.agentName,
+                    agentVersion: feature.agentVersion, agents: agents,
+                    onSelectAgent: onSelectAgent, searchText: searchText, onOpenFile: onOpenFile
+                )
+                AgentInlineNotice(text: message)
+                Button("Reconnect", action: onConnect).padding(.bottom, 8)
+            } else {
             AgentEmptyStateView(
                 systemImage: "exclamationmark.triangle",
                 title: "The Agent could not start",
@@ -157,31 +236,18 @@ private struct AgentConnectionView: View {
                 secondaryActionTitle: "Agent Settings",
                 secondaryAction: onOpenSettings
             )
+            }
         case .ready:
             AgentTranscriptView(
                 feature: feature,
                 agentName: selectedAgent?.name ?? feature.agentName,
                 agentVersion: feature.agentVersion,
                 agents: agents,
-                onSelectAgent: onSelectAgent
+                onSelectAgent: onSelectAgent,
+                searchText: searchText,
+                onOpenFile: onOpenFile
             )
         }
-        if let error = localError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
-            AgentInlineNotice(text: error)
-        }
-        AgentComposerView(
-            agents: agents,
-            selectedAgent: selectedAgent,
-            isResponding: feature.selectedConversation?.isResponding == true,
-            isBlocked: feature.isCreatingSession
-                || feature.selectedConversation?.isLoading == true
-                || feature.connectionState != .ready,
-            onSend: { try feature.send($0) },
-            onCancel: { feature.cancel() },
-            onSelectAgent: onSelectAgent,
-            onOpenSettings: onOpenSettings,
-            onError: { localError = $0 }
-        )
     }
 
     private var headerTitle: String {
@@ -213,6 +279,8 @@ private struct AgentHistoryMenu: View {
             Button("Refresh history") { feature.refreshSessions() }
         } label: {
             Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 14))
+                .foregroundStyle(AgentPanelStyle.secondary)
         }
         .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)

@@ -115,6 +115,7 @@ let package = Package(
             ],
             path: "macos/Sources/Lithe",
             resources: [
+                .copy("Resources/AgentIcons"),
                 .copy("Resources/MarkdownPreview"),
                 .copy("Resources/SyntaxHighlighting"),
                 .copy("Resources/WorkbenchBackgrounds")

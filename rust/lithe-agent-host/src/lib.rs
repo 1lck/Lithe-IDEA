@@ -24,7 +24,8 @@ use agent_client_protocol::schema::v1::{
     AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
     InitializeRequest, ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
-    SelectedPermissionOutcome, SessionNotification, TextContent,
+    SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
+    SetSessionConfigOptionRequest, TextContent,
 };
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::{Agent, ByteStreams, Client, ConnectionTo};
@@ -39,6 +40,7 @@ const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(300);
+const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
@@ -298,6 +300,12 @@ pub enum AgentCommand {
     Cancel {
         session_id: String,
     },
+    SetConfigOption {
+        token: String,
+        session_id: String,
+        config_id: String,
+        value: String,
+    },
     Permission {
         request_id: String,
         option_id: Option<String>,
@@ -334,11 +342,23 @@ pub enum AgentEvent {
     SessionCreated {
         token: String,
         session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        config_options: Option<Vec<SessionConfigOption>>,
     },
     /// `session/load` returned. History replay arrives as `update` events and
     /// may continue after this event.
     SessionLoaded {
         token: String,
+        session_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        config_options: Option<Vec<SessionConfigOption>>,
+    },
+    SessionConfigured {
+        token: String,
+        session_id: String,
+        config_options: Vec<SessionConfigOption>,
+    },
+    TurnCancelling {
         session_id: String,
     },
     Sessions {
@@ -355,8 +375,7 @@ pub enum AgentEvent {
         request_id: String,
         request: serde_json::Value,
     },
-    /// The turn ended. A user cancel reports `cancelled` immediately without
-    /// waiting for the agent, so a later response for that turn is dropped.
+    /// The agent acknowledged the prompt's completion, including cancellation.
     TurnFinished {
         session_id: String,
         stop_reason: String,
@@ -385,7 +404,12 @@ type PendingPermissions = Arc<Mutex<HashMap<String, PendingPermission>>>;
 
 /// Running turn generation per session. A session is absent while idle, so a
 /// response whose generation no longer matches belongs to a cancelled turn.
-type RunningTurns = Arc<Mutex<HashMap<String, u64>>>;
+type RunningTurns = Arc<Mutex<HashMap<String, RunningTurn>>>;
+
+struct RunningTurn {
+    generation: u64,
+    cancelling: bool,
+}
 
 enum Control {
     Command(AgentCommand),
@@ -745,7 +769,7 @@ where
                     Ok(mut pending) => {
                         let running = permission_turns
                             .lock()
-                            .is_ok_and(|turns| turns.contains_key(&session_id));
+                            .is_ok_and(|turns| turns.get(&session_id).is_some_and(|turn| !turn.cancelling));
                         if running {
                             pending.insert(
                                 request_id.clone(),
@@ -850,7 +874,23 @@ where
 
             let generations = AtomicU64::new(0);
             let mut tasks = JoinSet::new();
-            while let Some(control) = controls.recv().await {
+            let (cancel_deadline_tx, mut cancel_deadlines) = async_mpsc::unbounded_channel();
+            loop {
+                let control = tokio::select! {
+                    control = controls.recv() => match control {
+                        Some(control) => control,
+                        None => break,
+                    },
+                    deadline = cancel_deadlines.recv() => {
+                        let Some((session_id, generation)) = deadline else { continue };
+                        if turns.lock().is_ok_and(|turns| turns.get(&session_id).is_some_and(
+                            |turn| turn.generation == generation && turn.cancelling
+                        )) {
+                            return Err(internal("The Agent did not acknowledge Stop. Its process has been stopped to prevent overlapping turns. Reconnect to reload the conversation."));
+                        }
+                        continue;
+                    }
+                };
                 while tasks.try_join_next().is_some() {}
                 let command = match control {
                     Control::Stop => {
@@ -876,6 +916,7 @@ where
                                 Ok(response) => AgentEvent::SessionCreated {
                                     token,
                                     session_id: response.session_id.0.to_string(),
+                                    config_options: response.config_options,
                                 },
                                 Err(message) => failed(Some(token), None, message),
                             });
@@ -894,7 +935,7 @@ where
                             )
                             .await;
                             emit(match result {
-                                Ok(_) => AgentEvent::SessionLoaded { token, session_id },
+                                Ok(response) => AgentEvent::SessionLoaded { token, session_id, config_options: response.config_options },
                                 Err(message) => failed(Some(token), Some(session_id), message),
                             });
                         });
@@ -910,11 +951,29 @@ where
                             });
                         });
                     }
+                    AgentCommand::SetConfigOption { token, session_id, config_id, value } => {
+                        if turns.lock().is_ok_and(|turns| turns.contains_key(&session_id)) {
+                            emit(failed(Some(token), Some(session_id), "Wait for the current turn before changing configuration".into()));
+                            continue;
+                        }
+                        let connection = connection.clone();
+                        let emit = emit.clone();
+                        tasks.spawn(async move {
+                            let result = request_with_timeout(
+                                SESSION_REQUEST_TIMEOUT,
+                                connection.send_request(SetSessionConfigOptionRequest::new(session_id.clone(), config_id, value.as_str())).block_task(),
+                            ).await;
+                            emit(match result {
+                                Ok(response) => AgentEvent::SessionConfigured { token, session_id, config_options: response.config_options },
+                                Err(message) => failed(Some(token), Some(session_id), message),
+                            });
+                        });
+                    }
                     AgentCommand::Prompt { session_id, text } => {
                         let generation = generations.fetch_add(1, Ordering::SeqCst) + 1;
                         let busy = match turns.lock() {
                             Ok(mut turns) if !turns.contains_key(&session_id) => {
-                                turns.insert(session_id.clone(), generation);
+                                turns.insert(session_id.clone(), RunningTurn { generation, cancelling: false });
                                 false
                             }
                             _ => true,
@@ -934,12 +993,11 @@ where
                         let response = connection.send_request(request).block_task();
                         let emit = emit.clone();
                         let turns = turns.clone();
+                        let prompt_permissions = cancel_permissions.clone();
                         tasks.spawn(async move {
                             let result = response.await;
-                            // Only the running generation may report; a cancel
-                            // already reported `cancelled` for older turns.
                             let current = turns.lock().is_ok_and(|mut turns| {
-                                let current = turns.get(&session_id) == Some(&generation);
+                                let current = turns.get(&session_id).is_some_and(|turn| turn.generation == generation);
                                 if current {
                                     turns.remove(&session_id);
                                 }
@@ -948,6 +1006,7 @@ where
                             if !current {
                                 return;
                             }
+                            reject_pending_permissions(&prompt_permissions, Some(&session_id));
                             emit(match result {
                                 Ok(response) => AgentEvent::TurnFinished {
                                     session_id,
@@ -958,21 +1017,28 @@ where
                         });
                     }
                     AgentCommand::Cancel { session_id } => {
-                        let running = turns
+                        let generation = turns
                             .lock()
-                            .is_ok_and(|mut turns| turns.remove(&session_id).is_some());
+                            .ok()
+                            .and_then(|mut turns| {
+                                let turn = turns.get_mut(&session_id)?;
+                                if turn.cancelling { return None; }
+                                turn.cancelling = true;
+                                Some(turn.generation)
+                            });
                         // A request registered after the caller's rejection but before
                         // this point would otherwise wait for its timeout.
                         reject_pending_permissions(&cancel_permissions, Some(&session_id));
-                        if running {
-                            // Mirror mainstream ACP clients: send one cancel,
-                            // end the turn in the UI now, and keep awaiting
-                            // the agent's reply in the prompt task.
+                        if let Some(generation) = generation {
                             let _ = connection
                                 .send_notification(CancelNotification::new(session_id.clone()));
-                            emit(AgentEvent::TurnFinished {
-                                session_id,
-                                stop_reason: "cancelled".into(),
+                            emit(AgentEvent::TurnCancelling {
+                                session_id: session_id.clone(),
+                            });
+                            let deadline = cancel_deadline_tx.clone();
+                            tasks.spawn(async move {
+                                tokio::time::sleep(CANCEL_TIMEOUT).await;
+                                let _ = deadline.send((session_id, generation));
                             });
                         }
                     }

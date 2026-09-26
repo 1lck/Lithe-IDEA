@@ -10,73 +10,79 @@ struct AgentTranscriptView: View {
     let agentVersion: String?
     let agents: [AgentOption]
     let onSelectAgent: (String) -> Void
+    var searchText = ""
+    var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @State private var showsAgentPicker = false
 
     var body: some View {
         let conversation = feature.selectedConversation
         let messages = conversation?.messages ?? []
         VStack(spacing: 0) {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
-                        if conversation?.isLoading == true {
-                            HStack(spacing: 8) {
-                                ProgressView().controlSize(.small)
-                                Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
-                            }
-                        } else if messages.isEmpty && feature.pendingNewConversationPrompt == nil {
-                            AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
-                                showsAgentPicker = true
-                            }
-                            .popover(isPresented: $showsAgentPicker, arrowEdge: .bottom) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    ForEach(agents) { agent in
-                                        Button {
-                                            showsAgentPicker = false
-                                            onSelectAgent(agent.id)
-                                        } label: {
-                                            HStack {
-                                                Text(agent.name)
-                                                Spacer()
-                                                if agent.name == agentName { Image(systemName: "checkmark") }
-                                            }
-                                            .padding(.horizontal, 10)
-                                            .frame(height: 26)
-                                            .contentShape(Rectangle())
-                                        }
-                                        .buttonStyle(.plain)
-                                        .litheRowHover()
-                                    }
+            if conversation?.isLoading != true && messages.isEmpty && feature.pendingNewConversationPrompt == nil {
+                AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
+                    showsAgentPicker = true
+                }
+                .popover(isPresented: $showsAgentPicker, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(agents) { agent in
+                            Button {
+                                showsAgentPicker = false
+                                onSelectAgent(agent.id)
+                            } label: {
+                                HStack {
+                                    Text(agent.name)
+                                    Spacer()
+                                    if agent.name == agentName { Image(systemName: "checkmark") }
                                 }
-                                .padding(6)
-                                .frame(width: 180)
+                                .padding(.horizontal, 10)
+                                .frame(height: 26)
+                                .contentShape(Rectangle())
                             }
-                            .frame(maxWidth: .infinity)
-                            .frame(minHeight: 260)
-                        }
-                        ForEach(messages) { message in
-                            AgentMessageRow(message: message).id(message.id)
-                        }
-                        if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
-                            AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
-                                .id("pending")
-                        }
-                        if conversation?.isResponding == true || feature.isCreatingSession {
-                            AgentThinkingRow().id("responding")
+                            .buttonStyle(.plain)
+                            .litheRowHover()
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 12)
+                    .padding(6)
+                    .frame(width: 180)
                 }
-                .onChange(of: messages.last?.text) { _ in
-                    if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
-                }
-                .onChange(of: messages.count) { _ in
-                    if let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+            } else {
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 14) {
+                            if conversation?.isLoading == true {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
+                                }
+                            }
+                            if !searchText.isEmpty && !messages.contains(where: { $0.text.localizedStandardContains(searchText) }) {
+                                Text("No matching messages")
+                                    .foregroundStyle(AgentPanelStyle.secondary)
+                            }
+                            ForEach(messages.filter { searchText.isEmpty || $0.text.localizedStandardContains(searchText) }) { message in
+                                AgentMessageRow(message: message, onOpenFile: onOpenFile).id(message.id)
+                            }
+                            if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
+                                AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
+                                    .id("pending")
+                            }
+                            if conversation?.isResponding == true || feature.isCreatingSession {
+                                AgentThinkingRow(isCancelling: conversation?.isCancelling == true).id("responding")
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                    }
+                    .onChange(of: messages.last?.text) { _ in
+                        if searchText.isEmpty, let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
+                    .onChange(of: messages.count) { _ in
+                        if searchText.isEmpty, let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                    }
                 }
             }
             if let permission = conversation?.permission {
-                AgentPermissionCard(permission: permission) { feature.answerPermission(optionID: $0) }
+                AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
             }
             AgentActivitySummaryBar(messages: messages)
         }
@@ -84,10 +90,11 @@ struct AgentTranscriptView: View {
 }
 
 private struct AgentThinkingRow: View {
+    var isCancelling = false
     var body: some View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
-            Text("Thinking…")
+            Text(isCancelling ? "Stopping…" : "Thinking…")
                 .font(.system(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
@@ -103,32 +110,34 @@ struct AgentHeroView: View {
     @State private var isHovering = false
 
     var body: some View {
-        VStack(spacing: 12) {
-            ZStack(alignment: .topTrailing) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 44, weight: .light))
-                    .foregroundStyle(isHovering ? LitheTheme.primaryText : LitheTheme.tertiaryText)
-                    .frame(width: 84, height: 84)
-                    .background(Circle().fill(LitheTheme.raised.opacity(isHovering ? 1 : 0.6)))
+        VStack(spacing: 16) {
+            Button(action: onTap) {
+                AgentBrandIcon(name: agentName, size: 60)
+                    .foregroundStyle(isHovering ? AgentPanelStyle.secondary : AgentPanelStyle.logo)
+            }
+            .buttonStyle(.plain)
+            .lithePointer()
+            .accessibilityLabel("Switch Agent")
+            .onHover { isHovering = $0 }
+            .overlay(alignment: .topLeading) {
                 if let agentVersion, !agentVersion.isEmpty {
                     Text("v\(agentVersion)")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .padding(.horizontal, 6)
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 8)
                         .padding(.vertical, 2)
-                        .foregroundStyle(LitheTheme.accent)
-                        .background(LitheTheme.accent.opacity(0.15), in: Capsule())
-                        .offset(x: 26, y: -4)
+                        .foregroundStyle(AgentPanelStyle.versionText)
+                        .background(AgentPanelStyle.versionAccent.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.versionAccent.opacity(0.4)))
+                        .fixedSize()
+                        .offset(x: 70, y: -2)
                 }
             }
             Text(agentName.map { String(format: String(localized: "Send a message to %@"), $0) }
                  ?? String(localized: "Choose an Agent to start"))
-                .font(.system(size: 13))
-                .foregroundStyle(LitheTheme.secondaryText)
+                .font(.system(size: 14))
+                .foregroundStyle(AgentPanelStyle.logo)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .contentShape(Rectangle())
-        .onHover { isHovering = $0 }
-        .onTapGesture(perform: onTap)
         .help("Switch Agent")
     }
 }
@@ -144,8 +153,7 @@ struct AgentActivitySummaryBar: View {
     private var failed: Int { tools.filter { $0.toolStatus == .failed }.count }
     private var edits: Int {
         tools.filter { message in
-            let text = message.text.lowercased()
-            return text.hasPrefix("edit") || text.hasPrefix("write") || text.hasPrefix("create") || text.contains("apply_patch")
+            message.toolDetails.kind == "edit" || message.toolDetails.kind == "delete"
         }.count
     }
 
@@ -158,10 +166,12 @@ struct AgentActivitySummaryBar: View {
             segment(systemImage: "pencil", title: "Edits", value: edits, tint: nil)
         }
         .font(.system(size: 11))
-        .foregroundStyle(LitheTheme.secondaryText)
-        .frame(height: 28)
-        .background(LitheTheme.toolHeaderInactive)
-        .overlay(alignment: .top) { Divider().overlay(LitheTheme.divider) }
+        .foregroundStyle(AgentPanelStyle.muted)
+        .frame(height: 32)
+        .background(AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
+        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AgentPanelStyle.border, lineWidth: 1))
+        .padding(.horizontal, 18)
+        .padding(.bottom, 4)
     }
 
     private func segment(systemImage: String, title: LocalizedStringKey, value: Int, tint: Color?) -> some View {
@@ -181,6 +191,7 @@ struct AgentActivitySummaryBar: View {
 private struct AgentPermissionCard: View {
     let permission: AgentPermissionPrompt
     let answer: (String?) -> Void
+    let onOpenFile: (AgentToolDetails.Location) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -195,13 +206,21 @@ private struct AgentPermissionCard: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 8) {
+            if !permission.details.isEmpty {
+                ScrollView {
+                    AgentToolEvidenceView(details: permission.details, onOpenFile: onOpenFile)
+                }
+                .frame(maxHeight: 180)
+            }
+            VStack(alignment: .leading, spacing: 8) {
                 ForEach(permission.choices) { choice in
                     Button(choice.label) { answer(choice.id) }
-                        .buttonStyle(.borderedProminent)
-                        .tint(LitheTheme.accent)
+                        .buttonStyle(.bordered)
+                        .tint(choice.kind?.hasPrefix("reject") == true ? LitheTheme.error : LitheTheme.accent)
                 }
-                Button("Deny") { answer(nil) }
+                if !permission.choices.contains(where: { $0.kind?.hasPrefix("reject") == true }) {
+                    Button("Deny") { answer(nil) }
+                }
             }
             .controlSize(.small)
         }
@@ -219,6 +238,7 @@ private struct AgentPermissionCard: View {
 
 private struct AgentMessageRow: View {
     let message: AgentConversationMessage
+    var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
 
     var body: some View {
         switch message.role {
@@ -236,15 +256,34 @@ private struct AgentMessageRow: View {
             AgentMarkdownMessage(text: message.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .tool:
-            AgentToolCallRow(message: message)
+            AgentToolCallRow(message: message, onOpenFile: onOpenFile)
         }
     }
 }
 
 private struct AgentToolCallRow: View {
     let message: AgentConversationMessage
+    let onOpenFile: (AgentToolDetails.Location) -> Void
+    @State private var expanded = false
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { expanded.toggle() } label: {
+                header
+            }
+            .buttonStyle(.plain)
+            .help(expanded ? "Hide tool details" : "Show tool details")
+            if expanded && !message.toolDetails.isEmpty {
+                AgentToolEvidenceView(details: message.toolDetails, onOpenFile: onOpenFile)
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 8)
+            }
+        }
+        .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
+    }
+
+    private var header: some View {
         HStack(alignment: .top, spacing: 8) {
             Group {
                 if message.toolStatus == .inProgress || message.toolStatus == .pending {
@@ -261,17 +300,18 @@ private struct AgentToolCallRow: View {
                 .lineLimit(3)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
+            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                .font(.system(size: 10))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
     }
 
     private var icon: String {
         switch message.toolStatus {
         case .completed: "checkmark.circle.fill"
         case .failed: "xmark.circle.fill"
+        case .interrupted: "pause.circle"
         default: "circle.dotted"
         }
     }
@@ -281,6 +321,45 @@ private struct AgentToolCallRow: View {
         case .completed: LitheTheme.success
         case .failed: LitheTheme.error
         default: LitheTheme.tertiaryText
+        }
+    }
+}
+
+private struct AgentToolEvidenceView: View {
+    let details: AgentToolDetails
+    let onOpenFile: (AgentToolDetails.Location) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(details.locations.enumerated()), id: \.offset) { _, location in
+                Button { onOpenFile(location) } label: {
+                    Label(location.path + (location.line.map { ":\($0)" } ?? ""), systemImage: "doc")
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11, design: .monospaced))
+                    .help(location.path)
+            }
+            if let input = details.input { evidence("Input", text: input) }
+            ForEach(Array(details.content.enumerated()), id: \.offset) { _, content in
+                evidence(content.title, text: content.text)
+            }
+            if let output = details.output { evidence("Result", text: output) }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func evidence(_ title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(LitheTheme.secondaryText)
+            ScrollView([.horizontal, .vertical]) {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: 160)
         }
     }
 }

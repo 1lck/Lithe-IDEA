@@ -103,6 +103,12 @@ struct Harness {
     connection: tokio::task::JoinHandle<Result<(), String>>,
 }
 
+impl Drop for Harness {
+    fn drop(&mut self) {
+        self.connection.abort();
+    }
+}
+
 impl Harness {
     fn start() -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
@@ -170,11 +176,11 @@ impl Harness {
         ));
     }
 
-    async fn stop(self) -> Result<(), String> {
+    async fn stop(mut self) -> Result<(), String> {
         self.controls
             .send(Control::Stop)
             .expect("connection running");
-        tokio::time::timeout(WAIT, self.connection)
+        tokio::time::timeout(WAIT, &mut self.connection)
             .await
             .expect("connection stops before deadline")
             .expect("connection task completes")
@@ -200,6 +206,7 @@ fn serialized_events_match_the_shared_fixture() {
             AgentEvent::SessionCreated {
                 token: "token-1".into(),
                 session_id: "session-1".into(),
+                config_options: None,
             },
         ),
         (
@@ -207,6 +214,7 @@ fn serialized_events_match_the_shared_fixture() {
             AgentEvent::SessionLoaded {
                 token: "token-2".into(),
                 session_id: "session-1".into(),
+                config_options: None,
             },
         ),
         (
@@ -412,7 +420,7 @@ async fn agent_without_gateway_sign_in_is_rejected_without_account_login() {
             json!({ "protocolVersion": 1, "authMethods": [{ "id": "chat-gpt", "name": "ChatGPT" }] }),
         )
         .await;
-    let result = tokio::time::timeout(WAIT, harness.connection)
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
         .await
         .expect("connection ends before deadline")
         .expect("connection task completes");
@@ -423,11 +431,9 @@ async fn agent_without_gateway_sign_in_is_rejected_without_account_login() {
     );
 }
 
-// Regression: cancelling must not wait for the agent. codex-acp can lose a
-// cancel that races turn startup and never answer the prompt; the UI must
-// still leave the responding state and accept the next prompt.
+// A lost startup cancel must never allow another prompt into the old turn.
 #[tokio::test(flavor = "current_thread")]
-async fn cancel_ends_the_turn_immediately_and_ignores_the_late_reply() {
+async fn cancel_blocks_the_next_prompt_until_acknowledged() {
     let mut harness = Harness::ready().await;
     harness.open_session("session-1").await;
     harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "first" }));
@@ -437,25 +443,25 @@ async fn cancel_ends_the_turn_immediately_and_ignores_the_late_reply() {
     let cancel = harness.agent.expect("session/cancel").await;
     assert_eq!(cancel["params"]["sessionId"], "session-1");
     match harness.event().await {
-        AgentEvent::TurnFinished {
-            session_id,
-            stop_reason,
-        } => {
-            assert_eq!(
-                (session_id.as_str(), stop_reason.as_str()),
-                ("session-1", "cancelled")
-            );
-        }
-        other => panic!("expected cancelled turn, got {other:?}"),
+        AgentEvent::TurnCancelling { session_id } => assert_eq!(session_id, "session-1"),
+        other => panic!("expected stopping turn, got {other:?}"),
     }
 
-    // A second prompt is accepted before the agent answers the first one.
+    // A second prompt is rejected before the agent answers the first one.
     harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "second" }));
-    let second = harness.agent.expect("session/prompt").await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::RequestFailed { .. }
+    ));
     harness
         .agent
-        .reply(&first, json!({ "stopReason": "end_turn" }))
+        .reply(&first, json!({ "stopReason": "cancelled" }))
         .await;
+    assert!(
+        matches!(harness.event().await, AgentEvent::TurnFinished { stop_reason, .. } if stop_reason == "cancelled")
+    );
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "second" }));
+    let second = harness.agent.expect("session/prompt").await;
     harness
         .agent
         .reply(&second, json!({ "stopReason": "end_turn" }))
@@ -465,6 +471,60 @@ async fn cancel_ends_the_turn_immediately_and_ignores_the_late_reply() {
         AgentEvent::TurnFinished { stop_reason, .. } => assert_eq!(stop_reason, "end_turn"),
         other => panic!("expected the second turn to finish, got {other:?}"),
     }
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn unacknowledged_cancel_ends_the_connection_with_recovery_error() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "first" }));
+    harness.agent.expect("session/prompt").await;
+    harness.send(json!({ "kind": "cancel", "sessionId": "session-1" }));
+    harness.agent.expect("session/cancel").await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnCancelling { .. }
+    ));
+    tokio::time::advance(CANCEL_TIMEOUT).await;
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(result.unwrap_err().contains("Reconnect"));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn session_configuration_round_trips_upstream_options() {
+    let mut harness = Harness::ready().await;
+    let options = fixture()["events"]["sessionConfigured"]["configOptions"].clone();
+    harness.send(json!({ "kind": "newSession", "token": "new" }));
+    let request = harness.agent.expect("session/new").await;
+    harness
+        .agent
+        .reply(
+            &request,
+            json!({ "sessionId": "session-1", "configOptions": options }),
+        )
+        .await;
+    match harness.event().await {
+        AgentEvent::SessionCreated { config_options, .. } => {
+            assert_eq!(serde_json::to_value(config_options).unwrap(), options)
+        }
+        other => panic!("expected session, got {other:?}"),
+    }
+    harness.send(fixture()["commands"]["setConfigOption"].clone());
+    let request = harness.agent.expect("session/set_config_option").await;
+    assert_eq!(request["params"]["configId"], "model");
+    assert_eq!(request["params"]["value"], "example-model");
+    harness
+        .agent
+        .reply(&request, json!({ "configOptions": options }))
+        .await;
+    assert_eq!(
+        serde_json::to_value(harness.event().await).unwrap(),
+        fixture()["events"]["sessionConfigured"]
+    );
     assert_eq!(harness.stop().await, Ok(()));
 }
 
@@ -581,7 +641,7 @@ async fn permission_is_answered_by_the_user_and_rejected_by_cancel() {
     assert_eq!(answer["result"]["outcome"]["outcome"], "cancelled");
     assert!(matches!(
         harness.event().await,
-        AgentEvent::TurnFinished { .. }
+        AgentEvent::TurnCancelling { .. }
     ));
     assert!(
         harness.events.try_recv().is_err(),
@@ -632,7 +692,7 @@ async fn cancel_also_rejects_a_permission_registered_after_the_handle_check() {
     assert!(messages.iter().any(|m| m["method"] == "session/cancel"));
     assert!(matches!(
         harness.event().await,
-        AgentEvent::TurnFinished { .. }
+        AgentEvent::TurnCancelling { .. }
     ));
     assert_eq!(harness.stop().await, Ok(()));
 }
@@ -670,7 +730,9 @@ async fn session_history_is_listed_across_pages_and_loaded() {
     assert_eq!(load["params"]["sessionId"], "s1");
     harness.agent.reply(&load, json!({})).await;
     match harness.event().await {
-        AgentEvent::SessionLoaded { token, session_id } => {
+        AgentEvent::SessionLoaded {
+            token, session_id, ..
+        } => {
             assert_eq!((token.as_str(), session_id.as_str()), ("load", "s1"))
         }
         other => panic!("expected loaded session, got {other:?}"),
@@ -704,9 +766,14 @@ async fn a_busy_session_rejects_a_second_prompt_without_stopping() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn agent_exit_without_a_stop_request_is_reported_as_failure() {
-    let harness = Harness::ready().await;
-    drop(harness.agent);
-    let result = tokio::time::timeout(WAIT, harness.connection)
+    let mut harness = Harness::ready().await;
+    harness
+        .agent
+        .writer
+        .shutdown()
+        .await
+        .expect("close agent output");
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
         .await
         .expect("connection ends before deadline")
         .expect("connection task completes");
