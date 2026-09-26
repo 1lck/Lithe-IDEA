@@ -72,6 +72,34 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
+    func agentDocksBesideTheEditorAndSharesTheRightSlotWithMaven() {
+        // The Agent conversation must keep the editor visible, so it takes the
+        // right dock instead of the bottom tool window. Maven and Agent share
+        // that dock, and neither replaces a bottom tool window.
+        let model = WorkbenchFeatureModel()
+        model.setVisibility(.terminal, isVisible: true)
+        model.setVisibility(.agent, isVisible: true)
+        #expect(model.isVisible(.agent))
+        #expect(model.activeToolWindow == .terminal)
+        #expect(model.activeRightToolWindow == .agent)
+
+        model.setVisibility(.maven, isVisible: true)
+        #expect(model.isVisible(.maven))
+        #expect(!model.isVisible(.agent))
+        #expect(model.isVisible(.terminal))
+
+        model.toggleVisibility(.agent)
+        #expect(model.isVisible(.agent))
+        #expect(!model.isVisible(.maven))
+
+        model.hideBottomToolWindow()
+        #expect(model.isVisible(.agent))
+
+        model.reset()
+        #expect(model.activeRightToolWindow == nil)
+    }
+
+    @Test
     func workspaceResetClearsBothMavenAreas() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.maven, isVisible: true)

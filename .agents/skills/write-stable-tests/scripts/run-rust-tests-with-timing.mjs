@@ -255,7 +255,9 @@ export async function run(
         const suiteDeadlineReached = result.timedOut && testBudget.limitedBySuite;
         const status = result.timedOut
           ? "timeout"
-          : result.code === 0 && /running 0 tests/.test(result.stdout)
+          : result.code === 0 &&
+              (/running 0 tests/.test(result.stdout) ||
+                /test result: ok\. 0 passed; 0 failed; [1-9]\d* ignored/.test(result.stdout))
             ? "skipped"
             : result.code === 0
               ? "passed"

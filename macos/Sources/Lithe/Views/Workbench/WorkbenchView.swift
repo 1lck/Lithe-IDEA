@@ -616,6 +616,8 @@ struct WorkbenchView: View {
                         .font(.system(size: 12.5, weight: isActive ? .semibold : .medium))
                         .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
 
+                    AgentAttentionIndicator(model: projectModel)
+
                     if let documentName = projectModel.activeDocument?.displayName {
                         Text("· \(documentName)")
                             .font(.system(size: 11.5))
@@ -2408,6 +2410,21 @@ struct WorkbenchBackgroundPresetArtwork: View {
             Image(nsImage: image)
                 .resizable()
                 .scaledToFill()
+        }
+    }
+}
+
+/// Marks a project tab whose Agent conversation waits for a permission decision.
+private struct AgentAttentionIndicator: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        if model.agentConversationNeedsAttention {
+            Circle()
+                .fill(LitheTheme.accent)
+                .frame(width: 6, height: 6)
+                .help("The Agent is waiting for your permission")
+                .accessibilityLabel("The Agent is waiting for your permission")
         }
     }
 }

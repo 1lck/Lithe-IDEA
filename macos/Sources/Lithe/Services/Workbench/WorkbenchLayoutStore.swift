@@ -3,7 +3,7 @@ import Foundation
 struct WorkbenchLayout: Codable, Sendable {
     static let defaultMavenPaneWidth: Double = 360
     static let minimumMavenPaneWidth: Double = 300
-    static let maximumMavenPaneWidth: Double = 520
+    static let maximumMavenPaneWidth: Double = 760
     let sidebarWidth: Double
     let topPaneHeight: Double?
     let mavenPaneWidth: Double?

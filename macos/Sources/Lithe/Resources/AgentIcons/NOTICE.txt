@@ -1,0 +1,7 @@
+OpenAI and Claude silhouettes are from @lobehub/icons 5.8.0:
+es/OpenAI/components/Mono.js and es/Claude/components/Mono.js.
+This is the version pinned by jetbrains-cc-gui's webview/package-lock.json.
+SVG paths are unchanged; currentColor is black for AppKit template rendering.
+Upstream: https://github.com/lobehub/lobe-icons
+The accompanying MIT license applies to these assets.
+Brand marks identify the selected agent; no affiliation is implied.

@@ -10,6 +10,9 @@ final class SettingsViewState: ObservableObject {
     @Published var hiddenDirectoriesDraft = ""
     @Published var hiddenFilePatternsDraft = ""
     @Published var aiAPIKeyDraft = ""
+    /// Provider shown in Settings › AI Providers; independent of the one
+    /// commit messages use.
+    @Published var editingProviderID: UUID?
     @Published var isFormatPickerPresented = false
     @Published var detectedTerminalShells: [String] = []
     @Published var knownTerminalShells: [String] = []
@@ -70,6 +73,7 @@ struct SettingsView: View {
         .onChange(of: settings.hiddenDirectoryNames) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.hiddenFilePatterns) { _ in syncVisibilityDrafts() }
         .onChange(of: settings.commitMessageAI.activeProviderID) { _ in syncAIProviderDraft() }
+        .onChange(of: viewState.editingProviderID) { _ in syncAIProviderDraft() }
         .onChange(of: initialCategory) { category in
             viewState.searchQuery = ""
             viewState.selection = category
@@ -191,7 +195,9 @@ struct SettingsView: View {
         case .lsp:
             ["LSP", "Language server"]
         case .ai:
-            ["AI & Commit", "AI provider", "Model", "API key", "Commit message"]
+            ["AI & Commit", "Commit message", "Pull request"]
+        case .providers:
+            ["AI Providers", "AI provider", "Model", "API key", "Endpoint", "Responses", "Anthropic"]
         case .git:
             ["Git", "Fetch", "Tags", "Submodules", "Prune", "Commit identity", "Committer name", "Committer email", "Configuration scope", "user.name", "user.email"]
         case .updates:
@@ -254,6 +260,7 @@ struct SettingsView: View {
                     case .project: EmptyView()
                     case .run: EmptyView()
                     case .ai: aiSettings
+                    case .providers: providersSettings
                     case .git:
                         VStack(alignment: .leading, spacing: 14) {
                             GitExecutionSettingsView(settings: settings)
@@ -674,67 +681,73 @@ struct SettingsView: View {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
-    private var aiSettings: some View {
+    private var providersSettings: some View {
         VStack(alignment: .leading, spacing: 18) {
-            group("AI provider") {
+            group("AI providers") {
                 if settings.commitMessageAI.providers.isEmpty {
                     Text("No AI provider is configured yet.")
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
-                    row("Profile") {
+                    row("Provider") {
                         LitheSettingsSelect(
                             selection: Binding(
-                                get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
-                                set: { settings.selectCommitMessageProvider($0) }
+                                get: { editingProvider?.id ?? settings.commitMessageAI.providers[0].id },
+                                set: { viewState.editingProviderID = $0 }
                             ),
                             options: settings.commitMessageAI.providers.map(\.id),
                             width: 240,
-                            accessibilityLabel: "Profile",
+                            accessibilityLabel: "Provider",
                             title: providerTitle
                         )
+                    }
+                    if let editingProvider {
+                        Text(providerUsage(editingProvider))
+                            .font(LitheTheme.smallFont)
+                            .foregroundStyle(LitheTheme.secondaryText)
                     }
 
                     HStack(spacing: 8) {
                         Button("Add Provider") {
-                            settings.addCommitMessageProvider()
+                            viewState.editingProviderID = settings.addAIProvider()
                             syncAIProviderDraft()
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
 
                         Button("Remove") {
-                            settings.removeActiveCommitMessageProvider()
+                            if let id = editingProvider?.id { settings.removeAIProvider(id) }
+                            viewState.editingProviderID = nil
                             syncAIProviderDraft()
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(settings.activeCommitMessageProvider == nil)
+                        .disabled(editingProvider == nil)
                     }
                 }
 
-                if settings.activeCommitMessageProvider != nil {
-                    TextField("Provider name", text: activeProviderTextBinding(\.name))
+                if editingProvider != nil {
+                    TextField("Provider name", text: editingProviderTextBinding(\.name))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     row("API protocol") {
                         LitheSettingsSelect(
-                            selection: activeProviderProtocolBinding(),
+                            selection: editingProviderProtocolBinding(),
                             options: CommitMessageAPIProtocol.allCases,
                             width: 240,
                             accessibilityLabel: "API protocol",
                             title: \CommitMessageAPIProtocol.title
                         )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     }
-                    TextField("API URL", text: activeProviderTextBinding(\.endpoint))
+                    TextField("API URL", text: editingProviderTextBinding(\.endpoint))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
-                    if settings.activeCommitMessageProvider?.usesInsecureHTTP == true {
+                        .disabled(editingProviderIsConfigurationManaged)
+                    if editingProvider?.usesInsecureHTTP == true {
                         LitheSettingsCheckbox(
-                            isOn: activeProviderBoolBinding(\.allowsInsecureHTTP),
+                            isOn: editingProviderBoolBinding(\.allowsInsecureHTTP),
                             title: "Allow insecure HTTP"
                         )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                         Label(
-                            settings.activeCommitMessageProvider?.allowsInsecureHTTP == true
+                            editingProvider?.allowsInsecureHTTP == true
                                 ? "HTTP sends the API credential without encryption. Use only a trusted endpoint."
                                 : "HTTP is blocked until you explicitly allow it for this provider.",
                             systemImage: "exclamationmark.triangle"
@@ -742,29 +755,29 @@ struct SettingsView: View {
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.warning)
                     }
-                    TextField("Model", text: activeProviderTextBinding(\.model))
+                    TextField("Model", text: editingProviderTextBinding(\.model))
                         .litheSettingsTextField()
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
 
                     HStack(spacing: 8) {
                         SecureField("API key or token", text: $viewState.aiAPIKeyDraft)
                             .litheSettingsTextField()
-                            .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                            .disabled(editingProviderIsConfigurationManaged)
                         Button("Save Key") {
-                            model.saveActiveCommitMessageAPIKey(viewState.aiAPIKeyDraft)
+                            if let editingProvider { model.saveAPIKey(viewState.aiAPIKeyDraft, for: editingProvider) }
                         }
                         .buttonStyle(LitheSecondaryButtonStyle())
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
                     }
 
                     LitheSettingsCheckbox(
-                        isOn: activeProviderBoolBinding(\.requiresAPIKey),
+                        isOn: editingProviderBoolBinding(\.requiresAPIKey),
                         title: "Provider requires an API key"
                     )
-                        .disabled(model.activeCommitMessageCredentialIsConfigurationManaged)
+                        .disabled(editingProviderIsConfigurationManaged)
 
-                    if model.activeCommitMessageCredentialIsConfigurationManaged,
-                       let description = model.activeCommitMessageConfigurationSourceDescription {
+                    if editingProviderIsConfigurationManaged,
+                       let description = editingProvider.flatMap(model.configurationSourceDescription(for:)) {
                         Text(LocalizedStringKey(description))
                             .font(LitheTheme.smallFont)
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -832,11 +845,64 @@ struct SettingsView: View {
                     }
                 }
 
-                if !model.activeCommitMessageCredentialIsConfigurationManaged {
+                if !editingProviderIsConfigurationManaged {
                     Text("API keys are stored in Lithe's local application data and are never written to Lithe settings.")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
+            }
+
+        }
+        .frame(maxWidth: 760, alignment: .leading)
+    }
+
+    /// Provider being edited, falling back to the commit message provider.
+    private var editingProvider: AIProviderProfile? {
+        let providers = settings.commitMessageAI.providers
+        return providers.first { $0.id == viewState.editingProviderID }
+            ?? settings.activeCommitMessageProvider
+            ?? providers.first
+    }
+
+    private var editingProviderIsConfigurationManaged: Bool {
+        editingProvider.map(model.credentialIsConfigurationManaged(_:)) ?? false
+    }
+
+    /// Which features use `provider`, e.g. "Used by: commit messages, Codex".
+    private func providerUsage(_ provider: AIProviderProfile) -> String {
+        var users: [String] = []
+        if settings.commitMessageAI.activeProviderID == provider.id { users.append(String(localized: "commit messages")) }
+        users += settings.agentConfigurations.values
+            .filter { $0.providerID == provider.id }
+            .map(\.name)
+            .sorted()
+        return users.isEmpty
+            ? String(localized: "Not used yet.")
+            : String(format: String(localized: "Used by: %@"), users.joined(separator: ", "))
+    }
+
+    private var aiSettings: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            group("Provider") {
+                if settings.commitMessageAI.providers.isEmpty {
+                    Text("Add an AI provider in AI Providers first.")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                } else {
+                    row("Commit messages use") {
+                        LitheSettingsSelect(
+                            selection: Binding(
+                                get: { settings.commitMessageAI.activeProviderID ?? settings.commitMessageAI.providers[0].id },
+                                set: { settings.selectCommitMessageProvider($0) }
+                            ),
+                            options: settings.commitMessageAI.providers.map(\.id),
+                            width: 240,
+                            accessibilityLabel: "Commit message provider",
+                            title: providerTitle
+                        )
+                    }
+                }
+                Button("Manage AI Providers…") { viewState.selection = .providers }
+                    .buttonStyle(LitheSecondaryButtonStyle())
             }
 
             group("Commit message generation") {
@@ -1343,7 +1409,7 @@ struct SettingsView: View {
     }
 
     private func syncAIProviderDraft() {
-        viewState.aiAPIKeyDraft = model.activeCommitMessageAPIKey
+        viewState.aiAPIKeyDraft = editingProvider.map(model.apiKey(for:)) ?? ""
     }
 
     private func providerTitle(_ id: UUID) -> String {
@@ -1358,43 +1424,39 @@ struct SettingsView: View {
         syncAIProviderDraft()
     }
 
-    private func activeProviderTextBinding(
+    private func editingProviderTextBinding(
         _ keyPath: WritableKeyPath<AIProviderProfile, String>
     ) -> Binding<String> {
         Binding(
-            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? "" },
+            get: { editingProvider?[keyPath: keyPath] ?? "" },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider[keyPath: keyPath] = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider[keyPath: keyPath] = value }
             }
         )
     }
 
-    private func activeProviderProtocolBinding() -> Binding<CommitMessageAPIProtocol> {
+    private func editingProviderProtocolBinding() -> Binding<CommitMessageAPIProtocol> {
         Binding(
-            get: { settings.activeCommitMessageProvider?.apiProtocol ?? .responses },
+            get: { editingProvider?.apiProtocol ?? .responses },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider.apiProtocol = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider.apiProtocol = value }
             }
         )
     }
 
-    private func activeProviderBoolBinding(
+    private func editingProviderBoolBinding(
         _ keyPath: WritableKeyPath<AIProviderProfile, Bool>
     ) -> Binding<Bool> {
         Binding(
-            get: { settings.activeCommitMessageProvider?[keyPath: keyPath] ?? true },
+            get: { editingProvider?[keyPath: keyPath] ?? true },
             set: { value in
-                settings.updateActiveCommitMessageProvider { provider in
-                    provider[keyPath: keyPath] = value
-                }
+                guard let id = editingProvider?.id else { return }
+                settings.updateAIProvider(id) { provider in provider[keyPath: keyPath] = value }
             }
         )
     }
-
 
     private var footer: some View {
         HStack {

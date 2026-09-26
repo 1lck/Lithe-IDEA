@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "commands": {
+    "newSession": { "kind": "newSession", "token": "token-1" },
+    "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
+    "listSessions": { "kind": "listSessions", "token": "token-3" },
+    "prompt": { "kind": "prompt", "sessionId": "session-1", "text": "Explain this project" },
+    "cancel": { "kind": "cancel", "sessionId": "session-1" },
+    "setConfigOption": { "kind": "setConfigOption", "token": "config-1", "sessionId": "session-1", "configId": "model", "value": "example-model" },
+    "allowPermission": { "kind": "permission", "requestId": "permission-1", "optionId": "allow_once" },
+    "denyPermission": { "kind": "permission", "requestId": "permission-1", "optionId": null }
+  },
+  "events": {
+    "ready": {
+      "kind": "ready",
+      "agentName": "example-agent",
+      "agentVersion": "1.0.0",
+      "canLoadSessions": true,
+      "canListSessions": true
+    },
+    "sessionCreated": { "kind": "sessionCreated", "token": "token-1", "sessionId": "session-1" },
+    "sessionLoaded": { "kind": "sessionLoaded", "token": "token-2", "sessionId": "session-1" },
+    "sessionConfigured": {
+      "kind": "sessionConfigured", "token": "config-1", "sessionId": "session-1",
+      "configOptions": [
+        { "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "example-model", "options": [{ "value": "example-model", "name": "Example Model" }] },
+        { "id": "mode", "name": "Permissions", "category": "mode", "type": "select", "currentValue": "read-only", "options": [{ "value": "read-only", "name": "Read Only" }, { "value": "auto", "name": "Auto" }] },
+        { "id": "reasoning_effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "medium", "options": [{ "value": "medium", "name": "Medium" }, { "value": "high", "name": "High" }] }
+      ]
+    },
+    "turnCancelling": { "kind": "turnCancelling", "sessionId": "session-1" },
+    "sessions": {
+      "kind": "sessions",
+      "token": "token-3",
+      "sessions": [
+        { "sessionId": "session-1", "title": "Explain this project", "updatedAt": "2026-09-25T10:00:00Z" },
+        { "sessionId": "session-2", "title": null, "updatedAt": null }
+      ]
+    },
+    "userMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": "Explain this project" } }
+    },
+    "agentMessageChunk": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "agent_message_chunk", "content": { "type": "text", "text": "This project **builds** an IDE." } }
+    },
+    "toolCall": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "call-1", "title": "Run tests", "kind": "execute", "rawInput": { "command": "node --test" }, "locations": [{ "path": "src/main.js", "line": 1 }] }
+    },
+    "toolCallUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "1 test passed" } }], "rawOutput": { "exitCode": 0 } }
+    },
+    "sessionInfo": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "title": "Project overview" }
+    },
+    "permission": {
+      "kind": "permission",
+      "sessionId": "session-1",
+      "requestId": "permission-1",
+      "request": {
+        "sessionId": "session-1",
+        "toolCall": { "toolCallId": "call-1", "title": "Run tests", "rawInput": { "command": "node --test" } },
+        "options": [
+          { "optionId": "allow_once", "name": "Allow Once", "kind": "allow_once" },
+          { "optionId": "reject_once", "name": "Reject", "kind": "reject_once" }
+        ]
+      }
+    },
+    "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
+    "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },
+    "requestFailed": {
+      "kind": "requestFailed",
+      "token": null,
+      "sessionId": "session-1",
+      "message": "The Agent is still responding in this conversation"
+    },
+    "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
+  }
+}

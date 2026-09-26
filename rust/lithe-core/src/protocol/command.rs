@@ -34,6 +34,14 @@ pub struct CoreRequest {
 pub enum CoreCommand {
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
+    AgentStatus,
+    /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
+    AgentInstall,
+    /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
+    AgentUninstall,
+    /// Installs or updates an agent's own CLI globally with the user's npm (`agent.installCli`).
+    AgentInstallCli,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -312,6 +320,10 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "agent.status" => Some(Self::AgentStatus),
+            "agent.install" => Some(Self::AgentInstall),
+            "agent.uninstall" => Some(Self::AgentUninstall),
+            "agent.installCli" => Some(Self::AgentInstallCli),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),

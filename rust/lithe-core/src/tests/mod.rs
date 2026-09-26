@@ -1,3 +1,4 @@
+mod agent;
 mod detectors;
 mod git;
 mod git_fetch;

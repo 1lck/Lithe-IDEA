@@ -12,6 +12,9 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
+int32_t lithe_agent_send_json(void *handle, const char *command);
+void lithe_agent_close(void *handle);
 ```
 
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
@@ -35,6 +38,61 @@ spawn failures clean it up, while successful launches retain it until that exact
 process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
+
+The ACP Agent calls use an opaque handle for one agent process and connection
+per workspace and agent; one connection carries many conversation sessions.
+`lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
+"args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
+"provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
+"baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
+"allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
+installed by `agent.install` under `dataDirectory`. Every agent signs in through
+the ACP `gateway` method over stdio: Responses providers send
+`Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
+user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
+non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+a user-provided agent that must support gateway sign-in with a Responses
+provider. Agents start with the executable's directory and the login shell's
+`PATH` first. Account logins offered by agents are never used. Invalid settings
+and launch failures are reported as a `stopped` event with a message.
+
+`lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
+`listSessions`, `setConfigOption`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
+`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+their camel-case field names, are fixed by
+`shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
+can correlate concurrent requests. `stopReason` uses ACP wire names such as
+`end_turn` and `cancelled`.
+
+`sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
+`setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
+string `value`; the host uses ACP `session/set_config_option`. Its acknowledged
+full option list arrives as `sessionConfigured`. Consumers also accept ACP
+`config_option_update` notifications. Agent-provided IDs, choices and current
+values remain authoritative; unsupported controls are not synthesized.
+Configuration failure echoes the token and does not finish a prompt.
+
+A `cancel` answers pending permissions with `cancelled`, sends one
+ACP `session/cancel`, and reports `turnCancelling`. The session remains busy
+until its prompt response arrives. A second prompt and configuration changes
+are rejected while it is busy. If the agent fails to acknowledge within ten
+seconds, the connection fails and its process tree is stopped; clients retain
+the visible transcript and offer reconnect followed by `session/load`. This
+explicit recovery prevents another message from entering a lost cancelled turn.
+Other sessions on the same process are also detached on this failure.
+Normal cancellation does not restart the process.
+
+Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
+`content` (including diffs). Partial updates replace only fields supplied by
+the agent. Permission displays combine already received tool details with the
+permission request, and distinguish allow/reject option kinds.
+
+The caller must close each handle
+exactly once; closing revokes callbacks and stops the process tree, force
+killing processes that do not exit after a short grace period. The callback
+context must remain valid until close returns. This API is owned by
+`lithe-agent-host` and is separate from the synchronous JSON command envelope.
 
 ## Envelope
 
@@ -77,6 +135,32 @@ stable error code and a user-facing message:
 ```
 
 ## Commands
+
+### Agent adapters
+
+`agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
+`<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
+Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
+detects Node.js and npm through the login shell's `PATH` and lists every
+supported agent with its pinned version, installed version, provider protocol,
+and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+CLI found on that `PATH` with its minimum version; they are installed with
+`--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
+with the user's CLI through the adapter's variable (`CODEX_PATH`,
+`CLAUDE_CODE_EXECUTABLE`). A missing or
+too old CLI is an issue for the user to resolve, never installed by Lithe.
+`agent.install` runs `npm install` into a staging directory
+and replaces the previous install only after the adapter executable exists; it
+honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
+`runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with
+its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
+results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
+
+`agent.installCli` runs `npm install -g <package>@latest` with the user's npm for
+the agent's own CLI (`cli.package` in `agent.status`), then reports the version
+found on the search path as `cliVersion`. It is the only global npm install
+Lithe performs and runs only on an explicit user action; it never installs
+Node.js or npm.
 
 | Command | Purpose |
 | --- | --- |

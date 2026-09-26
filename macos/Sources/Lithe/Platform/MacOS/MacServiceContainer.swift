@@ -1,5 +1,6 @@
 import Foundation
 import LitheAIAssistanceModule
+import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
 import LitheDatabaseModule
@@ -179,6 +180,12 @@ final class MacServiceContainer {
                     transportFactory: { MacURLSessionTransport() },
                     credentialResolver: credentialResolver
                 )
+            })
+            try moduleRegistry.register(ModuleFactory(
+                manifest: AgentConversationModule.moduleManifest,
+                contributions: AgentConversationModule.moduleContributions
+            ) {
+                AgentConversationModule(transportFactory: { MacACPAgentTransport() })
             })
             try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
                 DatabaseModule(
@@ -620,6 +627,7 @@ final class MacServiceContainer {
             databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
+            agentManagement: RustAgentManagementService(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),
