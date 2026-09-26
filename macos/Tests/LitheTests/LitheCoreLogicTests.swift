@@ -5634,6 +5634,42 @@ struct EditorDocumentTests {
         #expect(operations.readACount == (readFails || discarded ? 2 : 1))
     }
 
+    @Test
+    @MainActor
+    func externalBinaryReplacementInvalidatesOpenTabIcon() async throws {
+        let workspace = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: workspace) }
+        let file = workspace.appendingPathComponent(".swift-version")
+        try Data("6.3.3\n".utf8).write(to: file)
+        let storage = MacFileStorage()
+        let model = DocumentFeatureModel(
+            operations: EmptyWorkspaceOperations(readFileValue: "6.3.3\n"),
+            documentLifecycleDecider: PreviewExternalChangeLifecycleDecider(),
+            fileOperations: MacWorkspaceFileOperations(), fileStorage: storage,
+            binaryFileViewerRegistry: BinaryFileViewerRegistry()
+        )
+        defer { model.reset() }
+        model.configure(
+            workspaceURLProvider: { workspace }, autoSaveEnabledProvider: { false }, autoSaveDelayProvider: { 0 },
+            notify: { _ in }, onDocumentOpened: { _ in }, onDocumentChanged: { _ in }, onDocumentClosed: { _ in },
+            onRecordSave: { _, _ in }, onRecordDiscard: { _ in }, onRecordExternalChanges: { _ in },
+            onDocumentCollectionChanged: {}, onProjectCloseReady: {}
+        )
+        await model.openFileAsync(file, isReadOnly: false, displayPath: nil, activateWhenReady: true)
+        let document = try #require(model.activeDocument)
+        let initialRevision = document.iconContentRevision
+        let initialIcon = await WorkspaceFileIconResolver.resolve(for: file, suggested: .generic, storage: storage)
+        #expect(initialIcon.kind == .plainText)
+
+        try Data([0, 0xFF, 0]).write(to: file)
+        await model.reconcileExternalChanges([file])
+
+        let currentIcon = await WorkspaceFileIconResolver.resolve(for: file, suggested: .generic, storage: storage)
+        #expect(document.iconContentRevision > initialRevision)
+        #expect(currentIcon.kind == .binary)
+    }
+
     @Test(arguments: ["watcher", "remoteWatcher", "reopen", "promotion", "save"])
     @MainActor
     func previewExternalChangesNeverSilentlyOverwriteDisk(trigger: String) async throws {

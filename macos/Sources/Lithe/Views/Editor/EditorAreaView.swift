@@ -14,6 +14,48 @@ enum EditorDocumentIconResolver {
     }
 }
 
+private struct EditorDocumentTabIcon: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var document: EditorDocument
+    let size: CGFloat
+    @State private var resolvedKind: LitheIconKind?
+
+    private struct ResolutionKey: Hashable {
+        let path: String
+        let contentRevision: UInt64
+    }
+
+    private var resolutionKey: ResolutionKey {
+        ResolutionKey(path: document.url.standardizedFileURL.path,
+                      contentRevision: document.iconContentRevision)
+    }
+
+    var body: some View {
+        LitheIcon(
+            kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
+            size: size
+        )
+        .task(id: resolutionKey) {
+            let key = resolutionKey
+            let url = document.url
+            resolvedKind = nil
+            if url.pathExtension.lowercased() == "java" {
+                guard let kind = await model.javaIconKind(for: url),
+                      !Task.isCancelled, resolutionKey == key else { return }
+                resolvedKind = kind
+            } else if LitheIcons.kind(for: url, isDirectory: false) == .generic {
+                let resolved = await WorkspaceFileIconResolver.resolve(
+                    for: url,
+                    suggested: .generic,
+                    storage: model.services.fileStorage
+                )
+                guard !Task.isCancelled, resolutionKey == key else { return }
+                resolvedKind = resolved.kind
+            }
+        }
+    }
+}
+
 enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
     case editor
     case split
@@ -53,7 +95,6 @@ struct EditorAreaView: View {
     @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
-    @State private var resolvedDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
@@ -674,7 +715,7 @@ struct EditorAreaView: View {
         isActive: Bool
     ) -> some View {
         let label = HStack(spacing: 7) {
-            editorDocumentIcon(document, size: 13)
+            EditorDocumentTabIcon(document: document, size: 13)
             editorTabTitle(document)
             EditorTabDirtyIndicator(document: document)
         }
@@ -741,7 +782,7 @@ struct EditorAreaView: View {
 
     private func editorTabDragPreview(_ document: EditorDocument) -> some View {
         HStack(spacing: 7) {
-            editorDocumentIcon(document, size: 13)
+            EditorDocumentTabIcon(document: document, size: 13)
                 .foregroundStyle(LitheTheme.accent)
 
             Text(document.displayName)
@@ -1100,36 +1141,6 @@ struct EditorAreaView: View {
             } else {
                 externalConflictBanner
                 activeEditor
-            }
-        }
-    }
-
-    private func editorDocumentIcon(
-        _ document: EditorDocument,
-        size: CGFloat
-    ) -> some View {
-        let path = document.url.standardizedFileURL.path
-        let resolvedKind = resolvedDocumentIconKinds[path]
-        return LitheIcon(
-            kind: EditorDocumentIconResolver.kind(
-                for: document.url,
-                resolvedKind: resolvedKind
-            ),
-            size: size
-        )
-        .task(id: path) {
-            guard resolvedKind == nil else { return }
-            if document.url.pathExtension.lowercased() == "java" {
-                guard let kind = await model.javaIconKind(for: document.url), !Task.isCancelled else { return }
-                resolvedDocumentIconKinds[path] = kind
-            } else if LitheIcons.kind(for: document.url, isDirectory: false) == .generic {
-                let resolved = await WorkspaceFileIconResolver.resolve(
-                    for: document.url,
-                    suggested: .generic,
-                    storage: model.services.fileStorage
-                )
-                guard !Task.isCancelled else { return }
-                resolvedDocumentIconKinds[path] = resolved.kind
             }
         }
     }

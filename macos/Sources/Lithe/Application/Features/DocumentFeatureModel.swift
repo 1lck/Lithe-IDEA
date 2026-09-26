@@ -1144,6 +1144,7 @@ final class DocumentFeatureModel: ObservableObject {
     func processExternalChanges(_ urls: [URL]) -> Bool {
         let changedPaths = Set(urls.map { $0.standardizedFileURL.path })
         for document in observedDocuments where changedPaths.contains(document.url.standardizedFileURL.path) {
+            document.invalidateIconContent()
             if let metadata = fileStorage.metadata(for: document.url) {
                 document.updateFileSystemWritable(metadata.isWritable)
             }
