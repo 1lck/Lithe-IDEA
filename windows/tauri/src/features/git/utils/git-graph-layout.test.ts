@@ -39,6 +39,25 @@ describe("Git graph layout", () => {
     expect(layout.hasMissingParents).toBe(false);
   });
 
+  test("starts a branch tip lane at its node instead of above it", () => {
+    // Regression: the newest commit drew a lane segment above its node with nothing above it.
+    const layout = layoutGitGraph([
+      commit("tip", ["base"], "HEAD -> feature"),
+      commit("base", ["root"]),
+      commit("side", ["root"], "main"),
+      commit("root"),
+    ]);
+
+    expect(layout.rows[0].incomingLaneColors[layout.rows[0].lane]).toBeNull();
+    expect(layout.rows[1].incomingLaneColors[layout.rows[1].lane]).toBe(layout.rows[1].colorIndex);
+    const side = layout.rows[2];
+    expect(side.incomingLaneColors[side.lane]).toBeNull();
+    // Lanes of other branches passing through the tip row are still drawn.
+    expect(side.incomingLaneColors[layout.rows[1].lane]).not.toBeNull();
+    // The node keeps its own lane color even though its lane has no incoming segment.
+    expect(side.colorIndex).not.toBe(layout.rows[1].colorIndex);
+  });
+
   test("marks parents outside the cumulative snapshot as missing", () => {
     const layout = layoutGitGraph([commit("visible", ["not-loaded"])]);
 

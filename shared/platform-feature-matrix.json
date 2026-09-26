@@ -395,7 +395,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方。"
     },
     {
       "id": "git-rebase-stash",

@@ -13,7 +13,7 @@ search-replace,搜索,搜索与导航,项目替换与取消,已实现,待验证,
 git-status-commit,版本控制,Git,状态、暂存与提交,已实现,待验证,已实现,待验证,Git,修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。,,macos/Sources/Lithe/Views/Git; macos/Sources/Lithe/Services,windows/tauri/src/features/git; shared/contracts/application-boundary.md
 git-branches-remotes,版本控制,Git,分支、标签与远程,已实现,待验证,已实现,待验证,Git,创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。,,macos/Sources/Lithe/Views/Git,windows/tauri/src/features/git
 git-diff-review,版本控制,Git,Diff 与变更审查,已实现,待验证,已实现,待验证,Git,验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位。,,macos/Sources/Lithe/Views/Git; macos/Sources/Lithe/Views/Diff,windows/tauri/src/features/git; windows/tauri/src/features/viewer
-git-history,版本控制,Git,提交历史与图谱,已实现,待验证,已实现,待验证,Git,分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致。,,macos/Sources/Lithe/Views/Git,windows/tauri/src/features/git
+git-history,版本控制,Git,提交历史与图谱,已实现,待验证,已实现,待验证,Git,分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方。,,macos/Sources/Lithe/Views/Git,windows/tauri/src/features/git
 git-rebase-stash,版本控制,Git,Rebase 与 Stash,已实现,待验证,已实现,待验证,Git,执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。,,macos/Sources/Lithe/Views/Git,windows/tauri/src/features/git
 git-worktrees,版本控制,Git,Worktree 管理,已实现,待验证,已实现,待验证,Git,列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。,,macos/Sources/Lithe/Views/Git,windows/tauri/src/features/git
 github-prs,协作,GitHub,Pull Request 列表与详情,已实现,待验证,已实现,待验证,GitHub,使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。,,macos/Sources/Lithe/Views/GitHub; macos/Sources/Lithe/Services/GitHub,windows/tauri/src/features/github; shared/contracts/application-boundary.md
