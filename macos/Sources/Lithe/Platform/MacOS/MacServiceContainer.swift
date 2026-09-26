@@ -249,9 +249,7 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
-                        configurationCacheDirectoryURL: languageServerCacheDirectory
-                    )
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,

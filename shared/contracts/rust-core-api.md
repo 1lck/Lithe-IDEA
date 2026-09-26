@@ -1207,7 +1207,17 @@ legacy optional `javaDebugBundlePath`, and ordered
 `runtimeExecutablePath`. Rust loads the legacy Debug bundle first when present,
 then appends the extension bundle paths with stable de-duplication. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
-complete deterministic JDT LS JVM argument list. When the structured object is
+complete deterministic JDT LS JVM argument list. `configurationDirectory` names
+the packaged, read-only configuration; Rust never passes it to Equinox, which
+writes framework state into its `-configuration` directory. Rust copies the
+directory's `config.ini` into
+`cacheDirectory/jdtls-configuration/<config.ini SHA-256>/configuration`,
+rewrites a missing or damaged copy, and passes that directory instead. A
+`cacheDirectory` that resolves inside the JDT LS installation, including
+through a symbolic link, fails with `invalid_request` before anything is written;
+a missing `config.ini` fails with `process_start_failed`. Areas of other digests
+unused for the JDT cache retention period are removed after the area is
+prepared, and a removal failure is logged without failing the start. When the structured object is
 absent, the selected `executablePath` and legacy wrapper arguments remain the
 compatibility path. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request

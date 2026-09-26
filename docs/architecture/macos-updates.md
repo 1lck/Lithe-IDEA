@@ -93,13 +93,15 @@ Support, temporary storage, or the user's workspace. A resource resolver may
 read `Bundle.main.resourceURL`, but it must never use that path as a write
 destination.
 
-The macOS JDTLS resolver copies the architecture-specific configuration into
-`Caches/Lithe/language-servers/jdtls/configurations/` using a `config.ini`
-SHA-256 identity and an atomic staging move. JDTLS receives that cache path, so
-its OSGi files cannot modify `Contents/Resources`. Windows/Tauri uses
-`app_cache_dir()` for the corresponding language-server state. New runtime
-resources must document their lifecycle, owner, writable location, and whether
-they affect signing or delta generation in the code or an Agent Note.
+JDTLS is the one bundled runtime that writes next to its own files: Equinox
+stores its framework state in the `-configuration` directory. Rust Core copies
+the packaged `config.ini` into
+`Caches/Lithe/language-servers/jdtls-configuration/<sha256>/configuration/` and
+passes that directory instead, so its OSGi files cannot modify
+`Contents/Resources`. The Windows product uses the same Core path with
+`app_cache_dir()`. New runtime resources must document their lifecycle, owner,
+writable location, and whether they affect signing or delta generation in the
+code or an Agent Note.
 
 The full ZIP fallback is not a successful differential update: it only means
 Sparkle recovered by downloading the complete archive. Before publishing, run

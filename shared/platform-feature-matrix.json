@@ -755,7 +755,7 @@
         "evidence": [
           "macos/Sources/Lithe/Core/Language",
           "macos/Sources/Lithe/Services/Language",
-          "macos/Sources/Lithe/Platform/MacOS/Runtime/MacJDTLSLaunchResourceResolver.swift"
+          "rust/lithe-core/src/lsp/languages/jdt_configuration.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -764,13 +764,14 @@
         "evidence": [
           "windows/tauri/src/features",
           "windows/tauri/src-tauri/src/lsp.rs",
+          "rust/lithe-core/src/lsp/languages/jdt_configuration.rs",
           "shared/fixtures/lsp"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Language Tooling",
-      "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装 app bundle 的文件清单和 SHA-256 不变。"
+      "verification": "在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。"
     },
     {
       "id": "lsp-completion-hover",
