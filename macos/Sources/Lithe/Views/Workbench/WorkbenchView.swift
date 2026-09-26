@@ -2008,8 +2008,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     onCommit: actions.onSidebarWidthCommitted,
                     sized: {
                         sidebar
-                            .frame(maxHeight: .infinity)
-                            .workbenchPaneChrome(
+                            .workbenchResizablePaneChrome(
                                 background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                                 roundsCorners: !hasWorkbenchBackground,
@@ -2093,6 +2092,26 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 }
 
 extension View {
+    /// Position pane notches at the visible drag width, not the content's intrinsic width.
+    func workbenchResizablePaneChrome(
+        background: Color,
+        surrounding: Color,
+        alignment: Alignment = .topLeading,
+        roundsCorners: Bool = true,
+        showsFrameGradient: Bool = false
+    ) -> some View {
+        GeometryReader { proxy in
+            self
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: alignment)
+                .workbenchPaneChrome(
+                    background: background,
+                    surrounding: surrounding,
+                    roundsCorners: roundsCorners,
+                    showsFrameGradient: showsFrameGradient
+                )
+        }
+    }
+
     /// Draws pane rounding without masking AppKit-backed editor and tool views.
     func workbenchPaneChrome(
         background: Color,

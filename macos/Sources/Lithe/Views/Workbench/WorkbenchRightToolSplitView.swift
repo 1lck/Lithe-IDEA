@@ -78,10 +78,10 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 },
                 sized: {
                     tool
-                        .frame(maxHeight: .infinity)
-                        .workbenchPaneChrome(
+                        .workbenchResizablePaneChrome(
                             background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                             surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                            alignment: .topTrailing,
                             roundsCorners: !hasWorkbenchBackground,
                             showsFrameGradient: showsFrameGradient
                         )
