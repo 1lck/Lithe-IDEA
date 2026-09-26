@@ -12,7 +12,7 @@ struct EditorTabLayoutTests {
         let url = URL(fileURLWithPath: "/workspace/UploadService.java")
 
         #expect(
-            EditorDocumentIconResolver.kind(for: url, resolvedJavaKind: .javaInterface)
+            EditorDocumentIconResolver.kind(for: url, resolvedKind: .javaInterface)
                 == .javaInterface
         )
     }
@@ -22,9 +22,17 @@ struct EditorTabLayoutTests {
         let url = URL(fileURLWithPath: "/workspace/UploadService.java")
 
         #expect(
-            EditorDocumentIconResolver.kind(for: url, resolvedJavaKind: nil)
+            EditorDocumentIconResolver.kind(for: url, resolvedKind: nil)
                 == .javaGeneric
         )
+    }
+
+    @Test
+    func extensionlessTextTabUsesTheResolvedProjectTreeIcon() {
+        let url = URL(fileURLWithPath: "/in-memory/.swift-version")
+
+        #expect(EditorDocumentIconResolver.kind(for: url, resolvedKind: nil) == .generic)
+        #expect(EditorDocumentIconResolver.kind(for: url, resolvedKind: .plainText) == .plainText)
     }
 
     @Test

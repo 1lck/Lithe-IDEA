@@ -165,7 +165,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态。"
+      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本与二进制文件，确认标签图标和项目树一致。"
     },
     {
       "id": "editor-language-basics",
