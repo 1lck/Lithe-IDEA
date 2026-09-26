@@ -57,6 +57,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import Tooltip from "../../../ui/tooltip";
 import TerminalTabBarItem from "./terminal-tab-bar-item";
 import TerminalTabContextMenu from "./terminal-tab-context-menu";
+import { HorizontalTerminalTabStrip } from "./terminal-tab-strip";
 
 interface ToolbarContextMenuProps {
   isOpen: boolean;
@@ -587,6 +588,58 @@ const TerminalTabBar = ({
     },
   }));
 
+  const renderTerminalTab = (terminal: Terminal) => {
+    const index = sortedTerminals.findIndex((item) => item.id === terminal.id);
+
+    return (
+      <SortableTab
+        key={terminal.id}
+        id={terminal.id}
+        orientation={orientation}
+        tabRef={(el) => {
+          tabRefs.current[index] = el;
+        }}
+        disabled={editingTerminalId === terminal.id}
+        onClickCapture={getClickCapture(terminal.id)}
+      >
+        {({ isDragging }) => (
+          <TerminalTabBarItem
+            terminal={terminal}
+            displayName={getTerminalDisplayName(terminal)}
+            orientation={orientation}
+            isActive={terminal.id === activeTerminalId}
+            isDraggedTab={isDragging}
+            showDropIndicatorBefore={false}
+            tabRef={() => {}}
+            onClick={() => onTabClick(terminal.id)}
+            onContextMenu={(e) => handleContextMenu(e, terminal)}
+            onKeyDown={(event) => handleKeyDown(event, terminal.id)}
+            handleTabClose={handleTabCloseWrapper}
+            handleTabPin={handleTabPin}
+            isEditing={editingTerminalId === terminal.id}
+            editingName={editingName}
+            onEditingNameChange={setEditingName}
+            onRenameSubmit={commitRename}
+            onRenameCancel={cancelRename}
+          />
+        )}
+      </SortableTab>
+    );
+  };
+
+  const handleTabListWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    const container = e.currentTarget;
+    if (!container) return;
+
+    if (orientation === "vertical") {
+      container.scrollTop += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+    } else {
+      const deltaX = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+      container.scrollLeft += deltaX;
+    }
+    e.preventDefault();
+  };
+
   const getClientPoint = (event: Event) => {
     const candidate = event as Partial<MouseEvent>;
     if (typeof candidate.clientX === "number" && typeof candidate.clientY === "number") {
@@ -804,128 +857,32 @@ const TerminalTabBar = ({
 
           {/* Tab list */}
           <SortableContext items={sortedTerminalIds} strategy={sortableStrategy}>
-            <div
-              className={cn(
-                "min-w-0 flex-1 overflow-hidden",
-                orientation === "vertical"
-                  ? "flex flex-col gap-0.5 px-1.5 py-1"
-                  : "flex items-center gap-0.5",
-              )}
-            >
-              {pinnedTerminals.length > 0 && (
-                <div
-                  className={cn(
-                    "shrink-0",
-                    orientation === "vertical"
-                      ? "flex flex-col gap-0.5 pb-0.5"
-                      : "flex items-center gap-0.5 pr-0.5",
-                  )}
-                >
-                  {pinnedTerminals.map((terminal) => {
-                    const index = sortedTerminals.findIndex((item) => item.id === terminal.id);
-
-                    return (
-                      <SortableTab
-                        key={terminal.id}
-                        id={terminal.id}
-                        orientation={orientation}
-                        tabRef={(el) => {
-                          tabRefs.current[index] = el;
-                        }}
-                        disabled={editingTerminalId === terminal.id}
-                        onClickCapture={getClickCapture(terminal.id)}
-                      >
-                        {({ isDragging }) => (
-                          <TerminalTabBarItem
-                            terminal={terminal}
-                            displayName={getTerminalDisplayName(terminal)}
-                            orientation={orientation}
-                            isActive={terminal.id === activeTerminalId}
-                            isDraggedTab={isDragging}
-                            showDropIndicatorBefore={false}
-                            tabRef={() => {}}
-                            onClick={() => onTabClick(terminal.id)}
-                            onContextMenu={(e) => handleContextMenu(e, terminal)}
-                            onKeyDown={(event) => handleKeyDown(event, terminal.id)}
-                            handleTabClose={handleTabCloseWrapper}
-                            handleTabPin={handleTabPin}
-                            isEditing={editingTerminalId === terminal.id}
-                            editingName={editingName}
-                            onEditingNameChange={setEditingName}
-                            onRenameSubmit={commitRename}
-                            onRenameCancel={cancelRename}
-                          />
-                        )}
-                      </SortableTab>
-                    );
-                  })}
-                </div>
-              )}
-
-              <div
-                className={cn(
-                  "scrollbar-hidden min-w-0",
-                  // Horizontally the list only grows to fit its tabs so the new-terminal actions
-                  // follow the last tab, then shrinks and scrolls once the tabs overflow.
-                  orientation === "vertical"
-                    ? "flex flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
-                    : "flex flex-initial items-center gap-0.5 overflow-x-auto overflow-y-hidden",
+            {orientation === "horizontal" ? (
+              <HorizontalTerminalTabStrip
+                pinnedTabs={
+                  pinnedTerminals.length > 0 ? pinnedTerminals.map(renderTerminalTab) : null
+                }
+                regularTabs={regularTerminals.map(renderTerminalTab)}
+                actions={newTerminalActions}
+                onWheel={handleTabListWheel}
+              />
+            ) : (
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5 overflow-hidden px-1.5 py-1">
+                {pinnedTerminals.length > 0 && (
+                  <div className="flex shrink-0 flex-col gap-0.5 pb-0.5">
+                    {pinnedTerminals.map(renderTerminalTab)}
+                  </div>
                 )}
-                data-tab-container
-                onWheel={(e) => {
-                  const container = e.currentTarget;
-                  if (!container) return;
 
-                  if (orientation === "vertical") {
-                    container.scrollTop += e.deltaY !== 0 ? e.deltaY : e.deltaX;
-                  } else {
-                    const deltaX = e.deltaX !== 0 ? e.deltaX : e.deltaY;
-                    container.scrollLeft += deltaX;
-                  }
-                  e.preventDefault();
-                }}
-              >
-                {regularTerminals.map((terminal) => {
-                  const index = sortedTerminals.findIndex((item) => item.id === terminal.id);
-
-                  return (
-                    <SortableTab
-                      key={terminal.id}
-                      id={terminal.id}
-                      orientation={orientation}
-                      tabRef={(el) => {
-                        tabRefs.current[index] = el;
-                      }}
-                      disabled={editingTerminalId === terminal.id}
-                      onClickCapture={getClickCapture(terminal.id)}
-                    >
-                      {({ isDragging }) => (
-                        <TerminalTabBarItem
-                          terminal={terminal}
-                          displayName={getTerminalDisplayName(terminal)}
-                          orientation={orientation}
-                          isActive={terminal.id === activeTerminalId}
-                          isDraggedTab={isDragging}
-                          showDropIndicatorBefore={false}
-                          tabRef={() => {}}
-                          onClick={() => onTabClick(terminal.id)}
-                          onContextMenu={(e) => handleContextMenu(e, terminal)}
-                          onKeyDown={(event) => handleKeyDown(event, terminal.id)}
-                          handleTabClose={handleTabCloseWrapper}
-                          handleTabPin={handleTabPin}
-                          isEditing={editingTerminalId === terminal.id}
-                          editingName={editingName}
-                          onEditingNameChange={setEditingName}
-                          onRenameSubmit={commitRename}
-                          onRenameCancel={cancelRename}
-                        />
-                      )}
-                    </SortableTab>
-                  );
-                })}
+                <div
+                  className="scrollbar-hidden flex min-w-0 flex-1 flex-col gap-0.5 overflow-y-auto overflow-x-hidden"
+                  data-tab-container
+                  onWheel={handleTabListWheel}
+                >
+                  {regularTerminals.map(renderTerminalTab)}
+                </div>
               </div>
-              {orientation === "horizontal" && newTerminalActions}
-            </div>
+            )}
           </SortableContext>
 
           {/* Horizontal mode - Action buttons on the right */}
