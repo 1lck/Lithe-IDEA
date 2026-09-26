@@ -16,7 +16,7 @@ private enum ActivityBarMetrics {
     static let iconSize: CGFloat = 20
     static let slotWidth: CGFloat = 37
     static let slotHeight: CGFloat = 40
-    static let toolViewportHeight: CGFloat = 292
+    static let toolViewportHeight: CGFloat = 280
 }
 
 private enum WorkbenchWorkspaceMetrics {
@@ -1286,14 +1286,6 @@ struct WorkbenchView: View {
                                 }
                             }
                         }
-
-                        activityToolButton(
-                            ideaAssetPath: "expui/general/settings@20x20.svg",
-                            help: "Settings",
-                            isSelected: model.workbenchFeature.isSettingsPresented
-                        ) {
-                            model.showSettings()
-                        }
                     }
                     // Keep short tool lists against the status bar while preserving
                     // vertical scrolling when modules add more activity buttons.
@@ -1303,6 +1295,14 @@ struct WorkbenchView: View {
                     )
                 }
                 .frame(height: ActivityBarMetrics.toolViewportHeight)
+
+                activityToolButton(
+                    ideaAssetPath: "expui/general/settings@20x20.svg",
+                    help: "Settings",
+                    isSelected: model.workbenchFeature.isSettingsPresented
+                ) {
+                    model.showSettings()
+                }
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
             .background(frameChromeBackground)
@@ -1343,8 +1343,8 @@ struct WorkbenchView: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(
-                unreadNotificationCount > 0 || isNotificationCenterPresented
-                    ? LitheTheme.toolWindowSelectedText
+                isNotificationCenterPresented ? LitheTheme.toolWindowSelectedText
+                    : unreadNotificationCount > 0 ? LitheTheme.primaryText
                     : LitheTheme.toolWindowButtonText
             )
             .workbenchHoverHelp(Text("Notifications"), placement: .leading)
@@ -1970,7 +1970,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     - (WorkbenchWorkspaceMetrics.paneInset * 2)
                     - WorkbenchWorkspaceMetrics.paneSpacing
             )
-            let minimumSidebarWidth: CGFloat = 30
+            let minimumSidebarWidth = CGFloat(WorkbenchLayout.minimumSidebarWidth)
             let minimumEditorWidth: CGFloat = 400
             let maximumSidebarWidth = max(
                 minimumSidebarWidth,

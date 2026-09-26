@@ -1504,6 +1504,7 @@
           "macos/Sources/Lithe/Views/Workbench",
           "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
           "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
+          "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
           "macos/Sources/Lithe/Views/App/RootView.swift",
           "macos/Sources/Lithe/LitheApp.swift",
           "macos/Sources/Lithe/Theme/LitheTheme.swift",
@@ -1522,7 +1523,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；将 macOS 左侧工具窗缩至 30pt 并确认内容不溢出、右上和右下圆角仍可见、重新展开后布局正常；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色。"
     },
     {
       "id": "workbench-activity-tooltips",
