@@ -107,7 +107,7 @@ stable error code and a user-facing message:
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
 | `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
-| `maven.dependencies` | Normalize bounded Maven dependency-plugin output into a deterministic tree |
+| `maven.dependencies` | Normalize the bounded dependency-tree file one plan wrote into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
@@ -1207,7 +1207,17 @@ legacy optional `javaDebugBundlePath`, and ordered
 `runtimeExecutablePath`. Rust loads the legacy Debug bundle first when present,
 then appends the extension bundle paths with stable de-duplication. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
-complete deterministic JDT LS JVM argument list. When the structured object is
+complete deterministic JDT LS JVM argument list. `configurationDirectory` names
+the packaged, read-only configuration; Rust never passes it to Equinox, which
+writes framework state into its `-configuration` directory. Rust copies the
+directory's `config.ini` into
+`cacheDirectory/jdtls-configuration/<config.ini SHA-256>/configuration`,
+rewrites a missing or damaged copy, and passes that directory instead. A
+`cacheDirectory` that resolves inside the JDT LS installation, including
+through a symbolic link, fails with `invalid_request` before anything is written;
+a missing `config.ini` fails with `process_start_failed`. Areas of other digests
+unused for the JDT cache retention period are removed after the area is
+prepared, and a removal failure is logged without failing the start. When the structured object is
 absent, the selected `executablePath` and legacy wrapper arguments remain the
 compatibility path. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
@@ -1506,23 +1516,37 @@ expand or duplicate that file's arguments. Fixtures are in
 `shared/fixtures/maven/launch-plan-v1.json`.
 
 `maven.dependencyPlan` accepts the same workspace `root`, versioned `context`,
-and optional reactor-relative `module`. It returns a launch plan for the fixed
-`maven-dependency-plugin:3.8.1:tree` goal with verbose text output, disabled
-color, and an English locale. Module queries use `-pl <module>` without `-am`;
-the read-only query does not build reactor dependencies. Platform adapters own
-the child process, apply a bounded timeout, and keep it independent from an
-ordinary Maven build session.
+optional reactor-relative `module`, and a required absolute `outputFile`. It
+returns a launch plan for the fixed `maven-dependency-plugin:3.8.1:tree` goal
+that writes the verbose text tree to `outputFile` in UTF-8 with standard tree
+tokens, disabled color, and an English locale. Exactly one project runs because
+every project in the session would overwrite the same file: module queries use
+`-pl <module>` without `-am`, and reactor-root queries use `-N`. The read-only
+query does not build reactor dependencies. Platform adapters own the child
+process, apply a bounded timeout, and keep it independent from an ordinary Maven
+build session. They also own `outputFile`: each invocation receives a fresh
+path in a platform scratch directory, and the platform removes it after the
+result, cancellation, timeout, or failure. The process's console output is log
+text only and is never parsed as dependency data.
 
-`maven.dependencies` accepts `{ "modulePath": string, "output": string }` and
-returns the normalized module path plus a recursively nested `dependencies`
-array. Each node contains `modulePath`, `groupId`, `artifactId`, `version`,
-`type`, nullable `classifier`, `scope`, `resolution`, nullable
-`selectedVersion`, and `children`. Resolution is `resolved`,
-`omittedDuplicate`, or `omittedConflict`. Core removes ANSI control sequences
-and unrelated Maven log lines, then sorts every level deterministically. Input
-is limited to 500,000 Unicode scalar values, 10,000 dependency nodes, and 64
-levels; malformed or excessive output returns `parse_failed`. The compatibility
-fixture is `shared/fixtures/maven/dependency-tree-v1.json`.
+`maven.dependencies` accepts `{ "modulePath": string, "outputFile": string }`
+after the plan's process exits successfully and returns the normalized module
+path plus a recursively nested `dependencies` array. Each node contains
+`modulePath`, `groupId`, `artifactId`, `version`, `type`, nullable `classifier`,
+`scope`, `resolution`, nullable `selectedVersion`, nullable
+`premanagedVersion` and `premanagedScope` (values before dependency
+management), nullable `originalScope` (declared scope before mediation widened
+it), nullable `ignoredScope` (a wider scope mediation did not apply), and
+`children`. Resolution is `resolved`, `omittedDuplicate`, or `omittedConflict`;
+`selectedVersion` is the winning version of an omitted conflict. Every level is
+sorted deterministically.
+
+The first line of the file must name the module and every later line must be a
+node with only the annotations the pinned plugin writes; any other content,
+invalid UTF-8, a line over 4 KiB, more than 10,000 nodes, 64 levels, or a file
+over the byte limit derived from those bounds returns `parse_failed` instead of
+a partial tree. A missing file returns `process_failed`. The compatibility
+fixture is `shared/fixtures/maven/dependency-tree-v2.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;
