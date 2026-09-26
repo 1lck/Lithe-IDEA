@@ -99,12 +99,9 @@ const TerminalTabBarItem = memo(function TerminalTabBarItem({
                   handleTabClose(terminal.id);
                 }
               }}
-              className={cn(
-                "-translate-y-1/2 absolute top-1/2 right-1 transition-opacity",
-                terminal.isPinned || isActive
-                  ? "opacity-100"
-                  : "opacity-0 group-hover/tab:opacity-100",
-              )}
+              // Every tab keeps its close button visible so inactive terminals can be closed
+              // without hovering or switching to them first.
+              className="-translate-y-1/2 absolute top-1/2 right-1"
               tooltip={
                 terminal.isPinned
                   ? t("terminal.tabUnpin")
