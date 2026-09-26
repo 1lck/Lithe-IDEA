@@ -12,6 +12,11 @@ import {
   getProjectOpenPreferencePatch,
   type ProjectOpenPreference,
 } from "@/features/settings/lib/project-open-preference";
+import {
+  SYSTEM_DEFAULT_SHELL_VALUE,
+  getDefaultShellOptions,
+} from "@/features/settings/lib/default-shell-options";
+import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
@@ -376,6 +381,19 @@ function TerminalPanel() {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const shells = useTerminalShellsStore.use.shells();
+  const hasLoadedShells = useTerminalShellsStore.use.hasLoaded();
+  const isDetectingShells = useTerminalShellsStore.use.isLoading();
+  const shellDetectionError = useTerminalShellsStore.use.error();
+  const shellOptions = getDefaultShellOptions({
+    shells,
+    selectedShellId: settings.terminalDefaultShellId,
+    hasLoaded: hasLoadedShells,
+  });
+
+  useEffect(() => {
+    void useTerminalShellsStore.getState().actions.loadShells();
+  }, []);
 
   return (
     <SettingsGroup title={t("settings.mac.shell")}>
@@ -384,16 +402,36 @@ function TerminalPanel() {
         description={t("settings.mac.defaultShellDescription")}
       >
         <select
-          className={`${controlClassName} w-44`}
+          className={`${controlClassName} w-64`}
           value={settings.terminalDefaultShellId}
           onChange={(event) => void updateSetting("terminalDefaultShellId", event.target.value)}
         >
-          <option value="">{t("settings.mac.systemDefault")}</option>
-          <option value="powershell">{t("settings.mac.shellPowerShell")}</option>
-          <option value="cmd">{t("settings.mac.shellCommandPrompt")}</option>
-          <option value="wsl">{t("settings.mac.shellWsl")}</option>
+          {shellOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value === SYSTEM_DEFAULT_SHELL_VALUE
+                ? t("settings.mac.systemDefault")
+                : option.isAvailable
+                  ? (option.shellName ?? option.value)
+                  : `${option.value} (${t("terminal.shellUnavailable")})`}
+            </option>
+          ))}
         </select>
       </SettingsRow>
+      <div className="flex items-center gap-3">
+        <Button
+          variant="default"
+          size="sm"
+          disabled={isDetectingShells}
+          onClick={() => void useTerminalShellsStore.getState().actions.loadShells({ force: true })}
+        >
+          {t(isDetectingShells ? "terminal.detectingShells" : "terminal.detectShells")}
+        </Button>
+        {shellDetectionError ? (
+          <p role="alert" className="ui-text-caption text-destructive">
+            {t("terminal.detectShellsFailed")}
+          </p>
+        ) : null}
+      </div>
     </SettingsGroup>
   );
 }

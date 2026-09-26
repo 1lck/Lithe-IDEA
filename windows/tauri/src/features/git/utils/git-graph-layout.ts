@@ -19,7 +19,10 @@ export interface GitGraphEdge {
 export interface GitGraphRow {
   commit: GitCommit;
   lane: number;
+  /** Color of the commit node and its own lane. */
+  colorIndex: number;
   laneCount: number;
+  /** Lanes entering the row from above; the node's lane is null for a branch tip. */
   incomingLaneColors: Array<number | null>;
   parentEdges: GitGraphEdge[];
   labels: GitGraphLabel[];
@@ -128,13 +131,16 @@ export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
 
   for (const commit of commits) {
     let currentLane = slots.findIndex((slot) => slot?.hash === commit.hash);
-    if (currentLane < 0) {
+    // A branch tip has no child row above it, so its lane starts at the node.
+    const hasChildAbove = currentLane >= 0;
+    if (!hasChildAbove) {
       currentLane = claimSlot(slots);
       slots[currentLane] = { hash: commit.hash, colorIndex: colorIndexForHash(commit.hash) };
     }
 
     const incomingLaneColors = slots.map((slot) => slot?.colorIndex ?? null);
     const currentColorIndex = slots[currentLane]?.colorIndex ?? 0;
+    if (!hasChildAbove) incomingLaneColors[currentLane] = null;
     slots[currentLane] = null;
 
     const parentEdges: GitGraphEdge[] = [];
@@ -186,6 +192,7 @@ export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
     rows.push({
       commit,
       lane: currentLane,
+      colorIndex: currentColorIndex,
       laneCount,
       incomingLaneColors,
       parentEdges,
