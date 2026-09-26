@@ -4,7 +4,6 @@ struct UpdateControl: View {
     let compact: Bool
 
     @EnvironmentObject private var updateChecker: UpdateChecker
-    @State private var isDetailsPresented = false
 
     init(compact: Bool = false) {
         self.compact = compact
@@ -15,7 +14,7 @@ struct UpdateControl: View {
             switch updateChecker.status {
             case .available(let version, _):
                 Button {
-                    isDetailsPresented = true
+                    updateChecker.presentDetails()
                 } label: {
                     if updateChecker.isPreview {
                         Label("Preview Update", systemImage: "arrow.down.circle.fill")
@@ -70,7 +69,7 @@ struct UpdateControl: View {
             case .failed(_, let message):
                 Button {
                     if updateChecker.updateInfo != nil {
-                        isDetailsPresented = true
+                        updateChecker.presentDetails()
                     } else {
                         checkForUpdates()
                     }
@@ -92,18 +91,17 @@ struct UpdateControl: View {
         }
         .font(.system(size: compact ? 11.5 : 10.5, weight: .medium))
         .lithePointer()
-        .sheet(isPresented: $isDetailsPresented) {
-            UpdateDetailsView()
-                .environmentObject(updateChecker)
-        }
     }
 
     private func checkForUpdates() {
-        Task { await updateChecker.checkForUpdates(manual: true) }
+        Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
     }
 }
 
-private struct UpdateDetailsView: View {
+/// Content of the single Software Update window. Every entry point opens it
+/// through `UpdateChecker.presentDetails()`, so an update found from the menu
+/// is offered in the same place as one found by the title bar control.
+struct UpdateDetailsView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var updateChecker: UpdateChecker
 
@@ -137,13 +135,6 @@ private struct UpdateDetailsView: View {
                     }
                 }
                 Spacer()
-                Button {
-                    dismiss()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .litheIconButton()
-                .help("Close")
             }
             .padding(16)
 
@@ -226,6 +217,12 @@ private struct UpdateDetailsView: View {
         }
         .frame(width: 560)
         .background(LitheTheme.popupBackground)
+        // The window has nothing to offer once the update cycle ends, including
+        // when macOS restores it at launch.
+        .onAppear { if updateChecker.updateInfo == nil { dismiss() } }
+        .onChange(of: updateChecker.updateInfo) { updateInfo in
+            if updateInfo == nil { dismiss() }
+        }
     }
 
     private func formattedDate(_ value: String) -> String {
