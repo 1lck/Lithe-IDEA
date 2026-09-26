@@ -17,6 +17,7 @@ struct SplitHandleView: View {
     let leadingBackground: Color
     let trailingBackground: Color
     let showsIdleDivider: Bool
+    let idleDividerColor: Color
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
@@ -31,6 +32,7 @@ struct SplitHandleView: View {
         leadingBackground: Color = .clear,
         trailingBackground: Color = .clear,
         showsIdleDivider: Bool = true,
+        idleDividerColor: Color = LitheTheme.divider,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
@@ -39,6 +41,7 @@ struct SplitHandleView: View {
         self.leadingBackground = leadingBackground
         self.trailingBackground = trailingBackground
         self.showsIdleDivider = showsIdleDivider
+        self.idleDividerColor = idleDividerColor
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
         self.onDragEnded = onDragEnded
@@ -132,7 +135,7 @@ struct SplitHandleView: View {
     private var dividerLine: some View {
         if showsIdleDivider {
             let color = isDragging ? LitheTheme.primaryText
-                : (isHovering ? LitheTheme.secondaryText : LitheTheme.divider)
+                : (isHovering ? LitheTheme.secondaryText : idleDividerColor)
             if axis == .horizontal {
                 Rectangle()
                     .fill(color)
