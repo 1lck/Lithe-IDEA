@@ -136,7 +136,9 @@ m2e 内嵌的 Maven，而不是用户配置的 Maven 或 mvnd，违反“依赖�
   `bun test --preload ./src/test-utils/vite-assets.ts src/features/maven`，覆盖
   每条结束路径都删除临时文件、读完才删除、删除失败只记日志。
 - macOS：`./scripts/test-macos.sh`，其中 `ExecutionModuleTests` 覆盖服务生命周期，
-  `MavenRuntimeTests` 通过真实 Core 读取 fixture 文件并验证 PID 目录清理。
+  `MavenRuntimeTests` 验证 fixture 解码与 PID 目录清理。普通 Swift 单测不链接
+  Core，`MavenDependencyTreeBridgeTests` 在 `./scripts/verify-rust-core.sh` 的
+  Core 链接测试中通过真实 Core 规划并读取树文件。
 
 ## 适用范围
 
