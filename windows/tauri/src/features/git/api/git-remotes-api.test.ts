@@ -5,7 +5,8 @@ import type { GitPullPreflight, GitReference } from "../types/git.types";
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const {
   deleteRemoteBranch,

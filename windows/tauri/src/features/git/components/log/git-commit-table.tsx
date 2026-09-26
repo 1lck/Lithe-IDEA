@@ -10,6 +10,7 @@ import {
 } from "@/ui/context-menu";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
 import {
+  ArrowBendDownLeftIcon as Revert,
   ArrowCounterClockwiseIcon as Reset,
   CopyIcon as Copy,
   EyeIcon as Eye,
@@ -55,6 +56,7 @@ export function GitCommitTable({
   onOpenDiff,
   onCompareWithHead,
   onCopyHash,
+  onCopyShortHash,
   onCopyMessage,
   onEditMessage,
   onUndo,
@@ -64,6 +66,7 @@ export function GitCommitTable({
   onSquash,
   onReset,
   onCherryPick,
+  onRevert,
   onLoadMore,
 }: {
   commits: GitCommit[];
@@ -82,6 +85,7 @@ export function GitCommitTable({
   onOpenDiff: (commit: GitCommit) => void;
   onCompareWithHead: (commit: GitCommit) => void;
   onCopyHash: (commit: GitCommit) => void;
+  onCopyShortHash: (commit: GitCommit) => void;
   onCopyMessage: (commit: GitCommit) => void;
   onEditMessage: (commit: GitCommit) => void;
   onUndo: (commit: GitCommit) => void;
@@ -91,6 +95,7 @@ export function GitCommitTable({
   onSquash: (commits: GitCommit[]) => void;
   onReset: (commit: GitCommit) => void;
   onCherryPick: (commit: GitCommit) => void;
+  onRevert: (commit: GitCommit) => void;
   onLoadMore: () => void;
 }) {
   const { t } = useTranslation();
@@ -409,10 +414,21 @@ export function GitCommitTable({
                             <CherryPick />
                             {t("git.cherryPickCommit")}
                           </ContextMenuItem>
+                          <ContextMenuItem
+                            disabled={isMutatingHistory}
+                            onClick={() => onRevert(row.commit)}
+                          >
+                            <Revert />
+                            {t("git.revertCommit")}
+                          </ContextMenuItem>
                           <ContextMenuSeparator />
                           <ContextMenuItem onClick={() => onCopyHash(row.commit)}>
                             <Copy />
                             {t("git.log.copyCommitHash")}
+                          </ContextMenuItem>
+                          <ContextMenuItem onClick={() => onCopyShortHash(row.commit)}>
+                            <Copy />
+                            {t("git.log.copyShortHash")}
                           </ContextMenuItem>
                           <ContextMenuItem onClick={() => onCopyMessage(row.commit)}>
                             <Copy />

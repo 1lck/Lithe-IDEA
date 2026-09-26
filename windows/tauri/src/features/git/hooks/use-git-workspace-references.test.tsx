@@ -40,6 +40,17 @@ class ManualTimer {
   }
 }
 
+function deferRepository(repositoryPath: string): { release: () => void } {
+  let release: () => void = () => {};
+  deferredRepositories.set(
+    repositoryPath,
+    new Promise<void>((resolve) => {
+      release = resolve;
+    }),
+  );
+  return { release: () => release() };
+}
+
 const referenceFor = (shortName: string): GitReference => ({
   fullName: `refs/heads/${shortName}`,
   shortName,
@@ -55,9 +66,13 @@ let referencesByRepository: Record<string, GitReference[]> = {
 
 const failedRepositories = new Set<string>();
 
+/** Repositories whose read is held open until the returned promise resolves. */
+const deferredRepositories = new Map<string, Promise<void>>();
+
 const getGitReferencesAtRoot = mock(
   async (repoPath: string): Promise<GitReferenceSnapshot> => {
     const key = repoPath.replace(/\\/g, "/").replace(/\/+$/, "");
+    await deferredRepositories.get(key);
     if (failedRepositories.has(key)) throw new Error(`failed to load ${key}`);
     return {
       references: referencesByRepository[key] ?? [],
@@ -82,6 +97,7 @@ beforeEach(() => {
     "C:/repo-b": [referenceFor("develop"), referenceFor("feature/x")],
   };
   failedRepositories.clear();
+  deferredRepositories.clear();
   getGitReferencesAtRoot.mockClear();
   cancelGitHistoryOperation.mockClear();
   spies.push(
@@ -97,7 +113,7 @@ type WorkspaceReferences = ReturnType<typeof useGitWorkspaceReferences>;
 
 function mountHook(scheduler?: GitWorkspaceReferencesScheduler): {
   read: () => WorkspaceReferences;
-  render: (repositoryPaths: string[]) => Promise<void>;
+  render: (repositoryPaths: string[], activeRepositoryPath: string) => Promise<void>;
   root: Root;
 } {
   const container = document.createElement("div");
@@ -105,8 +121,14 @@ function mountHook(scheduler?: GitWorkspaceReferencesScheduler): {
   const root = createRoot(container);
   let current: WorkspaceReferences | null = null;
 
-  function Probe({ repositoryPaths }: { repositoryPaths: string[] }): ReactNode {
-    current = useGitWorkspaceReferences(repositoryPaths, scheduler);
+  function Probe({
+    repositoryPaths,
+    activeRepositoryPath,
+  }: {
+    repositoryPaths: string[];
+    activeRepositoryPath: string;
+  }): ReactNode {
+    current = useGitWorkspaceReferences(repositoryPaths, activeRepositoryPath, scheduler);
     return null;
   }
 
@@ -115,14 +137,19 @@ function mountHook(scheduler?: GitWorkspaceReferencesScheduler): {
       if (!current) throw new Error("Git workspace references hook has not rendered");
       return current;
     },
-    render: async (repositoryPaths) => {
+    render: async (repositoryPaths, activeRepositoryPath) => {
       await act(async () => {
-        root.render(<Probe repositoryPaths={repositoryPaths} />);
+        root.render(
+          <Probe repositoryPaths={repositoryPaths} activeRepositoryPath={activeRepositoryPath} />,
+        );
       });
     },
     root,
   };
 }
+
+const readRepositoryPaths = () =>
+  getGitReferencesAtRoot.mock.calls.map(([repoPath]) => repoPath);
 
 afterEach(() => {
   for (const spy of spies.splice(0)) spy.mockRestore();
@@ -145,22 +172,61 @@ afterEach(() => {
 });
 
 describe("Git workspace references", () => {
-  test("tags every reference with its repository and groups them by normalized path", async () => {
+  test("loads the active repository and tags its references with the normalized path", async () => {
     const harness = mountHook();
     try {
-      await harness.render(["C:\\repo-a\\", "C:/repo-b"]);
-      const { referencesByRepository } = harness.read();
+      await harness.render(["C:\\repo-a\\", "C:/repo-b"], "C:/repo-a");
 
-      expect([...referencesByRepository.keys()]).toEqual(["C:/repo-a", "C:/repo-b"]);
-      expect(referencesByRepository.get("C:/repo-a")).toEqual([
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+      expect([...harness.read().referencesByRepository.keys()]).toEqual(["C:/repo-a"]);
+      expect(harness.read().referencesByRepository.get("C:/repo-a")).toEqual([
         { ...referenceFor("main"), repositoryPath: "C:/repo-a" },
       ]);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("loads a non-active repository only when it is requested", async () => {
+    const harness = mountHook();
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      expect(harness.read().referencesByRepository.has("C:/repo-b")).toBe(false);
+
+      await act(async () => {
+        await harness.read().ensureRepository("C:/repo-b");
+      });
+
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a", "C:/repo-b"]);
       expect(
-        referencesByRepository.get("C:/repo-b")?.map((reference) => reference.repositoryPath),
+        harness.read().referencesByRepository.get("C:/repo-b")?.map((reference) => reference.repositoryPath),
       ).toEqual(["C:/repo-b", "C:/repo-b"]);
       expect(
-        referencesByRepository.get("C:/repo-b")?.map((reference) => reference.shortName),
+        harness.read().referencesByRepository.get("C:/repo-b")?.map((reference) => reference.shortName),
       ).toEqual(["develop", "feature/x"]);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("caches a requested repository until the hook re-requests it", async () => {
+    const harness = mountHook();
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      await act(async () => {
+        await harness.read().ensureRepository("C:/repo-b");
+      });
+      getGitReferencesAtRoot.mockClear();
+
+      await act(async () => {
+        await harness.read().ensureRepository("C:/repo-b");
+      });
+
+      expect(readRepositoryPaths()).toEqual([]);
     } finally {
       await act(async () => {
         harness.root.unmount();
@@ -171,7 +237,7 @@ describe("Git workspace references", () => {
   test("keeps a single repository in one group", async () => {
     const harness = mountHook();
     try {
-      await harness.render(["C:/repo-a"]);
+      await harness.render(["C:/repo-a"], "C:/repo-a");
       const { referencesByRepository } = harness.read();
 
       expect(referencesByRepository.size).toBe(1);
@@ -185,11 +251,11 @@ describe("Git workspace references", () => {
     }
   });
 
-  test("refreshes only the repository named by a Git change", async () => {
+  test("refreshes only the requested repository named by a Git change", async () => {
     const timer = new ManualTimer();
     const harness = mountHook(timer.scheduler);
     try {
-      await harness.render(["C:/repo-a", "C:/repo-b"]);
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
       getGitReferencesAtRoot.mockClear();
       referencesByRepository["C:/repo-a"] = [referenceFor("main"), referenceFor("release")];
 
@@ -202,12 +268,30 @@ describe("Git workspace references", () => {
         timer.fireNext();
       });
 
-      expect(getGitReferencesAtRoot.mock.calls.map(([repoPath]) => repoPath)).toEqual([
-        "C:/repo-a",
-      ]);
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
       expect(
         harness.read().referencesByRepository.get("C:/repo-a")?.map((reference) => reference.shortName),
       ).toEqual(["main", "release"]);
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("ignores a Git change for a repository that was never requested", async () => {
+    const timer = new ManualTimer();
+    const harness = mountHook(timer.scheduler);
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      getGitReferencesAtRoot.mockClear();
+
+      await act(async () => {
+        emitGitChanged({ repoPath: "C:/repo-b", scopes: ["refs"], source: "test" });
+      });
+
+      expect(timer.pending).toBe(0);
+      expect(readRepositoryPaths()).toEqual([]);
     } finally {
       await act(async () => {
         harness.root.unmount();
@@ -219,7 +303,10 @@ describe("Git workspace references", () => {
     failedRepositories.add("C:/repo-b");
     const harness = mountHook();
     try {
-      await harness.render(["C:/repo-a", "C:/repo-b"]);
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      await act(async () => {
+        await harness.read().ensureRepository("C:/repo-b");
+      });
 
       expect(harness.read().errorsByRepository.get("C:/repo-b")).toBe(
         "failed to load C:/repo-b",
@@ -228,7 +315,7 @@ describe("Git workspace references", () => {
 
       failedRepositories.delete("C:/repo-b");
       await act(async () => {
-        harness.read().retryRepository("C:/repo-b");
+        await harness.read().retryRepository("C:/repo-b");
       });
 
       expect(harness.read().errorsByRepository.has("C:/repo-b")).toBe(false);
@@ -236,6 +323,70 @@ describe("Git workspace references", () => {
         harness.read().referencesByRepository.get("C:/repo-b")?.map((reference) => reference.shortName),
       ).toEqual(["develop", "feature/x"]);
     } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("never reads a queued repository after the panel unmounts", async () => {
+    const deferred = deferRepository("C:/repo-a");
+    const harness = mountHook();
+    let unmounted = false;
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+
+      let queued: Promise<void> | undefined;
+      await act(async () => {
+        queued = harness.read().ensureRepository("C:/repo-b");
+      });
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+
+      await act(async () => {
+        harness.root.unmount();
+      });
+      unmounted = true;
+
+      deferred.release();
+      await act(async () => {
+        await queued;
+      });
+
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+    } finally {
+      deferred.release();
+      if (!unmounted) {
+        await act(async () => {
+          harness.root.unmount();
+        });
+      }
+    }
+  });
+
+  test("never reads a queued repository that left the workspace and releases its pending slot", async () => {
+    const deferred = deferRepository("C:/repo-a");
+    const harness = mountHook();
+    try {
+      await harness.render(["C:/repo-a", "C:/repo-b"], "C:/repo-a");
+
+      let queued: Promise<void> | undefined;
+      await act(async () => {
+        queued = harness.read().ensureRepository("C:/repo-b");
+      });
+
+      await harness.render(["C:/repo-a"], "C:/repo-a");
+
+      deferred.release();
+      await act(async () => {
+        await queued;
+      });
+
+      expect(readRepositoryPaths()).toEqual(["C:/repo-a"]);
+      expect(harness.read().isLoading).toBe(false);
+      expect(harness.read().referencesByRepository.has("C:/repo-b")).toBe(false);
+    } finally {
+      deferred.release();
       await act(async () => {
         harness.root.unmount();
       });
