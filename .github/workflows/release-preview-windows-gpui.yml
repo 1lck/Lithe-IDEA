@@ -1,0 +1,115 @@
+name: Release Windows GPUI Preview
+
+on:
+  schedule:
+    # Offset from the macOS, Windows and Linux previews so the shared rolling tag usually exists first.
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Preview branch to build"
+        required: true
+        default: "preview"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preview-windows-gpui
+  cancel-in-progress: false
+
+env:
+  PREVIEW_BRANCH: preview
+  PREVIEW_VERSION: 0.3.0
+  PREVIEW_TAG: preview-0.3.0
+
+jobs:
+  release:
+    name: Build and publish Windows GPUI preview
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        shell: pwsh
+        run: |
+          $sha = (git rev-parse HEAD).Trim()
+          "sha=$sha" >> $env:GITHUB_OUTPUT
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Configure Cargo target directory
+        shell: pwsh
+        run: '"CARGO_TARGET_DIR=$(Join-Path $env:GITHUB_WORKSPACE ''target'')" >> $env:GITHUB_ENV'
+
+      - name: Restore Cargo dependencies and build outputs
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            target
+          key: cargo-windows-gpui-${{ hashFiles('linux/Cargo.toml', 'linux/Cargo.lock', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-windows-gpui-
+
+      - name: Build lithe-linux binary for Windows
+        shell: pwsh
+        run: cargo build --release --manifest-path linux/Cargo.toml -p lithe-linux --target x86_64-pc-windows-msvc
+
+      - name: Package Windows GPUI archive
+        env:
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+        shell: pwsh
+        run: |
+          $exe = "target/x86_64-pc-windows-msvc/release/lithe-linux.exe"
+          if (-not (Test-Path $exe)) { throw "GPUI Windows binary was not produced." }
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $stage = Join-Path $env:RUNNER_TEMP "gpui-stage"
+          Remove-Item -Recurse -Force $stage -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $stage | Out-Null
+          Copy-Item $exe (Join-Path $stage "Lithe.exe")
+          $package = "dist/lithe-windows-gpui-x86_64-$env:LITHE_VERSION.zip"
+          Compress-Archive -Path (Join-Path $stage "Lithe.exe") -DestinationPath $package
+          $hash = (Get-FileHash -Algorithm SHA256 $package).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path -Leaf $package)" | Set-Content -NoNewline -Encoding ascii "$package.sha256"
+
+      - name: Create or update rolling preview Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        shell: pwsh
+        run: |
+          $notes = "Rolling Preview build from $env:SOURCE_SHA. This release is replaced by the next scheduled build. The Windows GPUI package is an unsigned preview of the native GPUI frontend."
+          $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG `
+              --repo $env:GITHUB_REPOSITORY `
+              --target $env:SOURCE_SHA `
+              --title "Lithe $env:LITHE_VERSION Preview" `
+              --notes $notes `
+              --prerelease
+            if ($LASTEXITCODE -ne 0) {
+              $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
+              if ($LASTEXITCODE -ne 0) { throw "Could not create or find preview release $env:RELEASE_TAG" }
+            }
+          }
+          gh release upload $env:RELEASE_TAG `
+            "dist/lithe-windows-gpui-x86_64-$env:LITHE_VERSION.zip" `
+            "dist/lithe-windows-gpui-x86_64-$env:LITHE_VERSION.zip.sha256" `
+            --repo $env:GITHUB_REPOSITORY --clobber
