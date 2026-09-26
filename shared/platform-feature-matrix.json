@@ -1521,7 +1521,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间。"
     },
     {
       "id": "workbench-activity-tooltips",
