@@ -501,10 +501,14 @@
 "Reset current branch?" = "Reset current branch?";
 "Cherry-pick" = "Cherry-pick";
 "Revert" = "Revert";
+"Reset (Soft)" = "Reset (Soft)";
 "Reset (Mixed)" = "Reset (Mixed)";
+"Reset (Hard)" = "Reset (Hard)";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
 "Create a new commit that reverses %@." = "Create a new commit that reverses %@.";
+"Move the current branch to %@ and keep changes staged." = "Move the current branch to %@ and keep changes staged.";
 "Move the current branch to %@ and keep changes unstaged." = "Move the current branch to %@ and keep changes unstaged.";
+"Move the current branch to %@ and discard all working-tree changes." = "Move the current branch to %@ and discard all working-tree changes.";
 "Delete branch?" = "Delete branch?";
 "Merge branch?" = "Merge branch?";
 "Rebase branch?" = "Rebase branch?";
@@ -680,6 +684,7 @@
 "Compare current branch with working tree" = "Compare current branch with working tree";
 "Continue" = "Continue";
 "Copy" = "Copy";
+"Copy Branch Name" = "Copy Branch Name";
 "Copy Path / Reference" = "Copy Path / Reference";
 "Copy Relative Path" = "Copy Relative Path";
 "Delete Branch" = "Delete Branch";
@@ -702,6 +707,7 @@
 "Hide Git tool window" = "Hide Git tool window";
 "Hide commit decorations" = "Hide commit decorations";
 "Highlight words" = "Highlight words";
+"Hard Reset (Discard Changes)" = "Hard Reset (Discard Changes)";
 "Later" = "Later";
 "Lithe Shelves" = "Lithe Shelves";
 "Loading branches…" = "Loading branches…";
@@ -715,6 +721,7 @@
 "Me" = "Me";
 "Merge" = "Merge";
 "Merge into Current Branch" = "Merge into Current Branch";
+"Mixed Reset (Keep Changes Unstaged)" = "Mixed Reset (Keep Changes Unstaged)";
 "New Branch" = "New Branch";
 "New Branch from '%@'…" = "New Branch from '%@'…";
 "New Branch…" = "New Branch…";
@@ -724,6 +731,7 @@
 "No differences" = "No differences";
 "No matching branches" = "No matching branches";
 "No matching users" = "No matching users";
+"No Remote Branches" = "No Remote Branches";
 "No saved changes" = "No saved changes";
 "No textual diff available" = "No textual diff available";
 "OK" = "OK";
@@ -772,6 +780,7 @@
 "Smart Checkout (Shelve)" = "Smart Checkout (Shelve)";
 "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them.";
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.";
+"Soft Reset (Keep Changes Staged)" = "Soft Reset (Keep Changes Staged)";
 "Stage File" = "Stage File";
 "Stage all changes" = "Stage all changes";
 "Stage file" = "Stage file";
@@ -780,6 +789,7 @@
 "Stash or shelf changes here to switch branches safely." = "Stash or shelf changes here to switch branches safely.";
 "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it." = "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it.";
 "Step %lld of %lld" = "Step %lld of %lld";
+"Stop Tracking Branch" = "Stop Tracking Branch";
 "Tag or revision" = "Tag or revision";
 "Tags" = "Tags";
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
@@ -788,6 +798,7 @@
 "This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
 "Title" = "Title";
 "Toggle preview" = "Toggle preview";
+"Tracking Branch" = "Tracking Branch";
 "Uncommitted changes block this cherry-pick" = "Uncommitted changes block this cherry-pick";
 "Uncommitted changes block this merge" = "Uncommitted changes block this merge";
 "Uncommitted changes block this rebase" = "Uncommitted changes block this rebase";

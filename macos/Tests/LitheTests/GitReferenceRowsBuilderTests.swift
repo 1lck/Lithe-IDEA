@@ -208,10 +208,11 @@ struct GitReferenceRowMenuTests {
             guard case .action(let action, let isEnabled, _) = entry else { continue }
             switch action {
             case .checkout, .checkoutAndRebase, .merge, .rebase,
-                 .pullRebase, .pullMerge, .update, .push, .delete, .rename:
+                 .pullRebase, .pullMerge, .update, .push, .delete, .rename,
+                 .trackingBranch:
                 #expect(!isEnabled)
             case .newBranch, .showDiffWithWorkingTree, .compareWithCurrent,
-                 .compareWithSelectedSource, .selectForCompare:
+                 .compareWithSelectedSource, .selectForCompare, .copyBranchName:
                 break
             }
         }
@@ -223,5 +224,20 @@ struct GitReferenceRowMenuTests {
         #expect(result.contains(.action(.compareWithCurrent, isEnabled: true, isDestructive: false)))
         #expect(result.contains(.action(.compareWithSelectedSource, isEnabled: true, isDestructive: false)))
         #expect(!result.contains(.action(.selectForCompare, isEnabled: true, isDestructive: false)))
+    }
+
+    @Test
+    func localAndRemoteRowsOfferCopyBranchNameButTagsDoNot() {
+        for kind in [GitReferenceKind.local, .remote] {
+            #expect(entries(kind: kind).contains(.action(.copyBranchName, isEnabled: true, isDestructive: false)))
+        }
+        #expect(!entries(kind: .tag).contains(.action(.copyBranchName, isEnabled: true, isDestructive: false)))
+    }
+
+    @Test
+    func onlyLocalRowsOfferTrackingBranch() {
+        #expect(entries(kind: .local).contains(.action(.trackingBranch, isEnabled: true, isDestructive: false)))
+        #expect(!entries(kind: .remote).contains(.action(.trackingBranch, isEnabled: true, isDestructive: false)))
+        #expect(!entries(kind: .tag).contains(.action(.trackingBranch, isEnabled: true, isDestructive: false)))
     }
 }
