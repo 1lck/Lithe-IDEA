@@ -73,12 +73,23 @@ fi
 # 5. Bundle the Java language-server runtime, aligned with the macOS and
 # Windows installers (`LanguageServers/jdtls` + `LanguageServers/jdk`).
 # Set LITHE_BUNDLE_RUNTIME=0 to skip (e.g. compile-only CI checks).
+# The bundled `jdk` is a jlink-pruned runtime (java + javac + the modules
+# JDT LS / Java Debug / Java Test and the javac pre-launch step need), not
+# the full Temurin JDK, so the release archive stays downloadable. The
+# workspace `.artifacts/jdk-linux` keeps the full JDK for development.
 if [[ "${LITHE_BUNDLE_RUNTIME:-1}" != "0" ]]; then
     mkdir -p "$STAGE_DIR/share/LanguageServers"
     JDTLS_ROOT="$("$SCRIPT_DIR/prepare-jdtls-linux.sh")"
     cp -R "$JDTLS_ROOT" "$STAGE_DIR/share/LanguageServers/jdtls"
     JDK_ROOT="$("$SCRIPT_DIR/prepare-jdk-linux.sh")"
-    cp -R "$JDK_ROOT" "$STAGE_DIR/share/LanguageServers/jdk"
+    JLINK_RUNTIME_MODULES="java.base,java.compiler,java.desktop,java.logging,java.management,java.naming,java.net.http,java.scripting,java.sql,java.xml,jdk.attach,jdk.jdi,jdk.httpserver,jdk.unsupported,jdk.management,jdk.crypto.ec,jdk.jfr,jdk.zipfs,jdk.jartool,jdk.compiler,jdk.security.auth,jdk.security.jgss,jdk.localedata"
+    "$JDK_ROOT/bin/jlink" \
+        --module-path "$JDK_ROOT/jmods" \
+        --add-modules "$JLINK_RUNTIME_MODULES" \
+        --no-header-files \
+        --no-man-pages \
+        --compress=2 \
+        --output "$STAGE_DIR/share/LanguageServers/jdk"
 fi
 
 # 6. Create tar.gz archive
