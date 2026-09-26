@@ -1344,7 +1344,9 @@
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/diagnostics"
+          "windows/tauri/src/features/diagnostics",
+          "windows/tauri/src/features/logging",
+          "windows/tauri/src/ui/dialog.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1373,7 +1375,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Diagnostics",
-      "verification": "导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制。"
+      "verification": "导出诊断包，确认敏感路径、凭据和大文件被正确脱敏或限制；检查预览说明和文件列表在确认弹窗内完整显示、长内容正常换行且不溢出。"
     },
     {
       "id": "application-settings",
