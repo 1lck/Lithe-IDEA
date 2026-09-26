@@ -1,6 +1,7 @@
 import Foundation
 
 struct WorkbenchLayout: Codable, Sendable {
+    static let minimumSidebarWidth: Double = 30
     static let defaultMavenPaneWidth: Double = 360
     static let minimumMavenPaneWidth: Double = 300
     static let maximumMavenPaneWidth: Double = 520
@@ -27,7 +28,7 @@ struct WorkbenchLayoutStore {
     func load(for workspaceURL: URL) -> WorkbenchLayout {
         guard let data = store.data(forKey: key(for: workspaceURL)),
               let layout = try? JSONDecoder().decode(WorkbenchLayout.self, from: data),
-              layout.sidebarWidth >= 220,
+              layout.sidebarWidth >= WorkbenchLayout.minimumSidebarWidth,
               layout.sidebarWidth <= 520,
               layout.mavenPaneWidth.map({ $0.isFinite && $0 > 0 && $0 <= WorkbenchLayout.maximumMavenPaneWidth }) ?? true else {
             return Self.defaultLayout
