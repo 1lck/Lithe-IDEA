@@ -8,12 +8,9 @@ private let editorTabCoordinateSpaceName = "lithe.editor-tab-strip"
 enum EditorDocumentIconResolver {
     static func kind(
         for url: URL,
-        resolvedJavaKind: LitheIconKind?
+        resolvedKind: LitheIconKind?
     ) -> LitheIconKind {
-        if url.pathExtension.lowercased() == "java", let resolvedJavaKind {
-            return resolvedJavaKind
-        }
-        return LitheIcons.kind(for: url, isDirectory: false)
+        resolvedKind ?? LitheIcons.kind(for: url, isDirectory: false)
     }
 }
 
@@ -56,7 +53,7 @@ struct EditorAreaView: View {
     @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
-    @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
+    @State private var resolvedDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
@@ -1112,20 +1109,28 @@ struct EditorAreaView: View {
         size: CGFloat
     ) -> some View {
         let path = document.url.standardizedFileURL.path
-        let resolvedKind = resolvedJavaDocumentIconKinds[path]
+        let resolvedKind = resolvedDocumentIconKinds[path]
         return LitheIcon(
             kind: EditorDocumentIconResolver.kind(
                 for: document.url,
-                resolvedJavaKind: resolvedKind
+                resolvedKind: resolvedKind
             ),
             size: size
         )
         .task(id: path) {
-            guard document.url.pathExtension.lowercased() == "java",
-                  resolvedKind == nil else { return }
-            let kind = await model.javaIconKind(for: document.url)
-            guard !Task.isCancelled, let kind else { return }
-            resolvedJavaDocumentIconKinds[path] = kind
+            guard resolvedKind == nil else { return }
+            if document.url.pathExtension.lowercased() == "java" {
+                guard let kind = await model.javaIconKind(for: document.url), !Task.isCancelled else { return }
+                resolvedDocumentIconKinds[path] = kind
+            } else if LitheIcons.kind(for: document.url, isDirectory: false) == .generic {
+                let resolved = await WorkspaceFileIconResolver.resolve(
+                    for: document.url,
+                    suggested: .generic,
+                    storage: model.services.fileStorage
+                )
+                guard !Task.isCancelled else { return }
+                resolvedDocumentIconKinds[path] = resolved.kind
+            }
         }
     }
 
