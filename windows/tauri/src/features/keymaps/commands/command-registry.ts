@@ -99,6 +99,7 @@ import {
   showFind,
   showFindReplace,
   showNotifications,
+  showUsage,
   showThemeSelector,
   showWhatsNew,
   toggleActivitySidebar,
@@ -619,6 +620,12 @@ const viewCommands: Command[] = [
     title: "Show Notifications",
     category: "View",
     execute: showNotifications,
+  },
+  {
+    id: "workbench.showUsage",
+    title: "Show AI Usage",
+    category: "View",
+    execute: showUsage,
   },
   {
     id: "workbench.agentLauncher",

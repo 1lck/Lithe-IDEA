@@ -90,6 +90,8 @@ const nativeCommands = new Set([
   "terminal_set_paused",
   "terminal_write",
   "take_pending_cli_open_requests",
+  "usage_collect",
+  "usage_quota",
   "warm_terminal_environment",
   "validate_font",
   "write_file",
