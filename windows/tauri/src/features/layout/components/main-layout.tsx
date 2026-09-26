@@ -43,6 +43,7 @@ import {
 } from "./sidebar/main-sidebar";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
+import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
 import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
@@ -358,6 +359,7 @@ export function MainLayout() {
       )}
 
       <PendingBufferCloseDialog />
+      <AppUpdateDetailsDialog />
 
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (

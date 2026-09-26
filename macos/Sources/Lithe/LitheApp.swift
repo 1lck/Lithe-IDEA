@@ -523,7 +523,7 @@ struct LitheApp: App {
 
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
-                    Task { await updateChecker.checkForUpdates(manual: true) }
+                    Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
                 }
                 .disabled(updateChecker.isBusy)
 
@@ -682,6 +682,16 @@ struct LitheApp: App {
         .defaultSize(width: 1040, height: 720)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
+
+        Window(softwareUpdateWindowTitle(for: settings.language), id: LitheWindowID.softwareUpdate) {
+            UpdateDetailsView()
+                .environmentObject(model)
+                .environmentObject(updateChecker)
+                .environment(\.locale, settings.language.locale)
+                .id(settings.language)
+                .preferredColorScheme(settings.themePreference.preferredColorScheme)
+        }
+        .windowResizability(.contentSize)
     }
 
     private static var startupProjectURL: URL? {
@@ -894,6 +904,14 @@ enum SettingsWindowChrome {
 private func settingsWindowTitle(for language: AppLanguage) -> String {
     String(
         localized: "Settings",
+        bundle: .main,
+        locale: language.locale
+    )
+}
+
+private func softwareUpdateWindowTitle(for language: AppLanguage) -> String {
+    String(
+        localized: "Software Update",
         bundle: .main,
         locale: language.locale
     )

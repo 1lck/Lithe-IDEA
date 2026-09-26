@@ -830,6 +830,8 @@
 "Preview Update" = "Preview Update";
 "Install Preview" = "Install Preview";
 "Skip Build" = "Skip Build";
+"Software Update" = "Software Update";
+"Skip Version" = "Skip Version";
 "Continue Installation" = "Continue Installation";
 "Return to Stable" = "Return to Stable";
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
