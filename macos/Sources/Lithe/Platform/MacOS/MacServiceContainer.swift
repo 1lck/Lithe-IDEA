@@ -249,7 +249,9 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
+                        configurationCacheDirectoryURL: languageServerCacheDirectory
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -379,7 +381,8 @@ final class MacServiceContainer {
                             languageRunProviders: languagePackRegistry.runProviders,
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
                             languageSupports: installedLanguageSupports,
-                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                            javaLaunchArgumentPreparer: rustCore
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,

@@ -86,6 +86,8 @@ pub enum CoreCommand {
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
     MavenLaunchPlan,
+    /// Shortens an oversized Java launch using a JDK argument file when needed.
+    ExecutionPlanLaunchCommand,
     /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
     MavenDependencyPlan,
     /// Normalizes Maven dependency-tree output (`maven.dependencies`).
@@ -338,6 +340,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
@@ -491,6 +494,14 @@ mod tests {
     #[test]
     fn parses_document_lifecycle_command() {
         assert!(CoreCommand::parse("document.lifecycle").is_some());
+    }
+
+    #[test]
+    fn parses_java_launch_command_planner() {
+        assert!(matches!(
+            CoreCommand::parse("execution.planLaunchCommand"),
+            Some(CoreCommand::ExecutionPlanLaunchCommand)
+        ));
     }
 
     #[test]

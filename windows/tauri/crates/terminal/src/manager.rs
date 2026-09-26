@@ -52,7 +52,7 @@ impl TerminalManager {
    pub fn write_to_terminal(&self, id: &str, input: TerminalInput) -> Result<()> {
       let connections = self.connections.lock().unwrap();
       if let Some(connection) = connections.get(id) {
-         connection.write(&input.into_bytes())
+         connection.write(input)
       } else {
          Err(anyhow!("Terminal connection not found"))
       }

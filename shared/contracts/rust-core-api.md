@@ -17,11 +17,13 @@ void lithe_core_free_string(char *value);
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
-`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. A Rust
-host also calls `lithe_core::execution::plan_launch_command` before spawning a
-Java process. It estimates the Windows command-line limit and moves oversized
-classpath/module-path options into argument-file text. The planner requires a
-Java executable and a known JDK feature version of at least 9, obtained through
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. Hosts
+call `lithe_core::execution::plan_launch_command` (or the
+`execution.planLaunchCommand` JSON command) before spawning a Java process. It
+estimates the Windows command-line limit and moves oversized classpath/module-path
+options into argument-file text, so macOS can apply the same automatic behavior
+without a Windows-only setting. The planner requires a Java executable and a
+known JDK feature version of at least 9, obtained through
 `java_feature_version_from_release`; other launches remain unchanged. It stops
 at the application target (class, JAR, or module), preserving all program arguments.
 Core owns the Unicode argument-file text and quoting. The Windows host encodes
@@ -106,6 +108,7 @@ stable error code and a user-facing message:
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
 | `maven.dependencies` | Normalize the bounded dependency-tree file one plan wrote into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
