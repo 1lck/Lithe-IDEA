@@ -896,7 +896,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Run",
-      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别。"
+      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因。"
     },
     {
       "id": "run-save-toolchain",
