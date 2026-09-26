@@ -652,6 +652,30 @@
       "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序和错误边界。"
     },
     {
+      "id": "java-maven-toolbar-tooltips",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Maven 工具栏图标悬停说明",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/MavenView.swift",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
+          "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven/components/maven-pane.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。"
+    },
+    {
       "id": "java-build-diagnostics",
       "area": "Java",
       "group": "Java/Maven",
@@ -1493,6 +1517,32 @@
       },
       "owner": "Workbench",
       "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性。"
+    },
+    {
+      "id": "workbench-activity-tooltips",
+      "area": "工作台",
+      "group": "工作台布局",
+      "capability": "活动栏图标的稳定悬停说明",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+          "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+          "windows/tauri/src/features/layout/components/footer/footer-tab-control.tsx",
+          "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。"
     },
     {
       "id": "embedded-viewers",
