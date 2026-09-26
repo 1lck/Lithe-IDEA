@@ -78,7 +78,9 @@ jobs:
         run: |
           ./scripts/package-linux.sh --release --version "$LITHE_VERSION"
 
-      - name: Verify package checksum placeholder
+      - name: Verify package and create checksum
+        env:
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
         run: |
           tarball=$(ls dist/lithe-linux-*-"$LITHE_VERSION".tar.gz)
           test -s "$tarball"
