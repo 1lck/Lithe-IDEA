@@ -1110,3 +1110,23 @@
 "CLI updated to %@" = "CLI updated to %@";
 "The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
 "Update log" = "Update log";
+
+/* Agent session selectors */
+"Search models" = "Search models";
+"No matching models" = "No matching models";
+"Thinking level" = "Thinking level";
+"Speed" = "Speed";
+"Fast" = "Fast";
+"Approval mode" = "Approval mode";
+"Ask for approval" = "Ask for approval";
+"Approve for me" = "Approve for me";
+"Full access" = "Full access";
+"Always ask to edit external files and use the internet" = "Always ask to edit external files and use the internet";
+"Only ask for actions detected as potentially unsafe" = "Only ask for actions detected as potentially unsafe";
+"Unrestricted access to the internet and any file on your computer" = "Unrestricted access to the internet and any file on your computer";
+"Collaboration mode" = "Collaboration mode";
+"Default" = "Default";
+"Plan" = "Plan";
+"Low" = "Low";
+"Fast mode" = "Fast mode";
+"Plan before making changes" = "Plan before making changes";

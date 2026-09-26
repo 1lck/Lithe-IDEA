@@ -173,6 +173,7 @@ private struct AgentConnectionView: View {
                 onOpenSettings: onOpenSettings,
                 onError: { localError = $0 },
                 configOptions: feature.selectedConversation?.configOptions ?? [],
+                sessionID: feature.selectedSessionID,
                 isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                 isCancelling: feature.selectedConversation?.isCancelling == true,
                 onSetConfig: { feature.setConfigOption($0, value: $1) }

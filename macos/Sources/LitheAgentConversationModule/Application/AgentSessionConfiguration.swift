@@ -6,6 +6,7 @@ public struct AgentSessionConfigOption: Identifiable, Equatable, Sendable {
         public var id: String
         public var name: String
         public var group: String?
+        public var description: String? = nil
     }
 
     public var id: String
@@ -27,7 +28,8 @@ public struct AgentSessionConfigOption: Identifiable, Equatable, Sendable {
                 let items = entry["options"] as? [[String: Any]] ?? [entry]
                 return items.compactMap {
                     guard let value = $0["value"] as? String, let name = $0["name"] as? String else { return nil }
-                    return Choice(id: value, name: name, group: entry["options"] == nil ? nil : group)
+                    return Choice(id: value, name: name, group: entry["options"] == nil ? nil : group,
+                                  description: $0["description"] as? String)
                 }
             }
             return Self(id: id, name: name, category: option["category"] as? String,

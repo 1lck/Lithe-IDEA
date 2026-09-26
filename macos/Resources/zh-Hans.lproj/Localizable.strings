@@ -2340,3 +2340,23 @@
 "CLI updated to %@" = "CLI 已更新至 %@";
 "The installer reported an error, but the new CLI version was verified." = "安装器报告了错误，但已确认新 CLI 版本可用。";
 "Update log" = "更新日志";
+
+/* Agent session selectors */
+"Search models" = "搜索模型";
+"No matching models" = "没有匹配的模型";
+"Thinking level" = "思考强度";
+"Speed" = "速度";
+"Fast" = "快速";
+"Approval mode" = "权限模式";
+"Ask for approval" = "请求批准";
+"Approve for me" = "替我审批";
+"Full access" = "完全访问";
+"Always ask to edit external files and use the internet" = "修改工作区外文件或访问网络时先请求批准。";
+"Only ask for actions detected as potentially unsafe" = "自动审批，仅在检测到潜在风险时请求你的确认。";
+"Unrestricted access to the internet and any file on your computer" = "允许访问网络和电脑上的所有文件。";
+"Collaboration mode" = "协作模式";
+"Default" = "默认";
+"Plan" = "计划";
+"Low" = "低";
+"Fast mode" = "快速模式";
+"Plan before making changes" = "先制定计划，再进行修改。";

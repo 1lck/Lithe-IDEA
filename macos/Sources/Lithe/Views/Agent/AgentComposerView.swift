@@ -13,6 +13,7 @@ struct AgentComposerView: View {
     let onOpenSettings: () -> Void
     let onError: (String?) -> Void
     var configOptions: [AgentSessionConfigOption] = []
+    var sessionID: String?
     var isConfiguring = false
     var isCancelling = false
     var onSetConfig: (String, String) -> Void = { _, _ in }
@@ -40,41 +41,6 @@ struct AgentComposerView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .contentShape(Rectangle())
             .onTapGesture { isFocused = true }
-            if !configOptions.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(primaryOptions) { option in
-                            Menu {
-                                configChoices(option)
-                            } label: {
-                                configLabel(option)
-                                    .font(.system(size: 11))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .frame(maxWidth: .infinity)
-                            .help("\(option.name): \(option.currentLabel)")
-                            .disabled(isBlocked || isResponding || isConfiguring)
-                        }
-                        if !additionalOptions.isEmpty {
-                            Menu {
-                                ForEach(additionalOptions) { option in
-                                    Menu("\(option.name): \(option.currentLabel)") { configChoices(option) }
-                                }
-                            } label: {
-                                Image(systemName: "ellipsis").frame(width: 22, height: 22)
-                            }
-                            .menuStyle(.borderlessButton)
-                            .menuIndicator(.hidden)
-                            .fixedSize()
-                            .help("More session settings")
-                            .disabled(isBlocked || isResponding || isConfiguring)
-                        }
-                        if isConfiguring { ProgressView().controlSize(.mini) }
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 28)
-            }
             toolbar
         }
         .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
@@ -109,6 +75,16 @@ struct AgentComposerView: View {
                 .buttonStyle(AgentToolbarButtonStyle())
                 .help("Agent Settings")
             agentMenu
+            if !configOptions.isEmpty {
+                AgentSessionSelectors(
+                    options: configOptions,
+                    agentName: selectedAgent?.name,
+                    isDisabled: isBlocked || isResponding || isConfiguring,
+                    onSelect: onSetConfig
+                )
+                .id(sessionID ?? selectedAgent?.id)
+                if isConfiguring { ProgressView().controlSize(.mini) }
+            }
             if configOptions.isEmpty, let model = selectedAgent?.modelName, !model.isEmpty {
                 HStack(spacing: 5) {
                     AgentBrandIcon(name: selectedAgent?.name, size: 12)
@@ -179,49 +155,6 @@ struct AgentComposerView: View {
         }
     }
 
-    private func configIcon(_ category: String?) -> String {
-        switch category {
-        case "mode": "lock.shield"
-        case "thought_level": "brain"
-        default: "slider.horizontal.3"
-        }
-    }
-
-    @ViewBuilder
-    private func configLabel(_ option: AgentSessionConfigOption) -> some View {
-        if option.category == "model" {
-            HStack(spacing: 5) {
-                AgentBrandIcon(name: selectedAgent?.name, size: 12)
-                Text(option.currentLabel)
-            }
-        } else {
-            Label(option.currentLabel, systemImage: configIcon(option.category))
-        }
-    }
-
-    private var primaryOptions: [AgentSessionConfigOption] {
-        ["model", "mode", "thought_level"].compactMap { category in
-            configOptions.first { $0.category == category }
-        }
-    }
-
-    private var additionalOptions: [AgentSessionConfigOption] {
-        let primaryIDs = Set(primaryOptions.map(\.id))
-        return configOptions.filter { !primaryIDs.contains($0.id) }
-    }
-
-    @ViewBuilder
-    private func configChoices(_ option: AgentSessionConfigOption) -> some View {
-        ForEach(option.choices) { choice in
-            Button { onSetConfig(option.id, choice.id) } label: {
-                if choice.id == option.currentValue {
-                    Label(choice.name, systemImage: "checkmark")
-                } else {
-                    Text(choice.group.map { "\($0): \(choice.name)" } ?? choice.name)
-                }
-            }
-        }
-    }
 }
 
 /// The shared split container keeps resize updates outside the conversation model.

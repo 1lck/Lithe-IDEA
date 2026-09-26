@@ -277,9 +277,10 @@ struct AgentConversationFeatureModelTests {
     func groupedConfigChoicesAndPartialToolUpdatesPreserveUpstreamData() {
         let options = AgentSessionConfigOption.parse([[
             "id": "model", "name": "Model", "type": "select", "currentValue": "a",
-            "options": [["name": "Provider", "options": [["value": "a", "name": "Model A"]]]]
+            "options": [["name": "Provider", "options": [["value": "a", "name": "Model A", "description": "Upstream choice detail"]]]]
         ]])
         #expect(options.first?.choices.first?.group == "Provider")
+        #expect(options.first?.choices.first?.description == "Upstream choice detail")
         #expect(options.first?.currentLabel == "Model A")
         var details = AgentToolDetails()
         details.merge(["kind": "edit", "rawInput": ["path": "main.js"],

@@ -13,6 +13,7 @@ enum AgentPanelStyle {
     static let muted = adaptive(dark: 0x666666, light: 0x777777)
     static let logo = adaptive(dark: 0x555555, light: 0x777777)
     static let focus = adaptive(dark: 0x007fd4, light: 0x0078d4)
+    static let selected = adaptive(dark: 0x094771, light: 0xcce7ff)
     static let versionText = adaptive(dark: 0xddd6fe, light: 0x6d28d9)
     static let versionAccent = Color(red: 139 / 255, green: 92 / 255, blue: 246 / 255)
 
