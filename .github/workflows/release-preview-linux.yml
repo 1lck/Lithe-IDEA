@@ -68,9 +68,11 @@ jobs:
             ~/.cargo/git
             ~/.cargo/registry
             target
-          key: cargo-linux-${{ runner.os }}-${{ hashFiles('linux/Cargo.toml', 'rust/Cargo.lock') }}
+          # Separate key from the ubuntu-latest CI cache: proc-macro dylibs
+          # built on 24.04 cannot be loaded on the 22.04 glibc.
+          key: cargo-linux-22.04-${{ hashFiles('linux/Cargo.toml', 'rust/Cargo.lock') }}
           restore-keys: |
-            cargo-linux-${{ runner.os }}-
+            cargo-linux-22.04-
 
       - name: Package Linux application
         env:
