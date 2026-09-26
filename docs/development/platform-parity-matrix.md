@@ -188,7 +188,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示。 |  |
+| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。 |  |
 | 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 | Windows 快捷键设置仍有占位交互，见 #718。 |
 
 </details>
