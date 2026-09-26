@@ -66,7 +66,7 @@ function MavenSettingsForm() {
   const effectiveConfigurationStatus = useMavenStore(
     (state) => state.effectiveConfigurationStatus,
   );
-  const updateLocalConfiguration = useMavenStore((state) => state.actions.updateLocalConfiguration);
+  const saveLocalConfiguration = useMavenStore((state) => state.actions.saveLocalConfiguration);
   const resolveEffectiveConfiguration = useMavenStore(
     (state) => state.actions.resolveEffectiveConfiguration,
   );
@@ -172,8 +172,8 @@ function MavenSettingsForm() {
         <Button
           variant="accent"
           size="sm"
-          disabled={!project || !dirty}
-          onClick={() => updateLocalConfiguration(draft)}
+          disabled={!project || (!dirty && !configurationSaveError)}
+          onClick={() => void saveLocalConfiguration(draft).catch(() => undefined)}
         >
           {t("settings.mac.apply")}
         </Button>

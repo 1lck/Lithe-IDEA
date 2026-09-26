@@ -989,6 +989,7 @@ export const createMavenStore = (
         // Maven project clears it without asking the host at all.
         resolveEffectiveConfiguration: async () => {
           const state = get();
+          const revision = ++effectiveConfigurationRevision;
           if (!state.root || !state.project) {
             if (
               get().effectiveConfiguration !== null ||
@@ -998,7 +999,6 @@ export const createMavenStore = (
             }
             return;
           }
-          const revision = ++effectiveConfigurationRevision;
           set({ effectiveConfigurationStatus: "loading" });
           try {
             const resolved = await dependencies.resolveMavenEffectiveConfiguration(

@@ -615,6 +615,30 @@ describe("Maven workspace state", () => {
     expect(resolveMavenEffectiveConfiguration).not.toHaveBeenCalled();
   });
 
+  test("ignores Maven detection that returns after switching to a non-Maven project", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const releaseDetection = deferred<typeof effectiveConfiguration>();
+    resolveMavenEffectiveConfiguration.mockImplementationOnce(() => releaseDetection.promise);
+
+    const pendingDetection = store.getState().actions.resolveEffectiveConfiguration();
+    try {
+      expect(resolveMavenEffectiveConfiguration).toHaveBeenCalledTimes(2);
+      scanMavenProject.mockResolvedValue(null);
+      await store.getState().actions.loadProject("D:/plain", []);
+      await store.getState().actions.resolveEffectiveConfiguration();
+      expect(store.getState().effectiveConfigurationStatus).toBe("idle");
+
+      releaseDetection.resolve(effectiveConfiguration);
+      await pendingDetection;
+      expect(store.getState().effectiveConfiguration).toBeNull();
+      expect(store.getState().effectiveConfigurationStatus).toBe("idle");
+    } finally {
+      releaseDetection.resolve(effectiveConfiguration);
+      await pendingDetection;
+    }
+  });
+
   test("serializes rapid configuration writes so the newest value wins", async () => {
     const firstStarted = deferred<void>();
     const firstWrite = deferred<void>();

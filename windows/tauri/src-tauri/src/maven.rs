@@ -190,10 +190,20 @@ fn assemble_effective_configuration(
     let detected_settings_path = effective_settings_path("", home, detected_maven.as_deref());
     let settings_path =
         effective_settings_path(configured_settings, home, maven_executable_path.as_deref());
-    let detected_local_repository_path =
-        effective_local_repository_path("", detected_settings_path.as_deref(), home);
-    let local_repository_path =
-        effective_local_repository_path(configured_repository, settings_path.as_deref(), home);
+    let detected_global_settings = effective_settings_path("", None, detected_maven.as_deref());
+    let selected_global_settings = effective_settings_path("", None, maven_executable_path.as_deref());
+    let detected_local_repository_path = effective_local_repository_path(
+        "",
+        detected_settings_path.as_deref(),
+        detected_global_settings.as_deref(),
+        home,
+    );
+    let local_repository_path = effective_local_repository_path(
+        configured_repository,
+        settings_path.as_deref(),
+        selected_global_settings.as_deref(),
+        home,
+    );
     MavenEffectiveConfiguration {
         settings_path,
         local_repository_path,
@@ -247,18 +257,19 @@ fn effective_settings_path(
 }
 
 /// The local repository Maven would use: the configured path, then the
-/// `<localRepository>` of the effective settings, then the `~/.m2/repository`
-/// default.
+/// `<localRepository>` of the user (or configured) settings, then the
+/// installation settings, then the `~/.m2/repository` default.
 fn effective_local_repository_path(
     configured: &str,
     settings_path: Option<&str>,
+    global_settings_path: Option<&str>,
     home: Option<&Path>,
 ) -> Option<String> {
     let configured = configured.trim();
     if !configured.is_empty() {
         return Some(configured.to_string());
     }
-    if let Some(settings_path) = settings_path {
+    for settings_path in [settings_path, global_settings_path].into_iter().flatten() {
         let contents = fs::read_to_string(settings_path).unwrap_or_default();
         if let Some(repository) = parse_local_repository(&contents) {
             return Some(expand_user_home(&repository, home));
@@ -476,7 +487,7 @@ mod tests {
         let settings_path = settings.to_string_lossy();
         let expected = format!("{}/.m2/repository", home.to_string_lossy());
         assert_eq!(
-            effective_local_repository_path("", Some(&settings_path), Some(&home)).as_deref(),
+            effective_local_repository_path("", Some(&settings_path), None, Some(&home)).as_deref(),
             Some(expected.as_str())
         );
         fs::remove_dir_all(home).ok();
@@ -499,19 +510,20 @@ mod tests {
             .into_owned();
 
         assert_eq!(
-            effective_local_repository_path("D:\\custom", Some(&settings), Some(&home)).as_deref(),
+            effective_local_repository_path("D:\\custom", Some(&settings), None, Some(&home))
+                .as_deref(),
             Some("D:\\custom")
         );
         assert_eq!(
-            effective_local_repository_path("", Some(&settings), Some(&home)).as_deref(),
+            effective_local_repository_path("", Some(&settings), None, Some(&home)).as_deref(),
             Some("C:\\from-settings")
         );
         assert_eq!(
-            effective_local_repository_path("", None, Some(&home)).as_deref(),
+            effective_local_repository_path("", None, None, Some(&home)).as_deref(),
             Some(home_default.as_str())
         );
         // Without a home directory there is no default to fall back to.
-        assert_eq!(effective_local_repository_path("", None, None), None);
+        assert_eq!(effective_local_repository_path("", None, None, None), None);
         fs::remove_dir_all(home).ok();
     }
 
@@ -566,6 +578,83 @@ mod tests {
 
         fs::remove_dir_all(home).ok();
         fs::remove_dir_all(installation).ok();
+    }
+
+    #[test]
+    fn repository_falls_back_to_installation_when_user_settings_omit_it() {
+        let home = temp_directory();
+        let installation = temp_directory();
+        struct Cleanup(PathBuf, PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+                fs::remove_dir_all(&self.1).ok();
+            }
+        }
+        let _cleanup = Cleanup(home.clone(), installation.clone());
+        let user_settings = home.join(".m2").join("settings.xml");
+        let global_settings = installation.join("conf").join("settings.xml");
+        fs::create_dir_all(user_settings.parent().expect("user settings parent"))
+            .expect("user m2");
+        fs::create_dir_all(global_settings.parent().expect("global settings parent"))
+            .expect("conf directory");
+        fs::write(&user_settings, "<settings/>").expect("write user settings");
+        fs::write(
+            &global_settings,
+            "<settings><localRepository>D:\\global-repo</localRepository></settings>",
+        )
+        .expect("write global settings");
+        let executable = installation
+            .join("bin")
+            .join("mvn.cmd")
+            .to_string_lossy()
+            .into_owned();
+
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some(executable.clone()),
+            None,
+            Some(executable.clone()),
+            None,
+            Some(&home),
+        );
+        assert_eq!(
+            resolved.settings_path.as_deref(),
+            Some(user_settings.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\global-repo")
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path.as_deref(),
+            Some("D:\\global-repo")
+        );
+
+        fs::write(
+            &user_settings,
+            "<settings><localRepository>D:\\user-repo</localRepository></settings>",
+        )
+        .expect("update user settings");
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some(executable.clone()),
+            None,
+            Some(executable),
+            None,
+            Some(&home),
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\user-repo")
+        );
+
     }
 
     #[test]
