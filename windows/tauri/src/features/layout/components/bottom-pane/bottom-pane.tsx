@@ -260,6 +260,11 @@ const BottomPane = () => {
             className={cn("h-full", bottomPaneActiveTab === "terminal" ? "block" : "hidden")}
             onFullScreen={() => setIsFullScreen(!isFullScreen)}
             isFullScreen={isFullScreen}
+            onMinimize={() => {
+              // Reopening the terminal should restore the docked panel, not full screen.
+              setIsFullScreen(false);
+              useUIState.getState().setIsBottomPaneVisible(false);
+            }}
           />
         )}
 

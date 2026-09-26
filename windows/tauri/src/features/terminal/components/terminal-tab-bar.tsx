@@ -15,6 +15,7 @@ import {
   ArrowsOutIcon as Maximize,
   ArrowsOutIcon as Maximize2,
   ArrowsInIcon as Minimize2,
+  MinusIcon as Minus,
   PlusIcon as Plus,
   MagnifyingGlassIcon as Search,
   TerminalWindowIcon as TerminalIcon,
@@ -248,6 +249,7 @@ interface TerminalTabBarProps {
   onPrevTerminal?: () => void;
   onFullScreen?: () => void;
   isFullScreen?: boolean;
+  onMinimize?: () => void;
   orientation?: TerminalTabLayout;
 }
 
@@ -270,6 +272,7 @@ const TerminalTabBar = ({
   onPrevTerminal,
   onFullScreen,
   isFullScreen = false,
+  onMinimize,
   orientation = "horizontal",
 }: TerminalTabBarProps) => {
   const { t } = useTranslation();
@@ -489,6 +492,19 @@ const TerminalTabBar = ({
       )}
     </div>
   );
+  // Mirrors the macOS "Hide Terminal tool window" button: hides the panel, sessions keep running.
+  const minimizeAction = onMinimize ? (
+    <Button
+      onClick={onMinimize}
+      variant="ghost"
+      size="icon-xs"
+      tooltip={t("terminal.minimizeTerminal")}
+      tooltipSide="bottom"
+      aria-label={t("terminal.minimizeTerminal")}
+    >
+      <Minus />
+    </Button>
+  ) : null;
   // Horizontal tab bars keep "new terminal" next to the last tab (see the tab list below), so
   // the trailing toolbar only holds panel-level actions there.
   const terminalToolbarActions = (
@@ -522,6 +538,7 @@ const TerminalTabBar = ({
           </Button>
         </Tooltip>
       )}
+      {minimizeAction}
     </div>
   );
   const sortableStrategy =
@@ -755,6 +772,7 @@ const TerminalTabBar = ({
                 </Button>
               </Tooltip>
             )}
+            {minimizeAction}
           </div>
         )}
       </div>
