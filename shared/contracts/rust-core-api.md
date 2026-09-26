@@ -17,11 +17,13 @@ void lithe_core_free_string(char *value);
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
 canonical C declarations are in `rust/lithe-core/include/lithe_core.h`.
 Native clients can link the same `staticlib` or `cdylib`; Rust hosts call
-`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. A Rust
-host also calls `lithe_core::execution::plan_launch_command` before spawning a
-Java process. It estimates the Windows command-line limit and moves oversized
-classpath/module-path options into argument-file text. The planner requires a
-Java executable and a known JDK feature version of at least 9, obtained through
+`lithe_core::execute_json` and `lithe_core::cancel_operation` directly. Hosts
+call `lithe_core::execution::plan_launch_command` (or the
+`execution.planLaunchCommand` JSON command) before spawning a Java process. It
+estimates the Windows command-line limit and moves oversized classpath/module-path
+options into argument-file text, so macOS can apply the same automatic behavior
+without a Windows-only setting. The planner requires a Java executable and a
+known JDK feature version of at least 9, obtained through
 `java_feature_version_from_release`; other launches remain unchanged. It stops
 at the application target (class, JAR, or module), preserving all program arguments.
 Core owns the Unicode argument-file text and quoting. The Windows host encodes
@@ -106,8 +108,9 @@ stable error code and a user-facing message:
 | `history.delete` | Delete one history entry and its snapshot |
 | `maven.scan` | Parse a Maven project descriptor and recursively return modules/profiles |
 | `maven.launchPlan` | Produce a deterministic Maven invocation from a versioned project context |
+| `execution.planLaunchCommand` | Move oversized Java path-list options into a JDK argument file |
 | `maven.dependencyPlan` | Produce a bounded dependency-tree invocation for one Maven module |
-| `maven.dependencies` | Normalize bounded Maven dependency-plugin output into a deterministic tree |
+| `maven.dependencies` | Normalize the bounded dependency-tree file one plan wrote into a deterministic tree |
 | `maven.diagnostics` | Parse stable Maven compiler diagnostics from build output |
 | `maven.testResults` | Parse bounded JUnit/Surefire result summaries and failure locations |
 | `debug.createSession` | Create a transport-neutral DAP session and return its initialize frame |
@@ -174,6 +177,7 @@ stable error code and a user-facing message:
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
 | `git.command` | Execute one argument-based Git operation and return its arguments, streams, exit code, and ordered subprocess invocations |
+| `git.repositoryRoot` | Resolve the repository root containing a workspace path without acquiring repository write coordination |
 | `git.write` | Validate and execute shared Git mutations such as stage, commit, branch, checkout, remote sync, clone, and stash |
 | `git.fetchPlan` | Validate Fetch choices; optionally inspect a repository to expand enabled per-remote commands |
 | `git.consolePresentation` | Pure IDEA-style configuration/progress folds, empty-output notices and search ranges over retained diagnostic snapshots |
@@ -334,9 +338,11 @@ watchers, and native file I/O stay platform-owned; local keystrokes update the
 same revision semantics in-process and never cross the Rust boundary.
 `diskConflict` preserves the current editor revision and enters `conflict` from
 any state when a native guarded write rejects its expected disk baseline or a
-file is missing. Native document saves compare the last acknowledged UTF-8 bytes
-with disk inside the platform write operation; watchers are refresh hints, not
-write authorization. Conflict resolution acknowledges only the disk snapshot
+file is missing. Native document saves compare the last acknowledged raw disk
+bytes with disk inside the platform write operation; the editor may use UTF-8,
+UTF-8 with BOM, GBK, GB18030, Shift JIS, or Windows-1252 while the Core
+lifecycle remains encoding-agnostic. Watchers are refresh hints, not write
+authorization. Conflict resolution acknowledges only the disk snapshot
 observed by the user, and subsequent saves must validate that snapshot again. The
 portable examples are in `shared/fixtures/documents/lifecycle-v1.json`.
 
@@ -392,6 +398,10 @@ that occur before Git starts use the standard error envelope. If a follow-up
 validation or probe fails after at least one subprocess was recorded, the
 response retains the invocation trace and includes the failure as
 `operationError`.
+
+`git.repositoryRoot` accepts `{ "root": string }` and returns the normalized
+absolute repository root or `null` when the path is not inside a repository. It
+is read-only and does not acquire the repository write lease.
 
 `git.command` and typed Git writers share the repository's write lease, including
 linked worktrees. A competing request fails with `invalid_request` while a writer
@@ -1200,7 +1210,17 @@ legacy optional `javaDebugBundlePath`, and ordered
 `runtimeExecutablePath`. Rust loads the legacy Debug bundle first when present,
 then appends the extension bundle paths with stable de-duplication. Rust
 then uses `runtimeExecutablePath` as the process executable and constructs the
-complete deterministic JDT LS JVM argument list. When the structured object is
+complete deterministic JDT LS JVM argument list. `configurationDirectory` names
+the packaged, read-only configuration; Rust never passes it to Equinox, which
+writes framework state into its `-configuration` directory. Rust copies the
+directory's `config.ini` into
+`cacheDirectory/jdtls-configuration/<config.ini SHA-256>/configuration`,
+rewrites a missing or damaged copy, and passes that directory instead. A
+`cacheDirectory` that resolves inside the JDT LS installation, including
+through a symbolic link, fails with `invalid_request` before anything is written;
+a missing `config.ini` fails with `process_start_failed`. Areas of other digests
+unused for the JDT cache retention period are removed after the area is
+prepared, and a removal failure is logged without failing the start. When the structured object is
 absent, the selected `executablePath` and legacy wrapper arguments remain the
 compatibility path. Rust owns the returned
 session's child process, stdin/stdout/stderr, framing buffer, JSON-RPC request
@@ -1339,7 +1359,7 @@ and virtual-location representation as ordinary navigation.
 `lsp.request` accepts a semantic `operation` plus
 the operation-specific URI, position, range, diagnostics, item, action, or
 command fields, and returns `{ operationId }`. Supported operations include
-completion, hover, definition/declaration/type-definition, references,
+completion and resolve, hover, definition/declaration/type-definition, references,
 implementation, rename, formatting, code actions and resolve, execute command,
 inlay hints, full-document semantic tokens, folding ranges, code lens, provider
 virtual documents, `javaEntrypoints`, `javaTestItems`, and `javaMainMethods`.
@@ -1499,23 +1519,37 @@ expand or duplicate that file's arguments. Fixtures are in
 `shared/fixtures/maven/launch-plan-v1.json`.
 
 `maven.dependencyPlan` accepts the same workspace `root`, versioned `context`,
-and optional reactor-relative `module`. It returns a launch plan for the fixed
-`maven-dependency-plugin:3.8.1:tree` goal with verbose text output, disabled
-color, and an English locale. Module queries use `-pl <module>` without `-am`;
-the read-only query does not build reactor dependencies. Platform adapters own
-the child process, apply a bounded timeout, and keep it independent from an
-ordinary Maven build session.
+optional reactor-relative `module`, and a required absolute `outputFile`. It
+returns a launch plan for the fixed `maven-dependency-plugin:3.8.1:tree` goal
+that writes the verbose text tree to `outputFile` in UTF-8 with standard tree
+tokens, disabled color, and an English locale. Exactly one project runs because
+every project in the session would overwrite the same file: module queries use
+`-pl <module>` without `-am`, and reactor-root queries use `-N`. The read-only
+query does not build reactor dependencies. Platform adapters own the child
+process, apply a bounded timeout, and keep it independent from an ordinary Maven
+build session. They also own `outputFile`: each invocation receives a fresh
+path in a platform scratch directory, and the platform removes it after the
+result, cancellation, timeout, or failure. The process's console output is log
+text only and is never parsed as dependency data.
 
-`maven.dependencies` accepts `{ "modulePath": string, "output": string }` and
-returns the normalized module path plus a recursively nested `dependencies`
-array. Each node contains `modulePath`, `groupId`, `artifactId`, `version`,
-`type`, nullable `classifier`, `scope`, `resolution`, nullable
-`selectedVersion`, and `children`. Resolution is `resolved`,
-`omittedDuplicate`, or `omittedConflict`. Core removes ANSI control sequences
-and unrelated Maven log lines, then sorts every level deterministically. Input
-is limited to 500,000 Unicode scalar values, 10,000 dependency nodes, and 64
-levels; malformed or excessive output returns `parse_failed`. The compatibility
-fixture is `shared/fixtures/maven/dependency-tree-v1.json`.
+`maven.dependencies` accepts `{ "modulePath": string, "outputFile": string }`
+after the plan's process exits successfully and returns the normalized module
+path plus a recursively nested `dependencies` array. Each node contains
+`modulePath`, `groupId`, `artifactId`, `version`, `type`, nullable `classifier`,
+`scope`, `resolution`, nullable `selectedVersion`, nullable
+`premanagedVersion` and `premanagedScope` (values before dependency
+management), nullable `originalScope` (declared scope before mediation widened
+it), nullable `ignoredScope` (a wider scope mediation did not apply), and
+`children`. Resolution is `resolved`, `omittedDuplicate`, or `omittedConflict`;
+`selectedVersion` is the winning version of an omitted conflict. Every level is
+sorted deterministically.
+
+The first line of the file must name the module and every later line must be a
+node with only the annotations the pinned plugin writes; any other content,
+invalid UTF-8, a line over 4 KiB, more than 10,000 nodes, 64 levels, or a file
+over the byte limit derived from those bounds returns `parse_failed` instead of
+a partial tree. A missing file returns `process_failed`. The compatibility
+fixture is `shared/fixtures/maven/dependency-tree-v2.json`.
 
 `maven.diagnostics` accepts `{ "root": string, "output": string }` and returns
 `{ "issues": [] }`. Diagnostic paths may be absolute or workspace-relative;
@@ -1582,6 +1616,10 @@ of an overridden effective `cwd`. Core derives this read-only ownership value
 when resolving existing generated documents as well; regeneration is not
 required. Overrides cannot move a configuration to another reactor. Current
 File and configurations without detected Maven ownership omit this field.
+Resolution checks that `extensions.maven.module` exists relative to this
+reactor, or relative to `root` when the field is absent, and never relative to
+an overridden `cwd`: setting a module's own directory as the working directory
+keeps the configuration available.
 Module menus first match reactor and module, then apply the default preference;
 they must not infer ownership from an overridden working directory. The shared
 `run-configuration/maven-module-ownership.json` fixture covers independent
@@ -1633,7 +1671,11 @@ document transformations. They validate scope, paths, supported types, stable
 IDs, main classes, modules, and argument parsing, then return UTF-8 JSON in the
 `document` field. The platform adapter selects the target project or local
 file and performs the atomic write. These commands never write files. An empty
-`workingDirectory` removes the layer's `cwd` override. Optional
+`workingDirectory` removes the layer's `cwd` override. A non-empty value must
+name an existing directory inside `root`, given relative to it or as an
+absolute path, and is stored project-relative. Values are literal paths; editor
+variables such as `${workspaceFolder}` are rejected rather than stored, because
+resolution disables and omits a configuration whose `cwd` does not exist. Optional
 `mavenSkipTests` writes `extensions.maven.skipTests`; omission removes the
 override so the project Maven context is inherited, while explicit `false`
 continues to run tests even when the project default skips them.
@@ -1830,7 +1872,12 @@ Completion items returned by the LSP client and runtime preserve `insertTextForm
 (`1` for plain text, `2` for snippets; absent values default to `1`). Hosts retain
 this field through completion resolution. Monaco applies snippet text with its
 snippet insertion rule so placeholders participate in selection and undo rather
-than being inserted as literal source text.
+
+than being inserted as literal source text. The initialize handshake advertises
+`completion.completionItem.labelDetailsSupport` and resolve support for
+`labelDetails` so language servers attach typed class/namespace labels on
+incomplete items. Core forwards `labelDetails` and omits null `data` so
+`completionItem/resolve` can still produce import `use`/`import` edits.
 
 ### Java preparation snapshot
 

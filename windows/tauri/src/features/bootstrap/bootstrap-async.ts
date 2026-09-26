@@ -7,6 +7,9 @@ const asyncBootstrapSteps = [
     run: async () => {
       const { initializeSettingsStore } = await import("@/features/settings/stores/settings.store");
       await initializeSettingsStore();
+      const { initializeIconThemes } =
+        await import("@/extensions/icon-themes/icon-theme-initializer");
+      await initializeIconThemes();
     },
   },
   {

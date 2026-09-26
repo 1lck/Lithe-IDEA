@@ -26,6 +26,8 @@ const nativeCommands = new Set([
   "core_cancel",
   "core_execute",
   "read_document_file",
+  "read_document_file_details",
+  "read_document_file_change",
   "save_document_file",
   "set_document_watches",
   "create_app_window",
@@ -45,6 +47,10 @@ const nativeCommands = new Set([
   "get_symlink_info",
   "get_system_fonts",
   "get_system_theme",
+  "get_tool_path",
+  "install_language_tools",
+  "cancel_language_tool_install",
+  "uninstall_language_tools",
   "list_shells",
   "lsp_rebuild_java_index",
   "lsp_resolve_java_launch",
@@ -184,9 +190,11 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command.startsWith("uninstall_extension") ||
     command === "get_extension_path" ||
     command === "read_extension_entrypoint" ||
-    command === "get_tool_path" ||
     command === "get_importable_ide_projects"
   ) {
+    // get_tool_path and install_language_tools are native commands; they stay
+    // outside this gate so managed language tools work while the extension
+    // store backend remains unavailable.
     return "extensions";
   }
   return null;

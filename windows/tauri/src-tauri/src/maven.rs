@@ -2,6 +2,12 @@
 //!
 //! Portable selections stay below the workspace `.lithe` directory. Maven,
 //! JDK, and settings paths are stored only in the application data directory.
+//!
+//! This module also owns the scratch files the dependency plugin writes its
+//! tree to. Each dependency session gets its own file in the application cache
+//! directory; the frontend removes it when the session ends and the directory
+//! is cleared at startup, so a crash cannot leave trees behind or feed an old
+//! tree to a later session.
 
 use crate::run::atomic_write;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -11,6 +17,8 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 const MAVEN_CONFIGURATION_VERSION: u32 = 1;
+/// Cache subdirectory holding one dependency-tree file per active session.
+const DEPENDENCY_TREE_DIRECTORY: &str = "maven-dependency-trees";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -81,6 +89,79 @@ pub fn maven_write_configuration(
         &local_path(&app, &root, &args.reactor_path)?,
         args.configuration.local.as_ref(),
     )
+}
+
+/// Returns a fresh path for the tree one dependency session writes.
+///
+/// A file left by an earlier session with the same ID is removed first, so
+/// Core can only read what this session's Maven process wrote.
+#[tauri::command]
+pub fn maven_create_dependency_output(
+    app: AppHandle,
+    session_id: String,
+) -> Result<String, String> {
+    let path = prepare_dependency_output(&dependency_tree_directory(&app)?, &session_id)?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Removes a dependency session's tree file; a file that was never written is not an error.
+#[tauri::command]
+pub fn maven_remove_dependency_output(app: AppHandle, session_id: String) -> Result<(), String> {
+    remove_dependency_output(&dependency_tree_directory(&app)?, &session_id)
+}
+
+/// Deletes trees left by a previous run. The application is single-instance,
+/// so no other process can own files in this directory at startup.
+pub fn clear_dependency_outputs(app: &AppHandle) {
+    let Ok(directory) = dependency_tree_directory(app) else {
+        return;
+    };
+    if let Err(error) = clear_dependency_output_directory(&directory) {
+        eprintln!("[maven] Could not clear dependency-tree scratch files: {error}");
+    }
+}
+
+fn dependency_tree_directory(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .app_cache_dir()
+        .map_err(|error| error.to_string())?
+        .join(DEPENDENCY_TREE_DIRECTORY))
+}
+
+fn dependency_output_path(directory: &Path, session_id: &str) -> Result<PathBuf, String> {
+    // Session IDs come from the frontend. Restricting them keeps the file name
+    // inside the scratch directory and valid on Windows, where `:` is reserved.
+    if session_id.is_empty()
+        || session_id.len() > 128
+        || !session_id.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | ':')
+        })
+    {
+        return Err("The Maven dependency session is invalid.".into());
+    }
+    Ok(directory.join(format!("{}.txt", session_id.replace(':', "_"))))
+}
+
+fn prepare_dependency_output(directory: &Path, session_id: &str) -> Result<PathBuf, String> {
+    let path = dependency_output_path(directory, session_id)?;
+    fs::create_dir_all(directory).map_err(|error| error.to_string())?;
+    remove_dependency_output(directory, session_id)?;
+    Ok(path)
+}
+
+fn remove_dependency_output(directory: &Path, session_id: &str) -> Result<(), String> {
+    match fs::remove_file(dependency_output_path(directory, session_id)?) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error.to_string()),
+        _ => Ok(()),
+    }
+}
+
+fn clear_dependency_output_directory(directory: &Path) -> std::io::Result<()> {
+    match fs::remove_dir_all(directory) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
+        _ => Ok(()),
+    }
 }
 
 fn validate_versions(
@@ -180,6 +261,58 @@ mod tests {
             std::env::temp_dir().join(format!("lithe-maven-config-{}-{id}", std::process::id()));
         fs::create_dir_all(&path).expect("temp directory");
         path
+    }
+
+    #[test]
+    fn dependency_outputs_are_fresh_per_session_and_removed_on_request() {
+        let cache = temp_directory();
+        let directory = cache.join(DEPENDENCY_TREE_DIRECTORY);
+        let session = "maven-dependency:3f2a9c1e-0000-4000-8000-000000000001";
+
+        let path = prepare_dependency_output(&directory, session).expect("create output");
+        assert_eq!(path.parent(), Some(directory.as_path()));
+        assert_eq!(
+            path.file_name().and_then(|name| name.to_str()),
+            Some("maven-dependency_3f2a9c1e-0000-4000-8000-000000000001.txt")
+        );
+        // A tree left by an earlier session with the same ID is never reused.
+        fs::write(&path, "stale").expect("write stale tree");
+        assert_eq!(
+            prepare_dependency_output(&directory, session).expect("recreate"),
+            path
+        );
+        assert!(!path.exists());
+
+        fs::write(&path, "tree").expect("write tree");
+        remove_dependency_output(&directory, session).expect("remove output");
+        assert!(!path.exists());
+        remove_dependency_output(&directory, session).expect("removing twice is not an error");
+
+        fs::write(&path, "tree").expect("write tree");
+        clear_dependency_output_directory(&directory).expect("clear directory");
+        assert!(!directory.exists());
+        clear_dependency_output_directory(&directory).expect("clearing twice is not an error");
+        fs::remove_dir_all(cache).expect("remove temp directory");
+    }
+
+    #[test]
+    fn dependency_output_sessions_cannot_name_other_paths() {
+        let directory = PathBuf::from("scratch");
+        for session in [
+            "",
+            "..",
+            "../tree",
+            "a/b",
+            "a\\b",
+            "C:\\tree",
+            "a b",
+            &"a".repeat(129),
+        ] {
+            assert!(
+                dependency_output_path(&directory, session).is_err(),
+                "session {session:?} should be rejected"
+            );
+        }
     }
 
     #[test]

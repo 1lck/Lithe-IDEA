@@ -1,7 +1,10 @@
 import { convertFileSrc, invoke } from "@/platform/tauri-core";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { IconThemeContribution, ThemeContribution } from "../types/extension-manifest";
-import { resolveBundledIconThemeAsset } from "../icon-themes/bundled-icon-theme-assets";
+import {
+  loadBundledIconThemeAssets,
+  resolveBundledIconThemeAsset,
+} from "../icon-themes/bundled-icon-theme-assets";
 import { iconThemeRegistry } from "../icon-themes/icon-theme-registry";
 import type { IconResult, IconThemeDefinition } from "../icon-themes/icon-theme.types";
 import { themeRegistry } from "../themes/theme-registry";
@@ -42,7 +45,7 @@ function normalizeLookupMap(map: Record<string, string> | undefined, withDot = f
 function resolveIcon(
   definitions: Record<string, string>,
   iconKey: string | undefined,
-  extensionId: string,
+  bundledAssets: Record<string, string> | undefined,
   extensionPath?: string,
 ): IconResult {
   if (!iconKey) return {};
@@ -62,7 +65,7 @@ function resolveIcon(
     return { url: definition };
   }
 
-  const bundledAsset = resolveBundledIconThemeAsset(extensionId, definition);
+  const bundledAsset = resolveBundledIconThemeAsset(bundledAssets, definition);
   if (bundledAsset) {
     return { url: bundledAsset };
   }
@@ -100,8 +103,8 @@ function getFileExtensionCandidates(fileName: string): string[] {
 }
 
 function toIconThemeDefinition(
-  extensionId: string,
   contribution: IconThemeContribution,
+  bundledAssets: Record<string, string> | undefined,
   extensionPath?: string,
 ): IconThemeDefinition {
   const filenames = normalizeLookupMap(contribution.filenames);
@@ -124,7 +127,7 @@ function toIconThemeDefinition(
           (isExpanded ? contribution.defaultFolderOpen : undefined) ||
           contribution.defaultFolder;
 
-        return resolveIcon(iconDefinitions, folderIcon, extensionId, extensionPath);
+        return resolveIcon(iconDefinitions, folderIcon, bundledAssets, extensionPath);
       }
 
       const icon =
@@ -134,7 +137,7 @@ function toIconThemeDefinition(
           .find(Boolean) ||
         contribution.defaultFile;
 
-      return resolveIcon(iconDefinitions, icon, extensionId, extensionPath);
+      return resolveIcon(iconDefinitions, icon, bundledAssets, extensionPath);
     },
   };
 }
@@ -207,9 +210,11 @@ export async function activateExtensionContributions(
     themeRegistry.registerTheme(toThemeDefinition(theme), { extensionId });
   }
 
+  const bundledAssets =
+    iconThemes.length > 0 ? await loadBundledIconThemeAssets(extensionId) : undefined;
   for (const iconTheme of iconThemes) {
     iconThemeRegistry.registerTheme(
-      toIconThemeDefinition(extensionId, iconTheme, resolvedExtensionPath),
+      toIconThemeDefinition(iconTheme, bundledAssets, resolvedExtensionPath),
       {
         extensionId,
       },
@@ -232,4 +237,23 @@ export async function deactivateExtensionContributions(
   fallbackIconThemeIfNeeded(getIconThemeContributions(manifest));
   themeRegistry.unregisterThemesByExtension(extensionId);
   iconThemeRegistry.unregisterThemesByExtension(extensionId);
+}
+
+export function registerBuiltinIconTheme(
+  manifest: ExtensionManifest,
+  selectedThemeId: string,
+  assets: Record<string, string> | undefined,
+): void {
+  const contribution = getIconThemeContributions(manifest).find(
+    (theme) => theme.id === selectedThemeId,
+  );
+  if (!contribution) {
+    throw new Error(`Built-in icon theme ${selectedThemeId} is missing`);
+  }
+
+  iconThemeRegistry.unregisterThemesByExtension("builtin.icon-themes");
+  iconThemeRegistry.registerTheme(toIconThemeDefinition(contribution, assets), {
+    extensionId: "builtin.icon-themes",
+    isBundled: true,
+  });
 }

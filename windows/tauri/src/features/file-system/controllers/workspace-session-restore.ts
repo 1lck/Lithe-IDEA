@@ -3,6 +3,7 @@ import type { PersistedEditorViewState } from "@/features/editor/types/editor-se
 import { detectLanguageFromFileName } from "@/features/editor/utils/language-detection";
 import { parseWslPath } from "@/features/wsl/utils/wsl-path";
 import { readFileContent } from "./file-operations";
+import { isLocalDocumentPath, readDocumentFileDetails, type FileEncoding } from "@/platform/document-files";
 import {
   getDatabaseTypeFromPath,
   getFilenameFromPath,
@@ -30,6 +31,8 @@ export interface LoadedFileContent {
   kind: LoadedFileKind;
   content?: string;
   language?: string;
+  encoding?: FileEncoding;
+  diskIdentity?: string;
 }
 
 /**
@@ -38,7 +41,7 @@ export interface LoadedFileContent {
  * `latestFileOpenRequestId` used by `handleFileSelect`, so concurrent restores
  * are never misclassified as stale.
  */
-export async function loadFileContent(path: string): Promise<LoadedFileContent> {
+export async function loadFileContent(path: string, encoding?: FileEncoding): Promise<LoadedFileContent> {
   if (getDatabaseTypeFromPath(path)) return { kind: "database" };
   if (isImageFile(path)) return { kind: "image" };
   if (isPdfFile(path)) return { kind: "pdf" };
@@ -65,13 +68,25 @@ export async function loadFileContent(path: string): Promise<LoadedFileContent> 
     return { kind: "text", content, language };
   }
 
+  if (encoding || isLocalDocumentPath(path)) {
+    const details = await readDocumentFileDetails(path, encoding);
+    if (!details || details.content === null) throw new Error("File no longer exists");
+    return {
+      kind: "text",
+      content: details.content,
+      language,
+      encoding: details.encoding,
+      diskIdentity: details.identity,
+    };
+  }
   const content = await readFileContent(path);
-  return { kind: "text", content, language };
+  return { kind: "text", content, language, encoding: "UTF-8" };
 }
 
 export interface RestoreJob {
   bufferId: string;
   path: string;
+  encoding?: FileEncoding;
   editorState?: PersistedEditorViewState;
 }
 
@@ -140,7 +155,7 @@ export function createSessionRestoreController(
     let applied = false;
     callbacks.markLoading(job.bufferId);
     try {
-      const loaded = await loadFileContent(job.path);
+      const loaded = await loadFileContent(job.path, job.encoding);
       if (disposed) return;
       if (!callbacks.isSessionCurrent()) return; // a newer restore replaced this session
       if (!callbacks.isBufferValid(job.bufferId, job.path)) {

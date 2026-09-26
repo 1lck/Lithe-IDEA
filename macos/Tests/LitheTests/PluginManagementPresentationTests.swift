@@ -6,7 +6,6 @@ import LitheModuleAPI
 struct PluginManagementPresentationTests {
     @Test
     func languagePluginsAreGroupedSeparatelyFromStandalonePlugins() throws {
-        let databaseManifest = try #require(BuiltInPluginCatalog.manifest(forModule: .database))
         let pythonManifest = try #require(
             BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "python" }
         )
@@ -14,12 +13,11 @@ struct PluginManagementPresentationTests {
             BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "rust" }
         )
         let content = PluginManagementListContent(plugins: [
-            snapshot(databaseManifest),
             snapshot(pythonManifest),
             snapshot(rustManifest)
         ])
 
-        #expect(content.standalonePlugins.map(\.id) == [databaseManifest.id])
+        #expect(content.standalonePlugins.isEmpty)
         #expect(content.languageExtensions.map(\.id) == [pythonManifest.id, rustManifest.id])
     }
 

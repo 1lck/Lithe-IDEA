@@ -59,10 +59,18 @@ export interface UpdateState {
   errorCode: UpdateErrorCode | null;
   updateInfo: UpdateInfo | null;
   downloadProgress: DownloadProgress | null;
+  /** Whether the update details dialog is open; one dialog serves every trigger. */
+  detailsOpen: boolean;
 }
 
 interface CheckForUpdatesOptions {
   ignoreSuppression?: boolean;
+  /**
+   * A person asked for this check from a menu or button. Remind-later and
+   * skipped-version preferences do not hide the result, and an available
+   * update opens its details so it can be installed from there.
+   */
+  userInitiated?: boolean;
 }
 
 export type UpdateCheckResult = "available" | "up-to-date" | "suppressed" | "failed";
@@ -75,6 +83,8 @@ interface UpdateActions {
   remindLater: (delayMs?: number) => void;
   skipVersion: () => void;
   viewReleaseNotes: () => void;
+  openDetails: () => void;
+  closeDetails: () => void;
 }
 
 interface UpdateStore extends UpdateState {
@@ -122,6 +132,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
   errorCode: null,
   updateInfo: null,
   downloadProgress: null,
+  detailsOpen: false,
 
   actions: {
     checkForUpdates: async (options = {}) => {
@@ -136,6 +147,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
           errorCode: null,
           updateInfo: null,
           downloadProgress: null,
+          detailsOpen: false,
         });
 
         try {
@@ -160,6 +172,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
 
           if (
             !options.ignoreSuppression &&
+            !options.userInitiated &&
             shouldSuppressUpdate({ version: updateInfo.targetVersion })
           ) {
             updateRef = null;
@@ -181,6 +194,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
             errorCode: null,
             updateInfo,
             downloadProgress: null,
+            detailsOpen: Boolean(options.userInitiated),
           });
           return "available";
         } catch (error) {
@@ -228,6 +242,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
           error: null,
           errorCode: null,
           downloadProgress: { contentLength: 0, downloaded: 0, percentage: 0 },
+          detailsOpen: false,
         });
 
         let contentLength = 0;
@@ -285,6 +300,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
         errorCode: null,
         updateInfo: null,
         downloadProgress: null,
+        detailsOpen: false,
       });
     },
 
@@ -321,6 +337,12 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
         date: updateInfo.releaseDate ?? undefined,
       });
     },
+
+    openDetails: () => {
+      if (get().updateInfo) set({ detailsOpen: true });
+    },
+
+    closeDetails: () => set({ detailsOpen: false }),
   },
 }));
 

@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 1,
+  "id": "dev.lithe.plugin.php-support",
+  "displayName": "PHP Support",
+  "version": "0.3.0",
+  "apiVersion": 1,
+  "hostCompatibility": {
+    "minimum": "0.3.0",
+    "maximumExclusive": "0.4.0"
+  },
+  "vendor": {
+    "id": "dev.lithe",
+    "displayName": "Lithe",
+    "signatureRequirement": "sameTeamAsHost"
+  },
+  "entrypoint": {
+    "kind": "nativeBundle",
+    "bundleIdentifier": "dev.lithe.plugin.php-support.bundle",
+    "principalClass": "LithePhpSupportPluginEntrypoint",
+    "bundlePath": "PhpSupport.bundle"
+  },
+  "modules": [
+    {
+      "id": "dev.lithe.language.php.execution",
+      "displayName": "PHP Execution",
+      "scope": "workspace",
+      "defaultState": "disabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": {
+        "kind": "whenIdle",
+        "afterSeconds": 600
+      },
+      "moduleDependencies": ["dev.lithe.workspace"],
+      "capabilityDependencies": [],
+      "providedCapabilities": [
+        "dev.lithe.capability.language.php.execution",
+        "dev.lithe.capability.language.php.testing"
+      ],
+      "contributions": [],
+      "required": false
+    },
+    {
+      "id": "dev.lithe.language.php.language-server",
+      "displayName": "PHP Language Server",
+      "scope": "workspace",
+      "defaultState": "disabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": {
+        "kind": "whenIdle",
+        "afterSeconds": 600
+      },
+      "moduleDependencies": ["dev.lithe.workspace"],
+      "capabilityDependencies": [],
+      "providedCapabilities": ["dev.lithe.capability.language.php.language-server"],
+      "contributions": [],
+      "required": false
+    }
+  ],
+  "languageSupports": [
+    {
+      "id": "php",
+      "displayName": "PHP",
+      "fileExtensions": ["php", "phtml"],
+      "fileNames": [],
+      "projectFileNames": ["composer.json"],
+      "languageServerModuleID": "dev.lithe.language.php.language-server",
+      "executionModuleID": "dev.lithe.language.php.execution",
+      "testingModuleID": "dev.lithe.language.php.execution"
+    }
+  ]
+}

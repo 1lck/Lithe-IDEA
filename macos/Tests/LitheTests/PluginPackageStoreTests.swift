@@ -155,6 +155,55 @@ struct PluginPackageStoreTests {
     }
 
     @Test
+    func retiredLinuxDoPackageCannotBeLoadedOrReinstalled() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let retiredID = PluginID("dev.lithe.plugin.linux-do-support")
+        let version = PluginVersion(major: 0, minor: 3, patch: 0)
+        let source = try makePackage(
+            root: root,
+            name: "retired-linux-do",
+            version: version,
+            pluginID: retiredID
+        )
+        let installedRoot = root.appendingPathComponent("installed", isDirectory: true)
+        let store = MacPluginPackageStore(
+            rootURL: installedRoot,
+            verifier: TestPluginSignatureVerifier()
+        )
+
+        #expect(throws: PluginPackageStoreError.retiredPlugin(retiredID)) {
+            try store.installPackage(from: source)
+        }
+
+        // Simulate a package installed by an older Lithe release.
+        let installedDirectory = installedRoot.appendingPathComponent(
+            retiredID.rawValue, isDirectory: true
+        )
+        let activeVersionDirectory = installedDirectory
+            .appendingPathComponent("versions", isDirectory: true)
+            .appendingPathComponent(version.description, isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: activeVersionDirectory.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: source, to: activeVersionDirectory)
+        let record = PluginInstallationRecord(
+            pluginID: retiredID,
+            activeVersion: version,
+            origin: .marketplace
+        )
+        try JSONEncoder().encode(record).write(
+            to: installedDirectory.appendingPathComponent("installation.json")
+        )
+
+        let scan = try store.scanInstalledPlugins()
+        #expect(scan.packages.isEmpty)
+        #expect(scan.issues.map(\.pluginID) == [retiredID])
+    }
+
+    @Test
     func rejectedUpdateLeavesCurrentVersionActive() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)
@@ -352,6 +401,7 @@ struct PluginPackageStoreTests {
         root: URL,
         name: String,
         version: PluginVersion,
+        pluginID: PluginID = PluginID("dev.example.plugin"),
         required: Bool = false,
         languageSupport: LanguageSupportDeclaration? = nil
     ) throws -> URL {
@@ -362,7 +412,7 @@ struct PluginPackageStoreTests {
         )
         let moduleID = ModuleID("dev.example.feature")
         let manifest = PluginManifest(
-            id: PluginID("dev.example.plugin"),
+            id: pluginID,
             displayName: "Example Plugin",
             version: version,
             hostCompatibility: PluginHostCompatibility(

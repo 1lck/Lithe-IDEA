@@ -1,7 +1,7 @@
 import { getProviderById } from "@/features/ai/types/providers.types";
 import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
-import { normalizeV0DesignSystems } from "@/extensions/v0/lib/v0-design-systems";
+import { normalizeV0DesignSystems } from "./v0-design-system-profiles";
 import { isKeybindingPreset } from "@/features/keymaps/defaults/keybinding-presets";
 import {
   DEFAULT_AI_AUTOCOMPLETE_MODEL_ID,

@@ -23,7 +23,7 @@ verification scripts are the executable source of boundary checks.
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |
-| Documents | relative-path validation, UTF-8 read/write results, dirty/save state | native file integration and external-change notifications |
+| Documents | relative-path validation, decoded text, selected encoding, dirty/save state, and conflict outcome | native byte conversion, atomic write, and external-change notifications |
 | Search | query matching, deterministic result ordering, symbols, and replacement preview | workspace lifecycle and optional index persistence |
 | Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
@@ -38,6 +38,18 @@ verification scripts are the executable source of boundary checks.
 | Modules | stable IDs, manifests, enabled state, lifecycle snapshots, dependencies, capabilities, and contributions | native factories, processes, timers, PTY/ConPTY, watchers, connections, and UI rendering |
 | Community integrations | Discourse authorization sessions, RSA-OAEP callback verification, user API protocol models, and normalized community data | opening the system browser, receiving URL callbacks, and credential-vault persistence |
 | Updates | normalized release metadata, state names, preference semantics, and stable error codes | update feeds, package verification, download, installation, restart, and native UI |
+
+### Document encoding
+
+Local text documents expose the selected encoding in the editor status bar. The
+supported labels are `UTF-8`, `UTF-8 with BOM`, `GBK`, `GB18030`, `Shift JIS`,
+and `Windows-1252`. Native adapters auto-detect UTF-8/BOM and the GBK family
+when opening a file; an explicit reopen request decodes with the selected codec
+and exposes replacement characters for invalid byte sequences. “Save
+with Encoding” converts the current Unicode buffer only after the target codec
+accepts every character. Both products preserve the raw-byte identity of the
+last acknowledged disk snapshot and reject a save when another process changed
+those bytes.
 
 ## Module Lifecycle Contract
 
@@ -78,7 +90,8 @@ contract must preserve these invariants:
   execution are built-in lifecycle modules. They are not marketplace plugins.
 - Java language tooling remains part of the built-in product. Every other
   language provider is represented by an independently configurable bundled
-  language-support plugin; Go uses the signed native-package path while the
+  language-support plugin; PHP uses an optional separately installed native package,
+  Go uses the bundled signed native-package path while the
   remaining providers share the host's generic language-server module.
 - A downloadable language support package may declare language-server,
   execution, testing, and debug module IDs under one language ID. All referenced
@@ -455,3 +468,40 @@ Core's bounded preparation wait is the single launch gate; platform services and
 Run controls do not race it with a second snapshot check. Preparation remains
 visible while a click queues behind Core, and a stale visible `ready` state
 cannot disagree with a separate host-owned preparation veto.
+
+### Optional PHP support
+
+PHP plugin installation is explicit. The base application ships neither the PHP
+native package nor Node/Bun/Intelephense. macOS accepts a verified signed package
+through plugin management; its tools are user-owned and never deleted by Lithe.
+Windows installs language tools only on an explicit install/repair action; its
+managed tool cache is removed on uninstall without touching global tools. PHP
+run/test discovery and launch require enabled support. Disable cancels installation,
+stops in-flight and active owned processes, and unregisters providers; closing a
+workspace stops that workspace's PHP Run sessions. Shared lexical PHP recognition
+may remain available without spawning processes or downloading dependencies.
+
+Windows optional language implementations are single-module worker packages
+(`lithe-worker-plugin`, format version 1). PHP configuration and Composer/PHPUnit
+plan generation live in `Plugins/win/Official/PhpSupport`; application builds must
+not import that implementation, even through a dynamic import. The inert optional
+language catalog may identify package ownership without carrying executable code.
+
+A user imports a `.lithe-extension` file through extension management. The package
+contains a validated manifest and ESM source (maximum 256 KiB), stored atomically in
+the WebView user profile under `lithe.worker-package:<id>`. Import installs language
+tools but leaves the plugin disabled; enabling starts the existing worker host.
+Incomplete installation is not restored on restart. Uninstall removes the source,
+parser cache and owned tools; the application installation directory stays read-only.
+Local packages are user-selected code, not authenticated official downloads.
+
+The v1 language package accepts `languages`, `lsp`, and `runActions` declarations;
+other host permissions and contributions are not granted. `lsp.requiredExecutables`
+is passed to the native tool adapter for PATH validation. `runActions.manifestFiles`
+contains at most 16 root-level file names; `executables` names allowed PATH commands.
+The worker's `api.runActions.register` receives file contents and returns bounded
+plans (`id`, `name`, `sourceLabel`, optional `description`, `executable`, `arguments`).
+Only a user click launches a validated plan through the host Run service after saving
+the workspace. Workers never own the native process handles; the host tracks both
+extension ID and workspace ID, stops pending and active runs on disable/close, and
+rejects stale discovery results. Remote/WSL projects do not use these local plans.

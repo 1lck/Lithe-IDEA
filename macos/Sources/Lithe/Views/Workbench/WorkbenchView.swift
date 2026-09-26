@@ -9,19 +9,34 @@ enum WorkbenchLayoutMetrics {
 }
 
 private enum ActivityBarMetrics {
-    static let width: CGFloat = 38
+    static let width: CGFloat = 40
     static let rightWidth = WorkbenchLayoutMetrics.rightActivityBarWidth
     static let buttonWidth: CGFloat = 30
     static let buttonHeight: CGFloat = 30
-    static let spacing: CGFloat = 4
-    static let edgeInset: CGFloat = 4
-    static let toolViewportHeight: CGFloat = 292
+    static let iconSize: CGFloat = 20
+    static let slotWidth: CGFloat = 37
+    static let slotHeight: CGFloat = 40
+    static let toolViewportHeight: CGFloat = 280
 }
 
 private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
+}
+
+private enum WorkbenchFrameGradient {
+    static let coordinateSpace = "workbenchFrame"
+    static let radius: CGFloat = 720
+
+    static func fill(offset: CGPoint = .zero, size: CGFloat = 1) -> RadialGradient {
+        RadialGradient(
+            colors: [Color(red: 0.18, green: 0.25, blue: 0.28), LitheTheme.titlebar],
+            center: UnitPoint(x: -offset.x / size, y: -offset.y / size),
+            startRadius: 0,
+            endRadius: radius
+        )
+    }
 }
 
 private enum WorkbenchPopoverLayoutMetrics {
@@ -189,15 +204,12 @@ struct WorkbenchView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var projectSessions: ProjectSessionManager
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.projectWindowScope) private var projectWindowScope
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @StateObject private var linuxDoWebSession = LinuxDoAnonymousWebSession()
     @State private var sidebarWidth: CGFloat = 320
     @State private var rightSidebarWidth: CGFloat = 380
     @State private var mavenPaneWidth = CGFloat(WorkbenchLayout.defaultMavenPaneWidth)
-    @State private var hoveredRightSidebarContributionID: String?
-    @State private var isRightSidebarPanelHovered = false
-    @State private var rightSidebarDismissTask: Task<Void, Never>?
     @State private var topPaneHeight: CGFloat?
     @State private var isBranchSwitcherPresented = false
     @State private var newBranchReference: GitReference?
@@ -214,7 +226,7 @@ struct WorkbenchView: View {
     @State private var isRunConfigurationPickerPresented = false
 
     var body: some View {
-        let closeConfirmationID = model.pendingCloseConfirmationID
+        let encodingRequest = model.pendingEncodingReopen
         let _ = LitheSignpost.bodyEvaluated("WorkbenchView")
         VStack(spacing: 0) {
             topBar
@@ -230,18 +242,20 @@ struct WorkbenchView: View {
             }
             .frame(maxHeight: .infinity)
             .overlay(alignment: .trailing) {
-                rightHoverRegion
+                pluginActivityBar
             }
 
             statusBar
         }
+        .coordinateSpace(name: WorkbenchFrameGradient.coordinateSpace)
         .background {
             if let feature = model.gitFeatureIfActive { GitAuthenticationHost(feature: feature) }
         }
         .background {
             WorkbenchBackgroundImageView(
                 image: workbenchBackgroundImage,
-                opacity: settings.workbenchBackgroundOpacity
+                opacity: settings.workbenchBackgroundOpacity,
+                showsIDEAFrameGradient: usesIDEAFrameExperiment
             )
         }
         .sheet(item: $newBranchReference) { reference in
@@ -340,10 +354,7 @@ struct WorkbenchView: View {
         }
         .confirmationDialog(
             "Save changes before closing?",
-            isPresented: Binding(
-                get: { model.pendingCloseDocument != nil },
-                set: { if !$0 { model.dismissPendingCloseConfirmation(closeConfirmationID) } }
-            ),
+            isPresented: pendingCloseConfirmationBinding,
             titleVisibility: .visible
         ) {
             Button("Save") { model.closePendingDocument(discardingChanges: false) }
@@ -354,6 +365,22 @@ struct WorkbenchView: View {
                 .lithePointer()
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .confirmationDialog(
+            "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
+            isPresented: pendingEncodingReopenBinding,
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
+                .lithePointer()
+            Button("Discard Changes", role: .destructive) {
+                model.resolvePendingEncodingReopen(saveChanges: false)
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) { model.cancelEncodingChange() }
+                .lithePointer()
+        } message: {
+            Text(encodingRequest?.document.url.lastPathComponent ?? "")
         }
         .confirmationDialog(
             model.pendingDiscardChange?.isUntracked == true ? "Delete this untracked file?" : "Discard changes to this file?",
@@ -533,6 +560,7 @@ struct WorkbenchView: View {
                     .transition(.opacity)
             }
         }
+        .workbenchHoverTooltipScope()
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
         // Replace in Files 是工作台上的自绘模态层，避免系统 sheet 的大圆角和标题栏。
         .overlay {
@@ -545,6 +573,14 @@ struct WorkbenchView: View {
             didRestoreLayout = false
             restoreLayout()
         }
+    }
+
+    private var usesIDEAFrameExperiment: Bool {
+        settings.colorTheme == .lithe && colorScheme == .dark && !model.workbenchBackgroundFeature.hasImage
+    }
+
+    private var frameChromeBackground: Color {
+        model.workbenchBackgroundFeature.hasImage || usesIDEAFrameExperiment ? .clear : LitheTheme.titlebar
     }
 
     private var scopedOpenProjects: [AppModel] {
@@ -757,7 +793,7 @@ struct WorkbenchView: View {
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
-            (model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+            frameChromeBackground
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) {
                     (NSApplication.shared.keyWindow?.delegate as? LitheWindowCoordinator)?
@@ -939,6 +975,28 @@ struct WorkbenchView: View {
         Binding(
             get: { isProjectSwitcherPresented },
             set: { updateSwitcherPresentation(project: $0) }
+        )
+    }
+
+    private var pendingCloseConfirmationBinding: Binding<Bool> {
+        let confirmationID = model.pendingCloseConfirmationID
+        return Binding(
+            get: { model.pendingCloseDocument != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingCloseConfirmation(confirmationID)
+            }
+        )
+    }
+
+    private var pendingEncodingReopenBinding: Binding<Bool> {
+        let requestID = model.pendingEncodingReopen?.id
+        return Binding(
+            get: { model.pendingEncodingReopen != nil },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissPendingEncodingReopen(requestID)
+            }
         )
     }
 
@@ -1170,7 +1228,7 @@ struct WorkbenchView: View {
     private var activityBar: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                VStack(spacing: ActivityBarMetrics.spacing) {
+                VStack(spacing: 0) {
                     ForEach(model.availableSidebarDestinations) { destination in
                         Button {
                             if destination == .database {
@@ -1179,36 +1237,30 @@ struct WorkbenchView: View {
                                 model.workbenchFeature.selectedSidebar = destination
                             }
                         } label: {
-                            Group {
-                                if let ideaAssetPath = destination.ideaAssetPath {
-                                    LitheIDEAIcon(
-                                        resourcePath: ideaAssetPath,
-                                        size: 18,
-                                        fallbackSystemImage: destination.systemImage
-                                    )
-                                } else {
-                                    Image(systemName: destination.systemImage)
-                                        .font(.system(size: 16, weight: .medium))
-                                }
-                            }
+                            LitheIDEAIcon(
+                                resourcePath: destination.ideaAssetPath,
+                                size: ActivityBarMetrics.iconSize
+                            )
                                 .frame(
                                     width: ActivityBarMetrics.buttonWidth,
                                     height: ActivityBarMetrics.buttonHeight
                                 )
                                 .litheRowHover(
                                     isActive: model.workbenchFeature.selectedSidebar == destination,
-                                    cornerRadius: 4,
-                                    activeBackground: LitheTheme.subtleSelection
+                                    cornerRadius: 6,
+                                    activeBackground: LitheTheme.selection
                                 )
+                                .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .lithePointer()
                         .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .help(
-                            destination.isAvailable
-                                ? LocalizedStringKey(destination.title)
-                                : LocalizedStringKey("Pull Requests integration is under development")
+                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+                        .workbenchHoverHelp(
+                            Text(destination.isAvailable
+                                 ? LocalizedStringKey(destination.title)
+                                 : LocalizedStringKey("Pull Requests integration is under development")),
+                            placement: .trailing
                         )
                         .accessibilityLabel(LocalizedStringKey(destination.title))
                         .accessibilityHint(
@@ -1218,33 +1270,21 @@ struct WorkbenchView: View {
                         )
                     }
                 }
-                .padding(.top, ActivityBarMetrics.edgeInset)
-
                 Spacer(minLength: 0)
 
                 ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: ActivityBarMetrics.spacing) {
+                    VStack(spacing: 0) {
                         ForEach(model.activityBarContributions) { contribution in
                             if let renderer = moduleUIRegistry.renderer(for: contribution),
                                renderer.isVisible(model) {
                                 activityToolButton(
-                                    systemImage: contribution.icon ?? "square.grid.2x2",
-                                    ideaAssetPath: renderer.ideaAssetPath,
+                                    ideaAssetPath: renderer.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
                                     help: contribution.title,
                                     isSelected: renderer.isSelected(model)
                                 ) {
                                     moduleUIRegistry.perform(contribution, model: model)
                                 }
                             }
-                        }
-
-                        activityToolButton(
-                            systemImage: "gearshape",
-                            ideaAssetPath: "general/gear.svg",
-                            help: "Settings",
-                            isSelected: model.workbenchFeature.isSettingsPresented
-                        ) {
-                            model.showSettings()
                         }
                     }
                     // Keep short tool lists against the status bar while preserving
@@ -1255,16 +1295,23 @@ struct WorkbenchView: View {
                     )
                 }
                 .frame(height: ActivityBarMetrics.toolViewportHeight)
-                .padding(.bottom, ActivityBarMetrics.edgeInset)
+
+                activityToolButton(
+                    ideaAssetPath: "expui/general/settings@20x20.svg",
+                    help: "Settings",
+                    isSelected: model.workbenchFeature.isSettingsPresented
+                ) {
+                    model.showSettings()
+                }
             }
             .frame(width: ActivityBarMetrics.width, height: geometry.size.height, alignment: .top)
-            .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+            .background(frameChromeBackground)
         }
         .frame(width: ActivityBarMetrics.width)
     }
 
     private var pluginActivityBar: some View {
-        VStack {
+        VStack(spacing: 0) {
             Button {
                 isNotificationCenterPresented.toggle()
                 if isNotificationCenterPresented {
@@ -1272,12 +1319,15 @@ struct WorkbenchView: View {
                 }
             } label: {
                 ZStack(alignment: .topTrailing) {
-                    Image(systemName: unreadNotificationCount > 0 ? "bell.fill" : "bell")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/toolwindows/notifications@20x20.svg",
+                        size: ActivityBarMetrics.iconSize
+                    )
                         .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
                         .litheRowHover(
                             isActive: isNotificationCenterPresented,
-                            cornerRadius: 4,
-                            activeBackground: LitheTheme.subtleSelection
+                            cornerRadius: 6,
+                            activeBackground: LitheTheme.selection
                         )
 
                     if unreadNotificationCount > 0 {
@@ -1288,15 +1338,16 @@ struct WorkbenchView: View {
                             .offset(x: -2, y: 3)
                     }
                 }
+                .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .lithePointer()
             .foregroundStyle(
-                unreadNotificationCount > 0 || isNotificationCenterPresented
-                    ? LitheTheme.primaryText
-                    : LitheTheme.secondaryText
+                isNotificationCenterPresented ? LitheTheme.toolWindowSelectedText
+                    : unreadNotificationCount > 0 ? LitheTheme.primaryText
+                    : LitheTheme.toolWindowButtonText
             )
-            .help(LocalizedStringKey("Notifications"))
+            .workbenchHoverHelp(Text("Notifications"), placement: .leading)
             .accessibilityLabel("Notifications")
             .popover(isPresented: $isNotificationCenterPresented, arrowEdge: .trailing) {
                 WorkbenchNotificationCenterView()
@@ -1304,8 +1355,9 @@ struct WorkbenchView: View {
             }
 
             activityToolButton(
-                systemImage: "puzzlepiece.extension",
+                ideaAssetPath: "expui/nodes/plugin.svg",
                 help: "Plugins",
+                tooltipPlacement: .leading,
                 isSelected: isPluginPanelPresented,
                 action: { isPluginPanelPresented.toggle() }
             )
@@ -1314,115 +1366,27 @@ struct WorkbenchView: View {
                 if let renderer = moduleUIRegistry.renderer(for: contribution),
                    renderer.isVisible(model) {
                     activityToolButton(
-                        systemImage: contribution.icon ?? "rectangle.rightthird.inset.filled",
-                        ideaAssetPath: renderer.ideaAssetPath,
+                        ideaAssetPath: renderer.ideaAssetPath ?? "expui/toolwindows/toolWindowComponents@20x20.svg",
                         help: contribution.title,
+                        tooltipPlacement: .leading,
                         isSelected: renderer.isSelected(model),
                         action: { moduleUIRegistry.perform(contribution, model: model) }
                     )
-                    .onHover { isHovering in
-                        guard renderer.rightSidebarBehavior == .hover else { return }
-                        if isHovering {
-                            rightSidebarDismissTask?.cancel()
-                            hoveredRightSidebarContributionID = contribution.id
-                            if !renderer.isSelected(model) {
-                                moduleUIRegistry.perform(contribution, model: model)
-                            }
-                        } else {
-                            hoveredRightSidebarContributionID = nil
-                            scheduleRightSidebarDismissal()
-                        }
-                    }
                 }
             }
             Spacer()
         }
-        .padding(.top, ActivityBarMetrics.edgeInset)
         .frame(width: ActivityBarMetrics.rightWidth)
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+        .background(frameChromeBackground)
     }
 
     private var unreadNotificationCount: Int {
         model.notifications.lazy.filter { !$0.isRead }.count
     }
 
-    private var rightHoverRegion: some View {
-        HStack(spacing: 0) {
-            if isHoverSidebarVisible {
-                moduleUIRegistry.selectedToolContent(
-                    from: hoverSidebarContributions,
-                    model: model
-                )
-                .equatable()
-                .environmentObject(linuxDoWebSession)
-                .frame(width: rightSidebarWidth)
-                .frame(maxHeight: .infinity)
-                .workbenchPaneChrome(
-                    background: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.editor,
-                    surrounding: model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar,
-                    roundsCorners: !model.workbenchBackgroundFeature.hasImage
-                )
-                .padding(WorkbenchWorkspaceMetrics.paneInset)
-                .background(
-                    model.workbenchBackgroundFeature.hasImage
-                        ? Color.clear
-                        : LitheTheme.titlebar
-                )
-                .transition(
-                    reduceMotion
-                        ? .opacity
-                        : .move(edge: .trailing).combined(with: .opacity)
-                )
-                .onHover { isHovering in
-                    isRightSidebarPanelHovered = isHovering
-                    if isHovering {
-                        rightSidebarDismissTask?.cancel()
-                    } else {
-                        scheduleRightSidebarDismissal()
-                    }
-                }
-            }
-            pluginActivityBar
-        }
-        .fixedSize(horizontal: true, vertical: false)
-        .animation(
-            reduceMotion ? nil : .easeOut(duration: 0.14),
-            value: isHoverSidebarVisible
-        )
-    }
-
-    private func scheduleRightSidebarDismissal() {
-        rightSidebarDismissTask?.cancel()
-        rightSidebarDismissTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 60_000_000)
-            guard !Task.isCancelled,
-                  hoveredRightSidebarContributionID == nil,
-                  !isRightSidebarPanelHovered else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.10)) {
-                model.isDiscourseCommunityVisible = false
-            }
-        }
-    }
-
-    private var hoverSidebarContributions: [ModuleContribution] {
-        model.rightSidebarContributions.filter {
-            moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .hover
-        }
-    }
-
     private var dockedSidebarContributions: [ModuleContribution] {
         model.rightSidebarContributions.filter {
             moduleUIRegistry.renderer(for: $0)?.rightSidebarBehavior == .docked
-        }
-    }
-
-    private var isHoverSidebarVisible: Bool {
-        hoverSidebarContributions.contains { contribution in
-            moduleUIRegistry.renderer(for: contribution)?.isSelected(model) == true
         }
     }
 
@@ -1471,39 +1435,32 @@ struct WorkbenchView: View {
     }
 
     private func activityToolButton(
-        systemImage: String,
-        ideaAssetPath: String? = nil,
+        ideaAssetPath: String,
         help: String,
+        tooltipPlacement: WorkbenchHoverTooltipPlacement = .trailing,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Group {
-                if let ideaAssetPath {
-                    LitheIDEAIcon(
-                        resourcePath: ideaAssetPath,
-                        size: 18,
-                        fallbackSystemImage: systemImage
-                    )
-                } else {
-                    Image(systemName: systemImage)
-                        .font(.system(size: 16, weight: .medium))
-                }
-            }
+            LitheIDEAIcon(
+                resourcePath: ideaAssetPath,
+                size: ActivityBarMetrics.iconSize
+            )
             .frame(
                 width: ActivityBarMetrics.buttonWidth,
                 height: ActivityBarMetrics.buttonHeight
             )
             .litheRowHover(
                 isActive: isSelected,
-                cornerRadius: 4,
-                activeBackground: LitheTheme.subtleSelection
+                cornerRadius: 6,
+                activeBackground: LitheTheme.selection
             )
+            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .lithePointer()
-        .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .help(LocalizedStringKey(help))
+        .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+        .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
 
@@ -1513,6 +1470,7 @@ struct WorkbenchView: View {
             WorkbenchRightToolSplitView(
                 width: mavenPaneWidth,
                 hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
+                showsFrameGradient: usesIDEAFrameExperiment,
                 onCommit: { width in
                     mavenPaneWidth = width
                     saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
@@ -1548,6 +1506,7 @@ struct WorkbenchView: View {
             ),
             showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog),
             hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
+            showsFrameGradient: usesIDEAFrameExperiment,
             sidebar: {
                 activeSidebar(projectTreeRowHeight: settings.projectTreeRowHeight)
             },
@@ -1661,7 +1620,7 @@ struct WorkbenchView: View {
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 9)
         .frame(height: LitheTheme.Metrics.statusBarHeight)
-        .background(model.workbenchBackgroundFeature.hasImage ? Color.clear : LitheTheme.titlebar)
+        .background(frameChromeBackground)
     }
 
     private var editorBreadcrumbs: some View {
@@ -1748,7 +1707,49 @@ struct WorkbenchView: View {
     private var detailedStatusItems: some View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
-            Text("UTF-8")
+            if let document = model.activeDocument, document.url.isFileURL {
+                Menu {
+                    Section("Reopen with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.reopenDocument(document, with: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.readEncoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Section("Save with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.saveDocument(document, encoding: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.saveEncoding == encoding {
+                                        Spacer()
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                            .disabled(document.isReadOnly)
+                        }
+                    }
+                } label: {
+                    Text(document.readEncoding.displayName)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("File encoding")
+            }
             Text("\(settings.tabWidth) spaces")
             Button {
                 model.saveActiveDocument()
@@ -1926,6 +1927,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let actions: WorkbenchWorkspaceSplitActions
     let showsBottomToolMinimize: Bool
     let hasWorkbenchBackground: Bool
+    let showsFrameGradient: Bool
     let sidebar: Sidebar
     let editor: Editor
     let bottomTool: BottomTool
@@ -1940,6 +1942,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         actions: WorkbenchWorkspaceSplitActions,
         showsBottomToolMinimize: Bool,
         hasWorkbenchBackground: Bool,
+        showsFrameGradient: Bool,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder editor: () -> Editor,
         @ViewBuilder bottomTool: () -> BottomTool
@@ -1950,6 +1953,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.actions = actions
         self.showsBottomToolMinimize = showsBottomToolMinimize
         self.hasWorkbenchBackground = hasWorkbenchBackground
+        self.showsFrameGradient = showsFrameGradient
         self.sidebar = sidebar()
         self.editor = editor()
         self.bottomTool = bottomTool()
@@ -1966,7 +1970,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     - (WorkbenchWorkspaceMetrics.paneInset * 2)
                     - WorkbenchWorkspaceMetrics.paneSpacing
             )
-            let minimumSidebarWidth: CGFloat = 220
+            let minimumSidebarWidth = CGFloat(WorkbenchLayout.minimumSidebarWidth)
             let minimumEditorWidth: CGFloat = 400
             let maximumSidebarWidth = max(
                 minimumSidebarWidth,
@@ -1999,15 +2003,17 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     defaultSize: resolvedSidebarWidth,
                     minimum: minimumSidebarWidth,
                     maximum: maximumSidebarWidth,
+                    clipsSizedPane: true,
+                    trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                     showsIdleDivider: false,
                     onCommit: actions.onSidebarWidthCommitted,
                     sized: {
                         sidebar
-                            .frame(maxHeight: .infinity)
-                            .workbenchPaneChrome(
+                            .workbenchResizablePaneChrome(
                                 background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground
+                                roundsCorners: !hasWorkbenchBackground,
+                                showsFrameGradient: showsFrameGradient
                             )
                     },
                     flexible: {
@@ -2016,7 +2022,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             .workbenchPaneChrome(
                                 background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                 surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground
+                                roundsCorners: !hasWorkbenchBackground,
+                                showsFrameGradient: showsFrameGradient
                             )
                     }
                 )
@@ -2030,6 +2037,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         defaultSize: resolvedTopPaneHeight,
                         minimum: minimumTopPaneHeight,
                         maximum: maximumTopPaneHeight,
+                        trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                         showsIdleDivider: false,
                         onCommit: actions.onTopPaneHeightCommitted,
                         sized: {
@@ -2043,7 +2051,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 .workbenchPaneChrome(
                                     background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                     surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                    roundsCorners: !hasWorkbenchBackground
+                                    roundsCorners: !hasWorkbenchBackground,
+                                    showsFrameGradient: showsFrameGradient
                                 )
                                 .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
                                 .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
@@ -2060,7 +2069,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 height: geometry.size.height,
                 alignment: .topLeading
             )
-            .background(hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar)
+            .background(hasWorkbenchBackground || showsFrameGradient ? Color.clear : LitheTheme.titlebar)
             // Keep the workspace as a live view hierarchy. `drawingGroup()`
             // cannot composite AppKit-backed editors, fields, checkboxes, or
             // terminals and replaces them with unavailable placeholders. It
@@ -2085,17 +2094,39 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 }
 
 extension View {
+    /// Position pane notches at the visible drag width, not the content's intrinsic width.
+    func workbenchResizablePaneChrome(
+        background: Color,
+        surrounding: Color,
+        alignment: Alignment = .topLeading,
+        roundsCorners: Bool = true,
+        showsFrameGradient: Bool = false
+    ) -> some View {
+        GeometryReader { proxy in
+            self
+                .frame(width: proxy.size.width, height: proxy.size.height, alignment: alignment)
+                .workbenchPaneChrome(
+                    background: background,
+                    surrounding: surrounding,
+                    roundsCorners: roundsCorners,
+                    showsFrameGradient: showsFrameGradient
+                )
+        }
+    }
+
     /// Draws pane rounding without masking AppKit-backed editor and tool views.
     func workbenchPaneChrome(
         background: Color,
         surrounding: Color,
-        roundsCorners: Bool = true
+        roundsCorners: Bool = true,
+        showsFrameGradient: Bool = false
     ) -> some View {
         modifier(
             WorkbenchPaneChromeModifier(
                 background: background,
                 surrounding: surrounding,
-                roundsCorners: roundsCorners
+                roundsCorners: roundsCorners,
+                showsFrameGradient: showsFrameGradient
             )
         )
     }
@@ -2105,6 +2136,7 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     let background: Color
     let surrounding: Color
     let roundsCorners: Bool
+    let showsFrameGradient: Bool
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -2121,11 +2153,14 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
                     GeometryReader { proxy in
                         let radius = WorkbenchWorkspaceMetrics.paneCornerRadius
                         let half = radius / 2
+                        let paneFrame = proxy.frame(in: .named(WorkbenchFrameGradient.coordinateSpace))
                         ZStack {
-                            notch(.topLeading).position(x: half, y: half)
-                            notch(.topTrailing).position(x: proxy.size.width - half, y: half)
-                            notch(.bottomLeading).position(x: half, y: proxy.size.height - half)
-                            notch(.bottomTrailing)
+                            notch(.topLeading, offset: paneFrame.origin).position(x: half, y: half)
+                            notch(.topTrailing, offset: CGPoint(x: paneFrame.maxX - radius, y: paneFrame.minY))
+                                .position(x: proxy.size.width - half, y: half)
+                            notch(.bottomLeading, offset: CGPoint(x: paneFrame.minX, y: paneFrame.maxY - radius))
+                                .position(x: half, y: proxy.size.height - half)
+                            notch(.bottomTrailing, offset: CGPoint(x: paneFrame.maxX - radius, y: paneFrame.maxY - radius))
                                 .position(x: proxy.size.width - half, y: proxy.size.height - half)
                         }
                     }
@@ -2137,13 +2172,16 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
         }
     }
 
-    private func notch(_ corner: WorkbenchPaneCornerGeometry.Corner) -> some View {
-        WorkbenchPaneCornerNotch(corner: corner)
-            .fill(surrounding)
-            .frame(
-                width: WorkbenchWorkspaceMetrics.paneCornerRadius,
-                height: WorkbenchWorkspaceMetrics.paneCornerRadius
-            )
+    @ViewBuilder
+    private func notch(_ corner: WorkbenchPaneCornerGeometry.Corner, offset: CGPoint) -> some View {
+        let shape = WorkbenchPaneCornerNotch(corner: corner)
+        if showsFrameGradient {
+            shape.fill(WorkbenchFrameGradient.fill(offset: offset, size: WorkbenchWorkspaceMetrics.paneCornerRadius))
+                .frame(width: WorkbenchWorkspaceMetrics.paneCornerRadius, height: WorkbenchWorkspaceMetrics.paneCornerRadius)
+        } else {
+            shape.fill(surrounding)
+                .frame(width: WorkbenchWorkspaceMetrics.paneCornerRadius, height: WorkbenchWorkspaceMetrics.paneCornerRadius)
+        }
     }
 }
 
@@ -2270,11 +2308,16 @@ enum WorkbenchPaneCornerGeometry {
 private struct WorkbenchBackgroundImageView: View {
     let image: NSImage?
     let opacity: Double
+    let showsIDEAFrameGradient: Bool
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             LitheTheme.window
+
+            if showsIDEAFrameGradient {
+                WorkbenchFrameGradient.fill()
+            }
 
             if let image {
                 // Fill and clip at the container instead of measuring with a
@@ -2290,7 +2333,9 @@ private struct WorkbenchBackgroundImageView: View {
             // Soft-light compositing against the dark theme muted bright images
             // twice, so a single contrast veil produces the intended wallpaper
             // effect at the full 100% setting.
-            (colorScheme == .dark ? Color.black.opacity(0.46) : Color.white.opacity(0.25))
+            if !showsIDEAFrameGradient {
+                (colorScheme == .dark ? Color.black.opacity(0.46) : Color.white.opacity(0.25))
+            }
         }
         .clipped()
         // Deliberately not a compositing group: no group-wide opacity or blend

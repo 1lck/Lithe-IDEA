@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 anyhow = "1.0"
+encoding_rs = "0.8"
+sha2 = "0.10"
 log = "0.4"
 notify = "8.1.0"
 notify-debouncer-full = "0.7.0"

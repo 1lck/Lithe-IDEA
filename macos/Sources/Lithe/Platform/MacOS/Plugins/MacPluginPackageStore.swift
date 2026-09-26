@@ -20,6 +20,7 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case unsignedCode(URL)
     case invalidCodeSignature(URL)
     case signingTeamMismatch
+    case retiredPlugin(PluginID)
     case invalidInstalledPlugin(PluginID?, String)
 
     var errorDescription: String? {
@@ -36,6 +37,7 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
         case .unsignedCode(let url): "Plugin code is not signed: \(url.lastPathComponent)."
         case .invalidCodeSignature(let url): "Plugin signature is invalid: \(url.lastPathComponent)."
         case .signingTeamMismatch: "Plugin and host application signing teams do not match."
+        case .retiredPlugin(let id): "Plugin \(id) has been removed from Lithe. Uninstall the old package."
         case .invalidInstalledPlugin(let id, let message):
             if let id {
                 "Installed plugin \(id) is invalid: \(message)"
@@ -63,6 +65,9 @@ struct PluginPackageScanResult: Equatable {
 }
 
 final class MacPluginPackageStore {
+    private static let retiredPluginIDs: Set<PluginID> = [
+        PluginID("dev.lithe.plugin.linux-do-support")
+    ]
     private let rootURL: URL
     private let bundledRootURL: URL?
     private let hostVersion: PluginVersion
@@ -156,6 +161,9 @@ final class MacPluginPackageStore {
                     at: pluginDirectory.appendingPathComponent("installation.json")
                 )
                 issuePluginID = record.pluginID
+                guard !Self.retiredPluginIDs.contains(record.pluginID) else {
+                    throw PluginPackageStoreError.retiredPlugin(record.pluginID)
+                }
                 try validatePathComponent(record.pluginID.rawValue)
                 guard pluginDirectory.lastPathComponent == record.pluginID.rawValue else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
@@ -215,6 +223,9 @@ final class MacPluginPackageStore {
             do {
                 let manifest = try loadManifest(at: packageURL)
                 issuePluginID = manifest.id
+                guard !Self.retiredPluginIDs.contains(manifest.id) else {
+                    throw PluginPackageStoreError.retiredPlugin(manifest.id)
+                }
                 try validatePathComponent(manifest.id.rawValue)
                 guard packageURL.lastPathComponent == manifest.id.rawValue else {
                     throw PluginPackageStoreError.manifestDoesNotMatchInstallation
@@ -257,6 +268,9 @@ final class MacPluginPackageStore {
         deferActivationUntilRestart: Bool = false
     ) throws -> InstalledPluginPackage {
         let sourceManifest = try loadManifest(at: sourceURL)
+        guard !Self.retiredPluginIDs.contains(sourceManifest.id) else {
+            throw PluginPackageStoreError.retiredPlugin(sourceManifest.id)
+        }
         _ = try ValidatedPluginCatalog(manifests: [sourceManifest], hostVersion: hostVersion)
         try validatePathComponent(sourceManifest.id.rawValue)
 

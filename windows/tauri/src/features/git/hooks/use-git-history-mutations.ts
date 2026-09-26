@@ -2,7 +2,12 @@ import { createElement, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useTranslation } from "@/i18n/locale-provider";
 import { showChoiceDialog, showConfirmDialog } from "@/ui/dialog";
-import { cherryPickCommit, resetToCommit, type GitResetMode } from "../api/git-commits-api";
+import {
+  cherryPickCommit,
+  resetToCommit,
+  revertCommit,
+  type GitResetMode,
+} from "../api/git-commits-api";
 import type { GitCommit } from "../types/git.types";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
@@ -147,6 +152,23 @@ export function useGitHistoryMutations({
       await runMutation(() => cherryPickCommit(repoPath, commit.hash));
   };
 
+  const revertSelectedCommit = async (commit: GitCommit) => {
+    const epoch = epochRef.current;
+    if (
+      !repoPath ||
+      !(await showConfirmDialog(
+        t("git.revertCommitConfirm", { hash: commit.shortHash, message: commit.message }),
+        {
+          title: t("git.revertCommit"),
+          confirmLabel: t("git.revertCommit"),
+        },
+      ))
+    ) {
+      return;
+    }
+    if (epoch === epochRef.current) await runMutation(() => revertCommit(repoPath, commit.hash));
+  };
+
   return {
     isMutatingHistory: isRunning || (review !== null && review.scope === scope),
     historyDialog:
@@ -167,5 +189,6 @@ export function useGitHistoryMutations({
     squashSelectedCommits,
     resetBranchToCommit,
     cherryPickSelectedCommit,
+    revertSelectedCommit,
   };
 }

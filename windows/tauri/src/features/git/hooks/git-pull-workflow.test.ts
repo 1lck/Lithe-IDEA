@@ -1,6 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import type { GitOperationState, GitPullPreflight, PullStrategy } from "../types/git.types";
+import type {
+  GitOperationState,
+  GitPullPreflight,
+  GitReference,
+  PullStrategy,
+} from "../types/git.types";
 import { GitPullWorkflow, type GitPullWorkflowDependencies } from "./git-pull-workflow";
+
+const remoteReference = (shortName: string): GitReference => ({
+  fullName: `refs/remotes/${shortName}`,
+  shortName,
+  kind: "remote",
+  peelsToCommit: true,
+  isCurrent: false,
+});
 
 const cleanPreflight = (overrides: Partial<GitPullPreflight> = {}): GitPullPreflight => ({
   upstream: "origin/main",
@@ -29,12 +42,14 @@ const deferred = <Value>() => {
 
 const createHarness = (overrides: Partial<GitPullWorkflowDependencies> = {}) => {
   const pullStrategies: PullStrategy[] = [];
+  const pullReferences: Array<GitReference | undefined> = [];
   let refreshCount = 0;
   const dependencies: GitPullWorkflowDependencies = {
     fetch: async () => ({ success: true }),
     preflight: async () => cleanPreflight(),
-    pull: async (_repoPath, strategy) => {
+    pull: async (_repoPath, strategy, reference) => {
       pullStrategies.push(strategy);
+      pullReferences.push(reference);
       return { success: true };
     },
     operationState: async () => null,
@@ -50,6 +65,7 @@ const createHarness = (overrides: Partial<GitPullWorkflowDependencies> = {}) => 
     workflow,
     options,
     pullStrategies,
+    pullReferences,
     refreshCount: () => refreshCount,
   };
 };
@@ -141,6 +157,72 @@ describe("GitPullWorkflow", () => {
     });
 
     const result = await harness.workflow.run("C:/repo", harness.options);
+
+    expect(result).toMatchObject({ status: "blocked", reason: "dirty" });
+    expect(harness.pullStrategies).toEqual([]);
+  });
+
+  test("pulls a dialog-selected strategy on divergent history without prompting", async () => {
+    const harness = createHarness({
+      preflight: async () => cleanPreflight({ ahead: 2, behind: 3, diverged: true }),
+    });
+
+    const result = await harness.workflow.run("C:/repo", {
+      ...harness.options,
+      strategy: "rebase",
+    });
+
+    expect(result).toMatchObject({ status: "pulled", strategy: "rebase" });
+    expect(harness.workflow.getSnapshot().pendingPreflight).toBeNull();
+    expect(harness.pullStrategies).toEqual(["rebase"]);
+  });
+
+  test("still prompts when a fast-forward strategy meets divergent history", async () => {
+    const harness = createHarness({
+      preflight: async () => cleanPreflight({ ahead: 1, behind: 1, diverged: true }),
+    });
+
+    const resultPromise = harness.workflow.run("C:/repo", {
+      ...harness.options,
+      strategy: "ffOnly",
+    });
+    await waitForStrategyDialog(harness.workflow);
+    harness.workflow.chooseStrategy("merge");
+    const result = await resultPromise;
+
+    expect(result).toMatchObject({ status: "pulled", strategy: "merge" });
+    expect(harness.pullStrategies).toEqual(["merge"]);
+  });
+
+  test("pulls a chosen remote branch into the current branch with the selected strategy", async () => {
+    const reference = remoteReference("origin/release");
+    const harness = createHarness({
+      // The current branch has no upstream, but the dialog chose a branch, so the
+      // pull is not blocked and skips the up-to-date short-circuit.
+      preflight: async () => cleanPreflight({ upstream: null, ahead: 0, behind: 0 }),
+    });
+
+    const result = await harness.workflow.run("C:/repo", {
+      ...harness.options,
+      strategy: "merge",
+      reference,
+    });
+
+    expect(result).toMatchObject({ status: "pulled", strategy: "merge" });
+    expect(harness.pullStrategies).toEqual(["merge"]);
+    expect(harness.pullReferences).toEqual([reference]);
+  });
+
+  test("still blocks a dirty worktree before pulling a chosen remote branch", async () => {
+    const harness = createHarness({
+      preflight: async () => cleanPreflight({ hasLocalChanges: true }),
+    });
+
+    const result = await harness.workflow.run("C:/repo", {
+      ...harness.options,
+      strategy: "merge",
+      reference: remoteReference("origin/release"),
+    });
 
     expect(result).toMatchObject({ status: "blocked", reason: "dirty" });
     expect(harness.pullStrategies).toEqual([]);

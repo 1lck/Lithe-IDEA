@@ -24,11 +24,9 @@ export async function ensureMavenProcessListeners(): Promise<void> {
     if (!outputUnlisten) {
       outputUnlisten = await currentWindow.listen<RunOutputEvent>("run-output", (event) => {
         const sessionId = event.payload.sessionId;
-        if (sessionId.startsWith("maven-dependency:")) {
-          mavenStoreForSession(sessionId)
-            .getState()
-            .actions.appendDependencyOutput(sessionId, event.payload.chunk);
-        } else if (sessionId.startsWith("maven:")) {
+        // Dependency sessions write their tree to a file; their console output
+        // is Maven's log and is not dependency data.
+        if (sessionId.startsWith("maven:")) {
           mavenStoreForSession(sessionId)
             .getState()
             .actions.appendOutput(sessionId, event.payload.chunk);

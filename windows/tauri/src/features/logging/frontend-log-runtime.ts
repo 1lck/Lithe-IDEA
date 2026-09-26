@@ -29,6 +29,7 @@ let halfOpenProbeInFlight = false;
 let stopFpsLogging: (() => void) | null = null;
 let initializationPromise: Promise<LogSettingsSnapshot | null> | null = null;
 let workspaceRoots: string[] = [];
+const diagnosticListeners = new Set<(enabled: boolean) => void>();
 
 const PATH_FIELD_NAMES = new Set([
   "path",
@@ -258,11 +259,19 @@ function forwardFpsEvent(event: FpsLogEvent) {
 }
 
 export function setFrontendDiagnosticEnabled(enabled: boolean) {
+  if (diagnosticEnabled === enabled) return;
   diagnosticEnabled = enabled;
+  for (const listener of diagnosticListeners) listener(enabled);
 }
 
 export function isFrontendDiagnosticEnabled() {
   return diagnosticEnabled;
+}
+
+export function subscribeFrontendDiagnosticEnabled(listener: (enabled: boolean) => void) {
+  diagnosticListeners.add(listener);
+  listener(diagnosticEnabled);
+  return () => diagnosticListeners.delete(listener);
 }
 
 export function initializeFrontendLogging() {
@@ -272,14 +281,14 @@ export function initializeFrontendLogging() {
   installUnhandledErrorCapture();
   stopFpsLogging = startFpsLogging(forwardFpsEvent, isFrontendDiagnosticEnabled);
   void listen<LogSettingsSnapshot>("lithe-log-runtime-fallback", (event) => {
-    diagnosticEnabled = event.payload.diagnostic_enabled;
+    setFrontendDiagnosticEnabled(event.payload.diagnostic_enabled);
     window.dispatchEvent(
       new CustomEvent("lithe-log-runtime-fallback", { detail: event.payload }),
     );
   }).catch(() => {});
   initializationPromise = getLogSettings()
     .then((snapshot) => {
-      diagnosticEnabled = snapshot.diagnostic_enabled;
+      setFrontendDiagnosticEnabled(snapshot.diagnostic_enabled);
       return snapshot;
     })
     .catch(() => null);

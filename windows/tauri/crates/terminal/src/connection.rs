@@ -1,6 +1,6 @@
 use crate::{
    config::TerminalConfig,
-   protocol::{TerminalEvent, TerminalEventHandler, TerminalReaderControl, TerminalSize},
+   protocol::{TerminalEvent, TerminalEventHandler, TerminalInput, TerminalReaderControl, TerminalSize},
    shell::get_shell_by_id,
 };
 use anyhow::{Result, anyhow};
@@ -9,11 +9,47 @@ use portable_pty::{Child, CommandBuilder, PtyPair, PtySize};
 use std::sync::OnceLock;
 use std::{
    collections::HashMap,
+   fs::{self, OpenOptions},
    io::{Read, Write},
-   path::Path,
+   path::{Path, PathBuf},
    sync::{Arc, Mutex},
    thread,
 };
+
+#[cfg(target_os = "windows")]
+#[link(name = "kernel32")]
+unsafe extern "system" {
+   fn GetOEMCP() -> u32;
+   fn WideCharToMultiByte(
+      code_page: u32,
+      flags: u32,
+      source: *const u16,
+      source_len: i32,
+      destination: *mut u8,
+      destination_len: i32,
+      default_char: *const u8,
+      used_default: *mut i32,
+   ) -> i32;
+   fn MultiByteToWideChar(
+      code_page: u32,
+      flags: u32,
+      source: *const u8,
+      source_len: i32,
+      destination: *mut u16,
+      destination_len: i32,
+   ) -> i32;
+}
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+// Leave room below cmd.exe's documented 8191-character command limit for the shell invocation.
+const WINDOWS_INTERACTIVE_INPUT_LIMIT: usize = 7_000;
+
+#[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LongInputShell {
+   Cmd,
+   PowerShell,
+}
 
 #[cfg(not(target_os = "windows"))]
 static USER_ENVIRONMENT_CACHE: OnceLock<HashMap<String, String>> = OnceLock::new();
@@ -25,6 +61,10 @@ pub struct TerminalConnection {
    pub writer: Arc<Mutex<Option<Box<dyn Write + Send>>>>,
    pub child: Arc<Mutex<Option<Box<dyn Child + Send + Sync>>>>,
    pub reader_control: Arc<TerminalReaderControl>,
+   #[cfg(target_os = "windows")]
+   long_input_shell: Option<LongInputShell>,
+   #[cfg(target_os = "windows")]
+   script_paths: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl TerminalConnection {
@@ -48,6 +88,18 @@ impl TerminalConnection {
       let writer = Arc::new(Mutex::new(Some(pty_pair.master.take_writer()?)));
       let child = Arc::new(Mutex::new(Some(child)));
 
+      #[cfg(target_os = "windows")]
+      let long_input_shell = if config.command.is_none() {
+         let default_shell = "cmd.exe";
+         Self::resolve_shell_path(config.shell.as_deref(), default_shell)
+            .ok()
+            .and_then(|shell_path| {
+               Self::long_input_shell(config.shell.as_deref(), &shell_path)
+            })
+      } else {
+         None
+      };
+
       Ok(Self {
          id,
          pty_pair,
@@ -55,6 +107,10 @@ impl TerminalConnection {
          writer,
          child,
          reader_control: Arc::new(TerminalReaderControl::default()),
+         #[cfg(target_os = "windows")]
+         long_input_shell,
+         #[cfg(target_os = "windows")]
+         script_paths: Arc::new(Mutex::new(Vec::new())),
       })
    }
 
@@ -341,6 +397,20 @@ impl TerminalConnection {
          })
    }
 
+   #[cfg(target_os = "windows")]
+   fn long_input_shell(shell_id: Option<&str>, shell_path: &str) -> Option<LongInputShell> {
+      if Self::is_powershell_shell(shell_id, shell_path) {
+         Some(LongInputShell::PowerShell)
+      } else if shell_id.is_some_and(|id| id.eq_ignore_ascii_case("cmd"))
+         || Self::executable_name(shell_path)
+            .is_some_and(|name| name.eq_ignore_ascii_case("cmd.exe"))
+      {
+         Some(LongInputShell::Cmd)
+      } else {
+         None
+      }
+   }
+
    fn is_git_bash_shell(shell_id: Option<&str>, shell_path: &str) -> bool {
       shell_id.is_some_and(|id| id.eq_ignore_ascii_case("bash"))
          || Self::executable_name(shell_path)
@@ -536,14 +606,266 @@ impl TerminalConnection {
       })
    }
 
-   pub fn write(&self, data: &[u8]) -> Result<()> {
+   pub fn write(&self, input: TerminalInput) -> Result<()> {
       let mut writer_guard = self.writer.lock().unwrap();
-      if let Some(writer) = writer_guard.as_mut() {
-         writer.write_all(data)?;
-         writer.flush()?;
-         Ok(())
-      } else {
-         Err(anyhow!("Terminal writer is not available"))
+      let Some(writer) = writer_guard.as_mut() else {
+         return Err(anyhow!("Terminal writer is not available"));
+      };
+
+      let data = match input {
+         TerminalInput::Text { data } => {
+            #[cfg(target_os = "windows")]
+            match self.prepare_long_input(&data) {
+               Ok(Some(invocation)) => invocation.into_bytes(),
+               Ok(None) => data.into_bytes(),
+               Err(error) => {
+                  drop(writer_guard);
+                  (self.event_handler)(
+                     &self.id,
+                     TerminalEvent::Error {
+                        message: error.to_string(),
+                     },
+                  );
+                  return Ok(());
+               }
+            }
+            #[cfg(not(target_os = "windows"))]
+            data.into_bytes()
+         }
+         TerminalInput::Binary { data } => data,
+      };
+
+      if let Err(error) = writer.write_all(&data).and_then(|_| writer.flush()) {
+         #[cfg(target_os = "windows")]
+         self.cleanup_last_script();
+         return Err(error.into());
+      }
+      Ok(())
+   }
+
+   #[cfg(target_os = "windows")]
+   fn prepare_long_input(&self, input: &str) -> Result<Option<String>> {
+      let Some(shell) = self.long_input_shell else {
+         return Ok(None);
+      };
+
+      match shell {
+         LongInputShell::Cmd => {
+            if !Self::cmd_input_can_use_script(input)? {
+               return Ok(None);
+            }
+         }
+         LongInputShell::PowerShell => {
+            if !Self::is_submitted_long_input(input) {
+               return Ok(None);
+            }
+         }
+      }
+
+      let Some((invocation, path)) = Self::create_long_input_script(
+         shell,
+         input,
+         &std::env::temp_dir(),
+      )? else {
+         return Ok(None);
+      };
+
+      self.script_paths.lock().unwrap().push(path);
+      Ok(Some(invocation))
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn create_long_input_script(
+      shell: LongInputShell,
+      input: &str,
+      directory: &Path,
+   ) -> Result<Option<(String, PathBuf)>> {
+      match shell {
+         LongInputShell::Cmd => {
+            if !Self::cmd_input_can_use_script(input)? {
+               return Ok(None);
+            }
+         }
+         LongInputShell::PowerShell => {
+            if !Self::is_submitted_long_input(input) {
+               return Ok(None);
+            }
+         }
+      }
+
+      let (extension, suffix) = match shell {
+         LongInputShell::Cmd => ("cmd", "\r\n"),
+         LongInputShell::PowerShell => ("ps1", "\n"),
+      };
+
+      let path = directory.join(format!("lithe-terminal-{}.{}", uuid::Uuid::new_v4(), extension));
+      let mut file = OpenOptions::new()
+         .write(true)
+         .create_new(true)
+         .open(&path)?;
+      let result = (|| {
+         if shell == LongInputShell::PowerShell {
+            // Windows PowerShell 5.1 needs a BOM to read a UTF-8 script correctly.
+            file.write_all(&[0xEF, 0xBB, 0xBF])?;
+         }
+         let input_bytes = match shell {
+            LongInputShell::Cmd => Self::encode_cmd_script(input)?,
+            LongInputShell::PowerShell => input.as_bytes().to_vec(),
+         };
+         file.write_all(&input_bytes)?;
+         file.write_all(suffix.as_bytes())?;
+         file.flush()?;
+         Ok::<(), anyhow::Error>(())
+      })();
+      if let Err(error) = result {
+         let _ = fs::remove_file(&path);
+         return Err(error.into());
+      }
+
+      let invocation = match shell {
+         LongInputShell::Cmd => format!("call \"{}\"\r\n", path.display()),
+         LongInputShell::PowerShell => {
+            let escaped = path.to_string_lossy().replace('\'', "''");
+            format!(
+               "try {{ Get-Content -Raw -LiteralPath '{escaped}' | Invoke-Expression }} finally {{ Remove-Item -LiteralPath '{escaped}' -Force -ErrorAction SilentlyContinue }}\n"
+            )
+         }
+      };
+      Ok(Some((invocation, path)))
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn cmd_input_can_use_script(input: &str) -> Result<bool> {
+      if !Self::is_submitted_long_input(input) {
+         return Ok(false);
+      }
+
+      let lines = input.lines().collect::<Vec<_>>();
+      let mut total_bytes = 0;
+      for line in &lines {
+         let encoded_len = Self::encode_cmd_script(line)?.len();
+         if encoded_len > WINDOWS_INTERACTIVE_INPUT_LIMIT {
+            return Err(anyhow!(
+               "cmd.exe cannot execute an input line longer than {} encoded bytes",
+               WINDOWS_INTERACTIVE_INPUT_LIMIT
+            ));
+         }
+         total_bytes += encoded_len;
+      }
+      Ok(lines.len() > 1 && total_bytes > WINDOWS_INTERACTIVE_INPUT_LIMIT)
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn is_submitted_long_input(input: &str) -> bool {
+      (input.len() > WINDOWS_INTERACTIVE_INPUT_LIMIT
+         || input.encode_utf16().count() > WINDOWS_INTERACTIVE_INPUT_LIMIT)
+         && input.contains(['\r', '\n'])
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn encode_cmd_script(input: &str) -> Result<Vec<u8>> {
+      #[cfg(target_os = "windows")]
+      {
+         // cmd.exe reads batch files using the console's default OEM code page.
+         return Self::encode_cmd_script_in_code_page(input, unsafe { GetOEMCP() });
+      }
+      #[cfg(not(target_os = "windows"))]
+      {
+         Ok(input.as_bytes().to_vec())
+      }
+   }
+
+   #[cfg(target_os = "windows")]
+   fn encode_cmd_script_in_code_page(input: &str, code_page: u32) -> Result<Vec<u8>> {
+      let wide: Vec<u16> = input.encode_utf16().collect();
+      let length = i32::try_from(wide.len())
+         .map_err(|_| anyhow!("CMD input is too large to encode in the Windows code page"))?;
+      if length == 0 {
+         return Ok(Vec::new());
+      }
+
+      unsafe {
+         let size = WideCharToMultiByte(
+            code_page,
+            0,
+            wide.as_ptr(),
+            length,
+            std::ptr::null_mut(),
+            0,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+         );
+         if size <= 0 {
+            return Err(anyhow!(
+               "CMD input cannot be represented in Windows code page {code_page}"
+            ));
+         }
+         let mut bytes = vec![0; size as usize];
+         if WideCharToMultiByte(
+            code_page,
+            0,
+            wide.as_ptr(),
+            length,
+            bytes.as_mut_ptr(),
+            size,
+            std::ptr::null(),
+            std::ptr::null_mut(),
+         ) != size
+         {
+            return Err(anyhow!(
+               "CMD input cannot be represented in Windows code page {code_page}"
+            ));
+         }
+         let decoded_len =
+            MultiByteToWideChar(code_page, 0, bytes.as_ptr(), size, std::ptr::null_mut(), 0);
+         if decoded_len <= 0 {
+            return Err(anyhow!(
+               "CMD input cannot be represented in Windows code page {code_page}"
+            ));
+         }
+         let mut decoded = vec![0; decoded_len as usize];
+         if MultiByteToWideChar(
+            code_page,
+            0,
+            bytes.as_ptr(),
+            size,
+            decoded.as_mut_ptr(),
+            decoded_len,
+         ) != decoded_len
+            || decoded != wide
+         {
+            return Err(anyhow!(
+               "CMD input cannot be represented losslessly in Windows code page {code_page}"
+            ));
+         }
+         Ok(bytes)
+      }
+   }
+
+   #[cfg(target_os = "windows")]
+   fn cleanup_last_script(&self) {
+      if let Ok(mut paths) = self.script_paths.lock() {
+         if let Some(path) = paths.pop() {
+            let _ = fs::remove_file(path);
+         }
+      }
+   }
+
+   #[cfg(target_os = "windows")]
+   fn cleanup_script_files(&self) {
+      Self::cleanup_script_paths(&self.script_paths);
+   }
+
+   #[cfg_attr(not(any(target_os = "windows", test)), allow(dead_code))]
+   fn cleanup_script_paths(paths: &Mutex<Vec<PathBuf>>) {
+      if let Ok(mut paths) = paths.lock() {
+         for path in paths.drain(..) {
+            if let Err(error) = fs::remove_file(&path)
+               && error.kind() != std::io::ErrorKind::NotFound
+            {
+               log::debug!("Failed to remove terminal script {}: {error}", path.display());
+            }
+         }
       }
    }
 
@@ -564,14 +886,26 @@ impl TerminalConnection {
 
    pub fn kill(&self) -> Result<()> {
       self.reader_control.set_paused(false);
-      let mut child_guard = self.child.lock().unwrap();
-      if let Some(child) = child_guard.as_mut() {
-         if child.try_wait()?.is_some() {
-            return Ok(());
+      let result = (|| {
+         let mut child_guard = self.child.lock().unwrap();
+         if let Some(child) = child_guard.as_mut() {
+            if child.try_wait()?.is_some() {
+               return Ok(());
+            }
+            child.kill()?;
          }
-         child.kill()?;
-      }
-      Ok(())
+         Ok(())
+      })();
+      #[cfg(target_os = "windows")]
+      self.cleanup_script_files();
+      result
+   }
+}
+
+impl Drop for TerminalConnection {
+   fn drop(&mut self) {
+      #[cfg(target_os = "windows")]
+      self.cleanup_script_files();
    }
 }
 
@@ -579,6 +913,10 @@ impl TerminalConnection {
 mod tests {
    use super::*;
    use std::ffi::OsStr;
+
+   fn oversized_multiline_input() -> String {
+      format!("echo start\n{}\necho finish", "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT))
+   }
 
    fn config_with_env(environment: HashMap<String, String>) -> TerminalConfig {
       TerminalConfig {
@@ -648,6 +986,149 @@ mod tests {
          TerminalConnection::shell_startup_args(Some("cmd"), "cmd.exe"),
          Vec::<String>::new()
       );
+   }
+
+   #[test]
+   fn short_and_single_line_input_is_not_scripted() {
+      let directory = crate::test_support::TestDirectory::new();
+      let short = TerminalConnection::create_long_input_script(
+         LongInputShell::Cmd,
+         "echo short\n",
+         directory.path(),
+      )
+      .unwrap();
+      assert!(short.is_none());
+
+      let single_line = "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT + 1);
+      let cmd_result = TerminalConnection::create_long_input_script(
+         LongInputShell::Cmd,
+         &single_line,
+         directory.path(),
+      )
+      .unwrap();
+      assert!(cmd_result.is_none());
+
+      let powershell_result = TerminalConnection::create_long_input_script(
+         LongInputShell::PowerShell,
+         &single_line,
+         directory.path(),
+      )
+      .unwrap();
+      assert!(powershell_result.is_none());
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+   }
+
+   #[test]
+   fn short_unicode_cmd_input_does_not_require_script_encoding() {
+      let directory = crate::test_support::TestDirectory::new();
+      let input = "echo \u{1f600}\r\n";
+
+      assert!(!TerminalConnection::cmd_input_can_use_script(input).unwrap());
+      assert!(
+         TerminalConnection::create_long_input_script(LongInputShell::Cmd, input, directory.path())
+            .unwrap()
+            .is_none()
+      );
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+   }
+
+   #[test]
+   fn unsubmitted_long_powershell_input_remains_unscripted() {
+      let directory = crate::test_support::TestDirectory::new();
+      let input = format!("Write-Output 'probe'{}", " ".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT));
+
+      assert!(
+         TerminalConnection::create_long_input_script(
+            LongInputShell::PowerShell,
+            &input,
+            directory.path(),
+         )
+         .unwrap()
+         .is_none()
+      );
+      assert_eq!(fs::read_dir(directory.path()).unwrap().count(), 0);
+   }
+
+   #[test]
+   fn cmd_scripts_require_multiple_safe_length_lines() {
+      let oversized_line = "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT + 1);
+      assert!(!TerminalConnection::cmd_input_can_use_script(&oversized_line).unwrap());
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "{oversized_line}\r\n"
+      )).is_err());
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "{oversized_line}\necho finish"
+      )).is_err());
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "echo start\n{}\necho finish",
+         "x".repeat(WINDOWS_INTERACTIVE_INPUT_LIMIT)
+      )).unwrap());
+      assert!(!TerminalConnection::cmd_input_can_use_script("echo short\necho finish").unwrap());
+
+      let wide_line = "\u{4e2d}".repeat(4_000);
+      assert!(TerminalConnection::cmd_input_can_use_script(&format!(
+         "echo start\n{wide_line}\necho finish"
+      )).is_err());
+   }
+
+   #[test]
+   fn cmd_oversized_input_uses_a_batch_script() {
+      let directory = crate::test_support::TestDirectory::new();
+      let input = oversized_multiline_input();
+      let (invocation, path) = TerminalConnection::create_long_input_script(
+         LongInputShell::Cmd,
+         &input,
+         directory.path(),
+      )
+      .unwrap()
+      .expect("multiline input should be scripted");
+
+      assert!(invocation.starts_with("call \""));
+      assert!(invocation.ends_with("\"\r\n"));
+      let script = fs::read_to_string(&path).unwrap();
+      assert!(script.starts_with("echo start\n"));
+      assert!(script.ends_with("\r\n"));
+      assert!(script.contains(&input));
+      fs::remove_file(path).unwrap();
+   }
+
+   #[test]
+   fn powershell_oversized_input_uses_a_utf8_script_and_inline_cleanup() {
+      let parent = crate::test_support::TestDirectory::new();
+      let directory = parent.path().join("with'quote");
+      fs::create_dir(&directory).unwrap();
+      let input = oversized_multiline_input();
+      let (invocation, path) = TerminalConnection::create_long_input_script(
+         LongInputShell::PowerShell,
+         &input,
+         &directory,
+      )
+      .unwrap()
+      .expect("multiline input should be scripted");
+
+      assert!(invocation.starts_with("try { Get-Content -Raw"));
+      assert!(invocation.ends_with("}\n"));
+      assert!(invocation.contains("with''quote"));
+      assert!(invocation.contains("Invoke-Expression"));
+      assert!(invocation.contains("Remove-Item -LiteralPath"));
+      let script = fs::read(&path).unwrap();
+      assert_eq!(&script[..3], &[0xEF, 0xBB, 0xBF]);
+      let script = String::from_utf8(script[3..].to_vec()).unwrap();
+      assert!(script.contains(&input));
+      fs::remove_file(path).unwrap();
+   }
+
+   #[test]
+   fn pending_script_cleanup_removes_files_and_drains_ownership() {
+      let directory = crate::test_support::TestDirectory::new();
+      let path = directory.path().join("pending.cmd");
+      fs::write(&path, "echo pending").unwrap();
+      let paths = Mutex::new(vec![path.clone()]);
+
+      TerminalConnection::cleanup_script_paths(&paths);
+
+      assert!(!path.exists());
+      assert!(paths.lock().unwrap().is_empty());
    }
 
    #[test]

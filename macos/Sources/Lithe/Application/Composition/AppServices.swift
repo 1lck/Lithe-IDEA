@@ -42,7 +42,6 @@ final class AppServices {
     let githubService: GitHubService
     let secureStore: any SecureStore
     let databaseSecureStore: any SecureStore
-    let discourseCommunityService: DiscourseCommunityService
     let diagnosticsExportService: DiagnosticsExportService
     let credentialResolver: any AIProviderCredentialResolver
     let aiConfigurationSources: [any AIConfigurationSource]
@@ -81,7 +80,6 @@ final class AppServices {
         githubService: GitHubService,
         secureStore: any SecureStore,
         databaseSecureStore: any SecureStore,
-        discourseCommunityService: DiscourseCommunityService,
         diagnosticsExportService: DiagnosticsExportService,
         credentialResolver: any AIProviderCredentialResolver,
         aiConfigurationSources: [any AIConfigurationSource],
@@ -128,7 +126,6 @@ final class AppServices {
         self.githubService = githubService
         self.secureStore = secureStore
         self.databaseSecureStore = databaseSecureStore
-        self.discourseCommunityService = discourseCommunityService
         self.diagnosticsExportService = diagnosticsExportService
         self.credentialResolver = credentialResolver
         self.aiConfigurationSources = aiConfigurationSources

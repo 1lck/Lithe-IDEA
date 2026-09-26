@@ -27,6 +27,7 @@ interface TerminalContainerProps {
   className?: string;
   onFullScreen?: () => void;
   isFullScreen?: boolean;
+  onMinimize?: () => void;
 }
 
 interface CloseTerminalOptions {
@@ -38,6 +39,7 @@ const TerminalContainer = ({
   className = "",
   onFullScreen,
   isFullScreen = false,
+  onMinimize,
 }: TerminalContainerProps) => {
   const getDisplayNameFromDirectory = useCallback((directory: string) => {
     const normalized = directory.replace(/[\\/]+$/, "");
@@ -619,6 +621,7 @@ const TerminalContainer = ({
     onPrevTerminal: switchToPrevTerminal,
     onFullScreen,
     isFullScreen,
+    onMinimize,
   };
 
   const terminalSessions = (

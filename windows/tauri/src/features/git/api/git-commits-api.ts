@@ -159,9 +159,8 @@ export const getGitReferences = async (
 
 /**
  * Reads references for an already-discovered repository root, skipping
- * `git_discover_repo`. Discovery runs a Core Git command that takes the shared
- * common-dir write lease, which would race the user's fetch/pull/commit when the
- * workspace already knows its repository roots.
+ * `git_discover_repo`. Reusing the known repository root avoids redundant Git
+ * process launches when the workspace already resolved its repository roots.
  */
 export const getGitReferencesAtRoot = async (
   repoPath: string,
@@ -270,5 +269,11 @@ export const resetToCommit = (
 export const cherryPickCommit = (repoPath: string, revision: string): Promise<void> =>
   runHistoryMutation(repoPath, "cherry-pick-commit", {
     operation: "cherryPick",
+    revision,
+  }).then(() => undefined);
+
+export const revertCommit = (repoPath: string, revision: string): Promise<void> =>
+  runHistoryMutation(repoPath, "revert-commit", {
+    operation: "revert",
     revision,
   }).then(() => undefined);

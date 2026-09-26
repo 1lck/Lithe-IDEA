@@ -35,6 +35,7 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   make: 5,
   go: 6,
   python: 7,
+  extension: 8,
 };
 
 export function javaTestActionsForFile(
@@ -165,7 +166,9 @@ export function parseCargoRunActions(content: string, workspacePath: string): Ru
   const t = getCurrentTranslator();
   const actions: RunActionItem[] = [];
   if (/\[package\]/.test(content)) {
-    actions.push(createAction("cargo", "Cargo.toml", t("runActions.run"), "cargo run", workspacePath));
+    actions.push(
+      createAction("cargo", "Cargo.toml", t("runActions.run"), "cargo run", workspacePath),
+    );
   }
   actions.push(
     createAction("cargo", "Cargo.toml", t("runActions.test"), "cargo test", workspacePath),
@@ -218,12 +221,21 @@ export function parsePyprojectRunActions(content: string, workspacePath: string)
     const match = line.match(/^\s*([A-Za-z0-9_.-]+)\s*=/);
     if (!match?.[1]) continue;
     actions.push(
-      createAction("python", "pyproject.toml", match[1], match[1], workspacePath, t("runActions.projectScript")),
+      createAction(
+        "python",
+        "pyproject.toml",
+        match[1],
+        match[1],
+        workspacePath,
+        t("runActions.projectScript"),
+      ),
     );
   }
 
   if (/(?:pytest|\[tool\.pytest)/i.test(content)) {
-    actions.push(createAction("python", "pyproject.toml", t("runActions.test"), "pytest", workspacePath));
+    actions.push(
+      createAction("python", "pyproject.toml", t("runActions.test"), "pytest", workspacePath),
+    );
   }
 
   return actions;

@@ -16,6 +16,18 @@
 
 重复检查时不要启动重复的 Lithe 实例，也不要让测试构建的应用留在用户的应用列表中。如果某个进程无法正常停止，必须明确报告，并在继续工作前进行有界的尽力清理。
 
+## 已发布程序包的运行时只读边界
+
+已安装或已发布的 macOS app bundle，以及 Windows 安装目录中的打包资源，都是发行基线的一部分，运行时必须视为只读。Sparkle differential update（增量更新）按发布包的精确字节和哈希生成 delta；启动后往 `Contents/Resources`、bundle 内的插件、语言服务器、Eclipse/OSGi 状态、下载解压目录、日志、锁文件或索引写入，都会改变下一次更新所需的源基线，导致增量包校验失败并回退到完整包。
+
+新增或修改运行时资源时，必须遵守以下动作：
+
+- 先区分构建/打包阶段和应用运行阶段。只有构建脚本可以生成或改写 bundle 内资源。
+- 运行时缓存、索引、OSGi/Eclipse 状态、下载物、解压物、插件状态、日志和锁文件，必须通过平台存储/缓存 adapter 放到 Caches、Application Support、临时目录或用户工作区；不得从 `Bundle.main.resourceURL`、`resource_dir()` 或安装目录推导可写目标。
+- 资源解析器可以从 bundle 读取固定输入，但写入前必须证明目标是平台可写目录；不要用“启动前清理 bundle”修复，因为进程崩溃、权限和并发更新都可能留下不同基线。
+- 每个新增资源路径都要在代码或 Agent Note 中说明生命周期、所有权、可写位置、是否会影响代码签名和 Sparkle delta，并为典型启动/工作流增加 bundle 文件清单或哈希不变的验证。
+- 代码审查和测试必须运行 `scripts/verify-runtime-bundle-immutability.sh`；macOS 生产路径和 Windows/Tauri 资源解析路径都要覆盖。发现运行时写入发行目录时，先迁移到平台存储 adapter，再继续功能开发。
+
 ## 特殊 UI 交互
 
 处理可拖动分隔条、可调整面板、连续拖动、滚动或其他高频 UI 交互时，先阅读：
@@ -46,3 +58,8 @@
   资源复用清单和相关验证脚本；不能只把资源加入构建流程而遗漏 worktree 复用
   说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
   和 LSP workspace 状态不得跨 worktree 共享。
+
+## 跨平台功能同步
+
+跨平台功能矩阵的字段、状态语义、更新流程和 CI 例外规则以
+`.agents/skills/develop-lithe/SKILL.md` 为准。开始涉及用户可观察功能或跨平台行为时，先读取该 Skill；不要在本文件复制一份会漂移的规则。

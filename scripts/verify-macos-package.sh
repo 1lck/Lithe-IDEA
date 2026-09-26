@@ -186,6 +186,11 @@ done
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java" \
     -verify_arch x86_64
 
+if [[ -e "$app_path/Contents/Resources/OfficialPlugins/dev.lithe.plugin.php-support" ]]; then
+    print -u2 -- "Optional PHP support must not be bundled with Lithe"
+    exit 1
+fi
+
 plugin_manifests=("$app_path/Contents/Resources/OfficialPlugins"/*/plugin.json(N))
 if (( ${#plugin_manifests[@]} == 0 )); then
     print -u2 -- "Packaged app does not contain any official plugin manifests"

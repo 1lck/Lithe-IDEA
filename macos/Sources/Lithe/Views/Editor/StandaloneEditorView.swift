@@ -7,6 +7,7 @@ struct StandaloneEditorView: View {
 
     var body: some View {
         let closeConfirmationID = model.pendingCloseConfirmationID
+        let encodingRequest = model.pendingEncodingReopen
         VStack(spacing: 0) {
             header
             Rectangle()
@@ -32,6 +33,22 @@ struct StandaloneEditorView: View {
             Button("Cancel", role: .cancel) { model.cancelPendingClose() }
         } message: {
             Text(model.pendingCloseDocument?.url.lastPathComponent ?? "")
+        }
+        .confirmationDialog(
+            "Save changes before reopening with \(encodingRequest?.encoding.displayName ?? "this encoding")?",
+            isPresented: Binding(
+                get: { encodingRequest != nil },
+                set: { if !$0 { model.dismissPendingEncodingReopen(encodingRequest?.id) } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Save") { model.resolvePendingEncodingReopen(saveChanges: true) }
+            Button("Discard Changes", role: .destructive) {
+                model.resolvePendingEncodingReopen(saveChanges: false)
+            }
+            Button("Cancel", role: .cancel) { model.cancelEncodingChange() }
+        } message: {
+            Text(encodingRequest?.document.url.lastPathComponent ?? "")
         }
     }
 
@@ -148,6 +165,41 @@ struct StandaloneEditorView: View {
                         .frame(width: 6, height: 6)
                 }
                 Spacer()
+                Menu {
+                    Section("Reopen with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.reopenDocument(document, with: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.readEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
+                                }
+                            }
+                        }
+                    }
+                    Divider()
+                    Section("Save with Encoding") {
+                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
+                            let encoding = descriptor.id
+                            Button {
+                                model.saveDocument(document, encoding: encoding)
+                            } label: {
+                                HStack {
+                                    Text(descriptor.displayName)
+                                    if document.saveEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
+                                }
+                            }
+                            .disabled(document.isReadOnly)
+                        }
+                    }
+                } label: {
+                    Text(document.readEncoding.displayName)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .help("File encoding")
                 if document.url.pathExtension.lowercased() == "svg" {
                     Picker("SVG view mode", selection: $svgViewMode) {
                         ForEach(DocumentPreviewMode.allCases) { mode in

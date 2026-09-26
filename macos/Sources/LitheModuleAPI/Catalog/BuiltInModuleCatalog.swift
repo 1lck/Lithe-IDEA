@@ -18,7 +18,7 @@ public enum BuiltInModuleCatalog {
             id: .database,
             displayName: "Database",
             scope: .workspace,
-            defaultState: .disabled,
+            defaultState: .enabled,
             activationPolicy: .onDemand,
             sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
             dependencies: [.module(.workspace)],
@@ -197,7 +197,7 @@ public enum BuiltInPluginCatalog {
 /// module graph and become available only when their signed package exists.
 public enum OfficialPluginCatalog {
     private static let goLanguageID = "go"
-    public static let linuxDoSupportModuleID = ModuleID("dev.lithe.community.linux-do")
+    private static let phpLanguageID = "php"
 
     public static let manifests: [PluginManifest] = [
         PluginManifest(
@@ -255,8 +255,8 @@ public enum OfficialPluginCatalog {
             )]
         ),
         PluginManifest(
-            id: PluginID("dev.lithe.plugin.linux-do-support"),
-            displayName: "LINUX DO Support",
+            id: PluginID("dev.lithe.plugin.php-support"),
+            displayName: "PHP Support",
             version: BuiltInPluginCatalog.hostVersion,
             hostCompatibility: PluginHostCompatibility(
                 minimum: BuiltInPluginCatalog.hostVersion,
@@ -265,31 +265,44 @@ public enum OfficialPluginCatalog {
             vendor: BuiltInPluginCatalog.vendor,
             entrypoint: PluginEntrypoint(
                 kind: .nativeBundle,
-                bundleIdentifier: "dev.lithe.plugin.linux-do-support.bundle",
-                principalClass: "LitheLinuxDoSupportPluginEntrypoint",
-                bundlePath: "LinuxDoSupport.bundle"
+                bundleIdentifier: "dev.lithe.plugin.php-support.bundle",
+                principalClass: "LithePhpSupportPluginEntrypoint",
+                bundlePath: "PhpSupport.bundle"
             ),
             modules: [
-                PluginModuleDeclaration(
-                    manifest: ModuleManifest(
-                        id: linuxDoSupportModuleID,
-                        displayName: "LINUX DO",
-                        scope: .application,
-                        defaultState: .disabled,
-                        activationPolicy: .onDemand
-                    ),
-                    contributions: [ModuleContribution(
-                        id: "community.linux-do",
-                        kind: .toolWindow,
-                        title: "LINUX DO",
-                        icon: "bubble.left.and.bubble.right",
-                        placement: .rightSidebar,
-                        order: 100,
-                        actionID: "community.linux-do.toggle",
-                        rendererID: "community.linux-do.browser"
-                    )]
-                )
-            ]
+                PluginModuleDeclaration(manifest: ModuleManifest(
+                    id: .languageExecutionExtension(phpLanguageID),
+                    displayName: "PHP Execution",
+                    scope: .workspace,
+                    defaultState: .disabled,
+                    activationPolicy: .onDemand,
+                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+                    dependencies: [.module(.workspace)],
+                    providedCapabilities: [
+                        .languageExecutionExtension(phpLanguageID),
+                        .languageTestingExtension(phpLanguageID)
+                    ]
+                )),
+                PluginModuleDeclaration(manifest: ModuleManifest(
+                    id: .languageServerExtension(phpLanguageID),
+                    displayName: "PHP Language Server",
+                    scope: .workspace,
+                    defaultState: .disabled,
+                    activationPolicy: .onDemand,
+                    sleepPolicy: .whenIdle(afterSeconds: 10 * 60),
+                    dependencies: [.module(.workspace)],
+                    providedCapabilities: [.languageServerExtension(phpLanguageID)]
+                ))
+            ],
+            languageSupports: [LanguageSupportDeclaration(
+                id: phpLanguageID,
+                displayName: "PHP",
+                fileExtensions: ["php", "phtml"],
+                projectFileNames: ["composer.json"],
+                languageServerModuleID: .languageServerExtension(phpLanguageID),
+                executionModuleID: .languageExecutionExtension(phpLanguageID),
+                testingModuleID: .languageExecutionExtension(phpLanguageID)
+            )]
         )
     ]
 

@@ -38,7 +38,11 @@ final class EditorSessionCoordinator {
         media.reset()
     }
 
-    func restoreDocuments(orderedPaths: [String], activePath: String?, availableFiles: [URL]) async {
+    func restoreDocuments(
+        orderedPaths: [String], activePath: String?, availableFiles: [URL],
+        readEncodings: [String: DocumentEncoding] = [:],
+        saveEncodings: [String: DocumentEncoding] = [:]
+    ) async {
         let availablePaths = Set(availableFiles.map { $0.standardizedFileURL.path })
         let paths = orderedPaths.filter { availablePaths.contains($0) }
         await withTaskGroup(of: Void.self) { group in
@@ -48,7 +52,9 @@ final class EditorSessionCoordinator {
                         URL(fileURLWithPath: path),
                         isReadOnly: false,
                         displayPath: nil,
-                        activateWhenReady: false
+                        activateWhenReady: false,
+                        encoding: readEncodings[path],
+                        saveEncoding: saveEncodings[path]
                     )
                 }
             }

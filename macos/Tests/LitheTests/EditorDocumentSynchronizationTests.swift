@@ -33,7 +33,7 @@ struct EditorDocumentSynchronizationTests {
         }
         #expect(observedText == nil)
         #expect(document.needsEditorSynchronization)
-        #expect(throws: EditorDocument.DocumentError.self) { try document.save() }
+        #expect(throws: EditorDocument.DocumentError.self) { try document.save(using: MacWorkspaceFileOperations()) }
         // Explicitly deliver the last browser edit before acknowledging the flush.
         document.applyLiveEditorEdit(replacedRange: NSRange(location: 6, length: 5), replacement: "中文😀")
         let acknowledge = try #require(release)

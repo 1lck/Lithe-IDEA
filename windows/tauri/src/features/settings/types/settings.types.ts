@@ -1,7 +1,7 @@
 import type { CoreFeaturesState } from "./feature.types";
 import type { CommitAISettings } from "@/features/git/types/ai-commit";
 import type { DisplayLanguage } from "@/i18n/locale";
-import type { V0DesignSystemProfile } from "@/extensions/v0/types/v0-design-system.types";
+import type { V0DesignSystemProfile } from "@/features/settings/lib/v0-design-system-profiles";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
 import type {
   FooterLeadingItemId,

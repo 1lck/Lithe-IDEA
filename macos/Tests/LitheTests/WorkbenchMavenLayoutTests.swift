@@ -24,6 +24,18 @@ struct WorkbenchMavenLayoutTests {
         #expect(store.load(for: URL(fileURLWithPath: "/fixture/maven-layout/other")).mavenPaneWidth == nil)
     }
 
+    @Test(arguments: [30.0, 219.0])
+    func narrowSidebarWidthIsRestoredWithOtherLayoutValues(width: Double) {
+        let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/maven-layout/narrow-sidebar")
+        store.save(WorkbenchLayout(sidebarWidth: width, topPaneHeight: 280, mavenPaneWidth: 410), for: workspace)
+
+        let restored = store.load(for: workspace)
+        #expect(restored.sidebarWidth == width)
+        #expect(restored.topPaneHeight == 280)
+        #expect(restored.mavenPaneWidth == 410)
+    }
+
     @Test(arguments: [-1.0, 0.0, 521.0])
     func invalidPersistedWidthsFallBackToDefault(width: Double) {
         let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())

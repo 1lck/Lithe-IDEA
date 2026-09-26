@@ -95,6 +95,28 @@ describe("git checkout result adaptation", () => {
   });
 });
 
+describe("git repository discovery result adaptation", () => {
+  test("accepts the read-only repository root string", () => {
+    expect(
+      adaptCoreResult<string>(
+        "git_discover_repo",
+        { path: "C:/work/src" },
+        "C:/work\n",
+      ),
+    ).toBe("C:/work");
+  });
+
+  test("keeps compatibility with the legacy command output envelope", () => {
+    expect(
+      adaptCoreResult<string>(
+        "git_discover_repo",
+        { path: "C:/work/src" },
+        { output: "C:/work\n", exitCode: 0 },
+      ),
+    ).toBe("C:/work");
+  });
+});
+
 describe("git tag checkout result adaptation", () => {
   test("maps a successful core tag checkout to the UI checkout result", () => {
     const result = adaptCoreResult(

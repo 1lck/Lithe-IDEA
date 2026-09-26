@@ -60,6 +60,7 @@ import {
   findMavenModuleJavaPath,
   findMavenModuleRunConfiguration,
 } from "../utils/maven-module-operations";
+import { mavenDependencySubtitle } from "../utils/maven-dependency-subtitle";
 
 interface TreeNodeProps {
   id: string;
@@ -434,14 +435,7 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   };
 
   const renderDependency = (dependency: MavenDependency, id: string): ReactNode => {
-    const marker =
-      dependency.resolution === "omittedConflict"
-        ? `${t("maven.omittedConflict")}${dependency.selectedVersion ? ` -> ${dependency.selectedVersion}` : ""}`
-        : dependency.resolution === "omittedDuplicate"
-          ? t("maven.omittedDuplicate")
-          : null;
-    const classifier = dependency.classifier ? `:${dependency.classifier}` : "";
-    const subtitle = `${dependency.groupId}:${dependency.version}:${dependency.type}${classifier} [${dependency.scope}]${marker ? ` (${marker})` : ""}`;
+    const subtitle = mavenDependencySubtitle(dependency, t);
     const children =
       dependency.children.length > 0
         ? dependency.children.map((child, index) =>

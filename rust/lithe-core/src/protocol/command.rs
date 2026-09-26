@@ -86,6 +86,8 @@ pub enum CoreCommand {
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
     MavenLaunchPlan,
+    /// Shortens an oversized Java launch using a JDK argument file when needed.
+    ExecutionPlanLaunchCommand,
     /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
     MavenDependencyPlan,
     /// Normalizes Maven dependency-tree output (`maven.dependencies`).
@@ -222,6 +224,8 @@ pub enum CoreCommand {
     GitPullRequestContext,
     /// Executes a caller-supplied argument vector without a shell (`git.command`).
     GitCommand,
+    /// Resolves the containing repository root without acquiring a write lease (`git.repositoryRoot`).
+    GitRepositoryRoot,
     /// Performs one supported Git mutation (`git.write`).
     GitWrite,
     /// Projects retained Git console records without executing Git (`git.consolePresentation`).
@@ -336,6 +340,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
@@ -403,6 +408,7 @@ impl CoreCommand {
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
             "git.command" => Some(Self::GitCommand),
+            "git.repositoryRoot" => Some(Self::GitRepositoryRoot),
             "git.write" => Some(Self::GitWrite),
             "git.consolePresentation" => Some(Self::GitConsolePresentation),
             "git.remoteUrl" => Some(Self::GitRemoteUrl),
@@ -491,6 +497,14 @@ mod tests {
     }
 
     #[test]
+    fn parses_java_launch_command_planner() {
+        assert!(matches!(
+            CoreCommand::parse("execution.planLaunchCommand"),
+            Some(CoreCommand::ExecutionPlanLaunchCommand)
+        ));
+    }
+
+    #[test]
     fn parses_maven_test_results_command() {
         assert!(matches!(
             CoreCommand::parse("maven.testResults"),
@@ -537,6 +551,14 @@ mod tests {
         assert!(matches!(
             CoreCommand::parse("workspace.repositories"),
             Some(CoreCommand::WorkspaceRepositories)
+        ));
+    }
+
+    #[test]
+    fn parses_git_repository_root_command() {
+        assert!(matches!(
+            CoreCommand::parse("git.repositoryRoot"),
+            Some(CoreCommand::GitRepositoryRoot)
         ));
     }
 }

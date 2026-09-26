@@ -1,0 +1,69 @@
+name: Verify Platform Feature Matrix
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-platform-feature-matrix-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify and publish matrix views
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+
+      - name: Verify source data and generated views
+        run: ./scripts/verify-platform-feature-matrix.sh
+
+      - name: Require matrix updates for platform changes
+        if: github.event_name == 'pull_request'
+        env:
+          MATRIX_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          MATRIX_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
+        run: ./scripts/verify-platform-feature-matrix-change.sh
+
+      - name: Add matrix links to job summary
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REVISION: ${{ github.sha }}
+          SERVER_URL: ${{ github.server_url }}
+        shell: bash
+        run: |
+          {
+            echo "### Platform feature matrix"
+            echo ""
+            echo "The committed views are available from this revision:"
+            echo "- [Markdown view](${SERVER_URL}/${REPOSITORY}/blob/${REVISION}/docs/development/platform-parity-matrix.md)"
+            echo "- [CSV view / download](${SERVER_URL}/${REPOSITORY}/raw/${REVISION}/docs/development/platform-parity-matrix.csv)"
+            echo ""
+            echo "The same files are attached as a downloadable workflow artifact."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload matrix views
+        uses: actions/upload-artifact@v4
+        with:
+          name: platform-feature-matrix-${{ github.run_id }}
+          path: |
+            shared/platform-feature-matrix.json
+            docs/development/platform-parity-matrix.md
+            docs/development/platform-parity-matrix.csv
+          if-no-files-found: error
+          retention-days: 14

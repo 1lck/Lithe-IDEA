@@ -19,7 +19,6 @@ final class AppModelFeatureGraph {
     let languageTooling: LanguageToolingFeatureModel
     let workspace: WorkspaceFeatureModel
     let github: GitHubFeatureModel
-    let discourseCommunity: DiscourseCommunityFeatureModel
     let diagnostics: DiagnosticsFeatureModel
     let editorTabOrder: EditorTabOrderFeatureModel
     let media: MediaDocumentFeatureModel
@@ -76,9 +75,6 @@ final class AppModelFeatureGraph {
             sessionsProvider: { nil }
         )
         github = GitHubFeatureModel(service: services.githubService)
-        discourseCommunity = DiscourseCommunityFeatureModel(
-            service: services.discourseCommunityService
-        )
         diagnostics = DiagnosticsFeatureModel(service: services.diagnosticsExportService)
         editorTabOrder = EditorTabOrderFeatureModel()
         media = MediaDocumentFeatureModel()

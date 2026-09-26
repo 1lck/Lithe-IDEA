@@ -287,7 +287,7 @@ export function adaptCoreResult<T>(
     case "git_status_diff_stats":
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
-      return String(data.output ?? "").trim() as T;
+      return String(typeof value === "string" ? value : data.output ?? "").trim() as T;
     case "git_get_remotes": {
       const remotes = new Map<string, string>();
       for (const line of String(data.output ?? "").split("\n")) {

@@ -31,7 +31,8 @@ const invoke = mock(async (command: string): Promise<unknown> => {
 });
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const { executeGitPush, getGitPushPreview } = await import("./git-push-api");
 

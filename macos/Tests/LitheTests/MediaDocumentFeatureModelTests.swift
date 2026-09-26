@@ -158,7 +158,7 @@ struct MediaDocumentFeatureModelTests {
         #expect(!document.isReadOnly)
         #expect(appModel.activeMediaDocument == nil)
         document.text = source.replacingOccurrences(of: "20", with: "30")
-        try document.save()
+        try document.save(using: MacWorkspaceFileOperations())
         #expect(try String(contentsOf: svgURL, encoding: .utf8) == document.text)
         #expect(!document.isDirty)
     }

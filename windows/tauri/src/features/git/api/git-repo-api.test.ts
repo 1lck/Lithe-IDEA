@@ -3,8 +3,16 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const readDirectory = mock(async (_path: string): Promise<unknown[]> => []);
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("@/features/file-system/controllers/platform", () => ({ readDirectory }));
+// Spread the real modules so each override stays scoped to a single export;
+// a partial mock would strip the sibling exports (Channel, createDirectory, …)
+// for every other test sharing this module registry.
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
+const platformModule = await import("@/features/file-system/controllers/platform");
+mock.module("@/features/file-system/controllers/platform", () => ({
+  ...platformModule,
+  readDirectory,
+}));
 
 const {
   clearRepositoryDiscoveryCache,

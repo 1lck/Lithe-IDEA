@@ -7,6 +7,7 @@ import {
 import { openLocalHistoryForActiveFile } from "@/features/local-history/utils/open-local-history";
 import { createTabActions } from "@/features/tabs/constants/tab-actions";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
+import { openEncodingPicker } from "../services/encoding-picker-state";
 import type { Action } from "../types/action.types";
 
 interface FileActionsParams {
@@ -92,6 +93,28 @@ export const createFileActions = (params: FileActionsParams): Action[] => {
       action: () => {
         onClose();
         void keymapRegistry.executeCommand("file.saveAs");
+      },
+    },
+    {
+      id: "file-reopen-with-encoding",
+      label: "File: Reopen with Encoding",
+      description: "Reload the active file using a selected text encoding",
+      icon: <ClockCounterClockwise />,
+      category: "File",
+      action: () => {
+        onClose();
+        openEncodingPicker("reopen");
+      },
+    },
+    {
+      id: "file-save-with-encoding",
+      label: "File: Save with Encoding",
+      description: "Save the active file using a selected text encoding",
+      icon: <Save />,
+      category: "File",
+      action: () => {
+        onClose();
+        openEncodingPicker("save");
       },
     },
     {

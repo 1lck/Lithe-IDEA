@@ -1,4 +1,9 @@
-import { isLocalDocumentPath, readDocumentFile } from "@/platform/document-files";
+import {
+  isLocalDocumentPath,
+  readDocumentFile,
+  readDocumentFileDetails,
+  type DocumentReadDetails,
+} from "@/platform/document-files";
 import type { FileEntry } from "../types/app.types";
 import { joinPath } from "@/utils/path-helpers";
 import {
@@ -20,6 +25,19 @@ export async function readFileContent(path: string): Promise<string> {
     }
     const content = await platformReadFile(path);
     return content || "";
+  } catch (error) {
+    throw new Error(`Failed to read file ${path}: ${error}`);
+  }
+}
+
+export async function readFileContentWithEncoding(path: string): Promise<DocumentReadDetails> {
+  try {
+    if (isLocalDocumentPath(path)) {
+      const details = await readDocumentFileDetails(path);
+      if (!details || details.content === null) throw new Error("File no longer exists");
+      return details;
+    }
+    return { content: await readFileContent(path), encoding: "UTF-8", identity: "" };
   } catch (error) {
     throw new Error(`Failed to read file ${path}: ${error}`);
   }

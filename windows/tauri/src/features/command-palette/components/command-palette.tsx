@@ -2,6 +2,7 @@ import { appDataDir } from "@tauri-apps/api/path";
 import { ClockCounterClockwiseIcon as History } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
+import { EncodingPickerContent } from "@/features/command-palette/components/encoding-picker";
 import { ThemeSelectorContent } from "@/features/command-palette/components/theme-selector";
 import { useEditorSettingsStore } from "@/features/editor/stores/settings.store";
 import { useLspStore } from "@/features/editor/lsp/stores/lsp.store";
@@ -11,8 +12,9 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { LocalHistoryCommandContent } from "@/features/local-history/components/local-history-command";
 import { OutlineCommandContent } from "@/features/outline/components/outline-command";
 import { commitChanges } from "@/features/git/api/git-commits-api";
-import { fetchChanges, pullChanges } from "@/features/git/api/git-remotes-api";
+import { fetchChanges } from "@/features/git/api/git-remotes-api";
 import { showGitPushDialog } from "@/features/git/services/git-push-dialog-service";
+import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
 import {
   discardAllChanges,
   stageAllFiles,
@@ -317,7 +319,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
         unstageAllFiles,
         commitChanges,
         showGitPushDialog,
-        pullChanges,
+        showGitPullDialog,
         fetchChanges,
         discardAllChanges,
       },
@@ -430,6 +432,8 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
           onBack={popView}
           onClose={onClose}
         />
+      ) : currentView === "encoding" ? (
+        <EncodingPickerContent onClose={onClose} onBack={popView} />
       ) : extensionView ? (
         extensionView.render({
           isActive: true,

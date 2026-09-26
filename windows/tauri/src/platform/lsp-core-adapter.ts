@@ -1228,6 +1228,7 @@ function mainClassMatches(reported: string, configured: string): boolean {
 
 export const LSP_OPERATION_BY_COMMAND = {
   lsp_get_completions: "completion",
+  lsp_resolve_completion: "resolveCompletion",
   lsp_get_hover: "hover",
   lsp_get_definition: "definition",
   lsp_get_implementation: "implementation",
@@ -1272,6 +1273,7 @@ function semanticPayload(command: string, args: JsonRecord, session: Session): J
     payload.position = { line: args.line, utf16Column: args.character ?? 0 };
   }
   if (command === "lsp_rename") payload.newName = args.newName;
+  if (command === "lsp_resolve_completion") payload.completionItem = args.completionItem;
   if (command === "lsp_get_inlay_hints") {
     payload.range = {
       start: { line: args.startLine, utf16Column: 0 },
@@ -1305,6 +1307,8 @@ function unwrapResult(command: string, result: any): unknown {
   switch (command) {
     case "lsp_get_completions":
       return normalized.items ?? [];
+    case "lsp_resolve_completion":
+      return normalized.item ?? null;
     case "lsp_get_hover": {
       const hover = normalized.hover;
       if (!hover) return null;
