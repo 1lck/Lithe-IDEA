@@ -156,16 +156,30 @@ honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
 its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
 results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
 
-`agent.installCli` runs `npm install -g <package>@latest` with the user's npm for
-the agent's own CLI (`cli.package` in `agent.status`), then reports the version
-found on the search path as `cliVersion`. It is the only global npm install
-Lithe performs and runs only on an explicit user action; it never installs
-Node.js or npm.
+`agent.installCli` resolves the current PATH executable and its installation
+owner again on each explicit action. A missing CLI uses npm; an existing npm CLI
+requires the selected npm's global root, package manifest/bin and active link
+to agree before `npm install -g <package>@latest`. Homebrew requires the active
+target to belong to its reported Caskroom/Cellar and an installed package receipt;
+it runs `brew upgrade --cask/--formula <owning-package>`, retaining the installed
+channel. A standard Claude native launcher uses `claude update`. Unknown,
+broken, unrecorded, or mismatched Node/npm installations require manual updating;
+there is no force overwrite, installer migration or automatic npm fallback.
+After completion, the host refreshes the login-shell PATH and requires the CLI
+selected there to meet the adapter's minimum version before returning `cliVersion`.
+Node.js and npm remain user-managed. Detection is read-only and locally bounded.
+
+`agent.status` includes optional `cli.installation` with `source` (`npm`,
+`homebrew`, `native`, `missing`, `unknown`), `canUpdate`, and display-only
+`updateHint`. Hosts show the source and guidance, and offer automatic update
+only when `canUpdate` is true. The hint is never executable input. Absent fields
+remain backward compatible with older hosts. Windows installer/shim ownership
+has not been verified; unrecognized installations use the manual path.
 
 `agent.install` and `agent.installCli` publish `agentInstallProgress` through the
 existing synchronous `execute_json_with_events`/C ABI event callback. Each event
 carries the request's `operationId` and a `progress` object: `stage` (`preparing`,
-`downloading`, `installing`), `downloadedBytes` (received archive body bytes),
+`downloading`, `installing`, `updating`), `downloadedBytes` (received archive body bytes),
 `bytesPerSecond` (most recent sample), `elapsedMilliseconds`, and
 `idleMilliseconds` (since the last archive bytes). Counters contain no URLs,
 headers, credentials, or paths. npm still owns fetching, proxies, retries, cache,
@@ -175,6 +189,8 @@ No total or overall percentage is supplied: npm can discover additional packages
 and may use cached packages. Events stop before the final response, including
 failure, timeout, and cancellation. Hosts reject stale operation IDs and clear
 live counters at completion. Examples are in `agent-management-v1.json`.
+Homebrew and native updaters emit `updating` with zero transfer counters: their
+package manager owns the download and Lithe does not infer bytes from logs.
 
 | Command | Purpose |
 | --- | --- |

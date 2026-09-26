@@ -77,7 +77,18 @@ async function readRegistry() {
     }
     identifiers.add(resource.id);
   }
-  return registry.resources;
+  const excludedResources = registry.excludedResources ?? [];
+  if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
+  for (const resource of excludedResources) {
+    if (!resource?.id || identifiers.has(resource.id) || resource.reusable !== false
+        || !Array.isArray(resource.locations) || !resource.locations.length
+        || !resource.locations.every((location) => typeof location === "string" && location.length > 0)
+        || !resource.identity || !resource.reason) {
+      throw new Error(`Invalid excluded worktree resource: ${resource?.id ?? "<missing>"}`);
+    }
+    identifiers.add(resource.id);
+  }
+  return { resources: registry.resources, excludedResources };
 }
 
 function runGit(worktree, argumentsList) {
@@ -346,7 +357,7 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  const resources = await readRegistry();
+  const { resources, excludedResources } = await readRegistry();
   if (options.list) {
     for (const resource of resources) process.stdout.write(`${resource.id}\t${resource.path}\n`);
     return;
@@ -355,6 +366,9 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
+      if (excludedResources.some((resource) => resource.id === identifier)) {
+        throw new Error(`Resource ${identifier} belongs to user-managed runtime installations and cannot be reused across worktrees`);
+      }
       const resource = resources.find((candidate) => candidate.id === identifier);
       if (!resource) throw new Error(`Unknown resource: ${identifier}`);
       return resource;

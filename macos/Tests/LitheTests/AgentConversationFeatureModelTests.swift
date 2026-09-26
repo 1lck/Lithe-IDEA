@@ -198,6 +198,8 @@ struct AgentConversationFeatureModelTests {
         #expect(codex.isInstalled && !codex.needsUpdate)
         #expect(codex.cli?.detected?.version == "0.156.1")
         #expect(codex.cli?.minimumVersion == "0.156.0")
+        #expect(codex.cli?.installation?.source == .npm)
+        #expect(codex.cli?.installation?.canUpdate == true)
         let claude = try #require(status.agents.last)
         #expect(claude.cli?.command == "claude")
         #expect(claude.cli?.detected == nil)

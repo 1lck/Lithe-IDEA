@@ -5,6 +5,33 @@ import Testing
 
 struct AgentSetupDiagnosticsTests {
     @Test
+    func cliOwnershipControlsAutomaticUpdateAndProvidesManualGuidance() throws {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/agent-management-v1.json"))
+        let fixture = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let installations = try #require(fixture["cliInstallations"] as? [String: Any])
+        let environment = AgentRuntimeEnvironment(node: nil, npm: nil, usedLoginShell: true)
+        for name in ["homebrew", "npm", "native", "unknown", "npmEnvironmentMismatch"] {
+            let installation = try JSONDecoder().decode(AgentCliInstallation.self,
+                from: JSONSerialization.data(withJSONObject: try #require(installations[name])))
+            let agent = AgentCatalogStatus(id: "codex-acp", name: "Codex", description: "", package: "adapter",
+                version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
+                cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
+                           detected: .init(version: "0.142.5", path: "/example/bin/codex"), installation: installation), issues: [])
+            let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: true).first { $0.id == "cli" })
+            #expect(check.fix == (installation.canUpdate ? .updateCli : nil))
+            #expect(check.message.contains(installation.source == .homebrew ? "Homebrew" :
+                NSLocalizedString(installation.updateHint, comment: "")))
+            if installation.source == .homebrew {
+                #expect(check.message.contains("brew upgrade --cask codex"))
+                #expect(!check.message.contains("npm install"))
+            }
+        }
+    }
+
+    @Test
     func versionComparisonIgnoresPrefixesAndPreReleaseSuffixes() {
         #expect(AgentSetupDiagnostics.isVersion("0.156.1", atLeast: "0.156.0"))
         #expect(!AgentSetupDiagnostics.isVersion("0.144.1", atLeast: "0.156.0"))

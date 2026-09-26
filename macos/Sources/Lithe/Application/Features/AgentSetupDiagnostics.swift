@@ -139,18 +139,33 @@ extension AgentSetupDiagnostics {
 
         if let cli = agent.cli {
             let title = String(format: String(localized: "%@ %@ or later"), cli.name, cli.minimumVersion)
+            let canUpdate = cli.installation?.canUpdate ?? true
             if let detected = cli.detected {
                 if isVersion(detected.version, atLeast: cli.minimumVersion) {
                     checks.append(.init(id: "cli", title: title, status: .pass, message: "\(detected.version) · \(detected.path)"))
                 } else {
                     checks.append(.init(id: "cli", title: title, status: .warn,
                                         message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message,
-                                        fix: .updateCli))
+                                        fix: canUpdate ? .updateCli : nil))
                 }
             } else {
                 checks.append(.init(id: "cli", title: title, status: .fail,
                                     message: Issue.cliMissing(name: cli.name, installHint: cli.installHint).message,
-                                    fix: .installCli))
+                                    fix: canUpdate ? .installCli : nil))
+            }
+            if let installation = cli.installation, let index = checks.firstIndex(where: { $0.id == "cli" }) {
+                let check = checks[index]
+                let source: String = switch installation.source {
+                case .npm: "npm"
+                case .homebrew: "Homebrew"
+                case .native: String(localized: "Native installer")
+                case .missing: String(localized: "Not installed")
+                case .unknown: String(localized: "Unknown source")
+                }
+                let provenance = String(format: String(localized: "Installation: %@"), source)
+                let hint = NSLocalizedString(installation.updateHint, comment: "CLI update guidance")
+                checks[index] = .init(id: check.id, title: check.title, status: check.status,
+                                     message: "\(check.message)\n\(provenance)\n\(hint)", fix: check.fix)
             }
         }
 

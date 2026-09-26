@@ -319,6 +319,13 @@ fn management_status_matches_the_shared_fixture() {
     ))
     .expect("agent management fixture");
     let data = std::env::temp_dir().join(format!("lithe-status-{}", std::process::id()));
+    struct Cleanup(std::path::PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = Cleanup(data.clone());
     let _ = std::fs::remove_dir_all(&data);
     fake_install(&data, "codex-acp");
     let tool = |version: &str, name: &str| environment::DetectedTool {
@@ -333,6 +340,19 @@ fn management_status_matches_the_shared_fixture() {
             used_login_shell: true,
         },
         &|command| (command == "codex").then(|| tool("0.156.1", "codex")),
+        &|cli| {
+            Some(
+                serde_json::from_value(
+                    fixture["cliInstallations"][if cli.command == "codex" {
+                        "npm"
+                    } else {
+                        "missing"
+                    }]
+                    .clone(),
+                )
+                .unwrap(),
+            )
+        },
     );
     assert_eq!(
         serde_json::to_value(status).unwrap(),

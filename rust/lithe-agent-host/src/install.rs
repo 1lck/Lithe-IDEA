@@ -12,6 +12,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::catalog::{AgentCli, CatalogAgent, ProviderProtocol, CATALOG};
+use crate::cli_update::{self, CliInstallation, CliSource};
 use crate::environment::{self, DetectedTool, RunError, RuntimeEnvironment};
 
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
@@ -57,6 +58,7 @@ pub struct CliStatus {
     /// npm package Lithe installs globally on request.
     pub package: String,
     pub detected: Option<DetectedTool>,
+    pub installation: Option<CliInstallation>,
 }
 
 /// Status of one catalog agent on this machine.
@@ -90,17 +92,31 @@ pub struct ManagementStatus {
 /// Detect the runtime and report each catalog agent's installation state.
 pub fn status(data_directory: &Path, cancel: &dyn Fn() -> bool) -> ManagementStatus {
     let environment = environment::detect(cancel);
-    status_with(data_directory, environment, &|command| {
-        environment::detect_tool(command, cancel)
-    })
+    status_with(
+        data_directory,
+        environment.clone(),
+        &|command| environment::detect_tool(command, cancel),
+        &|cli| {
+            Some(
+                cli_update::detect(cli, &environment, cancel)
+                    .map(|plan| plan.installation)
+                    .unwrap_or_else(|_| CliInstallation {
+                        source: CliSource::Unknown,
+                        can_update: false,
+                        update_hint: cli_update::MANUAL_HINT.into(),
+                    }),
+            )
+        },
+    )
 }
 
 /// Catalog statuses for an already detected runtime; `find_cli` looks up an
-/// agent CLI on the search path.
+/// agent CLI on the search path and `find_installation` supplies ownership evidence.
 pub(crate) fn status_with(
     data_directory: &Path,
     environment: RuntimeEnvironment,
     find_cli: &dyn Fn(&str) -> Option<DetectedTool>,
+    find_installation: &dyn Fn(&AgentCli) -> Option<CliInstallation>,
 ) -> ManagementStatus {
     let agents = CATALOG
         .iter()
@@ -112,6 +128,7 @@ pub(crate) fn status_with(
                 install_hint: cli.install_hint.into(),
                 package: cli.package.into(),
                 detected: find_cli(cli.command),
+                installation: find_installation(cli),
             });
             let mut issues = runtime_issues(agent, &environment);
             if let (Some(cli), Some(status)) = (&agent.cli, &cli) {
@@ -225,6 +242,8 @@ pub enum InstallStage {
     Preparing,
     Downloading,
     Installing,
+    /// An external CLI updater owns its transfer and does not expose byte counters.
+    Updating,
 }
 
 impl InstallProgress {
@@ -326,16 +345,14 @@ pub fn install_with_progress(
     result.map(|()| agent.version.to_owned())
 }
 
-/// Install or update the user's own CLI for `agent_id` with `npm install -g`
-/// on the user's npm, then report the version now on the search path.
+/// Install a missing CLI with npm or update it using its verified installation owner.
 ///
-/// This is the one place Lithe touches a global npm install; it runs only on
-/// an explicit click and uses the same npm the user would.
+/// Runs only on an explicit click; unknown owners require manual updating.
 pub fn install_cli(agent_id: &str, cancel: &dyn Fn() -> bool) -> Result<String, ManagementError> {
     install_cli_with_progress(agent_id, cancel, &|_| {})
 }
 
-/// Updates the user's CLI and publishes live npm counters on the calling thread.
+/// Updates through the verified installation owner, publishing only available progress.
 pub fn install_cli_with_progress(
     agent_id: &str,
     cancel: &dyn Fn() -> bool,
@@ -348,30 +365,25 @@ pub fn install_cli_with_progress(
         ManagementError::Failed(format!("{} does not use a separate CLI", agent.name))
     })?;
     let environment = environment::detect(cancel);
-    let npm = environment
-        .npm
-        .as_ref()
-        .map(|npm| npm.path.clone())
-        .ok_or_else(|| ManagementError::RuntimeMissing("npm was not found".into()))?;
-    let mut command = Command::new(&npm);
-    command
-        .args([
-            "install",
-            "-g",
-            "--no-audit",
-            "--no-fund",
-            "--loglevel=error",
-        ])
-        .arg(format!("{}@latest", cli.package));
-    if let Some(path) = environment::search_path() {
-        command.env("PATH", path);
-    }
-    match run_observed_npm(&mut command, cancel, progress) {
+    let plan = cli_update::detect(cli, &environment, cancel)?;
+    let updater = plan.command.ok_or_else(|| {
+        ManagementError::Failed(format!(
+            "{} cannot be updated automatically. {}",
+            cli.name, plan.installation.update_hint
+        ))
+    })?;
+    let result = run_cli_updater(
+        &updater,
+        environment::search_path().as_deref(),
+        cancel,
+        progress,
+    );
+    match result {
         Ok((true, _)) => {}
         Ok((false, output)) => {
             return Err(ManagementError::Failed(format!(
-                "npm could not install {}:\n{}",
-                cli.package,
+                "Could not update {} using its installation manager:\n{}",
+                cli.name,
                 tail(&output)
             )))
         }
@@ -379,18 +391,63 @@ pub fn install_cli_with_progress(
         Err(RunError::TimedOut) => return Err(ManagementError::TimedOut),
         Err(RunError::Start(message)) => {
             return Err(ManagementError::Failed(format!(
-                "Could not run npm: {message}"
+                "Could not run the CLI updater: {message}"
             )))
         }
     }
-    environment::detect_tool(cli.command, cancel)
-        .map(|tool| tool.version)
-        .ok_or_else(|| {
-            ManagementError::Failed(format!(
-                "npm finished, but `{}` was not found on the search path",
-                cli.command
-            ))
-        })
+    // Re-read the login shell PATH; success is the version the Agent would actually run.
+    environment::detect(cancel);
+    if cancel() {
+        return Err(ManagementError::Cancelled);
+    }
+    verify_updated_cli(cli, environment::detect_tool(cli.command, cancel))
+}
+
+fn run_cli_updater(
+    updater: &cli_update::UpdateCommand,
+    path: Option<&std::ffi::OsStr>,
+    cancel: &dyn Fn() -> bool,
+    progress: &dyn Fn(InstallProgress),
+) -> Result<(bool, String), RunError> {
+    let mut command = Command::new(&updater.program);
+    command.args(&updater.arguments);
+    if let Some(path) = path {
+        command.env("PATH", path);
+    }
+    if cancel() {
+        return Err(RunError::Cancelled);
+    }
+    if updater.observes_npm {
+        run_observed_npm(&mut command, cancel, progress)
+    } else {
+        progress(InstallProgress {
+            stage: InstallStage::Updating,
+            ..InstallProgress::preparing()
+        });
+        if cancel() {
+            return Err(RunError::Cancelled);
+        }
+        command
+            .env("HOMEBREW_NO_ASK", "1")
+            .env("HOMEBREW_NO_ANALYTICS", "1");
+        environment::run_bounded_status(&mut command, INSTALL_TIMEOUT, cancel)
+    }
+}
+
+fn verify_updated_cli(
+    cli: &AgentCli,
+    detected: Option<DetectedTool>,
+) -> Result<String, ManagementError> {
+    let tool = detected.ok_or_else(|| ManagementError::Failed(format!(
+        "The updater finished, but `{}` was not found on PATH. Check the CLI installation and PATH, then check again.", cli.command
+    )))?;
+    if !environment::version_at_least(&tool.version, cli.minimum_version) {
+        return Err(ManagementError::Failed(format!(
+            "The updater finished, but PATH still selects {} {} at {}. Version {} or later is required; check pinned versions and conflicting installations.",
+            cli.name, tool.version, tool.path.display(), cli.minimum_version
+        )));
+    }
+    Ok(tool.version)
 }
 
 /// Remove an installed adapter. Removing a missing adapter succeeds.
@@ -518,6 +575,62 @@ mod tests {
 
     fn codex() -> &'static CatalogAgent {
         crate::catalog::find("codex-acp").unwrap()
+    }
+
+    #[test]
+    fn external_cli_update_runs_owned_arguments_and_checks_the_selected_version() {
+        let root = temp_directory("external-updater");
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let manager = fake_npm(&root, true);
+        std::fs::write(&manager, "#!/bin/sh\nprintf '%s\\n' \"$@\"\n").unwrap();
+        let updater = cli_update::UpdateCommand {
+            program: manager,
+            arguments: vec![
+                "upgrade".into(),
+                "--cask".into(),
+                "codex; literal argument".into(),
+            ],
+            observes_npm: false,
+        };
+        let progress = std::cell::RefCell::new(Vec::new());
+        let (success, output) = run_cli_updater(&updater, None, &|| false, &|p| {
+            progress.borrow_mut().push(p)
+        })
+        .unwrap();
+        assert!(success);
+        assert_eq!(
+            output.lines().collect::<Vec<_>>(),
+            ["upgrade", "--cask", "codex; literal argument"]
+        );
+        assert_eq!(progress.borrow()[0].stage, InstallStage::Updating);
+        assert_eq!(progress.borrow()[0].downloaded_bytes, 0);
+        let cli = codex().cli.as_ref().unwrap();
+        let detected = |version: &str| {
+            Some(DetectedTool {
+                version: version.into(),
+                path: root.join("codex"),
+            })
+        };
+        assert!(
+            verify_updated_cli(cli, detected("0.142.5")).is_err(),
+            "an old CLI earlier in PATH cannot become success"
+        );
+        assert_eq!(
+            verify_updated_cli(cli, detected("0.156.1")).unwrap(),
+            "0.156.1"
+        );
+        assert!(verify_updated_cli(cli, None).is_err());
+        let cancelled = std::cell::Cell::new(false);
+        let result = run_cli_updater(&updater, None, &|| cancelled.get(), &|_| {
+            cancelled.set(true)
+        });
+        assert_eq!(result, Err(RunError::Cancelled));
     }
 
     #[test]

@@ -7,6 +7,7 @@
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 pub mod catalog;
+pub mod cli_update;
 pub mod environment;
 pub mod install;
 

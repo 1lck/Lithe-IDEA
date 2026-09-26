@@ -5,8 +5,8 @@ import LitheCoreContracts
 /// Settings shown inside the Agent panel: an agent list on the left and one
 /// agent's detail on the right, in the style of Codeg's "Agent SDK
 /// Management". Each agent follows the user's own CLI configuration for its
-/// endpoint, model and API key. Lithe never installs Node.js or the agents'
-/// own command-line tools; it only installs ACP adapters with npm.
+/// endpoint, model and API key. Node.js remains user-managed; CLI updates use
+/// their installation owner, while ACP adapters are installed with npm.
 struct AgentPanelSettingsView: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
@@ -412,7 +412,7 @@ private struct AgentDetailView: View {
                         .font(.system(size: 11, design: check.status == .pass ? .monospaced : .default))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .textSelection(.enabled)
-                        .lineLimit(3)
+                        .lineLimit(check.id == "cli" ? nil : 3)
                         .truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
@@ -711,6 +711,7 @@ private struct AgentInstallProgressView: View {
         case .preparing: return String(localized: "Preparing download…")
         case .downloading: return String(localized: "Downloading packages…")
         case .installing: return String(localized: "Installing packages…")
+        case .updating: return String(localized: "Updating CLI…")
         case nil: return String(localized: "Working with npm…")
         }
     }

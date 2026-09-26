@@ -30,7 +30,8 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **支持的 Agent 目录**：写在 `lithe-agent-host` 的 `catalog.rs`，Agent ID、npm 包名和固定版本都与 ACP 官方注册表一致。首批是 Codex（已用真实服务商验证）和 Claude（标为"未验证"）。只有重新验证过的版本才会提升。
   - **环境检测**：通过登录 shell 读取 `PATH`，所以 nvm、fnm 装的 Node 也能找到。检测 Node 和 npm 的版本，每个 Agent 各有最低 Node 版本（Codex 20、Claude 22），版本不够时只提示。
   - **一键安装**：用用户的 npm 把固定版本的适配器装到 `Application Support/Lithe/agents/<id>`。先装到临时目录，确认可执行文件存在后再替换旧目录，所以失败或取消不会破坏已经能用的旧版本。
-  - **复用用户本机的 Agent CLI**：两个适配器都自带一份 Agent 的原生程序，都是可选依赖，单个平台约 200–370 MB，而用户本机本来就有。所以安装时加上 `--omit=optional`（Codex 装完约 18 MB）。启动时在登录 shell 的 PATH 里找到用户的 CLI 交给适配器：Codex 用 `CODEX_PATH`（最低 0.156.0），Claude Code 用 `CLAUDE_CODE_EXECUTABLE`（最低 2.1.280，对应 SDK 的 `claudeCodeVersion`）。CLI 找不到或版本太旧时，预检项旁提供一键安装或升级按钮，由 `agent.installCli` 用用户本机的 npm 执行 `npm install -g <包>@latest`；这是 Lithe 唯一会做的全局 npm 安装，只在用户明确点击时运行，Node.js 和 npm 仍由用户自己安装。CLI 过旧不阻止安装适配器，只有 Node.js 或 npm 不可用才阻止。
+  - **复用用户本机的 Agent CLI**：两个适配器都自带一份 Agent 的原生程序，都是可选依赖，单个平台约 200–370 MB，而用户本机本来就有。所以安装时加上 `--omit=optional`（Codex 装完约 18 MB）。启动时在登录 shell 的 PATH 里找到用户的 CLI 交给适配器：Codex 用 `CODEX_PATH`（最低 0.156.0），Claude Code 用 `CLAUDE_CODE_EXECUTABLE`（最低 2.1.280，对应 SDK 的 `claudeCodeVersion`）。CLI 找不到时可由 npm 安装；版本过旧时先确认当前 PATH 命令的安装来源，再通过原安装器更新。来源展示在预检项中，npm/Homebrew/原生安装可以按验证结果提供升级按钮，未知来源只给手动指引。所有安装与更新只在用户明确点击时运行，Node.js 和 npm 仍由用户自己安装。CLI 过旧不阻止安装适配器，只有 Node.js 或 npm 不可用才阻止。
+  - **CLI 更新保留安装来源**：以 PATH 中实际命令及其真实文件为准，不能仅看到用户装了 npm 就把所有 CLI 交给 npm。Homebrew 通过自己报告的 Cellar/Caskroom 位置和已安装记录确认归属，保留 cask/formula 及 `claude-code@latest` 等渠道；npm 必须确认当前 global root、包名、bin 声明和链接都指向同一 CLI，另一套 Node 环境不能代更新；Claude 标准原生 launcher 使用上游 `claude update`。未知来源、损坏链接、缺少原安装器或安装记录时拒绝自动覆盖，明确提供手动指引。更新后重新读取登录 shell 的 PATH 并验证最低版本；更新命令退出成功但实际 CLI 仍过旧也应失败。读取来源只使用有界的本地查询，不更新包管理器索引、不改变用户配置。Homebrew 和原生下载归原安装器拥有，仅显示“正在更新”与耗时，不伪造字节进度；它们的全局安装和缓存不注册成可复制的工作树构建资源，排除清单与测试同步维护。
   - **下载进度以 npm 的真实传输为准**：安装与 CLI 升级通过现有 Core 事件回调报告已接收软件包字节数、最近采样速度、耗时和等待时间。npm 没有提供整次安装的总量，且会继续发现依赖，所以不显示总体百分比。内嵌的 Node 观察模块只统计 HTTP 响应进入流缓冲区的字节，不添加消费数据的监听器，也不重写下载、代理、重试、校验或缓存行为。模块通过内存中的 data URL 加载，启动后先恢复用户原有 `NODE_OPTIONS`，防止 npm 子脚本继承观察器；不生成辅助文件或新的可复用缓存。正确做法是显示“已下载 25 MB、75 KB/秒、已用时 300 秒”；不要把 npm 静默时的日志时间或整个共享缓存大小当成下载进度。Core 事件只携带数字和阶段，界面按操作标识丢弃迟到事件，完成、失败或取消后清除进度。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
   - **Key 和模型的传法**：所有适配器都通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
@@ -80,6 +81,10 @@ Zed 就是这么做的。但会装 Agent 的用户本机通常已经有 Node。�
 
 npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输出，无法解释长时间下载；轮询用户共享缓存也会把其他 npm 进程的写入误算进来。另写下载器会重复 npm 的代理、重试和缓存边界。因此采用一个只观察实际流字节的 Node 模块，保留 npm 完整安装行为；代价是必须用本地 HTTP 测试保护 Node 观察点和流的背压（消费者来不及处理时暂停接收）语义。
 
+### 不识别来源，失败后给 npm 加 `--force`
+
+这会覆盖 Homebrew 等安装器管理的命令链接，留下两个安装器争用同一文件，也可能让更新的是一份 CLI、PATH 运行的是另一份。统一迁移到 npm 还会改变用户的发布渠道。当前采用文件身份与原安装器记录确认后再更新：查询开销稍大，但能够保留安装方式；未识别的来源宁可显示手动步骤，也不猜测和覆盖。识别规则采用上游公开目录/命令，目录或包管理器输出变化时应补充契约与本地 fixture 测试。
+
 ## 后果
 
 两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目只起一个进程，会话再多也一样。
@@ -97,6 +102,8 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
 - 配置选项与确认、部分工具更新、停止期间拒绝新消息、虚拟时钟驱动的取消超时、加载失败恢复记录均有回归测试。真实 Agent 集成测试在自动清理的临时项目执行“读取、修改、运行 Node 测试、继续追问”，另验证配置切换、取消恢复及进程重启后历史加载；不操作用户项目代码。
+- CLI 来源测试覆盖 Homebrew 与 npm 共存、formula/cask/渠道、npm bin 身份、另一套 Node 环境、Claude 原生、未知与坏链接、查询取消/超时和更新后 PATH 仍过旧；不执行用户级安装或外部网络下载。
+- `node --test scripts/test-reuse-worktree-resources.mjs`（拒绝复制用户级 CLI 安装与缓存）
 - `node --test rust/lithe-agent-host/tests/npm-progress.test.mjs`（本地 HTTP 响应不被观察器消费，归档字节计数准确，元数据与重定向不计入）
 - `./scripts/verify-module-boundaries.sh`
 - `./scripts/verify-platform-feature-matrix.sh`

@@ -48,6 +48,8 @@ pub struct AgentCli {
     /// npm package that provides the CLI, for one-click install or update
     /// with the user's npm.
     pub package: &'static str,
+    /// Known Homebrew package names, including supported release channels.
+    pub brew_packages: &'static [&'static str],
 }
 
 /// One installable ACP adapter distributed as an npm package.
@@ -94,6 +96,7 @@ pub const CATALOG: &[CatalogAgent] = &[
             path_env: "CODEX_PATH",
             install_hint: "npm install -g @openai/codex",
             package: "@openai/codex",
+            brew_packages: &["codex"],
         }),
         verified: true,
     },
@@ -116,6 +119,7 @@ pub const CATALOG: &[CatalogAgent] = &[
             path_env: "CLAUDE_CODE_EXECUTABLE",
             install_hint: "npm install -g @anthropic-ai/claude-code",
             package: "@anthropic-ai/claude-code",
+            brew_packages: &["claude-code", "claude-code@latest"],
         }),
         verified: false,
     },

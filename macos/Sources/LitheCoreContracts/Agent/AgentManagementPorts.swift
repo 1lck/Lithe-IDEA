@@ -31,17 +31,33 @@ public struct AgentCliStatus: Decodable, Equatable, Sendable {
     public let command: String
     public let minimumVersion: String
     public let installHint: String
-    /// npm package Lithe installs globally on request.
+    /// Package used when installing a missing CLI or updating a verified npm installation.
     public let package: String
     public let detected: AgentRuntimeTool?
+    public let installation: AgentCliInstallation?
 
-    public init(name: String, command: String, minimumVersion: String, installHint: String, package: String = "", detected: AgentRuntimeTool?) {
+    public init(name: String, command: String, minimumVersion: String, installHint: String, package: String = "", detected: AgentRuntimeTool?, installation: AgentCliInstallation? = nil) {
         self.name = name
         self.command = command
         self.minimumVersion = minimumVersion
         self.installHint = installHint
         self.package = package
         self.detected = detected
+        self.installation = installation
+    }
+}
+
+/// Provenance and safe update availability reported by the native host.
+public struct AgentCliInstallation: Decodable, Equatable, Sendable {
+    public enum Source: String, Decodable, Sendable { case npm, homebrew, native, missing, unknown }
+    public let source: Source
+    public let canUpdate: Bool
+    /// Display only; the host resolves the real command again when updating.
+    public let updateHint: String
+    public init(source: Source, canUpdate: Bool, updateHint: String) {
+        self.source = source
+        self.canUpdate = canUpdate
+        self.updateHint = updateHint
     }
 }
 
@@ -98,7 +114,7 @@ public struct AgentManagementStatus: Decodable, Equatable, Sendable {
 
 /// Numbers-only npm progress; total package bytes are unknown until npm finishes.
 public struct AgentInstallProgress: Decodable, Equatable, Sendable {
-    public enum Stage: String, Decodable, Sendable { case preparing, downloading, installing }
+    public enum Stage: String, Decodable, Sendable { case preparing, downloading, installing, updating }
     public let stage: Stage
     public let downloadedBytes: UInt64
     public let bytesPerSecond: UInt64
@@ -116,13 +132,13 @@ public struct AgentInstallProgress: Decodable, Equatable, Sendable {
 }
 
 /// Detects the user's runtime and installs ACP adapters with the user's npm.
-/// Lithe never installs Node.js or the agents' own command-line tools.
+/// Node.js remains user-managed; CLI updates follow their verified installation owners.
 public protocol AgentManagementService: Sendable {
     func status(dataDirectory: URL) async throws -> AgentManagementStatus
     /// Installs the pinned adapter version; returns the installed version.
     func install(agentID: String, dataDirectory: URL) async throws -> String
     func uninstall(agentID: String, dataDirectory: URL) async throws
-    /// Installs or updates the agent's own CLI with the user's npm; returns
+    /// Installs or updates the agent's own CLI through its installation manager; returns
     /// the CLI version found afterwards.
     func installCli(agentID: String, dataDirectory: URL) async throws -> String
     func install(agentID: String, dataDirectory: URL,

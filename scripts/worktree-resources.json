@@ -26,5 +26,14 @@
       "path": ".artifacts/jdk-downloads",
       "validator": "jdk"
     }
+  ],
+  "excludedResources": [
+    {
+      "id": "agent-cli-runtime",
+      "reusable": false,
+      "locations": ["npm global prefix and cache", "Homebrew Cellar, Caskroom and download cache", "user home .local/share/claude/versions"],
+      "identity": "Runtime PATH executable, package-manager ownership and package/version/platform/architecture validated by the owning installer; no worktree build identity stamp",
+      "reason": "User-managed runtime installations and mutable package-manager caches are outside worktrees. Never copy, symlink, publish or share them through build resource reuse. No copy stage is permitted."
+    }
   ]
 }

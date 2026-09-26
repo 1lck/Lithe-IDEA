@@ -46,6 +46,11 @@ fn status_reports_every_catalog_agent_in_the_fixture_shape() {
         keys
     };
     assert_eq!(keys(&agents[0]), keys(&expected["agents"][0]));
+    assert_eq!(keys(&agents[0]["cli"]), keys(&expected["agents"][0]["cli"]));
+    assert_eq!(
+        keys(&agents[0]["cli"]["installation"]),
+        keys(&expected["agents"][0]["cli"]["installation"])
+    );
     assert_eq!(
         keys(&response["data"]["environment"]),
         keys(&expected["environment"])

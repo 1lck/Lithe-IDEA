@@ -2328,3 +2328,10 @@
 "Preparing download…" = "正在准备下载…";
 "Downloading packages…" = "正在下载软件包…";
 "Installing packages…" = "正在安装软件包…";
+
+"Updating CLI…" = "正在更新 CLI…";
+"Native installer" = "原生安装器";
+"Unknown source" = "未知来源";
+"Installation: %@" = "安装来源：%@";
+"Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
+"Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";

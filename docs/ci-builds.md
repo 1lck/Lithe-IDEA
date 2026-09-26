@@ -134,6 +134,12 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 
 以下目录不应直接复制或跨工作树共享：
 
+- Agent CLI 的用户级安装与下载缓存：npm 的 global prefix/cache、Homebrew 的
+  Cellar/Caskroom/cache、用户目录下 `.local/share/claude/versions`。它们由运行时
+  `PATH` 和原安装器决定，不属于工作树；包版本、平台与架构由原安装器校验，
+  没有工作树构建身份 stamp，任何复制阶段都禁止复用。注册表的
+  `excludedResources.agent-cli-runtime` 记录此边界，脚本显式拒绝选择它。
+
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
 - `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
 - `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；
