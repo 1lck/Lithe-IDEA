@@ -109,6 +109,52 @@ struct SplitHandleViewTests {
 
     @MainActor
     @Test
+    func narrowPaneKeepsItsContentOffTheActivityRailAndDivider() throws {
+        let hosting = NSHostingView(rootView: HStack(spacing: 0) {
+            Color.green.frame(width: 40)
+            LitheSplitPaneView(
+                axis: .horizontal, placement: .leading,
+                defaultSize: 30, minimum: 30, maximum: 200,
+                clipsSizedPane: true, showsIdleDivider: false,
+                sized: {
+                    Text("Project")
+                        .fixedSize()
+                        .frame(width: 140, height: 100)
+                        .background(Color.red)
+                },
+                flexible: { Color.blue }
+            )
+        }.frame(width: 300, height: 100).background(Color.black))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        func color(at x: Int) throws -> NSColor {
+            let pixelX = Int(CGFloat(x) * CGFloat(bitmap.pixelsWide) / hosting.bounds.width)
+            let pixelY = bitmap.pixelsHigh / 2
+            return try #require(bitmap.colorAt(x: pixelX, y: pixelY)?.usingColorSpace(.deviceRGB))
+        }
+        let rail = try color(at: 20)
+        let pane = try color(at: 50)
+        let divider = try color(at: 72)
+        let editor = try color(at: 100)
+        #expect(rail.greenComponent > rail.redComponent)
+        #expect(pane.redComponent > pane.greenComponent)
+        #expect(divider.redComponent < pane.redComponent)
+        #expect(editor.blueComponent > editor.redComponent)
+
+        let region = try #require(cursorRegion(in: hosting))
+        let rect = region.convert(region.bounds, to: hosting)
+        #expect(abs(rect.midX - 72.5) <= 0.5)
+    }
+
+    @MainActor
+    @Test
     func editorExitDoesNotOverwriteEitherResizeCursor() throws {
         let previousCursor = NSCursor.current
         defer { previousCursor.set() }

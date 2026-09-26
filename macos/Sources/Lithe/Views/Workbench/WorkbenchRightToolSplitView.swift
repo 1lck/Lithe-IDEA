@@ -67,6 +67,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                 defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width),
                 minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width),
                 maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width),
+                clipsSizedPane: true,
                 showsIdleDivider: false,
                 onCommit: { width in
                     guard let committedWidth = WorkbenchRightToolGeometry.committedWidth(
@@ -84,7 +85,6 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                             roundsCorners: !hasWorkbenchBackground,
                             showsFrameGradient: showsFrameGradient
                         )
-                        .clipped()
                 },
                 flexible: { workspace }
             )

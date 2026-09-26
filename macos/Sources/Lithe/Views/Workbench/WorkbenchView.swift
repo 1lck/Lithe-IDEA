@@ -2003,6 +2003,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     defaultSize: resolvedSidebarWidth,
                     minimum: minimumSidebarWidth,
                     maximum: maximumSidebarWidth,
+                    clipsSizedPane: true,
                     showsIdleDivider: false,
                     onCommit: actions.onSidebarWidthCommitted,
                     sized: {
@@ -2014,7 +2015,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 roundsCorners: !hasWorkbenchBackground,
                                 showsFrameGradient: showsFrameGradient
                             )
-                            .clipped()
                     },
                     flexible: {
                         editor
