@@ -30,7 +30,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "terminal.sessions",
-                ideaAssetPath: nil,
+                ideaAssetPath: "terminal/terminal@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.terminal) },
                 content: { model in
@@ -53,7 +53,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "git.log",
-                ideaAssetPath: "toolwindows/toolWindowVcs.svg",
+                ideaAssetPath: "expui/toolwindows/vcs@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.gitLog) },
                 content: { model in
@@ -103,7 +103,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "language.problems",
-                ideaAssetPath: "toolwindows/toolWindowProblems.svg",
+                ideaAssetPath: "expui/toolwindows/problems@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.problems) },
                 content: { _ in AnyView(ProblemsView()) }
@@ -136,7 +136,7 @@ enum WorkbenchModuleUIComposition {
             ),
             .init(
                 id: "execution.maven.output",
-                ideaAssetPath: "toolwindows/toolWindowRun.svg",
+                ideaAssetPath: "expui/toolwindows/run@20x20.svg",
                 isVisible: { model in
                     guard let feature = model.mavenFeatureIfActive else { return false }
                     return model.workbenchFeature.isVisible(.mavenOutput)
@@ -154,7 +154,7 @@ enum WorkbenchModuleUIComposition {
             ),
             .init(
                 id: "execution.run",
-                ideaAssetPath: "toolwindows/toolWindowRun.svg",
+                ideaAssetPath: "expui/toolwindows/run@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.run) },
                 content: { model in
@@ -166,7 +166,7 @@ enum WorkbenchModuleUIComposition {
             ),
             .init(
                 id: "execution.tests",
-                ideaAssetPath: nil,
+                ideaAssetPath: "expui/toolwindows/coverage@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.tests) },
                 content: { model in
@@ -187,7 +187,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "debug.session",
-                ideaAssetPath: "toolwindows/toolWindowDebugger.svg",
+                ideaAssetPath: "expui/toolwindows/debug@20x20.svg",
                 isVisible: { _ in true },
                 isSelected: { $0.workbenchFeature.isVisible(.debug) },
                 content: { model in

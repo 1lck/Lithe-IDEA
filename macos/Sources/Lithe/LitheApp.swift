@@ -675,6 +675,7 @@ struct LitheApp: App {
                 model: model,
                 settings: settings
             )
+            .tint(LitheTheme.accent)
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)

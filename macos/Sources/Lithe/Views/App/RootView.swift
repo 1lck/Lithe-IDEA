@@ -85,6 +85,7 @@ struct RootView: View {
             minHeight: windowLayout.minimumContentSize.height
         )
         .background(LitheTheme.window)
+        .tint(LitheTheme.accent)
         .sheet(item: scopedPendingProjectOpen) { request in
             OpenProjectLocationDialog(request: request) { placement, doNotAskAgain in
                 projectSessions.resolvePendingOpen(

@@ -38,6 +38,7 @@ enum WorkbenchRightToolGeometry {
 struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     let width: CGFloat
     let hasWorkbenchBackground: Bool
+    let showsFrameGradient: Bool
     let onCommit: (CGFloat) -> Void
     private let workspace: Workspace
     private let tool: Tool
@@ -45,12 +46,14 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     init(
         width: CGFloat,
         hasWorkbenchBackground: Bool,
+        showsFrameGradient: Bool = false,
         onCommit: @escaping (CGFloat) -> Void,
         @ViewBuilder workspace: () -> Workspace,
         @ViewBuilder tool: () -> Tool
     ) {
         self.width = width
         self.hasWorkbenchBackground = hasWorkbenchBackground
+        self.showsFrameGradient = showsFrameGradient
         self.onCommit = onCommit
         self.workspace = workspace()
         self.tool = tool()
@@ -78,13 +81,14 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                         .workbenchPaneChrome(
                             background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                             surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                            roundsCorners: !hasWorkbenchBackground
+                            roundsCorners: !hasWorkbenchBackground,
+                            showsFrameGradient: showsFrameGradient
                         )
                         .clipped()
                 },
                 flexible: { workspace }
             )
-            .background(hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar)
+            .background(hasWorkbenchBackground || showsFrameGradient ? Color.clear : LitheTheme.titlebar)
         }
     }
 }
