@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-24
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：78
-- macOS：实现：✅ 66 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 69 待验证，— 9 不适用
-- Windows：实现：✅ 73 已实现，🟡 3 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 76 待验证，— 2 不适用
+- 功能项：80
+- macOS：实现：✅ 68 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 71 待验证，— 9 不适用
+- Windows：实现：✅ 74 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 78 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -240,6 +240,16 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | WSL | **WSL 文件与工作区路径**<br><sub>wsl-paths</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/wsl`、`windows/tauri/src/features/file-system`</sub> | Windows Platform | Windows 验证本地文件、WSL 文件、发行版识别和工作区打开。 |  |
 | WSL | **跨 WSL 边界移动与重命名**<br><sub>wsl-boundaries</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/wsl`、`windows/tauri/src/features/file-system`</sub> | Windows Platform | Windows 验证本地、同发行版、跨发行版移动/重命名及明确错误提示。 |  |
+
+</details>
+
+<details>
+<summary><strong>语言支持</strong> · 2 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| PHP | **PHP 按需安装与插件生命周期**<br><sub>php-optional-plugin</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport`、`scripts/official-plugin-distribution.mjs`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport`、`windows/tauri/src/extensions/registry/extension-store-lifecycle.ts`、`windows/tauri/src-tauri/src/language_tools.rs`、`windows/tauri/src/extensions/packages/local-extension-package.ts`、`scripts/verify-windows-plugin-isolation.mjs`</sub> | PHP Support | 在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。 Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。 |  |
+| PHP | **PHP 插件运行与 PHPUnit 测试**<br><sub>php-run-test</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift`、`macos/Tests/LitheTests/RealPhpIntegrationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport/plugin.ts`、`windows/tauri/src/extensions/run`、`windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts`</sub> | PHP Support | macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。 |  |
 
 </details>
 
