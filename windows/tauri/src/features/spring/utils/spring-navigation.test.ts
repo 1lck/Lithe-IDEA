@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { SpringIndex } from "../types/spring.types";
-import { collectSpringIndexPaths, isSpringConfigurationPath, isSpringIndexPath } from "./spring-index-paths";
-import { resolveSpringDefinitions, resolveSpringReferences } from "./spring-navigation";
+import {
+  collectSpringIndexPaths,
+  isSpringConfigurationPath,
+  isSpringIndexPath,
+  shouldScheduleSpringReloadForExternalChange,
+} from "./spring-index-paths";
+import {
+  resolveSpringDefinitions,
+  resolveSpringEndpointLocation,
+  resolveSpringReferences,
+} from "./spring-navigation";
 
 const ROOT = "C:/work/demo";
 
@@ -55,6 +64,7 @@ const index: SpringIndex = {
       beanIds: ["userService"],
     },
   ],
+  endpoints: [],
 };
 
 describe("Spring index path filters", () => {
@@ -138,5 +148,63 @@ describe("Spring reference navigation", () => {
     expect(locations.map((location) => location.filePath)).toContain(
       "C:/work/demo/src/main/java/com/demo/ApiController.java",
     );
+  });
+
+  test("schedules a reload for full rescans and matching Spring files", () => {
+    expect(shouldScheduleSpringReloadForExternalChange("rescan", ROOT)).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("opened", "C:/work/App.java")).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("deleted", "C:/work/OldController.java")).toBe(
+      true,
+    );
+    expect(
+      shouldScheduleSpringReloadForExternalChange(
+        "reloaded",
+        "C:/work/src/main/resources/application.yml",
+      ),
+    ).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("opened", "C:/work/README.md")).toBe(false);
+  });
+});
+
+describe("Spring endpoint navigation", () => {
+  test("resolves a local drive endpoint to a zero-based editor location", () => {
+    expect(
+      resolveSpringEndpointLocation(
+        {
+          id: "endpoint",
+          httpMethods: ["GET"],
+          route: "/api/users",
+          controller: "UserController",
+          method: "listUsers",
+          path: "src/main/java/com/demo/UserController.java",
+          line: 12,
+          column: 3,
+        },
+        "C:/work/demo",
+      ),
+    ).toEqual({
+      filePath: "C:/work/demo/src/main/java/com/demo/UserController.java",
+      line: 11,
+      column: 2,
+      symbol: "listUsers",
+    });
+  });
+
+  test("resolves a UNC endpoint without rewriting it to a drive path", () => {
+    expect(
+      resolveSpringEndpointLocation(
+        {
+          id: "endpoint",
+          httpMethods: ["POST"],
+          route: "/api/orders",
+          controller: "OrderController",
+          method: "createOrder",
+          path: "src/main/java/com/demo/OrderController.java",
+          line: 20,
+          column: 5,
+        },
+        "\\\\server\\share\\demo",
+      )?.filePath,
+    ).toBe("//server/share/demo/src/main/java/com/demo/OrderController.java");
   });
 });

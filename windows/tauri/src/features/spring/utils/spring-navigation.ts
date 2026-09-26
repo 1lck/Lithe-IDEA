@@ -1,6 +1,7 @@
 import { joinPath, normalizePath } from "@/utils/path-helpers";
 import type {
   SpringIndex,
+  SpringEndpoint,
   SpringNavigationLocation,
 } from "../types/spring.types";
 import { workspaceRelativeSpringPath } from "./spring-index-paths";
@@ -180,4 +181,11 @@ export function resolveSpringReferences(
         return location ? [location] : [];
       }),
   ]);
+}
+
+export function resolveSpringEndpointLocation(
+  endpoint: SpringEndpoint,
+  root: string,
+): SpringNavigationLocation | null {
+  return toEditorLocation(root, endpoint.path, endpoint.line, endpoint.column, endpoint.method);
 }

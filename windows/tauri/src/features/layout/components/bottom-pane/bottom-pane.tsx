@@ -5,6 +5,7 @@ import DebuggerView from "@/features/debugger/components/debugger-view";
 import DiagnosticsBuffer from "@/features/diagnostics/components/diagnostics-buffer";
 import MavenRunPane from "@/features/maven/components/maven-run-pane";
 import RunPane from "@/features/run/components/run-pane";
+import SpringEndpointsPane from "@/features/spring/components/spring-endpoints-pane";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { GitLogToolWindow } from "@/features/git/components/log/git-log-tool-window";
@@ -303,6 +304,12 @@ const BottomPane = () => {
         {bottomPaneActiveTab === "gitLog" && (
           <div className="h-full">
             <GitLogToolWindow />
+          </div>
+        )}
+
+        {bottomPaneActiveTab === "springEndpoints" && (
+          <div className="h-full">
+            <SpringEndpointsPane />
           </div>
         )}
       </div>

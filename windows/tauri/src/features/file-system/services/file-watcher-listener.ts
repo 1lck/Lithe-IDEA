@@ -155,6 +155,11 @@ export async function initializeFileWatcherListener() {
     if (!rootFolderPath || !workspaceRoot) return;
 
     if (event_type === "rescan") {
+      window.dispatchEvent(
+        new CustomEvent("file-external-change", {
+          detail: { path: workspaceRoot, event_type },
+        }),
+      );
       const refreshRequest = getFileTreeRefreshRequest(event_type, workspaceRoot);
       if (refreshRequest) scheduleWorkspaceRefresh(workspaceId, workspaceRoot);
       return;
