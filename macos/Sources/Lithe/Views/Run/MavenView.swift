@@ -12,7 +12,6 @@ struct MavenView: View {
     @State private var customProfile = ""
     @State private var goalModule: MavenModule?
     @State private var goalProject: MavenProject?
-    @State private var hoveredToolbarAction: MavenToolbarAction?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -42,27 +41,7 @@ struct MavenView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .overlayPreferenceValue(MavenToolbarAnchorPreferenceKey.self) { anchors in
-            GeometryReader { geometry in
-                if let hoveredToolbarAction, let anchor = anchors[hoveredToolbarAction] {
-                    let buttonFrame = geometry[anchor]
-                    MavenToolbarTooltipLayout(buttonFrame: buttonFrame) {
-                        Text(toolbarHelp(for: hoveredToolbarAction))
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(LitheTheme.primaryText)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 5))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 5).stroke(LitheTheme.divider)
-                            }
-                    }
-                    .frame(width: geometry.size.width, height: geometry.size.height)
-                }
-            }
-            .allowsHitTesting(false)
-        }
+        .workbenchHoverTooltipScope()
         .onAppear {
             if expandedNodeIDs.isEmpty {
                 resetTreeState()
@@ -168,16 +147,7 @@ struct MavenView: View {
         ZStack { content() }
             .frame(width: 28, height: 28)
             .contentShape(Rectangle())
-            .anchorPreference(key: MavenToolbarAnchorPreferenceKey.self, value: .bounds) {
-                [action: $0]
-            }
-            .onHover { isHovered in
-                if isHovered {
-                    hoveredToolbarAction = action
-                } else if hoveredToolbarAction == action {
-                    hoveredToolbarAction = nil
-                }
-            }
+            .workbenchHoverHelp(Text(toolbarHelp(for: action)))
     }
 
     private func toolbarHelp(for action: MavenToolbarAction) -> String {
@@ -914,38 +884,4 @@ private enum MavenToolbarAction: Hashable {
     case skipTests
     case collapse
     case settings
-}
-
-private struct MavenToolbarTooltipLayout: Layout {
-    let buttonFrame: CGRect
-
-    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        proposal.replacingUnspecifiedDimensions()
-    }
-
-    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
-        guard let tooltip = subviews.first else { return }
-        let edgeInset: CGFloat = 8
-        let maximumWidth = min(236, max(bounds.width - edgeInset * 2, 0))
-        // Measure the text and padding before clamping the tooltip to the panel edges.
-        let size = tooltip.sizeThatFits(ProposedViewSize(width: maximumWidth, height: nil))
-        let maximumX = max(edgeInset, bounds.width - size.width - edgeInset)
-        let x = min(max(buttonFrame.midX - size.width / 2, edgeInset), maximumX)
-        tooltip.place(
-            at: CGPoint(x: bounds.minX + x, y: bounds.minY + buttonFrame.maxY + 6),
-            anchor: .topLeading,
-            proposal: ProposedViewSize(size)
-        )
-    }
-}
-
-private struct MavenToolbarAnchorPreferenceKey: PreferenceKey {
-    static var defaultValue: [MavenToolbarAction: Anchor<CGRect>] = [:]
-
-    static func reduce(
-        value: inout [MavenToolbarAction: Anchor<CGRect>],
-        nextValue: () -> [MavenToolbarAction: Anchor<CGRect>]
-    ) {
-        value.merge(nextValue()) { _, latest in latest }
-    }
 }

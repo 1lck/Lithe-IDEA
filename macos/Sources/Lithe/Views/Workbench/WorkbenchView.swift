@@ -542,6 +542,7 @@ struct WorkbenchView: View {
                     .transition(.opacity)
             }
         }
+        .workbenchHoverTooltipScope()
         .animation(.easeOut(duration: 0.12), value: model.isSearchEverywhereVisible)
         // Replace in Files 是工作台上的自绘模态层，避免系统 sheet 的大圆角和标题栏。
         .overlay {
@@ -1236,10 +1237,11 @@ struct WorkbenchView: View {
                         .lithePointer()
                         .disabled(!destination.isAvailable)
                         .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                        .help(
-                            destination.isAvailable
-                                ? LocalizedStringKey(destination.title)
-                                : LocalizedStringKey("Pull Requests integration is under development")
+                        .workbenchHoverHelp(
+                            Text(destination.isAvailable
+                                 ? LocalizedStringKey(destination.title)
+                                 : LocalizedStringKey("Pull Requests integration is under development")),
+                            placement: .trailing
                         )
                         .accessibilityLabel(LocalizedStringKey(destination.title))
                         .accessibilityHint(
@@ -1327,7 +1329,7 @@ struct WorkbenchView: View {
                     ? LitheTheme.primaryText
                     : LitheTheme.secondaryText
             )
-            .help(LocalizedStringKey("Notifications"))
+            .workbenchHoverHelp(Text("Notifications"), placement: .leading)
             .accessibilityLabel("Notifications")
             .popover(isPresented: $isNotificationCenterPresented, arrowEdge: .trailing) {
                 WorkbenchNotificationCenterView()
@@ -1337,6 +1339,7 @@ struct WorkbenchView: View {
             activityToolButton(
                 systemImage: "puzzlepiece.extension",
                 help: "Plugins",
+                tooltipPlacement: .leading,
                 isSelected: isPluginPanelPresented,
                 action: { isPluginPanelPresented.toggle() }
             )
@@ -1348,6 +1351,7 @@ struct WorkbenchView: View {
                         systemImage: contribution.icon ?? "rectangle.rightthird.inset.filled",
                         ideaAssetPath: renderer.ideaAssetPath,
                         help: contribution.title,
+                        tooltipPlacement: .leading,
                         isSelected: renderer.isSelected(model),
                         action: { moduleUIRegistry.perform(contribution, model: model) }
                     )
@@ -1418,6 +1422,7 @@ struct WorkbenchView: View {
         systemImage: String,
         ideaAssetPath: String? = nil,
         help: String,
+        tooltipPlacement: WorkbenchHoverTooltipPlacement = .trailing,
         isSelected: Bool,
         action: @escaping () -> Void
     ) -> some View {
@@ -1447,7 +1452,7 @@ struct WorkbenchView: View {
         .buttonStyle(.plain)
         .lithePointer()
         .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-        .help(LocalizedStringKey(help))
+        .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
 
