@@ -114,6 +114,7 @@ import {
   toggleRunPane,
   toggleSidebar,
   toggleSourceControlSidebar,
+  toggleSpringEndpointsPane,
   toggleTerminalPane,
   toggleWordWrap,
   zoomIn,
@@ -599,6 +600,13 @@ const viewCommands: Command[] = [
     category: "Git",
     keybinding: "alt+9",
     execute: toggleGitLogPane,
+  },
+  {
+    id: "workbench.toggleSpringEndpoints",
+    title: "Toggle Spring Endpoints",
+    category: "View",
+    description: "Show or hide indexed Spring MVC endpoints",
+    execute: toggleSpringEndpointsPane,
   },
   {
     id: "workbench.toggleDiagnostics",

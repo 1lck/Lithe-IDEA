@@ -64,6 +64,16 @@ export function toggleGitLogPane(): void {
   }
 }
 
+export function toggleSpringEndpointsPane(): void {
+  const state = useUIState.getState();
+  if (state.isBottomPaneVisible && state.bottomPaneActiveTab === "springEndpoints") {
+    state.setIsBottomPaneVisible(false);
+  } else {
+    state.setBottomPaneActiveTab("springEndpoints");
+    state.setIsBottomPaneVisible(true);
+  }
+}
+
 export function openCommandPalette(): void {
   useUIState.getState().setIsCommandPaletteVisible(true);
 }

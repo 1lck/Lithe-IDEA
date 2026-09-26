@@ -16,6 +16,13 @@ export function isSpringConfigurationPath(filePath: string): boolean {
   return name.startsWith("application-") && (name.endsWith(".yml") || name.endsWith(".yaml"));
 }
 
+export function shouldScheduleSpringReloadForExternalChange(
+  eventType: string,
+  filePath: string,
+): boolean {
+  return eventType === "rescan" || isSpringIndexPath(filePath);
+}
+
 export function workspaceRelativeSpringPath(filePath: string, root: string): string {
   return getRelativePath(filePath, root).replace(/\\/g, "/");
 }

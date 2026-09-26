@@ -7,11 +7,14 @@ import { hasTextContent } from "@/features/panes/types/pane-content.types";
 import { requestSpringIndex } from "../api/spring-index-api";
 import { useSpringStore } from "../stores/spring.store";
 import { EMPTY_SPRING_INDEX } from "../types/spring.types";
+import { classifySpringIndexError } from "../utils/spring-index-error";
 import {
   collectSpringIndexPaths,
   isSpringIndexPath,
+  shouldScheduleSpringReloadForExternalChange,
   workspaceRelativeSpringPath,
 } from "../utils/spring-index-paths";
+import { isSupportedSpringRoot } from "../utils/spring-root";
 
 const RELOAD_DELAY_MS = 300;
 
@@ -42,6 +45,16 @@ export function useSpringIndex() {
     const load = async (refreshDependencyMetadata: boolean) => {
       const generation = store.actions.beginLoad(rootFolderPath);
       loadGeneration.current = generation;
+      if (!isSupportedSpringRoot(rootFolderPath)) {
+        store.actions.failLoad(
+          generation,
+          classifySpringIndexError(
+            new Error("Spring indexing is unavailable for this workspace root"),
+            rootFolderPath,
+          ),
+        );
+        return;
+      }
       try {
         const files = await useFileSystemStore.getState().getAllProjectFiles();
         const paths = collectSpringIndexPaths(
@@ -71,7 +84,11 @@ export function useSpringIndex() {
         useSpringStore.getState().actions.completeLoad(generation, rootFolderPath, index);
       } catch (error) {
         console.warn("Spring index failed:", error);
-        if (!cancelled) useSpringStore.getState().actions.failLoad(generation);
+        if (!cancelled) {
+          useSpringStore
+            .getState()
+            .actions.failLoad(generation, classifySpringIndexError(error, rootFolderPath));
+        }
       }
     };
 
@@ -94,8 +111,11 @@ export function useSpringIndex() {
     });
 
     const handleExternalChange = (event: Event) => {
-      const path = (event as CustomEvent<{ path?: string }>).detail?.path;
-      if (path && isSpringIndexPath(path)) scheduleReload();
+      const detail = (event as CustomEvent<{ path?: string; event_type?: string }>).detail;
+      if (!detail?.path || !detail.event_type) return;
+      if (shouldScheduleSpringReloadForExternalChange(detail.event_type, detail.path)) {
+        scheduleReload();
+      }
     };
     window.addEventListener("file-external-change", handleExternalChange);
 

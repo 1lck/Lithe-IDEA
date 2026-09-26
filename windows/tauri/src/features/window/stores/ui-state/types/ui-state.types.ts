@@ -23,7 +23,8 @@ export type BottomPaneTab =
   | "run"
   // Maven task output is independent from the right-side Maven navigation tool window.
   | "maven"
-  | "gitLog";
+  | "gitLog"
+  | "springEndpoints";
 
 export interface QuickEditSelection {
   text: string;
