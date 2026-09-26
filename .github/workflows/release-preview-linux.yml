@@ -1,0 +1,110 @@
+name: Release Linux Preview
+
+on:
+  schedule:
+    # Offset from the macOS and Windows previews so the shared rolling tag usually exists first.
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+    inputs:
+      source_branch:
+        description: "Preview branch to build"
+        required: true
+        default: "preview"
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-preview-linux
+  cancel-in-progress: false
+
+env:
+  PREVIEW_BRANCH: preview
+  PREVIEW_VERSION: 0.3.0
+  PREVIEW_TAG: preview-0.3.0
+
+jobs:
+  release:
+    name: Build and publish Linux preview
+    if: github.actor == github.repository_owner || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out preview source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
+
+      - name: Record source revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies for GPUI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libxcb-xkb-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libx11-dev \
+            libxcb1-dev \
+            libx11-xcb-dev \
+            libssl-dev \
+            pkg-config
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Cargo dependencies
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/git
+            ~/.cargo/registry
+            target
+          key: cargo-linux-${{ runner.os }}-${{ hashFiles('linux/Cargo.toml', 'rust/Cargo.lock') }}
+          restore-keys: |
+            cargo-linux-${{ runner.os }}-
+
+      - name: Package Linux application
+        env:
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+        run: |
+          ./scripts/package-linux.sh --release --version "$LITHE_VERSION"
+
+      - name: Verify package checksum placeholder
+        run: |
+          tarball=$(ls dist/lithe-linux-*-"$LITHE_VERSION".tar.gz)
+          test -s "$tarball"
+          sha256sum "$tarball" > "$tarball.sha256"
+
+      - name: Create or update rolling preview Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ env.PREVIEW_TAG }}
+          LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+        run: |
+          set -euo pipefail
+          notes="Rolling Preview build from ${SOURCE_SHA}. This release is replaced by the next scheduled build. The Linux package is an unsigned tar.gz archive."
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$SOURCE_SHA" \
+              --title "Lithe ${LITHE_VERSION} Preview" \
+              --notes "$notes" \
+              --prerelease || {
+                gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+                  || { echo "Could not create or find preview release ${RELEASE_TAG}" >&2; exit 1; }
+              }
+          fi
+          shopt -s nullglob
+          assets=( dist/lithe-linux-*-"$LITHE_VERSION".tar.gz dist/lithe-linux-*-"$LITHE_VERSION".tar.gz.sha256 )
+          test "${#assets[@]}" -gt 0
+          gh release upload "$RELEASE_TAG" "${assets[@]}" --repo "$GITHUB_REPOSITORY" --clobber
