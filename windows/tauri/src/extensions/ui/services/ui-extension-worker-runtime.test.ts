@@ -1,6 +1,12 @@
-import { expect, test } from "bun:test";
+import { afterEach, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import type { ExtensionWorkerMessage } from "./ui-extension-worker";
+
+let disposeWorker: (() => void) | undefined;
+afterEach(() => {
+  disposeWorker?.();
+  disposeWorker = undefined;
+});
 
 test("independent PHP entrypoint activates in a worker and contributes plans over the host protocol", async () => {
   const source = await readFile(
@@ -16,12 +22,13 @@ test("independent PHP entrypoint activates in a worker and contributes plans ove
     string,
     { resolve: (value: ExtensionWorkerMessage) => void; reject: (error: Error) => void }
   >();
-  const deadline = setTimeout(() => {
-    for (const request of pending.values())
-      request.reject(new Error("Worker protocol test exceeded 2 seconds"));
-    pending.clear();
+  // The framework's local deadline runs teardown even when a worker never replies.
+  disposeWorker = () => {
     worker.terminate();
-  }, 2000);
+    URL.revokeObjectURL(entryPointUrl);
+    for (const request of pending.values()) request.reject(new Error("Worker test disposed"));
+    pending.clear();
+  };
   const receive = (key: string) =>
     new Promise<ExtensionWorkerMessage>((resolve, reject) => pending.set(key, { resolve, reject }));
   worker.addEventListener("message", (event: MessageEvent<ExtensionWorkerMessage>) => {
@@ -72,9 +79,7 @@ test("independent PHP entrypoint activates in a worker and contributes plans ove
     });
     expect(await empty).toMatchObject({ result: [] });
   } finally {
-    clearTimeout(deadline);
-    URL.revokeObjectURL(entryPointUrl);
-    worker.terminate();
-    pending.clear();
+    disposeWorker?.();
+    disposeWorker = undefined;
   }
-});
+}, 2000);
