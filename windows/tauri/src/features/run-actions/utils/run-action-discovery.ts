@@ -35,7 +35,7 @@ const SOURCE_PRIORITY: Record<RunActionSource, number> = {
   make: 5,
   go: 6,
   python: 7,
-  php: 8,
+  extension: 8,
 };
 
 export function javaTestActionsForFile(
@@ -241,63 +241,6 @@ export function parsePyprojectRunActions(content: string, workspacePath: string)
   return actions;
 }
 
-/**
- * Composer scripts are the PHP equivalent of package.json scripts, so the same
- * priority curve keeps "test" and "dev" ahead of the alphabetical fallback.
- */
-export function parseComposerRunActions(content: string, workspacePath: string): RunActionItem[] {
-  try {
-    const manifest = JSON.parse(content) as { scripts?: Record<string, unknown> };
-    if (!manifest.scripts || typeof manifest.scripts !== "object") return [];
-
-    return Object.entries(manifest.scripts)
-      .filter(
-        (entry): entry is [string, string | string[]] =>
-          typeof entry[1] === "string" ||
-          (Array.isArray(entry[1]) && entry[1].every((part) => typeof part === "string")),
-      )
-      .sort(
-        ([left], [right]) =>
-          getScriptPriority(left) - getScriptPriority(right) || left.localeCompare(right),
-      )
-      .slice(0, 40)
-      .map(([name, script]) => ({
-        ...createAction(
-          "php",
-          "composer.json",
-          name,
-          `composer run ${name}`,
-          workspacePath,
-          Array.isArray(script) ? script.join("\n") : script,
-        ),
-        pluginCommand: { executable: "composer", arguments: ["run", "--", name] },
-      }));
-  } catch {
-    return [];
-  }
-}
-
-/**
- * PHPUnit always ships inside the project through Composer. Only `php` needs to
- * be on PATH, so the entry point stays portable across cmd, PowerShell, and
- * POSIX shells instead of relying on a `vendor/bin` shell shim.
- */
-function parsePhpUnitRunActions(workspacePath: string): RunActionItem[] {
-  const t = getCurrentTranslator();
-  return [
-    {
-      ...createAction(
-        "php",
-        "phpunit.xml",
-        t("runActions.test"),
-        "php vendor/bin/phpunit",
-        workspacePath,
-      ),
-      pluginCommand: { executable: "php", arguments: ["vendor/bin/phpunit"] },
-    },
-  ];
-}
-
 export function isRunnableCodeLens(lens: CodeLensItem): boolean {
   return Boolean(lens.command && /\b(run|test|debug|bench|profile)\b/i.test(lens.title));
 }
@@ -365,13 +308,9 @@ async function readWorkspaceTextFile(path: string): Promise<string> {
 export async function discoverProjectRunActions(
   workspacePath: string,
   reader: (path: string) => Promise<string> = readWorkspaceTextFile,
-  phpEnabled = false,
 ): Promise<RunActionItem[]> {
   const entries = await Promise.all(
-    [
-      ...MANIFEST_NAMES,
-      ...(phpEnabled ? ["composer.json", "phpunit.xml", "phpunit.xml.dist"] : []),
-    ].map(async (name) => {
+    MANIFEST_NAMES.map(async (name) => {
       try {
         return [name, await reader(joinPath(workspacePath, name))] as const;
       } catch {
@@ -397,11 +336,6 @@ export async function discoverProjectRunActions(
   if (manifests.has("go.mod")) actions.push(...parseGoRunActions(workspacePath));
   const pyproject = manifests.get("pyproject.toml");
   if (pyproject) actions.push(...parsePyprojectRunActions(pyproject, workspacePath));
-  const composerJson = manifests.get("composer.json");
-  if (composerJson) actions.push(...parseComposerRunActions(composerJson, workspacePath));
-  if (manifests.has("phpunit.xml") || manifests.has("phpunit.xml.dist")) {
-    actions.push(...parsePhpUnitRunActions(workspacePath));
-  }
 
   return sortAndDedupeRunActions(actions);
 }

@@ -1,19 +1,20 @@
 /** Owns starts before their first await so disabling cannot miss an in-flight launch. */
-export class PhpProcessOwner {
+export class ExtensionProcessOwner {
   private readonly processes = new Map<
     string,
-    { workspaceId: string; ready: Promise<void>; stop: () => Promise<void> }
+    { extensionId: string; workspaceId: string; ready: Promise<void>; stop: () => Promise<void> }
   >();
 
   async start(
     id: string,
     workspaceId: string,
+    extensionId: string,
     launch: () => Promise<void>,
     stop: () => Promise<void>,
   ) {
     // Schedule launch after registration, including synchronous launch failures.
     const ready = Promise.resolve().then(launch);
-    this.processes.set(id, { workspaceId, ready, stop });
+    this.processes.set(id, { extensionId, workspaceId, ready, stop });
     try {
       await ready;
     } catch (error) {
@@ -26,9 +27,11 @@ export class PhpProcessOwner {
     this.processes.delete(id);
   }
 
-  async stop(workspaceId?: string) {
+  async stop(workspaceId?: string, extensionId?: string) {
     const owned = [...this.processes].filter(
-      ([, entry]) => !workspaceId || entry.workspaceId === workspaceId,
+      ([, entry]) =>
+        (!workspaceId || entry.workspaceId === workspaceId) &&
+        (!extensionId || entry.extensionId === extensionId),
     );
     await Promise.all(
       owned.map(async ([id, entry]) => {
@@ -43,4 +46,4 @@ export class PhpProcessOwner {
     );
   }
 }
-export const phpProcessOwner = new PhpProcessOwner();
+export const extensionProcessOwner = new ExtensionProcessOwner();

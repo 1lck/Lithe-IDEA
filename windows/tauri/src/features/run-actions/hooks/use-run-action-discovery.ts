@@ -1,3 +1,4 @@
+import { uiExtensionHost } from "@/extensions/ui/services/ui-extension-host";
 import { useExtensionStore } from "@/extensions/registry/extension-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -19,10 +20,13 @@ export function useRunActionDiscovery(
   includeCodeLenses: boolean,
   enabled = true,
 ) {
-  const phpEnabled = useExtensionStore((state) => {
-    const php = state.availableExtensions.get("lithe.php");
-    return php?.isInstalled === true && php.isEnabled === true;
-  });
+  const enabledExtensions = useExtensionStore((state) =>
+    [...state.availableExtensions.values()]
+      .filter((ext) => ext.isInstalled && ext.isEnabled && ext.manifest.runActions)
+      .map((ext) => ext.manifest.id)
+      .sort()
+      .join("\n"),
+  );
   const [projectActions, setProjectActions] = useState<RunActionItem[]>([]);
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -55,7 +59,11 @@ export function useRunActionDiscovery(
     setIsDiscovering(true);
     setDiscoveryError(null);
 
-    void discoverProjectRunActions(workspacePath, undefined, phpEnabled)
+    void Promise.all([
+      discoverProjectRunActions(workspacePath),
+      uiExtensionHost.discoverRunActions(workspacePath),
+    ])
+      .then((groups) => groups.flat())
       .then((actions) => {
         if (!cancelled) setProjectActions(actions);
       })
@@ -71,7 +79,7 @@ export function useRunActionDiscovery(
     return () => {
       cancelled = true;
     };
-  }, [enabled, revision, workspacePath, phpEnabled]);
+  }, [enabled, revision, workspacePath, enabledExtensions]);
 
   useEffect(() => {
     if (!enabled || !workspacePath || !activeFilePath || !/\.java$/i.test(activeFilePath)) {
@@ -103,9 +111,9 @@ export function useRunActionDiscovery(
   const refresh = useCallback(() => setRevision((current) => current + 1), []);
 
   return {
-    projectActions: phpEnabled
-      ? projectActions
-      : projectActions.filter((action) => action.source !== "php"),
+    projectActions: projectActions.filter(
+      (action) => !action.extensionId || enabledExtensions.split("\n").includes(action.extensionId),
+    ),
     lspActions,
     isDiscovering,
     discoveryError,

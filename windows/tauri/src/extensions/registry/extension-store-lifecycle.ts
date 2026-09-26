@@ -1,4 +1,5 @@
-import { phpProcessOwner } from "@lithe/php/process-owner";
+import { localExtensionPackages } from "../packages/local-extension-package";
+import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
 import { invoke } from "@/platform/tauri-core";
 import { wasmParserLoader } from "@/features/editor/lib/wasm-parser/loader";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -186,6 +187,11 @@ export async function installExtensionLifecycle(params: {
       if (pending.cancelled) throw new Error("Extension installation cancelled");
     };
     try {
+      if (
+        extension.manifest.installation?.type === "local" &&
+        !localExtensionPackages.get(extensionId)
+      )
+        throw new Error("Import the plugin package before installing its language tools.");
       await installLanguageExtensionManifest(extensionId, extension.manifest, onProgress);
       checkCancelled();
 
@@ -224,11 +230,16 @@ export async function installExtensionLifecycle(params: {
         );
         checkCancelled();
         await refreshSyntaxHighlightingForActiveBuffer(extension);
+        checkCancelled();
+        await activateExtensionContributions(extensionId, runtimeManifest);
       }
       checkCancelled();
+      if (extension.manifest.installation?.type === "local")
+        localExtensionPackages.markInstalled(extensionId);
       onLanguageInstalled(runtimeManifest, resolvedTools.issues);
     } catch (error) {
       if (!extension.isInstalled) {
+        await deactivateExtensionContributions(extensionId, extension.manifest);
         extensionRegistry.registerExtension(extension.manifest, {
           isBundled: false,
           isEnabled: false,
@@ -239,6 +250,15 @@ export async function installExtensionLifecycle(params: {
           languageConfigs.map((language) => language.id),
         );
         await uninstallLanguageArtifacts(languageConfigs.map((language) => language.id));
+        if (extension.manifest.installation?.type === "local") {
+          await Promise.all(
+            languageConfigs.map((language) =>
+              invoke("uninstall_language_tools", { languageId: language.id }),
+            ),
+          );
+          localExtensionPackages.remove(extensionId);
+          extensionRegistry.unregisterExtension(extensionId);
+        }
       }
       throw error;
     } finally {
@@ -307,6 +327,10 @@ export async function uninstallExtensionLifecycle(params: {
       isEnabled: false,
       state: "not-installed",
     });
+    if (extension.manifest.installation?.type === "local") {
+      localExtensionPackages.remove(extensionId);
+      extensionRegistry.unregisterExtension(extensionId);
+    }
     onLanguageUninstalled();
     return;
   }
@@ -380,6 +404,26 @@ export async function enableExtensionLifecycle(params: {
       checkCancelled();
       await refreshSyntaxHighlightingForActiveBuffer(extension);
       checkCancelled();
+      await activateExtensionContributions(extensionId, runtimeManifest);
+      checkCancelled();
+    } catch (error) {
+      extensionRegistry.registerExtension(extension.manifest, {
+        isBundled: false,
+        isEnabled: false,
+        state: "deactivated",
+      });
+      await deactivateExtensionContributions(extensionId, extension.manifest);
+      await extensionProcessOwner.stop(undefined, extensionId);
+      const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+      await LspClient.getInstance().stopLanguageServers(
+        languageConfigs.map((language) => language.id),
+      );
+      await unloadLanguageProviders(
+        extensionId,
+        languageConfigs.map((language) => language.id),
+      );
+      for (const language of languageConfigs) wasmParserLoader.unloadParser(language.id);
+      throw error;
     } finally {
       languageInstalls.delete(extensionId);
       complete();
@@ -412,6 +456,8 @@ export async function disableExtensionLifecycle(params: {
       state: "deactivated",
     });
     try {
+      // Cancel an in-flight worker activation before waiting for its owner.
+      await deactivateExtensionContributions(extensionId, extension.manifest);
       await cancelLanguageInstall(
         extensionId,
         languageConfigs.map((language) => language.id),
@@ -423,7 +469,8 @@ export async function disableExtensionLifecycle(params: {
         isEnabled: false,
         state: "deactivated",
       });
-      if (extensionId === "lithe.php") await phpProcessOwner.stop();
+      await deactivateExtensionContributions(extensionId, extension.manifest);
+      await extensionProcessOwner.stop(undefined, extensionId);
       const { LspClient } = await import("@/features/editor/lsp/lsp-client");
       await LspClient.getInstance().stopLanguageServers(
         languageConfigs.map((language) => language.id),

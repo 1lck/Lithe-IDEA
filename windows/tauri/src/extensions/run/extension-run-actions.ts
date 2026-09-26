@@ -9,26 +9,31 @@ import {
 } from "@/features/run/stores/run.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import type { RunActionItem } from "@/features/run-actions/types/run-action.types";
-import { phpProcessOwner } from "./process-owner";
+import { extensionProcessOwner } from "./extension-process-owner";
 
-export function isPhpSupportEnabled(): boolean {
-  const extension = extensionRegistry.getExtension("lithe.php");
+export function isExtensionRunEnabled(extensionId: string): boolean {
+  const extension = extensionRegistry.getExtension(extensionId);
   return extension?.isEnabled === true && extension.state !== "not-installed";
 }
 
-export async function runPhpAction(
+export async function runExtensionAction(
   action: RunActionItem,
   workspaceId: string,
   root: string,
 ): Promise<void> {
-  if (!isPhpSupportEnabled() || !action.pluginCommand)
-    throw new Error("Enable PHP Support before running PHP actions.");
-  const id = `php:${crypto.randomUUID()}`;
+  const extensionId = action.extensionId;
+  if (!extensionId || !isExtensionRunEnabled(extensionId) || !action.pluginCommand)
+    throw new Error("Enable the owning extension before running this action.");
+  const manifest = extensionRegistry.getExtension(extensionId)!.manifest;
+  if (!manifest.runActions?.executables.includes(action.pluginCommand.executable))
+    throw new Error("The extension has not declared this executable.");
+  const id = `extension:${extensionId}:${crypto.randomUUID()}`;
   const command = action.pluginCommand;
   const store = useRunStore.getStore(workspaceId);
-  await phpProcessOwner.start(
+  await extensionProcessOwner.start(
     id,
     workspaceId,
+    extensionId,
     async () => {
       await ensureRunProcessListeners();
       await saveWorkspaceBeforeLaunch(workspaceId);
@@ -37,7 +42,7 @@ export async function runPhpAction(
         executable: { command: command.executable },
         workingDirectory: ".",
       });
-      if (!isPhpSupportEnabled()) return;
+      if (!isExtensionRunEnabled(extensionId)) return;
       bindRunSessionWorkspace(id, workspaceId);
       store.setState((state) => ({
         sessions: [

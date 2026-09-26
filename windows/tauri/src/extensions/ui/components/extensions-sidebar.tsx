@@ -1,3 +1,4 @@
+import { MAX_PLUGIN_PACKAGE_BYTES } from "@/extensions/packages/local-extension-package";
 import {
   ArrowClockwiseIcon as RefreshCw,
   ArrowCounterClockwiseIcon as Reset,
@@ -546,6 +547,8 @@ export const ExtensionsSidebar = () => {
     })),
   );
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const packageInputRef = useRef<HTMLInputElement>(null);
+  const [importingPackage, setImportingPackage] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const [extensions, setExtensions] = useState<UnifiedExtension[]>([]);
@@ -1449,7 +1452,7 @@ export const ExtensionsSidebar = () => {
     const isAppearance = isAppearanceExtension(extension);
     const primaryActionLabel = getPrimaryActionLabel(extension, t);
 
-    if (isInstalling && extension.id === "lithe.php") {
+    if (isInstalling && extension.category === "language") {
       items.push({
         id: "cancel-install",
         label: t("ui.cancel"),
@@ -1662,6 +1665,34 @@ export const ExtensionsSidebar = () => {
               containerClassName="min-w-0 flex-1 sm:w-80 sm:flex-none"
               className="h-9 bg-surface/45"
             />
+            <input
+              ref={packageInputRef}
+              type="file"
+              accept=".lithe-extension"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                setImportingPackage(true);
+                void (async () => {
+                  if (file.size > MAX_PLUGIN_PACKAGE_BYTES)
+                    throw new Error(t("extensions.packageTooLarge"));
+                  await useExtensionStore.getState().actions.importLocalPackage(await file.text());
+                })()
+                  .catch((error) => showToast({ message: String(error), type: "error" }))
+                  .finally(() => setImportingPackage(false));
+              }}
+            />
+            <Button
+              variant="default"
+              size="xs"
+              disabled={importingPackage}
+              onClick={() => packageInputRef.current?.click()}
+            >
+              <Plus />
+              {t("extensions.importPackage")}
+            </Button>
             {settings.extensionsActiveTab === "skill" ? (
               <Button variant="default" size="xs" onClick={() => setIsSkillsCommandOpen(true)}>
                 <Plus />

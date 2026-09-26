@@ -42,6 +42,16 @@
       "id": "phpunit-fixture",
       "path": "shared/fixtures/phpunit-project/vendor",
       "reason": "PHPUnit 依赖由测试工作树的 Composer 安装，身份取决于 PHP 和依赖解析；没有可靠 identity stamp，不复制 vendor。"
+    },
+    {
+      "id": "windows-worker-plugins",
+      "path": ".artifacts/windows-plugins",
+      "reason": "独立 Worker 插件绑定包格式、宿主 SDK 与 Bun 构建版本；没有可靠 identity stamp，不跨工作树复制，每棵树独立构建并运行 verify-windows-plugin-isolation.mjs。"
+    },
+    {
+      "id": "installed-worker-plugins",
+      "path": "<webview-profile>/Local Storage/lithe.worker-package:*",
+      "reason": "用户导入的插件源码与安装状态属于应用配置，不是下载缓存；卸载按插件 ID 删除，没有工作树身份，不跨工作树复制。"
     }
   ]
 }

@@ -1,3 +1,8 @@
+import {
+  localExtensionPackages,
+  parseLocalExtensionPackage,
+} from "../packages/local-extension-package";
+import optionalLanguagePackages from "../packages/optional-language-packages.json";
 import { create } from "zustand";
 import { immer } from "zustand/middleware/immer";
 import { createSelectors } from "@/utils/zustand-selectors";
@@ -57,6 +62,7 @@ interface ExtensionStoreState {
     disableExtension: (extensionId: string) => Promise<void>;
     updateExtension: (extensionId: string) => Promise<void>;
     checkForUpdates: () => Promise<string[]>;
+    importLocalPackage: (text: string) => Promise<void>;
     updateInstallProgress: (extensionId: string, progress: number, error?: string) => void;
   };
 }
@@ -96,6 +102,12 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
             extensionById.set(manifest.id, manifest);
           }
 
+          for (const [id, manifest] of extensionById) {
+            if (manifest.languages?.some((language) => language.id in optionalLanguagePackages))
+              extensionById.delete(id);
+          }
+          for (const pkg of localExtensionPackages.list())
+            extensionById.set(pkg.manifest.id, pkg.manifest);
           const extensions = Array.from(extensionById.values());
 
           // Check which extensions are installed
@@ -224,6 +236,37 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
         return findExtensionForFile(filePath, get().availableExtensions);
       },
 
+      importLocalPackage: async (text) => {
+        const pkg = parseLocalExtensionPackage(text);
+        const existing = get().availableExtensions.get(pkg.manifest.id);
+        if (existing)
+          throw new Error("Uninstall the existing extension before importing a replacement.");
+        // A package may not replace an installed language owned by another extension.
+        for (const extension of get().availableExtensions.values()) {
+          if (
+            (extension.isInstalled || extension.isInstalling) &&
+            extension.manifest.languages?.some((language) =>
+              pkg.manifest.languages?.some((candidate) => candidate.id === language.id),
+            )
+          )
+            throw new Error(
+              "Uninstall the existing language provider before importing this package.",
+            );
+        }
+        localExtensionPackages.stage(pkg);
+        markExtensionDisabled(pkg.manifest.id);
+        set((state) => {
+          state.availableExtensions.set(pkg.manifest.id, {
+            manifest: pkg.manifest,
+            isInstalled: false,
+            isEnabled: false,
+            isInstalling: false,
+          });
+        });
+        // Import installs the package disabled. Enable is a separate explicit action.
+        await get().actions.installExtension(pkg.manifest.id, false);
+      },
+
       installExtension: async (extensionId: string, activateAfterInstall = true) => {
         const extension = get().availableExtensions.get(extensionId);
         if (!extension) {
@@ -301,6 +344,12 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
           const errorMessage = error instanceof Error ? error.message : String(error);
 
           set((state) => {
+            if (
+              extension.manifest.installation?.type === "local" &&
+              !extension.isInstalled &&
+              !localExtensionPackages.get(extensionId)
+            )
+              state.availableExtensions.delete(extensionId);
             const ext = state.availableExtensions.get(extensionId);
             if (ext) {
               ext.isInstalling = false;
@@ -331,6 +380,8 @@ const useExtensionStoreBase = create<ExtensionStoreState>()(
                   ext.isEnabled = false;
                   ext.runtimeIssues = [];
                 }
+                if (extension.manifest.installation?.type === "local")
+                  state.availableExtensions.delete(extensionId);
                 state.installedExtensions.delete(extensionId);
                 state.availableExtensions = new Map(state.availableExtensions);
               });

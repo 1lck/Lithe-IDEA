@@ -1906,13 +1906,15 @@
         "evidence": [
           "Plugins/win/Official/PhpSupport",
           "windows/tauri/src/extensions/registry/extension-store-lifecycle.ts",
-          "windows/tauri/src-tauri/src/language_tools.rs"
+          "windows/tauri/src-tauri/src/language_tools.rs",
+          "windows/tauri/src/extensions/packages/local-extension-package.ts",
+          "scripts/verify-windows-plugin-isolation.mjs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "PHP Support",
-      "verification": "在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。"
+      "verification": "在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。 Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
     },
     {
       "id": "php-run-test",
@@ -1929,8 +1931,9 @@
       },
       "windows": {
         "evidence": [
-          "Plugins/win/Official/PhpSupport/run-actions.ts",
-          "windows/tauri/src/features/run-actions/utils/run-action-discovery.ts"
+          "Plugins/win/Official/PhpSupport/plugin.ts",
+          "windows/tauri/src/extensions/run",
+          "windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"

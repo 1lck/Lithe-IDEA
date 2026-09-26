@@ -111,69 +111,6 @@ const fullExtensions: ExtensionManifest[] = [
       minEditorVersion: "0.2.0",
     },
   },
-  {
-    id: "lithe.php",
-    name: "PHP",
-    displayName: "PHP",
-    description:
-      "Full PHP language support with IntelliSense, diagnostics, formatting, and snippets via Intelephense",
-    version: "1.0.0",
-    publisher: "Lithe",
-    categories: ["Language", "Formatter", "Linter", "Snippets"],
-    languages: [
-      {
-        id: "php",
-        extensions: [
-          ".php",
-          ".phtml",
-          ".php3",
-          ".php4",
-          ".php5",
-          ".php7",
-          ".php8",
-          ".phar",
-          ".phps",
-        ],
-        aliases: ["PHP", "php"],
-      },
-    ],
-    activationEvents: ["onLanguage:php"],
-    // Intelephense ships as an npm package, so the server is resolved through
-    // the bun runtime like TypeScript and Pyright instead of a CDN binary.
-    // The same executable and arguments are used by the macOS PhpSupport plugin.
-    lsp: {
-      name: "intelephense",
-      runtime: "bun",
-      package: "intelephense",
-      server: { default: "intelephense" },
-      args: ["--stdio"],
-      fileExtensions: [
-        ".php",
-        ".phtml",
-        ".php3",
-        ".php4",
-        ".php5",
-        ".php7",
-        ".php8",
-        ".phar",
-        ".phps",
-      ],
-      languageIds: ["php"],
-    },
-    commands: [
-      {
-        command: "php.restartServer",
-        title: "Restart PHP Language Server",
-        category: "PHP",
-      },
-      {
-        command: "php.formatDocument",
-        title: "Format PHP Document",
-        category: "PHP",
-      },
-    ],
-    installation: parserInstallation("php"),
-  },
   createLanguageToolExtension({
     id: "lithe.typescript",
     name: "TypeScript",

@@ -154,6 +154,12 @@ try {
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /language-tools is isolated/);
 
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins"]) {
+    const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
+    assert.notEqual(result.status, 0);
+    assert.match(diagnostics(result), /isolated/);
+  }
+
   process.stdout.write("Worktree resource reuse tests passed.\n");
 } finally {
   await fs.rm(testRoot, { force: true, recursive: true });

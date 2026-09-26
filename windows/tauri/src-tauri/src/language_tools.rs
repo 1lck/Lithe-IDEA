@@ -49,6 +49,8 @@ struct LanguageToolConfig {
     package: Option<String>,
     #[serde(default)]
     packages: Vec<String>,
+    #[serde(default)]
+    required_executables: Vec<String>,
 }
 
 impl LanguageToolConfig {
@@ -192,8 +194,11 @@ pub fn get_tool_path(
         return Ok(None);
     }
     let path_env = std::env::var_os("PATH");
-    // npm's Intelephense launcher needs Node even when Bun installed the package.
-    if config.name == "intelephense" && find_system_tool(path_env.as_deref(), "node").is_none() {
+    if config
+        .required_executables
+        .iter()
+        .any(|name| find_system_tool(path_env.as_deref(), name).is_none())
+    {
         return Ok(None);
     }
     let resolved = match config.runtime {
@@ -333,8 +338,13 @@ fn install_bun_tool(
     if cancelled.load(Ordering::Acquire) {
         return Err("Language tool installation cancelled".into());
     }
-    if config.name == "intelephense" && find_system_tool(path_env, "node").is_none() {
-        return Err("Intelephense requires Node.js on PATH. Install Node.js, then retry PHP Support installation.".into());
+    for required in &config.required_executables {
+        if find_system_tool(path_env, required).is_none() {
+            return Err(format!(
+                "{} requires {} on PATH. Install it, then retry plugin installation.",
+                config.name, required
+            ));
+        }
     }
     if resolve_bun_tool_path(language_id, config, tools_root, path_env, user_home).is_some() {
         return Ok(());
@@ -588,6 +598,7 @@ mod tests {
             runtime,
             package: Some(package.to_string()),
             packages: Vec::new(),
+            required_executables: Vec::new(),
         }
     }
 
@@ -782,6 +793,7 @@ mod tests {
             command: None,
             runtime: ToolRuntime::Bun,
             package: Some("typescript".to_string()),
+            required_executables: Vec::new(),
             packages: vec![
                 "typescript".to_string(),
                 " typescript-language-server ".to_string(),
@@ -841,9 +853,10 @@ mod tests {
     }
 
     #[test]
-    fn php_installs_without_node_report_the_missing_runtime() {
+    fn plugin_install_reports_declared_missing_runtime() {
         let tools_root = temp_dir("bun-missing");
-        let config = tool_config(ToolRuntime::Bun, "intelephense", "intelephense");
+        let mut config = tool_config(ToolRuntime::Bun, "intelephense", "intelephense");
+        config.required_executables = vec!["node".to_string()];
         let error = install_language_tool(
             "php",
             &config,
@@ -853,7 +866,7 @@ mod tests {
             &AtomicBool::new(false),
         )
         .expect_err("Node.js is required");
-        assert!(error.contains("Node.js"), "{error}");
+        assert!(error.contains("node"), "{error}");
         fs::remove_dir_all(tools_root).ok();
     }
 

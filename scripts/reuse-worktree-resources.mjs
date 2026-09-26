@@ -360,6 +360,7 @@ async function main() {
   if (!options.source) throw new Error(`--source is required\n\n${usage()}`);
 
   const registry = JSON.parse(await fs.readFile(REGISTRY_PATH, "utf8"));
+  // This route also rejects generated worker packages and mutable installed-plugin state.
   for (const id of options.resources) {
     const excluded = registry.excludedResources?.find((resource) => resource.id === id);
     if (excluded) throw new Error(`Resource ${id} is isolated: ${excluded.reason}`);

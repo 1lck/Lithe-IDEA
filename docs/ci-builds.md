@@ -151,3 +151,10 @@ The artifact behavior and compression setting follow
 [actions/upload-artifact](https://github.com/actions/upload-artifact), and cache
 reuse follows GitHub's
 [branch access restrictions](https://docs.github.com/en/actions/reference/workflows-and-actions/dependency-caching).
+
+Windows PHP Worker 插件使用 `bun scripts/build-windows-php-plugin.ts` 单独构建到
+`.artifacts/windows-plugins/`，通过 `node scripts/verify-windows-plugin-isolation.mjs`
+检查入口独立性。它绑定包格式、宿主 SDK 和当前 Bun 构建版本，没有 identity stamp，
+在资源清单中注册为不可复用；不随 Windows 应用构建复制。用户导入后的源码与状态
+位于 WebView 用户配置的 `lithe.worker-package:<id>`，也禁止跨 worktree 复用。
+CI 在 Windows frontend lane 构建并上传独立包，同时运行包、Worker 协议和生命周期测试。

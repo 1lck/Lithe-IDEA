@@ -1,4 +1,4 @@
-import { runPhpAction } from "@lithe/php/run-actions";
+import { runExtensionAction } from "@/extensions/run/extension-run-actions";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BACKEND_UNAVAILABLE_TOOLTIP,
@@ -184,9 +184,9 @@ export default function RunActionsButton() {
   };
 
   const runAction = (action: RunActionItem) => {
-    if (action.source === "php") {
+    if (action.source === "extension") {
       if (workspacePath)
-        void runPhpAction(action, workspaceId, workspacePath).catch((error) =>
+        void runExtensionAction(action, workspaceId, workspacePath).catch((error) =>
           toast.error(String(error)),
         );
       closeMenu();

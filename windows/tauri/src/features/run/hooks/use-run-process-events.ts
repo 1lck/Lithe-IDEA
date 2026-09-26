@@ -1,4 +1,4 @@
-import { phpProcessOwner } from "@lithe/php/process-owner";
+import { extensionProcessOwner } from "@/extensions/run/extension-process-owner";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { releaseRunSessionWorkspace, runStoreForSession } from "../stores/run.store";
@@ -28,9 +28,11 @@ export async function ensureRunProcessListeners(): Promise<void> {
   if (!exitUnlisten) {
     exitUnlisten = await currentWindow.listen<RunExitEvent>("run-exit", (event) => {
       const sessionId = event.payload.sessionId;
-      runStoreForSession(sessionId).getState().actions.finishProcess(sessionId, event.payload.exitCode);
+      runStoreForSession(sessionId)
+        .getState()
+        .actions.finishProcess(sessionId, event.payload.exitCode);
       releaseRunSessionWorkspace(sessionId);
-      phpProcessOwner.finished(sessionId);
+      extensionProcessOwner.finished(sessionId);
     });
   }
 }

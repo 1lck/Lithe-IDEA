@@ -50,10 +50,14 @@ test("cancelling PHP during parser installation never installs tools or activate
   const { spyOn } = await import("bun:test");
   const native = await import("@/platform/tauri-core");
   const { extensionInstaller } = await import("../installer/extension-installer");
-  const { getFullExtensions } = await import("../languages/full-extensions");
+  const { default: phpManifest } =
+    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { disableExtensionLifecycle } = await import("./extension-store-lifecycle");
-  const manifest = getFullExtensions().find((entry) => entry.id === "lithe.php")!;
+  const manifest = {
+    ...phpManifest,
+    installation: { type: "download" },
+  } as import("../types/extension-manifest").ExtensionManifest;
   const extension = { manifest, isInstalled: false, isEnabled: false, isInstalling: true };
   let rejectDownload!: (error: Error) => void;
   const download = new Promise<void>((_resolve, reject) => {
@@ -102,11 +106,15 @@ test("cancelling PHP during parser installation never installs tools or activate
 test("disable wins over an in-flight PHP enable operation", async () => {
   const { spyOn } = await import("bun:test");
   const native = await import("@/platform/tauri-core");
-  const { getFullExtensions } = await import("../languages/full-extensions");
+  const { default: phpManifest } =
+    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
   const { LspClient } = await import("@/features/editor/lsp/lsp-client");
   const { enableExtensionLifecycle, disableExtensionLifecycle } =
     await import("./extension-store-lifecycle");
-  const manifest = getFullExtensions().find((entry) => entry.id === "lithe.php")!;
+  const manifest = {
+    ...phpManifest,
+    installation: { type: "download" },
+  } as import("../types/extension-manifest").ExtensionManifest;
   const extension = { manifest, isInstalled: true, isEnabled: false, isInstalling: false };
   extensionRegistry.registerExtension(manifest, { isEnabled: false, state: "deactivated" });
   let release!: () => void;
@@ -131,6 +139,41 @@ test("disable wins over an in-flight PHP enable operation", async () => {
     await Promise.all([enabling, disabling]);
     invoke.mockRestore();
     stop.mockRestore();
+    extensionRegistry.unregisterExtension(manifest.id);
+  }
+});
+
+test("worker activation failure closes the language gate and unloads its providers", async () => {
+  const { spyOn } = await import("bun:test");
+  const runtime = await import("./extension-store-runtime");
+  const contributions = await import("../runtime/extension-contribution-runtime");
+  const { enableExtensionLifecycle } = await import("./extension-store-lifecycle");
+  const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+  const { default: json } =
+    await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+  const manifest = json as import("../types/extension-manifest").ExtensionManifest;
+  const extension = { manifest, isInstalled: true, isEnabled: false, isInstalling: false };
+  const resolved = spyOn(runtime, "resolveToolPaths").mockResolvedValue({
+    toolPaths: { lsp: "C:/fixture/intelephense.cmd" },
+    issues: [],
+  });
+  const provider = spyOn(runtime, "registerLanguageProvider").mockResolvedValue(undefined);
+  const activate = spyOn(contributions, "activateExtensionContributions").mockRejectedValue(
+    new Error("bad worker"),
+  );
+  const deactivate = spyOn(contributions, "deactivateExtensionContributions").mockResolvedValue(
+    undefined,
+  );
+  const stop = spyOn(LspClient.getInstance(), "stopLanguageServers").mockResolvedValue(undefined);
+  try {
+    await expect(enableExtensionLifecycle({ extensionId: manifest.id, extension })).rejects.toThrow(
+      "bad worker",
+    );
+    expect(extensionRegistry.getExtension(manifest.id)?.isEnabled).toBe(false);
+    expect(deactivate).toHaveBeenCalledWith(manifest.id, manifest);
+    expect(stop).toHaveBeenCalledWith(["php"]);
+  } finally {
+    for (const spy of [resolved, provider, activate, deactivate, stop]) spy.mockRestore();
     extensionRegistry.unregisterExtension(manifest.id);
   }
 });

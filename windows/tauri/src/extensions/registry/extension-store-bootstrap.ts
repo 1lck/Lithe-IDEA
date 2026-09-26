@@ -1,3 +1,5 @@
+import { localExtensionPackages } from "../packages/local-extension-package";
+import optionalLanguagePackages from "../packages/optional-language-packages.json";
 import { invoke } from "@/platform/tauri-core";
 import { listen } from "@tauri-apps/api/event";
 import { wasmParserLoader } from "@/features/editor/lib/wasm-parser/loader";
@@ -46,7 +48,21 @@ export async function loadInstalledExtensionsSnapshot(
     // Backend command may not exist yet, continue with IndexedDB check.
   }
 
-  const indexedDBInstalled = await extensionInstaller.listInstalled();
+  const localPackages = localExtensionPackages.list();
+  for (const pkg of localPackages.filter((entry) => entry.installed))
+    backendInstalled.push({
+      id: pkg.manifest.id,
+      name: pkg.manifest.displayName,
+      version: pkg.manifest.version,
+      installed_at: "",
+      enabled: !readDisabledExtensionIds().has(pkg.manifest.id),
+    });
+  const indexedDBInstalled = (await extensionInstaller.listInstalled()).filter((installed) => {
+    const owner = (optionalLanguagePackages as Record<string, string>)[installed.languageId];
+    if (owner) return localPackages.some((pkg) => pkg.manifest.id === owner && pkg.installed);
+    const local = localPackages.find((pkg) => pkg.manifest.id === installed.extensionId);
+    return !local || local.installed;
+  });
   const bundledContributionInstalled = Array.from(readInstalledBundledContributionExtensionIds());
   const disabledExtensionIds = readDisabledExtensionIds();
 
@@ -69,7 +85,7 @@ export async function loadInstalledExtensionsSnapshot(
 
       if (extension) {
         const resolvedTools = await resolveToolPaths(languageId, extension, {
-          repairMissing: languageId !== "php",
+          repairMissing: extension.installation?.type !== "local",
         });
         if (readDisabledExtensionIds().has(extensionId)) return;
         const runtimeManifest = buildRuntimeManifest(extension, resolvedTools.toolPaths);

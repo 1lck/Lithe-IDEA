@@ -480,3 +480,28 @@ run/test discovery and launch require enabled support. Disable cancels installat
 stops in-flight and active owned processes, and unregisters providers; closing a
 workspace stops that workspace's PHP Run sessions. Shared lexical PHP recognition
 may remain available without spawning processes or downloading dependencies.
+
+Windows optional language implementations are single-module worker packages
+(`lithe-worker-plugin`, format version 1). PHP configuration and Composer/PHPUnit
+plan generation live in `Plugins/win/Official/PhpSupport`; application builds must
+not import that implementation, even through a dynamic import. The inert optional
+language catalog may identify package ownership without carrying executable code.
+
+A user imports a `.lithe-extension` file through extension management. The package
+contains a validated manifest and ESM source (maximum 256 KiB), stored atomically in
+the WebView user profile under `lithe.worker-package:<id>`. Import installs language
+tools but leaves the plugin disabled; enabling starts the existing worker host.
+Incomplete installation is not restored on restart. Uninstall removes the source,
+parser cache and owned tools; the application installation directory stays read-only.
+Local packages are user-selected code, not authenticated official downloads.
+
+The v1 language package accepts `languages`, `lsp`, and `runActions` declarations;
+other host permissions and contributions are not granted. `lsp.requiredExecutables`
+is passed to the native tool adapter for PATH validation. `runActions.manifestFiles`
+contains at most 16 root-level file names; `executables` names allowed PATH commands.
+The worker's `api.runActions.register` receives file contents and returns bounded
+plans (`id`, `name`, `sourceLabel`, optional `description`, `executable`, `arguments`).
+Only a user click launches a validated plan through the host Run service after saving
+the workspace. Workers never own the native process handles; the host tracks both
+extension ID and workspace ID, stops pending and active runs on disable/close, and
+rejects stale discovery results. Remote/WSL projects do not use these local plans.
