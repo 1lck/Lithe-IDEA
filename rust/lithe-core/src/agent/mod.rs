@@ -65,11 +65,14 @@ pub(crate) fn install(request: AgentInstallRequest) -> Result<Value, CoreError> 
     .map_err(core_error)
 }
 
-/// Install or update the agent's own CLI globally with the user's npm.
+/// Update through the CLI's installation owner and return its verified outcome.
 pub(crate) fn install_cli(request: AgentInstallRequest) -> Result<Value, CoreError> {
     absolute(&request.data_directory)?;
     install::install_cli_with_progress(&request.agent_id, &cancelled, &emit_progress)
-        .map(|version| serde_json::json!({ "agentId": request.agent_id, "cliVersion": version }))
+        .map(|result| {
+            serde_json::json!({ "agentId": request.agent_id,
+            "cliVersion": result.cli_version, "updaterWarning": result.updater_warning })
+        })
         .map_err(core_error)
 }
 

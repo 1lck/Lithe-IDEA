@@ -2335,3 +2335,8 @@
 "Installation: %@" = "安装来源：%@";
 "Update this CLI using its original installer, then check again." = "请使用原安装器更新此 CLI，然后重新检测。";
 "Switch to the Node.js/npm environment that installed this CLI, update it there, then check again." = "请切换到安装此 CLI 的 Node.js/npm 环境，在该环境中更新后重新检测。";
+
+// Verified CLI update outcomes
+"CLI updated to %@" = "CLI 已更新至 %@";
+"The installer reported an error, but the new CLI version was verified." = "安装器报告了错误，但已确认新 CLI 版本可用。";
+"Update log" = "更新日志";

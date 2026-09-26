@@ -131,6 +131,17 @@ public struct AgentInstallProgress: Decodable, Equatable, Sendable {
     }
 }
 
+/// Verified CLI update outcome. An installer failure can remain as a warning.
+public struct AgentCliUpdateResult: Decodable, Equatable, Sendable {
+    public let cliVersion: String
+    public let updaterWarning: String?
+
+    public init(cliVersion: String, updaterWarning: String? = nil) {
+        self.cliVersion = cliVersion
+        self.updaterWarning = updaterWarning
+    }
+}
+
 /// Detects the user's runtime and installs ACP adapters with the user's npm.
 /// Node.js remains user-managed; CLI updates follow their verified installation owners.
 public protocol AgentManagementService: Sendable {
@@ -139,12 +150,12 @@ public protocol AgentManagementService: Sendable {
     func install(agentID: String, dataDirectory: URL) async throws -> String
     func uninstall(agentID: String, dataDirectory: URL) async throws
     /// Installs or updates the agent's own CLI through its installation manager; returns
-    /// the CLI version found afterwards.
-    func installCli(agentID: String, dataDirectory: URL) async throws -> String
+    /// the verified CLI version and any recovered installer warning.
+    func installCli(agentID: String, dataDirectory: URL) async throws -> AgentCliUpdateResult
     func install(agentID: String, dataDirectory: URL,
                  onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String
     func installCli(agentID: String, dataDirectory: URL,
-                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> AgentCliUpdateResult
 }
 
 public extension AgentManagementService {
@@ -153,7 +164,7 @@ public extension AgentManagementService {
         try await install(agentID: agentID, dataDirectory: dataDirectory)
     }
     func installCli(agentID: String, dataDirectory: URL,
-                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> AgentCliUpdateResult {
         try await installCli(agentID: agentID, dataDirectory: dataDirectory)
     }
 }
@@ -174,7 +185,7 @@ public struct UnavailableAgentManagementService: AgentManagementService {
         throw CocoaError(.featureUnsupported)
     }
 
-    public func installCli(agentID: String, dataDirectory: URL) async throws -> String {
+    public func installCli(agentID: String, dataDirectory: URL) async throws -> AgentCliUpdateResult {
         throw CocoaError(.featureUnsupported)
     }
 }

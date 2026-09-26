@@ -20,6 +20,15 @@ const MARKER: &str = "lithe-agent.json";
 /// Characters of npm output kept for a failure report.
 const OUTPUT_TAIL: usize = 2000;
 
+/// Verified CLI version, with bounded installer diagnostics when it reported failure.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliUpdateResult {
+    pub cli_version: String,
+    /// A warning only after a newly installed or strictly newer usable CLI is verified.
+    pub updater_warning: Option<String>,
+}
+
 /// Why a management request failed; hosts map these to stable error codes.
 #[derive(Debug, PartialEq, Eq)]
 pub enum ManagementError {
@@ -348,7 +357,10 @@ pub fn install_with_progress(
 /// Install a missing CLI with npm or update it using its verified installation owner.
 ///
 /// Runs only on an explicit click; unknown owners require manual updating.
-pub fn install_cli(agent_id: &str, cancel: &dyn Fn() -> bool) -> Result<String, ManagementError> {
+pub fn install_cli(
+    agent_id: &str,
+    cancel: &dyn Fn() -> bool,
+) -> Result<CliUpdateResult, ManagementError> {
     install_cli_with_progress(agent_id, cancel, &|_| {})
 }
 
@@ -357,7 +369,7 @@ pub fn install_cli_with_progress(
     agent_id: &str,
     cancel: &dyn Fn() -> bool,
     progress: &dyn Fn(InstallProgress),
-) -> Result<String, ManagementError> {
+) -> Result<CliUpdateResult, ManagementError> {
     progress(InstallProgress::preparing());
     let agent = crate::catalog::find(agent_id)
         .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
@@ -366,27 +378,44 @@ pub fn install_cli_with_progress(
     })?;
     let environment = environment::detect(cancel);
     let plan = cli_update::detect(cli, &environment, cancel)?;
+    let was_missing = plan.installation.source == CliSource::Missing;
     let updater = plan.command.ok_or_else(|| {
         ManagementError::Failed(format!(
             "{} cannot be updated automatically. {}",
             cli.name, plan.installation.update_hint
         ))
     })?;
+    let previous = environment::detect_tool(cli.command, cancel);
     let result = run_cli_updater(
         &updater,
         environment::search_path().as_deref(),
         cancel,
         progress,
     );
-    match result {
-        Ok((true, _)) => {}
-        Ok((false, output)) => {
-            return Err(ManagementError::Failed(format!(
-                "Could not update {} using its installation manager:\n{}",
-                cli.name,
-                tail(&output)
-            )))
+    finish_cli_update(cli, previous.as_ref(), was_missing, result, || {
+        // Even a nonzero exit can follow an upstream download retry that succeeded.
+        // Verify the CLI the Agent actually runs, without interpreting log wording.
+        environment::detect(cancel);
+        if cancel() {
+            return Err(ManagementError::Cancelled);
         }
+        let detected = environment::detect_tool(cli.command, cancel);
+        if cancel() {
+            return Err(ManagementError::Cancelled);
+        }
+        Ok(detected)
+    })
+}
+
+fn finish_cli_update(
+    cli: &AgentCli,
+    previous: Option<&DetectedTool>,
+    was_missing: bool,
+    result: Result<(bool, String), RunError>,
+    detect: impl FnOnce() -> Result<Option<DetectedTool>, ManagementError>,
+) -> Result<CliUpdateResult, ManagementError> {
+    let (success, output) = match result {
+        Ok(completed) => completed,
         Err(RunError::Cancelled) => return Err(ManagementError::Cancelled),
         Err(RunError::TimedOut) => return Err(ManagementError::TimedOut),
         Err(RunError::Start(message)) => {
@@ -394,13 +423,33 @@ pub fn install_cli_with_progress(
                 "Could not run the CLI updater: {message}"
             )))
         }
+    };
+    let detected = detect()?;
+    let verified = verify_updated_cli(cli, detected);
+    if !success {
+        // An already usable CLI does not prove a failed update installed anything.
+        let advanced = verified.as_ref().is_ok_and(|version| {
+            previous.map_or(was_missing, |old| {
+                !environment::version_at_least(&old.version, version)
+            })
+        });
+        if !advanced {
+            let verification = verified
+                .err()
+                .map(|error| format!("\n{}", error.message()))
+                .unwrap_or_default();
+            return Err(ManagementError::Failed(format!(
+                "Could not update {} using its installation manager:\n{}{}",
+                cli.name,
+                tail(&output),
+                verification
+            )));
+        }
     }
-    // Re-read the login shell PATH; success is the version the Agent would actually run.
-    environment::detect(cancel);
-    if cancel() {
-        return Err(ManagementError::Cancelled);
-    }
-    verify_updated_cli(cli, environment::detect_tool(cli.command, cancel))
+    Ok(CliUpdateResult {
+        cli_version: verified?,
+        updater_warning: (!success).then(|| tail(&output)),
+    })
 }
 
 fn run_cli_updater(
@@ -541,7 +590,7 @@ fn tail(output: &str) -> String {
     let start = trimmed
         .char_indices()
         .rev()
-        .nth(OUTPUT_TAIL)
+        .nth(OUTPUT_TAIL - 1)
         .map_or(0, |(index, _)| index);
     trimmed[start..].to_owned()
 }
@@ -575,6 +624,137 @@ mod tests {
 
     fn codex() -> &'static CatalogAgent {
         crate::catalog::find("codex-acp").unwrap()
+    }
+
+    fn cli_tool(version: &str) -> DetectedTool {
+        DetectedTool {
+            version: version.into(),
+            path: "/example/bin/codex".into(),
+        }
+    }
+
+    #[test]
+    fn cli_update_nonzero_exit_recovers_only_after_a_usable_version_advance() {
+        let cli = codex().cli.as_ref().unwrap();
+        let old = cli_tool("0.142.5");
+        let log = "Download failed; retry completed";
+        let result = finish_cli_update(cli, Some(&old), false, Ok((false, log.into())), || {
+            Ok(Some(cli_tool("0.157.1")))
+        })
+        .unwrap();
+        assert_eq!(result.cli_version, "0.157.1");
+        assert_eq!(result.updater_warning.as_deref(), Some(log));
+        let fresh = finish_cli_update(cli, None, true, Ok((false, log.into())), || {
+            Ok(Some(cli_tool("0.157.1")))
+        })
+        .unwrap();
+        assert_eq!(fresh.updater_warning.as_deref(), Some(log));
+    }
+
+    #[test]
+    fn cli_update_nonzero_exit_preserves_failures_without_verified_progress() {
+        let cli = codex().cli.as_ref().unwrap();
+        // Already usable, numerically equivalent, older, absent, and still-too-old
+        // versions must not turn an updater failure into success.
+        for (before, after) in [
+            ("0.157.1", Some("0.157.1")),
+            ("0.157.1", Some("v0.157.1")),
+            ("0.157.1", Some("0.156.1")),
+            ("0.142.5", Some("0.150.0")),
+            ("0.142.5", None),
+        ] {
+            let old = cli_tool(before);
+            let result = finish_cli_update(
+                cli,
+                Some(&old),
+                false,
+                Ok((false, "installer failure".into())),
+                || Ok(after.map(cli_tool)),
+            );
+            match result {
+                Err(ManagementError::Failed(message)) => {
+                    assert!(message.contains("installer failure"))
+                }
+                other => panic!("unverified update {before} -> {after:?}: {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn cli_update_unknown_previous_version_cannot_prove_recovery() {
+        let cli = codex().cli.as_ref().unwrap();
+        // A failed version probe of an existing executable is not evidence it was absent.
+        assert!(finish_cli_update(
+            cli,
+            None,
+            false,
+            Ok((false, "installer failure".into())),
+            || Ok(Some(cli_tool("0.157.1")))
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn cli_update_clean_exit_still_verifies_path_without_a_warning() {
+        let cli = codex().cli.as_ref().unwrap();
+        let old = cli_tool("0.157.1");
+        let result = finish_cli_update(
+            cli,
+            Some(&old),
+            false,
+            Ok((true, "already current".into())),
+            || Ok(Some(cli_tool("0.157.1"))),
+        )
+        .unwrap();
+        assert_eq!(result.updater_warning, None);
+        for after in [None, Some("0.142.5")] {
+            assert!(
+                finish_cli_update(cli, Some(&old), false, Ok((true, String::new())), || Ok(
+                    after.map(cli_tool)
+                ))
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn cli_update_cancel_timeout_and_start_failure_never_recover() {
+        let cli = codex().cli.as_ref().unwrap();
+        for (error, expected) in [
+            (RunError::Cancelled, ManagementError::Cancelled),
+            (RunError::TimedOut, ManagementError::TimedOut),
+            (
+                RunError::Start("not executable".into()),
+                ManagementError::Failed("Could not run the CLI updater: not executable".into()),
+            ),
+        ] {
+            assert_eq!(
+                finish_cli_update(cli, None, true, Err(error), || panic!(
+                    "must not probe after an incomplete update"
+                )),
+                Err(expected)
+            );
+        }
+        assert_eq!(
+            finish_cli_update(cli, None, true, Ok((false, String::new())), || Err(
+                ManagementError::Cancelled
+            )),
+            Err(ManagementError::Cancelled)
+        );
+    }
+
+    #[test]
+    fn cli_update_recovery_keeps_only_the_bounded_log_tail() {
+        let cli = codex().cli.as_ref().unwrap();
+        let result = finish_cli_update(
+            cli,
+            None,
+            true,
+            Ok((false, "界".repeat(OUTPUT_TAIL + 100))),
+            || Ok(Some(cli_tool("0.157.1"))),
+        )
+        .unwrap();
+        assert_eq!(result.updater_warning.unwrap().chars().count(), OUTPUT_TAIL);
     }
 
     #[test]

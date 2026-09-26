@@ -167,6 +167,14 @@ broken, unrecorded, or mismatched Node/npm installations require manual updating
 there is no force overwrite, installer migration or automatic npm fallback.
 After completion, the host refreshes the login-shell PATH and requires the CLI
 selected there to meet the adapter's minimum version before returning `cliVersion`.
+The successful response also includes optional `updaterWarning` (null for a clean
+exit, a bounded output tail for a recovered installer failure). A nonzero exit
+can succeed only if the CLI is now present and usable, and its numeric version
+strictly increased compared with the pre-update CLI (or it was previously absent).
+An unchanged, downgraded, missing or still-too-old CLI remains `process_failed`;
+cancellation, timeout and process-start failure never recover through a version
+probe. Hosts show the verified version as success and keep any warning/log separate
+from errors. Older responses without `updaterWarning` decode as a clean result.
 Node.js and npm remain user-managed. Detection is read-only and locally bounded.
 
 `agent.status` includes optional `cli.installation` with `source` (`npm`,

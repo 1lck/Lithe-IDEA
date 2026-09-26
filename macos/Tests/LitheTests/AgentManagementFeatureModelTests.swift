@@ -82,6 +82,42 @@ struct AgentManagementFeatureModelTests {
         #expect(feature.installProgress == nil)
         #expect(feature.operationStartedAt == nil)
         #expect(feature.errors.isEmpty)
+        #expect(feature.cliUpdates["codex-acp"] == AgentCliUpdateResult(cliVersion: "0.156.1"))
+    }
+
+    @Test
+    func recoveredCliUpgradeKeepsWarningSeparateFromErrorsAndClearsItOnRetry() async throws {
+        let service = TestAgentManagementService()
+        let result = AgentCliUpdateResult(cliVersion: "0.157.1", updaterWarning: "Download failed, retry succeeded")
+        await service.setCliResult(result)
+        let feature = AgentManagementFeatureModel(service: service, dataDirectory: URL(fileURLWithPath: "/tmp/lithe-agents"))
+        feature.installCli("codex-acp")
+        try await waitUntilIdle(feature)
+        #expect(feature.errors.isEmpty)
+        #expect(feature.cliUpdates["codex-acp"] == result)
+        await feature.refresh()
+        #expect(feature.cliUpdates["codex-acp"] == result, "refresh preserves the completed operation's warning")
+        await service.failInstall("Update did not change the CLI")
+        feature.installCli("codex-acp")
+        #expect(feature.cliUpdates["codex-acp"] == nil, "a new attempt clears the previous result")
+        try await waitUntilIdle(feature)
+        #expect(feature.errors["codex-acp"] == "Update did not change the CLI")
+        #expect(feature.cliUpdates["codex-acp"] == nil)
+    }
+
+    @Test
+    func cliUpdateContractDecodesBothCleanAndRecoveredOutcomes() throws {
+        struct Responses: Decodable {
+            let installCli: AgentCliUpdateResult
+            let installCliRecovered: AgentCliUpdateResult
+        }
+        struct Fixture: Decodable { let responses: Responses }
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let data = try Data(contentsOf: root.appendingPathComponent("shared/fixtures/agent/agent-management-v1.json"))
+        let results = try JSONDecoder().decode(Fixture.self, from: data).responses
+        #expect(results.installCli == AgentCliUpdateResult(cliVersion: "0.156.1"))
+        #expect(results.installCliRecovered == AgentCliUpdateResult(cliVersion: "0.157.1", updaterWarning: "Download failed; retry completed"))
     }
 
     @Test
@@ -118,6 +154,8 @@ private actor TestAgentManagementService: AgentManagementService {
     private(set) var uninstallCalls = 0
     private var statusFailure: String?
     private var installFailure: String?
+    private var cliResult = AgentCliUpdateResult(cliVersion: "0.156.1")
+    func setCliResult(_ result: AgentCliUpdateResult) { cliResult = result }
     private var installGate: CheckedContinuation<Void, Never>?
     private var holdsInstall = false
     private var installStarted = false
@@ -210,9 +248,10 @@ private actor TestAgentManagementService: AgentManagementService {
         uninstallCalls += 1
     }
 
-    func installCli(agentID: String, dataDirectory: URL) async throws -> String { "0.156.1" }
+    func installCli(agentID: String, dataDirectory: URL) async throws -> AgentCliUpdateResult { cliResult }
     func installCli(agentID: String, dataDirectory: URL,
-                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
-        try await install(agentID: agentID, dataDirectory: dataDirectory, onProgress: onProgress)
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> AgentCliUpdateResult {
+        _ = try await install(agentID: agentID, dataDirectory: dataDirectory, onProgress: onProgress)
+        return cliResult
     }
 }

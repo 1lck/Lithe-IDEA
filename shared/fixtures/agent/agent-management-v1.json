@@ -110,7 +110,13 @@
     },
     "installCli": {
       "agentId": "codex-acp",
-      "cliVersion": "0.156.1"
+      "cliVersion": "0.156.1",
+      "updaterWarning": null
+    },
+    "installCliRecovered": {
+      "agentId": "codex-acp",
+      "cliVersion": "0.157.1",
+      "updaterWarning": "Download failed; retry completed"
     }
   },
   "events": {

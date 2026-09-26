@@ -20,6 +20,7 @@ final class AgentManagementFeatureModel: ObservableObject {
     @Published private(set) var busyAgentID: String?
     /// Last install or removal failure per agent.
     @Published private(set) var errors: [String: String] = [:]
+    @Published private(set) var cliUpdates: [String: AgentCliUpdateResult] = [:]
 
     @Published private(set) var installProgress: AgentInstallProgress?
     @Published private(set) var isCancelling = false
@@ -49,19 +50,21 @@ final class AgentManagementFeatureModel: ObservableObject {
     func install(_ agentID: String) {
         run(agentID) { service, directory, progress in
             _ = try await service.install(agentID: agentID, dataDirectory: directory, onProgress: progress)
+            return nil
         }
     }
 
     func uninstall(_ agentID: String) {
         run(agentID) { service, directory, _ in
             try await service.uninstall(agentID: agentID, dataDirectory: directory)
+            return nil
         }
     }
 
-    /// Install or update the agent's own CLI globally with the user's npm.
+    /// Update through the verified installation owner and retain warning diagnostics.
     func installCli(_ agentID: String) {
         run(agentID) { service, directory, progress in
-            _ = try await service.installCli(agentID: agentID, dataDirectory: directory, onProgress: progress)
+            try await service.installCli(agentID: agentID, dataDirectory: directory, onProgress: progress)
         }
     }
 
@@ -74,7 +77,7 @@ final class AgentManagementFeatureModel: ObservableObject {
 
     private func run(
         _ agentID: String,
-        _ work: @escaping @Sendable (any AgentManagementService, URL, @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> Void
+        _ work: @escaping @Sendable (any AgentManagementService, URL, @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> AgentCliUpdateResult?
     ) {
         guard busyAgentID == nil else { return }
         let id = UUID()
@@ -84,16 +87,18 @@ final class AgentManagementFeatureModel: ObservableObject {
         isCancelling = false
         busyAgentID = agentID
         errors[agentID] = nil
+        cliUpdates[agentID] = nil
         let service = service
         let directory = dataDirectory
         operation = Task { [weak self] in
             do {
-                try await work(service, directory) { [weak self] progress in
+                let result = try await work(service, directory) { [weak self] progress in
                     Task { @MainActor [weak self] in
                         guard let self, self.operationID == id, !self.isCancelling else { return }
                         self.installProgress = progress
                     }
                 }
+                if !Task.isCancelled { self?.cliUpdates[agentID] = result }
             } catch is CancellationError {
             } catch {
                 if !Task.isCancelled { self?.errors[agentID] = error.localizedDescription }

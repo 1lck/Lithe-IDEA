@@ -284,6 +284,9 @@ private struct AgentDetailView: View {
         if let error = feature.errors[agent.id] {
             AgentSettingsIssue(error)
         }
+        if let result = feature.cliUpdates[agent.id] {
+            AgentCliUpdateOutcomeView(result: result)
+        }
         versionCard
         preflightCard
         AgentLocalConfigurationCard(
@@ -443,12 +446,12 @@ private struct AgentDetailView: View {
             Button("Install") { feature.installCli(agent.id) }
                 .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 8, height: 22, fontSize: 11))
                 .disabled(feature.busyAgentID != nil)
-                .help(agent.cli?.installHint ?? "")
+                .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .updateCli:
             Button("Update") { feature.installCli(agent.id) }
                 .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 8, height: 22, fontSize: 11))
                 .disabled(feature.busyAgentID != nil)
-                .help(agent.cli?.installHint ?? "")
+                .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .fetchLocalConfiguration:
             if let source = AppModel.localConfigurationSource(for: agent.id) {
                 Button("Fetch local configuration") {
@@ -649,6 +652,28 @@ struct AgentSettingsHint: View {
             .font(LitheTheme.smallFont)
             .foregroundStyle(LitheTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+private struct AgentCliUpdateOutcomeView: View {
+    let result: AgentCliUpdateResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label(String(format: String(localized: "CLI updated to %@"), result.cliVersion),
+                  systemImage: "checkmark.circle.fill")
+                .foregroundStyle(LitheTheme.success)
+            if let warning = result.updaterWarning {
+                Text("The installer reported an error, but the new CLI version was verified.")
+                    .foregroundStyle(LitheTheme.warning)
+                DisclosureGroup("Update log") {
+                    Text(warning).textSelection(.enabled)
+                        .foregroundStyle(LitheTheme.secondaryText)
+                }
+            }
+        }
+        .font(LitheTheme.smallFont)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 

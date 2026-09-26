@@ -11,7 +11,6 @@ struct RustAgentManagementService: AgentManagementService {
     private struct AgentPayload: Encodable { let dataDirectory: String; let agentId: String }
     private struct InstallResult: Decodable { let installedVersion: String }
     private struct UninstallResult: Decodable { let agentId: String }
-    private struct InstallCliResult: Decodable { let cliVersion: String }
     private struct InstallEvent: Decodable {
         let kind: String
         let operationId: String
@@ -40,16 +39,15 @@ struct RustAgentManagementService: AgentManagementService {
         )
     }
 
-    func installCli(agentID: String, dataDirectory: URL) async throws -> String {
+    func installCli(agentID: String, dataDirectory: URL) async throws -> AgentCliUpdateResult {
         try await installCli(agentID: agentID, dataDirectory: dataDirectory, onProgress: { _ in })
     }
 
     func installCli(agentID: String, dataDirectory: URL,
-                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> String {
-        let result: InstallCliResult = try await run(
+                    onProgress: @escaping @Sendable (AgentInstallProgress) -> Void) async throws -> AgentCliUpdateResult {
+        try await run(
             "agent.installCli", AgentPayload(dataDirectory: dataDirectory.path, agentId: agentID), onProgress: onProgress
         )
-        return result.cliVersion
     }
 
     private func run<Payload: Encodable & Sendable, Result: Decodable & Sendable>(

@@ -40,7 +40,7 @@ pub enum CoreCommand {
     AgentInstall,
     /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
     AgentUninstall,
-    /// Installs or updates an agent's own CLI globally with the user's npm (`agent.installCli`).
+    /// Installs or updates an agent's CLI through its installation owner (`agent.installCli`).
     AgentInstallCli,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,

@@ -1105,3 +1105,8 @@
 "Fetch completed with no reference changes." = "Fetch completed with no reference changes.";
 "Maven Build" = "Maven Build";
 "Hide Maven Build tool window" = "Hide Maven Build tool window";
+
+// Verified CLI update outcomes
+"CLI updated to %@" = "CLI updated to %@";
+"The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
+"Update log" = "Update log";
