@@ -84,5 +84,83 @@
       "message": "The Agent is still responding in this conversation"
     },
     "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
+  },
+  "upstream": {
+    "staleModelSession": {
+      "sessionId": "session-repaired",
+      "models": {
+        "currentModelId": "model-retired[max]",
+        "availableModels": [
+          {
+            "modelId": "model-current[max]",
+            "name": "Current Max"
+          },
+          {
+            "modelId": "model-other[medium]",
+            "name": "Other Medium"
+          }
+        ]
+      },
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "Model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "model-retired",
+          "options": [
+            {
+              "value": "model-retired",
+              "name": "model-retired"
+            },
+            {
+              "value": "model-current",
+              "name": "model-current"
+            },
+            {
+              "value": "model-other",
+              "name": "model-other"
+            }
+          ],
+          "_meta": {
+            "jetbrains": {
+              "air": {
+                "version": 1,
+                "recommendedValue": "model-current"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "repairedModelConfiguration": {
+      "configOptions": [
+        {
+          "id": "model",
+          "name": "Model",
+          "category": "model",
+          "type": "select",
+          "currentValue": "model-current",
+          "options": [
+            {
+              "value": "model-current",
+              "name": "model-current"
+            },
+            {
+              "value": "model-other",
+              "name": "model-other"
+            }
+          ],
+          "_meta": {
+            "jetbrains": {
+              "air": {
+                "version": 1,
+                "recommendedValue": "model-current"
+              }
+            }
+          }
+        }
+      ]
+    }
   }
 }

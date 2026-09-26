@@ -141,8 +141,9 @@ extension AppModel {
         let connection = feature.connection(for: agentID)
         guard !connection.hasActiveConnection else { return }
         do {
+            // Refresh the displayed fallback even when credential validation fails.
+            defer { feature.setAgents(configuredAgentOptions) }
             let configuration = try agentLaunchConfiguration(agentID: agentID)
-            feature.setAgents(configuredAgentOptions)
             try connection.connect(configuration: configuration)
         } catch {
             // The panel shows the reason and offers a retry.
@@ -159,7 +160,7 @@ extension AppModel {
         guard let workspaceURL else { throw AgentConversationError.notConnected }
         // A saved import is not the current CLI default. Read through the same
         // configuration ports used for credentials, once at connection startup.
-        settings.refreshAgentModels(from: loadAIConfigurations())
+        settings.refreshAgentModels(from: services.aiConfigurationSources.compactMap { $0.loadModel() })
         guard let provider = settings.agentProvider(for: agentID) else {
             throw AgentConversationError.missingProvider
         }

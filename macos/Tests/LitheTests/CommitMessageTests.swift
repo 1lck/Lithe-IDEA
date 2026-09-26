@@ -8,6 +8,23 @@ import Testing
 @Suite("Commit message generation")
 struct CommitMessageTests {
     @Test
+    func codexDefaultModelDoesNotRequireAProviderOrCredentials() {
+        let config = """
+        model = "current-model" # local default
+        [profiles.legacy]
+        model = "obsolete-model"
+        [agents.worker]
+        model = "worker-model"
+        """
+        #expect(MacCodexConfigurationParser.parseModel(config: config) == "current-model")
+        #expect(MacCodexConfigurationParser.parse(config: config, authData: nil) == nil,
+            "reading a model must not grant API access or invent a provider")
+        #expect(MacCodexConfigurationParser.parseModel(config: "model = \"\"") == "")
+        #expect(MacCodexConfigurationParser.parseModel(config: "[profiles.legacy]\nmodel = \"obsolete-model\"") == "",
+            "a missing top-level model delegates to the CLI instead of a nested profile or stale import")
+    }
+
+    @Test
     func parsesCodexResponsesConfigurationAndAuthKey() throws {
         let config = """
         model_provider = "custom"
@@ -399,7 +416,7 @@ struct CommitMessageSettingsTests {
             .init(source: .claude, providerName: "Current", endpoint: "https://new.example.test", model: "current-claude",
                 apiProtocol: .anthropicMessages, reasoningEffort: nil, requiresAPIKey: true, apiKey: "test-secret")
         ]
-        settings.refreshAgentModels(from: snapshots)
+        settings.refreshAgentModels(from: snapshots.map { .init(source: $0.source, model: $0.model) })
         var expected = initial
         expected.providers[0].model = "current-codex"
         expected.providers[1].model = "current-claude"
@@ -422,9 +439,7 @@ struct CommitMessageSettingsTests {
         settings.setAgentProvider(provider.id, for: "codex-acp", name: "Codex")
         settings.refreshAgentModels(from: [])
         #expect(settings.commitMessageAI == initial, "missing configuration must not invent a model")
-        settings.refreshAgentModels(from: [.init(source: .codex, providerName: "Current",
-            endpoint: provider.endpoint, model: "", apiProtocol: .responses, reasoningEffort: nil,
-            requiresAPIKey: true, apiKey: nil)])
+        settings.refreshAgentModels(from: [.init(source: .codex, model: "")])
         #expect(settings.agentProvider(for: "codex-acp")?.model == "", "an empty local model delegates to the agent")
     }
 

@@ -484,6 +484,17 @@ public struct CommitMessageAISettings: Codable, Equatable, Sendable {
     }
 }
 
+/// Non-secret CLI model selection, also available without an API configuration.
+public struct AIConfigurationModel: Equatable, Sendable {
+    public let source: AIConfigurationSourceKind
+    public let model: String
+
+    public init(source: AIConfigurationSourceKind, model: String) {
+        self.source = source
+        self.model = model
+    }
+}
+
 public struct AIConfigurationSnapshot: Identifiable, Sendable {
     public let source: AIConfigurationSourceKind
     public let providerName: String

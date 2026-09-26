@@ -549,6 +549,95 @@ async fn session_configuration_round_trips_upstream_options() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn every_new_session_repairs_a_stale_model_before_publishing_options() {
+    let mut harness = Harness::ready().await;
+    let upstream = fixture()["upstream"].clone();
+    for token in ["first", "second"] {
+        harness.send(json!({ "kind": "newSession", "token": token }));
+        let request = harness.agent.expect("session/new").await;
+        harness
+            .agent
+            .reply(&request, upstream["staleModelSession"].clone())
+            .await;
+        let repair = harness.agent.expect("session/set_config_option").await;
+        assert_eq!(repair["params"]["sessionId"], "session-repaired");
+        assert_eq!(repair["params"]["configId"], "model");
+        assert_eq!(repair["params"]["value"], "model-current");
+        assert!(
+            harness.events.try_recv().is_err(),
+            "a session must not be exposed before confirmation"
+        );
+        harness
+            .agent
+            .reply(&repair, upstream["repairedModelConfiguration"].clone())
+            .await;
+        let event = serde_json::to_value(harness.event().await).unwrap();
+        assert_eq!(event["kind"], "sessionCreated");
+        assert_eq!(event["token"], token);
+        assert_eq!(
+            event["configOptions"],
+            upstream["repairedModelConfiguration"]["configOptions"]
+        );
+    }
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn model_repair_rejection_does_not_publish_a_fake_success() {
+    let mut harness = Harness::ready().await;
+    harness.send(json!({ "kind": "newSession", "token": "new" }));
+    let request = harness.agent.expect("session/new").await;
+    harness
+        .agent
+        .reply(&request, fixture()["upstream"]["staleModelSession"].clone())
+        .await;
+    let repair = harness.agent.expect("session/set_config_option").await;
+    harness.agent.write(json!({ "jsonrpc": "2.0", "id": repair["id"], "error": {"code": -32602, "message": "Model rejected"} })).await;
+    let event = serde_json::to_value(harness.event().await).unwrap();
+    assert_eq!(event["kind"], "requestFailed");
+    assert_eq!(event["token"], "new");
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn model_repair_requires_the_upstream_to_confirm_the_new_value() {
+    let mut harness = Harness::ready().await;
+    harness.send(json!({ "kind": "newSession", "token": "new" }));
+    let request = harness.agent.expect("session/new").await;
+    let stale = fixture()["upstream"]["staleModelSession"].clone();
+    harness.agent.reply(&request, stale.clone()).await;
+    let repair = harness.agent.expect("session/set_config_option").await;
+    harness
+        .agent
+        .reply(&repair, json!({"configOptions": stale["configOptions"]}))
+        .await;
+    let event = serde_json::to_value(harness.event().await).unwrap();
+    assert_eq!(event["kind"], "requestFailed");
+    assert!(event["message"]
+        .as_str()
+        .unwrap()
+        .contains("did not confirm"));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn model_repair_shares_the_bounded_session_creation_deadline() {
+    let mut harness = Harness::ready().await;
+    harness.send(json!({ "kind": "newSession", "token": "new" }));
+    let request = harness.agent.expect("session/new").await;
+    harness
+        .agent
+        .reply(&request, fixture()["upstream"]["staleModelSession"].clone())
+        .await;
+    harness.agent.expect("session/set_config_option").await;
+    tokio::time::advance(SESSION_REQUEST_TIMEOUT).await;
+    let event = serde_json::to_value(harness.event().await).unwrap();
+    assert_eq!(event["kind"], "requestFailed");
+    assert_eq!(event["token"], "new");
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn updates_and_turns_are_routed_to_their_own_sessions() {
     let mut harness = Harness::ready().await;
     harness.open_session("session-a").await;

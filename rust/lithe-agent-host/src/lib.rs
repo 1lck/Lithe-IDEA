@@ -10,6 +10,7 @@ pub mod catalog;
 pub mod cli_update;
 pub mod environment;
 pub mod install;
+mod session_defaults;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
 
@@ -23,7 +24,7 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::v1::{
     AuthCapabilities, AuthenticateRequest, CancelNotification, ClientCapabilities, ContentBlock,
-    InitializeRequest, ListSessionsRequest, LoadSessionRequest, NewSessionRequest, PromptRequest,
+    InitializeRequest, ListSessionsRequest, LoadSessionRequest, PromptRequest,
     RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
     SelectedPermissionOutcome, SessionConfigOption, SessionNotification,
     SetSessionConfigOptionRequest, TextContent,
@@ -823,12 +824,17 @@ where
         // forever and the UI never learns the connection is gone.
         .on_close(async |_| Err(internal("The Agent exited")))
         .connect_with(transport, |connection: ConnectionTo<Agent>| async move {
-            let capabilities = ClientCapabilities::new().auth(AuthCapabilities::new().meta(
-                serde_json::Map::from_iter([(
+            // Negotiate only the upstream recommendation extension we consume;
+            // this namespace does not change product branding or permissions.
+            let capabilities = ClientCapabilities::new()
+                .auth(AuthCapabilities::new().meta(serde_json::Map::from_iter([(
                     GATEWAY_AUTH_METHOD.to_owned(),
                     serde_json::Value::Bool(true),
-                )]),
-            ));
+                )])))
+                .meta(serde_json::Map::from_iter([(
+                    "jetbrains".to_owned(),
+                    serde_json::json!({ "air": { "version": 1, "capabilities": ["recommendedValue"] } }),
+                )]));
             let initialized = tokio::time::timeout(
                 HANDSHAKE_TIMEOUT,
                 connection
@@ -908,9 +914,7 @@ where
                         tasks.spawn(async move {
                             let result = request_with_timeout(
                                 SESSION_REQUEST_TIMEOUT,
-                                connection
-                                    .send_request(NewSessionRequest::new(cwd))
-                                    .block_task(),
+                                session_defaults::new_session(&connection, cwd),
                             )
                             .await;
                             emit(match result {

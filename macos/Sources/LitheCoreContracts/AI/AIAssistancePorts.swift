@@ -58,6 +58,14 @@ public struct AIHTTPResponse: Sendable {
 
 public protocol AIConfigurationSource: Sendable {
     func load() -> AIConfigurationSnapshot?
+    /// Read a CLI default independently of endpoint and credential availability.
+    func loadModel() -> AIConfigurationModel?
+}
+
+public extension AIConfigurationSource {
+    func loadModel() -> AIConfigurationModel? {
+        load().map { AIConfigurationModel(source: $0.source, model: $0.model) }
+    }
 }
 
 public protocol CodexConfigurationSource: AIConfigurationSource {}

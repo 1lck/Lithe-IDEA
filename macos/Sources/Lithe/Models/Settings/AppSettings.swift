@@ -382,7 +382,7 @@ final class AppSettings: ObservableObject {
 
     /// Refresh linked agents' default models without changing the commit provider
     /// selection, endpoints, credentials, or manually configured models.
-    func refreshAgentModels(from configurations: [AIConfigurationSnapshot]) {
+    func refreshAgentModels(from configurations: [AIConfigurationModel]) {
         let linkedIDs = Set(agentConfigurations.values.compactMap(\.providerID))
         var value = commitMessageAI
         for index in value.providers.indices {
