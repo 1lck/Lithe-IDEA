@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
+
 workbench_path="macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
 drawing_group_pattern='\.drawingGroup[[:space:]]*\('
 workbench_rasterization_violations=$(

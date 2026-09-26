@@ -68,4 +68,27 @@ struct MavenDependencyLocalizationTests {
         #expect(chinese.subtitle(dependency) == "org.example:1.0:jar:tests [test]（版本冲突 → 2.0）")
         #expect(english.subtitle(dependency) == "org.example:1.0:jar:tests [test] (conflict -> 2.0)")
     }
+
+    @Test
+    func dependencySubtitleKeepsEveryMavenAnnotationInItsOrder() throws {
+        let chinese = try localization(.simplifiedChinese)
+        let english = try localization(.english)
+        let dependency = MavenDependency(
+            modulePath: ".", groupID: "org.example", artifactID: "demo", version: "2.1",
+            type: "jar", classifier: nil, scope: "compile", resolution: .omittedDuplicate,
+            selectedVersion: nil, premanagedVersion: "0.9.0", premanagedScope: "test",
+            originalScope: "runtime", ignoredScope: "compile", children: []
+        )
+        #expect(english.subtitle(dependency) == "org.example:2.1:jar [compile] (version managed from 0.9.0; "
+            + "scope managed from test; scope updated from runtime; scope not updated to compile; duplicate omitted)")
+        #expect(chinese.subtitle(dependency) == "org.example:2.1:jar [compile]（依赖管理前版本为 0.9.0；"
+            + "依赖管理前 scope 为 test；scope 由 runtime 提升；未提升为 compile scope；重复依赖已省略）")
+
+        let plain = MavenDependency(
+            modulePath: ".", groupID: "org.example", artifactID: "demo", version: "1.0",
+            type: "jar", classifier: nil, scope: "compile", resolution: .resolved,
+            selectedVersion: nil, children: []
+        )
+        #expect(english.subtitle(plain) == "org.example:1.0:jar [compile]")
+    }
 }

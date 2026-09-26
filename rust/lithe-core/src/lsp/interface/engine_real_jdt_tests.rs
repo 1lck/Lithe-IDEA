@@ -35,6 +35,26 @@ fn real_jdt_toolchain() -> Option<RealJdtToolchain> {
     })
 }
 
+/// Size of every file below a JDT LS installation, keyed by relative path.
+/// Symbolic links are recorded without being followed.
+fn installation_listing(root: &Path) -> BTreeMap<PathBuf, u64> {
+    let mut listing = BTreeMap::new();
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in std::fs::read_dir(&directory).expect("installation should be readable") {
+            let path = entry.expect("installation entry").path();
+            let metadata = std::fs::symlink_metadata(&path).expect("installation metadata");
+            if metadata.is_dir() {
+                pending.push(path);
+            } else {
+                let relative = path.strip_prefix(root).expect("entry inside root");
+                listing.insert(relative.to_path_buf(), metadata.len());
+            }
+        }
+    }
+    listing
+}
+
 /// Direct-launch resources laid out by the prepare scripts.
 fn packaged_launch_resources(root: &Path) -> JdtlsLaunchResources {
     let plugins = std::fs::read_dir(root.join("plugins")).expect("JDTLS plugins directory");
@@ -331,6 +351,8 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
         .expect("JDT LS Java should be inside a JDK bin directory")
         .to_path_buf();
 
+    let installation_before = installation_listing(&toolchain.root);
+
     let engine = LspEngine::new();
     let started = engine
         .start_server(StartServerRequest {
@@ -610,6 +632,23 @@ fn real_jdtls_discovers_builds_and_launches_java_25_entrypoints() {
             );
         }
     }
+
+    // The packaged installation is the release baseline for delta updates:
+    // after import, build, and classpath resolution JDT LS must not have
+    // added, removed, or resized a single file in it. Equinox's framework
+    // state has to be in the cache's configuration area instead.
+    assert_eq!(installation_listing(&toolchain.root), installation_before);
+    let configuration_areas = std::fs::read_dir(root.join("cache").join("jdtls-configuration"))
+        .expect("the cache should hold the Equinox configuration area")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path().join("configuration"))
+        .collect::<Vec<_>>();
+    assert!(
+        configuration_areas
+            .iter()
+            .any(|area| area.join("org.eclipse.osgi").is_dir()),
+        "Equinox did not write its state to the cache: {configuration_areas:?}"
+    );
 
     let Some(maven_executable) = toolchain.maven.as_deref() else {
         return;
