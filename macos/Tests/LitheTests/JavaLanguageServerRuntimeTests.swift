@@ -123,9 +123,13 @@ struct JavaLanguageServerRuntimeTests {
     @Test
     func macJdtlsResolverSelectsDirectLaunchResourcesDeterministically() throws {
         let fileManager = FileManager.default
-        let root = fileManager.temporaryDirectory
-            .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString)", isDirectory: true)
-        defer { try? fileManager.removeItem(at: root) }
+        let appRoot = fileManager.temporaryDirectory
+            .appendingPathComponent("lithe-jdtls-resolver-\(UUID().uuidString).app", isDirectory: true)
+        let root = appRoot.appendingPathComponent(
+            "Contents/Resources/LanguageServers/jdtls",
+            isDirectory: true
+        )
+        defer { try? fileManager.removeItem(at: appRoot) }
         for directory in [
             "bin", "plugins", "config_mac", "config_mac_arm", "lombok", "java-debug",
             "java-test/extensions", "java-test/runner"
@@ -155,12 +159,14 @@ struct JavaLanguageServerRuntimeTests {
         ] {
             try Data().write(to: file)
         }
-        let configurationCache = root.deletingLastPathComponent()
+        let configurationCache = appRoot.deletingLastPathComponent()
             .appendingPathComponent("lithe-jdtls-cache-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: configurationCache) }
-        let bundleSnapshotBeforeLaunch = try runtimeBundleSnapshot(at: root)
+        try Data().write(to: appRoot.appendingPathComponent("Contents/Resources/peer-resource"))
+        let bundleSnapshotBeforeLaunch = try runtimeBundleSnapshot(at: appRoot)
         let resolver = MacJDTLSLaunchResourceResolver(
             bundledJdtlsRootURL: root,
+            bundledAppRootURL: appRoot,
             configurationCacheDirectoryURL: configurationCache
         )
 
@@ -182,7 +188,7 @@ struct JavaLanguageServerRuntimeTests {
         #expect(!fileManager.fileExists(
             atPath: root.appendingPathComponent("config_mac_arm/org.eclipse.core.runtime").path
         ))
-        #expect(try runtimeBundleSnapshot(at: root) == bundleSnapshotBeforeLaunch)
+        #expect(try runtimeBundleSnapshot(at: appRoot) == bundleSnapshotBeforeLaunch)
         #expect(resources.lombokAgentURL.lastPathComponent == "lombok.jar")
         #expect(
             resources.javaDebugBundleURL?.lastPathComponent
@@ -198,12 +204,13 @@ struct JavaLanguageServerRuntimeTests {
                 == "com.microsoft.java.test.runner-jar-with-dependencies.jar"
         )
 
-        let symlinkRoot = root.deletingLastPathComponent()
+        let symlinkRoot = appRoot.deletingLastPathComponent()
             .appendingPathComponent("lithe-jdtls-link-\(UUID().uuidString)", isDirectory: true)
         defer { try? fileManager.removeItem(at: symlinkRoot) }
         try fileManager.createSymbolicLink(at: symlinkRoot, withDestinationURL: root)
         let symlinkResolver = MacJDTLSLaunchResourceResolver(
             bundledJdtlsRootURL: root,
+            bundledAppRootURL: appRoot,
             configurationCacheDirectoryURL: configurationCache
         )
         guard case .direct(let symlinkResources) = symlinkResolver.resolve(
@@ -216,13 +223,46 @@ struct JavaLanguageServerRuntimeTests {
 
         let invalidCacheResolver = MacJDTLSLaunchResourceResolver(
             bundledJdtlsRootURL: root,
-            configurationCacheDirectoryURL: root
+            bundledAppRootURL: appRoot,
+            configurationCacheDirectoryURL: appRoot.appendingPathComponent("Contents/Resources")
         )
         guard case .unavailable = invalidCacheResolver.resolve(for: executable) else {
-            Issue.record("Expected a cache path inside the bundled JDTLS tree to be rejected")
+            Issue.record("Expected a cache path inside the app bundle to be rejected")
             return
         }
-        #expect(try runtimeBundleSnapshot(at: root) == bundleSnapshotBeforeLaunch)
+        #expect(try runtimeBundleSnapshot(at: appRoot) == bundleSnapshotBeforeLaunch)
+
+        let damagedCacheURL = resources.configurationDirectoryURL
+        try fileManager.removeItem(at: damagedCacheURL.appendingPathComponent("config.ini"))
+        let damagedResolver = MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: root,
+            bundledAppRootURL: appRoot,
+            configurationCacheDirectoryURL: configurationCache
+        )
+        guard case .unavailable = damagedResolver.resolve(for: executable) else {
+            Issue.record("Expected an incomplete existing cache to be rejected")
+            return
+        }
+
+        let symlinkedCache = configurationCache
+            .deletingLastPathComponent()
+            .appendingPathComponent("lithe-jdtls-cache-link-\(UUID().uuidString)", isDirectory: true)
+        defer { try? fileManager.removeItem(at: symlinkedCache) }
+        try fileManager.createDirectory(at: symlinkedCache, withIntermediateDirectories: true)
+        try fileManager.createSymbolicLink(
+            at: symlinkedCache.appendingPathComponent("jdtls"),
+            withDestinationURL: root
+        )
+        let symlinkedCacheResolver = MacJDTLSLaunchResourceResolver(
+            bundledJdtlsRootURL: root,
+            bundledAppRootURL: appRoot,
+            configurationCacheDirectoryURL: symlinkedCache
+        )
+        guard case .unavailable = symlinkedCacheResolver.resolve(for: executable) else {
+            Issue.record("Expected a cache subdirectory symlink into the app bundle to be rejected")
+            return
+        }
+        #expect(try runtimeBundleSnapshot(at: appRoot) == bundleSnapshotBeforeLaunch)
     }
 
     private func runtimeBundleSnapshot(at root: URL) throws -> [String: String] {

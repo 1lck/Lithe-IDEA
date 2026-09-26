@@ -15,16 +15,19 @@ struct MacJDTLSLaunchResourceResolver {
     private static let javaTestRunnerName = "com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
     private let bundledJdtlsRootURL: URL?
+    private let bundledAppRootURL: URL?
     private let configurationCacheDirectoryURL: URL?
     private let fileManager: FileManager
 
     init(
         bundledJdtlsRootURL: URL? = Bundle.main.resourceURL?
             .appendingPathComponent("LanguageServers/jdtls", isDirectory: true),
+        bundledAppRootURL: URL? = Bundle.main.bundleURL,
         configurationCacheDirectoryURL: URL? = nil,
         fileManager: FileManager = .default
     ) {
         self.bundledJdtlsRootURL = bundledJdtlsRootURL?.standardizedFileURL
+        self.bundledAppRootURL = bundledAppRootURL?.standardizedFileURL
         self.configurationCacheDirectoryURL = configurationCacheDirectoryURL?.standardizedFileURL
         self.fileManager = fileManager
     }
@@ -92,10 +95,6 @@ struct MacJDTLSLaunchResourceResolver {
               isBundled(installationRootURL) else {
             return bundledConfigurationURL
         }
-        guard cacheDirectoryIsOutsideBundle(configurationCacheDirectoryURL) else {
-            throw ResolutionError.invalidConfigurationCache
-        }
-
         let configurationName = bundledConfigurationURL.lastPathComponent
         let sourceConfigURL = bundledConfigurationURL.appendingPathComponent("config.ini")
         let digest = SHA256.hash(data: try Data(contentsOf: sourceConfigURL))
@@ -105,52 +104,82 @@ struct MacJDTLSLaunchResourceResolver {
             .appendingPathComponent("jdtls/configurations", isDirectory: true)
         let cachedConfigurationURL = cacheRoot
             .appendingPathComponent("\(configurationName)-\(digest)", isDirectory: true)
+        guard cacheDirectoryIsOutsideBundle(
+            configurationCacheDirectoryURL,
+            cacheRoot,
+            cachedConfigurationURL
+        ) else { throw ResolutionError.invalidConfigurationCache }
         if isDirectory(cachedConfigurationURL),
            fileManager.fileExists(
                atPath: cachedConfigurationURL.appendingPathComponent("config.ini").path
            ) {
             return cachedConfigurationURL
         }
+        guard !fileManager.fileExists(atPath: cachedConfigurationURL.path) else {
+            throw ResolutionError.incompleteConfigurationCache
+        }
 
         try fileManager.createDirectory(
             at: cacheRoot,
             withIntermediateDirectories: true
         )
+        guard cacheDirectoryIsOutsideBundle(cacheRoot, cachedConfigurationURL) else {
+            throw ResolutionError.invalidConfigurationCache
+        }
         let stagingURL = cacheRoot.appendingPathComponent(
             ".\(configurationName)-\(UUID().uuidString)",
             isDirectory: true
         )
+        guard cacheDirectoryIsOutsideBundle(stagingURL) else {
+            throw ResolutionError.invalidConfigurationCache
+        }
         do {
             try fileManager.copyItem(at: bundledConfigurationURL, to: stagingURL)
+            guard cacheDirectoryIsOutsideBundle(stagingURL, cachedConfigurationURL) else {
+                throw ResolutionError.invalidConfigurationCache
+            }
             do {
                 try fileManager.moveItem(at: stagingURL, to: cachedConfigurationURL)
             } catch let error as CocoaError where error.code == .fileWriteFileExists {
-                // Another launch may have populated the same immutable cache
-                // while this launch was copying it.
-                try? fileManager.removeItem(at: stagingURL)
+                // Accept a concurrent publisher only after validating its result.
+                guard isDirectory(cachedConfigurationURL),
+                      fileManager.fileExists(
+                          atPath: cachedConfigurationURL.appendingPathComponent("config.ini").path
+                      ) else {
+                    throw ResolutionError.incompleteConfigurationCache
+                }
             }
         } catch {
             try? fileManager.removeItem(at: stagingURL)
             throw error
         }
+        if fileManager.fileExists(atPath: stagingURL.path) {
+            try? fileManager.removeItem(at: stagingURL)
+        }
+        guard cacheDirectoryIsOutsideBundle(cachedConfigurationURL) else {
+            throw ResolutionError.invalidConfigurationCache
+        }
         return cachedConfigurationURL
     }
 
-    private func cacheDirectoryIsOutsideBundle(_ cacheDirectoryURL: URL) -> Bool {
-        guard let bundledJdtlsRootURL else { return true }
-        let bundleRootPath = bundledJdtlsRootURL.standardizedFileURL.path
-        let bundleResolvedRootPath = bundledJdtlsRootURL
+    private func cacheDirectoryIsOutsideBundle(_ urls: URL...) -> Bool {
+        guard let bundledAppRootURL else { return false }
+        let bundleRootPath = bundledAppRootURL.standardizedFileURL.path
+        let bundleResolvedRootPath = bundledAppRootURL
             .resolvingSymlinksInPath()
             .standardizedFileURL
             .path
-        let candidatePaths = [
-            cacheDirectoryURL.standardizedFileURL.path,
-            cacheDirectoryURL.resolvingSymlinksInPath().standardizedFileURL.path,
-        ]
-        return candidatePaths.allSatisfy { path in
-            !isPath(path, inside: bundleRootPath)
-                && !isPath(path, inside: bundleResolvedRootPath)
+        for url in urls {
+            let paths = [
+                url.standardizedFileURL.path,
+                url.resolvingSymlinksInPath().standardizedFileURL.path,
+            ]
+            guard paths.allSatisfy({ path in
+                !isPath(path, inside: bundleRootPath)
+                    && !isPath(path, inside: bundleResolvedRootPath)
+            }) else { return false }
         }
+        return true
     }
 
     private func isPath(_ path: String, inside rootPath: String) -> Bool {
@@ -262,6 +291,7 @@ struct MacJDTLSLaunchResourceResolver {
     private enum ResolutionError: LocalizedError {
         case incompleteInstallation
         case invalidConfigurationCache
+        case incompleteConfigurationCache
 
         var errorDescription: String? {
             switch self {
@@ -271,6 +301,8 @@ struct MacJDTLSLaunchResourceResolver {
                     + "in the selected JDTLS installation."
             case .invalidConfigurationCache:
                 return "The JDTLS configuration cache must be outside the installed app bundle."
+            case .incompleteConfigurationCache:
+                return "The JDTLS configuration cache is incomplete. Remove the damaged cache and retry."
             }
         }
     }
