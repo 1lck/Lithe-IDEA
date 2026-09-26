@@ -165,6 +165,15 @@ export function useGitDiffActions({
           const relativePath = getGitFileRepositoryRelativePath(file);
           const originalRelativePath = getGitFileOriginalRepositoryRelativePath(file);
           const title = t(WORKING_TREE_TITLES.all);
+          const untracked = file.status === "untracked";
+          const workingTreeTargets: MultiFileDiff["workingTreeTargets"] = {
+            [fileKey]: {
+              repoPath: fileRepoPath,
+              filePath: relativePath,
+              ...(originalRelativePath ? { originalPath: originalRelativePath } : {}),
+              untracked,
+            },
+          };
           const loadingDiff: MultiFileDiff = {
             title,
             repoPath: fileRepoPath,
@@ -175,6 +184,7 @@ export function useGitDiffActions({
             totalDeletions: 0,
             fileKeys: [],
             initiallyExpandedFileKey: fileKey,
+            workingTreeTargets,
             isLoading: true,
             indexingProgress: {
               processed: 0,
@@ -191,7 +201,7 @@ export function useGitDiffActions({
             const diff = await getWorkingTreePathDiff(
               fileRepoPath,
               relativePath,
-              file.status === "untracked",
+              untracked,
               originalRelativePath,
             );
             if (
@@ -213,6 +223,7 @@ export function useGitDiffActions({
                   : [],
               initialProcessed: 1,
               initiallyExpandedFileKey: fileKey,
+              workingTreeTargets,
             });
           })();
           return;
