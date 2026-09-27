@@ -72,12 +72,15 @@ package final class RunService: ObservableObject {
     private var lastCurrentFileURL: URL?
     private var moduleProcesses: [String: any StreamingProcess] = [:]
     private var moduleLanguageExecutionSessions: [String: any LanguageExecutionSession] = [:]
+    private var activeLaunchArgumentLease: (any JavaLaunchArgumentLease)?
+    private var moduleLaunchArgumentLeases: [String: any JavaLaunchArgumentLease] = [:]
     private var activeOperationID: String?
     private var activePreLaunchProcess: (any StreamingProcess)?
     private var moduleOperationIDs: [String: String] = [:]
     private let maximumOutputCharacters = 500_000
     private let runtime: any RunRuntimePort
     private let executableResolver: any RunExecutableResolving
+    private let javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)?
     private var mavenContextProvider: @MainActor () -> MavenLaunchContext? = { nil }
     private var languageDependencyProvider: @MainActor (String, URL, String) -> LanguageDependencySnapshot? = {
         _, _, _ in nil
@@ -96,7 +99,8 @@ package final class RunService: ObservableObject {
         languageRunProviders: LanguageRunProviderRegistry,
         extensionRequiredLanguageIDs: Set<String> = [],
         languageSupports: [LanguageSupportDeclaration] = [],
-        dependencyStore: (any WorkspaceDependencyStoring)? = nil
+        dependencyStore: (any WorkspaceDependencyStoring)? = nil,
+        javaLaunchArgumentPreparer: (any JavaLaunchArgumentPreparing)? = nil
     ) {
         self.runtime = runtime
         self.process = process
@@ -108,6 +112,7 @@ package final class RunService: ObservableObject {
         self.languageProviderCatalog = languageProviderCatalog
         self.languageRunProviders = languageRunProviders
         self.extensionRequiredLanguageIDs = extensionRequiredLanguageIDs
+        self.javaLaunchArgumentPreparer = javaLaunchArgumentPreparer
         dependencyDeclarations = Dictionary(uniqueKeysWithValues: languageSupports.compactMap { support in
             support.dependencies.map { (support.id, $0) }
         })
@@ -927,7 +932,7 @@ package final class RunService: ObservableObject {
             fail(error.localizedDescription)
             return
         }
-        let arguments = Self.launchArguments(
+        let requestedArguments = Self.launchArguments(
             plan.arguments,
             classpath: plan.classpath,
             modulepath: plan.modulepath
@@ -937,8 +942,8 @@ package final class RunService: ObservableObject {
         runningTitle = configuration.name
         isRunning = true
         let displayedArguments = configuration.kind.isMavenBacked
-            ? redactedMavenArgumentsForDisplay(arguments)
-            : arguments
+            ? redactedMavenArgumentsForDisplay(requestedArguments)
+            : requestedArguments
         append(
             "$ " + resolved.executableURL.lastPathComponent + " "
                 + displayedArguments.joined(separator: " ") + "\n\n"
@@ -951,13 +956,18 @@ package final class RunService: ObservableObject {
         let startMain: @MainActor () -> Void = { [weak self] in
             guard let self, self.activeOperationID == operationID else { return }
             do {
+                let preparation = try self.prepareJavaLaunch(
+                    executablePath: resolved.executableURL.path,
+                    arguments: requestedArguments
+                )
+                self.activeLaunchArgumentLease = preparation.lease
                 if let extensionSession {
                     self.activeLanguageExecutionSession = extensionSession
                     self.configureLanguageExecutionSession(extensionSession)
                     try extensionSession.start(LanguageExecutionProcessRequest(
                         operationID: operationID,
                         executablePath: resolved.executableURL.path,
-                        arguments: arguments,
+                        arguments: preparation.arguments,
                         workingDirectory: workingDirectory.path,
                         environment: resolved.environment
                     ))
@@ -965,12 +975,13 @@ package final class RunService: ObservableObject {
                     try self.process.start(ProcessRequest(
                         operationID: operationID,
                         executablePath: resolved.executableURL.path,
-                        arguments: arguments,
+                        arguments: preparation.arguments,
                         workingDirectory: workingDirectory.path,
                         environment: resolved.environment
                     ))
                 }
             } catch {
+                self.activeLaunchArgumentLease = nil
                 self.activeLanguageExecutionSession = nil
                 self.fail("Unable to start " + configuration.name + ": " + error.localizedDescription)
             }
@@ -1047,6 +1058,7 @@ package final class RunService: ObservableObject {
         activePreLaunchProcess?.stop()
         activePreLaunchProcess = nil
         process.stop()
+        activeLaunchArgumentLease = nil
         isRunning = false
         runningTitle = nil
         activeOperationID = nil
@@ -1347,10 +1359,24 @@ package final class RunService: ObservableObject {
 
     private func finishProcess(exitCode: Int32) {
         activeLanguageExecutionSession = nil
+        activeLaunchArgumentLease = nil
         isRunning = false
         runningTitle = nil
         lastExitCode = exitCode
         activeOperationID = nil
+    }
+
+    private func prepareJavaLaunch(
+        executablePath: String,
+        arguments: [String]
+    ) throws -> JavaLaunchArgumentPreparation {
+        guard let javaLaunchArgumentPreparer else {
+            return JavaLaunchArgumentPreparation(arguments: arguments)
+        }
+        return try javaLaunchArgumentPreparer.prepareJavaLaunch(
+            executablePath: executablePath,
+            arguments: arguments
+        )
     }
 
     private func consumeLifecycle(_ event: ProcessLifecycleEvent) {
@@ -1670,7 +1696,7 @@ package final class RunService: ObservableObject {
             ))
             return
         }
-        let arguments = Self.launchArguments(
+        let requestedArguments = Self.launchArguments(
             plan.arguments,
             classpath: plan.classpath,
             modulepath: plan.modulepath
@@ -1683,8 +1709,8 @@ package final class RunService: ObservableObject {
             title: configuration.name,
             output: "$ " + resolved.executableURL.lastPathComponent + " "
                 + (configuration.kind.isMavenBacked
-                    ? redactedMavenArgumentsForDisplay(arguments)
-                    : arguments).joined(separator: " ") + "\n\n",
+                    ? redactedMavenArgumentsForDisplay(requestedArguments)
+                    : requestedArguments).joined(separator: " ") + "\n\n",
             isRunning: true,
             exitCode: nil
         )
@@ -1693,6 +1719,11 @@ package final class RunService: ObservableObject {
         let operationID = UUID().uuidString
         moduleOperationIDs[configuration.id] = operationID
         do {
+            let preparation = try prepareJavaLaunch(
+                executablePath: resolved.executableURL.path,
+                arguments: requestedArguments
+            )
+            moduleLaunchArgumentLeases[configuration.id] = preparation.lease
             if let provider = languageRunExtension(providerID: configuration.kind.providerID) {
                 let extensionSession = provider.makeExecutionSession()
                 configureModuleLanguageExecutionSession(
@@ -1703,7 +1734,7 @@ package final class RunService: ObservableObject {
                 try extensionSession.start(LanguageExecutionProcessRequest(
                     operationID: operationID,
                     executablePath: resolved.executableURL.path,
-                    arguments: arguments,
+                    arguments: preparation.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment
                 ))
@@ -1714,12 +1745,13 @@ package final class RunService: ObservableObject {
                 try process.start(ProcessRequest(
                     operationID: operationID,
                     executablePath: resolved.executableURL.path,
-                    arguments: arguments,
+                    arguments: preparation.arguments,
                     workingDirectory: workingDirectory.path,
                     environment: resolved.environment
                 ))
             }
         } catch {
+            moduleLaunchArgumentLeases[configuration.id] = nil
             moduleProcesses[configuration.id] = nil
             moduleLanguageExecutionSessions[configuration.id] = nil
             moduleOperationIDs[configuration.id] = nil
@@ -1739,6 +1771,7 @@ package final class RunService: ObservableObject {
         moduleProcesses[sessionID] = nil
         moduleLanguageExecutionSessions[sessionID]?.stop()
         moduleLanguageExecutionSessions[sessionID] = nil
+        moduleLaunchArgumentLeases[sessionID] = nil
         moduleOperationIDs[sessionID] = nil
         if let index = moduleSessions.firstIndex(where: { $0.id == sessionID }) {
             moduleSessions[index].isRunning = false
@@ -1754,6 +1787,7 @@ package final class RunService: ObservableObject {
         }
         moduleProcesses[sessionID] = nil
         moduleLanguageExecutionSessions[sessionID] = nil
+        moduleLaunchArgumentLeases[sessionID] = nil
         moduleOperationIDs[sessionID] = nil
     }
 

@@ -126,8 +126,12 @@ export function mountDiffReview(container: HTMLElement,
       const request = ++version;
       await ensureMonacoLanguageTokenizer(input.language);
       if (disposed || request !== version) return;
-      clearZones();
+      // Capture the scroll anchor while the previous action zones still occupy
+      // their space. Monaco restores by first visible line, so saving after the
+      // zones are removed shifts every update down by the zone heights above
+      // the viewport.
       const viewState = editor.saveViewState();
+      clearZones();
       const old = projectReviewRows(input.rows, "left"), next = projectReviewRows(input.rows, "right");
       leftRows = old.rows; rightRows = next.rows;
       if (original.getLanguageId() !== input.language) monaco.editor.setModelLanguage(original, input.language);

@@ -23,6 +23,14 @@ export function selectedReferenceAfterRename(
   return selectedReference?.fullName === renamedFromFullName ? renamedReference : selectedReference;
 }
 
+/**
+ * True for a remote symbolic reference such as `origin/HEAD`, which Git keeps
+ * as a pointer to the remote's default branch rather than a normal branch.
+ */
+export function isRemoteSymbolicReference(reference: GitReference): boolean {
+  return reference.kind === "remote" && reference.fullName.endsWith("/HEAD");
+}
+
 export function reconcileGitLogReference(
   reference: GitReference | null,
   refreshedReferences: GitReference[] | null,
@@ -34,7 +42,29 @@ export function reconcileGitLogReference(
   const refreshedReference = refreshedReferences.find(
     (candidate) => candidate.fullName === reference.fullName,
   );
-  return refreshedReference
-    ? { reference: refreshedReference, isMissing: false }
-    : { reference: null, isMissing: true };
+  if (refreshedReference) {
+    return { reference: refreshedReference, isMissing: false };
+  }
+
+  // A remote symbolic `HEAD` is a real reference, but a snapshot may list only
+  // the remote's branches rather than `origin/HEAD` itself. Treat it as present
+  // when its published symbolic target or its remote namespace still exists, so
+  // selecting it never trips the missing-reference fallback reload. The caller
+  // keeps the clicked reference selected.
+  if (isRemoteSymbolicReference(reference)) {
+    const symbolicTarget =
+      (reference.upstreamShortName
+        ? refreshedReferences.find(
+            (candidate) => candidate.shortName === reference.upstreamShortName,
+          )
+        : undefined) ??
+      refreshedReferences.find(
+        (candidate) =>
+          candidate.fullName !== reference.fullName &&
+          candidate.fullName.startsWith(reference.fullName.slice(0, -"HEAD".length)),
+      );
+    if (symbolicTarget) return { reference, isMissing: false };
+  }
+
+  return { reference: null, isMissing: true };
 }

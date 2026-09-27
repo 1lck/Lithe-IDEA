@@ -10,7 +10,7 @@ struct PluginManagerTests {
     func bundledLanguageCatalogOnlyCreatesPluginsForImplementedProcessFeatures() throws {
         let expectedIDs: Set<String> = [
             "python", "node", "rust", "clangd", "csharp", "fsharp", "swift", "kotlin", "scala", "groovy",
-            "ruby", "php", "dart", "lua", "shell", "powershell", "html", "css", "vue", "svelte", "astro",
+            "ruby", "dart", "lua", "shell", "powershell", "html", "css", "vue", "svelte", "astro",
             "json", "yaml", "xml", "markdown", "sql", "terraform", "dockerfile", "cmake", "make", "toml",
             "graphql", "protobuf", "prisma", "elixir", "erlang", "haskell", "ocaml", "clojure", "julia",
             "r", "perl", "zig", "solidity"

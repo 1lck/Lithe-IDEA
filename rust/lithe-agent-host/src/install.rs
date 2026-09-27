@@ -7,6 +7,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -19,6 +20,18 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const MARKER: &str = "lithe-agent.json";
 /// Characters of npm output kept for a failure report.
 const OUTPUT_TAIL: usize = 2000;
+
+// Install and uninstall share fixed per-agent paths. Serialize mutations in
+// this host process so one request cannot remove or replace another request's
+// staging directory or rollback marker.
+static INSTALL_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn install_lock() -> std::sync::MutexGuard<'static, ()> {
+    INSTALL_MUTEX
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("agent install lock should not be poisoned")
+}
 
 /// Verified CLI version, with bounded installer diagnostics when it reported failure.
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -314,10 +327,16 @@ pub fn install_with_progress(
     cancel: &dyn Fn() -> bool,
     progress: &dyn Fn(InstallProgress),
 ) -> Result<String, ManagementError> {
+    let _lock = install_lock();
     progress(InstallProgress::preparing());
     let agent = crate::catalog::find(agent_id)
         .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
     let environment = environment::detect(cancel);
+    // Detection returns an optional snapshot so callers can report missing
+    // tools, but cancellation must retain its original error semantics.
+    if cancel() {
+        return Err(ManagementError::Cancelled);
+    }
     if let Some(issue) = runtime_issues(agent, &environment).into_iter().next() {
         return Err(ManagementError::RuntimeMissing(issue));
     }
@@ -333,6 +352,9 @@ pub fn install_with_progress(
         ManagementError::Failed(format!("Could not create {}: {error}", staging.display()))
     })?;
     let result = run_npm_install_observed(&npm, &staging, agent, cancel, progress).and_then(|()| {
+        if cancel() {
+            return Err(ManagementError::Cancelled);
+        }
         if !bin_path(&staging, agent).exists() {
             return Err(ManagementError::Failed(format!(
                 "npm finished, but `{}` was not installed",
@@ -346,6 +368,9 @@ pub fn install_with_progress(
         .map_err(|error| ManagementError::Failed(error.to_string()))?;
         std::fs::write(staging.join(MARKER), marker)
             .map_err(|error| ManagementError::Failed(error.to_string()))?;
+        if cancel() {
+            return Err(ManagementError::Cancelled);
+        }
         replace_directory(&staging, &agent_directory(data_directory, agent))
     });
     if result.is_err() {
@@ -501,6 +526,7 @@ fn verify_updated_cli(
 
 /// Remove an installed adapter. Removing a missing adapter succeeds.
 pub fn uninstall(data_directory: &Path, agent_id: &str) -> Result<(), ManagementError> {
+    let _lock = install_lock();
     let agent = crate::catalog::find(agent_id)
         .ok_or_else(|| ManagementError::UnknownAgent(agent_id.into()))?;
     match std::fs::remove_dir_all(agent_directory(data_directory, agent)) {
@@ -895,6 +921,14 @@ while :; do :; done
             run_npm_install(&npm, &staging, codex(), &|| true),
             Err(ManagementError::Cancelled)
         );
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    #[test]
+    fn cancellation_during_runtime_detection_is_not_reported_as_missing_node() {
+        let data = temp_directory("detect-cancel");
+        let result = install_with_progress(&data, "codex-acp", &|| true, &|_| {});
+        assert_eq!(result, Err(ManagementError::Cancelled));
         let _ = std::fs::remove_dir_all(&data);
     }
 

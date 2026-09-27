@@ -1256,7 +1256,9 @@ struct SettingsView: View {
                 StableRollbackControl()
 
                 HStack(spacing: 10) {
-                    Button {
+                    // An update found here is installed from the button beside
+                    // this one, so the check does not open the update window.
+                    let checkButton = Button {
                         Task { await updateChecker.checkForUpdates(manual: true) }
                     } label: {
                         Label(
@@ -1264,11 +1266,15 @@ struct SettingsView: View {
                             systemImage: "arrow.clockwise"
                         )
                     }
-                    .buttonStyle(LithePrimaryButtonStyle(
-                        backgroundColor: LitheTheme.settingsPrimaryAction,
-                        restingOpacity: 1
-                    ))
                     .disabled(updateChecker.isBusy)
+                    if case .available = updateChecker.status {
+                        checkButton.buttonStyle(LitheSecondaryButtonStyle())
+                    } else {
+                        checkButton.buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
+                    }
 
                     if case .waitingForTermination = updateChecker.status {
                         Button {
@@ -1288,7 +1294,10 @@ struct SettingsView: View {
                                 Label("Update \(version)", systemImage: "arrow.down.circle.fill")
                             }
                         }
-                        .buttonStyle(LitheSecondaryButtonStyle())
+                        .buttonStyle(LithePrimaryButtonStyle(
+                            backgroundColor: LitheTheme.settingsPrimaryAction,
+                            restingOpacity: 1
+                        ))
                         .disabled(updateChecker.isBusy)
                     }
                 }

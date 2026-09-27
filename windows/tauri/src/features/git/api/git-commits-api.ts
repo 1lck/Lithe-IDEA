@@ -271,3 +271,9 @@ export const cherryPickCommit = (repoPath: string, revision: string): Promise<vo
     operation: "cherryPick",
     revision,
   }).then(() => undefined);
+
+export const revertCommit = (repoPath: string, revision: string): Promise<void> =>
+  runHistoryMutation(repoPath, "revert-commit", {
+    operation: "revert",
+    revision,
+  }).then(() => undefined);

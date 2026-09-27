@@ -12,8 +12,9 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { LocalHistoryCommandContent } from "@/features/local-history/components/local-history-command";
 import { OutlineCommandContent } from "@/features/outline/components/outline-command";
 import { commitChanges } from "@/features/git/api/git-commits-api";
-import { fetchChanges, pullChanges } from "@/features/git/api/git-remotes-api";
+import { fetchChanges } from "@/features/git/api/git-remotes-api";
 import { showGitPushDialog } from "@/features/git/services/git-push-dialog-service";
+import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
 import {
   discardAllChanges,
   stageAllFiles,
@@ -318,7 +319,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
         unstageAllFiles,
         commitChanges,
         showGitPushDialog,
-        pullChanges,
+        showGitPullDialog,
         fetchChanges,
         discardAllChanges,
       },

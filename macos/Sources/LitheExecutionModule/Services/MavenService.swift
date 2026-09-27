@@ -113,6 +113,7 @@ package final class MavenService: ObservableObject {
     private let process: any StreamingProcess
     private let dependencyProcess: any StreamingProcess
     private let mavenOperations: any MavenProjectOperations
+    private let dependencyOutputs: (any MavenDependencyOutputStoring)?
     private let runtimeService: any MavenRuntimePort
     private let configurationWriter: MavenConfigurationWriter
     private var workspaceURL: URL?
@@ -126,13 +127,13 @@ package final class MavenService: ObservableObject {
     private var dependencyLoadID = UUID()
     private var activeDependencyOperationID: String?
     private var activeDependencyModulePath: String?
-    private var dependencyOutput = ""
+    /// Scratch file the active dependency operation's Maven writes its tree to.
+    private var activeDependencyOutputFile: URL?
     private var dependencyTimedOut = false
     private var configurationRevision = 0
     private var configurationFingerprint: String?
     private var fingerprintRevision = 0
     private let maximumOutputCharacters = 500_000
-    private let maximumDependencyOutputCharacters = 500_000
     private let dependencyTimeoutMilliseconds = 60_000
 
     package init(
@@ -140,12 +141,14 @@ package final class MavenService: ObservableObject {
         process: any StreamingProcess,
         dependencyProcess: any StreamingProcess,
         mavenOperations: any MavenProjectOperations,
-        configurationStore: (any MavenConfigurationStoring)? = nil
+        configurationStore: (any MavenConfigurationStoring)? = nil,
+        dependencyOutputs: (any MavenDependencyOutputStoring)? = nil
     ) {
         self.runtimeService = runtimeService
         self.process = process
         self.dependencyProcess = dependencyProcess
         self.mavenOperations = mavenOperations
+        self.dependencyOutputs = dependencyOutputs
         configurationWriter = MavenConfigurationWriter(store: configurationStore)
         process.onOutput = { [weak self] chunk in
             Task { @MainActor [weak self] in
@@ -164,12 +167,9 @@ package final class MavenService: ObservableObject {
                 self?.consumeLifecycle(event)
             }
         }
-        dependencyProcess.onOutput = { [weak self] chunk in
-            Task { @MainActor [weak self] in
-                guard self?.activeDependencyOperationID != nil else { return }
-                self?.appendDependencyOutput(chunk)
-            }
-        }
+        // The dependency process writes its tree to a scratch file; its
+        // console output is Maven's log, not dependency data.
+        dependencyProcess.onOutput = { _ in }
         dependencyProcess.onTermination = { [weak self] exitCode in
             Task { @MainActor [weak self] in
                 guard self?.activeDependencyOperationID != nil else { return }
@@ -484,9 +484,22 @@ package final class MavenService: ObservableObject {
         dependencyLoadID = loadID
         activeDependencyModulePath = modulePath
         activeDependencyOperationID = nil
-        dependencyOutput = ""
         dependencyTimedOut = false
         dependencyStates[modulePath] = .loading
+        let outputFile: URL
+        do {
+            guard let dependencyOutputs else {
+                throw MavenOperationError(
+                    code: "not_supported",
+                    message: "Maven dependency resolution is unavailable."
+                )
+            }
+            outputFile = try dependencyOutputs.makeDependencyOutputFile(operationID: loadID.uuidString)
+        } catch {
+            failDependency(modulePath: modulePath, message: error.localizedDescription)
+            return
+        }
+        activeDependencyOutputFile = outputFile
         let operations = mavenOperations
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
@@ -495,7 +508,8 @@ package final class MavenService: ObservableObject {
                         plan: try operations.mavenDependencyPlan(
                             at: workspaceURL,
                             context: context,
-                            module: modulePath == "." ? nil : modulePath
+                            module: modulePath == "." ? nil : modulePath,
+                            outputFile: outputFile
                         ),
                         errorMessage: nil
                     )
@@ -732,7 +746,6 @@ package final class MavenService: ObservableObject {
     private func finishDependencyProcess(exitCode: Int32) {
         guard let modulePath = activeDependencyModulePath else { return }
         let loadID = dependencyLoadID
-        let output = dependencyOutput
         let timedOut = dependencyTimedOut
         activeDependencyOperationID = nil
         dependencyTimedOut = false
@@ -750,12 +763,27 @@ package final class MavenService: ObservableObject {
             )
             return
         }
+        guard let outputFile = activeDependencyOutputFile else {
+            failDependency(
+                modulePath: modulePath,
+                message: "Unable to parse Maven dependencies for this module."
+            )
+            return
+        }
+        // The read below now owns the file, so a later cancellation or a new
+        // request cannot remove it while Core is still reading it.
+        activeDependencyOutputFile = nil
         let operations = mavenOperations
+        let dependencyOutputs = dependencyOutputs
         Task { [weak self] in
             let result = await Task.detached(priority: .utility) {
+                defer { dependencyOutputs?.removeDependencyOutputFile(outputFile) }
                 do {
                     return MavenDependencyParseResult(
-                        tree: try operations.mavenDependencies(modulePath: modulePath, output: output),
+                        tree: try operations.mavenDependencies(
+                            modulePath: modulePath,
+                            outputFile: outputFile
+                        ),
                         errorMessage: nil
                     )
                 } catch {
@@ -770,7 +798,6 @@ package final class MavenService: ObservableObject {
                   self.activeDependencyModulePath == modulePath,
                   case .loading = self.dependencyState(for: modulePath) else { return }
             self.activeDependencyModulePath = nil
-            self.dependencyOutput = ""
             if let tree = result.tree {
                 self.dependencyStates[modulePath] = .ready(tree.dependencies)
             } else {
@@ -803,25 +830,21 @@ package final class MavenService: ObservableObject {
         }
     }
 
-    private func appendDependencyOutput(_ value: String) {
-        guard let modulePath = activeDependencyModulePath else { return }
-        dependencyOutput.append(value.replacingOccurrences(of: "\r", with: ""))
-        guard dependencyOutput.count <= maximumDependencyOutputCharacters else {
-            dependencyProcess.stop()
-            failDependency(
-                modulePath: modulePath,
-                message: "Maven dependency output exceeded the supported limit."
-            )
-            return
-        }
-    }
-
     private func failDependency(modulePath: String, message: String) {
         dependencyStates[modulePath] = .failed(message)
         activeDependencyOperationID = nil
         activeDependencyModulePath = nil
-        dependencyOutput = ""
+        releaseDependencyOutputFile()
         dependencyTimedOut = false
+    }
+
+    /// Removes the active operation's scratch file once it can no longer
+    /// produce a result. A file Maven writes after a stop is left for the
+    /// store's startup cleanup rather than read by a later operation.
+    private func releaseDependencyOutputFile() {
+        guard let outputFile = activeDependencyOutputFile else { return }
+        activeDependencyOutputFile = nil
+        dependencyOutputs?.removeDependencyOutputFile(outputFile)
     }
 
     private func cancelActiveDependency(markCancelled: Bool) {
@@ -832,7 +855,7 @@ package final class MavenService: ObservableObject {
         }
         activeDependencyOperationID = nil
         activeDependencyModulePath = nil
-        dependencyOutput = ""
+        releaseDependencyOutputFile()
         dependencyTimedOut = false
         if markCancelled, let modulePath {
             dependencyStates[modulePath] = .cancelled

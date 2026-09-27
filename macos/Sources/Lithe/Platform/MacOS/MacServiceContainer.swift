@@ -256,7 +256,9 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
+                        configurationCacheDirectoryURL: languageServerCacheDirectory
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -370,7 +372,8 @@ final class MacServiceContainer {
                             process: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             dependencyProcess: MacStreamingProcess(processRegistry: processRegistry, moduleID: .execution),
                             mavenOperations: javaMavenOperations,
-                            configurationStore: MacMavenConfigurationStore(storage: fileStorage)
+                            configurationStore: MacMavenConfigurationStore(storage: fileStorage),
+                            dependencyOutputs: MacMavenDependencyOutputStore()
                         ),
                         run: RunService(
                             runtime: runtimeService,
@@ -385,7 +388,8 @@ final class MacServiceContainer {
                             languageRunProviders: languagePackRegistry.runProviders,
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
                             languageSupports: installedLanguageSupports,
-                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                            javaLaunchArgumentPreparer: rustCore
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,

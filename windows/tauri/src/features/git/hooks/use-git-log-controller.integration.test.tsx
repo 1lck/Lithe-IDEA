@@ -45,7 +45,13 @@ const getGitReferences = mock(
   }),
 );
 const getGitHistoryPage = mock(
-  async (repoPath: string): Promise<GitHistoryPage> => ({
+  async (
+    repoPath: string,
+    _cursor?: string,
+    _limit?: number,
+    _operationId?: string,
+    _reference?: string,
+  ): Promise<GitHistoryPage> => ({
     commits: [commitFor(repoPath)],
     hasMore: false,
   }),
@@ -83,7 +89,7 @@ type ControllerRender = {
 function mountController(): {
   read: () => GitLogController;
   renders: () => readonly ControllerRender[];
-  render: (repoPath: string) => Promise<void>;
+  render: (repoPath: string, preferredReference?: GitReference | null) => Promise<void>;
   root: Root;
 } {
   const container = document.createElement("div");
@@ -92,8 +98,14 @@ function mountController(): {
   let current: GitLogController | null = null;
   const renders: ControllerRender[] = [];
 
-  function Probe({ repoPath }: { repoPath: string }): ReactNode {
-    current = useGitLogController(repoPath);
+  function Probe({
+    repoPath,
+    preferredReference,
+  }: {
+    repoPath: string;
+    preferredReference: GitReference | null;
+  }): ReactNode {
+    current = useGitLogController(repoPath, preferredReference);
     renders.push({
       repoPath,
       commitMessages: current.history.commits.map((commit) => commit.message),
@@ -107,11 +119,11 @@ function mountController(): {
       return current;
     },
     renders: () => renders,
-    render: async (repoPath) => {
+    render: async (repoPath, preferredReference = null) => {
       await act(async () => {
         root.render(
           <LocaleProvider language="en-US">
-            <Probe repoPath={repoPath} />
+            <Probe repoPath={repoPath} preferredReference={preferredReference} />
           </LocaleProvider>,
         );
       });
@@ -163,6 +175,110 @@ describe("Git Log controller repository lifecycle", () => {
 
       expect(getGitHistoryPage).toHaveBeenCalledTimes(pageCallsBeforeStaleRefresh);
       expect(harness.read().history.commits[0]?.message).toBe("C:/repo-b");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("loads a pending cross-repository reference with a single history request", async () => {
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      getGitHistoryPage.mockClear();
+
+      const preferredReference: GitReference = {
+        fullName: "refs/heads/feature",
+        shortName: "feature",
+        kind: "local",
+        peelsToCommit: true,
+        isCurrent: false,
+        ahead: 0,
+        behind: 0,
+      };
+      getGitReferences.mockImplementationOnce(async () => ({
+        references: [preferredReference],
+        recentReferences: [preferredReference],
+      }));
+
+      await harness.render("C:/repo-b", preferredReference);
+
+      expect(getGitHistoryPage).toHaveBeenCalledTimes(1);
+      expect(getGitHistoryPage.mock.calls[0]?.[4]).toBe("refs/heads/feature");
+      expect(harness.read().selectedReference?.fullName).toBe("refs/heads/feature");
+      expect(harness.read().history.commits[0]?.message).toBe("C:/repo-b");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("selects a remote symbolic HEAD with exactly one history request", async () => {
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      getGitHistoryPage.mockClear();
+
+      const originHead: GitReference = {
+        fullName: "refs/remotes/origin/HEAD",
+        shortName: "origin/HEAD",
+        kind: "remote",
+        peelsToCommit: true,
+        isCurrent: false,
+      };
+      const originMain: GitReference = {
+        fullName: "refs/remotes/origin/main",
+        shortName: "origin/main",
+        kind: "remote",
+        peelsToCommit: true,
+        isCurrent: false,
+      };
+      // The snapshot lists the remote's branches but not the symbolic `origin/HEAD`.
+      getGitReferences.mockImplementationOnce(async () => ({
+        references: [originMain],
+        recentReferences: [originMain],
+      }));
+
+      await act(async () => {
+        harness.read().selectReference(originHead);
+      });
+
+      expect(getGitHistoryPage).toHaveBeenCalledTimes(1);
+      expect(getGitHistoryPage.mock.calls[0]?.[4]).toBe("refs/remotes/origin/HEAD");
+      expect(harness.read().selectedReference?.fullName).toBe("refs/remotes/origin/HEAD");
+    } finally {
+      await act(async () => {
+        harness.root.unmount();
+      });
+    }
+  });
+
+  test("falls back to an unfiltered load for a genuinely missing reference", async () => {
+    const harness = mountController();
+    try {
+      await harness.render("C:/repo-a");
+      getGitHistoryPage.mockClear();
+
+      const deletedReference: GitReference = {
+        fullName: "refs/remotes/origin/deleted",
+        shortName: "origin/deleted",
+        kind: "remote",
+        peelsToCommit: true,
+        isCurrent: false,
+      };
+      getGitReferences.mockImplementationOnce(async () => ({
+        references: [],
+        recentReferences: [],
+      }));
+
+      await act(async () => {
+        harness.read().selectReference(deletedReference);
+      });
+
+      expect(getGitHistoryPage).toHaveBeenCalledTimes(2);
+      expect(harness.read().selectedReference).toBeNull();
     } finally {
       await act(async () => {
         harness.root.unmount();

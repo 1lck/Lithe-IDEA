@@ -26,6 +26,20 @@ export function resolveMavenInstallation(root: string, overridePath?: string) {
   return invoke<string | null>("maven_resolve_installation", { root, overridePath });
 }
 
+/**
+ * Returns a fresh host-owned file for one dependency session's tree.
+ *
+ * The session must call `removeMavenDependencyOutput` once it ends, whether
+ * the tree was read, cancelled, timed out, or failed.
+ */
+export function createMavenDependencyOutput(sessionId: string) {
+  return invoke<string>("maven_create_dependency_output", { sessionId });
+}
+
+export function removeMavenDependencyOutput(sessionId: string) {
+  return invoke<void>("maven_remove_dependency_output", { sessionId });
+}
+
 export function writeMavenConfiguration(
   root: string,
   reactorPath: string,

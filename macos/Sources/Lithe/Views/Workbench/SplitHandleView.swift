@@ -12,10 +12,10 @@ struct SplitHandleView: View {
     // depend on landing on a single pixel row or column.
     static let thickness: CGFloat = 5
     static let hitThickness: CGFloat = 10
+    static let visibleTrackThickness: CGFloat = 2
 
     let axis: LitheSplitAxis
-    let leadingBackground: Color
-    let trailingBackground: Color
+    let trackBackground: Color
     let showsIdleDivider: Bool
     let onDragStarted: () -> Void
     let onDragChanged: (CGFloat) -> Void
@@ -28,16 +28,14 @@ struct SplitHandleView: View {
 
     init(
         axis: LitheSplitAxis,
-        leadingBackground: Color = .clear,
-        trailingBackground: Color = .clear,
+        trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
         onDragStarted: @escaping () -> Void,
         onDragChanged: @escaping (CGFloat) -> Void,
         onDragEnded: @escaping (CGFloat) -> Void
     ) {
         self.axis = axis
-        self.leadingBackground = leadingBackground
-        self.trailingBackground = trailingBackground
+        self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
         self.onDragStarted = onDragStarted
         self.onDragChanged = onDragChanged
@@ -47,6 +45,10 @@ struct SplitHandleView: View {
     var body: some View {
         ZStack {
             trackBackground
+                .frame(
+                    width: axis == .horizontal ? Self.visibleTrackThickness : nil,
+                    height: axis == .vertical ? Self.visibleTrackThickness : nil
+                )
             Color.clear
             dividerLine
         }
@@ -107,25 +109,6 @@ struct SplitHandleView: View {
         .help(axis == .horizontal ? "Drag left or right to resize" : "Drag up or down to resize")
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(axis == .horizontal ? "Horizontal pane resize handle" : "Vertical pane resize handle")
-    }
-
-    @ViewBuilder
-    private var trackBackground: some View {
-        if axis == .horizontal {
-            HStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        } else {
-            VStack(spacing: 0) {
-                leadingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                trailingBackground
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
     }
 
     @ViewBuilder

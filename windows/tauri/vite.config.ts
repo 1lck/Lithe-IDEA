@@ -27,7 +27,7 @@ export default defineConfig({
         __dirname,
         "./node_modules/zustand/esm/middleware/immer.mjs",
       ),
-      "zustand": path.resolve(__dirname, "./node_modules/zustand"),
+      zustand: path.resolve(__dirname, "./node_modules/zustand"),
       // Consume live shared sources; Bun's local file dependency may retain an older copy.
       "@lithe/editor": path.resolve(__dirname, "../../frontend/editor/src"),
     },

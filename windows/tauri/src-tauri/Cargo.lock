@@ -2667,6 +2667,7 @@ dependencies = [
  "chrono",
  "keyring",
  "lithe-core",
+ "lithe-git-host",
  "lithe-project",
  "lithe-terminal",
  "regex",

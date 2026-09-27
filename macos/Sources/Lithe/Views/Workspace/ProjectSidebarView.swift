@@ -38,7 +38,7 @@ struct ProjectSidebarView: View {
     @State private var dependencyRefreshRevision = 0
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             sidebarHeader
 
             if selectedContent == .dependencies {
@@ -210,6 +210,7 @@ struct ProjectSidebarView: View {
                 .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .tint(LitheTheme.primaryText)
             .fixedSize()
             .help("Switch project view")
             .accessibilityIdentifier("project-sidebar-view-selector")

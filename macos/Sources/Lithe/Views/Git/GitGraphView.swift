@@ -10,7 +10,7 @@ struct GitGraphRowActions {
     let onSelect: (GitCommit) -> Void
     let onCherryPick: (GitCommit) -> Void
     let onRevert: (GitCommit) -> Void
-    let onReset: (GitCommit) -> Void
+    let onReset: (GitCommit, GitResetMode) -> Void
     let onCreateTag: (GitCommit) -> Void
     var onSelectWithModifiers: ((GitCommit, NSEvent.ModifierFlags) -> Void)? = nil
     var onContextSelect: ((GitCommit) -> Void)? = nil
@@ -37,7 +37,11 @@ struct GitGraphRowActions {
             .action("New Tag…") { onCreateTag(commit) },
             .action("Cherry-pick Commit…") { onCherryPick(commit) },
             .action("Revert Commit…") { onRevert(commit) },
-            .action("Reset Current Branch to Here…") { onReset(commit) }
+            .submenu("Reset Current Branch to Here…", items: [
+                .action("Soft Reset (Keep Changes Staged)") { onReset(commit, .soft) },
+                .action("Mixed Reset (Keep Changes Unstaged)") { onReset(commit, .mixed) },
+                .action("Hard Reset (Discard Changes)", role: .destructive) { onReset(commit, .hard) }
+            ])
         ] + (additionalContextMenuItems?(commit) ?? [])
     }
 

@@ -20,7 +20,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
@@ -160,10 +160,21 @@ struct ResolvedLaunch {
     secret: String,
 }
 
+#[cfg(test)]
 fn resolve(launch: AgentLaunch) -> Result<ResolvedLaunch, String> {
-    resolve_with(launch, &|command| {
-        environment::detect_tool(command, &|| false)
-    })
+    resolve_with_cancel(launch, &|| false)
+}
+
+/// Resolve a launch while allowing runtime and CLI detection to observe stop.
+fn resolve_with_cancel(
+    launch: AgentLaunch,
+    cancel: &dyn Fn() -> bool,
+) -> Result<ResolvedLaunch, String> {
+    let resolved = resolve_with(launch, &|command| environment::detect_tool(command, cancel));
+    if cancel() {
+        return Err("Agent launch was cancelled".into());
+    }
+    resolved
 }
 
 /// [`resolve`] with an injectable lookup for the user's agent CLI.
@@ -427,6 +438,7 @@ pub struct AgentHandle {
     controls: async_mpsc::UnboundedSender<Control>,
     permissions: PendingPermissions,
     child_pid: Arc<AtomicU32>,
+    stop_requested: Arc<AtomicBool>,
     finished: mpsc::Receiver<()>,
     worker: Option<std::thread::JoinHandle<()>>,
 }
@@ -442,8 +454,10 @@ impl AgentHandle {
         let (finished_tx, finished) = mpsc::channel();
         let permissions: PendingPermissions = Arc::new(Mutex::new(HashMap::new()));
         let child_pid = Arc::new(AtomicU32::new(0));
+        let stop_requested = Arc::new(AtomicBool::new(false));
         let pending = permissions.clone();
         let pid = child_pid.clone();
+        let stop = stop_requested.clone();
         let worker = std::thread::Builder::new()
             .name("lithe-acp-connection".into())
             .spawn(move || {
@@ -452,7 +466,14 @@ impl AgentHandle {
                     .build();
                 let message = match runtime {
                     Ok(runtime) => runtime
-                        .block_on(run_agent(launch, receiver, pending, pid, emit.clone()))
+                        .block_on(run_agent(
+                            launch,
+                            receiver,
+                            pending,
+                            pid,
+                            stop,
+                            emit.clone(),
+                        ))
                         .err(),
                     Err(error) => Some(error.to_string()),
                 };
@@ -464,6 +485,7 @@ impl AgentHandle {
             controls,
             permissions,
             child_pid,
+            stop_requested,
             finished,
             worker: Some(worker),
         })
@@ -500,6 +522,7 @@ impl AgentHandle {
             return;
         }
         reject_pending_permissions(&self.permissions, None);
+        self.stop_requested.store(true, Ordering::Release);
         let _ = self.controls.send(Control::Stop);
         if self.finished.recv_timeout(STOP_TIMEOUT).is_err() {
             let pid = self.child_pid.load(Ordering::SeqCst);
@@ -612,15 +635,24 @@ async fn run_agent(
     controls: async_mpsc::UnboundedReceiver<Control>,
     permissions: PendingPermissions,
     child_pid: Arc<AtomicU32>,
+    stop_requested: Arc<AtomicBool>,
     emit: Emit,
 ) -> Result<(), String> {
-    let launch = resolve(launch)?;
+    let cancelled = || stop_requested.load(Ordering::Acquire);
+    let launch = resolve_with_cancel(launch, &cancelled)?;
+    if cancelled() {
+        return Err("Agent launch was cancelled".into());
+    }
     let mut command = std::process::Command::new(&launch.command);
     command
         .args(&launch.args)
         .current_dir(&launch.cwd)
         .envs(launch.env.iter().map(|(key, value)| (key, value)));
-    let search_path = environment::search_path().or_else(|| std::env::var_os("PATH"));
+    let search_path =
+        environment::search_path_with_cancel(&cancelled).or_else(|| std::env::var_os("PATH"));
+    if cancelled() {
+        return Err("Agent launch was cancelled".into());
+    }
     if let Some(path) = child_path(&launch.command, search_path) {
         command.env("PATH", path);
     }
@@ -639,6 +671,11 @@ async fn run_agent(
         .spawn()
         .map_err(|error| format!("Could not start the Agent: {error}"))?;
     child_pid.store(child.id().unwrap_or(0), Ordering::SeqCst);
+    if cancelled() {
+        terminate_tree(&mut child).await;
+        child_pid.store(0, Ordering::SeqCst);
+        return Err("Agent launch was cancelled".into());
+    }
     let stdin = child.stdin.take().ok_or("Agent stdin is unavailable")?;
     let stdout = child.stdout.take().ok_or("Agent stdout is unavailable")?;
     let mut stderr = child.stderr.take().ok_or("Agent stderr is unavailable")?;

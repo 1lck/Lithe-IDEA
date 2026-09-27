@@ -86,9 +86,8 @@ export class JavaWorkspaceChangeScheduler {
       dependencies.setTimer ??
       ((callback, delayMilliseconds) =>
         setTimeout(() => void callback(), delayMilliseconds));
-    // WebView2 rejects `clearTimeout` invoked with any receiver other than the
-    // window, so the default stays a closure instead of a bare reference.
-    this.clearTimer = dependencies.clearTimer ?? ((timer) => clearTimeout(timer));
+    this.clearTimer =
+      dependencies.clearTimer ?? ((handle) => clearTimeout(handle));
   }
 
   schedule(

@@ -1,4 +1,5 @@
 import type { GitCommit } from "../types/git.types";
+import { graphColorIndexForName } from "./git-graph-colors";
 
 export type GitGraphLabelKind = "head" | "branch" | "remote" | "tag";
 
@@ -18,7 +19,10 @@ export interface GitGraphEdge {
 export interface GitGraphRow {
   commit: GitCommit;
   lane: number;
+  /** Color of the commit node and its own lane. */
+  colorIndex: number;
   laneCount: number;
+  /** Lanes entering the row from above; the node's lane is null for a branch tip. */
   incomingLaneColors: Array<number | null>;
   parentEdges: GitGraphEdge[];
   labels: GitGraphLabel[];
@@ -69,25 +73,74 @@ export function parseGitDecorations(decorations: string): GitGraphLabel[] {
   });
 }
 
+/**
+ * IDEA's GraphColorGetterByHead picks a head's principal reference in this
+ * order, so the same branch name always yields the same color id.
+ */
+function graphLabelPriority(label: GitGraphLabel): number {
+  if (label.kind === "remote") {
+    return label.title === "origin/main" || label.title === "origin/master" ? 0 : 1;
+  }
+  if (label.kind === "branch") {
+    return label.title === "main" || label.title === "master" ? 2 : 3;
+  }
+  return label.kind === "tag" ? 4 : 6;
+}
+
+export function bestGraphReferenceLabel(labels: GitGraphLabel[]): GitGraphLabel | null {
+  let best: GitGraphLabel | null = null;
+  for (const label of labels) {
+    if (best === null) {
+      best = label;
+      continue;
+    }
+    const bestPriority = graphLabelPriority(best);
+    const priority = graphLabelPriority(label);
+    if (priority < bestPriority || (priority === bestPriority && label.title < best.title)) {
+      best = label;
+    }
+  }
+  return best;
+}
+
 export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
   if (commits.length === 0) return { rows: [], laneCount: 0, hasMissingParents: false };
 
   const knownHashes = new Set(commits.map((commit) => commit.hash));
   const slots: Array<Lane | null> = [];
   const rows: GitGraphRow[] = [];
-  let nextColorIndex = 0;
+  let nextFallbackColorIndex = 0;
   let maximumLaneCount = 0;
   let hasMissingParents = false;
 
+  const labelsByHash = new Map<string, GitGraphLabel[]>();
+  const namedColorIndexByHash = new Map<string, number>();
+  for (const commit of commits) {
+    const labels = parseGitDecorations(commit.decorations);
+    labelsByHash.set(commit.hash, labels);
+    const reference = bestGraphReferenceLabel(labels);
+    if (reference) {
+      namedColorIndexByHash.set(commit.hash, graphColorIndexForName(reference.title));
+    }
+  }
+  // A branch's color follows its name; a lane without a reference still needs a
+  // deterministic color so unreferenced fragments stay stable across renders.
+  const fallbackColorIndex = () => nextFallbackColorIndex++;
+  const colorIndexForHash = (hash: string) =>
+    namedColorIndexByHash.get(hash) ?? fallbackColorIndex();
+
   for (const commit of commits) {
     let currentLane = slots.findIndex((slot) => slot?.hash === commit.hash);
-    if (currentLane < 0) {
+    // A branch tip has no child row above it, so its lane starts at the node.
+    const hasChildAbove = currentLane >= 0;
+    if (!hasChildAbove) {
       currentLane = claimSlot(slots);
-      slots[currentLane] = { hash: commit.hash, colorIndex: nextColorIndex++ };
+      slots[currentLane] = { hash: commit.hash, colorIndex: colorIndexForHash(commit.hash) };
     }
 
     const incomingLaneColors = slots.map((slot) => slot?.colorIndex ?? null);
     const currentColorIndex = slots[currentLane]?.colorIndex ?? 0;
+    if (!hasChildAbove) incomingLaneColors[currentLane] = null;
     slots[currentLane] = null;
 
     const parentEdges: GitGraphEdge[] = [];
@@ -98,7 +151,7 @@ export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
           id: `${commit.hash}:${parentIndex}:${parentHash}`,
           parentHash,
           targetLane: null,
-          colorIndex: parentIndex === 0 ? currentColorIndex : nextColorIndex,
+          colorIndex: parentIndex === 0 ? currentColorIndex : fallbackColorIndex(),
           isMissing: true,
         });
         return;
@@ -114,7 +167,7 @@ export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
         slots[targetLane] = { hash: parentHash, colorIndex };
       } else {
         targetLane = claimSlot(slots);
-        colorIndex = nextColorIndex++;
+        colorIndex = colorIndexForHash(parentHash);
         slots[targetLane] = { hash: parentHash, colorIndex };
       }
 
@@ -139,10 +192,11 @@ export function layoutGitGraph(commits: GitCommit[]): GitGraphLayout {
     rows.push({
       commit,
       lane: currentLane,
+      colorIndex: currentColorIndex,
       laneCount,
       incomingLaneColors,
       parentEdges,
-      labels: parseGitDecorations(commit.decorations),
+      labels: labelsByHash.get(commit.hash) ?? [],
     });
   }
 

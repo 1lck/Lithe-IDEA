@@ -85,10 +85,15 @@ pub fn detect(cancel: &dyn Fn() -> bool) -> RuntimeEnvironment {
 
 /// Search path for launching agents, detecting it on first use.
 pub fn search_path() -> Option<OsString> {
+    search_path_with_cancel(&|| false)
+}
+
+/// Search path for launching agents while allowing first-use detection to stop.
+pub fn search_path_with_cancel(cancel: &dyn Fn() -> bool) -> Option<OsString> {
     if let Some(path) = SEARCH_PATH.lock().ok().and_then(|cached| cached.clone()) {
         return Some(path);
     }
-    detect(&|| false);
+    detect(cancel);
     SEARCH_PATH.lock().ok().and_then(|cached| cached.clone())
 }
 
@@ -193,7 +198,7 @@ fn tool_version(
 
 /// Find `command` on the agent search path and read its version.
 pub fn detect_tool(command: &str, cancel: &dyn Fn() -> bool) -> Option<DetectedTool> {
-    let path = search_path();
+    let path = search_path_with_cancel(cancel);
     let executable = find_executable(command, path.as_deref())?;
     let version = tool_version(&executable, path.as_deref(), cancel)?;
     Some(DetectedTool {
@@ -289,7 +294,7 @@ pub(crate) fn run_bounded_status_observed(
         .spawn()
         .map_err(|error| RunError::Start(error.to_string()))?;
     let (output_tx, output_rx) = std::sync::mpsc::sync_channel::<Option<Vec<u8>>>(32);
-    let readers = [
+    let readers: Vec<_> = [
         child
             .stdout
             .take()
@@ -318,10 +323,10 @@ pub(crate) fn run_bounded_status_observed(
                 }
             }
             let _ = sender.send(None);
-        });
-        1
+        })
     })
-    .sum::<usize>();
+    .collect();
+    let reader_count = readers.len();
     drop(output_tx);
     let mut output = String::new();
     let ended = std::cell::Cell::new(0);
@@ -358,14 +363,14 @@ pub(crate) fn run_bounded_status_observed(
             Err(error) => break Err(RunError::Start(error.to_string())),
         }
     };
-    if outcome.is_err() {
-        crate::force_kill_tree(child.id());
-        let _ = child.wait();
-    }
-    // A descendant that left the process group can hold a pipe open; do not
-    // let it block the caller past a short grace period.
+    // Reap the direct child and terminate descendants on every path. A process
+    // that exits successfully can still leave a child holding stdout/stderr.
+    crate::force_kill_tree(child.id());
+    let _ = child.wait();
+    // A descendant that escaped the process group can still hold a pipe open;
+    // do not let it block the caller past a short grace period.
     let output_deadline = Instant::now() + OUTPUT_GRACE;
-    while ended.get() < readers {
+    while ended.get() < reader_count {
         match output_rx.recv_timeout(output_deadline.saturating_duration_since(Instant::now())) {
             Ok(event) => {
                 collect(event);
@@ -374,6 +379,13 @@ pub(crate) fn run_bounded_status_observed(
         }
     }
     drop(collect);
+    // The process-group cleanup above should close every pipe. Joining keeps
+    // successful, failed, cancelled and timed-out calls from leaking reader
+    // threads; the bounded grace period still protects the caller from a
+    // descendant that deliberately escaped the group.
+    for reader in readers {
+        let _ = reader.join();
+    }
     outcome.map(|success| (success, output))
 }
 
@@ -453,6 +465,20 @@ mod tests {
         echo.args(["-c", "echo out; echo err >&2"]);
         let output = run_bounded(echo, Duration::from_secs(10), &|| false).unwrap();
         assert!(output.contains("out") && output.contains("err"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn parent_exit_closes_descendant_pipes_before_returning() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "(sleep 30) & printf parent; exit 0"]);
+        let started = Instant::now();
+        let output = run_bounded(command, Duration::from_secs(5), &|| false).unwrap();
+        assert!(output.contains("parent"));
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "reader cleanup is bounded"
+        );
     }
 
     #[cfg(unix)]
