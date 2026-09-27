@@ -599,18 +599,33 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+private struct LithePointingHandCursorKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var lithePointingHandCursorEnabled: Bool {
+        get { self[LithePointingHandCursorKey.self] }
+        set { self[LithePointingHandCursorKey.self] = newValue }
+    }
+}
+
 private struct LithePointerModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.lithePointingHandCursorEnabled) private var pointingHandCursorEnabled
     @State private var cursor = LithePointerCursor()
 
     func body(content: Content) -> some View {
         content
             .onHover { isInside in
                 cursor.isHovered = isInside
-                cursor.update(isPointing: isInside && isEnabled)
+                cursor.update(isPointing: isInside && isEnabled && pointingHandCursorEnabled)
             }
             .onChange(of: isEnabled) { _ in
-                cursor.update(isPointing: cursor.isHovered && isEnabled)
+                cursor.update(isPointing: cursor.isHovered && isEnabled && pointingHandCursorEnabled)
+            }
+            .onChange(of: pointingHandCursorEnabled) { _ in
+                cursor.update(isPointing: cursor.isHovered && isEnabled && pointingHandCursorEnabled)
             }
             .onDisappear {
                 cursor.isHovered = false

@@ -758,6 +758,7 @@ private struct SettingsWindow: View {
             )
             .environmentObject(model)
         }
+        .environment(\.lithePointingHandCursorEnabled, false)
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
