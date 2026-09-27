@@ -190,6 +190,7 @@ fn main() {
             language_tools::cancel_language_tool_install,
             language_tools::uninstall_language_tools,
             maven::maven_load_configuration,
+            maven::maven_resolve_effective_configuration,
             maven::maven_write_configuration,
             maven::maven_create_dependency_output,
             maven::maven_remove_dependency_output,

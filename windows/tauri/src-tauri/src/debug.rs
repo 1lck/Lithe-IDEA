@@ -1558,10 +1558,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            received
-                .recv_timeout(Duration::from_secs(1))
-                .unwrap()
-                .1["message"]["type"],
+            received.recv_timeout(Duration::from_secs(1)).unwrap().1["message"]["type"],
             "initialized"
         );
     }
@@ -1927,7 +1924,10 @@ mod tests {
         struct FailingWriter;
         impl Write for FailingWriter {
             fn write(&mut self, _buffer: &[u8]) -> std::io::Result<usize> {
-                Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "closed"))
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::BrokenPipe,
+                    "closed",
+                ))
             }
 
             fn flush(&mut self) -> std::io::Result<()> {
