@@ -64,6 +64,11 @@
       "sessionId": "session-1",
       "update": { "sessionUpdate": "session_info_update", "title": "Project overview" }
     },
+    "usageUpdate": {
+      "kind": "update",
+      "sessionId": "session-1",
+      "update": { "sessionUpdate": "usage_update", "used": 18700, "size": 258400 }
+    },
     "permission": {
       "kind": "permission",
       "sessionId": "session-1",

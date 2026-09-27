@@ -42,6 +42,8 @@ pub enum CoreCommand {
     AgentUninstall,
     /// Installs or updates an agent's CLI through its installation owner (`agent.installCli`).
     AgentInstallCli,
+    /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
+    AgentParseProviderConfiguration,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -326,6 +328,7 @@ impl CoreCommand {
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
             "agent.installCli" => Some(Self::AgentInstallCli),
+            "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),

@@ -8,6 +8,26 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func contextIndicatorUsesZeroPlaceholderAndReportedCountsWhenInUse() throws {
+        let locale = Locale(identifier: "en_US")
+        let usage = try #require(AgentContextUsage(usedTokens: 18700, capacityTokens: 258400))
+        #expect(AgentContextUsagePresentation.percentage(nil, locale: locale) == "0%")
+        #expect(AgentContextUsagePresentation.details(nil, locale: locale).contains("0.0%"))
+        #expect(!AgentContextUsagePresentation.details(nil, locale: locale).contains("/"))
+        #expect(AgentContextUsagePresentation.percentage(usage, locale: locale) == "7%")
+        #expect(AgentContextUsagePresentation.details(usage, locale: locale).contains("7.2% · 18.7k / 258.4k"))
+        let zero = try #require(AgentContextUsage(usedTokens: 0, capacityTokens: 100))
+        #expect(AgentContextUsagePresentation.percentage(zero, locale: locale) == "0%")
+        #expect(AgentContextUsagePresentation.details(zero, locale: locale) == AgentContextUsagePresentation.details(nil, locale: locale))
+        let over = try #require(AgentContextUsage(usedTokens: 150, capacityTokens: 100))
+        #expect(AgentContextUsagePresentation.percentage(over, locale: locale) == "150%")
+        #expect(AgentContextUsagePresentation.details(over, locale: locale).contains("150 / 100"))
+        let largest = try #require(AgentContextUsage(usedTokens: .max, capacityTokens: 1))
+        #expect(largest.fraction.isFinite)
+        #expect(AgentContextUsage(usedTokens: 0, capacityTokens: 0) == nil)
+    }
+
+    @Test
     func modelSearchUsesUpstreamNamesIDsAndGroupsWithoutChangingSelection() throws {
         let option = try #require(AgentSessionConfigOption.parse([[
             "id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "model-b",
