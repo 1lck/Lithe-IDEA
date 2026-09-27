@@ -237,9 +237,54 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     }
 }
 
-/// One repository's references when a workspace aggregates several Git
-/// repositories. Only references are aggregated here; history, diff, and the
-/// console stay scoped to the active repository.
+/// A real Git submodule edge between two discovered repository roots.
+///
+/// Nested paths alone are not enough to establish this relationship: a workspace
+/// may contain independent repositories below another repository. `path` is the
+/// parent repository's gitlink path, relative to `parent`.
+package struct GitRepositorySubmoduleRelation: Hashable, Sendable {
+    package let parent: URL
+    package let child: URL
+    package let path: String
+
+    package init(parent: URL, child: URL, path: String) {
+        self.parent = parent.standardizedFileURL
+        self.child = child.standardizedFileURL
+        self.path = path
+    }
+}
+
+/// Confirmation data for a commit that spans a parent repository and one of
+/// its tracked submodules. The parent gitlink is committed only when it was
+/// part of the user's staged selection; unrelated nested repositories remain
+/// independent.
+package struct GitSubmoduleCommitPlan: Identifiable, Sendable {
+    package let message: String
+    package let amend: Bool
+    package let push: Bool
+    package let orderedRoots: [URL]
+    package let propagatedRelations: [GitRepositorySubmoduleRelation]
+
+    package init(
+        message: String,
+        amend: Bool,
+        push: Bool,
+        orderedRoots: [URL],
+        propagatedRelations: [GitRepositorySubmoduleRelation]
+    ) {
+        self.message = message
+        self.amend = amend
+        self.push = push
+        self.orderedRoots = orderedRoots
+        self.propagatedRelations = propagatedRelations
+    }
+
+    package var id: String {
+        orderedRoots.map { $0.standardizedFileURL.path }.joined(separator: "|")
+            + ":" + (push ? "push" : "commit")
+    }
+}
+
 package struct GitRepositoryReferences: Hashable, Sendable {
     package let repositoryRoot: URL
     package let references: [GitReference]
@@ -290,6 +335,58 @@ package enum GitRepositoryHierarchy {
             root.standardizedFileURL == active
                 || !isLinkedWorktreeRepository(root, among: repositoryRoots)
         }
+    }
+
+    /// Builds only relationships represented by a parent repository's gitlink
+    /// entries. A path-nested repository without a mode-160000 entry remains an
+    /// independent repository and must not inherit submodule commit semantics.
+    package static func submoduleRelations(
+        repositoryRoots: [URL],
+        gitlinkPathsByRoot: [URL: [String]]
+    ) -> [GitRepositorySubmoduleRelation] {
+        let normalizedRoots = repositoryRoots.map(\.standardizedFileURL)
+        var relations: [GitRepositorySubmoduleRelation] = []
+        for parent in normalizedRoots {
+            for relativePath in gitlinkPathsByRoot[parent] ?? [] {
+                let childPath = parent.appendingPathComponent(relativePath).standardizedFileURL.path
+                guard let child = normalizedRoots.first(where: { $0.path == childPath }),
+                      child.path != parent.path
+                else { continue }
+                relations.append(
+                    GitRepositorySubmoduleRelation(parent: parent, child: child, path: relativePath)
+                )
+            }
+        }
+        return relations
+    }
+
+    /// Orders staged repositories so a submodule's commit exists before its
+    /// parent's gitlink is committed. Unrelated repositories retain their
+    /// original discovery/change order.
+    package static func commitOrder(
+        _ repositoryRoots: [URL],
+        relations: [GitRepositorySubmoduleRelation]
+    ) -> [URL] {
+        let roots = repositoryRoots.map(\.standardizedFileURL)
+        let rootSet = Set(roots)
+        let relationSet = Set(relations)
+        var remaining = roots
+        var ordered: [URL] = []
+        while !remaining.isEmpty {
+            guard let next = remaining.first(where: { candidate in
+                !relationSet.contains { relation in
+                    relation.parent == candidate && rootSet.contains(relation.child) && remaining.contains(relation.child)
+                }
+            }) else {
+                // A malformed/cyclic relation should not deadlock commit. Keep
+                // the stable input order and let Git report any actual failure.
+                ordered.append(contentsOf: remaining)
+                break
+            }
+            ordered.append(next)
+            remaining.removeAll { $0 == next }
+        }
+        return ordered
     }
 
     private static func pathComponents(of url: URL) -> [String] {

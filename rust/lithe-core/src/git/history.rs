@@ -215,6 +215,29 @@ pub fn history_page(request: GitHistoryPageRequest) -> Result<GitHistoryPageResp
     }
     let root = validate_root(&request.root)?;
     validate_reference(request.reference.as_deref())?;
+    // An unborn repository has a valid branch name but no commit object. Git
+    // exits non-zero for `git log HEAD` in that state; expose it as an empty
+    // history instead of repeatedly surfacing a console error while the user
+    // is preparing the first commit.
+    if request.cursor.is_none() && request.reference.as_deref() == Some("HEAD") {
+        let head_probe = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "rev-parse".to_string(),
+                "--verify".to_string(),
+                "HEAD^{commit}".to_string(),
+            ],
+            input: None,
+        })?;
+        if head_probe.exit_code != 0 {
+            return Ok(GitHistoryPageResponse {
+                commits: Vec::new(),
+                next_cursor: None,
+                next_offset: None,
+                has_more: false,
+            });
+        }
+    }
     cleanup_expired_history_sessions();
 
     let (mut session, lease) = if let Some(cursor) = request.cursor.as_deref() {
@@ -280,6 +303,25 @@ fn offset_history_page(
     }
     validate_reference(reference.as_deref())?;
     let root = validate_root(&root)?;
+    if reference.as_deref() == Some("HEAD") {
+        let head_probe = readonly_command(GitCommandRequest {
+            root: root.clone(),
+            arguments: vec![
+                "rev-parse".to_string(),
+                "--verify".to_string(),
+                "HEAD^{commit}".to_string(),
+            ],
+            input: None,
+        })?;
+        if head_probe.exit_code != 0 {
+            return Ok(GitHistoryPageResponse {
+                commits: Vec::new(),
+                next_cursor: None,
+                next_offset: None,
+                has_more: false,
+            });
+        }
+    }
     let limit = requested_limit.clamp(1, MAX_HISTORY_COMMITS - offset);
     let mut arguments = vec!["log".to_string()];
     if let Some(reference) = reference {

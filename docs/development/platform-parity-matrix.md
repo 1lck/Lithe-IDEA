@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：87
-- macOS：实现：✅ 74 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 77 待验证，— 10 不适用
-- Windows：实现：✅ 78 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
+- 功能项：88
+- macOS：实现：✅ 75 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 78 待验证，— 10 不适用
+- Windows：实现：✅ 78 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 3 不适用
 
 ## 实现状态定义
 
@@ -91,11 +91,12 @@
 </details>
 
 <details>
-<summary><strong>版本控制</strong> · 7 个能力点</summary>
+<summary><strong>版本控制</strong> · 8 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 |  |
+| Git | **多仓库变更折叠分组（macOS 侧边栏）**<br><sub>git-multi-repository-change-groups</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`、`macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在同一工作区打开两个或以上有变更的 Git 仓库，确认仓库以文件夹节点展示，可展开/折叠，仓库级和文件级复选框均可暂存/取消暂存；确认现有 commit 栏、提交消息和提交目标行为不变。 | 该条目只描述 macOS Changes 侧边栏的 IDEA 风格聚合展示；Windows 保持自身状态树和提交选择模型。 |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |
 | Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方。 |  |

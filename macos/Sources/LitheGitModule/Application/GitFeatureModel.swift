@@ -186,6 +186,9 @@ package final class GitFeatureModel: ObservableObject {
     @Published package var gitOperationState: GitOperationState?
     @Published package var isResolvingGitOperation = false
     @Published package private(set) var isCommitting = false
+    /// Set when the staged selection spans a real parent/submodule edge. The
+    /// commit UI must explain the child-first order before continuing.
+    @Published package private(set) var pendingSubmoduleCommitPlan: GitSubmoduleCommitPlan?
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = [] {
@@ -460,6 +463,7 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardChange = nil
         pendingDiscardHunk = nil
         isCommitting = false
+        pendingSubmoduleCommitPlan = nil
         gitBlameLines = [:]
         gitLineChangeMarkers = [:]
         loadingLineChangeURLs = []
@@ -1101,7 +1105,10 @@ package final class GitFeatureModel: ObservableObject {
     /// deliberately bypasses the selected file's working-tree diff so a file
     /// with both staged and unstaged edits is represented correctly.
     package func stagedCommitMessageInput() async -> CommitMessageInput? {
-        let stagedChanges = activeRepositoryChanges.filter(\.isStaged)
+        // `gitChanges` is the workspace aggregate. Keeping this input
+        // aggregate in the same way as the commit operation prevents the AI
+        // button from silently ignoring staged files in child repositories.
+        let stagedChanges = gitChanges.filter(\.isStaged)
         guard !stagedChanges.isEmpty else { return nil }
 
         var files: [CommitMessageFileInput] = []
@@ -1270,105 +1277,272 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// Paths still holding conflict markers. Committing during a merge or rebase
-    /// would finish that operation, so an unresolved file has to stop the commit
-    /// rather than be recorded with its `<<<<<<<` markers intact.
-    private var conflictedPaths: [String] {
-        activeRepositoryChanges.filter(\.isConflicted).map(\.path)
-    }
-
-    private func blockCommitWhenConflicted() -> Bool {
-        let paths = conflictedPaths
-        guard !paths.isEmpty else { return false }
-        notify?("Resolve the conflicts first: \(paths.joined(separator: ", "))")
-        return true
-    }
-
-    /// Refuses a commit whose staged content still carries conflict markers.
-    ///
-    /// Separate from `blockCommitWhenConflicted`: Git stops marking a file as
-    /// conflicted the moment it is staged, so a user who stages before deleting the
-    /// `<<<<<<<` lines would otherwise commit them. This reads the staged blobs.
-    private func blockCommitWhenMarkersRemain() async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let paths = await service.conflictMarkerPaths(at: gitRepositoryRoot)
-        guard !paths.isEmpty else { return false }
-        notify?("Conflict markers remain in: \(paths.joined(separator: ", "))")
-        return true
-    }
-
     package func commitStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            notify?("Enter a commit message")
-            return false
-        }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
-
-        isCommitting = true
-        let result = await withGitOperation {
-            await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
-        }
-        isCommitting = false
-        if result.succeeded {
-            notify?("Changes committed")
-        } else {
-            notify?(trimmedMessage(result))
-        }
-        await refreshGit()
-        return result.succeeded
+        await commitStagedChanges(
+            message: rawMessage,
+            amend: amend,
+            push: false,
+            bypassSubmoduleConfirmation: false
+        )
     }
 
     @discardableResult
     package func commitAndPushStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
+        await commitStagedChanges(
+            message: rawMessage,
+            amend: amend,
+            push: true,
+            bypassSubmoduleConfirmation: false
+        )
+    }
+
+    /// Continues a child-first commit after the UI has explained the parent
+    /// gitlink propagation. The plan captures the original message and staged
+    /// selection so a later edit cannot silently change what was confirmed.
+    @discardableResult
+    package func confirmPendingSubmoduleCommit() async -> Bool {
+        guard let plan = pendingSubmoduleCommitPlan else { return false }
+        pendingSubmoduleCommitPlan = nil
+        return await commitStagedChanges(
+            message: plan.message,
+            amend: plan.amend,
+            push: plan.push,
+            bypassSubmoduleConfirmation: true
+        )
+    }
+
+    package func cancelPendingSubmoduleCommit() {
+        pendingSubmoduleCommitPlan = nil
+    }
+
+    /// Commits the staged selection once per repository. A workspace can have
+    /// several independent indexes, so passing all paths to the active
+    /// repository's `git commit` would either ignore child repositories or
+    /// commit the wrong working tree.
+    private func commitStagedChanges(
+        message rawMessage: String,
+        amend: Bool,
+        push: Bool,
+        bypassSubmoduleConfirmation: Bool
+    ) async -> Bool {
         let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else {
             notify?("Enter a commit message")
             return false
         }
-        guard activeRepositoryChanges.contains(where: \.isStaged) else {
+        guard bypassSubmoduleConfirmation || pendingSubmoduleCommitPlan == nil else {
+            return false
+        }
+
+        let targets = stagedRepositoryTargets()
+        guard !targets.isEmpty else {
             notify?("Stage at least one change before committing")
             return false
         }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
 
-        isCommitting = true
-        let commitResult = await withGitOperation {
-            await service.commit(
-                at: gitRepositoryRoot,
-                message: message,
-                amend: amend
-            )
+        let relationRoots = targets.map(\.root)
+        let relations = await submoduleRelations(for: relationRoots)
+        let orderedRoots = GitRepositoryHierarchy.commitOrder(
+            relationRoots,
+            relations: relations
+        )
+        let targetsByRoot = Dictionary(uniqueKeysWithValues: targets.map { ($0.root, $0) })
+        let orderedTargets = orderedRoots.compactMap { targetsByRoot[$0] }
+        let propagatedRelations = relations.filter { relation in
+            targetsByRoot[relation.parent]?.changes.contains {
+                $0.isStaged && $0.path == relation.path
+            } == true
         }
-        guard commitResult.succeeded else {
-            isCommitting = false
-            notify?(trimmedMessage(commitResult))
-            await refreshGit()
+
+        if !bypassSubmoduleConfirmation, !relations.isEmpty {
+            pendingSubmoduleCommitPlan = GitSubmoduleCommitPlan(
+                message: message,
+                amend: amend,
+                push: push,
+                orderedRoots: orderedRoots,
+                propagatedRelations: propagatedRelations
+            )
             return false
         }
 
-        guard let currentReference = currentGitReference else {
-            isCommitting = false
-            notify?("Committed changes, but detached HEAD cannot be pushed")
-            await refreshGit()
-            return true
+        isCommitting = true
+        defer { isCommitting = false }
+
+        var committedRoots: [URL] = []
+        var failedCommitRoots: [String] = []
+        var failedPushRoots: [String] = []
+        var blockedRoots: Set<URL> = []
+
+        for target in orderedTargets {
+            let root = target.root.standardizedFileURL
+            let repositoryName = root.lastPathComponent
+            if blockedRoots.contains(root) {
+                failedCommitRoots.append(repositoryName)
+                notify?("Skipped \(repositoryName) because a selected submodule commit did not complete")
+                continue
+            }
+
+            let conflictedPaths = target.changes.filter(\.isConflicted).map(\.path)
+            if !conflictedPaths.isEmpty {
+                failedCommitRoots.append(repositoryName)
+                notify?("Resolve the conflicts in \(repositoryName) first: \(conflictedPaths.joined(separator: ", "))")
+                blockSubmoduleParents(
+                    of: root,
+                    relations: propagatedRelations,
+                    into: &blockedRoots
+                )
+                continue
+            }
+            let markerPaths = await service.conflictMarkerPaths(at: root)
+            if !markerPaths.isEmpty {
+                failedCommitRoots.append(repositoryName)
+                notify?("Conflict markers remain in \(repositoryName): \(markerPaths.joined(separator: ", "))")
+                blockSubmoduleParents(
+                    of: root,
+                    relations: propagatedRelations,
+                    into: &blockedRoots
+                )
+                continue
+            }
+
+            var canCommitRepository = true
+            for relation in propagatedRelations where relation.parent == root {
+                guard committedRoots.contains(relation.child) else { continue }
+                let gitlinkChange = GitChange(
+                    repositoryRoot: root,
+                    path: relation.path,
+                    originalPath: nil,
+                    indexStatus: " ",
+                    workTreeStatus: "M"
+                )
+                let stageResult = await withGitOperation {
+                    await service.stage(gitlinkChange)
+                }
+                guard stageResult.succeeded else {
+                    canCommitRepository = false
+                    failedCommitRoots.append(repositoryName)
+                    notify?("Could not update the \(relation.path) submodule reference in \(repositoryName): \(trimmedMessage(stageResult))")
+                    blockSubmoduleParents(
+                        of: root,
+                        relations: propagatedRelations,
+                        into: &blockedRoots
+                    )
+                    break
+                }
+            }
+            guard canCommitRepository else { continue }
+
+            let result = await withGitOperation {
+                await service.commit(
+                    at: root,
+                    message: message,
+                    amend: amend
+                )
+            }
+            guard result.succeeded else {
+                failedCommitRoots.append(repositoryName)
+                notify?("Commit failed in \(repositoryName): \(trimmedMessage(result))")
+                blockSubmoduleParents(
+                    of: root,
+                    relations: propagatedRelations,
+                    into: &blockedRoots
+                )
+                continue
+            }
+            committedRoots.append(root)
+
+            // A parent must not be pushed before the child commit it points to.
+            // Push immediately after each successful commit to preserve that
+            // ordering for Commit and Push as well.
+            if push {
+                guard let reference = await currentReference(at: root) else {
+                    failedPushRoots.append(repositoryName)
+                    notify?("Committed \(repositoryName), but detached HEAD cannot be pushed")
+                    blockSubmoduleParents(
+                        of: root,
+                        relations: propagatedRelations,
+                        into: &blockedRoots
+                    )
+                    continue
+                }
+                let pushResult = await withGitOperation {
+                    await service.push(reference, at: root)
+                }
+                guard pushResult.succeeded else {
+                    failedPushRoots.append(repositoryName)
+                    notify?("Committed \(repositoryName), but push failed: \(trimmedMessage(pushResult))")
+                    blockSubmoduleParents(
+                        of: root,
+                        relations: propagatedRelations,
+                        into: &blockedRoots
+                    )
+                    continue
+                }
+            }
         }
 
-        let pushResult = await withGitOperation {
-            await service.push(currentReference, at: gitRepositoryRoot)
-        }
-        isCommitting = false
-        if pushResult.succeeded {
-            notify?("Committed and pushed \(currentReference.shortName)")
-        } else {
-            notify?("Committed changes, but push failed: \(trimmedMessage(pushResult))")
-        }
         await refreshGit()
+
+        guard failedCommitRoots.isEmpty, failedPushRoots.isEmpty else {
+            let committedDescription = committedRoots.isEmpty
+                ? "No repositories were committed"
+                : "Committed \(committedRoots.count) repositories"
+            let pushDescription = failedPushRoots.isEmpty
+                ? ""
+                : "; push failed in: \(failedPushRoots.joined(separator: ", "))"
+            notify?("\(committedDescription); commit failed in: \(failedCommitRoots.joined(separator: ", "))\(pushDescription)")
+            return false
+        }
+
+        notify?(push ? "Committed and pushed \(committedRoots.count) repositories" : "Committed changes")
         return true
+    }
+
+    private func stagedRepositoryTargets() -> [(root: URL, changes: [GitChange])] {
+        var changesByRoot: [URL: [GitChange]] = [:]
+        var orderedRoots: [URL] = []
+        for change in gitChanges where change.isStaged {
+            let root = change.repositoryRoot.standardizedFileURL
+            if changesByRoot[root] == nil { orderedRoots.append(root) }
+            changesByRoot[root, default: []].append(change)
+        }
+        return orderedRoots.compactMap { root in
+            guard let changes = changesByRoot[root], !changes.isEmpty else { return nil }
+            return (root: root, changes: changes)
+        }
+    }
+
+    private func submoduleRelations(for repositoryRoots: [URL]) async -> [GitRepositorySubmoduleRelation] {
+        var gitlinkPathsByRoot: [URL: [String]] = [:]
+        for root in repositoryRoots {
+            let normalizedRoot = root.standardizedFileURL
+            gitlinkPathsByRoot[normalizedRoot] = await service.gitlinkPaths(at: normalizedRoot)
+        }
+        return GitRepositoryHierarchy.submoduleRelations(
+            repositoryRoots: repositoryRoots,
+            gitlinkPathsByRoot: gitlinkPathsByRoot
+        )
+    }
+
+    private func blockSubmoduleParents(
+        of failedChild: URL,
+        relations: [GitRepositorySubmoduleRelation],
+        into blockedRoots: inout Set<URL>
+    ) {
+        var children = [failedChild.standardizedFileURL]
+        while let child = children.popLast() {
+            for relation in relations where relation.child == child {
+                let parent = relation.parent.standardizedFileURL
+                if blockedRoots.insert(parent).inserted {
+                    children.append(parent)
+                }
+            }
+        }
+    }
+
+    private func currentReference(at root: URL) async -> GitReference? {
+        let operationID = "commit-push-reference-\(UUID().uuidString)"
+        return await service.references(at: root, operationID: operationID)?.references.first(where: \.isCurrent)
     }
 
     func reconcilePendingStagingStates(with changes: [GitChange]) {

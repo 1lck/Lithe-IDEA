@@ -902,6 +902,27 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "unstage" => {
             let paths = validate_paths(&request.paths)?;
             let pathspec_input = nul_pathspec_input(&paths);
+
+            // An unborn repository has no HEAD for `restore --staged` or
+            // `reset HEAD` to resolve. Its index can only contain newly added
+            // paths, so remove those entries from the index while preserving
+            // the working tree files.
+            let head = execute_git(
+                &root,
+                &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+                None,
+            )?;
+            if head.exit_code != 0 {
+                arguments = vec![
+                    "rm".into(),
+                    "--cached".into(),
+                    "--ignore-unmatch".into(),
+                    "--pathspec-from-file=-".into(),
+                    "--pathspec-file-nul".into(),
+                ];
+                return execute_git(&root, &arguments, Some(pathspec_input));
+            }
+
             let restore_arguments = vec![
                 "restore".into(),
                 "--staged".into(),

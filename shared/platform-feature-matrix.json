@@ -409,6 +409,30 @@
       "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。"
     },
     {
+      "id": "git-multi-repository-change-groups",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "多仓库变更折叠分组（macOS 侧边栏）",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
+          "macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Git",
+      "verification": "在同一工作区打开两个或以上有变更的 Git 仓库，确认仓库以文件夹节点展示，可展开/折叠，仓库级和文件级复选框均可暂存/取消暂存；确认现有 commit 栏、提交消息和提交目标行为不变。",
+      "notes": "该条目只描述 macOS Changes 侧边栏的 IDEA 风格聚合展示；Windows 保持自身状态树和提交选择模型。"
+    },
+    {
       "id": "git-branches-remotes",
       "area": "版本控制",
       "group": "Git",

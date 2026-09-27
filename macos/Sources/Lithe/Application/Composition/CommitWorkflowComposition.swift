@@ -4,7 +4,7 @@ import LitheModuleAPI
 
 extension GitFeatureModel: CommitWorkflowGit {
     var stagedChangeIDs: Set<String> {
-        Set(activeRepositoryChanges.filter(\.isStaged).map(\.id))
+        Set(gitChanges.filter(\.isStaged).map(\.id))
     }
 }
 

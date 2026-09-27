@@ -370,6 +370,29 @@ package struct GitService: Sendable {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
     }
 
+    /// Returns paths tracked by the repository as gitlinks (mode 160000).
+    /// This is intentionally derived from Git's index rather than filesystem
+    /// nesting, because independent nested repositories are not submodules.
+    func gitlinkPaths(at repositoryRoot: URL) async -> [String] {
+        await read(priority: .utility) { operations in
+            let result = operations.run(
+                arguments: ["ls-files", "--stage", "-z"],
+                workingDirectory: repositoryRoot.path,
+                input: nil
+            )
+            guard result.exitCode == 0 else { return [] }
+            return (result.standardOutput ?? "")
+                .split(separator: "\0", omittingEmptySubsequences: true)
+                .compactMap { record in
+                    guard let separator = record.firstIndex(of: "\t") else { return nil }
+                    let header = record[..<separator]
+                    let fields = header.split(separator: " ", omittingEmptySubsequences: true)
+                    guard fields.first == "160000" else { return nil }
+                    return String(record[record.index(after: separator)...])
+                }
+        } ?? []
+    }
+
     func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {
         await read(priority: .utility) { $0.worktrees(at: repositoryRoot) }
     }

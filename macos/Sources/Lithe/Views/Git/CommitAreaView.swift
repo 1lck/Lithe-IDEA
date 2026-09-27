@@ -8,6 +8,7 @@ struct CommitAreaView: View {
     let hasBackgroundImage: Bool
     let showSettings: (SettingsCategory) -> Void
     @State private var commitMessageFocused = false
+    @State private var showsSubmoduleCommitPlan = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -115,10 +116,46 @@ struct CommitAreaView: View {
         } message: {
             Text("The generated message will replace the text currently in the editor.")
         }
+        .onChange(of: feature.pendingSubmoduleCommitPlan?.id) { planID in
+            showsSubmoduleCommitPlan = planID != nil
+        }
+        .confirmationDialog(
+            "Commit parent repository and submodule separately?",
+            isPresented: $showsSubmoduleCommitPlan,
+            titleVisibility: .visible
+        ) {
+            Button("Continue") {
+                Task { await commitWorkflow.confirmPendingSubmoduleCommit() }
+            }
+            .lithePointer()
+            Button("Cancel", role: .cancel) {
+                feature.cancelPendingSubmoduleCommit()
+            }
+            .lithePointer()
+        } message: {
+            if let plan = feature.pendingSubmoduleCommitPlan {
+                Text(submoduleCommitPlanMessage(plan))
+            }
+        }
+    }
+
+    private func submoduleCommitPlanMessage(_ plan: GitSubmoduleCommitPlan) -> String {
+        let order = plan.orderedRoots.enumerated().map { index, root in
+            "\(index + 1). \(root.lastPathComponent)"
+        }.joined(separator: "\n")
+        let propagation = plan.propagatedRelations.isEmpty
+            ? "The selected changes do not include a parent submodule reference; only the selected repositories will be committed."
+            : "The selected parent submodule reference will be restaged after the child commit, then committed in the parent repository."
+        let push = plan.push
+            ? "For Commit and Push, each child is pushed before its parent."
+            : "Repositories are committed in child-to-parent order."
+        return "This selection includes a Git submodule relationship.\n\nCommit order:\n\(order)\n\n\(propagation) \(push)\n\nThese are separate Git commits; if one repository fails, earlier commits are kept."
     }
 
     private var stagedChanges: [GitChange] {
-        feature.activeRepositoryChanges.filter(\.isStaged)
+        // Commit operates on every repository in the workspace, not only the
+        // repository selected by the branch toolbar.
+        feature.gitChanges.filter(\.isStaged)
     }
 
     private var canCommit: Bool {

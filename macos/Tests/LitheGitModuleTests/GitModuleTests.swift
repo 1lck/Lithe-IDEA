@@ -597,8 +597,9 @@ struct GitModuleTests {
         #expect(feature.gitChanges == [firstChange, secondChange])
         #expect(feature.currentBranch == "main")
         #expect(feature.activeRepositoryChanges == [firstChange])
-        // A conflict or staged entry in another repository must not block this commit.
-        #expect(await feature.commitStagedChanges(message: "First repository", amend: false))
+        // The first repository is committed, but the aggregate operation reports
+        // a partial failure because the selected second repository is conflicted.
+        #expect(await !feature.commitStagedChanges(message: "First repository", amend: false))
         #expect(firstChange.id != secondChange.id)
         #expect(feature.gitTreeStatus.change(relativePath: firstChange.url.path) == firstChange)
         #expect(feature.gitTreeStatus.change(relativePath: secondChange.url.path) == secondChange)
@@ -608,6 +609,134 @@ struct GitModuleTests {
         #expect(feature.activeRepositoryChanges == [secondChange])
         #expect(await !feature.commitStagedChanges(message: "Conflicted repository", amend: false))
         #expect(feature.gitChanges == [firstChange, secondChange])
+    }
+
+    @Test
+    func commitSubmitsStagedChangesToEachRepositoryInStableOrder() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let firstRoot = workspace.appendingPathComponent("service-a", isDirectory: true)
+        let secondRoot = workspace.appendingPathComponent("service-b", isDirectory: true)
+        let firstChange = GitChange(
+            repositoryRoot: firstRoot, path: "first.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " "
+        )
+        let secondChange = GitChange(
+            repositoryRoot: secondRoot, path: "second.txt", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " "
+        )
+        let recorder = CommitCallRecorder()
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                firstRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: firstRoot, branch: "main", changes: [firstChange]
+                ),
+                secondRoot.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: secondRoot, branch: "develop", changes: [secondChange]
+                )
+            ],
+            repositoryRoots: [firstRoot, secondRoot],
+            commitResult: GitProcessResult(arguments: ["commit"], output: "committed", exitCode: 0),
+            commitCallRecorder: recorder
+        ))
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        #expect(await feature.commitStagedChanges(message: "Sync repositories", amend: false))
+        #expect(recorder.recorded == [
+            CommitCallRecorder.Call(root: firstRoot, message: "Sync repositories", amend: false),
+            CommitCallRecorder.Call(root: secondRoot, message: "Sync repositories", amend: false)
+        ])
+    }
+
+    @Test
+    func submoduleRelationsUseGitlinksInsteadOfPathNesting() {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let parent = workspace.appendingPathComponent("parent", isDirectory: true)
+        let child = parent.appendingPathComponent("modules/child", isDirectory: true)
+        let nestedIndependent = parent.appendingPathComponent("tools/independent", isDirectory: true)
+        let roots = [parent, child, nestedIndependent]
+
+        let relations = GitRepositoryHierarchy.submoduleRelations(
+            repositoryRoots: roots,
+            gitlinkPathsByRoot: [
+                parent.standardizedFileURL: ["modules/child"]
+            ]
+        )
+
+        #expect(relations == [
+            GitRepositorySubmoduleRelation(parent: parent, child: child, path: "modules/child")
+        ])
+        #expect(GitRepositoryHierarchy.commitOrder(
+            [parent, child, nestedIndependent],
+            relations: relations
+        ) == [child, parent, nestedIndependent])
+    }
+
+    @Test
+    func submoduleCommitConfirmsThenCommitsChildBeforeParentAndRestagesGitlink() async {
+        let workspace = URL(fileURLWithPath: "/workspace")
+        let parent = workspace.appendingPathComponent("parent", isDirectory: true)
+        let child = parent.appendingPathComponent("modules/child", isDirectory: true)
+        let parentChange = GitChange(
+            repositoryRoot: parent, path: "modules/child", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " "
+        )
+        let childChange = GitChange(
+            repositoryRoot: child, path: "src/main.swift", originalPath: nil,
+            indexStatus: "M", workTreeStatus: " "
+        )
+        let recorder = CommitCallRecorder()
+        let stageRecorder = StageCallRecorder()
+        let service = GitService(operations: TestGitOperations(
+            snapshotsByRoot: [
+                parent.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: parent, branch: "main", changes: [parentChange]
+                ),
+                child.standardizedFileURL.path: GitSnapshot(
+                    repositoryRoot: child, branch: "main", changes: [childChange]
+                )
+            ],
+            repositoryRoots: [parent, child],
+            stageResult: GitProcessResult(output: "staged", exitCode: 0),
+            commitResult: GitProcessResult(output: "committed", exitCode: 0),
+            commitCallRecorder: recorder,
+            stageCallRecorder: stageRecorder,
+            gitlinkPathsByRoot: [parent.standardizedFileURL.path: ["modules/child"]]
+        ))
+        #expect(await service.gitlinkPaths(at: parent) == ["modules/child"])
+        #expect(GitRepositoryHierarchy.submoduleRelations(
+            repositoryRoots: [parent, child],
+            gitlinkPathsByRoot: [parent.standardizedFileURL: ["modules/child"]]
+        ).count == 1)
+
+        let feature = GitFeatureModel(service: service)
+        feature.configure(
+            workspaceURLProvider: { workspace },
+            isGitLogVisibleProvider: { false },
+            notify: { _ in },
+            onStateRefreshed: {}
+        )
+
+        await feature.refreshGit()
+        #expect(feature.availableRepositoryRoots == [parent, child])
+        #expect(feature.gitChanges == [parentChange, childChange])
+
+        #expect(await !feature.commitStagedChanges(message: "Advance submodule", amend: false))
+        #expect(recorder.recorded.isEmpty)
+        #expect(feature.pendingSubmoduleCommitPlan?.orderedRoots == [child, parent])
+
+        #expect(await feature.confirmPendingSubmoduleCommit())
+        #expect(recorder.recorded.map(\.root) == [child, parent])
+        #expect(stageRecorder.recorded == [
+            StageCallRecorder.Call(root: parent, path: "modules/child")
+        ])
+        #expect(feature.pendingSubmoduleCommitPlan == nil)
     }
 
     @Test
@@ -3393,6 +3522,54 @@ private final class GitPerformanceLogRecorder: GitPerformanceLogger, @unchecked 
     }
 }
 
+/// Records each repository commit so multi-repository submission can assert
+/// that one Git commit is issued per independent index.
+private final class CommitCallRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let root: URL
+        let message: String
+        let amend: Bool
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(_ call: Call) {
+        lock.lock()
+        calls.append(call)
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+/// Records the parent gitlink restage issued after a child submodule commit.
+private final class StageCallRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let root: URL
+        let path: String
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(_ change: GitChange) {
+        lock.lock()
+        calls.append(Call(root: change.repositoryRoot, path: change.path))
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
 /// Records tag create/delete arguments so restore flows can be asserted on
 /// the exact parameters the feature model replays.
 private final class TagCallRecorder: @unchecked Sendable {
@@ -3568,6 +3745,9 @@ private struct TestGitOperations: GitOperations {
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
+    private let commitCallRecorder: CommitCallRecorder?
+    private let stageCallRecorder: StageCallRecorder?
+    private let gitlinkPathsByRoot: [String: [String]]
     private let revertHandler: (@Sendable (String) -> GitProcessResult?)?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
@@ -3609,6 +3789,9 @@ private struct TestGitOperations: GitOperations {
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
+        commitCallRecorder: CommitCallRecorder? = nil,
+        stageCallRecorder: StageCallRecorder? = nil,
+        gitlinkPathsByRoot: [String: [String]] = [:],
         revertHandler: (@Sendable (String) -> GitProcessResult?)? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
@@ -3649,6 +3832,9 @@ private struct TestGitOperations: GitOperations {
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
+        self.commitCallRecorder = commitCallRecorder
+        self.stageCallRecorder = stageCallRecorder
+        self.gitlinkPathsByRoot = gitlinkPathsByRoot
         self.revertHandler = revertHandler
         self.runGate = runGate
         self.filesRecorder = filesRecorder
@@ -3673,10 +3859,17 @@ private struct TestGitOperations: GitOperations {
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
         runGate?.blockFirstRun()
+        let standardOutput: String
+        if arguments == ["ls-files", "--stage", "-z"] {
+            let paths = gitlinkPathsByRoot[URL(fileURLWithPath: workingDirectory).standardizedFileURL.path] ?? []
+            standardOutput = paths.map { "160000 abc123 0\t\($0)\0" }.joined()
+        } else {
+            standardOutput = "git version 2.55.0\n"
+        }
         return GitProcessResult(
             arguments: arguments,
-            output: "git version 2.55.0\n",
-            standardOutput: "git version 2.55.0\n",
+            output: standardOutput,
+            standardOutput: standardOutput,
             standardError: "",
             exitCode: 0
         )
@@ -3773,11 +3966,17 @@ private struct TestGitOperations: GitOperations {
     func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { typedComparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
-    func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
+    func stage(_ change: GitChange) -> GitProcessResult? {
+        stageCallRecorder?.record(change)
+        return stageResult
+    }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
-    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
+    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? {
+        commitCallRecorder?.record(CommitCallRecorder.Call(root: rootURL, message: message, amend: amend))
+        return commitResult
+    }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { revertHandler?(hash) }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
