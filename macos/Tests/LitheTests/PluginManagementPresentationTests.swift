@@ -24,6 +24,26 @@ struct PluginManagementPresentationTests {
         #expect(content.plugins.map(\.id) == [phpManifest.id])
     }
 
+    @MainActor
+    @Test
+    func settingsOKKeepsFailedPluginChangesForRetry() async {
+        let state = SettingsViewState(initialCategory: .plugins)
+        let pluginID = OfficialPluginCatalog.phpPluginID
+        state.pendingPluginEnabledStates[pluginID] = true
+
+        let shouldCloseAfterFailure = await state.applyPluginChanges { changes in
+            #expect(changes == [pluginID: true])
+            return []
+        }
+        #expect(!shouldCloseAfterFailure)
+        #expect(state.pendingPluginEnabledStates[pluginID] == true)
+        #expect(!state.isApplyingPluginChanges)
+
+        let shouldCloseAfterRetry = await state.applyPluginChanges { _ in [pluginID] }
+        #expect(shouldCloseAfterRetry)
+        #expect(state.pendingPluginEnabledStates.isEmpty)
+    }
+
     private func snapshot(_ manifest: PluginManifest) -> PluginManagementSnapshot {
         PluginManagementSnapshot(
             manifest: manifest,

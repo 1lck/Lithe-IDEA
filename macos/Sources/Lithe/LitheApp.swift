@@ -767,6 +767,7 @@ private struct SettingsWindow: View {
             )
         )
         .onDisappear {
+            viewState.pendingPluginEnabledStates.removeAll()
             model.isSettingsPresented = false
         }
     }

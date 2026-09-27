@@ -6,12 +6,14 @@ struct PluginManagementView: View {
     private static let listMinimumWidth: CGFloat = 320
     private static let detailMinimumWidth: CGFloat = 300
     @EnvironmentObject private var model: AppModel
+    @ObservedObject var settingsState: SettingsViewState
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
     @State private var hoveredPluginID: PluginID?
-    @State private var pendingEnabledStates: [PluginID: Bool] = [:]
-    @State private var isApplyingChanges = false
     @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
+
+    private var pendingEnabledStates: [PluginID: Bool] { settingsState.pendingPluginEnabledStates }
+    private var isApplyingChanges: Bool { settingsState.isApplyingPluginChanges }
 
     private var installedPlugins: [PluginManagementSnapshot] {
         PluginManagementListContent(plugins: model.pluginSnapshots).plugins
@@ -223,12 +225,14 @@ struct PluginManagementView: View {
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
             Button(LocalizedStringKey("Cancel")) {
-                pendingEnabledStates.removeAll()
+                settingsState.pendingPluginEnabledStates.removeAll()
             }
             .buttonStyle(.bordered)
             .disabled(isApplyingChanges)
             Button {
-                applyPendingChanges()
+                Task { @MainActor in
+                    _ = await settingsState.applyPluginChanges(model.applyPluginEnabledChanges)
+                }
             } label: {
                 if isApplyingChanges {
                     ProgressView().controlSize(.small)
@@ -252,22 +256,9 @@ struct PluginManagementView: View {
 
     private func stageEnabledState(_ enabled: Bool, for plugin: PluginManagementSnapshot) {
         if enabled == plugin.isEnabled {
-            pendingEnabledStates.removeValue(forKey: plugin.id)
+            settingsState.pendingPluginEnabledStates.removeValue(forKey: plugin.id)
         } else {
-            pendingEnabledStates[plugin.id] = enabled
-        }
-    }
-
-    private func applyPendingChanges() {
-        let changes = pendingEnabledStates
-        guard !changes.isEmpty, !isApplyingChanges else { return }
-        isApplyingChanges = true
-        Task { @MainActor in
-            let appliedPluginIDs = await model.applyPluginEnabledChanges(changes)
-            for pluginID in appliedPluginIDs {
-                pendingEnabledStates.removeValue(forKey: pluginID)
-            }
-            isApplyingChanges = false
+            settingsState.pendingPluginEnabledStates[plugin.id] = enabled
         }
     }
 

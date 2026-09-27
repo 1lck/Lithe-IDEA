@@ -16,9 +16,25 @@ final class SettingsViewState: ObservableObject {
     @Published var isFormatPickerPresented = false
     @Published var detectedTerminalShells: [String] = []
     @Published var knownTerminalShells: [String] = []
+    @Published var pendingPluginEnabledStates: [PluginID: Bool] = [:]
+    @Published private(set) var isApplyingPluginChanges = false
 
     init(initialCategory: SettingsCategory) {
         selection = initialCategory
+    }
+
+    func applyPluginChanges(
+        _ apply: ([PluginID: Bool]) async -> Set<PluginID>
+    ) async -> Bool {
+        guard !isApplyingPluginChanges else { return false }
+        guard !pendingPluginEnabledStates.isEmpty else { return true }
+        isApplyingPluginChanges = true
+        let applied = await apply(pendingPluginEnabledStates)
+        for pluginID in applied {
+            pendingPluginEnabledStates.removeValue(forKey: pluginID)
+        }
+        isApplyingPluginChanges = false
+        return pendingPluginEnabledStates.isEmpty
     }
 }
 
@@ -322,7 +338,7 @@ struct SettingsView: View {
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewState.selection == .plugins {
-            PluginManagementView()
+            PluginManagementView(settingsState: viewState)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
@@ -1532,7 +1548,14 @@ struct SettingsView: View {
                 }
                     .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
                     .keyboardShortcut(.cancelAction)
-                Button { closeSettings() } label: {
+                    .disabled(viewState.isApplyingPluginChanges)
+                Button {
+                    Task { @MainActor in
+                        if await viewState.applyPluginChanges(model.applyPluginEnabledChanges) {
+                            closeSettings()
+                        }
+                    }
+                } label: {
                     Text("OK")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
@@ -1543,6 +1566,7 @@ struct SettingsView: View {
                         height: 28
                     ))
                     .keyboardShortcut(.defaultAction)
+                    .disabled(viewState.isApplyingPluginChanges)
             }
         }
         .padding(.horizontal, 16)

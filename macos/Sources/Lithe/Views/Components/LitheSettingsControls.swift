@@ -235,7 +235,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                 } label: {
                     Text(LocalizedStringKey(title(option)))
                         .font(selection == option ? LitheTheme.settingsStrongFont : LitheTheme.settingsFont)
-                        .foregroundStyle(selection == option ? Color.white : LitheTheme.secondaryText)
+                        .foregroundStyle(selection == option ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, minHeight: 26)
                         .contentShape(Rectangle())
                         .litheRowHover(
@@ -410,21 +410,31 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
     }
 }
 
+private struct LitheSettingsTextEditorModifier: ViewModifier {
+    @FocusState private var isFocused: Bool
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .font(.system(size: 12, design: .monospaced))
+            .focused($isFocused)
+            .frame(height: height)
+            .padding(5)
+            .litheRoundedControlBackground(LitheTheme.settingsControlBackground)
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                    .strokeBorder(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
+            }
+    }
+}
+
 extension View {
     func litheSettingsTextField() -> some View {
         modifier(LitheSettingsTextFieldModifier())
     }
 
     func litheSettingsTextEditor(height: CGFloat) -> some View {
-        self
-            .scrollContentBackground(.hidden)
-            .font(.system(size: 12, design: .monospaced))
-            .frame(height: height)
-            .padding(5)
-            .litheRoundedControlBackground(LitheTheme.settingsControlBackground)
-            .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .strokeBorder(LitheTheme.settingsSearchBorder, lineWidth: 1)
-            }
+        modifier(LitheSettingsTextEditorModifier(height: height))
     }
 }
