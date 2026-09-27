@@ -175,13 +175,41 @@ fn git_paths_roundtrip_unicode_spaces_and_linked_worktree() {
 }
 
 #[test]
-fn git_paths_roundtrip_a_repository_beyond_max_path() {
+fn git_paths_roundtrip_or_explicitly_reject_a_repository_beyond_max_path() {
     let fixture = Fixture::new();
+    let source = fixture.0.join("source");
+    let commit = initialize(&source);
     let mut root = fixture.0.clone();
     while root.as_os_str().len() <= 280 {
         root.push("long-path-segment");
     }
-    let commit = initialize(&root);
+    fs::create_dir_all(root.parent().unwrap()).unwrap();
+    fs::rename(&source, &root).unwrap();
+    // Windows can create this directory using verbatim filesystem APIs while
+    // CreateProcess still rejects it as a working directory (ERROR_DIRECTORY).
+    // Seed the repository at a short path so this tests Core, not fixture setup.
+    #[cfg(windows)]
+    {
+        let native = root.to_str().unwrap();
+        let response = request("git.repositoryRoot", native);
+        if response["ok"] == false {
+            for path in [native.to_string(), frontend_path(native)] {
+                let error = request("git.repositoryRoot", &path);
+                assert_eq!(error["ok"], false, "{error}");
+                assert_eq!(error["error"]["code"], "process_start_failed", "{error}");
+                assert_eq!(error["error"]["message"], "Could not start Git", "{error}");
+                assert!(
+                    error["error"]["details"]
+                        .as_str()
+                        .unwrap()
+                        .contains("os error 267"),
+                    "{error}"
+                );
+            }
+            assert!(root.join(".git/HEAD").is_file());
+            return;
+        }
+    }
     assert_roundtrip(&root, &commit);
 }
 

@@ -451,7 +451,9 @@ normalizes native UNC/verbatim inputs before deciding whether to join a reposito
 root, and rejects unsupported names before stripping their prefix. Remote/WSL
 identifiers retain their protocol and POSIX name semantics. Chinese names,
 embedded spaces and long paths are not rejected by length; native Git/filesystem
-errors remain visible. Shared examples live in `shared/fixtures/git/windows-paths.json`.
+errors remain visible. In particular, Windows may reject an over-MAX_PATH Git
+working directory at process creation even when filesystem lookup succeeds;
+this is reported as `process_start_failed`, not a missing repository. Shared examples live in `shared/fixtures/git/windows-paths.json`.
 Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
