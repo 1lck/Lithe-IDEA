@@ -50,6 +50,9 @@ public final class AgentConnectionModel: ObservableObject {
     private var needsAttention = false
     @Published private var createToken: String?
     private var loadBackups: [String: AgentConversation] = [:]
+    /// Locally prepared sessions without a submitted prompt or upstream history evidence.
+    /// Codex does not persist their rollout until the first prompt, so they cannot be resumed.
+    private var unpromptedSessionIDs: Set<String> = []
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
 
@@ -203,6 +206,7 @@ public final class AgentConnectionModel: ObservableObject {
               conversation.pendingConfigToken == nil, conversation.permission == nil else { return }
         openSessionIDs.removeAll { $0 == sessionID }
         conversations[sessionID] = nil
+        unpromptedSessionIDs.remove(sessionID)
         pendingText[sessionID] = nil
         queuedPrompts[sessionID] = nil
         if selectedSessionID == sessionID {
@@ -293,6 +297,7 @@ public final class AgentConnectionModel: ObservableObject {
             sessionCreated(sessionID, token: token)
         case "sessionLoaded":
             guard let sessionID, let token, loadTokens.removeValue(forKey: token) != nil else { return }
+            unpromptedSessionIDs.remove(sessionID)
             flushPendingText()
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
@@ -356,6 +361,7 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.isAttached = true
         conversation.hasCompleteHistory = true
         conversations[sessionID] = conversation
+        unpromptedSessionIDs.insert(sessionID)
         openTab(sessionID)
         pendingNewConversationPrompt = nil
         if selectedSessionID == nil { selectedSessionID = sessionID }
@@ -408,6 +414,8 @@ public final class AgentConnectionModel: ObservableObject {
             )
         }
         let listedIDs = Set(listed.map(\.id))
+        // A listed session is owned by upstream history even if the local transcript is empty.
+        unpromptedSessionIDs.subtract(listedIDs)
         // Sessions created in this run may not be persisted by the agent yet.
         sessions = sessions.filter { !listedIDs.contains($0.id) && conversations[$0.id] != nil } + listed
     }
@@ -512,6 +520,7 @@ public final class AgentConnectionModel: ObservableObject {
         var command: [String: Any] = ["kind": "prompt", "sessionId": sessionID, "text": prompt.text]
         if !prompt.files.isEmpty { command["files"] = prompt.files.map(\.commandValue) }
         guard sendCommand(command) else { return false }
+        unpromptedSessionIDs.remove(sessionID)
         var conversation = conversations[sessionID] ?? AgentConversation()
         conversation.messages.append(AgentConversationMessage(role: .user, text: prompt.displayText))
         conversation.isResponding = true
@@ -576,6 +585,7 @@ public final class AgentConnectionModel: ObservableObject {
         loadTokens.removeAll()
         for (id, backup) in loadBackups { conversations[id] = backup }
         loadBackups.removeAll()
+        discardUnpersistedEmptySessions()
         createToken = nil
         pendingNewConversationPrompt = nil
         for id in conversations.keys {
@@ -590,6 +600,18 @@ public final class AgentConnectionModel: ObservableObject {
         }
         updateAttention()
         return old
+    }
+
+    private func discardUnpersistedEmptySessions() {
+        let discarded = unpromptedSessionIDs.filter { conversations[$0]?.messages.isEmpty == true }
+        unpromptedSessionIDs.removeAll()
+        // Never infer this from an empty transcript alone: unloaded history must survive.
+        for id in discarded { conversations[id] = nil }
+        sessions.removeAll { discarded.contains($0.id) }
+        openSessionIDs.removeAll { discarded.contains($0) }
+        if let selectedSessionID, discarded.contains(selectedSessionID) {
+            self.selectedSessionID = nil
+        }
     }
 
     private func openTab(_ sessionID: String) {
@@ -665,11 +687,11 @@ public enum AgentConversationError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .featureDisabled: String(localized: "Agent conversation is turned off. Turn it on in the panel settings to send messages.")
-        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration.")
+        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.")
         case .moduleStarting: String(localized: "The Agent module is still starting. Try again in a moment.")
         case .missingCommand: String(localized: "Set the custom Agent's executable in the panel settings.")
-        case .missingProvider: String(localized: "Fetch this Agent's local configuration in the panel settings.")
-        case .missingAPIKey: String(localized: "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again.")
+        case .missingProvider: String(localized: "Choose a local or custom provider in the Agent panel settings.")
+        case .missingAPIKey: String(localized: "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.")
         case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
         case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
         case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
