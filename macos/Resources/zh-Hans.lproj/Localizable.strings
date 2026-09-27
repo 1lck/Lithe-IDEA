@@ -2390,3 +2390,7 @@
 "Only local files can be attached to an Agent message." = "Agent 消息仅支持添加本地文件。";
 "Attach up to 32 files per message." = "每条消息最多添加 32 个文件。";
 "The Agent is still responding in this conversation." = "Agent 仍在回复当前对话。";
+
+"Context usage" = "上下文用量";
+"Context: %@" = "上下文: %@";
+"%@ · %@ / %@ context tokens" = "%@ · %@ / %@ 上下文 token";

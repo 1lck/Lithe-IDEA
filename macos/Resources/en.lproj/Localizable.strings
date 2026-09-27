@@ -1160,3 +1160,7 @@
 "Only local files can be attached to an Agent message." = "Only local files can be attached to an Agent message.";
 "Attach up to 32 files per message." = "Attach up to 32 files per message.";
 "The Agent is still responding in this conversation." = "The Agent is still responding in this conversation.";
+
+"Context usage" = "Context usage";
+"Context: %@" = "Context: %@";
+"%@ · %@ / %@ context tokens" = "%@ · %@ / %@ context tokens";

@@ -78,6 +78,21 @@ struct WorkbenchHoverTooltipTests {
     }
 
     @Test
+    func contextUsageTooltipOpensAboveItsSourceInsideANarrowPanel() async throws {
+        let source = CGRect(x: 10, y: 70, width: 36, height: 20)
+        let bounds = try renderedBounds(
+            text: "7.2% · 18.7k / 258.4k 上下文 token",
+            viewport: CGSize(width: 280, height: 120),
+            source: source,
+            placement: .above
+        )
+        #expect(bounds.maxY <= source.minY - 4)
+        #expect(bounds.minY >= 7)
+        #expect(bounds.minX >= 7)
+        #expect(bounds.maxX <= 273)
+    }
+
+    @Test
     func bottomActivityTooltipKeepsAVerticalMargin() async throws {
         let bounds = try renderedBounds(
             text: "设置",
