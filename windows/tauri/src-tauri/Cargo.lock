@@ -2873,6 +2873,7 @@ dependencies = [
  "lithe-git-host",
  "lithe-project",
  "lithe-terminal",
+ "quick-xml 0.37.5",
  "regex",
  "same-file",
  "serde",

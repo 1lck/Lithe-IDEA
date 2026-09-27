@@ -635,6 +635,20 @@ describe("Maven workspace state", () => {
     expect(resolveMavenEffectiveConfiguration).not.toHaveBeenCalled();
   });
 
+  test("settings hints use the inherited Maven installation carried by the launch context", async () => {
+    resolveEffectiveMavenExecutable.mockResolvedValueOnce("D:/team/maven/bin/mvn.cmd");
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+
+    expect(store.getState().mavenExecutablePath).toBe("");
+    expect(resolveMavenEffectiveConfiguration).toHaveBeenLastCalledWith(
+      "D:/work", "reactor",
+      expect.objectContaining({ mavenExecutablePath: "D:/team/maven/bin/mvn.cmd" }),
+    );
+    expect(mavenLaunchContext(store.getState())?.mavenExecutablePath)
+      .toBe("D:/team/maven/bin/mvn.cmd");
+  });
+
   test("ignores Maven detection that returns after switching to a non-Maven project", async () => {
     const store = createMavenStore("workspace", dependencies);
     await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);

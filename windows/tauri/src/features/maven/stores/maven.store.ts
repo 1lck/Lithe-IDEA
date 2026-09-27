@@ -1025,7 +1025,7 @@ export const createMavenStore = (
               {
                 settingsPath: state.settingsPath,
                 localRepositoryPath: state.localRepositoryPath,
-                mavenExecutablePath: state.mavenExecutablePath,
+                mavenExecutablePath: state.mavenExecutablePath || state.resolvedMavenExecutablePath,
                 javaHomePath: state.javaHomePath,
               },
             );
