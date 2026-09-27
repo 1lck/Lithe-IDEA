@@ -844,7 +844,7 @@ struct ChangesSidebarView: View {
     }
 
     private var visibleChangeIDs: [String] {
-        guard changeSections.repositories.count > 1 else {
+        guard feature.availableRepositoryRoots.count > 1 else {
             return ((trackedExpanded ? trackedChanges : []) + (untrackedExpanded ? addedChanges : [])).map(\.id)
         }
 

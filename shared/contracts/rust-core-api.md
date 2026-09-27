@@ -2083,6 +2083,9 @@ null for detached HEAD. `indexEntries` is Git's opaque NUL-delimited staged inde
 listing, including blob IDs and conflict stages; clients compare it without
 parsing it. `gitlinks` lists stage-0 mode-160000 entries as `{ path, revision }`.
 Read failures are errors, never an empty relationship list.
+The requested root must still be Git's exact working-tree root. Removing a
+nested repository's metadata must fail instead of falling back to its parent;
+gitlink updates also verify the child boundary before reading its HEAD.
 
 `git.write` / `commit` optionally accepts `expectedCommitState` and
 `gitlinkUpdates: [{ path, revision }]`. Gitlink updates cannot accompany other

@@ -40,6 +40,20 @@ fn read(root: &str, arguments: &[&str]) -> Result<String, CoreError> {
     Ok(result.stdout)
 }
 
+fn ensure_repository_root(root: &str) -> Result<(), CoreError> {
+    // Git walks up to a parent repository when a nested .git disappears. A
+    // reviewed workspace root must still own its index before any guarded write.
+    let actual = read(root, &["rev-parse", "--show-toplevel"])?;
+    let actual = actual.strip_suffix('\n').unwrap_or(&actual);
+    if validate_root(actual)? != validate_root(root)? {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Repository boundary changed; refresh the workspace",
+        ));
+    }
+    Ok(())
+}
+
 /// Reads HEAD and index through Git, without refreshing or modifying the index.
 pub fn inspect(request: GitStatusRequest) -> Result<GitCommitState, CoreError> {
     let root = validate_root(&request.root)?;
@@ -105,6 +119,7 @@ fn head_state(root: &str) -> Result<(Option<String>, Option<String>), CoreError>
 }
 
 pub(super) fn inspect_root(root: &str) -> Result<GitCommitState, CoreError> {
+    ensure_repository_root(root)?;
     let (head, branch) = head_state(root)?;
     let index_entries = read(root, &["ls-files", "--stage", "-z"])?;
     let gitlinks = index_entries
@@ -193,6 +208,7 @@ pub(super) fn prepare(
             ));
         }
         let child = std::path::Path::new(root).join(&update.path);
+        ensure_repository_root(&child.to_string_lossy())?;
         let actual = read(
             &child.to_string_lossy(),
             &["rev-parse", "--verify", "HEAD^{commit}"],

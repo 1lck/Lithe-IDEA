@@ -265,3 +265,57 @@ fn git_workspace_commit_push_checks_submodule_publication_before_updating_the_re
         state(&parent.0)["head"].as_str().unwrap()
     );
 }
+
+#[test]
+fn git_workspace_commit_rejects_a_removed_child_repository_instead_of_using_its_parent() {
+    let parent = repository("workspace-commit-removed-child");
+    let child = parent.0.join("child");
+    init(&child);
+    // Both repositories have valid staged content; losing the child boundary
+    // must invalidate its state instead of reading any state from the parent.
+    for root in [&parent.0, &child] {
+        fs::write(root.join("selected.txt"), "same staged content").unwrap();
+        git(root, &["add", "selected.txt"]);
+    }
+    let expected = state(&child);
+    fs::remove_dir_all(child.join(".git")).unwrap();
+    let result = request(
+        &child,
+        "git.write",
+        json!({"operation":"commit", "message":"must not commit parent", "expectedCommitState":expected}),
+    );
+    assert!(
+        result["ok"] == false || !result["data"]["operationError"].is_null(),
+        "{result}"
+    );
+    assert!(state(&parent.0)["head"].is_null());
+    assert_eq!(request(&child, "git.commitState", json!({}))["ok"], false);
+}
+
+#[test]
+fn git_workspace_commit_rejects_a_removed_submodule_before_updating_its_pointer() {
+    let parent = repository("workspace-commit-removed-submodule");
+    let child = parent.0.join("child");
+    init(&child);
+    fs::write(child.join("selected.txt"), "child content").unwrap();
+    git(&child, &["add", "."]);
+    git(&child, &["commit", "-qm", "child initial"]);
+    git(&parent.0, &["add", "child"]);
+    git(&parent.0, &["commit", "-qm", "parent initial"]);
+    let expected = state(&parent.0);
+    fs::remove_dir_all(child.join(".git")).unwrap();
+    // Without boundary validation, rev-parse in the child returns the parent's
+    // HEAD and incorrectly permits that revision to replace the child pointer.
+    let result = request(
+        &parent.0,
+        "git.write",
+        json!({"operation":"commit", "message":"must not replace child",
+            "expectedCommitState":expected,
+            "gitlinkUpdates":[{"path":"child", "revision":expected["head"]}]}),
+    );
+    assert_eq!(
+        result["data"]["operationError"]["code"], "invalid_request",
+        "{result}"
+    );
+    assert_eq!(state(&parent.0), expected);
+}

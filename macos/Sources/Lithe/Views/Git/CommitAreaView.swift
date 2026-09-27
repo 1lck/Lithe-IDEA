@@ -163,7 +163,7 @@ private struct WorkspaceCommitPlanView: View {
     var body: some View {
         if let plan = feature.pendingSubmoduleCommitPlan {
             VStack(alignment: .leading, spacing: 12) {
-                Text(plan.isRetry ? "Review remaining steps" : "Review repository commits").font(.headline)
+                Text(LocalizedStringKey(plan.isRetry ? "Review remaining steps" : "Review repository commits")).font(.headline)
                 Text("Each repository has its own commit. Completed steps are kept if another repository fails.")
                 Text("Commit message: \(plan.message)").font(.caption)
                 if plan.amend { Text("Amend applies to repositories with selected files.").font(.caption) }
@@ -172,7 +172,7 @@ private struct WorkspaceCommitPlanView: View {
                         ForEach(Array(plan.orderedRoots.enumerated()), id: \.element) { index, root in
                             VStack(alignment: .leading, spacing: 2) {
                                 let action = plan.committedRoots.contains(root) ? "Push only" : (plan.push ? "Commit and push" : "Commit")
-                                Text("\(index + 1). \(action): \(root.path)")
+                                (Text("\(index + 1). ") + Text(LocalizedStringKey(action)) + Text(": \(root.path)"))
                                 if let state = plan.states[root] {
                                     Text("\(state.branch ?? "Detached HEAD") · \(state.head?.prefix(10) ?? "New repository")")
                                         .font(.caption).foregroundStyle(.secondary)
