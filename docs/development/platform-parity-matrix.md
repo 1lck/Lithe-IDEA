@@ -6,7 +6,7 @@
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
 - 功能项：87
 - macOS：实现：✅ 74 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 77 待验证，— 10 不适用
-- Windows：实现：✅ 78 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
+- Windows：实现：✅ 79 已实现，🟡 6 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -198,7 +198,7 @@
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。 |  |
-| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 | Windows 快捷键设置仍有占位交互，见 #718。 |
+| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`、`windows/tauri/src/features/settings/components/macos-settings-panels.tsx`、`windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx`、`windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx`</sub> | Settings | 从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。 | Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。 |
 
 </details>
 
