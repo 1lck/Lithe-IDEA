@@ -3,8 +3,8 @@ import LitheModuleAPI
 
 struct PluginManagementView: View {
     static let minimumWidth: CGFloat = listMinimumWidth + SplitHandleView.thickness + detailMinimumWidth
-    private static let listMinimumWidth: CGFloat = 320
-    private static let detailMinimumWidth: CGFloat = 300
+    static let listMinimumWidth: CGFloat = 200
+    private static let detailMinimumWidth: CGFloat = 160
     @EnvironmentObject private var model: AppModel
     @ObservedObject var settingsState: SettingsViewState
     @State private var searchText = ""

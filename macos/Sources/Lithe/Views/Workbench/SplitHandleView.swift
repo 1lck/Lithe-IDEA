@@ -118,7 +118,7 @@ struct SplitHandleView: View {
     @ViewBuilder
     private var dividerLine: some View {
         if showsIdleDivider {
-            let color = isDragging ? LitheTheme.primaryText
+            let color = isDragging && highlightsOnHover ? LitheTheme.primaryText
                 : (isHovering && highlightsOnHover ? LitheTheme.secondaryText : LitheTheme.divider)
             if axis == .horizontal {
                 Rectangle()
