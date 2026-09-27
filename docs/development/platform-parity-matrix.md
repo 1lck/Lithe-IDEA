@@ -2,11 +2,11 @@
 
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
-- 最后复核：2026-09-24
+- 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：84
-- macOS：实现：✅ 71 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 74 待验证，— 10 不适用
-- Windows：实现：✅ 78 已实现，🟡 4 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 82 待验证，— 2 不适用
+- 功能项：87
+- macOS：实现：✅ 74 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 77 待验证，— 10 不适用
+- Windows：实现：✅ 78 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -28,6 +28,21 @@
 ## 功能矩阵
 
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。单元格第一行是实现状态，第二行是验证状态。
+
+<details>
+<summary><strong>AI</strong> · 7 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Agent 对话 | **可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理**<br><sub>agent-acp-conversation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule`、`macos/Sources/Lithe/Views/Agent`、`rust/lithe-agent-host`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host`</sub> | Agent | macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 |  |
+| Agent 对话 | **从 Finder 或项目树拖入文件到 Agent 输入框，文件选择器、可移除标签、多文件去重和数量限制、文件引用随消息发送及失败保留草稿**<br><sub>agent-file-references</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentComposerView.swift`、`macos/Sources/Lithe/Views/Agent/AgentFileReferenceList.swift`、`macos/Sources/LitheAgentConversationModule/Application/AgentFileReference.swift`、`macos/Tests/LitheTests/AgentFileReferenceTests.swift`、`macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift`、`rust/lithe-agent-host/src/tests.rs`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host/src/prompt.rs`、`shared/fixtures/agent/acp-events-v1.json`</sub> | Agent | macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 |  |
+| Agent 对话 | **Agent 管理：面板内设置、Node.js/npm 检测、预检清单、ACP 适配器与 Agent CLI 一键安装或升级、一键获取本机 CLI 配置、实时下载数据量/速度/耗时与等待提示、按 CLI 安装来源更新、验证实际升级结果并区分成功警告与失败**<br><sub>agent-management</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentPanelSettingsView.swift`、`macos/Sources/Lithe/Application/Features/AgentManagementFeatureModel.swift`、`rust/lithe-agent-host/src/install.rs`、`rust/lithe-core/src/agent/mod.rs`、`rust/lithe-agent-host/src/npm-progress.mjs`、`rust/lithe-agent-host/src/cli_update.rs`、`macos/Tests/LitheTests/AgentManagementFeatureModelTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-core/src/agent/mod.rs`</sub> | Agent | 在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。 |  |
+| AI 提交信息 | **Provider 配置与提交信息生成**<br><sub>ai-commit-generation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift`、`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/services/ai-commit-service.ts`、`shared/contracts/ai-commit.md`</sub> | Git / AI | 用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 |  |
+| AI 对话 | **对话会话与流式响应**<br><sub>ai-chat-session</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/components/chat/ai-chat.tsx`、`windows/tauri/src/features/ai/services/ai-chat-service.ts`</sub> | AI | Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。 |  |
+| AI 对话 | **对话历史、置顶与归档**<br><sub>ai-chat-history</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/ai-chat-history-service.ts`、`windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx`</sub> | AI | Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。 |  |
+| AI 对话 | **多 Provider 与工作区范围**<br><sub>ai-chat-providers</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/providers`、`windows/tauri/src/features/ai/lib/ai-workspace-scope.ts`</sub> | AI | Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。 |  |
+
+</details>
 
 <details>
 <summary><strong>工作区</strong> · 7 个能力点</summary>
@@ -83,7 +98,7 @@
 | Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 |  |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |
-| Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方。 |  |
+| Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`、`macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`、`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/git/utils/git-graph-layout.ts`、`windows/tauri/src/features/git/utils/git-graph-colors.ts`、`windows/tauri/src/features/git/utils/git-graph-layout.test.ts`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 |  |
 | Git | **Rebase 与 Stash**<br><sub>git-rebase-stash</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。 |  |
 | Git | **Worktree 管理**<br><sub>git-worktrees</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 |  |
 | Git | **多仓库引用面板：分组、配色与引用操作**<br><sub>git-multi-repository-references</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。 |  |
@@ -97,18 +112,6 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | GitHub | **Pull Request 列表与详情**<br><sub>github-prs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/GitHub`、`macos/Sources/Lithe/Services/GitHub`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/github`、`shared/contracts/application-boundary.md`</sub> | GitHub | 使用测试仓库验证 PR 列表、筛选、详情、分支比较和浏览器跳转。 |  |
 | GitHub | **Review 与评论**<br><sub>github-reviews-comments</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/GitHub`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/github`</sub> | GitHub | 创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。 |  |
-
-</details>
-
-<details>
-<summary><strong>AI</strong> · 4 个能力点</summary>
-
-| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
-| --- | --- | --- | --- | --- | --- | --- |
-| AI 提交信息 | **Provider 配置与提交信息生成**<br><sub>ai-commit-generation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift`、`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/services/ai-commit-service.ts`、`shared/contracts/ai-commit.md`</sub> | Git / AI | 用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。 |  |
-| AI 对话 | **对话会话与流式响应**<br><sub>ai-chat-session</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/components/chat/ai-chat.tsx`、`windows/tauri/src/features/ai/services/ai-chat-service.ts`</sub> | AI | Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。 |  |
-| AI 对话 | **对话历史、置顶与归档**<br><sub>ai-chat-history</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/ai-chat-history-service.ts`、`windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx`</sub> | AI | Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。 |  |
-| AI 对话 | **多 Provider 与工作区范围**<br><sub>ai-chat-providers</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/AI`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/ai/services/providers`、`windows/tauri/src/features/ai/lib/ai-workspace-scope.ts`</sub> | AI | Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。 |  |
 
 </details>
 

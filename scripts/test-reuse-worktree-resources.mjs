@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,6 +64,14 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("agent-cli-runtime"));
+    const refused = reuse(["--resource", "agent-cli-runtime"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(

@@ -5,6 +5,7 @@ import LitheExecutionModule
 import LitheGitModule
 import LitheLanguageIntelligenceModule
 import LitheTerminalModule
+import LitheAgentConversationModule
 
 @MainActor
 enum WorkbenchModuleUIComposition {
@@ -12,6 +13,7 @@ enum WorkbenchModuleUIComposition {
         do {
             return try WorkbenchModuleUIRegistry(registrations: [
                 terminalRegistration,
+                agentRegistration,
                 gitRegistration,
                 languageRegistration,
                 executionRegistration,
@@ -21,6 +23,26 @@ enum WorkbenchModuleUIComposition {
             preconditionFailure("Invalid built-in module UI registration: \(error)")
         }
     }()
+
+    private static let agentRegistration = WorkbenchModuleUIRegistry.Registration(
+        contributions: AgentConversationModule.moduleContributions,
+        actions: [
+            .init(id: "agent.conversation.toggle", perform: { $0.toggleAgentConversation() })
+        ],
+        renderers: [
+            .init(
+                id: "agent.conversation",
+                ideaAssetPath: nil,
+                isVisible: { $0.workspaceURL != nil },
+                isSelected: { $0.workbenchFeature.isVisible(.agent) },
+                // The panel renders its full layout even before the optional
+                // module is active, so the loading placeholder is not used.
+                content: { model in AnyView(AgentConversationView(model: model)) },
+                contentIdentity: { WorkbenchModuleUIRegistry.Renderer.featureIdentity($0.agentConversationFeatureIfActive) },
+                rightSidebarBehavior: .docked
+            )
+        ]
+    )
 
     private static let terminalRegistration = WorkbenchModuleUIRegistry.Registration(
         contributions: TerminalModule.moduleContributions,

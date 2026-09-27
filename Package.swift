@@ -18,6 +18,7 @@ let package = Package(
         .library(name: "LitheTerminalModule", targets: ["LitheTerminalModule"]),
         .library(name: "LitheDatabaseModule", targets: ["LitheDatabaseModule"]),
         .library(name: "LitheAIAssistanceModule", targets: ["LitheAIAssistanceModule"]),
+        .library(name: "LitheAgentConversationModule", targets: ["LitheAgentConversationModule"]),
         .library(name: "LitheExecutionModule", targets: ["LitheExecutionModule"]),
         .library(name: "LitheDebugModule", targets: ["LitheDebugModule"]),
         .library(name: "LitheLanguageIntelligenceModule", targets: ["LitheLanguageIntelligenceModule"]),
@@ -81,6 +82,7 @@ let package = Package(
         .target(name: "LitheTerminalModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheTerminalModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheDatabaseModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheDatabaseModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheAIAssistanceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheAIAssistanceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
+        .target(name: "LitheAgentConversationModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheAgentConversationModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheExecutionModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheExecutionModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheDebugModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheDebugModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheLanguageIntelligenceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheLanguageIntelligenceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
@@ -104,6 +106,7 @@ let package = Package(
                 "LitheTerminalModule",
                 "LitheDatabaseModule",
                 "LitheAIAssistanceModule",
+                "LitheAgentConversationModule",
                 "LitheExecutionModule",
                 "LitheDebugModule",
                 "LitheLanguageIntelligenceModule",
@@ -114,6 +117,7 @@ let package = Package(
             ],
             path: "macos/Sources/Lithe",
             resources: [
+                .copy("Resources/AgentIcons"),
                 .copy("Resources/MarkdownPreview"),
                 .copy("Resources/SyntaxHighlighting"),
                 .copy("Resources/WorkbenchBackgrounds")
@@ -127,7 +131,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")
