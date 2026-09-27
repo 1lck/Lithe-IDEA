@@ -2615,6 +2615,38 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    /// Points a local branch at a remote branch, mirroring the write operation
+    /// IntelliJ IDEA exposes as "Tracking Branch".
+    package func setUpstream(_ reference: GitReference, to upstream: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.setUpstream(reference, to: upstream, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            notify?("Tracking \(reference.shortName) with \(upstream.shortName)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
+    package func unsetUpstream(_ reference: GitReference) async {
+        guard let gitRepositoryRoot else { return }
+        isPerformingBranchOperation = true
+        let result = await withGitOperation {
+            await service.unsetUpstream(reference, at: gitRepositoryRoot)
+        }
+        isPerformingBranchOperation = false
+        if result.succeeded {
+            notify?("Stopped tracking \(reference.shortName)")
+            await refreshGit()
+        } else {
+            notify?(trimmedMessage(result))
+        }
+    }
+
     package func deleteBranch(_ reference: GitReference) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
@@ -3436,14 +3468,14 @@ package final class GitFeatureModel: ObservableObject {
         await startIntegration(.commit(commit), operation: .revert)
     }
 
-    package func resetCurrentBranch(to commit: GitCommit) async {
+    package func resetCurrentBranch(to commit: GitCommit, mode: GitResetMode = .mixed) async {
         guard let gitRepositoryRoot else { return }
         isPerformingBranchOperation = true
         let result = await withGitOperation {
             await service.resetCurrentBranch(
                 to: commit.hash,
                 at: gitRepositoryRoot,
-                mode: "--mixed"
+                mode: mode.argument
             )
         }
         isPerformingBranchOperation = false

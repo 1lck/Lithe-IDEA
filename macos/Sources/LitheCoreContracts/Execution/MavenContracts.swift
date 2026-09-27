@@ -423,6 +423,14 @@ package struct MavenDependency: Equatable, Sendable {
     package let scope: String
     package let resolution: MavenDependencyResolution
     package let selectedVersion: String?
+    /// Version before dependency management replaced it with `version`.
+    package let premanagedVersion: String?
+    /// Scope before dependency management replaced it with `scope`.
+    package let premanagedScope: String?
+    /// Declared scope before mediation widened it to `scope`.
+    package let originalScope: String?
+    /// Wider scope from another path that mediation did not apply here.
+    package let ignoredScope: String?
     package let children: [MavenDependency]
 
     package init(
@@ -435,6 +443,10 @@ package struct MavenDependency: Equatable, Sendable {
         scope: String,
         resolution: MavenDependencyResolution,
         selectedVersion: String?,
+        premanagedVersion: String? = nil,
+        premanagedScope: String? = nil,
+        originalScope: String? = nil,
+        ignoredScope: String? = nil,
         children: [MavenDependency]
     ) {
         self.modulePath = modulePath
@@ -446,6 +458,10 @@ package struct MavenDependency: Equatable, Sendable {
         self.scope = scope
         self.resolution = resolution
         self.selectedVersion = selectedVersion
+        self.premanagedVersion = premanagedVersion
+        self.premanagedScope = premanagedScope
+        self.originalScope = originalScope
+        self.ignoredScope = ignoredScope
         self.children = children
     }
 }
@@ -520,12 +536,15 @@ package protocol MavenProjectOperations: Sendable {
         module: String?,
         goals: [String]
     ) throws -> MavenLaunchPlan
+    /// Plans a dependency-tree query that writes the tree to `outputFile`.
     func mavenDependencyPlan(
         at rootURL: URL,
         context: MavenLaunchContext,
-        module: String?
+        module: String?,
+        outputFile: URL
     ) throws -> MavenLaunchPlan
-    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree
+    /// Reads the tree a finished dependency plan wrote to `outputFile`.
+    func mavenDependencies(modulePath: String, outputFile: URL) throws -> MavenDependencyTree
     func mavenDiagnostics(output: String, projectRoot: URL) -> [MavenBuildIssue]
     func mavenTestResults(output: String, projectRoot: URL) -> MavenTestResults?
     func mavenTestResults(
@@ -539,7 +558,8 @@ extension MavenProjectOperations {
     package func mavenDependencyPlan(
         at _: URL,
         context _: MavenLaunchContext,
-        module _: String?
+        module _: String?,
+        outputFile _: URL
     ) throws -> MavenLaunchPlan {
         throw MavenOperationError(
             code: "not_supported",
@@ -549,7 +569,7 @@ extension MavenProjectOperations {
 
     package func mavenDependencies(
         modulePath _: String,
-        output _: String
+        outputFile _: URL
     ) throws -> MavenDependencyTree {
         throw MavenOperationError(
             code: "not_supported",
@@ -567,6 +587,20 @@ extension MavenProjectOperations {
     ) -> MavenTestResults? {
         mavenTestResults(output: output, projectRoot: projectRoot)
     }
+}
+
+/// Platform-owned scratch files that each hold one Maven dependency tree.
+///
+/// The dependency plugin writes a module's tree to one of these files rather
+/// than to the console, so the tree never shares a size budget with Maven's
+/// log. Every dependency operation gets its own file and removes it once the
+/// operation can no longer produce a result.
+package protocol MavenDependencyOutputStoring: Sendable {
+    /// Returns a fresh absolute file for one operation, removing any file an
+    /// earlier operation left at that location.
+    func makeDependencyOutputFile(operationID: String) throws -> URL
+    /// Removes an operation's file. A file Maven never wrote is not an error.
+    func removeDependencyOutputFile(_ fileURL: URL)
 }
 
 package protocol MavenConfigurationStoring: Sendable {

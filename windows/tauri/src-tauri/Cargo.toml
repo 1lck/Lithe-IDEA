@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+lithe-git-host = { path = "../../../rust/lithe-git-host" }
 lithe-core = { path = "../../../rust/lithe-core" }
 lithe-project = { path = "../crates/project" }
 lithe-terminal = { path = "../crates/terminal" }

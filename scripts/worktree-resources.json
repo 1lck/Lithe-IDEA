@@ -26,5 +26,54 @@
       "path": ".artifacts/jdk-downloads",
       "validator": "jdk"
     }
+  ],
+  "excludedResources": [
+    {
+      "id": "agent-cli-runtime",
+      "reusable": false,
+      "locations": ["npm global prefix and cache", "Homebrew Cellar, Caskroom and download cache", "user home .local/share/claude/versions"],
+      "identity": "Runtime PATH executable, package-manager ownership and package/version/platform/architecture validated by the owning installer; no worktree build identity stamp",
+      "reason": "User-managed runtime installations and mutable package-manager caches are outside worktrees. Never copy, symlink, publish or share them through build resource reuse. No copy stage is permitted."
+    },
+    {
+      "id": "official-plugin-packages",
+      "path": ".build/<triple>/<configuration>/OfficialPlugins",
+      "reusable": false,
+      "locations": [".build/<triple>/<configuration>/OfficialPlugins"],
+      "identity": "Native plugin output is tied to the host API, Swift toolchain, platform architecture and signing; no reliable worktree identity stamp",
+      "reason": "Build each official plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
+    },
+    {
+      "id": "language-tools",
+      "path": "<app-cache>/language-tools/<language>/<tool>",
+      "reusable": false,
+      "locations": ["<app-cache>/language-tools/<language>/<tool>"],
+      "identity": "User-installed language tools and lock files are mutable runtime state without a worktree identity stamp",
+      "reason": "Do not reuse user-managed language tools across worktrees; plugin lifecycle owns installation and cleanup."
+    },
+    {
+      "id": "phpunit-fixture",
+      "path": "shared/fixtures/phpunit-project/vendor",
+      "reusable": false,
+      "locations": ["shared/fixtures/phpunit-project/vendor"],
+      "identity": "Composer dependencies depend on the test worktree PHP version and dependency resolution without a reliable identity stamp",
+      "reason": "Install PHPUnit dependencies independently in each worktree; do not copy vendor directories."
+    },
+    {
+      "id": "windows-worker-plugins",
+      "path": ".artifacts/windows-plugins",
+      "reusable": false,
+      "locations": [".artifacts/windows-plugins"],
+      "identity": "Worker plugins are tied to package format, host SDK and Bun build versions without a reliable identity stamp",
+      "reason": "Build worker plugins independently in each worktree and run verify-windows-plugin-isolation.mjs; do not copy them across worktrees."
+    },
+    {
+      "id": "installed-worker-plugins",
+      "path": "<webview-profile>/Local Storage/lithe.worker-package:*",
+      "reusable": false,
+      "locations": ["<webview-profile>/Local Storage/lithe.worker-package:*"],
+      "identity": "Imported plugin source and install state belong to application configuration and have no worktree identity",
+      "reason": "Do not copy installed worker plugin state across worktrees; uninstall by plugin ID through the application lifecycle."
+    }
   ]
 }

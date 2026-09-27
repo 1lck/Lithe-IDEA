@@ -8,6 +8,14 @@ final class MacCodexConfigurationSource: CodexConfigurationSource, @unchecked Se
         self.fileManager = fileManager
     }
 
+    func loadModel() -> AIConfigurationModel? {
+        let configURL = fileManager.homeDirectoryForCurrentUser
+            .appendingPathComponent(".codex", isDirectory: true)
+            .appendingPathComponent("config.toml")
+        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return nil }
+        return AIConfigurationModel(source: .codex, model: MacCodexConfigurationParser.parseModel(config: config))
+    }
+
     func load() -> CodexConfigurationSnapshot? {
         let home = fileManager.homeDirectoryForCurrentUser
         let configURL = home
@@ -44,36 +52,7 @@ final class MacCodexConfigurationSource: CodexConfigurationSource, @unchecked Se
 
 enum MacCodexConfigurationParser {
     static func parse(config: String, authData: Data?) -> CodexConfigurationSnapshot? {
-        var topLevel: [String: String] = [:]
-        var providerValues: [String: [String: String]] = [:]
-        var currentProvider: String?
-
-        for rawLine in config.split(whereSeparator: { $0.isNewline }) {
-            let line = stripComment(String(rawLine)).trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !line.isEmpty else { continue }
-
-            if line.hasPrefix("[") && line.hasSuffix("]") {
-                let section = String(line.dropFirst().dropLast())
-                if section.hasPrefix("model_providers.") {
-                    currentProvider = String(section.dropFirst("model_providers.".count))
-                    providerValues[currentProvider!, default: [:]] = [:]
-                } else {
-                    currentProvider = nil
-                }
-                continue
-            }
-
-            let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
-            guard parts.count == 2 else { continue }
-            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-            let value = parseValue(String(parts[1]))
-            if let currentProvider {
-                providerValues[currentProvider, default: [:]][key] = value
-            } else {
-                topLevel[key] = value
-            }
-        }
-
+        let (topLevel, providerValues) = parseValues(config: config)
         let providerName = topLevel["model_provider"] ?? "custom"
         guard let provider = providerValues[providerName],
               let endpoint = provider["base_url"],
@@ -102,6 +81,48 @@ enum MacCodexConfigurationParser {
             requiresAPIKey: requiresAPIKey,
             apiKey: apiKey
         )
+    }
+
+    static func parseModel(config: String) -> String {
+        // A present config without a top-level model uses the CLI's default.
+        parseValues(config: config).topLevel["model"] ?? ""
+    }
+
+    private static func parseValues(config: String) -> (
+        topLevel: [String: String], providerValues: [String: [String: String]]
+    ) {
+        var topLevel: [String: String] = [:]
+        var providerValues: [String: [String: String]] = [:]
+        var currentProvider: String?
+        var isTopLevel = true
+
+        for rawLine in config.split(whereSeparator: { $0.isNewline }) {
+            let line = stripComment(String(rawLine)).trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+
+            if line.hasPrefix("[") && line.hasSuffix("]") {
+                isTopLevel = false
+                let section = String(line.dropFirst().dropLast())
+                if section.hasPrefix("model_providers.") {
+                    currentProvider = String(section.dropFirst("model_providers.".count))
+                    providerValues[currentProvider!, default: [:]] = [:]
+                } else {
+                    currentProvider = nil
+                }
+                continue
+            }
+
+            let parts = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { continue }
+            let key = parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+            let value = parseValue(String(parts[1]))
+            if let currentProvider {
+                providerValues[currentProvider, default: [:]][key] = value
+            } else if isTopLevel {
+                topLevel[key] = value
+            }
+        }
+        return (topLevel, providerValues)
     }
 
     private static func parseValue(_ rawValue: String) -> String {

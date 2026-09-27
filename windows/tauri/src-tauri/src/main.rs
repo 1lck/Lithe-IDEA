@@ -7,6 +7,7 @@ mod diagnostics;
 mod document;
 mod file_events;
 mod host;
+mod language_tools;
 mod logging;
 mod lsp;
 mod maven;
@@ -89,6 +90,7 @@ fn main() {
             app.manage(run::RunProcessManager::default());
             app.manage(debug::DebugAdapterManager::default());
             run::cleanup_legacy_appdata(app.handle());
+            maven::clear_dependency_outputs(app.handle());
             if let Some(window) = app.get_webview_window("main") {
                 host::apply_window_taskbar_icon(&window);
             }
@@ -176,9 +178,15 @@ fn main() {
             host::create_app_window,
             lsp::lsp_resolve_java_launch,
             lsp::lsp_rebuild_java_index,
+            language_tools::get_tool_path,
+            language_tools::install_language_tools,
+            language_tools::cancel_language_tool_install,
+            language_tools::uninstall_language_tools,
             maven::maven_load_configuration,
             maven::maven_resolve_effective_configuration,
             maven::maven_write_configuration,
+            maven::maven_create_dependency_output,
+            maven::maven_remove_dependency_output,
             run::run_list_java_sources,
             run::run_write_generated,
             run::run_write_documents,
@@ -196,6 +204,7 @@ fn main() {
 
     application.run(|app, event| {
         if matches!(event, tauri::RunEvent::Exit) {
+            language_tools::shutdown();
             debug::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();

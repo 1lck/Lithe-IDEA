@@ -90,10 +90,26 @@ const scanMavenProject = mock(
   async (_root: string, _paths?: string[]): Promise<MavenProject | null> => project,
 );
 const createMavenLaunchPlan = mock(async () => launchPlan);
-const createMavenDependencyPlan = mock(async () => launchPlan);
-const parseMavenDependencies = mock(
-  async (_modulePath: string, _output: string): Promise<MavenDependenciesResponse> =>
-    dependencyTree,
+const dependencyOutputFile = (sessionId: string) =>
+  `C:/Users/dev/AppData/Local/lithe/cache/maven-dependency-trees/${sessionId.replace(":", "_")}.txt`;
+/** Host scratch-file and Core calls in the order the store makes them. */
+const dependencyFileEvents: string[] = [];
+const createMavenDependencyOutput = mock(async (sessionId: string) => {
+  dependencyFileEvents.push(`create ${sessionId}`);
+  return dependencyOutputFile(sessionId);
+});
+const removeMavenDependencyOutput = mock(async (sessionId: string): Promise<void> => {
+  dependencyFileEvents.push(`remove ${sessionId}`);
+});
+const createMavenDependencyPlan = mock(
+  async (_root: string, _context: unknown, _module: string | null, _outputFile: string) =>
+    launchPlan,
+);
+const readMavenDependencies = mock(
+  async (_modulePath: string, outputFile: string): Promise<MavenDependenciesResponse> => {
+    dependencyFileEvents.push(`read ${outputFile}`);
+    return dependencyTree;
+  },
 );
 const parseMavenDiagnostics = mock(
   async (_root: string, _output: string): Promise<MavenDiagnostic[]> => [],
@@ -151,12 +167,14 @@ const resolveJavaTestClass = mock(async (_root: string, _file: string, className
 
 const dependencies = {
   createMavenPomWatchOperations,
+  createMavenDependencyOutput,
   createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
   parseMavenDiagnostics,
   parseMavenTestResults,
-  parseMavenDependencies,
+  readMavenDependencies,
+  removeMavenDependencyOutput,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   resolveJavaTestClass,
@@ -197,8 +215,10 @@ beforeEach(() => {
     success: true,
     failureDetails: [],
   });
-  parseMavenDependencies.mockReset();
-  parseMavenDependencies.mockResolvedValue(dependencyTree);
+  dependencyFileEvents.length = 0;
+  createMavenDependencyOutput.mockClear();
+  removeMavenDependencyOutput.mockClear();
+  readMavenDependencies.mockClear();
   resolveMavenLaunch.mockClear();
   resolveMavenEffectiveConfiguration.mockReset();
   resolveMavenEffectiveConfiguration.mockResolvedValue(effectiveConfiguration);
@@ -1386,17 +1406,24 @@ describe("Maven dependency state", () => {
 
     const sessionId = store.getState().activeDependencySessionId;
     expect(sessionId).toStartWith("maven-dependency:");
+    const outputFile = dependencyOutputFile(sessionId!);
     expect(createMavenDependencyPlan).toHaveBeenCalledWith(
       "D:/work",
       expect.objectContaining({ reactorPath: "reactor" }),
       "service",
+      outputFile,
     );
     expect(store.getState().dependencyLoads.service?.status).toBe("loading");
     expect(store.getState().output).toBe("existing build output");
-    store.getState().actions.appendDependencyOutput(sessionId!, "[INFO] tree\n");
     await store.getState().actions.finishDependencyProcess(sessionId!, 0);
 
-    expect(parseMavenDependencies).toHaveBeenCalledWith("service", "[INFO] tree\n");
+    expect(readMavenDependencies).toHaveBeenCalledWith("service", outputFile);
+    // The file is removed only after Core has read it.
+    expect(dependencyFileEvents).toEqual([
+      `create ${sessionId}`,
+      `read ${outputFile}`,
+      `remove ${sessionId}`,
+    ]);
     expect(store.getState().dependencyLoads.service).toEqual({
       status: "ready",
       dependencies: dependencyTree.dependencies,
@@ -1420,6 +1447,7 @@ describe("Maven dependency state", () => {
     await timer.fireNext();
 
     expect(stopMavenProcess).toHaveBeenCalledWith(sessionId);
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
     expect(store.getState().activeDependencySessionId).toBeNull();
     expect(store.getState().dependencyLoads.service?.status).toBe("failed");
     expect(store.getState().dependencyLoads.service?.error).toContain("timed out");
@@ -1434,6 +1462,8 @@ describe("Maven dependency state", () => {
     await store.getState().actions.cancelDependencies("service");
 
     expect(stopMavenProcess).toHaveBeenCalledWith(sessionId);
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
+    expect(readMavenDependencies).not.toHaveBeenCalled();
     expect(store.getState().dependencyLoads.service).toEqual({
       status: "cancelled",
       dependencies: [],
@@ -1443,7 +1473,7 @@ describe("Maven dependency state", () => {
 
   test("drops a parsed result after Maven configuration invalidates the request", async () => {
     const pending = deferred<MavenDependenciesResponse>();
-    parseMavenDependencies.mockImplementationOnce(async () => pending.promise);
+    readMavenDependencies.mockImplementationOnce(async () => pending.promise);
     const store = createMavenStore("workspace", dependencies);
     await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
     await store.getState().actions.loadDependencies("service");
@@ -1455,11 +1485,12 @@ describe("Maven dependency state", () => {
     await finishing;
 
     expect(store.getState().dependencyLoads).toEqual({});
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
   });
 
   test("cancels a module still being parsed when another dependency request starts", async () => {
     const pending = deferred<MavenDependenciesResponse>();
-    parseMavenDependencies.mockImplementationOnce(async () => pending.promise);
+    readMavenDependencies.mockImplementationOnce(async () => pending.promise);
     const timer = new ManualTimer();
     const store = createMavenStore("workspace", dependencies, {
       setTimer: timer.set,
@@ -1477,7 +1508,83 @@ describe("Maven dependency state", () => {
     pending.resolve(dependencyTree);
     await finishing;
     expect(store.getState().dependencyLoads.service?.status).toBe("cancelled");
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
     await store.getState().actions.cancelDependencies("other");
+  });
+
+  test("removes the tree file when Maven exits without success", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    await store.getState().actions.finishDependencyProcess(sessionId!, 1);
+
+    expect(readMavenDependencies).not.toHaveBeenCalled();
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
+    expect(store.getState().dependencyLoads.service).toEqual({
+      status: "failed",
+      dependencies: [],
+      error: "Maven dependency resolution exited with code 1.",
+    });
+  });
+
+  test("reports a tree Core rejects and still removes its file", async () => {
+    readMavenDependencies.mockImplementationOnce(async () => {
+      throw new Error("Maven dependency tree is not in the expected text format");
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    await store.getState().actions.finishDependencyProcess(sessionId!, 0);
+
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
+    expect(store.getState().dependencyLoads.service).toEqual({
+      status: "failed",
+      dependencies: [],
+      error: "Maven dependency tree is not in the expected text format",
+    });
+  });
+
+  test("keeps a read tree when its scratch file cannot be removed", async () => {
+    removeMavenDependencyOutput.mockImplementationOnce(async () => {
+      throw new Error("The process cannot access the file");
+    });
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    await store.getState().actions.finishDependencyProcess(sessionId!, 0);
+    // Removal is fire-and-forget; let its rejection reach the trace handler.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.getState().dependencyLoads.service?.status).toBe("ready");
+    expect(trace).toHaveBeenCalledWith(
+      "warn",
+      "maven.dependencies",
+      "Dependency tree file was not removed",
+      expect.objectContaining({ sessionId, error: "The process cannot access the file" }),
+    );
+  });
+
+  test("stops and removes a running session when Maven configuration changes", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    await store.getState().actions.loadDependencies("service");
+    const sessionId = store.getState().activeDependencySessionId;
+
+    store.getState().actions.setSelectedProfiles(["dev"]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(stopMavenProcess).toHaveBeenCalledWith(sessionId);
+    expect(removeMavenDependencyOutput).toHaveBeenCalledWith(sessionId);
+    expect(store.getState().activeDependencySessionId).toBeNull();
+    expect(store.getState().dependencyLoads).toEqual({});
   });
 });
 

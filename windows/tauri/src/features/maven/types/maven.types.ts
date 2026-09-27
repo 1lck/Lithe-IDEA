@@ -76,6 +76,14 @@ export interface MavenDependency {
   scope: string;
   resolution: MavenDependencyResolution;
   selectedVersion?: string | null;
+  /** Version before dependency management replaced it with `version`. */
+  premanagedVersion?: string | null;
+  /** Scope before dependency management replaced it with `scope`. */
+  premanagedScope?: string | null;
+  /** Declared scope before mediation widened it to `scope`. */
+  originalScope?: string | null;
+  /** Wider scope from another path that mediation did not apply here. */
+  ignoredScope?: string | null;
   children: MavenDependency[];
 }
 

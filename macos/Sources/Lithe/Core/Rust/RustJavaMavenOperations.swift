@@ -206,16 +206,22 @@ struct RustJavaMavenOperations: JavaMavenOperations, Sendable {
     func mavenDependencyPlan(
         at rootURL: URL,
         context: MavenLaunchContext,
-        module: String?
+        module: String?,
+        outputFile: URL
     ) throws -> MavenLaunchPlan {
-        try core.mavenDependencyPlan(at: rootURL, context: context, module: module)
+        try core.mavenDependencyPlan(
+            at: rootURL,
+            context: context,
+            module: module,
+            outputFile: outputFile
+        )
             .mapError(MavenOperationError.init)
             .get()
             .makeModel()
     }
 
-    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree {
-        try core.mavenDependencies(modulePath: modulePath, output: output)
+    func mavenDependencies(modulePath: String, outputFile: URL) throws -> MavenDependencyTree {
+        try core.mavenDependencies(modulePath: modulePath, outputFile: outputFile)
             .mapError(MavenOperationError.init)
             .get()
             .makeModel()

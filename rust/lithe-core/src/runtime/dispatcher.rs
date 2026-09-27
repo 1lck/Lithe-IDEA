@@ -13,9 +13,9 @@ use crate::git::{
     GitHistoryRewritePreviewRequest, GitIntegrationPreflightRequest, GitOperationStateRequest,
     GitPullPreflightRequest, GitPullRequestContextRequest, GitPushPreviewRequest,
     GitRebaseControlRequest, GitRebasePreviewRequest, GitRebaseSessionRequest,
-    GitRebaseStartRequest, GitReferencesRequest, GitStashesRequest, GitStatusRequest,
-    GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest, PatchApplyRequest,
-    PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
+    GitRebaseStartRequest, GitReferencesRequest, GitRepositoryRootRequest, GitStashesRequest,
+    GitStatusRequest, GitWatchContextRequest, GitWorktreesRequest, GitWriteRequest,
+    PatchApplyRequest, PatchExportRequest, PatchPreviewRequest, WorkspaceRepositoriesRequest,
 };
 use crate::github::{NormalizeResponseRequest, ParseRemoteRequest, RequestPlanRequest};
 use crate::languages::{
@@ -48,6 +48,27 @@ pub fn execute_json(request: &str) -> String {
         ))
         .expect("fallback response should encode")
     })
+}
+
+/// Decode an agent management payload and run `operation` on it.
+fn agent_response<T: serde::de::DeserializeOwned>(
+    id: Option<String>,
+    payload: serde_json::Value,
+    operation: fn(T) -> Result<serde_json::Value, CoreError>,
+) -> CoreResponse {
+    match serde_json::from_value::<T>(payload)
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid agent management request",
+            )
+            .with_details(error.to_string())
+        })
+        .and_then(operation)
+    {
+        Ok(data) => CoreResponse::success(id, data),
+        Err(error) => CoreResponse::failure(id, error),
+    }
 }
 
 fn execute(request: &str) -> CoreResponse {
@@ -92,6 +113,12 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
+        CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
+        CoreCommand::AgentInstallCli => {
+            agent_response(id, parsed.payload, crate::agent::install_cli)
+        }
         CoreCommand::CommunityDiscourseAuthBegin => {
             match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
                 .map_err(|error| {
@@ -498,6 +525,25 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ExecutionPlanLaunchCommand => {
+            match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
+                parsed.payload,
+            )
+            .map(crate::execution::plan_launch_command_request)
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Java launch-command request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch-command plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }
@@ -1627,6 +1673,24 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Git command response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitRepositoryRoot => {
+            match serde_json::from_value::<GitRepositoryRootRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid Git repository root request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(git::discover_repository_root)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Git repository root response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

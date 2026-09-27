@@ -1722,11 +1722,13 @@ struct ExecutionModuleTests {
         )
         let buildProcess = MavenRecordingProcess()
         let dependencyProcess = MavenRecordingProcess()
+        let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
             process: buildProcess,
             dependencyProcess: dependencyProcess,
-            mavenOperations: operations
+            mavenOperations: operations,
+            dependencyOutputs: outputs
         )
 
         await service.loadProject(at: workspace, files: [project.pomURL, module.url])
@@ -1745,6 +1747,9 @@ struct ExecutionModuleTests {
         #expect(request.timeoutMilliseconds == 60_000)
         #expect(!buildProcess.isRunning)
         #expect(operations.lastDependencyModule == "service")
+        let outputFile = try #require(outputs.created.first)
+        #expect(operations.lastDependencyPlanFile == outputFile)
+        // Console output is Maven's log; only the file carries the tree.
         dependencyProcess.onOutput?("[INFO] dependency tree\n")
         dependencyProcess.onTermination?(0)
         let state = await dependencyState(
@@ -1754,7 +1759,8 @@ struct ExecutionModuleTests {
         )
 
         #expect(state == .ready([dependency]))
-        #expect(operations.lastDependencyOutput == "[INFO] dependency tree\n")
+        #expect(operations.lastDependencyReadFile == outputFile)
+        #expect(outputs.removed == [outputFile])
         let projection = MavenFeatureModel(service: service)
         #expect(projection.resolvedDependencyArtifactPaths(modulePath: "service").isEmpty
             == (configuredRepository == nil))
@@ -1796,7 +1802,8 @@ struct ExecutionModuleTests {
         let dependencyProcess = MavenRecordingProcess()
         let maven = MavenService(
             runtimeService: MavenRecordingRuntime(), process: MavenRecordingProcess(),
-            dependencyProcess: dependencyProcess, mavenOperations: operations
+            dependencyProcess: dependencyProcess, mavenOperations: operations,
+            dependencyOutputs: RecordingDependencyOutputs()
         )
         let graph = makeTestGraph(mavenService: maven)
         defer { graph.run.reset(); graph.maven.reset() }
@@ -1853,11 +1860,13 @@ struct ExecutionModuleTests {
             configurationFingerprint: "sha256:dependency"
         )
         let dependencyProcess = MavenRecordingProcess()
+        let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
             process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
-            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan),
+            dependencyOutputs: outputs
         )
 
         await service.loadProject(at: workspace, files: [project.pomURL])
@@ -1869,6 +1878,8 @@ struct ExecutionModuleTests {
         #expect(!dependencyProcess.isRunning)
         #expect(service.dependencyState(for: ".") == .cancelled)
         #expect(!service.isResolvingDependencies)
+        #expect(outputs.removed == outputs.created)
+        #expect(outputs.created.count == 1)
     }
 
     @Test
@@ -1893,11 +1904,13 @@ struct ExecutionModuleTests {
             configurationFingerprint: "sha256:dependency"
         )
         let dependencyProcess = MavenRecordingProcess()
+        let outputs = RecordingDependencyOutputs()
         let service = MavenService(
             runtimeService: MavenRecordingRuntime(),
             process: MavenRecordingProcess(),
             dependencyProcess: dependencyProcess,
-            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan),
+            dependencyOutputs: outputs
         )
 
         await service.loadProject(at: workspace, files: [project.pomURL])
@@ -1926,6 +1939,99 @@ struct ExecutionModuleTests {
             return
         }
         #expect(message == "Maven dependency resolution timed out after 60 seconds.")
+        #expect(outputs.removed == outputs.created)
+        #expect(outputs.created.count == 1)
+    }
+
+    @Test
+    func mavenServiceRemovesTheTreeFileWhenMavenFailsOrIsSuperseded() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let operations = RecordingMavenOperations(project: project, plan: plan)
+        let dependencyProcess = MavenRecordingProcess()
+        let outputs = RecordingDependencyOutputs()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess,
+            mavenOperations: operations,
+            dependencyOutputs: outputs
+        )
+        await service.loadProject(at: workspace, files: [project.pomURL])
+
+        service.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+        dependencyProcess.onTermination?(1)
+        let failed = await dependencyState(
+            service,
+            modulePath: ".",
+            matching: { if case .failed = $0 { true } else { false } }
+        )
+        #expect(failed == .failed("Maven dependency resolution exited with code 1."))
+        #expect(operations.lastDependencyReadFile == nil)
+        #expect(outputs.removed == outputs.created)
+
+        // A retry gets a fresh file; changing Skip Tests invalidates it mid-run.
+        service.loadDependencies(for: ".")
+        _ = try #require(await dependencyProcess.nextStart(timeout: .seconds(1)))
+        #expect(outputs.created.count == 2)
+        #expect(outputs.created[0] != outputs.created[1])
+        service.setSkipTests(true)
+        #expect(outputs.removed == outputs.created)
+        #expect(!dependencyProcess.isRunning)
+    }
+
+    @Test
+    func mavenServiceFailsVisiblyWithoutADependencyOutputStore() async throws {
+        let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let project = MavenProject(
+            rootURL: workspace,
+            pomURL: workspace.appendingPathComponent("pom.xml"),
+            groupID: "dev.lithe",
+            artifactID: "demo",
+            version: "1.0",
+            packaging: "jar",
+            modules: [],
+            profiles: [],
+            hasWrapper: false
+        )
+        let plan = MavenLaunchPlan(
+            version: 1,
+            toolchain: "project-maven",
+            arguments: ["dependency:tree"],
+            workingDirectory: ".",
+            configurationFingerprint: "sha256:dependency"
+        )
+        let dependencyProcess = MavenRecordingProcess()
+        let service = MavenService(
+            runtimeService: MavenRecordingRuntime(),
+            process: MavenRecordingProcess(),
+            dependencyProcess: dependencyProcess,
+            mavenOperations: RecordingMavenOperations(project: project, plan: plan)
+        )
+        await service.loadProject(at: workspace, files: [project.pomURL])
+
+        service.loadDependencies(for: ".")
+
+        #expect(service.dependencyState(for: ".") == .failed("Maven dependency resolution is unavailable."))
+        #expect(!dependencyProcess.isRunning)
     }
 
     private func factory(recorder: Recorder) -> ModuleFactory {
@@ -2426,7 +2532,8 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
     private var recordedModule: String?
     private var recordedGoals: [String] = []
     private var recordedDependencyModule: String?
-    private var recordedDependencyOutput: String?
+    private var recordedDependencyPlanFile: URL?
+    private var recordedDependencyReadFile: URL?
 
     init(
         project: MavenProject,
@@ -2462,10 +2569,16 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
         return recordedDependencyModule
     }
 
-    var lastDependencyOutput: String? {
+    var lastDependencyPlanFile: URL? {
         lock.lock()
         defer { lock.unlock() }
-        return recordedDependencyOutput
+        return recordedDependencyPlanFile
+    }
+
+    var lastDependencyReadFile: URL? {
+        lock.lock()
+        defer { lock.unlock() }
+        return recordedDependencyReadFile
     }
 
     func scanMavenProject(at rootURL: URL, files: [URL]) throws -> MavenProject? {
@@ -2491,19 +2604,54 @@ private final class RecordingMavenOperations: MavenProjectOperations, @unchecked
     func mavenDependencyPlan(
         at rootURL: URL,
         context: MavenLaunchContext,
-        module: String?
+        module: String?,
+        outputFile: URL
     ) throws -> MavenLaunchPlan {
         lock.lock()
         recordedDependencyModule = module
+        recordedDependencyPlanFile = outputFile
         lock.unlock()
         return plan
     }
 
-    func mavenDependencies(modulePath: String, output: String) throws -> MavenDependencyTree {
+    func mavenDependencies(modulePath: String, outputFile: URL) throws -> MavenDependencyTree {
         lock.lock()
-        recordedDependencyOutput = output
+        recordedDependencyReadFile = outputFile
         lock.unlock()
         return dependencyTree
+    }
+}
+
+/// Records the scratch files a dependency operation creates and removes.
+private final class RecordingDependencyOutputs: MavenDependencyOutputStoring, @unchecked Sendable {
+    private let lock = NSLock()
+    private var createdFiles: [URL] = []
+    private var removedFiles: [URL] = []
+
+    var created: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return createdFiles
+    }
+
+    var removed: [URL] {
+        lock.lock()
+        defer { lock.unlock() }
+        return removedFiles
+    }
+
+    func makeDependencyOutputFile(operationID: String) throws -> URL {
+        let file = URL(fileURLWithPath: "/scratch/\(operationID).txt")
+        lock.lock()
+        createdFiles.append(file)
+        lock.unlock()
+        return file
+    }
+
+    func removeDependencyOutputFile(_ fileURL: URL) {
+        lock.lock()
+        removedFiles.append(fileURL)
+        lock.unlock()
     }
 }
 

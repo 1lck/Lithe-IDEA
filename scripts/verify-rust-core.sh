@@ -6,6 +6,9 @@ cd "$ROOT_DIR"
 
 mkdir -p .artifacts/test-stability
 node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/npm-progress.xml \
+    rust/lithe-agent-host/tests/npm-progress.test.mjs
+node --test --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/rust-comment-checker.xml \
     scripts/test-rust-core-comments.mjs
 scripts/verify-rust-core-comments.sh
@@ -15,6 +18,10 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-git-host \
     --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/git-host-rust.json
+node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
+    --manifest rust/Cargo.toml --package lithe-agent-host \
+    --suite-timeout-ms 120000 \
+    --report .artifacts/test-stability/agent-host-rust.json
 cargo test --manifest-path rust/Cargo.toml -p lithe-core
 
 case "$(uname -m)" in
@@ -76,12 +83,13 @@ cargo build --manifest-path rust/Cargo.toml -p lithe-core
 python3 scripts/test-git-execution.py --application "$BINARY"
 node --input-type=module -e 'import { writeTestReportArtifacts } from "./.agents/skills/write-stable-tests/scripts/generate-test-report.mjs"; writeTestReportArtifacts(".artifacts/test-stability/git-execution-integration.json");'
 
-# Exercise the macOS journal through a real non-Git-feature entry point. The
-# ordinary Swift unit lane does not link Core, so this integration is explicit.
+# Exercise the macOS journal through a real non-Git-feature entry point, and
+# the Maven dependency-tree file through the linked bridge. The ordinary Swift
+# unit lane does not link Core, so these integrations are explicit.
 LITHE_RUN_GIT_EXECUTION_INTEGRATION=1 \
     ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
     --suite-timeout-seconds 900 \
     --report .artifacts/test-stability/git-console-bridge.json \
-    -- --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests|GitConsoleLifecycleBridgeTests' -Xlinker -force_load -Xlinker "$RUST_LIBRARY"
+    -- --filter 'MacGitHubGitOperationsTests|GitConsolePresentationBridgeTests|GitConsoleLifecycleBridgeTests|MavenDependencyTreeBridgeTests' -Xlinker -force_load -Xlinker "$RUST_LIBRARY"
 
 print "Rust Core verification passed: comments, Rust tests, Swift bridge, linked symbols, and Git execution integration"

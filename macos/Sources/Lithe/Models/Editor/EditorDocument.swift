@@ -82,6 +82,8 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     /// single-encoding document model. New code must choose a role explicitly.
     var encoding: DocumentEncoding { readEncoding }
     private(set) var diskIdentity: String?
+    /// Invalidates the tab's content-based icon after disk writes or watcher events.
+    @Published private(set) var iconContentRevision: UInt64 = 0
     private(set) var externalDiskIdentity: String?
     @Published private(set) var savedText: String
     private(set) var lifecycleState: DocumentLifecycleState
@@ -93,6 +95,10 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
     var expectedDiskContent: String? { hasAcknowledgedDiskContent ? acknowledgedDiskContent : savedText }
     var externalFileMissing: Bool {
         hasObservedDiskConflict && externalDiskContent == nil && externalDiskIdentity == nil
+    }
+
+    func invalidateIconContent() {
+        iconContentRevision &+= 1
     }
 
     func observeDiskConflict(_ content: String?, identity: String? = nil) {
@@ -270,6 +276,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
         self.saveEncoding = encoding
         self.storageEncoding = encoding
         diskIdentity = identity
+        invalidateIconContent()
     }
 
     func updateReadEncoding(_ encoding: DocumentEncoding) {
@@ -288,6 +295,7 @@ final class EditorDocument: ObservableObject, Identifiable, @unchecked Sendable 
             readEncoding = encoding
         }
         diskIdentity = identity
+        invalidateIconContent()
         hasAcknowledgedDiskContent = false
         hasObservedDiskConflict = false
         lifecycleState = .clean(revision: lifecycleState.revision + 1)

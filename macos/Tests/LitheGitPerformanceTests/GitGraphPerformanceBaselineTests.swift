@@ -408,7 +408,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         let scrollView = GitGraphScrollView.makeScrollView(
@@ -472,7 +472,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         rowsView.update(
@@ -621,7 +621,7 @@ struct GitGraphPerformanceBaselineTests {
             onSelect: { _ in },
             onCherryPick: { _ in },
             onRevert: { _ in },
-            onReset: { _ in },
+            onReset: { _, _ in },
             onCreateTag: { _ in }
         )
         let scrollView = GitGraphScrollView.makeScrollView(

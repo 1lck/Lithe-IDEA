@@ -73,6 +73,8 @@ function createMonacoThemeData(
     rules,
     colors: {
       "editor.background": background,
+      "minimap.background": background,
+      "scrollbar.background": background,
       "editor.foreground": foreground,
       "editorLink.activeForeground": accent,
       "editorCursor.foreground": cursor,

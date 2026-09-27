@@ -8,12 +8,14 @@ TRIPLE=""
 OUTPUT_DIR=""
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 PLUGIN_ID=""
+BUNDLED_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --configuration) CONFIGURATION="$2"; shift 2 ;;
         --triple) TRIPLE="$2"; shift 2 ;;
         --output) OUTPUT_DIR="$2"; shift 2 ;;
+        --bundled-only) BUNDLED_ONLY=true; shift ;;
         --plugin-id) PLUGIN_ID="$2"; shift 2 ;;
         *) print -u2 -- "Usage: $0 --triple triple [--configuration debug|release] [--output directory] [--plugin-id id]"; exit 2 ;;
     esac
@@ -63,6 +65,9 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     [[ -f "$manifest" && -f "$info_plist" ]] || continue
     package_id=$(/usr/bin/plutil -extract id raw "$manifest")
     if [[ -n "$PLUGIN_ID" && "$package_id" != "$PLUGIN_ID" ]]; then
+        continue
+    fi
+    if [[ "$BUNDLED_ONLY" == true ]] && ! node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id"; then
         continue
     fi
     matched=$((matched + 1))

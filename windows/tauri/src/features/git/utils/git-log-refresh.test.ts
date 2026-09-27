@@ -117,4 +117,70 @@ describe("Git Log refresh events", () => {
       isMissing: true,
     });
   });
+
+  test("keeps a symbolic remote HEAD when its remote still has references", () => {
+    const originHead: GitReference = {
+      fullName: "refs/remotes/origin/HEAD",
+      shortName: "origin/HEAD",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+    };
+    const originMain: GitReference = {
+      fullName: "refs/remotes/origin/main",
+      shortName: "origin/main",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+    };
+
+    const result = reconcileGitLogReference(originHead, [originMain]);
+
+    expect(result).toEqual({ reference: originHead, isMissing: false });
+  });
+
+  test("keeps a symbolic remote HEAD that lists its symbolic target", () => {
+    const originHead: GitReference = {
+      fullName: "refs/remotes/origin/HEAD",
+      shortName: "origin/HEAD",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+      upstreamShortName: "origin/trunk",
+    };
+    const originTrunk: GitReference = {
+      fullName: "refs/remotes/origin/trunk",
+      shortName: "origin/trunk",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+    };
+
+    expect(reconcileGitLogReference(originHead, [originTrunk])).toEqual({
+      reference: originHead,
+      isMissing: false,
+    });
+  });
+
+  test("still treats a symbolic remote HEAD as missing when its remote is gone", () => {
+    const originHead: GitReference = {
+      fullName: "refs/remotes/origin/HEAD",
+      shortName: "origin/HEAD",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+    };
+    const upstreamBranch: GitReference = {
+      fullName: "refs/remotes/upstream/main",
+      shortName: "upstream/main",
+      kind: "remote",
+      peelsToCommit: true,
+      isCurrent: false,
+    };
+
+    expect(reconcileGitLogReference(originHead, [upstreamBranch])).toEqual({
+      reference: null,
+      isMissing: true,
+    });
+  });
 });

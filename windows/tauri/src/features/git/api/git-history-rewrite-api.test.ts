@@ -15,7 +15,8 @@ const invoke = mock(async (command: string, _args?: unknown): Promise<unknown> =
   if (command === "git.write") return result;
   return null;
 });
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 const { executeGitHistoryRewrite, getGitHistoryRewritePreview } =
   await import("./git-history-rewrite-api");
 

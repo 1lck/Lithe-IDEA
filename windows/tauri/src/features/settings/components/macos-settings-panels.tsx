@@ -12,6 +12,11 @@ import {
   getProjectOpenPreferencePatch,
   type ProjectOpenPreference,
 } from "@/features/settings/lib/project-open-preference";
+import {
+  SYSTEM_DEFAULT_SHELL_VALUE,
+  getDefaultShellOptions,
+} from "@/features/settings/lib/default-shell-options";
+import { useTerminalShellsStore } from "@/features/terminal/stores/shells.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
@@ -378,6 +383,19 @@ function TerminalPanel() {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  const shells = useTerminalShellsStore.use.shells();
+  const hasLoadedShells = useTerminalShellsStore.use.hasLoaded();
+  const isDetectingShells = useTerminalShellsStore.use.isLoading();
+  const shellDetectionError = useTerminalShellsStore.use.error();
+  const shellOptions = getDefaultShellOptions({
+    shells,
+    selectedShellId: settings.terminalDefaultShellId,
+    hasLoaded: hasLoadedShells,
+  });
+
+  useEffect(() => {
+    void useTerminalShellsStore.getState().actions.loadShells();
+  }, []);
 
   return (
     <SettingsGroup title={t("settings.mac.shell")}>
@@ -386,16 +404,36 @@ function TerminalPanel() {
         description={t("settings.mac.defaultShellDescription")}
       >
         <select
-          className={`${controlClassName} w-44`}
+          className={`${controlClassName} w-64`}
           value={settings.terminalDefaultShellId}
           onChange={(event) => void updateSetting("terminalDefaultShellId", event.target.value)}
         >
-          <option value="">{t("settings.mac.systemDefault")}</option>
-          <option value="powershell">{t("settings.mac.shellPowerShell")}</option>
-          <option value="cmd">{t("settings.mac.shellCommandPrompt")}</option>
-          <option value="wsl">{t("settings.mac.shellWsl")}</option>
+          {shellOptions.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.value === SYSTEM_DEFAULT_SHELL_VALUE
+                ? t("settings.mac.systemDefault")
+                : option.isAvailable
+                  ? (option.shellName ?? option.value)
+                  : `${option.value} (${t("terminal.shellUnavailable")})`}
+            </option>
+          ))}
         </select>
       </SettingsRow>
+      <div className="flex items-center gap-3">
+        <Button
+          variant="default"
+          size="sm"
+          disabled={isDetectingShells}
+          onClick={() => void useTerminalShellsStore.getState().actions.loadShells({ force: true })}
+        >
+          {t(isDetectingShells ? "terminal.detectingShells" : "terminal.detectShells")}
+        </Button>
+        {shellDetectionError ? (
+          <p role="alert" className="ui-text-caption text-destructive">
+            {t("terminal.detectShellsFailed")}
+          </p>
+        ) : null}
+      </div>
     </SettingsGroup>
   );
 }
@@ -446,13 +484,42 @@ function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
   const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
-  const { checking, available, updateInfo, error, checkForUpdates } = useUpdater(false);
+  const {
+    status,
+    checking,
+    available,
+    downloading,
+    installing,
+    updateInfo,
+    error,
+    downloadProgress,
+    checkForUpdates,
+    downloadAndInstall,
+  } = useUpdater(false);
+  const busy = checking || downloading || installing;
+  // An update found here is installed from this panel: the check and the
+  // install action sit side by side, so no dialog opens over Settings.
+  const installFailed = status === "failed" && updateInfo !== null;
+  const installable = updateInfo !== null && (available || installFailed);
 
   useEffect(() => {
     void getVersion()
       .then(setAppVersion)
       .catch(() => setAppVersion(""));
   }, []);
+
+  const statusMessage = () => {
+    if (downloading) {
+      return t("update.updatingProgress", { percentage: downloadProgress?.percentage ?? 0 });
+    }
+    if (installing) return t("settings.general.installing");
+    if (installFailed) return error;
+    if (error) return t("settings.mac.updateFailed");
+    if (available) {
+      return t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" });
+    }
+    return hasCheckedForUpdates ? t("settings.mac.upToDate") : t("settings.mac.updateHint");
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -461,26 +528,34 @@ function UpdatesPanel() {
           label="Lithe"
           description={t("settings.mac.currentVersion", { version: appVersion || "…" })}
         >
-          <Button
-            variant="accent"
-            size="sm"
-            disabled={checking}
-            onClick={() => {
-              setHasCheckedForUpdates(true);
-              void checkForUpdates({ ignoreSuppression: true });
-            }}
-          >
-            {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              variant={installable ? "ghost" : "accent"}
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                setHasCheckedForUpdates(true);
+                void checkForUpdates({ ignoreSuppression: true });
+              }}
+            >
+              {checking ? t("settings.mac.checking") : t("settings.mac.checkForUpdates")}
+            </Button>
+            {installable && updateInfo ? (
+              <Button
+                variant="accent"
+                size="sm"
+                disabled={busy}
+                onClick={() => void downloadAndInstall()}
+              >
+                {installFailed
+                  ? t("ui.retry")
+                  : t("settings.general.installUpdate", { version: updateInfo.targetVersion })}
+              </Button>
+            ) : null}
+          </div>
         </SettingsRow>
         <p className="ui-text-sm text-subtle-foreground" role="status">
-          {error
-            ? t("settings.mac.updateFailed")
-            : available
-              ? t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" })
-              : hasCheckedForUpdates
-                ? t("settings.mac.upToDate")
-                : t("settings.mac.updateHint")}
+          {statusMessage()}
         </p>
       </SettingsGroup>
     </div>

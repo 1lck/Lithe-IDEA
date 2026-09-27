@@ -8,12 +8,51 @@ private let editorTabCoordinateSpaceName = "lithe.editor-tab-strip"
 enum EditorDocumentIconResolver {
     static func kind(
         for url: URL,
-        resolvedJavaKind: LitheIconKind?
+        resolvedKind: LitheIconKind?
     ) -> LitheIconKind {
-        if url.pathExtension.lowercased() == "java", let resolvedJavaKind {
-            return resolvedJavaKind
+        resolvedKind ?? LitheIcons.kind(for: url, isDirectory: false)
+    }
+}
+
+private struct EditorDocumentTabIcon: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var document: EditorDocument
+    let size: CGFloat
+    @State private var resolvedKind: LitheIconKind?
+
+    private struct ResolutionKey: Hashable {
+        let path: String
+        let contentRevision: UInt64
+    }
+
+    private var resolutionKey: ResolutionKey {
+        ResolutionKey(path: document.url.standardizedFileURL.path,
+                      contentRevision: document.iconContentRevision)
+    }
+
+    var body: some View {
+        LitheIcon(
+            kind: EditorDocumentIconResolver.kind(for: document.url, resolvedKind: resolvedKind),
+            size: size
+        )
+        .task(id: resolutionKey) {
+            let key = resolutionKey
+            let url = document.url
+            resolvedKind = nil
+            if url.pathExtension.lowercased() == "java" {
+                guard let kind = await model.javaIconKind(for: url),
+                      !Task.isCancelled, resolutionKey == key else { return }
+                resolvedKind = kind
+            } else if LitheIcons.kind(for: url, isDirectory: false) == .generic {
+                let resolved = await WorkspaceFileIconResolver.resolve(
+                    for: url,
+                    suggested: .generic,
+                    storage: model.services.fileStorage
+                )
+                guard !Task.isCancelled, resolutionKey == key else { return }
+                resolvedKind = resolved.kind
+            }
         }
-        return LitheIcons.kind(for: url, isDirectory: false)
     }
 }
 
@@ -56,7 +95,6 @@ struct EditorAreaView: View {
     @State private var documentPreviewModes: [UUID: DocumentPreviewMode] = [:]
     @State private var markdownScrollPositions: [UUID: MarkdownScrollPosition] = [:]
     @State private var hoveredPreviewMode: DocumentPreviewMode?
-    @State private var resolvedJavaDocumentIconKinds: [String: LitheIconKind] = [:]
 
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("EditorAreaView")
@@ -677,7 +715,7 @@ struct EditorAreaView: View {
         isActive: Bool
     ) -> some View {
         let label = HStack(spacing: 7) {
-            editorDocumentIcon(document, size: 13)
+            EditorDocumentTabIcon(document: document, size: 13)
             editorTabTitle(document)
             EditorTabDirtyIndicator(document: document)
         }
@@ -744,7 +782,7 @@ struct EditorAreaView: View {
 
     private func editorTabDragPreview(_ document: EditorDocument) -> some View {
         HStack(spacing: 7) {
-            editorDocumentIcon(document, size: 13)
+            EditorDocumentTabIcon(document: document, size: 13)
                 .foregroundStyle(LitheTheme.accent)
 
             Text(document.displayName)
@@ -1104,28 +1142,6 @@ struct EditorAreaView: View {
                 externalConflictBanner
                 activeEditor
             }
-        }
-    }
-
-    private func editorDocumentIcon(
-        _ document: EditorDocument,
-        size: CGFloat
-    ) -> some View {
-        let path = document.url.standardizedFileURL.path
-        let resolvedKind = resolvedJavaDocumentIconKinds[path]
-        return LitheIcon(
-            kind: EditorDocumentIconResolver.kind(
-                for: document.url,
-                resolvedJavaKind: resolvedKind
-            ),
-            size: size
-        )
-        .task(id: path) {
-            guard document.url.pathExtension.lowercased() == "java",
-                  resolvedKind == nil else { return }
-            let kind = await model.javaIconKind(for: document.url)
-            guard !Task.isCancelled, let kind else { return }
-            resolvedJavaDocumentIconKinds[path] = kind
         }
     }
 

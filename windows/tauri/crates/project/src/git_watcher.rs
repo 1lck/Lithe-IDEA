@@ -203,12 +203,24 @@ impl GitMetadataWatcher {
     }
 }
 
+/// Lithe Core creates short-lived `<git-common-dir>/lithe-commit-<pid>-<seq>`
+/// directories (`TemporaryGitCommitContext`) for read-only snapshot diffs and
+/// isolated commits. They never change repository state, and reporting them
+/// makes every snapshot diff refresh the views that requested it.
+const LITHE_TEMPORARY_GIT_CONTEXT_PREFIX: &str = "lithe-commit-";
+
 fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
     if let Ok(relative) = path.strip_prefix(&context.git_directory) {
         let first = relative
             .components()
             .next()
             .map(|part| part.as_os_str().to_string_lossy());
+        if first
+            .as_deref()
+            .is_some_and(|part| part.starts_with(LITHE_TEMPORARY_GIT_CONTEXT_PREFIX))
+        {
+            return false;
+        }
         if !matches!(
             first.as_deref(),
             Some("objects" | "lfs" | "modules" | "worktrees")
@@ -262,6 +274,34 @@ mod tests {
         for path in ["objects/ab/object", "worktrees/other/index", "index"] {
             assert!(
                 !is_relevant_metadata_change(&context, &context.git_common_directory.join(path)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn temporary_core_git_contexts_do_not_report_repository_changes() {
+        // Snapshot diffs create and delete these directories while a diff opens;
+        // reporting them made the open working-tree diff refresh and close itself.
+        let context = GitWatchContext {
+            repository_root: PathBuf::from("workspace/repo"),
+            git_directory: PathBuf::from("workspace/repo/.git"),
+            git_common_directory: PathBuf::from("workspace/repo/.git"),
+        };
+        for path in [
+            "lithe-commit-4242-7",
+            "lithe-commit-4242-7/HEAD",
+            "lithe-commit-4242-7/index",
+            "lithe-commit-4242-7/index.lock",
+        ] {
+            assert!(
+                !is_relevant_metadata_change(&context, &context.git_directory.join(path)),
+                "{path}"
+            );
+        }
+        for path in ["index", "HEAD", "refs/heads/main"] {
+            assert!(
+                is_relevant_metadata_change(&context, &context.git_directory.join(path)),
                 "{path}"
             );
         }
