@@ -8,13 +8,102 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func contextUsageTracksEachSessionAndCompactionWithoutAccumulatingTokens() async throws {
+        try await withContextFeature { feature, connection in
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("usageUpdate"))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            #expect(feature.selectedConversation?.contextUsage?.capacityTokens == 258400)
+            feature.startNewConversation()
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("sessionCreated", ["sessionId": "session-2", "token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("usageUpdate", ["sessionId": "session-2",
+                "update": ["sessionUpdate": "usage_update", "used": 90000, "size": 100000]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 90000)
+            feature.selectSession("session-1")
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 258400]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000)
+            #expect(feature.conversations["session-2"]?.contextUsage?.usedTokens == 90000)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            feature.closeConversation("session-1")
+            #expect(feature.conversations["session-1"] == nil)
+        }
+    }
+
+    @Test
+    func missingInvalidAndDisconnectedUsageRemainUnknown() async throws {
+        try await withContextFeature { feature, connection in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            for payload: [String: Any] in [
+                ["used": -1, "size": 100], ["used": 1.5, "size": 100],
+                ["used": true, "size": 100], ["used": "1", "size": 100],
+                ["used": 1, "size": 0], ["used": 1], ["size": 100]
+            ] {
+                try feature.receive(event("usageUpdate"))
+                var update = payload
+                update["sessionUpdate"] = "usage_update"
+                try feature.receive(event("usageUpdate", ["update": update]))
+                #expect(feature.selectedConversation?.contextUsage == nil)
+            }
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 0, "size": 100]]))
+            #expect(feature.selectedConversation?.contextUsage?.fraction == 0)
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 150, "size": 100]]))
+            #expect(feature.selectedConversation?.contextUsage?.fraction == 1.5)
+            try feature.receive(event("stopped"))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("usageUpdate"))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+        }
+    }
+
+    @Test
+    func confirmedModelChangesInvalidateCapacityButOtherOptionsKeepUsage() async throws {
+        try await withContextFeature { feature, connection in
+            feature.prepareConversation()
+            let option = { (model: String, permission: String) -> [[String: Any]] in [
+                ["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+                 "options": [["value": "model-a", "name": "A"], ["value": "model-b", "name": "B"]]],
+                ["id": "mode", "name": "Permissions", "category": "mode", "type": "select", "currentValue": permission,
+                 "options": [["value": "read-only", "name": "Read Only"], ["value": "auto", "name": "Auto"]]]
+            ] }
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                        "configOptions": option("model-a", "read-only")]))
+            try feature.receive(event("usageUpdate"))
+            feature.setConfigOption("mode", value: "auto")
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": option("model-a", "auto")]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            feature.setConfigOption("model", value: "model-b")
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": option("model-b", "auto")]))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("usageUpdate"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update",
+                "configOptions": option("model-a", "auto")]]))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+        }
+    }
+
+    private func withContextFeature(_ operation: (AgentConnectionModel, TestAgentConnection) throws -> Void) async throws {
+        let (feature, connection) = try connectedFeature()
+        do { try operation(feature, connection) }
+        catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
     func readyAgentListsWorkspaceHistory() throws {
         let (feature, connection) = try connectedFeature()
         #expect(feature.connectionState == .ready)
         #expect(feature.canLoadSessions)
         #expect(connection.commands.last?["kind"] as? String == "listSessions")
 
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         #expect(feature.sessions.map(\.id) == ["session-1", "session-2"])
         #expect(feature.sessions.first?.title == "Explain this project")
     }
@@ -102,7 +191,7 @@ struct AgentConversationFeatureModelTests {
     @Test
     func openingAnEarlierSessionReplaysItsHistoryBeforePrompting() throws {
         let (feature, connection) = try connectedFeature()
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         feature.selectSession("session-1")
         let load = try #require(connection.commands.last)
         #expect(load["kind"] as? String == "loadSession")
@@ -123,7 +212,7 @@ struct AgentConversationFeatureModelTests {
     @Test
     func openedConversationsBecomeTabsAndClosingOneFallsBackToTheLastOpenTab() throws {
         let (feature, connection) = try connectedFeature()
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         #expect(feature.openSessionIDs.isEmpty, "history is not opened until selected")
 
         feature.selectSession("session-2")
@@ -170,6 +259,121 @@ struct AgentConversationFeatureModelTests {
         #expect(transport.connections[1].commands.last?["kind"] as? String == "loadSession")
         await feature.stop()
         #expect(transport.connections[1].closeCount == 1)
+    }
+
+    @Test
+    func providerReconnectRecreatesUnpromptedSessionsAndKeepsHistoryTabs() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.selectSession("session-2")
+            try feature.receive(event("sessionLoaded", ["token": transport.connections[0].commands.last?["token"] as Any,
+                "sessionId": "session-2"]))
+            for id in ["empty-1", "empty-2"] {
+                feature.startNewConversation()
+                try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
+                    "sessionId": id]))
+            }
+            await feature.stop()
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.openSessionIDs == ["session-2"])
+            #expect(feature.conversations["empty-1"] == nil && feature.conversations["empty-2"] == nil)
+            #expect(!feature.sessions.contains { $0.id.hasPrefix("empty-") })
+            #expect(feature.conversations["session-2"] != nil, "loaded history is retained even if its replay was empty")
+
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let connection = transport.connections[1]
+            let create = try #require(connection.commands.last)
+            #expect(create["kind"] as? String == "newSession")
+            #expect(!connection.commands.contains { $0["kind"] as? String == "loadSession" })
+            let file = try AgentFileReference(url: URL(fileURLWithPath: "/example/project/notes.txt"))
+            try feature.send("Continue with the new provider", files: [file])
+            try feature.receive(event("sessionCreated", ["token": create["token"] as Any, "sessionId": "replacement"]))
+            let prompts = connection.commands.filter { $0["kind"] as? String == "prompt" }
+            #expect(prompts.count == 1)
+            #expect(prompts.first?["sessionId"] as? String == "replacement")
+            #expect((prompts.first?["files"] as? [[String: String]])?.first?["uri"] == file.id)
+        }
+    }
+
+    @Test
+    func agentExitDropsOnlyItsUnpersistedEmptySession() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("stopped"))
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.openSessionIDs.isEmpty && feature.sessions.isEmpty)
+            await feature.stop()
+            #expect(transport.connections[0].closeCount == 1)
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            #expect(transport.connections[1].commands.last?["kind"] as? String == "newSession")
+        }
+    }
+
+    @Test
+    func emptySessionConfirmedByUpstreamHistoryStillLoadsAfterReconnect() async throws {
+        try await withReconnectableFeature { feature, transport in
+            let list = try #require(transport.connections[0].commands.last)
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("sessions", ["token": list["token"] as Any]))
+            await feature.stop()
+            #expect(feature.selectedSessionID == "session-1")
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            #expect(transport.connections[1].commands.last?["kind"] as? String == "loadSession")
+            #expect(transport.connections[1].commands.last?["sessionId"] as? String == "session-1")
+        }
+    }
+
+    @Test
+    func missingHistoryReportsItsLoadFailureWithoutCreatingAReplacement() async throws {
+        try await withReconnectableFeature { feature, transport in
+            try feature.receive(event("sessions", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            feature.selectSession("session-2")
+            let connection = transport.connections[0]
+            let load = try #require(connection.commands.last)
+            let count = connection.commands.count
+            try feature.receive(event("requestFailed", ["token": load["token"] as Any,
+                "sessionId": "session-2", "message": "no rollout found for thread id session-2"]))
+            #expect(feature.selectedSessionID == "session-2")
+            #expect(feature.selectedConversation?.errorMessage == "no rollout found for thread id session-2")
+            #expect(connection.commands.count == count, "a missing history file is not an invitation to replace a real conversation")
+            await feature.stop()
+            #expect(feature.openSessionIDs == ["session-2"])
+            #expect(feature.sessions.contains { $0.id == "session-2" })
+        }
+    }
+
+    @Test
+    func failedFirstSendDoesNotMakeAnEmptySessionResumable() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            transport.connections[0].sendFailure = .notConnected
+            #expect(throws: AgentConversationError.sendFailed(AgentConversationError.notConnected.localizedDescription)) {
+                try feature.send("Not delivered")
+            }
+            await feature.stop()
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.conversations.isEmpty)
+        }
+    }
+
+    @Test
+    func unsolicitedTranscriptIsRetainedEvenBeforeFirstLocalPrompt() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("agentMessageChunk"))
+            await feature.stop()
+            #expect(feature.selectedSessionID == "session-1")
+            #expect(feature.selectedConversation?.messages.first?.text == "This project **builds** an IDE.")
+        }
     }
 
     @Test
@@ -411,6 +615,22 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.connectionState == .connecting)
         try feature.receive(event("ready"))
         return (feature, transport.connections[0])
+    }
+
+    private func withReconnectableFeature(
+        _ run: (AgentConnectionModel, TestAgentTransport) async throws -> Void
+    ) async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        do {
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            try await run(feature, transport)
+            await feature.stop()
+        } catch {
+            await feature.stop()
+            throw error
+        }
     }
 
     private func respondingFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
