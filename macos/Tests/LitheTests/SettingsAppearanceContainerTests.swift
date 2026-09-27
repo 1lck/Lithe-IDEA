@@ -6,18 +6,15 @@ import Testing
 @MainActor
 struct SettingsAppearanceContainerTests {
     @Test
-    func settingsSurfaceUsesIDEACommunityLightAndDarkColors() throws {
-        for (appearanceName, components) in [
-            (NSAppearance.Name.darkAqua, [30.0, 31.0, 34.0]),
-            (.aqua, [247.0, 248.0, 250.0])
-        ] {
+    func settingsSurfaceMatchesWorkbenchLightAndDarkColors() throws {
+        for appearanceName in [NSAppearance.Name.darkAqua, .aqua] {
             let appearance = try #require(NSAppearance(named: appearanceName))
-            let color = try #require(
+            let isDark = appearanceName == .darkAqua
+            let actual = try #require(
                 LitheTheme.settingsSurfaceNSColor(for: appearance).usingColorSpace(.sRGB)
             )
-            #expect(abs(color.redComponent - components[0] / 255) < 0.001)
-            #expect(abs(color.greenComponent - components[1] / 255) < 0.001)
-            #expect(abs(color.blueComponent - components[2] / 255) < 0.001)
+            let expected = try #require(LitheTheme.nsColor(.sidebar, isDark: isDark).usingColorSpace(.sRGB))
+            #expect(actual == expected)
         }
     }
 

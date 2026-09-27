@@ -283,18 +283,9 @@ enum LitheTheme {
     }
     static func settingsSurfaceNSColor(for appearance: NSAppearance) -> NSColor {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 30.0 / 255, green: 31.0 / 255, blue: 34.0 / 255, alpha: 1)
-            : NSColor(srgbRed: 247.0 / 255, green: 248.0 / 255, blue: 250.0 / 255, alpha: 1)
+        return nsColor(.sidebar, isDark: isDark)
     }
-    static var settingsListSurface: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return isDark
-                ? NSColor(srgbRed: 43.0 / 255, green: 45.0 / 255, blue: 48.0 / 255, alpha: 1)
-                : .white
-        })
-    }
+    static var settingsListSurface: Color { settingsSurface }
     static var settingsFont: Font { .custom("Inter-Regular", size: 13) }
     static var settingsStrongFont: Font { .custom("Inter-SemiBold", size: 13) }
     static var settingsSearchBorder: Color {
