@@ -258,6 +258,32 @@ fn copy_path(source: &std::path::Path, destination: &std::path::Path) -> Result<
 #[tauri::command]
 pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result<String, String> {
     let label = format!("workspace-{}", WINDOW_ID.fetch_add(1, Ordering::Relaxed));
+    let project_path = request
+        .as_ref()
+        .filter(|request| {
+            request.get("remoteConnectionId").is_none()
+                && (request.get("isDirectory").and_then(Value::as_bool) == Some(true)
+                    || request.get("type").and_then(Value::as_str) == Some("directory"))
+        })
+        .and_then(|request| request.get("path").and_then(Value::as_str))
+        .filter(|path| !path.contains("://"));
+    let identity = project_path
+        .map(|path| {
+            crate::project_window_registry::ProjectWindowRegistry::identity(Path::new(path))
+        })
+        .transpose()?;
+    let state = app.state::<crate::project_windows::ProjectWindows>();
+    // Serialize lookup + reservation + build, including concurrent IPC callers.
+    // The async mutex never blocks the UI event loop during Webview construction.
+    let mut registry = state.0.lock().await;
+    registry.retain_windows(|owner| app.get_webview_window(owner).is_some());
+    if let Some(identity) = identity {
+        let owner = registry.claim(identity, &label, None);
+        if owner.label != label {
+            crate::project_windows::focus_project(&app, &owner)?;
+            return Ok(owner.label);
+        }
+    }
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     if let Some(request) = request.and_then(|value| value.as_object().cloned()) {
         query.append_pair("target", "open");
@@ -292,17 +318,27 @@ pub async fn create_app_window(app: AppHandle, request: Option<Value>) -> Result
     } else {
         format!("index.html?{query}")
     };
-    let window = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
-        .title("Lithe")
-        .decorations(false)
-        .inner_size(1280.0, 800.0)
-        .min_inner_size(720.0, 480.0)
-        .icon(WINDOW_TASKBAR_ICON)
-        .map_err(|error| error.to_string())?
-        .build()
-        .map_err(|error| error.to_string())?;
-    apply_window_taskbar_icon(&window);
-    Ok(label)
+    let result = (|| {
+        WebviewWindowBuilder::new(&app, &label, WebviewUrl::App(path.into()))
+            .title("Lithe")
+            .decorations(false)
+            .inner_size(1280.0, 800.0)
+            .min_inner_size(720.0, 480.0)
+            .icon(WINDOW_TASKBAR_ICON)
+            .map_err(|error| error.to_string())?
+            .build()
+            .map_err(|error| error.to_string())
+    })();
+    match result {
+        Ok(window) => {
+            apply_window_taskbar_icon(&window);
+            Ok(label)
+        }
+        Err(error) => {
+            registry.release(&label, None);
+            Err(error)
+        }
+    }
 }
 
 #[cfg(test)]

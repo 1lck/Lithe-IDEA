@@ -74,6 +74,16 @@
       "locations": ["<webview-profile>/Local Storage/lithe.worker-package:*"],
       "identity": "Imported plugin source and install state belong to application configuration and have no worktree identity",
       "reason": "Do not copy installed worker plugin state across worktrees; uninstall by plugin ID through the application lifecycle."
+    },
+    {
+      "id": "agent-history-metadata",
+      "reusable": false,
+      "locations": [
+        "platform preferences: lithe.agent-history.v1.<workspace-agent-digest>",
+        "user-chosen Markdown export destination"
+      ],
+      "identity": "Mutable user annotations scoped by standardized workspace identity and configured Agent ID; no build, platform, architecture or toolchain stamp",
+      "reason": "Favorites, custom titles and hidden rows are runtime preferences. Never copy them across worktrees or read Agent files to reconstruct them; exports are user documents, not build resources. No copy stage is permitted."
     }
   ]
 }
