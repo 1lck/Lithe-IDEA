@@ -15,6 +15,7 @@ type ExtensionHandler = (...args: unknown[]) => unknown | Promise<unknown>;
 
 const workerScope = globalThis as unknown as DedicatedWorkerGlobalScope;
 const views = new Map<string, () => ExtensionViewNode | Promise<ExtensionViewNode>>();
+let runActionProvider: ((files: Record<string, string>) => unknown) | undefined;
 const commands = new Map<string, ExtensionHandler>();
 const pending = new Map<number, PendingRequest>();
 let nextRequestId = 1;
@@ -60,6 +61,18 @@ function childNodes(items: unknown[]): ExtensionViewNode[] {
 }
 
 const api = Object.freeze({
+  runActions: Object.freeze({
+    register(provider: (files: Record<string, string>) => unknown) {
+      if (typeof provider !== "function" || runActionProvider)
+        throw new Error("Invalid or duplicate run action provider");
+      runActionProvider = provider;
+      return Object.freeze({
+        dispose: () => {
+          runActionProvider = undefined;
+        },
+      });
+    },
+  }),
   sidebar: Object.freeze({
     registerView(config: {
       id: string;
@@ -194,6 +207,9 @@ workerScope.addEventListener("message", (event: MessageEvent<ExtensionWorkerInbo
   }
 
   void respond(message.id, async () => {
+    if (message.method === "discoverRunActions") {
+      return runActionProvider?.(message.params[0] as Record<string, string>) ?? [];
+    }
     if (message.method === "renderView") {
       const render = views.get(String(message.params[0]));
       if (!render) throw new Error(`Unknown extension view: ${message.params[0]}`);

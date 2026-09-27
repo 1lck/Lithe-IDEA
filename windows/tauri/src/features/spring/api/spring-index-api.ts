@@ -74,8 +74,8 @@ export async function requestSpringIndex(args: {
   metadataRepositories?: string[];
   textOverrides?: Record<string, string>;
   refreshDependencyMetadata: boolean;
-}): Promise<SpringIndex> {
-  const response = await executeCore<CoreSpringIndex>({
+}, execute = executeCore): Promise<SpringIndex> {
+  const response = await execute<CoreSpringIndex>({
     id: crypto.randomUUID(),
     timeoutMilliseconds: args.refreshDependencyMetadata ? 60_000 : 30_000,
     command: "spring.index",

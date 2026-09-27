@@ -15,6 +15,7 @@ import {
   MagicWandIcon,
   FileTextIcon,
   FolderIcon,
+  PackageIcon,
   TerminalWindowIcon,
   type Icon,
 } from "@/ui/icons";
@@ -40,6 +41,7 @@ const categories: CategoryItem[] = [
   { id: "keyboard", labelKey: "settings.tabs.keyboard", icon: KeyboardIcon },
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
+  { id: "maven", labelKey: "settings.tabs.maven", icon: PackageIcon },
   { id: "ai", labelKey: "settings.tabs.ai", icon: MagicWandIcon },
   { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
@@ -58,6 +60,7 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
     case "editor":
     case "keyboard":
     case "terminal":
+    case "maven":
     case "ai":
     case "ai-commit":
     case "logs":
@@ -148,9 +151,11 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
           })}
         </nav>
 
-        <section className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6">
-          <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
-          <MacSettingsPanel category={activeCategory} onClose={onClose} />
+        <section className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <h2 className="mb-5 shrink-0 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
+          <div className="min-h-0 flex-1">
+            <MacSettingsPanel category={activeCategory} onClose={onClose} />
+          </div>
         </section>
       </div>
     </Dialog>

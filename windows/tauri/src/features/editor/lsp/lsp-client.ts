@@ -1364,6 +1364,22 @@ export class LspClient {
     }
   }
 
+  async resolveCompletion(
+    target: LspDocumentTargetInput,
+    item: CompletionItem,
+  ): Promise<CompletionItem | null> {
+    const document = normalizeLspDocumentTarget(target);
+    try {
+      return await invoke<CompletionItem | null>("lsp_resolve_completion", {
+        ...lspDocumentRequestArgs(document),
+        completionItem: item,
+      });
+    } catch (error) {
+      logger.error("LSPClient", "LSP completion resolve error:", error);
+      return null;
+    }
+  }
+
   async getHover(
     target: LspDocumentTargetInput,
     line: number,
@@ -1458,6 +1474,8 @@ export class LspClient {
 
   async getSemanticTokens(filePath: string): Promise<LspSemanticTokensResponse | null> {
     if (!isLspSemanticCommandSupported("lsp_get_semantic_tokens")) return null;
+    const availability = this.getDocumentAvailability(filePath, "semanticTokens");
+    if (availability.phase !== "ready" || availability.feature !== "supported") return null;
     try {
       return await invoke<LspSemanticTokensResponse>("lsp_get_semantic_tokens", { filePath });
     } catch (error) {

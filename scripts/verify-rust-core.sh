@@ -6,6 +6,9 @@ cd "$ROOT_DIR"
 
 mkdir -p .artifacts/test-stability
 node --test --test-reporter=spec --test-reporter-destination=stdout \
+    --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/npm-progress.xml \
+    rust/lithe-agent-host/tests/npm-progress.test.mjs
+node --test --test-reporter=spec --test-reporter-destination=stdout \
     --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/rust-comment-checker.xml \
     scripts/test-rust-core-comments.mjs
 scripts/verify-rust-core-comments.sh
@@ -15,6 +18,10 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-git-host \
     --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/git-host-rust.json
+node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
+    --manifest rust/Cargo.toml --package lithe-agent-host \
+    --suite-timeout-ms 120000 \
+    --report .artifacts/test-stability/agent-host-rust.json
 cargo test --manifest-path rust/Cargo.toml -p lithe-core
 
 case "$(uname -m)" in

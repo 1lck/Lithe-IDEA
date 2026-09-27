@@ -87,8 +87,8 @@ export function SpringEndpointsPane() {
         false,
         location.line + 1,
         location.column + 1,
-      ).catch((navigationError) => {
-        console.warn("Failed to open Spring endpoint source:", navigationError);
+      ).catch(() => {
+        console.warn("Failed to open Spring endpoint source");
       });
     },
     [handleFileSelect, rootFolderPath],
@@ -104,11 +104,11 @@ export function SpringEndpointsPane() {
         onClick={() => handleEndpointClick(endpoint)}
         title={`${methodLabel(endpoint)} ${endpoint.route} · ${endpoint.controller}.${endpoint.method} · ${endpoint.path}`}
         className={cn(
-          "flex h-full min-w-0 w-full items-center gap-2 overflow-hidden px-2 text-left transition-colors hover:bg-accent/60",
+          "flex h-8 min-w-0 w-full items-center gap-2 overflow-hidden px-2 text-left transition-colors hover:bg-accent/60",
           selectedEndpointId === endpoint.id && "bg-accent/70",
         )}
       >
-        <span className="w-12 shrink-0 font-mono text-[11px] font-semibold text-primary">
+        <span className="w-20 shrink-0 truncate font-mono text-[11px] font-semibold text-primary">
           {methodLabel(endpoint)}
         </span>
         <span className="min-w-0 flex-[1.4] truncate font-mono ui-text-sm text-foreground">

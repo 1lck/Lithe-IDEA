@@ -162,7 +162,12 @@ describe("Spring reference navigation", () => {
         "C:/work/src/main/resources/application.yml",
       ),
     ).toBe(true);
-    expect(shouldScheduleSpringReloadForExternalChange("opened", "C:/work/README.md")).toBe(false);
+    // Structural events do not tell us whether a path is a directory. Refresh
+    // conservatively so renaming a package cannot leave controller paths stale.
+    expect(shouldScheduleSpringReloadForExternalChange("opened", "C:/work/README.md")).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("deleted", "C:/work/src/controllers")).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("opened", "C:/work/src/renamed")).toBe(true);
+    expect(shouldScheduleSpringReloadForExternalChange("reloaded", "C:/work/README.md")).toBe(false);
   });
 });
 

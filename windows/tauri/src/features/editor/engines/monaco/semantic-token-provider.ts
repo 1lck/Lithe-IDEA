@@ -1,4 +1,5 @@
 import type * as Monaco from "monaco-editor";
+import { flushLspDocumentChanges } from "@/features/editor/lsp/pending-document-changes";
 import type { LspSemanticTokensResponse } from "@/features/editor/lsp/semantic-token-types";
 import { encodeMonacoSemanticTokens, MONACO_SEMANTIC_TOKEN_LEGEND } from "./semantic-tokens";
 
@@ -35,11 +36,19 @@ export function createMonacoSemanticTokenProvider({
       }
 
       const modelVersion = model.getVersionId();
+      const isCurrent = () =>
+        !cancellationToken.isCancellationRequested &&
+        !model.isDisposed() &&
+        model.getVersionId() === modelVersion &&
+        isLspModel(model) &&
+        filePathFromModel(model) === filePath &&
+        client.isDocumentOpen(filePath);
+      // Monaco can request colors before the editor's document-change debounce fires.
+      await flushLspDocumentChanges(filePath);
+      if (!isCurrent()) return null;
       const response = await client.getSemanticTokens(filePath);
       if (
-        cancellationToken.isCancellationRequested ||
-        model.isDisposed() ||
-        model.getVersionId() !== modelVersion ||
+        !isCurrent() ||
         !response ||
         response.tokenTypes.length === 0
       ) {

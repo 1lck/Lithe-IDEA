@@ -20,7 +20,10 @@ export function shouldScheduleSpringReloadForExternalChange(
   eventType: string,
   filePath: string,
 ): boolean {
-  return eventType === "rescan" || isSpringIndexPath(filePath);
+  // The watcher reports a renamed/deleted directory as a single path. Its
+  // children can contain controllers even when that path has no Java suffix.
+  return eventType === "rescan" || eventType === "opened" || eventType === "deleted"
+    || isSpringIndexPath(filePath);
 }
 
 export function workspaceRelativeSpringPath(filePath: string, root: string): string {

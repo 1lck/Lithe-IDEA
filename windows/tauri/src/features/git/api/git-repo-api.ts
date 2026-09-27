@@ -1,5 +1,6 @@
 import { invoke as tauriInvoke } from "@/platform/tauri-core";
-import { normalizePath as normalizeFilePath, stripTrailingPathSeparators } from "@/utils/path-helpers";
+import { normalizeGitOperationPath as normalizePath, UnsupportedGitPathError } from "./git-repository-path";
+export { normalizeRepositoryPath } from "./git-repository-path";
 
 interface RepositoryDiscoveryCacheEntry {
   discoveredAt: number;
@@ -27,22 +28,6 @@ const NOT_REPO_PATTERNS = [
 const WORKSPACE_REPO_CACHE_TTL_MS = 5 * 60_000;
 const REPO_CACHE_TTL_MS = 5 * 60_000;
 const NEGATIVE_REPO_CACHE_TTL_MS = 5_000;
-function normalizePath(path: string): string {
-  if (path.startsWith("wsl://") || path.startsWith("remote://")) {
-    const [scheme, rest] = path.split("://");
-    const collapsedRest = (rest ?? "").replace(/\/{2,}/g, "/");
-    const normalized = `${scheme}://${collapsedRest}`;
-    return normalized.length > `${scheme}://`.length + 1
-      ? normalized.replace(/\/+$/, "")
-      : normalized;
-  }
-
-  const unixPath = normalizeFilePath(path);
-  const collapsed = unixPath.replace(/\/{2,}/g, "/");
-  // UNC repository identifiers must retain their network-root separator.
-  const normalized = unixPath.startsWith("//") ? `/${collapsed}` : collapsed;
-  return stripTrailingPathSeparators(normalized);
-}
 
 function isAbsolutePath(path: string): boolean {
   return (
@@ -83,10 +68,6 @@ function toRelativePath(from: string, to: string): string {
   return normalizedTo;
 }
 
-
-export function normalizeRepositoryPath(path: string): string {
-  return normalizePath(path);
-}
 
 export function isNotGitRepositoryError(error: unknown): boolean {
   const message =
@@ -172,11 +153,15 @@ export async function resolveRepositoryForFile(
   repoPath: string,
   filePath: string,
 ): Promise<{ repoPath: string; filePath: string } | null> {
-  const absoluteFilePath = isAbsolutePath(filePath) ? filePath : joinPath(repoPath, filePath);
+  const normalizedFilePath = normalizePath(filePath);
+  const absoluteFilePath = isAbsolutePath(normalizedFilePath)
+    ? normalizedFilePath
+    : joinPath(repoPath, normalizedFilePath);
   let discoveredRepo: string | null;
   try {
     discoveredRepo = await discoverRepo(parentPath(absoluteFilePath));
   } catch (error) {
+    if (error instanceof UnsupportedGitPathError) throw error;
     const fallbackRepo = await discoverRepo(repoPath);
     const normalizedFallbackRepo = fallbackRepo ? normalizePath(fallbackRepo) : null;
     const normalizedAbsoluteFile = normalizePath(absoluteFilePath);

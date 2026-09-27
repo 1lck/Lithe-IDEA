@@ -581,7 +581,9 @@ function PrimitiveDialogHost({
               <Question />
             </AlertDialogMedia>
             <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
-            <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
+            <AlertDialogDescription className="w-full min-w-0">
+              {dialog.message}
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{defaultDialogText(dialog.cancelLabel)}</AlertDialogCancel>

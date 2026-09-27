@@ -29,7 +29,9 @@ export function classifySpringIndexError(
     };
   }
   if (error instanceof SpringIndexRequestError) {
-    if (error.code === "workspace_not_found") {
+    // spring.index currently rejects an unavailable root as invalid_request.
+    // Accept its validation code as well as the shared missing-workspace code.
+    if (error.code === "workspace_not_found" || error.code === "invalid_request") {
       return { category: "rootUnavailable", detail };
     }
     if (error.code === "permission_denied") {

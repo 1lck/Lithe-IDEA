@@ -34,6 +34,16 @@ pub struct CoreRequest {
 pub enum CoreCommand {
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
+    /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
+    AgentStatus,
+    /// Installs a catalog ACP adapter with the user's npm (`agent.install`).
+    AgentInstall,
+    /// Removes a Lithe-managed ACP adapter install (`agent.uninstall`).
+    AgentUninstall,
+    /// Installs or updates an agent's CLI through its installation owner (`agent.installCli`).
+    AgentInstallCli,
+    /// Parses credential-free Agent provider metadata (`agent.parseProviderConfiguration`).
+    AgentParseProviderConfiguration,
     /// Starts a Discourse user API key authorization (`community.discourse.auth.begin`).
     CommunityDiscourseAuthBegin,
     /// Decrypts and verifies a Discourse authorization callback (`community.discourse.auth.complete`).
@@ -86,6 +96,8 @@ pub enum CoreCommand {
     MavenScan,
     /// Produces a deterministic Maven invocation (`maven.launchPlan`).
     MavenLaunchPlan,
+    /// Shortens an oversized Java launch using a JDK argument file when needed.
+    ExecutionPlanLaunchCommand,
     /// Produces a bounded Maven dependency-tree invocation (`maven.dependencyPlan`).
     MavenDependencyPlan,
     /// Normalizes Maven dependency-tree output (`maven.dependencies`).
@@ -312,6 +324,11 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "agent.status" => Some(Self::AgentStatus),
+            "agent.install" => Some(Self::AgentInstall),
+            "agent.uninstall" => Some(Self::AgentUninstall),
+            "agent.installCli" => Some(Self::AgentInstallCli),
+            "agent.parseProviderConfiguration" => Some(Self::AgentParseProviderConfiguration),
             "community.discourse.auth.begin" => Some(Self::CommunityDiscourseAuthBegin),
             "community.discourse.auth.complete" => Some(Self::CommunityDiscourseAuthComplete),
             "community.discourse.topics" => Some(Self::CommunityDiscourseTopics),
@@ -338,6 +355,7 @@ impl CoreCommand {
             "history.delete" => Some(Self::HistoryDelete),
             "maven.scan" => Some(Self::MavenScan),
             "maven.launchPlan" => Some(Self::MavenLaunchPlan),
+            "execution.planLaunchCommand" => Some(Self::ExecutionPlanLaunchCommand),
             "maven.dependencyPlan" => Some(Self::MavenDependencyPlan),
             "maven.dependencies" => Some(Self::MavenDependencies),
             "maven.diagnostics" => Some(Self::MavenDiagnostics),
@@ -491,6 +509,14 @@ mod tests {
     #[test]
     fn parses_document_lifecycle_command() {
         assert!(CoreCommand::parse("document.lifecycle").is_some());
+    }
+
+    #[test]
+    fn parses_java_launch_command_planner() {
+        assert!(matches!(
+            CoreCommand::parse("execution.planLaunchCommand"),
+            Some(CoreCommand::ExecutionPlanLaunchCommand)
+        ));
     }
 
     #[test]

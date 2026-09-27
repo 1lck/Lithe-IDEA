@@ -501,10 +501,14 @@
 "Reset current branch?" = "Reset current branch?";
 "Cherry-pick" = "Cherry-pick";
 "Revert" = "Revert";
+"Reset (Soft)" = "Reset (Soft)";
 "Reset (Mixed)" = "Reset (Mixed)";
+"Reset (Hard)" = "Reset (Hard)";
 "Apply %@ to the current branch." = "Apply %@ to the current branch.";
 "Create a new commit that reverses %@." = "Create a new commit that reverses %@.";
+"Move the current branch to %@ and keep changes staged." = "Move the current branch to %@ and keep changes staged.";
 "Move the current branch to %@ and keep changes unstaged." = "Move the current branch to %@ and keep changes unstaged.";
+"Move the current branch to %@ and discard all working-tree changes." = "Move the current branch to %@ and discard all working-tree changes.";
 "Delete branch?" = "Delete branch?";
 "Merge branch?" = "Merge branch?";
 "Rebase branch?" = "Rebase branch?";
@@ -680,6 +684,7 @@
 "Compare current branch with working tree" = "Compare current branch with working tree";
 "Continue" = "Continue";
 "Copy" = "Copy";
+"Copy Branch Name" = "Copy Branch Name";
 "Copy Path / Reference" = "Copy Path / Reference";
 "Copy Relative Path" = "Copy Relative Path";
 "Delete Branch" = "Delete Branch";
@@ -702,6 +707,7 @@
 "Hide Git tool window" = "Hide Git tool window";
 "Hide commit decorations" = "Hide commit decorations";
 "Highlight words" = "Highlight words";
+"Hard Reset (Discard Changes)" = "Hard Reset (Discard Changes)";
 "Later" = "Later";
 "Lithe Shelves" = "Lithe Shelves";
 "Loading branches…" = "Loading branches…";
@@ -715,6 +721,7 @@
 "Me" = "Me";
 "Merge" = "Merge";
 "Merge into Current Branch" = "Merge into Current Branch";
+"Mixed Reset (Keep Changes Unstaged)" = "Mixed Reset (Keep Changes Unstaged)";
 "New Branch" = "New Branch";
 "New Branch from '%@'…" = "New Branch from '%@'…";
 "New Branch…" = "New Branch…";
@@ -724,6 +731,7 @@
 "No differences" = "No differences";
 "No matching branches" = "No matching branches";
 "No matching users" = "No matching users";
+"No Remote Branches" = "No Remote Branches";
 "No saved changes" = "No saved changes";
 "No textual diff available" = "No textual diff available";
 "OK" = "OK";
@@ -772,6 +780,7 @@
 "Smart Checkout (Shelve)" = "Smart Checkout (Shelve)";
 "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them.";
 "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them." = "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them.";
+"Soft Reset (Keep Changes Staged)" = "Soft Reset (Keep Changes Staged)";
 "Stage File" = "Stage File";
 "Stage all changes" = "Stage all changes";
 "Stage file" = "Stage file";
@@ -780,6 +789,7 @@
 "Stash or shelf changes here to switch branches safely." = "Stash or shelf changes here to switch branches safely.";
 "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it." = "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it.";
 "Step %lld of %lld" = "Step %lld of %lld";
+"Stop Tracking Branch" = "Stop Tracking Branch";
 "Tag or revision" = "Tag or revision";
 "Tags" = "Tags";
 "The repository will be opened in detached HEAD state." = "The repository will be opened in detached HEAD state.";
@@ -788,6 +798,7 @@
 "This sends the selected local branch to its configured remote." = "This sends the selected local branch to its configured remote.";
 "Title" = "Title";
 "Toggle preview" = "Toggle preview";
+"Tracking Branch" = "Tracking Branch";
 "Uncommitted changes block this cherry-pick" = "Uncommitted changes block this cherry-pick";
 "Uncommitted changes block this merge" = "Uncommitted changes block this merge";
 "Uncommitted changes block this rebase" = "Uncommitted changes block this rebase";
@@ -819,6 +830,8 @@
 "Preview Update" = "Preview Update";
 "Install Preview" = "Install Preview";
 "Skip Build" = "Skip Build";
+"Software Update" = "Software Update";
+"Skip Version" = "Skip Version";
 "Continue Installation" = "Continue Installation";
 "Return to Stable" = "Return to Stable";
 "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source." = "The stable release is missing a valid publisher signature. Nothing was installed. Try a newer release or install manually from a trusted source.";
@@ -1113,3 +1126,107 @@
 "Fetch completed with no reference changes." = "Fetch completed with no reference changes.";
 "Maven Build" = "Maven Build";
 "Hide Maven Build tool window" = "Hide Maven Build tool window";
+
+// Verified CLI update outcomes
+"CLI updated to %@" = "CLI updated to %@";
+"The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
+"Update log" = "Update log";
+
+/* Agent session selectors */
+"Search models" = "Search models";
+"No matching models" = "No matching models";
+"Thinking level" = "Thinking level";
+"Speed" = "Speed";
+"Fast" = "Fast";
+"Approval mode" = "Approval mode";
+"Ask for approval" = "Ask for approval";
+"Approve for me" = "Approve for me";
+"Full access" = "Full access";
+"Always ask to edit external files and use the internet" = "Always ask to edit external files and use the internet";
+"Only ask for actions detected as potentially unsafe" = "Only ask for actions detected as potentially unsafe";
+"Unrestricted access to the internet and any file on your computer" = "Unrestricted access to the internet and any file on your computer";
+"Collaboration mode" = "Collaboration mode";
+"Default" = "Default";
+"Plan" = "Plan";
+"Low" = "Low";
+"Fast mode" = "Fast mode";
+"Plan before making changes" = "Plan before making changes";
+
+// Agent file references
+"Attach files" = "Attach files";
+"Drop files here" = "Drop files here";
+"Drag files here or click to choose files" = "Drag files here or click to choose files";
+"Remove file %@" = "Remove file %@";
+"Only local files can be attached to an Agent message." = "Only local files can be attached to an Agent message.";
+"Attach up to 32 files per message." = "Attach up to 32 files per message.";
+"The Agent is still responding in this conversation." = "The Agent is still responding in this conversation.";
+
+// Agent provider configuration
+"Providers" = "Providers";
+"Use local configuration or add your own provider." = "Use local configuration or add your own provider.";
+"No custom providers yet." = "No custom providers yet.";
+"Current provider: %@" = "Current provider: %@";
+"Local %@ configuration" = "Local %@ configuration";
+"Confirm deletion" = "Confirm deletion";
+"Delete this provider and its saved API key? Agents using it will be unlinked. It is also removed from AI Providers in Settings." = "Delete this provider and its saved API key? Agents using it will be unlinked. It is also removed from AI Providers in Settings.";
+"Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation." = "Local configuration follows your CLI files. Custom providers are saved in Lithe and do not change those files. Switching restarts this project's Agent connection; open history again to continue a saved conversation.";
+"Edit provider" = "Edit provider";
+"Delete provider" = "Delete provider";
+"Add provider" = "Add provider";
+"Provider name" = "Provider name";
+"Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields." = "Only the API URL, model and API key are saved. Other CLI options continue to use your local configuration. The key is stored separately from settings. Editing shows a template of these saved fields.";
+"Format JSON" = "Format JSON";
+"Invalid JSON. Check the configuration format." = "Invalid JSON. Check the configuration format.";
+"Install ACP adapters, check the runtime, and manage local or custom providers." = "Install ACP adapters, check the runtime, and manage local or custom providers.";
+"Check the configuration format, API URL and model. Each configuration must be under 64 KiB." = "Check the configuration format, API URL and model. Each configuration must be under 64 KiB.";
+"Authentication must be a JSON object containing an OPENAI_API_KEY string." = "Authentication must be a JSON object containing an OPENAI_API_KEY string.";
+"Enter an API key. CLI login credentials cannot be used as an API key." = "Enter an API key. CLI login credentials cannot be used as an API key.";
+"Enter a provider name." = "Enter a provider name.";
+"Enter an HTTP or HTTPS API URL without credentials, query parameters or fragments." = "Enter an HTTP or HTTPS API URL without credentials, query parameters or fragments.";
+"Codex Agents require the Responses API. Claude Agents require an Anthropic API key." = "Codex Agents require the Responses API. Claude Agents require an Anthropic API key.";
+"Wait for the Agent operation to finish before changing providers." = "Wait for the Agent operation to finish before changing providers.";
+"Provider configuration parsing is unavailable." = "Provider configuration parsing is unavailable.";
+"No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider." = "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.";
+"Choose a local or custom provider in the Agent panel settings." = "Choose a local or custom provider in the Agent panel settings.";
+"This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings." = "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.";
+"The credential store version is unsupported. Existing credentials were preserved." = "The credential store version is unsupported. Existing credentials were preserved.";
+"Add" = "Add";
+"Agent provider" = "Agent provider";
+"Choose a local or custom provider so the Agent can sign in." = "Choose a local or custom provider so the Agent can sign in.";
+"Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”)." = "Invalid TOML. Use straight quotes (\") instead of smart quotes (“ ”).";
+/* Agent conversation history */
+"All conversations" = "All conversations";
+"Favorites" = "Favorites";
+"Removed conversations" = "Removed conversations";
+"Confirm deletion" = "Confirm deletion";
+"Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept." = "Remove %d conversation(s) from history? You can restore them from Removed conversations. The Agent's original records will be kept.";
+"%d selected" = "%d selected";
+"%d conversations" = "%d conversations";
+"%d messages" = "%d messages";
+"Select" = "Select";
+"Search conversation titles or IDs…" = "Search conversation titles or IDs…";
+"History filter" = "History filter";
+"Deselect all" = "Deselect all";
+"Select all" = "Select all";
+"Manage selected" = "Manage selected";
+"Export conversations" = "Export conversations";
+"Add to favorites" = "Add to favorites";
+"Remove from favorites" = "Remove from favorites";
+"Restore conversations" = "Restore conversations";
+"Remove from history" = "Remove from history";
+"Toggle favorite" = "Toggle favorite";
+"Removed conversations are hidden only in Lithe. The Agent's original records are kept." = "Removed conversations are hidden only in Lithe. The Agent's original records are kept.";
+"Exporting conversations…" = "Exporting conversations…";
+"Loading history…" = "Loading history…";
+"No matching conversations" = "No matching conversations";
+"Try another title or session ID." = "Try another title or session ID.";
+"Conversations for this project and Agent appear here." = "Conversations for this project and Agent appear here.";
+"Conversation title" = "Conversation title";
+"Save title" = "Save title";
+"Copy session ID" = "Copy session ID";
+"Rename conversation" = "Rename conversation";
+"Select conversation" = "Select conversation";
+"Back" = "Back";
+"Context usage" = "Context usage";
+"Context: %@" = "Context: %@";
+"%@ · %@ / %@ context tokens" = "%@ · %@ / %@ context tokens";

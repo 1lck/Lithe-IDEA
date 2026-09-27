@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { requestSpringIndex } from "./spring-index-api";
+import { classifySpringIndexError } from "../utils/spring-index-error";
 
 const executeCore = mock(async (): Promise<any> => ({
   id: "request",
@@ -12,11 +14,6 @@ const executeCore = mock(async (): Promise<any> => ({
     endpoints: [],
   },
 }));
-const cancelCoreOperation = mock(async () => true);
-
-mock.module("@/core/lithe-core-client", () => ({ executeCore, cancelCoreOperation }));
-
-const { requestSpringIndex } = await import("./spring-index-api");
 
 beforeEach(() => {
   executeCore.mockClear();
@@ -63,7 +60,7 @@ describe("requestSpringIndex", () => {
       root: "D:/workspace",
       paths: ["src/main/java/com/example/FirstController.java"],
       refreshDependencyMetadata: false,
-    });
+    }, executeCore);
 
     expect(result.endpoints).toEqual(endpoints);
   });
@@ -84,7 +81,7 @@ describe("requestSpringIndex", () => {
       root: "D:/workspace",
       paths: [],
       refreshDependencyMetadata: false,
-    });
+    }, executeCore);
     expect(omitted.endpoints).toEqual([]);
 
     executeCore.mockResolvedValueOnce({
@@ -103,7 +100,20 @@ describe("requestSpringIndex", () => {
       root: "D:/workspace",
       paths: [],
       refreshDependencyMetadata: false,
-    });
+    }, executeCore);
     expect(malformed.endpoints).toEqual([]);
   });
+});
+
+// Match the actual error envelope emitted by Core's Spring root validation.
+test("a missing Spring root is classified from the native response", async () => {
+  executeCore.mockResolvedValueOnce({
+    id: "request", ok: false,
+    error: { code: "invalid_request", message: "Spring index root must be an existing absolute directory" },
+  });
+  const request = requestSpringIndex({
+    root: "D:/fixture/missing", paths: [], refreshDependencyMetadata: false,
+  }, executeCore);
+  const failure = await request.catch((error) => classifySpringIndexError(error, "D:/fixture/missing"));
+  expect(failure).toMatchObject({ category: "rootUnavailable" });
 });

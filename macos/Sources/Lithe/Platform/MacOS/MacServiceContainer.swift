@@ -1,5 +1,6 @@
 import Foundation
 import LitheAIAssistanceModule
+import LitheAgentConversationModule
 import LitheApplicationKernel
 import LitheCoreContracts
 import LitheDatabaseModule
@@ -180,6 +181,16 @@ final class MacServiceContainer {
                     credentialResolver: credentialResolver
                 )
             })
+            try moduleRegistry.register(ModuleFactory(
+                manifest: AgentConversationModule.moduleManifest,
+                contributions: AgentConversationModule.moduleContributions
+            ) {
+                AgentConversationModule(
+                    transportFactory: { MacACPAgentTransport() },
+                    historyPersistence: MacAgentHistoryPersistence(store: store),
+                    historyExporter: MacAgentHistoryExporter(storage: fileStorage)
+                )
+            })
             try moduleRegistry.register(ModuleFactory(manifest: DatabaseModule.moduleManifest, contributions: DatabaseModule.moduleContributions) {
                 DatabaseModule(
                     processRunner: processRunner,
@@ -249,7 +260,9 @@ final class MacServiceContainer {
                         core: rustCore,
                         cacheDirectoryURL: languageServerCacheDirectory
                     )
-                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver()
+                    let jdtlsLaunchResourceResolver = MacJDTLSLaunchResourceResolver(
+                        configurationCacheDirectoryURL: languageServerCacheDirectory
+                    )
                     let runtimeFactory = StdioLanguageProviderRuntimeFactory(
                         runtimeService: runtimeService,
                         languageServerCore: rustCore,
@@ -379,7 +392,8 @@ final class MacServiceContainer {
                             languageRunProviders: languagePackRegistry.runProviders,
                             extensionRequiredLanguageIDs: pluginLanguageIDs,
                             languageSupports: installedLanguageSupports,
-                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage)
+                            dependencyStore: MacWorkspaceDependencyStore(storage: fileStorage),
+                            javaLaunchArgumentPreparer: rustCore
                         ),
                         tests: LanguageTestService(
                             catalog: languagePackRegistry.catalog,
@@ -621,6 +635,8 @@ final class MacServiceContainer {
             databaseSecureStore: databaseSecureStore,
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
+            agentManagement: RustAgentManagementService(core: rustCore),
+            agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),

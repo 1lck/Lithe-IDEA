@@ -127,6 +127,8 @@ package protocol GitOperations: Sendable {
     func repairWorktrees(at rootURL: URL) -> GitProcessResult?
     func pruneWorktrees(at rootURL: URL) -> GitProcessResult?
     func renameBranch(_ reference: GitReference, to name: String, at rootURL: URL) -> GitProcessResult?
+    func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult?
+    func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult?
     func deleteBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func mergeBranch(_ reference: GitReference, at rootURL: URL) -> GitProcessResult?
     func rebaseCurrentBranch(onto reference: GitReference, at rootURL: URL) -> GitProcessResult?
@@ -207,6 +209,8 @@ package extension GitOperations {
         return createWorktree(named: name, from: reference, revision: request.revision, at: request.destination, repositoryRoot: rootURL)
     }
     func createHistoryRecoveryBranch(named name: String, reference: String, at rootURL: URL) -> GitProcessResult? { nil }
+    func setUpstream(branch: GitReference, to upstream: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func unsetUpstream(branch: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
     func exportPatch(at rootURL: URL, source: GitPatchSource, paths: [String], base: String?, target: String?, metadataOnly: Bool) -> Result<GitPatchExport, GitPatchFailure> {
         .failure(GitPatchFailure("Patch export is unavailable."))
     }
@@ -921,6 +925,22 @@ package struct GitService: Sendable {
         at repositoryRoot: URL
     ) async -> CommandResult {
         await command(at: repositoryRoot) { $0.renameBranch(reference, to: newName, at: repositoryRoot) }
+    }
+
+    func setUpstream(
+        _ reference: GitReference,
+        to upstream: GitReference,
+        at repositoryRoot: URL
+    ) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.setUpstream(branch: reference, to: upstream, at: repositoryRoot)
+        }
+    }
+
+    func unsetUpstream(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {
+        await command(at: repositoryRoot) {
+            $0.unsetUpstream(branch: reference, at: repositoryRoot)
+        }
     }
 
     func deleteBranch(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {

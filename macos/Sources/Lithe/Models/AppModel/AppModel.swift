@@ -14,6 +14,7 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
     var searchSessionFeature: SearchSessionFeatureModel { featureGraph.searchSession }
@@ -78,6 +79,13 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         workspaceFeature.isPerformingProjectItemOperation
     }
     @Published var detectedAIConfigurations: [AIConfigurationSnapshot] = []
+    /// An Agent conversation in this project waits for a permission decision.
+    @Published var agentConversationNeedsAttention = false
+    /// Agent panel settings state, created when the settings are first shown.
+    lazy var agentManagementFeature = AgentManagementFeatureModel(
+        service: services.agentManagement,
+        dataDirectory: agentDataDirectory
+    )
     var commitDraftFeature: CommitDraftFeatureModel { featureGraph.commitDraft }
     lazy var commitWorkflow = CommitWorkflowComposition.make(model: self)
     var commitMessage: String {

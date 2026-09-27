@@ -8,6 +8,41 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 #[test]
+fn java_launch_command_json_reuses_the_shared_argfile_planner() {
+    let classpath = (0..800)
+        .map(|index| format!("/workspace/.m2/library-{index}/library-{index}.jar"))
+        .collect::<Vec<_>>()
+        .join(":");
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::json!({
+            "id": "java-launch-command",
+            "command": "execution.planLaunchCommand",
+            "payload": {
+                "executable": "/Library/Java/JavaVirtualMachines/jdk-21/bin/java",
+                "arguments": ["-cp", classpath, "com.example.Main"],
+                "argfilePath": "/tmp/lithe-run/launch.argfile",
+                "javaFeatureVersion": 21
+            }
+        })
+        .to_string(),
+    ))
+    .expect("Java launch-command response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["kind"], "argfile");
+    assert_eq!(
+        response["data"]["arguments"],
+        serde_json::json!(["@/tmp/lithe-run/launch.argfile", "com.example.Main"])
+    );
+    assert!(
+        response["data"]["argfileContents"]
+            .as_str()
+            .is_some_and(|contents| contents.starts_with("-cp\n\"/workspace/")),
+        "{response}"
+    );
+}
+
+#[test]
 fn jdt_workspace_key_matches_the_shared_compatibility_fixture() {
     let fixture: Value = serde_json::from_str(include_str!(
         "../../../../shared/fixtures/lsp/jdt-workspace-key-v1.json"

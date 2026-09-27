@@ -18,11 +18,13 @@ let package = Package(
         .library(name: "LitheTerminalModule", targets: ["LitheTerminalModule"]),
         .library(name: "LitheDatabaseModule", targets: ["LitheDatabaseModule"]),
         .library(name: "LitheAIAssistanceModule", targets: ["LitheAIAssistanceModule"]),
+        .library(name: "LitheAgentConversationModule", targets: ["LitheAgentConversationModule"]),
         .library(name: "LitheExecutionModule", targets: ["LitheExecutionModule"]),
         .library(name: "LitheDebugModule", targets: ["LitheDebugModule"]),
         .library(name: "LitheLanguageIntelligenceModule", targets: ["LitheLanguageIntelligenceModule"]),
         .library(name: "LitheWorkspaceModule", targets: ["LitheWorkspaceModule"]),
         .library(name: "LitheGoSupportModule", targets: ["LitheGoSupportModule"]),
+        .library(name: "LithePhpSupportModule", targets: ["LithePhpSupportModule"]),
         .executable(name: "LitheCoreVerifier", targets: ["LitheCoreVerifier"]),
         .executable(name: "LitheGitGraphVerifier", targets: ["LitheGitGraphVerifier"]),
         .executable(name: "LitheGitPerformanceVerifier", targets: ["LitheGitPerformanceVerifier"]),
@@ -80,11 +82,13 @@ let package = Package(
         .target(name: "LitheTerminalModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheTerminalModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheDatabaseModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheDatabaseModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheAIAssistanceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheAIAssistanceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
+        .target(name: "LitheAgentConversationModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheAgentConversationModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheExecutionModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheExecutionModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheDebugModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheDebugModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheLanguageIntelligenceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheLanguageIntelligenceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheWorkspaceModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "macos/Sources/LitheWorkspaceModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LitheGoSupportModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule", swiftSettings: [.swiftLanguageMode(.v6)]),
+        .target(name: "LithePhpSupportModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(
             name: "LitheRustCore",
             path: "macos/Sources/LitheRustCore",
@@ -102,6 +106,7 @@ let package = Package(
                 "LitheTerminalModule",
                 "LitheDatabaseModule",
                 "LitheAIAssistanceModule",
+                "LitheAgentConversationModule",
                 "LitheExecutionModule",
                 "LitheDebugModule",
                 "LitheLanguageIntelligenceModule",
@@ -112,6 +117,7 @@ let package = Package(
             ],
             path: "macos/Sources/Lithe",
             resources: [
+                .copy("Resources/AgentIcons"),
                 .copy("Resources/MarkdownPreview"),
                 .copy("Resources/SyntaxHighlighting"),
                 .copy("Resources/WorkbenchBackgrounds")
@@ -125,7 +131,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")
@@ -229,6 +235,17 @@ let package = Package(
                 .product(name: "Testing", package: "swift-testing")
             ],
             path: "Plugins/mac/Official/GoSupport/Tests/LitheGoSupportModuleTests",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .testTarget(
+            name: "LithePhpSupportModuleTests",
+            dependencies: [
+                "LithePhpSupportModule",
+                "LitheApplicationKernel",
+                "LitheLanguageIntelligenceModule",
+                .product(name: "Testing", package: "swift-testing")
+            ],
+            path: "Plugins/mac/Official/PhpSupport/Tests/LithePhpSupportModuleTests",
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         .executableTarget(

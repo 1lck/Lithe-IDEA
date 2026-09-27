@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -186,5 +186,22 @@ describe("SpringEndpointsPane", () => {
       12,
       3,
     );
+  });
+
+  test("handles source navigation failures without logging host paths", async () => {
+    await setSpringState({ phase: "ready", loadedRoot: ROOT, index: endpointIndex() });
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      useFileSystemStore.setState({
+        handleFileSelect: async () => { throw new Error("Cannot read C:/private/workspace/UserController.java"); },
+      });
+      await renderPane();
+      const row = container.querySelector("button[aria-label^='GET /api/users']");
+      expect(row).not.toBeNull();
+      await act(async () => { row?.dispatchEvent(new Event("click", { bubbles: true })); });
+      expect(warn.mock.calls).toEqual([["Failed to open Spring endpoint source"]]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

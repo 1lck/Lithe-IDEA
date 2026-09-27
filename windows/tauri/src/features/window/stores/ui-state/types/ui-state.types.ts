@@ -12,6 +12,7 @@ export type SettingsTab =
   | "logs"
   | "advanced"
   | "terminal"
+  | "maven"
   | "file-explorer";
 
 export type BottomPaneTab =

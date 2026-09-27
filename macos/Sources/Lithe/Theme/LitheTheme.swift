@@ -70,6 +70,7 @@ enum LitheTheme {
         let secondaryText: RGBA
         let tertiaryText: RGBA
         let toolWindowText: RGBA
+        let toolWindowButtonText: RGBA
         let toolWindowSelectedText: RGBA
         let accent: RGBA
         let runAction: RGBA
@@ -161,6 +162,7 @@ enum LitheTheme {
                 secondaryText: ink.withAlpha(isDark ? 0.62 : 0.60),
                 tertiaryText: ink.withAlpha(isDark ? 0.43 : 0.42),
                 toolWindowText: ink,
+                toolWindowButtonText: ink.withAlpha(isDark ? 0.62 : 0.60),
                 toolWindowSelectedText: RGBA(0xffffff),
                 accent: accent,
                 runAction: isDark ? RGBA(0x59a869) : RGBA(0x2e7d32),
@@ -180,38 +182,40 @@ enum LitheTheme {
                 let value = isDark ? dark : light
                 return RGBA(red: value.0, green: value.1, blue: value.2, alpha: value.3)
             }
+            let secondaryText = adaptive(light: (0.373, 0.396, 0.439, 1), dark: (1, 1, 1, 0.50))
 
             return Palette(
                 window: adaptive(light: (0.933, 0.945, 0.961, 1), dark: (0.157, 0.161, 0.173, 1)),
                 titlebar: adaptive(light: (0.910, 0.922, 0.937, 1), dark: (0.157, 0.161, 0.173, 1)),
-                toolHeader: adaptive(light: (0.984, 0.984, 0.988, 1), dark: (0.110, 0.114, 0.122, 1)),
-                toolHeaderInactive: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (0.110, 0.114, 0.122, 1)),
-                sidebar: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
-                editor: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
+                toolHeader: adaptive(light: (0.984, 0.984, 0.988, 1), dark: (0.094, 0.098, 0.106, 1)),
+                toolHeaderInactive: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (0.094, 0.098, 0.106, 1)),
+                sidebar: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
+                editor: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
                 raised: adaptive(light: (0.969, 0.973, 0.980, 1), dark: (0.165, 0.175, 0.190, 1)),
                 notification: adaptive(light: (1, 1, 1, 1), dark: (51.0 / 255.0, 54.0 / 255.0, 59.0 / 255.0, 1)),
                 selection: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.208, 0.455, 0.941, 1)),
                 subtleSelection: adaptive(light: (0.914, 0.922, 0.937, 1), dark: (0.205, 0.218, 0.238, 1)),
-                hoverBackground: adaptive(light: (0.949, 0.953, 0.961, 1), dark: (1, 1, 1, 0.055)),
+                hoverBackground: adaptive(light: (0.949, 0.953, 0.961, 1), dark: (1, 1, 1, 23.0 / 255.0)),
                 pressedBackground: adaptive(light: (0.882, 0.890, 0.906, 1), dark: (1, 1, 1, 0.095)),
-                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.110, 0.114, 0.122, 1)),
-                tabUnderline: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.31, 0.58, 0.98, 1)),
+                activeTabBackground: adaptive(light: (1, 1, 1, 1), dark: (0.094, 0.098, 0.106, 1)),
+                tabUnderline: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.208, 0.455, 0.941, 1)),
                 diffInformationBackground: adaptive(light: (0.910, 0.949, 1, 1), dark: (0.13, 0.20, 0.30, 1)),
                 diffInformationText: adaptive(light: (0.141, 0.357, 0.620, 1), dark: (0.50, 0.72, 0.98, 1)),
                 divider: adaptive(light: (0.847, 0.855, 0.875, 1), dark: (0.180, 0.188, 0.212, 1)),
                 panelBorder: adaptive(light: (0.788, 0.800, 0.824, 1), dark: (0.263, 0.271, 0.290, 1)),
                 inputBackground: adaptive(light: (1, 1, 1, 1), dark: (0.065, 0.070, 0.078, 1)),
                 inputBorder: adaptive(light: (0.788, 0.800, 0.824, 1), dark: (1, 1, 1, 0.12)),
-                inputFocusBorder: adaptive(light: (0.208, 0.455, 0.941, 0.90), dark: (0.31, 0.58, 0.98, 0.85)),
+                inputFocusBorder: adaptive(light: (0.208, 0.455, 0.941, 0.90), dark: (0.208, 0.455, 0.941, 0.85)),
                 popupBackground: adaptive(light: (1, 1, 1, 1), dark: (0.157, 0.161, 0.173, 1)),
                 popupShadow: adaptive(light: (0, 0, 0, 0.16), dark: (0, 0, 0, 0.55)),
                 badgeBackground: adaptive(light: (0.910, 0.918, 0.929, 1), dark: (1, 1, 1, 0.10)),
                 primaryText: adaptive(light: (0.122, 0.137, 0.161, 1), dark: (0.875, 0.882, 0.898, 1)),
-                secondaryText: adaptive(light: (0.373, 0.396, 0.439, 1), dark: (1, 1, 1, 0.50)),
+                secondaryText: secondaryText,
                 tertiaryText: adaptive(light: (0.506, 0.533, 0.580, 1), dark: (1, 1, 1, 0.34)),
                 toolWindowText: adaptive(light: (0.255, 0.275, 0.314, 1), dark: (0.875, 0.882, 0.898, 1)),
+                toolWindowButtonText: isDark ? RGBA(0x9DA0A8) : secondaryText,
                 toolWindowSelectedText: adaptive(light: (1, 1, 1, 1), dark: (1, 1, 1, 1)),
-                accent: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.31, 0.58, 0.98, 1)),
+                accent: adaptive(light: (0.208, 0.455, 0.941, 1), dark: (0.208, 0.455, 0.941, 1)),
                 runAction: adaptive(light: (0.180, 0.490, 0.196, 1), dark: (0.349, 0.659, 0.412, 1)),
                 success: adaptive(light: (0.105, 0.545, 0.235, 1), dark: (0.28, 0.72, 0.39, 1)),
                 warning: adaptive(light: (0.690, 0.410, 0.035, 1), dark: (0.91, 0.63, 0.20, 1)),
@@ -283,11 +287,7 @@ enum LitheTheme {
             ? NSColor(srgbRed: 0.157, green: 0.161, blue: 0.173, alpha: 1)
             : NSColor(srgbRed: 0.910, green: 0.922, blue: 0.937, alpha: 1)
     }
-    static let settingsPrimaryAction = Color(
-        red: 56.0 / 255.0,
-        green: 113.0 / 255.0,
-        blue: 225.0 / 255.0
-    )
+    static var settingsPrimaryAction: Color { accent }
     static let settingsSelection = Color(
         red: 43.0 / 255.0,
         green: 66.0 / 255.0,
@@ -349,6 +349,7 @@ enum LitheTheme {
     static var secondaryText: Color { adaptive(\.secondaryText) }
     static var tertiaryText: Color { adaptive(\.tertiaryText) }
     static var toolWindowText: Color { adaptive(\.toolWindowText) }
+    static var toolWindowButtonText: Color { adaptive(\.toolWindowButtonText) }
     static var toolWindowSelectedText: Color { adaptive(\.toolWindowSelectedText) }
 
     // MARK: - 语义色
