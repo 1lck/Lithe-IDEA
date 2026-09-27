@@ -400,13 +400,16 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/git",
-          "shared/contracts/application-boundary.md"
+          "shared/contracts/application-boundary.md",
+          "windows/tauri/src/features/git/api/git-repository-path.ts",
+          "rust/lithe-core/tests/git_path_roundtrip.rs",
+          "shared/fixtures/git/windows-paths.json"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。"
+      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。"
     },
     {
       "id": "git-branches-remotes",
