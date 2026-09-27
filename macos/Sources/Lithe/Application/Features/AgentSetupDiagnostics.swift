@@ -189,11 +189,11 @@ extension AgentSetupDiagnostics {
 
         checks.append(.init(
             id: "provider",
-            title: String(localized: "Local configuration"),
+            title: String(localized: "Agent provider"),
             status: hasProvider ? .pass : .fail,
             message: hasProvider
                 ? String(localized: "Signed in through the ACP gateway with the API key from your local configuration.")
-                : String(localized: "Fetch your local configuration so the Agent can sign in."),
+                : String(localized: "Choose a local or custom provider so the Agent can sign in."),
             fix: hasProvider ? nil : .fetchLocalConfiguration
         ))
         return checks
