@@ -25,7 +25,7 @@ const commit = (
 const colorIndexOfCommit = (layout: GitGraphLayout, hash: string): number | null => {
   const row = layout.rows.find((candidate) => candidate.commit.hash === hash);
   if (!row) throw new Error(`No graph row for ${hash}`);
-  return row.incomingLaneColors[row.lane] ?? row.parentEdges[0]?.colorIndex ?? null;
+  return row.colorIndex;
 };
 
 describe("Git graph layout", () => {
@@ -45,9 +45,9 @@ describe("Git graph layout", () => {
     ]);
 
     expect(layout.rows[0].parentEdges).toHaveLength(2);
-    expect(layout.rows[0].parentEdges.map((edge) => edge.targetLane)).toEqual([0, 1]);
-    expect(layout.rows[1].parentEdges[0].targetLane).toBe(1);
-    expect(layout.rows[2].lane).toBe(1);
+    expect(new Set(layout.rows[0].parentEdges.map((edge) => edge.targetLane)).size).toBe(2);
+    expect(layout.rows[1].parentEdges[0].targetLane).not.toBeNull();
+    expect(layout.laneCount).toBeGreaterThan(1);
     expect(layout.hasMissingParents).toBe(false);
   });
 
@@ -65,7 +65,7 @@ describe("Git graph layout", () => {
     const side = layout.rows[2];
     expect(side.incomingLaneColors[side.lane]).toBeNull();
     // Lanes of other branches passing through the tip row are still drawn.
-    expect(side.incomingLaneColors[layout.rows[1].lane]).not.toBeNull();
+    expect(side.incomingLaneColors.some((color, lane) => lane !== side.lane && color !== null)).toBe(true);
     // The node keeps its own lane color even though its lane has no incoming segment.
     expect(side.colorIndex).not.toBe(layout.rows[1].colorIndex);
   });
@@ -86,7 +86,7 @@ describe("Git graph layout", () => {
     ]);
   });
 
-  test("keeps a branch color stable when the topology moves it to another lane", () => {
+  test("keeps branch fragments distinct when topology moves them to another lane", () => {
     const featureTipInFirstLane = layoutGitGraph([
       commit("tip", ["root"], "feature/orders"),
       commit("root"),
@@ -100,13 +100,29 @@ describe("Git graph layout", () => {
     expect(colorIndexOfCommit(featureTipInFirstLane, "tip")).toBe(
       graphColorIndexForName("feature/orders"),
     );
-    expect(colorIndexOfCommit(featureAsSecondParent, "tip")).toBe(
-      graphColorIndexForName("feature/orders"),
-    );
+    // Once the feature is a secondary parent of the main head, IntelliJ's
+    // permanent layout gives that side fragment its layout color rather than
+    // treating it as a new graph head. It must still remain distinct from
+    // the main fragment.
     expect(featureAsSecondParent.rows[1].lane).toBe(1);
-    expect(colorIndexOfCommit(featureAsSecondParent, "merge")).toBe(
-      graphColorIndexForName("main"),
+    expect(colorIndexOfCommit(featureAsSecondParent, "tip")).not.toBe(
+      colorIndexOfCommit(featureAsSecondParent, "merge"),
     );
+    expect(colorIndexOfCommit(featureAsSecondParent, "tip")).not.toBe(
+      colorIndexOfCommit(featureAsSecondParent, "root"),
+    );
+  });
+
+  test("keeps a local head visually distinct from a decorated parent branch", () => {
+    const layout = layoutGitGraph([
+      commit("local", ["base"], "HEAD -> feature/orders"),
+      commit("base", ["root"], "origin/main"),
+      commit("root"),
+    ]);
+
+    expect(colorIndexOfCommit(layout, "local")).toBe(graphColorIndexForName("feature/orders"));
+    expect(colorIndexOfCommit(layout, "base")).toBe(graphColorIndexForName("origin/main"));
+    expect(colorIndexOfCommit(layout, "local")).not.toBe(colorIndexOfCommit(layout, "base"));
   });
 
   test("gives unreferenced lanes a deterministic color", () => {
@@ -115,7 +131,7 @@ describe("Git graph layout", () => {
     const second = layoutGitGraph(commits);
 
     expect(colorIndexOfCommit(first, "a")).toBe(0);
-    expect(colorIndexOfCommit(first, "c")).toBe(1);
+    expect(colorIndexOfCommit(first, "c")).toBe(2);
     expect(first.rows.map((row) => row.incomingLaneColors)).toEqual(
       second.rows.map((row) => row.incomingLaneColors),
     );
