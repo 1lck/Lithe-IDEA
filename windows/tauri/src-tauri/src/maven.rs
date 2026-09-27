@@ -9,12 +9,16 @@
 //! is cleared at startup, so a crash cannot leave trees behind or feed an old
 //! tree to a later session.
 
-use crate::run::atomic_write;
+use crate::run::{atomic_write, resolve_java_home, resolve_maven_executable};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
+
+mod settings_xml;
+
+use settings_xml::parse_local_repository;
 
 const MAVEN_CONFIGURATION_VERSION: u32 = 1;
 /// Cache subdirectory holding one dependency-tree file per active session.
@@ -91,6 +95,93 @@ pub fn maven_write_configuration(
     )
 }
 
+/// Arguments for resolving the configuration a Maven launch would use. Every
+/// value mirrors one of the machine-local fields; empty means "detect it".
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveEffectiveConfigurationArgs {
+    pub root: PathBuf,
+    /// Reactor path relative to the workspace root; empty means the root itself.
+    #[serde(default)]
+    pub working_directory: String,
+    #[serde(default)]
+    pub settings_path: String,
+    #[serde(default)]
+    pub local_repository_path: String,
+    #[serde(default)]
+    pub maven_executable_path: String,
+    #[serde(default)]
+    pub java_home_path: String,
+}
+
+/// The values a Maven launch would actually use, alongside the values detection
+/// found when every saved override is ignored. `None` means detection found
+/// nothing for that field.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MavenEffectiveConfiguration {
+    pub settings_path: Option<String>,
+    pub local_repository_path: Option<String>,
+    pub maven_executable_path: Option<String>,
+    pub java_home_path: Option<String>,
+    pub detected_settings_path: Option<String>,
+    pub detected_local_repository_path: Option<String>,
+    pub detected_maven_executable_path: Option<String>,
+    pub detected_java_home_path: Option<String>,
+}
+
+/// Resolves the effective Maven configuration for the saved settings, so the
+/// configuration surfaces can show what their empty fields resolve to.
+///
+/// The Maven executable and JDK come from the same resolution the launch path
+/// uses, which keeps the reported values identical to the launched ones.
+#[tauri::command]
+pub async fn maven_resolve_effective_configuration(
+    args: ResolveEffectiveConfigurationArgs,
+) -> Result<MavenEffectiveConfiguration, String> {
+    // JDK probing and filesystem reads must not block Tauri's event loop.
+    tauri::async_runtime::spawn_blocking(move || resolve_effective_configuration(args))
+        .await
+        .map_err(|error| format!("Maven configuration detection failed: {error}"))?
+}
+
+fn resolve_effective_configuration(
+    args: ResolveEffectiveConfigurationArgs,
+) -> Result<MavenEffectiveConfiguration, String> {
+    let root = existing_directory(&args.root)?;
+    let working_directory = match args.working_directory.trim() {
+        "" => root.clone(),
+        reactor => root.join(reactor),
+    };
+    // Detection is resolved once with empty overrides. A saved path is resolved
+    // only when the user set one, so the automatic case does not probe twice.
+    let detected_maven = resolve_maven_executable(&root, &working_directory, "").ok();
+    let detected_java = resolve_java_home(&root, "").ok().flatten();
+    let selected_maven = if args.maven_executable_path.trim().is_empty() {
+        detected_maven.clone()
+    } else {
+        resolve_maven_executable(&root, &working_directory, &args.maven_executable_path).ok()
+    };
+    let selected_java = if args.java_home_path.trim().is_empty() {
+        detected_java.clone()
+    } else {
+        resolve_java_home(&root, &args.java_home_path)
+            .ok()
+            .flatten()
+    };
+    Ok(assemble_effective_configuration(
+        &args.settings_path,
+        &args.local_repository_path,
+        &args.maven_executable_path,
+        &args.java_home_path,
+        detected_maven,
+        detected_java,
+        selected_maven,
+        selected_java,
+        user_home_directory().as_deref(),
+    ))
+}
+
 /// Returns a fresh path for the tree one dependency session writes.
 ///
 /// A file left by an earlier session with the same ID is removed first, so
@@ -161,6 +252,157 @@ fn clear_dependency_output_directory(directory: &Path) -> std::io::Result<()> {
     match fs::remove_dir_all(directory) {
         Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(error),
         _ => Ok(()),
+    }
+}
+
+/// Combines saved overrides with already resolved executables.
+///
+/// `detected_*` arguments are what the machine finds with every override blank.
+/// `selected_*` arguments are the executables a launch would use, which equal
+/// the detected ones when the corresponding override is blank.
+fn assemble_effective_configuration(
+    configured_settings: &str,
+    configured_repository: &str,
+    configured_maven: &str,
+    configured_java: &str,
+    detected_maven: Option<String>,
+    detected_java: Option<String>,
+    selected_maven: Option<String>,
+    selected_java: Option<String>,
+    home: Option<&Path>,
+) -> MavenEffectiveConfiguration {
+    let maven_executable_path = if configured_maven.trim().is_empty() {
+        detected_maven.clone()
+    } else {
+        selected_maven
+    };
+    let java_home_path = if configured_java.trim().is_empty() {
+        detected_java.clone()
+    } else {
+        selected_java
+    };
+    let detected_settings_path = effective_settings_path("", home, detected_maven.as_deref());
+    let settings_path =
+        effective_settings_path(configured_settings, home, maven_executable_path.as_deref());
+    let detected_global_settings = effective_settings_path("", None, detected_maven.as_deref());
+    let selected_global_settings =
+        effective_settings_path("", None, maven_executable_path.as_deref());
+    let detected_local_repository_path = effective_local_repository_path(
+        "",
+        detected_settings_path.as_deref(),
+        detected_global_settings.as_deref(),
+        home,
+    );
+    let local_repository_path = effective_local_repository_path(
+        configured_repository,
+        settings_path.as_deref(),
+        selected_global_settings.as_deref(),
+        home,
+    );
+    MavenEffectiveConfiguration {
+        settings_path,
+        local_repository_path,
+        maven_executable_path,
+        java_home_path,
+        detected_settings_path,
+        detected_local_repository_path,
+        detected_maven_executable_path: detected_maven,
+        detected_java_home_path: detected_java,
+    }
+}
+
+/// The current user's home directory, which owns the Maven user-level defaults
+/// (`~/.m2/settings.xml` and `~/.m2/repository`).
+fn user_home_directory() -> Option<PathBuf> {
+    std::env::var("USERPROFILE")
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The settings file Maven itself would read: the configured path, then the
+/// user-level default, then the detected installation's global settings.
+///
+/// A configured path is reported even when the file is missing, because that is
+/// what the launch would ask for and the surface must not hide the user's input.
+fn effective_settings_path(
+    configured: &str,
+    home: Option<&Path>,
+    maven_executable_path: Option<&str>,
+) -> Option<String> {
+    let configured = configured.trim();
+    if !configured.is_empty() {
+        return Some(configured.to_string());
+    }
+    let mut candidates = Vec::new();
+    if let Some(home) = home {
+        candidates.push(home.join(".m2").join("settings.xml"));
+    }
+    if let Some(executable) = maven_executable_path {
+        // `<installation>/bin/mvn.cmd` -> `<installation>/conf/settings.xml`.
+        // A wrapper lives in the project, not in a Maven installation's bin directory.
+        let executable = Path::new(executable);
+        if let Some(installation) = executable
+            .parent()
+            .filter(|parent| {
+                parent
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("bin"))
+            })
+            .filter(|_| {
+                executable
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("mvn"))
+            })
+            .and_then(Path::parent)
+        {
+            candidates.push(installation.join("conf").join("settings.xml"));
+        }
+    }
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.is_file())
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// The local repository Maven would use: the configured path, then the
+/// `<localRepository>` of the user (or configured) settings, then the
+/// installation settings, then the `~/.m2/repository` default.
+fn effective_local_repository_path(
+    configured: &str,
+    settings_path: Option<&str>,
+    global_settings_path: Option<&str>,
+    home: Option<&Path>,
+) -> Option<String> {
+    let configured = configured.trim();
+    if !configured.is_empty() {
+        return Some(configured.to_string());
+    }
+    for settings_path in [settings_path, global_settings_path].into_iter().flatten() {
+        let contents = fs::read_to_string(settings_path).unwrap_or_default();
+        if let Some(repository) = parse_local_repository(&contents) {
+            return Some(expand_user_home(&repository, home));
+        }
+    }
+    home.map(|home| {
+        home.join(".m2")
+            .join("repository")
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+/// Maven's default settings use `${user.home}` for the repository. Other
+/// unresolved properties stay literal; inventing a path for them would hide
+/// the value the file actually contains.
+fn expand_user_home(value: &str, home: Option<&Path>) -> String {
+    const TOKEN: &str = "${user.home}";
+    match home {
+        Some(home) if value.contains(TOKEN) => value.replace(TOKEN, &home.to_string_lossy()),
+        _ => value.to_string(),
     }
 }
 
@@ -261,6 +503,260 @@ mod tests {
             std::env::temp_dir().join(format!("lithe-maven-config-{}-{id}", std::process::id()));
         fs::create_dir_all(&path).expect("temp directory");
         path
+    }
+
+    #[test]
+    fn parses_the_local_repository_element_without_commented_examples() {
+        let settings = "\
+<!-- localRepository
+ | Default: ${user.home}/.m2/repository
+<localRepository>/path/to/local/repo</localRepository>
+-->
+<settings>
+  <localRepository>${user.home}/.m2/repository</localRepository>
+</settings>";
+
+        assert_eq!(
+            parse_local_repository(settings).as_deref(),
+            Some("${user.home}/.m2/repository")
+        );
+        assert_eq!(
+            parse_local_repository(
+                "<!-- <localRepository>/path/to/local/repo</localRepository> -->"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn settings_path_prefers_configured_then_user_then_installation() {
+        let home = temp_directory();
+        let installation = temp_directory();
+        let configured = home.join("configured.xml");
+        let executable = installation
+            .join("bin")
+            .join("mvn.cmd")
+            .to_string_lossy()
+            .into_owned();
+        let user_settings = home.join(".m2").join("settings.xml");
+        let global_settings = installation.join("conf").join("settings.xml");
+        fs::create_dir_all(global_settings.parent().expect("global settings parent"))
+            .expect("conf directory");
+
+        assert_eq!(
+            effective_settings_path(
+                &configured.to_string_lossy(),
+                Some(&home),
+                Some(&executable)
+            )
+            .as_deref(),
+            Some(configured.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            effective_settings_path("", Some(&home), Some(&executable)),
+            None
+        );
+
+        fs::create_dir_all(user_settings.parent().expect("user settings parent")).expect("user m2");
+        fs::write(&user_settings, "<settings/>").expect("write user settings");
+        fs::write(&global_settings, "<settings/>").expect("write global settings");
+        assert_eq!(
+            effective_settings_path("", Some(&home), Some(&executable)).as_deref(),
+            Some(user_settings.to_string_lossy().as_ref())
+        );
+
+        fs::remove_file(&user_settings).expect("remove user settings");
+        assert_eq!(
+            effective_settings_path("", Some(&home), Some(&executable)).as_deref(),
+            Some(global_settings.to_string_lossy().as_ref())
+        );
+        fs::remove_dir_all(home).ok();
+        fs::remove_dir_all(installation).ok();
+    }
+
+    #[test]
+    fn wrapper_does_not_adopt_an_unrelated_global_settings_file() {
+        let directory = temp_directory();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        fs::create_dir_all(directory.join("conf")).unwrap();
+        fs::write(directory.join("conf/settings.xml"), "<settings/>").unwrap();
+        // Even a project named `bin` does not make its wrapper an installation.
+        for project in ["project", "bin"] {
+            let wrapper = directory.join(project).join("mvnw.cmd");
+            assert_eq!(
+                effective_settings_path("", None, Some(&wrapper.to_string_lossy())),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn repository_falls_back_to_installation_when_user_settings_omit_it() {
+        let home = temp_directory();
+        let installation = temp_directory();
+        struct Cleanup(PathBuf, PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+                fs::remove_dir_all(&self.1).ok();
+            }
+        }
+        let _cleanup = Cleanup(home.clone(), installation.clone());
+        let user_settings = home.join(".m2").join("settings.xml");
+        let global_settings = installation.join("conf").join("settings.xml");
+        fs::create_dir_all(user_settings.parent().expect("user settings parent")).expect("user m2");
+        fs::create_dir_all(global_settings.parent().expect("global settings parent"))
+            .expect("conf directory");
+        fs::write(&user_settings, "<settings/>").expect("write user settings");
+        fs::write(
+            &global_settings,
+            "<settings><localRepository>D:\\global-repo</localRepository></settings>",
+        )
+        .expect("write global settings");
+        let executable = installation
+            .join("bin")
+            .join("mvn.cmd")
+            .to_string_lossy()
+            .into_owned();
+
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some(executable.clone()),
+            None,
+            Some(executable.clone()),
+            None,
+            Some(&home),
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\global-repo")
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path.as_deref(),
+            Some("D:\\global-repo")
+        );
+
+        fs::write(
+            &user_settings,
+            "<settings><localRepository>D:\\user-repo</localRepository></settings>",
+        )
+        .expect("update user settings");
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some(executable.clone()),
+            None,
+            Some(executable),
+            None,
+            Some(&home),
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\user-repo")
+        );
+    }
+
+    #[test]
+    fn detected_paths_stay_visible_when_overrides_are_configured() {
+        let home = temp_directory();
+        fs::create_dir_all(home.join(".m2")).expect("user m2");
+        let user_settings = home.join(".m2").join("settings.xml");
+        fs::write(
+            &user_settings,
+            "<settings><localRepository>C:\\from-settings</localRepository></settings>",
+        )
+        .expect("write user settings");
+
+        let resolved = assemble_effective_configuration(
+            "D:\\custom-settings.xml",
+            "D:\\custom-repo",
+            "D:\\custom-maven",
+            "D:\\custom-jdk",
+            Some("D:\\detected\\mvn.cmd".into()),
+            Some("D:\\detected-jdk".into()),
+            Some("D:\\custom-maven\\bin\\mvn.cmd".into()),
+            Some("D:\\custom-jdk".into()),
+            Some(&home),
+        );
+
+        assert_eq!(
+            resolved.maven_executable_path.as_deref(),
+            Some("D:\\custom-maven\\bin\\mvn.cmd")
+        );
+        assert_eq!(
+            resolved.detected_maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(resolved.java_home_path.as_deref(), Some("D:\\custom-jdk"));
+        assert_eq!(
+            resolved.detected_java_home_path.as_deref(),
+            Some("D:\\detected-jdk")
+        );
+        assert_eq!(
+            resolved.settings_path.as_deref(),
+            Some("D:\\custom-settings.xml")
+        );
+        assert_eq!(
+            resolved.detected_settings_path.as_deref(),
+            Some(user_settings.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some("D:\\custom-repo")
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path.as_deref(),
+            Some("C:\\from-settings")
+        );
+        fs::remove_dir_all(home).ok();
+    }
+
+    #[test]
+    fn blank_configuration_uses_the_detected_values() {
+        let home = temp_directory();
+        let resolved = assemble_effective_configuration(
+            "",
+            "",
+            "",
+            "",
+            Some("D:\\detected\\mvn.cmd".into()),
+            None,
+            Some("D:\\detected\\mvn.cmd".into()),
+            None,
+            Some(&home),
+        );
+        let repository = home.join(".m2").join("repository");
+
+        assert_eq!(
+            resolved.maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(
+            resolved.detected_maven_executable_path.as_deref(),
+            Some("D:\\detected\\mvn.cmd")
+        );
+        assert_eq!(resolved.java_home_path, None);
+        assert_eq!(resolved.detected_java_home_path, None);
+        assert_eq!(
+            resolved.local_repository_path.as_deref(),
+            Some(repository.to_string_lossy().as_ref())
+        );
+        assert_eq!(
+            resolved.detected_local_repository_path,
+            resolved.local_repository_path
+        );
+        fs::remove_dir_all(home).ok();
     }
 
     #[test]
