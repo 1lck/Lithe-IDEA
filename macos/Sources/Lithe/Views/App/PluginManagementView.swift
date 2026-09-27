@@ -2,12 +2,16 @@ import SwiftUI
 import LitheModuleAPI
 
 struct PluginManagementView: View {
+    static let minimumWidth: CGFloat = listMinimumWidth + SplitHandleView.thickness + detailMinimumWidth
+    private static let listMinimumWidth: CGFloat = 320
+    private static let detailMinimumWidth: CGFloat = 300
     @EnvironmentObject private var model: AppModel
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
     @State private var hoveredPluginID: PluginID?
     @State private var pendingEnabledStates: [PluginID: Bool] = [:]
     @State private var isApplyingChanges = false
+    @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
 
     private var installedPlugins: [PluginManagementSnapshot] {
         PluginManagementListContent(plugins: model.pluginSnapshots).plugins
@@ -33,10 +37,19 @@ struct PluginManagementView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            HStack(spacing: 0) {
-                sidebar
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                detail
+            GeometryReader { geometry in
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .leading,
+                    defaultSize: CGFloat(pluginListWidth),
+                    minimum: Self.listMinimumWidth,
+                    maximum: max(Self.listMinimumWidth, geometry.size.width - SplitHandleView.thickness - Self.detailMinimumWidth),
+                    flexibleMinimum: Self.detailMinimumWidth,
+                    highlightsOnHover: false,
+                    onCommit: { pluginListWidth = Double($0) },
+                    sized: { sidebar },
+                    flexible: { detail }
+                )
             }
             if !pendingEnabledStates.isEmpty || isApplyingChanges {
                 footer
@@ -96,7 +109,7 @@ struct PluginManagementView: View {
                 }
             }
         }
-        .frame(width: 320)
+        .frame(maxWidth: .infinity)
         .background(LitheTheme.settingsListSurface)
     }
 

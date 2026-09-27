@@ -31,12 +31,14 @@ struct SettingsView: View {
     @EnvironmentObject private var updateChecker: UpdateChecker
     @ObservedObject var settings: AppSettings
     @ObservedObject var viewState: SettingsViewState
+    @AppStorage("lithe.settings.categorySidebarWidth") private var categorySidebarWidth = 234.0
     @State private var missingTerminalShellPath: String?
     @State private var expandedSidebarGroups: Set<String> = []
     let initialCategory: SettingsCategory
     /// Changes with every category request; see `WorkbenchFeatureModel.settingsCategoryRequest`.
     let categoryRequest: Int
     private let onDismiss: (() -> Void)?
+    private static let categoryMinimumWidth: CGFloat = 234
     private static let footerActionLabelWidth: CGFloat = 52
 
     init(
@@ -55,10 +57,21 @@ struct SettingsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                categories
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
+            GeometryReader { geometry in
+                LitheSplitPaneView(
+                    axis: .horizontal,
+                    placement: .leading,
+                    defaultSize: CGFloat(categorySidebarWidth),
+                    minimum: Self.categoryMinimumWidth,
+                    maximum: max(Self.categoryMinimumWidth, geometry.size.width - SplitHandleView.thickness - PluginManagementView.minimumWidth),
+                    flexibleMinimum: PluginManagementView.minimumWidth,
+                    highlightsOnHover: false,
+                    onCommit: { categorySidebarWidth = Double($0) },
+                    sized: { categories },
+                    flexible: {
+                        content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
+                    }
+                )
             }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             footer
@@ -146,7 +159,7 @@ struct SettingsView: View {
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
-        .frame(width: 234)
+        .frame(maxWidth: .infinity)
         .frame(maxHeight: .infinity)
         .background(LitheTheme.settingsSurface)
     }
