@@ -1586,14 +1586,17 @@
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/keymaps"
+          "windows/tauri/src/features/keymaps",
+          "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+          "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
+          "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx"
         ],
-        "implementationStatus": "partial",
+        "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改快捷键、制造冲突并恢复默认，确认命令实际执行。",
-      "notes": "Windows 快捷键设置仍有占位交互，见 #718。"
+      "verification": "从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。",
+      "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
       "id": "plugin-extension-management",
