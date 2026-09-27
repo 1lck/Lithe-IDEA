@@ -439,8 +439,20 @@ workspace containment, depth, and path. Each entry contains an absolute native
 `path` because repository roots are platform boundary values and may be outside
 the opened folder when the folder is nested inside a checkout. Canonical paths
 are reported in plain native form: Core strips the Windows verbatim `\\?\`
-prefix so roots remain valid Git working directories and stay resolvable after
-consumers normalize separators. Core treats both
+prefix only for supported drive/UNC paths so roots remain valid Git working
+directories after consumers normalize separators. On Windows, path components
+ending in an ASCII dot or space, reserved DOS device basenames, verbatim dot
+segments, and non-drive/non-UNC device namespaces are
+unsupported: discovery, status, watch context and Git reads return
+`invalid_request` before filesystem lookup, rather than aliasing another path.
+The same validation applies after canonicalization and to Git-reported paths;
+missing-worktree fallbacks must not suppress it. Frontend file resolution
+normalizes native UNC/verbatim inputs before deciding whether to join a repository
+root, and rejects unsupported names before stripping their prefix. Remote/WSL
+identifiers retain their protocol and POSIX name semantics. Chinese names,
+embedded spaces and long paths are not rejected by length; native Git/filesystem
+errors remain visible. Shared examples live in `shared/fixtures/git/windows-paths.json`.
+Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
 continues below discovered repositories. Git metadata itself is not traversed.

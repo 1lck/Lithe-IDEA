@@ -51,6 +51,11 @@ workflows. They identify the latest published preview, rather than an arbitrary
 PR. macOS preview jobs additionally expose their own artifact links before the
 combined rolling Release publishes.
 
+Git 路径往返集成测试 `rust/lithe-core/tests/git_path_roundtrip.rs` 需要 Git 和
+Node.js 22.6+（用于直接加载实际前端 TypeScript 路径规范化函数），不需要安装
+Bun 或前端依赖。Windows Rust CI 显式准备 Node.js 22；该测试随 SharedRust
+计时测试执行，结果写入现有 `.artifacts/test-stability/` 报告。
+
 ## Build time and caches
 
 The September 12, 2026 investigation found two separate sources of delay:

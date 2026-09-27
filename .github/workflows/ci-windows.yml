@@ -244,6 +244,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test Windows Git path identity
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
+
       - name: Test Git query recovery and isolation
         shell: pwsh
         timeout-minutes: 5
@@ -293,6 +297,11 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+
+      - name: Set up Node for native Git path round-trip tests
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable

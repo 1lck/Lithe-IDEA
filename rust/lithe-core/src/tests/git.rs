@@ -47,6 +47,7 @@ fn reported_repository_path(path: &Path) -> String {
         path.canonicalize()
             .expect("discovered repository should exist"),
     )
+    .expect("repository path should be supported")
     .to_string_lossy()
     .replace('\\', "/")
 }
@@ -1512,6 +1513,7 @@ fn git_worktrees_lists_primary_linked_and_locked_metadata() {
                 .canonicalize()
                 .expect("linked worktree should canonicalize")
         )
+        .expect("worktree path should be supported")
         .to_string_lossy()
         .as_ref()
     );
