@@ -77,13 +77,18 @@ async function readRegistry() {
     }
     identifiers.add(resource.id);
   }
-  for (const excluded of registry.excludedResources ?? []) {
-    if (!excluded.id || !excluded.path || !excluded.reason || identifiers.has(excluded.id)) {
-      throw new Error("Excluded resources need a unique id, path and isolation reason");
+  const excludedResources = registry.excludedResources ?? [];
+  if (!Array.isArray(excludedResources)) throw new Error("Invalid excluded worktree resources");
+  for (const resource of excludedResources) {
+    if (!resource?.id || identifiers.has(resource.id) || resource.reusable !== false
+        || !Array.isArray(resource.locations) || !resource.locations.length
+        || !resource.locations.every((location) => typeof location === "string" && location.length > 0)
+        || !resource.identity || !resource.reason) {
+      throw new Error(`Invalid excluded worktree resource: ${resource?.id ?? "<missing>"}`);
     }
-    identifiers.add(excluded.id);
+    identifiers.add(resource.id);
   }
-  return registry.resources;
+  return { resources: registry.resources, excludedResources };
 }
 
 function runGit(worktree, argumentsList) {
@@ -352,21 +357,19 @@ async function main() {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-  const resources = await readRegistry();
+  const { resources, excludedResources } = await readRegistry();
   if (options.list) {
     for (const resource of resources) process.stdout.write(`${resource.id}\t${resource.path}\n`);
     return;
   }
   if (!options.source) throw new Error(`--source is required\n\n${usage()}`);
 
-  const registry = JSON.parse(await fs.readFile(REGISTRY_PATH, "utf8"));
-  // This route also rejects generated worker packages and mutable installed-plugin state.
-  for (const id of options.resources) {
-    const excluded = registry.excludedResources?.find((resource) => resource.id === id);
-    if (excluded) throw new Error(`Resource ${id} is isolated: ${excluded.reason}`);
-  }
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
+      if (excludedResources.some((resource) => resource.id === identifier)) {
+        const excluded = excludedResources.find((resource) => resource.id === identifier);
+        throw new Error(`Resource ${identifier} is isolated: ${excluded.reason}; it cannot be reused across worktrees`);
+      }
       const resource = resources.find((candidate) => candidate.id === identifier);
       if (!resource) throw new Error(`Unknown resource: ${identifier}`);
       return resource;
