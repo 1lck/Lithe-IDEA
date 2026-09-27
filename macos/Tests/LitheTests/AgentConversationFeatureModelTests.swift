@@ -14,7 +14,7 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.canLoadSessions)
         #expect(connection.commands.last?["kind"] as? String == "listSessions")
 
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         #expect(feature.sessions.map(\.id) == ["session-1", "session-2"])
         #expect(feature.sessions.first?.title == "Explain this project")
     }
@@ -102,7 +102,7 @@ struct AgentConversationFeatureModelTests {
     @Test
     func openingAnEarlierSessionReplaysItsHistoryBeforePrompting() throws {
         let (feature, connection) = try connectedFeature()
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         feature.selectSession("session-1")
         let load = try #require(connection.commands.last)
         #expect(load["kind"] as? String == "loadSession")
@@ -123,7 +123,7 @@ struct AgentConversationFeatureModelTests {
     @Test
     func openedConversationsBecomeTabsAndClosingOneFallsBackToTheLastOpenTab() throws {
         let (feature, connection) = try connectedFeature()
-        try feature.receive(event("sessions"))
+        try feature.receive(event("sessions", ["token": connection.commands.last?["token"] as Any]))
         #expect(feature.openSessionIDs.isEmpty, "history is not opened until selected")
 
         feature.selectSession("session-2")
