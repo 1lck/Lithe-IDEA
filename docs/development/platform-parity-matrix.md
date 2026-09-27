@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：92
-- macOS：实现：✅ 79 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 82 待验证，— 10 不适用
-- Windows：实现：✅ 81 已实现，🟡 8 部分实现，❌ 3 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 89 待验证，— 3 不适用
+- 功能项：93
+- macOS：实现：✅ 80 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 83 待验证，— 10 不适用
+- Windows：实现：✅ 82 已实现，🟡 8 部分实现，❌ 3 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 90 待验证，— 3 不适用
 
 ## 实现状态定义
 
@@ -120,7 +120,7 @@
 </details>
 
 <details>
-<summary><strong>Java</strong> · 13 个能力点</summary>
+<summary><strong>Java</strong> · 14 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -132,6 +132,7 @@
 | Java/Maven | **构建输出与编译诊断**<br><sub>java-build-diagnostics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Diagnostics`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/diagnostics`</sub> | Java / Maven | 使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 |  |
 | Spring / MyBatis | **Spring 配置、Bean 与 Endpoint 索引**<br><sub>spring-index</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features`、`macos/Sources/Lithe/Views/Run`、`shared/fixtures/spring`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring`、`shared/fixtures/spring`</sub> | Java / Spring | 使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 |  |
 | Spring / MyBatis | **Spring 符号导航与代码关联**<br><sub>spring-navigation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features`、`macos/Sources/Lithe/Views/Language`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring`</sub> | Java / Spring | 从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。 |  |
+| Spring / MyBatis | **Spring HTTP 接口筛选与源码跳转**<br><sub>spring-endpoints-search</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run/SpringEndpointsView.swift`、`macos/Sources/Lithe/Application/Features/SpringFeatureModel.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring/components/spring-endpoints-pane.tsx`、`windows/tauri/src/features/spring/hooks/use-spring-index.ts`、`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`、`windows/tauri/src/features/keymaps/commands/view-command-actions.ts`</sub> | Java / Spring | 在两端打开 Spring fixture，按路由、控制器、方法名和 HTTP 方法筛选，再点击接口核对源码行列；Windows 使用命令面板打开 Spring Endpoints，验证同项目刷新和失败保留结果、源码目录重命名或删除、全量重扫、扫描中切换或关闭项目、窄面板方法集合截断及超过 200 个接口的滚动与跳转。 |  |
 | Spring / MyBatis | **MyBatis Mapper/XML 导航**<br><sub>mybatis-navigation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift`、`macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/mybatis`</sub> | Java / MyBatis | 使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。 |  |
 | 语言服务 | **LSP/JDTLS 启动与工作区准备**<br><sub>lsp-lifecycle</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Language`、`macos/Sources/Lithe/Services/Language`、`rust/lithe-core/src/lsp/languages/jdt_configuration.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features`、`windows/tauri/src-tauri/src/lsp.rs`、`rust/lithe-core/src/lsp/languages/jdt_configuration.rs`、`shared/fixtures/lsp`</sub> | Language Tooling | 在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。 |  |
 | 语言服务 | **补全与 Hover**<br><sub>lsp-completion-hover</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Language`、`shared/fixtures/lsp`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features`、`shared/fixtures/lsp`</sub> | Language Tooling | 在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。 |  |

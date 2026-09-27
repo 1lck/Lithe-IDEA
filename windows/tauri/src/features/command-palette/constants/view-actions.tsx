@@ -161,6 +161,21 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       },
     },
     {
+      id: "toggle-spring-endpoints",
+      label:
+        isBottomPaneVisible && bottomPaneActiveTab === "springEndpoints"
+          ? "View: Hide Spring Endpoints"
+          : "View: Show Spring Endpoints",
+      description: "Show or hide indexed Spring MVC endpoints",
+      icon: <Globe />,
+      category: "View",
+      commandId: "workbench.toggleSpringEndpoints",
+      action: () => {
+        void keymapRegistry.executeCommand("workbench.toggleSpringEndpoints");
+        onClose();
+      },
+    },
+    {
       id: "toggle-ai-chat-view",
       label: settings.isAIChatVisible ? "View: Hide AI Chat" : "View: Show AI Chat",
       description: settings.isAIChatVisible ? "Hide AI chat panel" : "Show AI chat panel",

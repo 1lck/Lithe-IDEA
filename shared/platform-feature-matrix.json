@@ -1005,6 +1005,32 @@
       "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"
     },
     {
+      "id": "spring-endpoints-search",
+      "area": "Java",
+      "group": "Spring / MyBatis",
+      "capability": "Spring HTTP 接口筛选与源码跳转",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/SpringEndpointsView.swift",
+          "macos/Sources/Lithe/Application/Features/SpringFeatureModel.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/spring/components/spring-endpoints-pane.tsx",
+          "windows/tauri/src/features/spring/hooks/use-spring-index.ts",
+          "windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx",
+          "windows/tauri/src/features/keymaps/commands/view-command-actions.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Spring",
+      "verification": "在两端打开 Spring fixture，按路由、控制器、方法名和 HTTP 方法筛选，再点击接口核对源码行列；Windows 使用命令面板打开 Spring Endpoints，验证同项目刷新和失败保留结果、源码目录重命名或删除、全量重扫、扫描中切换或关闭项目、窄面板方法集合截断及超过 200 个接口的滚动与跳转。"
+    },
+    {
       "id": "mybatis-navigation",
       "area": "Java",
       "group": "Spring / MyBatis",
