@@ -27,9 +27,6 @@ fn prompt_response_is_single_use_and_cancellation_drops_pending_challenges() {
     assert_eq!(env["LITHE_GIT_ASKPASS_MODE"], "1");
     let mut untrusted = TcpStream::connect(&env["LITHE_GIT_ASKPASS_ADDRESS"]).unwrap();
     untrusted
-        .set_read_timeout(Some(Duration::from_secs(1)))
-        .unwrap();
-    untrusted
         .set_write_timeout(Some(Duration::from_secs(1)))
         .unwrap();
     writeln!(
@@ -38,26 +35,39 @@ fn prompt_response_is_single_use_and_cancellation_drops_pending_challenges() {
         serde_json::json!({"token": "wrong-fixture-token", "prompt": "untrusted"})
     )
     .unwrap();
+    untrusted.set_nonblocking(true).unwrap();
     let mut peer = TcpStream::connect(&env["LITHE_GIT_ASKPASS_ADDRESS"]).unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
     peer.set_write_timeout(Some(Duration::from_secs(1)))
         .unwrap();
     writeln!(peer, "{}", serde_json::json!({"token": env["LITHE_GIT_ASKPASS_TOKEN"], "prompt": "Password for fixture:"})).unwrap();
-    let deadline = Instant::now() + Duration::from_secs(1);
-    let challenge = loop {
-        if let Some(challenge) = session.poll().unwrap().pop() {
-            break challenge;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut challenge = None;
+    let mut rejection_observed = false;
+    // The two TCP frames may arrive in either order or in fragments. Continue
+    // pumping the owned session until both the prompt and rejection complete;
+    // blocking on the rejected peer early would stop the only transport driver.
+    while challenge.is_none() || !rejection_observed {
+        for received in session.poll().unwrap() {
+            assert!(challenge.is_none(), "Unexpected additional AskPass prompt");
+            challenge = Some(received);
+        }
+        if !rejection_observed {
+            match untrusted.read(&mut [0u8; 1]) {
+                Ok(0) => rejection_observed = true,
+                Ok(_) => panic!("Untrusted peer received a response"),
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(error) => panic!("Could not observe untrusted peer rejection: {error}"),
+            }
         }
         assert!(
             Instant::now() < deadline,
-            "AskPass frame was not received before deadline"
+            "AskPass prompt and peer rejection did not complete before deadline"
         );
         std::thread::yield_now();
-    };
+    }
+    let challenge = challenge.unwrap();
     assert!(challenge.secret);
-    let mut rejected = String::new();
-    untrusted.read_to_string(&mut rejected).unwrap();
-    assert!(rejected.is_empty());
     assert!(!respond(
         &challenge.request_id,
         Some("invalid\nresponse".into())
