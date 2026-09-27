@@ -138,16 +138,12 @@ fn git_paths_roundtrip_unicode_spaces_and_linked_worktree() {
             .contains("path-stash-marker")));
 
     let linked = fixture.0.join("linked 工作树");
+    // Product consumers pass ordinary paths to native Git, not the verbatim
+    // prefix used by this fixture for Windows filesystem cleanup.
+    let linked_argument = frontend_path(linked.to_str().unwrap());
     git(
         &root,
-        &[
-            "worktree",
-            "add",
-            "-q",
-            "-b",
-            "linked",
-            linked.to_str().unwrap(),
-        ],
+        &["worktree", "add", "-q", "-b", "linked", &linked_argument],
     );
     let linked_normalized = assert_roundtrip(&linked, &first);
     let context = data("git.watchContext", &linked_normalized);
