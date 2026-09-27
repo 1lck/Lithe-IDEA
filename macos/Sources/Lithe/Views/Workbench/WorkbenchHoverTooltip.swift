@@ -1,6 +1,7 @@
 import SwiftUI
 
 enum WorkbenchHoverTooltipPlacement {
+    case above
     case below
     case leading
     case trailing
@@ -155,6 +156,8 @@ struct WorkbenchHoverTooltipLayout: Layout {
         let gap: CGFloat = 6
         let preferredOrigin: CGPoint
         switch placement {
+        case .above:
+            preferredOrigin = CGPoint(x: sourceFrame.midX - size.width / 2, y: sourceFrame.minY - size.height - gap)
         case .below:
             preferredOrigin = CGPoint(x: sourceFrame.midX - size.width / 2, y: sourceFrame.maxY + gap)
         case .leading:
