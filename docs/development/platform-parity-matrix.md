@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：92
-- macOS：实现：✅ 79 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 82 待验证，— 10 不适用
-- Windows：实现：✅ 81 已实现，🟡 8 部分实现，❌ 3 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 89 待验证，— 3 不适用
+- 功能项：94
+- macOS：实现：✅ 81 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 84 待验证，— 10 不适用
+- Windows：实现：✅ 82 已实现，🟡 8 部分实现，❌ 4 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 90 待验证，— 4 不适用
 
 ## 实现状态定义
 
@@ -30,10 +30,11 @@
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。单元格第一行是实现状态，第二行是验证状态。
 
 <details>
-<summary><strong>AI</strong> · 10 个能力点</summary>
+<summary><strong>AI</strong> · 11 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
+| Agent 对话 | **新安装及模块关闭时仍显示 Agent 侧栏入口，面板立即提示关闭或未配置原因并提供设置入口，启停后入口不重复或消失**<br><sub>agent-entry-discoverability</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift`、`macos/Sources/Lithe/Views/Agent/AgentConversationView.swift`、`macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Agent | 使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。 |  |
 | Agent 对话 | **CC GUI 风格历史页：标题与会话 ID 搜索、更新时间、复制 ID、刷新与恢复、收藏与本地重命名、单条与批量移除确认及恢复、筛选、多选批量管理及 Markdown 导出**<br><sub>agent-conversation-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift`、`macos/Sources/LitheAgentConversationModule/Application/AgentHistoryFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentHistoryAdapters.swift`、`macos/Tests/LitheTests/AgentHistoryTests.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`</sub> | Agent | macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 页面待实现。 |  |
 | Agent 对话 | **Agent 上下文用量：输入框圆环百分比、悬停已用/容量 token，未使用时零占位、会话隔离与压缩后更新**<br><sub>agent-context-usage</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule/Application/AgentContextUsage.swift`、`macos/Sources/Lithe/Views/Agent/AgentContextUsageView.swift`、`macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift`、`macos/Tests/LitheTests/AgentConversationPresentationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`、`shared/fixtures/agent/acp-events-v1.json`</sub> | Agent | macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 共享 host 可转发 usage_update，页面待实现。 |  |
 | Agent 对话 | **可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理**<br><sub>agent-acp-conversation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule`、`macos/Sources/Lithe/Views/Agent`、`rust/lithe-agent-host`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host`</sub> | Agent | macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 |  |
@@ -120,7 +121,7 @@
 </details>
 
 <details>
-<summary><strong>Java</strong> · 13 个能力点</summary>
+<summary><strong>Java</strong> · 14 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -132,6 +133,7 @@
 | Java/Maven | **构建输出与编译诊断**<br><sub>java-build-diagnostics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Diagnostics`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/diagnostics`</sub> | Java / Maven | 使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 |  |
 | Spring / MyBatis | **Spring 配置、Bean 与 Endpoint 索引**<br><sub>spring-index</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features`、`macos/Sources/Lithe/Views/Run`、`shared/fixtures/spring`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring`、`shared/fixtures/spring`</sub> | Java / Spring | 使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。 |  |
 | Spring / MyBatis | **Spring 符号导航与代码关联**<br><sub>spring-navigation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features`、`macos/Sources/Lithe/Views/Language`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring`</sub> | Java / Spring | 从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。 |  |
+| Spring / MyBatis | **Spring HTTP 接口筛选与源码跳转**<br><sub>spring-endpoints-search</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run/SpringEndpointsView.swift`、`macos/Sources/Lithe/Application/Features/SpringFeatureModel.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/spring/components/spring-endpoints-pane.tsx`、`windows/tauri/src/features/spring/hooks/use-spring-index.ts`、`windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx`、`windows/tauri/src/features/keymaps/commands/view-command-actions.ts`</sub> | Java / Spring | 在两端打开 Spring fixture，按路由、控制器、方法名和 HTTP 方法筛选，再点击接口核对源码行列；Windows 使用命令面板打开 Spring Endpoints，验证同项目刷新和失败保留结果、源码目录重命名或删除、全量重扫、扫描中切换或关闭项目、窄面板方法集合截断及超过 200 个接口的滚动与跳转。 |  |
 | Spring / MyBatis | **MyBatis Mapper/XML 导航**<br><sub>mybatis-navigation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift`、`macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/mybatis`</sub> | Java / MyBatis | 使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。 |  |
 | 语言服务 | **LSP/JDTLS 启动与工作区准备**<br><sub>lsp-lifecycle</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Language`、`macos/Sources/Lithe/Services/Language`、`rust/lithe-core/src/lsp/languages/jdt_configuration.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features`、`windows/tauri/src-tauri/src/lsp.rs`、`rust/lithe-core/src/lsp/languages/jdt_configuration.rs`、`shared/fixtures/lsp`</sub> | Language Tooling | 在两端启动真实 JDTLS，验证项目准备、重启、超时、取消和资源清理，并确认典型工作流后已安装程序包（macOS app bundle、Windows 安装目录）的文件清单不变。 |  |
 | 语言服务 | **补全与 Hover**<br><sub>lsp-completion-hover</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Language`、`shared/fixtures/lsp`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features`、`shared/fixtures/lsp`</sub> | Language Tooling | 在相同 Java fixture 中验证补全、Hover、排序、超时和空结果。 |  |
