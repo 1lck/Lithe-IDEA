@@ -100,6 +100,8 @@ private struct AgentUnconfiguredConversationView: View {
                 onError: { notice = $0 }
             )
         }
+        .onAppear { notice = setupError?.localizedDescription }
+        .onChange(of: setupError) { notice = $0?.localizedDescription }
     }
 }
 

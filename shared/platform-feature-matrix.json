@@ -51,6 +51,28 @@
   },
   "features": [
     {
+      "id": "agent-entry-discoverability",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "新安装及模块关闭时仍显示 Agent 侧栏入口，面板立即提示关闭或未配置原因并提供设置入口，启停后入口不重复或消失",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
+          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable",
+        "evidence": ["windows/tauri/src/features"]
+      },
+      "owner": "Agent",
+      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。"
+    },
+    {
       "id": "agent-acp-conversation",
       "area": "AI",
       "group": "Agent 对话",
