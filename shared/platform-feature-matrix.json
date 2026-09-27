@@ -51,6 +51,28 @@
   },
   "features": [
     {
+      "id": "agent-entry-discoverability",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "新安装及模块关闭时仍显示 Agent 侧栏入口，面板立即提示关闭或未配置原因并提供设置入口，启停后入口不重复或消失",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
+          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable",
+        "evidence": ["windows/tauri/src/features"]
+      },
+      "owner": "Agent",
+      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。"
+    },
+    {
       "id": "agent-conversation-history",
       "area": "AI",
       "group": "Agent 对话",
@@ -848,15 +870,13 @@
           "windows/tauri/src-tauri/src/maven.rs",
           "windows/tauri/src-tauri/src/maven/settings_xml.rs",
           "windows/tauri/src/features/maven/components/maven-detected-value.test.tsx",
-          "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.test.tsx",
-          "windows/tauri/src/features/run/stores/run.store.ts",
-          "windows/tauri/src/features/run/stores/run-maven-context.test.ts"
+          "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.test.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程；旧 Run 配置残留不同 Maven/JDK 路径时启动和预启动均采用 Maven 设置。"
+      "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 Windows 自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程。"
     },
     {
       "id": "java-maven-project",
@@ -1005,6 +1025,32 @@
       },
       "owner": "Java / Spring",
       "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"
+    },
+    {
+      "id": "spring-endpoints-search",
+      "area": "Java",
+      "group": "Spring / MyBatis",
+      "capability": "Spring HTTP 接口筛选与源码跳转",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/SpringEndpointsView.swift",
+          "macos/Sources/Lithe/Application/Features/SpringFeatureModel.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/spring/components/spring-endpoints-pane.tsx",
+          "windows/tauri/src/features/spring/hooks/use-spring-index.ts",
+          "windows/tauri/src/features/spring/hooks/use-spring-index.test.tsx",
+          "windows/tauri/src/features/keymaps/commands/view-command-actions.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Spring",
+      "verification": "在两端打开 Spring fixture，按路由、控制器、方法名和 HTTP 方法筛选，再点击接口核对源码行列；Windows 使用命令面板打开 Spring Endpoints，验证同项目刷新和失败保留结果、源码目录重命名或删除、全量重扫、扫描中切换或关闭项目、窄面板方法集合截断及超过 200 个接口的滚动与跳转。"
     },
     {
       "id": "mybatis-navigation",

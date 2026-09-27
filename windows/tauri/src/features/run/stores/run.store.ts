@@ -181,8 +181,8 @@ export interface RunStoreDependencies {
 }
 
 // Explicit import of a legacy run toolchain into blank Maven settings. Load and
-// launch do not call it: legacy paths remain on the run document for format
-// compatibility, and project settings are written only when the user saves them.
+// launch do not call it: a per-configuration override stays on the run document,
+// and project settings are written only when the user saves them.
 function seedMavenLocalConfiguration(
   workspaceId: string,
   settings: Partial<MavenSettings>,
@@ -312,12 +312,18 @@ function flushStampedOutput(sessionId: string, existing: string): string {
   return trimOutput(existing + stamperFor(sessionId).flush());
 }
 
-// Legacy run configuration Maven paths are retained in the document, but the
-// workspace Maven Settings context is the only source for launch paths.
-function mavenProcessPaths(mavenContext: MavenLaunchContext | null) {
+// A value written on the run configuration wins. An empty field falls back to
+// the Maven project context, matching macOS RunService.effectiveOptions.
+function mavenProcessPaths(
+  mavenContext: MavenLaunchContext | null,
+  configuration: { mavenExecutablePath: string; mavenJavaHomePath: string },
+) {
+  const configuredExecutable = configuration.mavenExecutablePath.trim();
+  const configuredJavaHome = configuration.mavenJavaHomePath.trim();
   return {
-    mavenExecutablePath: mavenContext?.mavenExecutablePath ?? "",
-    mavenJavaHomePath: mavenContext?.javaHomePath ?? "",
+    mavenExecutablePath:
+      configuredExecutable || mavenContext?.mavenExecutablePath || "",
+    mavenJavaHomePath: configuredJavaHome || mavenContext?.javaHomePath || "",
   };
 }
 
@@ -900,7 +906,7 @@ export const createRunStore = (
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            ...mavenProcessPaths(mavenContext),
+            ...mavenProcessPaths(mavenContext, configuration),
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
@@ -981,7 +987,7 @@ export const createRunStore = (
               executable: step.executable,
               workingDirectory: plan.workingDirectory,
               javaHomePath: configuration.javaHomePath,
-              ...mavenProcessPaths(mavenContext),
+              ...mavenProcessPaths(mavenContext, configuration),
               runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               environment: mergeLaunchEnvironment(configuration.env, plan),
             });

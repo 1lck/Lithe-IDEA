@@ -16,6 +16,16 @@ export function isSpringConfigurationPath(filePath: string): boolean {
   return name.startsWith("application-") && (name.endsWith(".yml") || name.endsWith(".yaml"));
 }
 
+export function shouldScheduleSpringReloadForExternalChange(
+  eventType: string,
+  filePath: string,
+): boolean {
+  // The watcher reports a renamed/deleted directory as a single path. Its
+  // children can contain controllers even when that path has no Java suffix.
+  return eventType === "rescan" || eventType === "opened" || eventType === "deleted"
+    || isSpringIndexPath(filePath);
+}
+
 export function workspaceRelativeSpringPath(filePath: string, root: string): string {
   return getRelativePath(filePath, root).replace(/\\/g, "/");
 }
