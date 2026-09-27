@@ -400,13 +400,16 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/git",
-          "shared/contracts/application-boundary.md"
+          "shared/contracts/application-boundary.md",
+          "windows/tauri/src/features/git/api/git-repository-path.ts",
+          "rust/lithe-core/tests/git_path_roundtrip.rs",
+          "shared/fixtures/git/windows-paths.json"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。"
+      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。"
     },
     {
       "id": "git-branches-remotes",
@@ -1578,7 +1581,8 @@
         "evidence": [
           "macos/Sources/Lithe/LitheApp.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
-          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
+          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
+          "macos/Tests/LitheTests/SettingsAppearanceContainerTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1591,7 +1595,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。"
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；设置窗口应使用普通窗口层级，切换到其他应用时不置顶遮挡，关闭后重开再检查。"
     },
     {
       "id": "keymap-customization",
@@ -1608,14 +1612,17 @@
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/keymaps"
+          "windows/tauri/src/features/keymaps",
+          "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+          "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
+          "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx"
         ],
-        "implementationStatus": "partial",
+        "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改快捷键、制造冲突并恢复默认，确认命令实际执行。",
-      "notes": "Windows 快捷键设置仍有占位交互，见 #718。"
+      "verification": "从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。",
+      "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
       "id": "plugin-extension-management",

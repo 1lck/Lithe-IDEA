@@ -79,6 +79,7 @@ struct SettingsAppearanceContainerTests {
         SettingsWindowChrome.configure(window, title: "Settings", themePreference: theme)
         host.layoutSubtreeIfNeeded()
 
+        #expect(window.level == .normal, "Settings must use normal window ordering after appearance changes and reopening")
         #expect(window.appearance?.name == theme.windowAppearance?.name)
         #expect(window.styleMask.contains(.fullSizeContentView))
         #expect(window.titlebarAppearsTransparent)
