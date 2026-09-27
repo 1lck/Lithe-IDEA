@@ -7,6 +7,19 @@ import Testing
 
 @Suite("Git graph performance baseline", .serialized)
 struct GitGraphPerformanceBaselineTests {
+    @Test("Window compositor sampling requires an explicit desktop opt-in")
+    func compositorSamplingRequiresExplicitOptIn() {
+        #expect(!GitCompositorTestConfiguration.isEnabled(environment: [:]))
+        for value in ["", "0", "true", "yes"] {
+            #expect(!GitCompositorTestConfiguration.isEnabled(environment: [
+                GitCompositorTestConfiguration.environmentVariable: value
+            ]))
+        }
+        #expect(GitCompositorTestConfiguration.isEnabled(environment: [
+            GitCompositorTestConfiguration.environmentVariable: "1"
+        ]))
+    }
+
     @Test("The synthetic history is deterministic and child-before-parent")
     func syntheticHistoryIsDeterministic() {
         let first = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
@@ -598,6 +611,10 @@ struct GitGraphPerformanceBaselineTests {
     @Test(
         "The native Git log keeps a window display-link cadence while scrolling",
         .enabled(
+            if: GitCompositorTestConfiguration.isEnabled(environment: ProcessInfo.processInfo.environment),
+            "Set LITHE_RUN_GIT_COMPOSITOR_TESTS=1 to allow visible desktop test windows."
+        ),
+        .enabled(
             if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
             "Requires macOS 14 or newer for NSWindow display links."
         )
@@ -643,31 +660,30 @@ struct GitGraphPerformanceBaselineTests {
                 width: 900,
                 height: 520
             ),
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.ignoresMouseEvents = true
-        window.backgroundColor = .clear
-        window.contentView = scrollView
-        let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
-        application.finishLaunching()
-        application.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
-        window.makeKey()
-        window.displayIfNeeded()
-        guard window.isVisible, window.screen != nil else {
-            print("Window compositor sample skipped: test window is not attached to a display.")
-            window.orderOut(nil)
-            window.close()
-            return
-        }
         defer {
             window.orderOut(nil)
             window.close()
+        }
+        window.title = "Lithe Git log compositor test"
+        window.level = .normal
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        let previousActivationPolicy = application.activationPolicy()
+        defer { application.setActivationPolicy(previousActivationPolicy) }
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Window compositor sample skipped: test window is not attached to a display.")
+            return
         }
 
         let sampler = WindowCompositorFrameSampler(
@@ -675,6 +691,8 @@ struct GitGraphPerformanceBaselineTests {
             scrollView: scrollView,
             targetFrameCount: 45
         )
+        // A timeout must also invalidate the display link's retained target.
+        defer { sampler.stop() }
         sampler.start()
 
         let firstSampleDeadline = CACurrentMediaTime() + 0.5
@@ -682,7 +700,6 @@ struct GitGraphPerformanceBaselineTests {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
         guard sampler.sampleCount > 0 else {
-            sampler.stop()
             print("Window compositor sample skipped: WindowServer did not deliver a display-link callback.")
             return
         }
@@ -709,6 +726,10 @@ struct GitGraphPerformanceBaselineTests {
 
     @Test(
         "The native Worktree rows keep a window display-link cadence while scrolling",
+        .enabled(
+            if: GitCompositorTestConfiguration.isEnabled(environment: ProcessInfo.processInfo.environment),
+            "Set LITHE_RUN_GIT_COMPOSITOR_TESTS=1 to allow visible desktop test windows."
+        ),
         .enabled(
             if: ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14,
             "Requires macOS 14 or newer for NSWindow display links."
@@ -743,31 +764,30 @@ struct GitGraphPerformanceBaselineTests {
                 width: 900,
                 height: 520
             ),
-            styleMask: [.borderless],
+            styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.ignoresMouseEvents = true
-        window.backgroundColor = .clear
-        window.contentView = scrollView
-        let application = NSApplication.shared
-        application.setActivationPolicy(.accessory)
-        application.finishLaunching()
-        application.activate(ignoringOtherApps: true)
-        window.orderFrontRegardless()
-        window.makeKey()
-        window.displayIfNeeded()
-        guard window.isVisible, window.screen != nil else {
-            print("Worktree window compositor sample skipped: test window is not attached to a display.")
-            window.orderOut(nil)
-            window.close()
-            return
-        }
         defer {
             window.orderOut(nil)
             window.close()
+        }
+        window.title = "Lithe Worktree compositor test"
+        window.level = .normal
+        window.isOpaque = true
+        window.backgroundColor = .windowBackgroundColor
+        window.contentView = scrollView
+        let application = NSApplication.shared
+        let previousActivationPolicy = application.activationPolicy()
+        defer { application.setActivationPolicy(previousActivationPolicy) }
+        application.setActivationPolicy(.accessory)
+        application.finishLaunching()
+        window.orderFront(nil)
+        window.displayIfNeeded()
+        guard window.isVisible, window.screen != nil else {
+            print("Worktree window compositor sample skipped: test window is not attached to a display.")
+            return
         }
 
         let sampler = WindowCompositorFrameSampler(
@@ -775,6 +795,8 @@ struct GitGraphPerformanceBaselineTests {
             scrollView: scrollView,
             targetFrameCount: 45
         )
+        // A timeout must also invalidate the display link's retained target.
+        defer { sampler.stop() }
         sampler.start()
 
         let firstSampleDeadline = CACurrentMediaTime() + 0.5
@@ -782,7 +804,6 @@ struct GitGraphPerformanceBaselineTests {
             RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.05))
         }
         guard sampler.sampleCount > 0 else {
-            sampler.stop()
             print("Worktree window compositor sample skipped: WindowServer did not deliver a display-link callback.")
             return
         }
@@ -830,6 +851,14 @@ private func makeWorktreeListFixtureItem(
         pruneReason: nil
     )
     return GitWorktreeListItem(worktree: worktree, status: status)
+}
+
+private enum GitCompositorTestConfiguration {
+    static let environmentVariable = "LITHE_RUN_GIT_COMPOSITOR_TESTS"
+
+    static func isEnabled(environment: [String: String]) -> Bool {
+        environment[environmentVariable] == "1"
+    }
 }
 
 private struct TestTimeoutError: Error, CustomStringConvertible {
