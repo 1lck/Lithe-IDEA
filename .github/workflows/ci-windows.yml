@@ -298,11 +298,6 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v7
 
-      - name: Set up Node for native Git path round-trip tests
-        uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
