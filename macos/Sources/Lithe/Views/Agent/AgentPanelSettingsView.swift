@@ -4,7 +4,7 @@ import LitheCoreContracts
 
 /// Settings shown inside the Agent panel: an agent list on the left and one
 /// agent's detail on the right, in the style of Codeg's "Agent SDK
-/// Management". Each agent follows the user's own CLI configuration for its
+/// Management". Each agent can follow local CLI configuration or a custom provider for its
 /// endpoint, model and API key. Node.js remains user-managed; CLI updates use
 /// their installation owner, while ACP adapters are installed with npm.
 struct AgentPanelSettingsView: View {
@@ -27,7 +27,7 @@ struct AgentPanelSettingsView: View {
 
         var subtitle: LocalizedStringKey {
             switch self {
-            case .agents: "Install ACP adapters, check the runtime, and follow your local CLI configuration."
+            case .agents: "Install ACP adapters, check the runtime, and manage local or custom providers."
             }
         }
 
@@ -289,7 +289,7 @@ private struct AgentDetailView: View {
         }
         versionCard
         preflightCard
-        AgentLocalConfigurationCard(
+        AgentProviderConfigurationView(
             agentID: agent.id,
             name: agent.name,
             source: AppModel.localConfigurationSource(for: agent.id),
@@ -529,7 +529,7 @@ private struct CustomAgentDetailView: View {
                     .overlay(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius).stroke(LitheTheme.inputBorder, lineWidth: 1))
             }
         }
-        AgentLocalConfigurationCard(
+        AgentProviderConfigurationView(
             agentID: AgentConfiguration.customAgentID,
             name: String(localized: "Custom Agent"),
             source: nil,
@@ -540,81 +540,6 @@ private struct CustomAgentDetailView: View {
 }
 
 // MARK: - Shared pieces
-
-/// Shows which local CLI configuration the agent follows and fetches it on
-/// demand. Users edit the endpoint, model and key in their own CLI files;
-/// Lithe only reads them.
-private struct AgentLocalConfigurationCard: View {
-    let agentID: String
-    let name: String
-    /// The configuration this agent naturally follows; `nil` lets the user
-    /// pick either one for a custom agent.
-    let source: AIConfigurationSourceKind?
-    @ObservedObject var model: AppModel
-    @ObservedObject var settings: AppSettings
-
-    private var provider: AIProviderProfile? { settings.agentProvider(for: agentID) }
-
-    var body: some View {
-        AgentSettingsCard(title: "Local configuration", systemImage: "doc.text.magnifyingglass") {
-            if let provider {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(LitheTheme.success)
-                        Text(provider.name).font(.system(size: 12, weight: .medium))
-                    }
-                    Text(provider.endpoint)
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .help(provider.endpoint)
-                    if !provider.model.isEmpty {
-                        Text(provider.model)
-                            .font(.system(size: 11, design: .monospaced))
-                            .foregroundStyle(LitheTheme.secondaryText)
-                    }
-                }
-            } else {
-                Text("Not fetched yet.")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-            }
-            HStack(spacing: 8) {
-                if let source {
-                    Button(provider == nil ? "Fetch local configuration" : "Fetch again") {
-                        model.importLocalConfiguration(for: agentID, source: source, name: name)
-                    }
-                    .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.accent, restingOpacity: 1))
-                    .controlSize(.small)
-                } else {
-                    ForEach(AIConfigurationSourceKind.allCases) { kind in
-                        Button(String(format: String(localized: "Use %@ configuration"), kind.title)) {
-                            model.importLocalConfiguration(for: agentID, source: kind, name: name)
-                        }
-                        .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
-                    }
-                }
-                if provider != nil {
-                    Button("Unlink") {
-                        settings.setAgentProvider(nil, for: agentID, name: name)
-                    }
-                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
-                }
-                Spacer()
-            }
-            AgentSettingsHint(hint)
-        }
-    }
-
-    private var hint: LocalizedStringKey {
-        switch source {
-        case .codex: "Reads the API URL, model and key from ~/.codex/config.toml and auth.json. Edit those files to change them, then fetch again."
-        case .claude: "Reads the API URL, model and key from ~/.claude/settings.json and ~/.claude.json. Edit those files to change them, then fetch again."
-        case nil: "A custom Agent can follow either your Codex or your Claude configuration."
-        }
-    }
-}
 
 struct AgentSettingsCard<Content: View>: View {
     let title: LocalizedStringKey

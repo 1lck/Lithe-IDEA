@@ -56,21 +56,44 @@ export function writeMavenConfiguration(
  * Resolves what a Maven launch would actually use for the given settings, so the
  * configuration surfaces can show what their empty fields fall back to.
  */
-export function resolveMavenEffectiveConfiguration(
+export async function resolveMavenEffectiveConfiguration(
   root: string,
   workingDirectory: string,
   settings: MavenSettings,
+  dependencies = {
+    inspectRunConfiguration,
+    resolveConfiguration: (args: MavenSettings & { root: string; workingDirectory: string }) =>
+      invoke<MavenEffectiveConfiguration>("maven_resolve_effective_configuration", { args }),
+  },
 ) {
-  return invoke<MavenEffectiveConfiguration>("maven_resolve_effective_configuration", {
-    args: {
-      root,
-      workingDirectory,
-      settingsPath: settings.settingsPath,
-      localRepositoryPath: settings.localRepositoryPath,
-      mavenExecutablePath: settings.mavenExecutablePath,
-      javaHomePath: settings.javaHomePath,
-    },
+  return dependencies.resolveConfiguration({
+    ...settings,
+    root,
+    workingDirectory,
+    javaHomePath: await resolveMavenJavaHome(
+      root, settings.javaHomePath, dependencies.inspectRunConfiguration,
+    ),
   });
+}
+
+/** Both the settings hint and goal launch inherit the same saved project JDK. */
+async function resolveMavenJavaHome(
+  root: string,
+  configured: string | null | undefined,
+  inspect = inspectRunConfiguration,
+) {
+  if (configured?.trim()) return configured.trim();
+  try {
+    const defaults = (await inspect(root, false)).toolchain;
+    return defaults?.maven?.javaHomePath?.trim() || defaults?.java?.homePath?.trim() || "";
+  } catch {
+    // Run documents are optional for Maven goals. Never log their contents or
+    // host paths, and retain the host's normal JDK selection on read failure.
+    console.warn(
+      "[maven] Project JDK defaults unavailable; using host JDK selection. Repair Run configuration documents in Settings.",
+    );
+    return "";
+  }
 }
 
 export async function resolveMavenLaunch(
@@ -79,26 +102,15 @@ export async function resolveMavenLaunch(
   plan: MavenLaunchPlan,
   dependencies = { inspectRunConfiguration, resolveRunLaunch },
 ) {
-  let defaults: Awaited<ReturnType<typeof inspectRunConfiguration>>["toolchain"];
-  if (!context.javaHomePath) {
-    try {
-      defaults = (await dependencies.inspectRunConfiguration(root, false)).toolchain;
-    } catch {
-      // Run documents are optional for Maven goals. Never log their contents or
-      // host paths, and retain the host's normal JDK selection on read failure.
-      console.warn(
-        "[maven] Project JDK defaults unavailable; using host JDK selection. Repair Run configuration documents in Settings.",
-      );
-    }
-  }
   return dependencies.resolveRunLaunch({
     root,
     executable: plan.executable,
     workingDirectory: plan.workingDirectory,
     javaHomePath: "",
     mavenExecutablePath: context.mavenExecutablePath ?? "",
-    mavenJavaHomePath:
-      context.javaHomePath || defaults?.maven?.javaHomePath || defaults?.java?.homePath || "",
+    mavenJavaHomePath: await resolveMavenJavaHome(
+      root, context.javaHomePath, dependencies.inspectRunConfiguration,
+    ),
     environment: {},
   });
 }

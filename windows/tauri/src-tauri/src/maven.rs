@@ -16,6 +16,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
+mod settings_xml;
+
+use settings_xml::parse_local_repository;
+
 const MAVEN_CONFIGURATION_VERSION: u32 = 1;
 /// Cache subdirectory holding one dependency-tree file per active session.
 const DEPENDENCY_TREE_DIRECTORY: &str = "maven-dependency-trees";
@@ -132,7 +136,16 @@ pub struct MavenEffectiveConfiguration {
 /// The Maven executable and JDK come from the same resolution the launch path
 /// uses, which keeps the reported values identical to the launched ones.
 #[tauri::command]
-pub fn maven_resolve_effective_configuration(
+pub async fn maven_resolve_effective_configuration(
+    args: ResolveEffectiveConfigurationArgs,
+) -> Result<MavenEffectiveConfiguration, String> {
+    // JDK probing and filesystem reads must not block Tauri's event loop.
+    tauri::async_runtime::spawn_blocking(move || resolve_effective_configuration(args))
+        .await
+        .map_err(|error| format!("Maven configuration detection failed: {error}"))?
+}
+
+fn resolve_effective_configuration(
     args: ResolveEffectiveConfigurationArgs,
 ) -> Result<MavenEffectiveConfiguration, String> {
     let root = existing_directory(&args.root)?;
@@ -328,7 +341,24 @@ fn effective_settings_path(
     }
     if let Some(executable) = maven_executable_path {
         // `<installation>/bin/mvn.cmd` -> `<installation>/conf/settings.xml`.
-        if let Some(installation) = Path::new(executable).parent().and_then(Path::parent) {
+        // A wrapper lives in the project, not in a Maven installation's bin directory.
+        let executable = Path::new(executable);
+        if let Some(installation) = executable
+            .parent()
+            .filter(|parent| {
+                parent
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("bin"))
+            })
+            .filter(|_| {
+                executable
+                    .file_stem()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| name.eq_ignore_ascii_case("mvn"))
+            })
+            .and_then(Path::parent)
+        {
             candidates.push(installation.join("conf").join("settings.xml"));
         }
     }
@@ -363,43 +393,6 @@ fn effective_local_repository_path(
             .to_string_lossy()
             .into_owned()
     })
-}
-
-/// Extracts the `<localRepository>` element of a Maven settings document.
-///
-/// Hand-parsed rather than regex-matched: the element is a single tag with no
-/// nested markup, and a missing closing tag must stay undetected instead of
-/// being reported as a repository path. Comments are removed first because
-/// Maven's bundled `conf/settings.xml` documents the element inside an example
-/// comment.
-fn parse_local_repository(settings: &str) -> Option<String> {
-    const OPENING_TAG: &str = "<localRepository>";
-    const CLOSING_TAG: &str = "</localRepository>";
-    let visible = without_xml_comments(settings);
-    let remainder = &visible[visible.find(OPENING_TAG)? + OPENING_TAG.len()..];
-    let value = remainder
-        .split_once(CLOSING_TAG)
-        .map(|(value, _)| value)
-        .unwrap_or(remainder)
-        .trim();
-    (!value.is_empty()).then(|| value.to_string())
-}
-
-/// Drops `<!-- ... -->` regions. An unclosed comment hides the rest of the
-/// document, which is how an XML parser would treat it.
-fn without_xml_comments(settings: &str) -> String {
-    let mut output = String::with_capacity(settings.len());
-    let mut rest = settings;
-    while let Some(start) = rest.find("<!--") {
-        output.push_str(&rest[..start]);
-        rest = &rest[start + 4..];
-        match rest.find("-->") {
-            Some(end) => rest = &rest[end + 3..],
-            None => return output,
-        }
-    }
-    output.push_str(rest);
-    output
 }
 
 /// Maven's default settings use `${user.home}` for the repository. Other
@@ -579,6 +572,28 @@ mod tests {
         );
         fs::remove_dir_all(home).ok();
         fs::remove_dir_all(installation).ok();
+    }
+
+    #[test]
+    fn wrapper_does_not_adopt_an_unrelated_global_settings_file() {
+        let directory = temp_directory();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).ok();
+            }
+        }
+        let _cleanup = Cleanup(directory.clone());
+        fs::create_dir_all(directory.join("conf")).unwrap();
+        fs::write(directory.join("conf/settings.xml"), "<settings/>").unwrap();
+        // Even a project named `bin` does not make its wrapper an installation.
+        for project in ["project", "bin"] {
+            let wrapper = directory.join(project).join("mvnw.cmd");
+            assert_eq!(
+                effective_settings_path("", None, Some(&wrapper.to_string_lossy())),
+                None
+            );
+        }
     }
 
     #[test]

@@ -48,7 +48,7 @@ export function MavenSettingsPanel() {
   if (!projectTabId) return <MavenSettingsForm />;
   return (
     <WorkspaceStoreScopeContext.Provider value={projectTabId}>
-      <MavenSettingsForm />
+      <MavenSettingsForm key={projectTabId} />
     </WorkspaceStoreScopeContext.Provider>
   );
 }

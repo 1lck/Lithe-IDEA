@@ -6,13 +6,6 @@ import type {
   MavenSettings,
 } from "../types/maven.types";
 
-const DETECTED_FIELD = {
-  settingsPath: "detectedSettingsPath",
-  localRepositoryPath: "detectedLocalRepositoryPath",
-  mavenExecutablePath: "detectedMavenExecutablePath",
-  javaHomePath: "detectedJavaHomePath",
-} as const satisfies Record<keyof MavenSettings, keyof MavenEffectiveConfiguration>;
-
 function canonicalPath(value: string): string {
   return value.trim().replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
 }
@@ -27,8 +20,8 @@ function versionForPath(path: string, candidates: Array<{ path: string; version:
 
 /**
  * The line under a Maven path field showing what automatic detection found on
- * this machine. A custom value does not hide it: the field is the saved
- * override, and this line is the detection result.
+ * this machine with the saved project settings applied. An explicit field
+ * already shows the user's selection; its automatic fallback is not active.
  */
 export function MavenDetectedValue({
   field,
@@ -44,7 +37,8 @@ export function MavenDetectedValue({
   const { t } = useTranslation();
   const discoveredMaven = useRunStore((state) => state.discoveredMaven);
   const discoveredJava = useRunStore((state) => state.discoveredJava);
-  if (!effective) {
+  if (value.trim()) return null;
+  if (!effective || status === "loading" || status === "failed") {
     if (status === "loading") {
       return (
         <p className="text-subtle-foreground ui-text-xs" data-maven-detected={field}>
@@ -62,9 +56,7 @@ export function MavenDetectedValue({
     return null;
   }
 
-  const detectedField = DETECTED_FIELD[field];
-  const reported = effective[detectedField];
-  const detected = reported !== undefined ? reported : value ? null : effective[field];
+  const detected = effective[field];
   const version =
     !detected
       ? ""

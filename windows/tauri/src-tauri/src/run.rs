@@ -22,6 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 mod launch_arguments;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+const TOOLCHAIN_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const RUN_OUTPUT_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 const RUN_OUTPUT_HIGH_WATER_BYTES: usize = 1_048_576;
 const RUN_OUTPUT_QUEUE_CAPACITY_CHUNKS: usize = 64;
@@ -1311,8 +1312,8 @@ pub(crate) fn resolve_java_home(
             "JDK Home does not point to a directory: {configured}"
         ));
     }
-    Ok(discover_toolchains(Some(root))
-        .java
+    // Resolving a JDK must not also run Maven wrappers or Node probes.
+    Ok(discover_java_runtimes(Some(root))
         .first()
         .map(|runtime| runtime.home_path.clone()))
 }
@@ -1540,15 +1541,9 @@ pub(crate) fn resolve_maven_executable(
             saw_incomplete_wrapper = true;
         }
     }
-    discover_toolchains(Some(root))
-        .maven
-        .into_iter()
-        .find(|runtime| {
-            !runtime.executable_path.ends_with("mvnw.cmd")
-                && !runtime.executable_path.ends_with("mvnw.bat")
-                && !runtime.executable_path.ends_with("mvnw")
-        })
-        .map(|runtime| runtime.executable_path)
+    // Match project import's filesystem-only fallback. Discovering a launcher
+    // must never execute a wrapper or download its Maven distribution.
+    maven_executable_without_probing(root, None)
         .ok_or_else(|| {
             if saw_incomplete_wrapper {
                 "Maven wrapper is incomplete (.mvn/wrapper/maven-wrapper.properties is missing) and no system Maven was found. Install Maven or restore the wrapper files.".into()
@@ -1624,19 +1619,26 @@ fn command_output(executable: &Path, arguments: &[&str]) -> String {
         .map(|argument| (*argument).to_string())
         .collect::<Vec<_>>();
     let mut command = command_for_executable(&executable.to_string_lossy(), &arguments);
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
-    command
-        .output()
-        .map(|output| {
-            let mut text = decode_process_bytes(&output.stdout);
-            text.push_str(&decode_process_bytes(&output.stderr));
-            text
-        })
-        .unwrap_or_default()
+    toolchain_probe_output(&mut command, Instant::now() + TOOLCHAIN_PROBE_TIMEOUT)
+}
+
+fn toolchain_probe_output(command: &mut Command, deadline: Instant) -> String {
+    // Reuse the native runner's Job Object/process group, output bound and
+    // bounded drain so a timed-out probe cannot leave descendants behind.
+    let output = lithe_git_host::run(
+        command,
+        None,
+        || Instant::now() >= deadline,
+        || {},
+        |_, _| {},
+    );
+    if output.failure.is_some() || !output.status.is_some_and(|status| status.success()) {
+        return String::new();
+    }
+    let mut text = decode_process_bytes(&output.stdout);
+    text.push_str(&decode_process_bytes(&output.stderr));
+    text
 }
 
 fn is_batch_file(executable: &str) -> bool {
@@ -2569,6 +2571,24 @@ mod tests {
         // An empty Maven JDK inherits the project JDK, including its failure.
         assert_eq!(resolved.maven_java, resolved.java);
         fs::remove_dir_all(root).ok();
+    }
+
+    #[test]
+    fn toolchain_probe_discards_output_after_its_deadline() {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/C", "echo expired probe"]);
+        // An already-expired deadline controls cancellation without a sleep or
+        // a deliberately hanging child. The runner owns and reaps the process.
+        assert!(toolchain_probe_output(&mut command, Instant::now()).is_empty());
+    }
+
+    #[test]
+    fn toolchain_probe_captures_both_version_streams() {
+        let mut command = Command::new("cmd.exe");
+        command.args(["/D", "/C", "echo stdout-version & echo stderr-version 1>&2"]);
+        let output = toolchain_probe_output(&mut command, Instant::now() + TOOLCHAIN_PROBE_TIMEOUT);
+        assert!(output.contains("stdout-version"));
+        assert!(output.contains("stderr-version"));
     }
 
     #[test]

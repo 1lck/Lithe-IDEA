@@ -114,6 +114,12 @@ fn execute(request: &str) -> CoreResponse {
             }),
         ),
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentParseProviderConfiguration => {
+            match crate::ai::parse_provider_configuration(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
         CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
         CoreCommand::AgentInstallCli => {
