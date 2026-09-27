@@ -50,6 +50,10 @@ let semanticRequestPending = false;
 let semanticOperationId = "";
 let semanticRequestResult: unknown = { locations: [] };
 let semanticRequestResults: unknown[] = [];
+let semanticResultGate: Promise<void> | undefined;
+let releaseSemanticResult: (() => void) | undefined;
+let onSemanticRequest: (() => void) | undefined;
+let semanticRefreshOnReady = false;
 let releaseInitialization: (() => void) | undefined;
 
 /** A queued semantic outcome that Core reports as a structured request error. */
@@ -260,11 +264,15 @@ const executeCore = mock(
           return {
             id: request.id,
             ok: true as const,
-            data: { events: readyEvents(sessionId) },
+            data: { events: [
+              ...readyEvents(sessionId),
+              ...(semanticRefreshOnReady ? [{ type: "semanticTokensRefresh", sessionId }] : []),
+            ] },
           };
         }
         if (semanticRequestPending) {
           semanticRequestPending = false;
+          await semanticResultGate;
           const outcome =
             semanticRequestResults.length > 0
               ? semanticRequestResults.shift()
@@ -367,6 +375,7 @@ const executeCore = mock(
       if (scenario === "semantic-request") {
         semanticRequestPending = true;
         semanticOperationId = operationId;
+        onSemanticRequest?.();
       } else {
         virtualDocumentPending = true;
       }
@@ -434,6 +443,10 @@ describe("Rust Core LSP adapter failures", () => {
     semanticOperationId = "";
     semanticRequestResult = { locations: [] };
     semanticRequestResults = [];
+    semanticResultGate = undefined;
+    releaseSemanticResult = undefined;
+    onSemanticRequest = undefined;
+    semanticRefreshOnReady = false;
     releaseInitialization = undefined;
     releaseRuntimeReady = undefined;
     emit.mockClear();
@@ -442,6 +455,7 @@ describe("Rust Core LSP adapter failures", () => {
   });
 
   afterEach(async () => {
+    releaseSemanticResult?.();
     releaseInitialization?.();
     releaseRuntimeReady?.();
     await invokeLsp("lsp_stop", { workspacePath: "C:/work/project" });
@@ -1397,6 +1411,47 @@ describe("Rust Core LSP adapter failures", () => {
     expect(commands.filter((command) => command === "lsp.stopServer")).toHaveLength(3);
   });
 
+  test("routes semantic tokens through Core and preserves its negotiated legend and null results", async () => {
+    scenario = "semantic-request";
+    const fixture = JSON.parse(readFileSync(new URL("../../../../shared/fixtures/lsp/semantic-tokens-v1.json", import.meta.url), "utf8"));
+    semanticRequestResult = fixture.expectedResult;
+    const filePath = "C:/work/Main.java";
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" });
+    expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toEqual(fixture.expectedResult);
+    expect(requestPayload).toEqual({ sessionId: "java-session", operation: "semanticTokens", uri: "file:///C:/work/Main.java" });
+    semanticRequestResult = null;
+    expect(await invokeLsp("lsp_get_semantic_tokens", { filePath })).toBeNull();
+    semanticRequestResult = { coreError: { code: "cancelled", message: "Document changed" } };
+    await expect(invokeLsp("lsp_get_semantic_tokens", { filePath })).rejects.toMatchObject({ code: "cancelled" });
+  });
+
+  test("forwards Core semantic token refresh notifications", async () => {
+    scenario = "semantic-request";
+    semanticRefreshOnReady = true;
+    await invokeLsp("lsp_start_for_file", { workspacePath: "C:/work", filePath: "C:/work/Main.java", languageId: "java", serverPath: "java-lsp" });
+    expect(emit).toHaveBeenCalledWith("lsp://semantic-tokens-refresh", { sessionId: "java-session", workspacePath: "C:/work" });
+  });
+
+  test("discards semantic colors from a replaced file attachment", async () => {
+    scenario = "semantic-request";
+    semanticRequestResult = { tokenTypes: ["class"], tokenModifiers: [], tokens: [] };
+    const filePath = "C:/work/Main.java";
+    const start = { workspacePath: "C:/work", filePath, languageId: "java", serverPath: "java-lsp" };
+    await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "old" });
+    semanticResultGate = new Promise<void>((resolve) => { releaseSemanticResult = resolve; });
+    const requested = new Promise<void>((resolve) => { onSemanticRequest = resolve; });
+    const result = invokeLsp("lsp_get_semantic_tokens", { filePath });
+    try {
+      await requested;
+      await invokeLsp("lsp_start_for_file", { ...start, attachmentId: "replacement" });
+      releaseSemanticResult!();
+      expect(await result).toBeNull();
+    } finally {
+      releaseSemanticResult!();
+      await result.catch(() => undefined);
+    }
+  });
+
   test("returns a structured capability error for explicitly unavailable commands", async () => {
     await expect(
       invokeLsp("lsp_prepare_rename", {
@@ -1423,6 +1478,7 @@ describe("Rust Core LSP adapter failures", () => {
       lsp_format_document: "formatting",
       lsp_get_code_actions: "codeActions",
       lsp_get_inlay_hints: "inlayHints",
+      lsp_get_semantic_tokens: "semanticTokens",
       lsp_get_code_lens: "codeLens",
       lsp_get_virtual_document: "virtualDocument",
     });
