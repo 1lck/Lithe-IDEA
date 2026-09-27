@@ -2423,3 +2423,6 @@
 "Copy session ID" = "复制会话 ID";
 "Rename conversation" = "重命名会话";
 "Select conversation" = "选择会话";
+"Context usage" = "上下文用量";
+"Context: %@" = "上下文: %@";
+"%@ · %@ / %@ context tokens" = "%@ · %@ / %@ 上下文 token";

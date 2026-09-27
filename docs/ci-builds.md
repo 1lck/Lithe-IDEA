@@ -51,6 +51,12 @@ workflows. They identify the latest published preview, rather than an arbitrary
 PR. macOS preview jobs additionally expose their own artifact links before the
 combined rolling Release publishes.
 
+Git 路径往返集成测试 `rust/lithe-core/tests/git_path_roundtrip.rs` 需要 Git 和
+Node.js 22.6+（用于直接加载实际前端 TypeScript 路径规范化函数），不需要安装
+Bun 或前端依赖。CI 复用计时脚本已使用的 runner Node.js，本地运行时需满足
+上述最低版本；该测试随 SharedRust 计时测试执行，结果写入现有
+`.artifacts/test-stability/` 报告。
+
 ## Build time and caches
 
 The September 12, 2026 investigation found two separate sources of delay:
@@ -86,6 +92,24 @@ reduction in total runner minutes. It also needs two available macOS runners.
 GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
+
+### macOS Git 真实窗口性能采样
+
+普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
+默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
+离屏绘制和其他性能回归验证。真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+只在专门测量滚动帧率时显式开启：
+
+```bash
+LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
+  ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+  -- --filter 'GitGraphPerformanceBaselineTests.*[wW]indowCompositorFrameSample'
+```
+
+此命令会短暂显示两个有标题、不透明的普通层级测试窗口，不强制激活程序或抢占
+焦点。用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
+没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
+帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
 
 ### 独立工作树的本地编译
 

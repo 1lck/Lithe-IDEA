@@ -1194,3 +1194,6 @@
 "Rename conversation" = "Rename conversation";
 "Select conversation" = "Select conversation";
 "Back" = "Back";
+"Context usage" = "Context usage";
+"Context: %@" = "Context: %@";
+"%@ · %@ / %@ context tokens" = "%@ · %@ / %@ context tokens";

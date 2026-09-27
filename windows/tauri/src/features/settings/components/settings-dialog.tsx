@@ -148,9 +148,11 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
           })}
         </nav>
 
-        <section className="min-w-0 min-h-0 flex-1 overflow-y-auto bg-background p-6">
-          <h2 className="mb-5 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
-          <MacSettingsPanel category={activeCategory} onClose={onClose} />
+        <section className="flex min-w-0 min-h-0 flex-1 flex-col overflow-y-auto bg-background p-6">
+          <h2 className="mb-5 shrink-0 text-xl font-semibold text-foreground">{t(activeItem.labelKey)}</h2>
+          <div className="min-h-0 flex-1">
+            <MacSettingsPanel category={activeCategory} onClose={onClose} />
+          </div>
         </section>
       </div>
     </Dialog>

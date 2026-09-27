@@ -463,6 +463,12 @@ async function dispatchSessionEvent(session: Session, event: RuntimeEvent): Prom
     }
     persistSessions();
   }
+  if (event.type === "semanticTokensRefresh") {
+    await emit("lsp://semantic-tokens-refresh", {
+      sessionId: session.id,
+      workspacePath: session.workspacePath,
+    });
+  }
   if (event.type === "featuresChanged") {
     session.featureState = { phase: "known", features: new Set(event.capabilities ?? []) };
     persistSessions();
@@ -1238,12 +1244,12 @@ export const LSP_OPERATION_BY_COMMAND = {
   lsp_format_document: "formatting",
   lsp_get_code_actions: "codeActions",
   lsp_get_inlay_hints: "inlayHints",
+  lsp_get_semantic_tokens: "semanticTokens",
   lsp_get_code_lens: "codeLens",
   lsp_get_virtual_document: "virtualDocument",
 } as const;
 
 export const LSP_EXPLICITLY_UNAVAILABLE_COMMANDS = [
-  "lsp_get_semantic_tokens",
   "lsp_get_document_symbols",
   "lsp_get_workspace_symbols",
   "lsp_get_signature_help",
@@ -1352,8 +1358,12 @@ function unwrapResult(command: string, result: any): unknown {
 }
 
 async function semanticRequest(command: string, args: JsonRecord): Promise<unknown> {
+  const key = fileKey(args.sessionFilePath ?? args.filePath);
+  const attachment = fileSessions.get(key);
   const session = sessionForFile(args.sessionFilePath ?? args.filePath);
   const result = await requestOperation(session, semanticPayload(command, args, session));
+  // A stopped/replaced attachment must not repaint the new session's document.
+  if (command === "lsp_get_semantic_tokens" && fileSessions.get(key) !== attachment) return null;
   return unwrapResult(command, result);
 }
 

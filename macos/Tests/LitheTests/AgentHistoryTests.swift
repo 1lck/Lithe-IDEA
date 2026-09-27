@@ -159,6 +159,75 @@ struct AgentHistoryTests {
     }
 
     @Test
+    func retryAfterPartialReplayFailureLoadsCompleteHistoryBeforeExporting() async throws {
+        try await HistoryFixture().run { fixture in
+            let feature = fixture.feature
+            fixture.transport.connection.onCommand = { [weak feature] command in
+                guard command["kind"] as? String == "loadSession", let feature else { return }
+                feature.receive(HistoryFixture.json(["kind": "update", "sessionId": "session-a",
+                    "update": ["sessionUpdate": "user_message_chunk", "content": ["type": "text", "text": "Partial replay"]]]))
+                feature.receive(HistoryFixture.json(["kind": "requestFailed", "token": command["token"] as Any,
+                    "sessionId": "session-a", "message": "Replay failed"]))
+            }
+            fixture.history.export(["session-a"])
+            #expect(await awaitChange(on: fixture.history, until: { !fixture.history.isExporting }))
+            #expect(fixture.history.errorMessage == "Replay failed")
+            #expect(fixture.exporter.markdown == nil)
+
+            // Hold the retry after its first chunk; exporting must wait for sessionLoaded.
+            let retryStarted = TestGate()
+            defer { retryStarted.open() }
+            fixture.transport.connection.onCommand = { [weak feature] command in
+                guard command["kind"] as? String == "loadSession", let feature else { return }
+                feature.receive(HistoryFixture.json(["kind": "update", "sessionId": "session-a",
+                    "update": ["sessionUpdate": "user_message_chunk", "content": ["type": "text", "text": "Complete question"]]]))
+                retryStarted.open()
+            }
+            fixture.history.export(["session-a"])
+            #expect(await retryStarted.waitUntilOpen(), "Retry must request a fresh replay")
+            #expect(fixture.history.isExporting)
+            #expect(fixture.exporter.markdown == nil)
+            let token = try #require(fixture.transport.connection.commands.last?["token"] as? String)
+            try fixture.emit(["kind": "update", "sessionId": "session-a",
+                "update": ["sessionUpdate": "agent_message_chunk", "content": ["type": "text", "text": "Complete answer"]]])
+            try fixture.emit(["kind": "sessionLoaded", "sessionId": "session-a", "token": token])
+            #expect(await awaitChange(on: fixture.history, until: { !fixture.history.isExporting }))
+            let markdown = try #require(fixture.exporter.markdown)
+            #expect(markdown.contains("Complete question"))
+            #expect(markdown.contains("Complete answer"))
+            #expect(!markdown.contains("Partial replay"))
+            #expect(fixture.history.errorMessage == nil)
+            #expect(fixture.transport.connection.commands.filter { $0["kind"] as? String == "loadSession" }.count == 2)
+
+            await feature.stop()
+            #expect(feature.canExportTranscript("session-a"), "Disconnecting preserves a completed snapshot")
+            let disconnectedTranscript = try await feature.historyTranscript("session-a")
+            #expect(disconnectedTranscript.map(\.text) == ["Complete question", "Complete answer"])
+        }
+    }
+
+    @Test
+    func disconnectDuringPartialReplayDoesNotMakeItExportable() async throws {
+        try await HistoryFixture().run { fixture in
+            let started = TestGate()
+            defer { started.open() }
+            let feature = fixture.feature
+            fixture.transport.connection.onCommand = { [weak feature] command in
+                guard command["kind"] as? String == "loadSession", let feature else { return }
+                feature.receive(HistoryFixture.json(["kind": "update", "sessionId": "session-a",
+                    "update": ["sessionUpdate": "user_message_chunk", "content": ["type": "text", "text": "Partial replay"]]]))
+                started.open()
+            }
+            fixture.history.export(["session-a"])
+            #expect(await started.waitUntilOpen())
+            await feature.stop()
+            #expect(await awaitChange(on: fixture.history, until: { !fixture.history.isExporting }))
+            #expect(fixture.exporter.markdown == nil)
+            #expect(!feature.canExportTranscript("session-a"))
+        }
+    }
+
+    @Test
     func failedMetadataSaveAndExporterWriteDoNotReportSuccess() async throws {
         try await HistoryFixture().run { fixture in
             let persistence = FailingHistoryPersistence()

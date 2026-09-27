@@ -124,7 +124,7 @@ public final class AgentConnectionModel: ObservableObject {
         let conversation = conversations[sessionID]
         guard conversation?.isResponding != true, conversation?.isLoading != true,
               conversation?.pendingConfigToken == nil else { return false }
-        return conversation?.isAttached == true || conversation?.messages.isEmpty == false
+        return conversation?.hasCompleteHistory == true
             || (canLoadSessions && connectionState == .ready)
     }
 
@@ -133,7 +133,7 @@ public final class AgentConnectionModel: ObservableObject {
     public func historyTranscript(_ sessionID: String) async throws -> [AgentConversationMessage] {
         try Task.checkCancellation()
         guard canExportTranscript(sessionID) else { throw AgentConversationError.cannotResume }
-        if let conversation = conversations[sessionID], conversation.isAttached || !conversation.messages.isEmpty {
+        if let conversation = conversations[sessionID], conversation.hasCompleteHistory {
             return conversation.messages
         }
         return try await withTaskCancellationHandler {
@@ -296,6 +296,7 @@ public final class AgentConnectionModel: ObservableObject {
             flushPendingText()
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
+            conversations[sessionID]?.hasCompleteHistory = true
             loadBackups[sessionID] = nil
             conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
             historyContinuations.removeValue(forKey: sessionID)?.resume(returning: conversations[sessionID]?.messages ?? [])
@@ -304,7 +305,7 @@ public final class AgentConnectionModel: ObservableObject {
             }
         case "sessionConfigured":
             guard let sessionID, conversations[sessionID]?.pendingConfigToken == token else { return }
-            conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            applyConfiguration(event["configOptions"], to: sessionID)
             conversations[sessionID]?.pendingConfigToken = nil
         case "turnCancelling":
             guard let sessionID else { return }
@@ -353,6 +354,7 @@ public final class AgentConnectionModel: ObservableObject {
         }
         var conversation = conversations[sessionID] ?? AgentConversation()
         conversation.isAttached = true
+        conversation.hasCompleteHistory = true
         conversations[sessionID] = conversation
         openTab(sessionID)
         pendingNewConversationPrompt = nil
@@ -412,8 +414,11 @@ public final class AgentConnectionModel: ObservableObject {
 
     private func apply(_ update: [String: Any], to sessionID: String) {
         switch update["sessionUpdate"] as? String {
+        case "usage_update":
+            guard connectionState == .ready else { return }
+            conversations[sessionID, default: AgentConversation()].contextUsage = AgentContextUsage.parse(update)
         case "config_option_update":
-            conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(update["configOptions"])
+            applyConfiguration(update["configOptions"], to: sessionID)
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
             pendingText[sessionID, default: ""] += text
@@ -436,6 +441,16 @@ public final class AgentConnectionModel: ObservableObject {
         default:
             break
         }
+    }
+
+    private func applyConfiguration(_ value: Any?, to sessionID: String) {
+        let options = AgentSessionConfigOption.parse(value)
+        let oldModels = conversations[sessionID]?.configOptions.filter { $0.category == "model" } ?? []
+        let newModels = options.filter { $0.category == "model" }
+        if oldModels.map(\.currentValue) != newModels.map(\.currentValue) {
+            conversations[sessionID]?.contextUsage = nil
+        }
+        conversations[sessionID, default: AgentConversation()].configOptions = options
     }
 
     private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String) {
@@ -564,6 +579,7 @@ public final class AgentConnectionModel: ObservableObject {
         createToken = nil
         pendingNewConversationPrompt = nil
         for id in conversations.keys {
+            conversations[id]?.contextUsage = nil
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()
             conversations[id]?.isCancelling = false

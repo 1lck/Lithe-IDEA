@@ -8,6 +8,95 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func contextUsageTracksEachSessionAndCompactionWithoutAccumulatingTokens() async throws {
+        try await withContextFeature { feature, connection in
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("usageUpdate"))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            #expect(feature.selectedConversation?.contextUsage?.capacityTokens == 258400)
+            feature.startNewConversation()
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("sessionCreated", ["sessionId": "session-2", "token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("usageUpdate", ["sessionId": "session-2",
+                "update": ["sessionUpdate": "usage_update", "used": 90000, "size": 100000]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 90000)
+            feature.selectSession("session-1")
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 1000, "size": 258400]]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 1000)
+            #expect(feature.conversations["session-2"]?.contextUsage?.usedTokens == 90000)
+            #expect(feature.selectedConversation?.messages.isEmpty == true)
+            feature.closeConversation("session-1")
+            #expect(feature.conversations["session-1"] == nil)
+        }
+    }
+
+    @Test
+    func missingInvalidAndDisconnectedUsageRemainUnknown() async throws {
+        try await withContextFeature { feature, connection in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            for payload: [String: Any] in [
+                ["used": -1, "size": 100], ["used": 1.5, "size": 100],
+                ["used": true, "size": 100], ["used": "1", "size": 100],
+                ["used": 1, "size": 0], ["used": 1], ["size": 100]
+            ] {
+                try feature.receive(event("usageUpdate"))
+                var update = payload
+                update["sessionUpdate"] = "usage_update"
+                try feature.receive(event("usageUpdate", ["update": update]))
+                #expect(feature.selectedConversation?.contextUsage == nil)
+            }
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 0, "size": 100]]))
+            #expect(feature.selectedConversation?.contextUsage?.fraction == 0)
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "usage_update", "used": 150, "size": 100]]))
+            #expect(feature.selectedConversation?.contextUsage?.fraction == 1.5)
+            try feature.receive(event("stopped"))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("usageUpdate"))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+        }
+    }
+
+    @Test
+    func confirmedModelChangesInvalidateCapacityButOtherOptionsKeepUsage() async throws {
+        try await withContextFeature { feature, connection in
+            feature.prepareConversation()
+            let option = { (model: String, permission: String) -> [[String: Any]] in [
+                ["id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": model,
+                 "options": [["value": "model-a", "name": "A"], ["value": "model-b", "name": "B"]]],
+                ["id": "mode", "name": "Permissions", "category": "mode", "type": "select", "currentValue": permission,
+                 "options": [["value": "read-only", "name": "Read Only"], ["value": "auto", "name": "Auto"]]]
+            ] }
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                        "configOptions": option("model-a", "read-only")]))
+            try feature.receive(event("usageUpdate"))
+            feature.setConfigOption("mode", value: "auto")
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": option("model-a", "auto")]))
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            feature.setConfigOption("model", value: "model-b")
+            #expect(feature.selectedConversation?.contextUsage?.usedTokens == 18700)
+            try feature.receive(event("sessionConfigured", ["token": connection.commands.last?["token"] as Any,
+                "configOptions": option("model-b", "auto")]))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+            try feature.receive(event("usageUpdate"))
+            try feature.receive(event("usageUpdate", ["update": ["sessionUpdate": "config_option_update",
+                "configOptions": option("model-a", "auto")]]))
+            #expect(feature.selectedConversation?.contextUsage == nil)
+        }
+    }
+
+    private func withContextFeature(_ operation: (AgentConnectionModel, TestAgentConnection) throws -> Void) async throws {
+        let (feature, connection) = try connectedFeature()
+        do { try operation(feature, connection) }
+        catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
     func readyAgentListsWorkspaceHistory() throws {
         let (feature, connection) = try connectedFeature()
         #expect(feature.connectionState == .ready)
