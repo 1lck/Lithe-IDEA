@@ -23,6 +23,7 @@ final class SettingsViewState: ObservableObject {
 }
 
 struct SettingsView: View {
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -57,12 +58,12 @@ struct SettingsView: View {
             HStack(spacing: 0) {
                 categories
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
-                content
+                content.simultaneousGesture(TapGesture().onEnded { isSearchFocused = false })
             }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             footer
         }
-        .frame(minWidth: 1040, minHeight: 700)
+        .frame(minWidth: 900, minHeight: 668)
         .background {
             LitheTheme.settingsSurface
                 .ignoresSafeArea()
@@ -151,7 +152,7 @@ struct SettingsView: View {
     }
 
     private var settingsSearchField: some View {
-        LitheSettingsSearchField("", text: $viewState.searchQuery)
+        LitheSettingsSearchField("", text: $viewState.searchQuery, focus: $isSearchFocused)
             .accessibilityLabel("Search settings")
     }
 
@@ -161,6 +162,7 @@ struct SettingsView: View {
         if !visible.isEmpty {
             let expanded = expandedSidebarGroups.contains(title) || !viewState.searchQuery.isEmpty
             Button {
+                isSearchFocused = false
                 if expandedSidebarGroups.contains(title) {
                     expandedSidebarGroups.remove(title)
                 } else {
@@ -195,6 +197,7 @@ struct SettingsView: View {
         if filteredCategories.contains(category) {
             let isSelected = viewState.selection == category
             Button {
+                isSearchFocused = false
                 viewState.selection = category
             } label: {
                 HStack(spacing: 8) {
@@ -561,7 +564,7 @@ struct SettingsView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
                 .overlay {
                     RoundedRectangle(cornerRadius: 6)
-                        .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                        .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
                 }
 
                 HStack(spacing: 6) {
@@ -1103,7 +1106,7 @@ struct SettingsView: View {
                     .background(viewState.isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(
+                            .strokeBorder(
                                 viewState.isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
                                 lineWidth: 1
                             )
@@ -1249,7 +1252,7 @@ struct SettingsView: View {
                     .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
                     .overlay {
                         RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                            .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
                     }
                     .id(settings.commitMessageAI.format)
                     .transition(.opacity.combined(with: .move(edge: .top)))
@@ -1507,14 +1510,14 @@ struct SettingsView: View {
     private var footer: some View {
         HStack {
             Button("Restore Defaults") { settings.restoreDefaults() }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
             Spacer()
             HStack(spacing: 10) {
                 Button { closeSettings() } label: {
                     Text("Cancel")
                         .frame(minWidth: Self.footerActionLabelWidth)
                 }
-                    .buttonStyle(LitheSecondaryButtonStyle())
+                    .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 28))
                     .keyboardShortcut(.cancelAction)
                 Button { closeSettings() } label: {
                     Text("OK")
@@ -1522,7 +1525,9 @@ struct SettingsView: View {
                 }
                     .buttonStyle(LithePrimaryButtonStyle(
                         backgroundColor: LitheTheme.settingsPrimaryAction,
-                        restingOpacity: 1
+                        restingOpacity: 1,
+                        horizontalPadding: 10,
+                        height: 28
                     ))
                     .keyboardShortcut(.defaultAction)
             }

@@ -12,6 +12,7 @@ private enum SettingsSelectMetrics {
 
 struct LitheSettingsSearchField: View {
     @FocusState private var isFocused: Bool
+    private let externalFocus: FocusState<Bool>.Binding?
     private let placeholder: LocalizedStringKey
     @Binding private var text: String
     private let onTextChanged: ((String) -> Void)?
@@ -19,10 +20,12 @@ struct LitheSettingsSearchField: View {
     init(
         _ placeholder: LocalizedStringKey,
         text: Binding<String>,
+        focus: FocusState<Bool>.Binding? = nil,
         onTextChanged: ((String) -> Void)? = nil
     ) {
         self.placeholder = placeholder
         _text = text
+        externalFocus = focus
         self.onTextChanged = onTextChanged
     }
 
@@ -40,7 +43,7 @@ struct LitheSettingsSearchField: View {
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
                 .font(LitheTheme.settingsFont)
-                .focused($isFocused)
+                .focused(externalFocus ?? $isFocused)
 
             if !text.isEmpty {
                 Button {
@@ -60,7 +63,7 @@ struct LitheSettingsSearchField: View {
         .litheRoundedControlBackground(LitheTheme.settingsSurface)
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
+                .strokeBorder((externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
         }
         .onChange(of: text) { value in
             onTextChanged?(value)
@@ -133,7 +136,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(isPresented ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
+                    .strokeBorder(isPresented ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
             }
             .contentShape(Rectangle())
         }
@@ -253,7 +256,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
         }
     }
 }
@@ -284,7 +287,7 @@ struct LitheSettingsCheckbox: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isOn ? LitheTheme.accent : LitheTheme.inputBackground)
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isOn ? LitheTheme.accent : LitheTheme.inputBorder, lineWidth: 1)
+                        .strokeBorder(isOn ? LitheTheme.accent : LitheTheme.inputBorder, lineWidth: 1)
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color.white)
@@ -358,7 +361,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         )
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.settingsSearchBorder, lineWidth: 1)
+                .strokeBorder(LitheTheme.settingsSearchBorder, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
         .accessibilityElement(children: .contain)
@@ -401,7 +404,7 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
+                    .strokeBorder(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
             }
             .opacity(isEnabled ? 1 : 0.55)
     }
@@ -421,7 +424,7 @@ extension View {
             .litheRoundedControlBackground(LitheTheme.settingsControlBackground)
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(LitheTheme.settingsSearchBorder, lineWidth: 1)
+                    .strokeBorder(LitheTheme.settingsSearchBorder, lineWidth: 1)
             }
     }
 }

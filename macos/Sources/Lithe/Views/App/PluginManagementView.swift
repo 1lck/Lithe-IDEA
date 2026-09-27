@@ -141,7 +141,6 @@ struct PluginManagementView: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .lithePointer()
     }
 
     @ViewBuilder private var detail: some View {

@@ -680,7 +680,7 @@ struct LitheApp: App {
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
         }
-        .defaultSize(width: 1040, height: 720)
+        .defaultSize(width: 900, height: 668)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
 
@@ -845,10 +845,19 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     }
 }
 
+@MainActor
 enum SettingsWindowChrome {
+    static weak var ownerWindow: NSWindow?
+    static weak var settingsWindow: NSWindow?
+
     static func configure(_ window: NSWindow, title: String, themePreference: AppThemePreference) {
+        settingsWindow = window
         window.title = title
         window.level = .normal
+        if let ownerWindow, ownerWindow !== window, window.parent !== ownerWindow {
+            window.parent?.removeChildWindow(window)
+            ownerWindow.addChildWindow(window, ordered: .above)
+        }
         let windowAppearance = themePreference.windowAppearance
         if window.appearance?.name != windowAppearance?.name {
             window.appearance = windowAppearance

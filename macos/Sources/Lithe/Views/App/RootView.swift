@@ -209,6 +209,16 @@ private struct ActiveSessionChrome: View {
             )
             .onReceive(session.workbenchFeature.$isSettingsPresented) { isPresented in
                 guard isPresented else { return }
+                SettingsWindowChrome.ownerWindow = NSApp.keyWindow?.delegate is LitheWindowCoordinator
+                    ? NSApp.keyWindow
+                    : NSApp.orderedWindows.first { $0.delegate is LitheWindowCoordinator }
+                if let settingsWindow = SettingsWindowChrome.settingsWindow {
+                    SettingsWindowChrome.configure(
+                        settingsWindow,
+                        title: settingsWindow.title,
+                        themePreference: session.settings.themePreference
+                    )
+                }
                 openWindow(id: LitheWindowID.settings)
             }
             .sheet(isPresented: Binding(

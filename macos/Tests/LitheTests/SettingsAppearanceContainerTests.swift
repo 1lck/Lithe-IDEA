@@ -4,6 +4,7 @@ import Testing
 @testable import Lithe
 
 @MainActor
+@Suite(.serialized)
 struct SettingsAppearanceContainerTests {
     @Test
     func settingsInputRolesUseDistinctIDEAStyleSurfaces() throws {
@@ -81,6 +82,31 @@ struct SettingsAppearanceContainerTests {
         defer { reopened.close() }
         try assertWindowChrome(reopened, host: reopenedHost, theme: .system)
         #expect(reopened !== window)
+    }
+
+    @Test
+    func settingsWindowFollowsItsOwningWorkbenchWindow() {
+        let (firstOwner, _) = makeWindow(theme: .dark)
+        let (secondOwner, _) = makeWindow(theme: .dark)
+        let (settingsWindow, _) = makeWindow(theme: .dark)
+        defer {
+            settingsWindow.parent?.removeChildWindow(settingsWindow)
+            SettingsWindowChrome.ownerWindow = nil
+            SettingsWindowChrome.settingsWindow = nil
+            settingsWindow.close()
+            firstOwner.close()
+            secondOwner.close()
+        }
+
+        SettingsWindowChrome.ownerWindow = firstOwner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === firstOwner)
+        #expect(settingsWindow.level == .normal)
+
+        SettingsWindowChrome.ownerWindow = secondOwner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === secondOwner)
+        #expect(firstOwner.childWindows?.contains(settingsWindow) != true)
     }
 
     private func makeWindow(theme: AppThemePreference) -> (NSWindow, NSHostingView<AnyView>) {
