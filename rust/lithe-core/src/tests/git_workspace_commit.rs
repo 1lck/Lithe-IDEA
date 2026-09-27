@@ -221,14 +221,28 @@ fn git_workspace_commit_push_checks_submodule_publication_before_updating_the_re
         &["remote", "add", "origin", child_remote.0.to_str().unwrap()],
     );
     git(&child, &["push", "-qu", "origin", "main"]);
-    fs::write(
-        parent.0.join(".gitmodules"),
-        format!(
-            "[submodule \"B\"]\npath = libs/B\nurl = {}\n",
-            child_remote.0.display()
-        ),
-    )
-    .unwrap();
+    // Let Git quote native paths; literal Windows backslashes are escapes in
+    // config syntax and must not be interpolated into .gitmodules directly.
+    git(
+        &parent.0,
+        &[
+            "config",
+            "--file",
+            ".gitmodules",
+            "submodule.B.path",
+            "libs/B",
+        ],
+    );
+    git(
+        &parent.0,
+        &[
+            "config",
+            "--file",
+            ".gitmodules",
+            "submodule.B.url",
+            child_remote.0.to_str().unwrap(),
+        ],
+    );
     git(&parent.0, &["add", "."]);
     git(&parent.0, &["commit", "-qm", "initial parent"]);
     git(&parent.0, &["branch", "-M", "main"]);
