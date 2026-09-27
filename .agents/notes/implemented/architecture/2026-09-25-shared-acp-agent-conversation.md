@@ -42,7 +42,8 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
   - **Key 和模型的传法**：所有适配器都通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置放在面板里，只有 Agent 管理一页**：Agent 的开关、预检清单（Node、npm、CLI、适配器、本机配置）、适配器和 CLI 的一键安装都在 Agent 面板右上角的设置视图里，不进全局设置窗口。布局仿照 Codeg 和 CC GUI：左侧图标栏，右侧标题加分段切换各个 Agent。
-  - **本机配置保留 CLI 所有权**：每个 Agent 通过本机配置行读取用户自己 CLI 的地址、模型和密钥（Codex 读 `~/.codex/config.toml` 和 `auth.json`，Claude 读 `~/.claude/settings.json` 和 `~/.claude.json`），生成的服务商配置绑定到该 Agent。本机模式的密钥不复制进 Lithe，启动时从用户文件现读；要改本机地址或密钥时编辑自己的文件再刷新。需要独立配置时使用上面的自定义供应商编辑器，不改写 CLI 文件，也不改变提交信息使用的服务商选择。
+   - **本机配置保留 CLI 所有权**：每个 Agent 通过本机配置行读取用户自己 CLI 的地址、模型和密钥（Codex 读 `~/.codex/config.toml` 和 `auth.json`，Claude 读 `~/.claude/settings.json` 和 `~/.claude.json`），生成的服务商配置绑定到该 Agent。本机模式的密钥不复制进 Lithe，启动时从用户文件现读；要改本机地址或密钥时编辑自己的文件再刷新。需要独立配置时使用上面的自定义供应商编辑器，不改写 CLI 文件，也不改变提交信息使用的服务商选择。
+   - **关闭时仍能找到入口**：工作台始终保留 Agent 的静态入口声明，首次安装没有模块配置、手动关闭后也能打开面板。模块仍默认禁用，入口读取不调用 factory，不创建连接；禁用模块的通用贡献目录和其他模块的入口规则保持原样。未配置的面板立即显示原因和“打开 Agent 设置”操作，用户在面板内开启开关，无需修改本机配置文件。开启后复用运行时入口，按 ID 避免重复；关闭后保留面板和入口。不要把默认开关改为启用来修复发现入口的问题，否则会改变所有用户的后台启动行为。
   - **提示文案本地化**：Rust 返回的 `issues` 只决定能否安装；界面显示的原因由 Swift 按结构化状态（Node 版本、npm、CLI 版本）重新生成，这样中英文都能显示。
 - **面板始终显示完整布局**：功能关闭或没有配置 Agent 时，面板照样显示会话标题、消息区和输入框，用户可以输入；发送时先校验（功能是否开启、是否有已配置的 Agent、模块是否启动完成），不通过就在输入框上方给出提示并提供进入设置的按钮，不会启动任何进程。
 - **文件拖入对话框**：参考 CC GUI 普通文件的路径引用交互，原生输入框接受 Finder 和项目树的文件 URL，显示可移除标签，并支持文件选择器。一次最多 32 个引用，按拖入顺序去重；切换会话清除旧文件草稿，发送失败保留文字和引用。功能模型把引用与文字一起排队，Rust Host 用上游 ACP SDK 的 `resource_link` 发送，Agent 自己读取文件并遵守现有权限。文件 URL 是这次消息的原生上下文，不作为跨平台项目标识持久化。正确做法是发送“说明这两个文件”加两个引用；不要在 View 里读文件、复制进缓存或拼装隐式文件内容提示词。图片目前同样作为文件引用，没有缩略图或多模态字节上传；这避免了与本次需求无关的内存、大小和格式策略，后续需要图片输入时再按上游能力协商。
@@ -114,6 +115,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - `cargo test -p lithe-core agent`（`agent.*` 命令与 `shared/fixtures/agent/agent-management-v1.json`）
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
+- `macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift` 使用真实模块运行时覆盖默认关闭、启用和再次关闭，验证静态入口及 action/renderer 绑定可用、不重复、不提前调用 factory，其他关闭模块不会跟着暴露。
 - 配置选项与确认、部分工具更新、停止期间拒绝新消息、虚拟时钟驱动的取消超时、加载失败恢复记录均有回归测试。空会话测试直接驱动连接事件，覆盖供应商重连、意外退出、多个临时标签清理、首条消息和文件排队、发送失败以及空历史和已收到消息的保护；测试连接在成功和失败路径都关闭。真实 Agent 集成测试在自动清理的临时项目执行“读取、修改、运行 Node 测试、继续追问”，另验证配置切换、取消恢复及进程重启后历史加载；不操作用户项目代码。
 - 文件引用回归覆盖中文/空格 URL、重复拖入与移除后重加、数量限制与无效批次、首条消息与历史加载排队、会话切换后的发送目标、发送失败可重试，以及 SDK 真实 `session/prompt` 中的 `resource_link` 和兼容文字消息；测试不读取或发送用户项目文件。
 - CLI 来源测试覆盖 Homebrew 与 npm 共存、formula/cask/渠道、npm bin 身份、另一套 Node 环境、Claude 原生、未知与坏链接、查询取消/超时、非零退出但实际升级成功、可用旧版本未变化、降级、数字等价版本和更新后 PATH 仍过旧；不执行用户级安装或外部网络下载。

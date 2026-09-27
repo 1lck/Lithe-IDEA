@@ -311,7 +311,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         activeModuleContributions.filter { $0.placement == .activityBar }
     }
     var rightSidebarContributions: [ModuleContribution] {
-        activeModuleContributions.filter { $0.placement == .rightSidebar }
+        AgentConversationEntryPolicy.rightSidebarContributions(from: activeModuleContributions)
     }
     var workspaceFileOperations: any WorkspaceFileOperations { services.fileOperations }
     func fileExists(at url: URL) -> Bool { services.fileStorage.fileExists(at: url) }
