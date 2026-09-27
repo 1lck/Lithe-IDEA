@@ -37,6 +37,7 @@ struct AgentConversationView: View {
             }
         }
         .background(AgentPanelStyle.canvas)
+        .workbenchHoverTooltipScope()
         .onAppear { model.activateAgentConversation() }
     }
 }
@@ -176,6 +177,7 @@ private struct AgentConnectionView: View {
                 sessionID: feature.selectedSessionID,
                 isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                 isCancelling: feature.selectedConversation?.isCancelling == true,
+                contextUsage: feature.selectedConversation?.contextUsage,
                 onSetConfig: { feature.setConfigOption($0, value: $1) }
             )
         }

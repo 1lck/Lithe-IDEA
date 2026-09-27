@@ -107,6 +107,14 @@ explicit recovery prevents another message from entering a lost cancelled turn.
 Other sessions on the same process are also detached on this failure.
 Normal cancellation does not restart the process.
 
+ACP `usage_update` notifications are forwarded unchanged in `update`, with
+`used` (tokens currently in context) and `size` (context window capacity), scoped
+by `sessionId`. Consumers replace the previous snapshot, allowing usage to drop
+after compaction; these values are not cumulative billing tokens. Missing or
+invalid data and a zero capacity represent unknown usage, not an empty window.
+The macOS indicator clears stale capacity on disconnect or confirmed model
+changes and waits for a new report; it does not infer limits from model names.
+
 Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
 the agent. Permission displays combine already received tool details with the

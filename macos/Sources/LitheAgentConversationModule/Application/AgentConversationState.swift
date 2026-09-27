@@ -54,6 +54,7 @@ public struct AgentPermissionPrompt: Identifiable, Equatable, Sendable {
 /// Display state of one conversation session.
 public struct AgentConversation: Equatable, Sendable {
     public var messages: [AgentConversationMessage] = []
+    public var contextUsage: AgentContextUsage?
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
