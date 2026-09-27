@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：88
-- macOS：实现：✅ 75 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 78 待验证，— 10 不适用
-- Windows：实现：✅ 78 已实现，🟡 8 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 86 待验证，— 2 不适用
+- 功能项：89
+- macOS：实现：✅ 76 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 79 待验证，— 10 不适用
+- Windows：实现：✅ 80 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 87 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -53,7 +53,7 @@
 | 工作区生命周期 | **打开工作区与切换项目**<br><sub>workspace-open-switch</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Services/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/workspace`</sub> | Workspace | 打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。 |  |
 | 工作区生命周期 | **文件树与文件操作**<br><sub>workspace-files</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-system`</sub> | Workspace | 新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 |  |
 | 工作区生命周期 | **脏状态、保存与外部修改**<br><sub>workspace-document-sync</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Editor`、`macos/Sources/Lithe/Services/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`windows/tauri/src/features/file-system`</sub> | Workspace | 编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。 |  |
-| 工作区生命周期 | **多项目与多标签**<br><sub>workspace-tabs-projects</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/workspace`、`windows/tauri/src/features/tabs`</sub> | Workspace | 同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 |  |
+| 工作区生命周期 | **多项目与多标签**<br><sub>workspace-tabs-projects</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/workspace`、`windows/tauri/src/features/tabs`、`windows/tauri/src-tauri/src/project_windows.rs`、`windows/tauri/src-tauri/src/project_window_registry.rs`、`windows/tauri/src/features/window/services/project-window-router.ts`</sub> | Workspace | 同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 Windows 重复打开同一本地目录（含大小写、分隔符和目录链接别名）时，恢复并聚焦已有窗口及项目标签；连续打开只产生一个窗口，关闭或打开失败后可以重试。 |  |
 | 项目浏览 | **项目文件树与资源打开**<br><sub>file-explorer</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Models/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-explorer`、`windows/tauri/src/features/sidebar`</sub> | Workspace | 浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 |  |
 | 项目浏览 | **项目依赖与模块浏览**<br><sub>dependency-browser</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace/DependencySidebarView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/maven`、`windows/tauri/src/features/sidebar`</sub> | Workspace / Java | 打开 Maven 项目依赖和模块树，验证导航、刷新和空项目状态。 |  |
 | 远程开发 | **远程连接与远程路径工作区**<br><sub>remote-workspace</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/remote`、`windows/tauri/src/features/file-system`</sub> | Remote | Windows 验证连接、密码提示、远程路径、断线和重连；macOS 需要补充产品入口或明确不支持。 |  |
@@ -61,12 +61,13 @@
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 11 个能力点</summary>
+<summary><strong>编辑器</strong> · 12 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 文本编辑 | **文本编辑与标签生命周期**<br><sub>editor-text-tabs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`、`macos/Sources/Lithe/Models/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`windows/tauri/src/features/tabs`</sub> | Editor | 打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 |  |
 | 文本编辑 | **语法高亮与编辑器模型**<br><sub>editor-language-basics</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`、`macos/Sources/Lithe/Models/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`frontend/editor`、`windows/tauri/src/features/editor/engines/monaco/theme.ts`</sub> | Editor | 分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。 |  |
+| 文本编辑 | **LSP 语义高亮**<br><sub>editor-semantic-highlighting</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/AppModel/AppModel+LanguageEditing.swift`、`macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`、`frontend/editor/src/semantic-tokens.ts`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/platform/lsp-core-adapter.ts`、`windows/tauri/src/features/editor/lsp/lsp-client.ts`、`windows/tauri/src/features/editor/engines/monaco/semantic-token-provider.ts`、`windows/tauri/src/features/editor/engines/monaco/semantic-token-provider.test.ts`、`windows/tauri/src/platform/lsp-core-adapter.test.ts`</sub> | Editor / Language Tooling | 打开普通 Java 文件并等待 JDTLS 就绪，开启语义高亮，确认字段、方法等按协商图例上色；编辑、切换、关闭文档和重连服务器后不应用旧结果；服务器 refresh 后重新请求；关闭设置或大文件降级时保留基础语法高亮。 | Windows 复用 Core semanticTokens 和共享 fixture，修复 #675；Linux 上的适配器与模型测试不替代 Windows WebView2/JDTLS 实机验收。 |
 | 文本编辑 | **多行标签与标签导航**<br><sub>editor-multiline-tabs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/tabs`</sub> | Editor | 打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 |  |
 | Markdown | **Markdown 预览与富文本渲染**<br><sub>markdown-rendering</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift`、`macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`</sub> | Editor | 使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。 |  |
 | Markdown | **图片导入与链接定位**<br><sub>markdown-images-links</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Services/Markdown`、`macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`、`windows/tauri/src/features/viewer`</sub> | Editor | 验证本地图片、远程图片、相对链接和打开源文件行为。 |  |
@@ -96,7 +97,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 |  |
+| Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`、`windows/tauri/src/features/git/api/git-repository-path.ts`、`rust/lithe-core/tests/git_path_roundtrip.rs`、`shared/fixtures/git/windows-paths.json`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 |  |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |
 | Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`、`macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`、`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/git/utils/git-graph-layout.ts`、`windows/tauri/src/features/git/utils/git-graph-colors.ts`、`windows/tauri/src/features/git/utils/git-graph-layout.test.ts`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 |  |
@@ -198,8 +199,8 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。 |  |
-| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 | Windows 快捷键设置仍有占位交互，见 #718。 |
+| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、`macos/Tests/LitheTests/SettingsAppearanceContainerTests.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；设置窗口应使用普通窗口层级，切换到其他应用时不置顶遮挡，关闭后重开再检查。 |  |
+| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`、`windows/tauri/src/features/settings/components/macos-settings-panels.tsx`、`windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx`、`windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx`</sub> | Settings | 从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。 | Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。 |
 
 </details>
 

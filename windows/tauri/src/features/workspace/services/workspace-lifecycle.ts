@@ -113,13 +113,33 @@ const restorePreviousWorkspace = (workspaceId: string | undefined) => {
   );
 };
 
-export async function openWorkspaceRuntime({
+const pendingWorkspaceOpens = new Map<string, Promise<boolean>>();
+
+export function openWorkspaceRuntime(options: OpenWorkspaceRuntimeOptions) {
+  const workspaceId = createProjectTabId(options.descriptor.path);
+  const pending = pendingWorkspaceOpens.get(workspaceId);
+  if (pending) return pending;
+
+  // A focus event may arrive while this workspace is still initializing.
+  // Reuse that initialization instead of starting its services a second time.
+  const opening = openWorkspaceRuntimeOnce(options).finally(() => {
+    pendingWorkspaceOpens.delete(workspaceId);
+  });
+  pendingWorkspaceOpens.set(workspaceId, opening);
+  return opening;
+}
+
+async function openWorkspaceRuntimeOnce({
   descriptor,
   initialize,
   persistCurrent,
   resume,
 }: OpenWorkspaceRuntimeOptions) {
   const workspaceId = createProjectTabId(descriptor.path);
+  const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+  if (await projectWindowRouting.claim({ id: workspaceId, path: descriptor.path })) {
+    return true;
+  }
   const previousWorkspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
   const wasKnown = workspaceRuntimeRegistry.hasWorkspace(workspaceId);
   const wasReady = workspaceRuntimeRegistry.isWorkspaceReady(workspaceId);
@@ -161,6 +181,7 @@ export async function openWorkspaceRuntime({
     if (!wasKnown) {
       useWorkspaceTabsStore.getState().actions.removeProjectTab(workspaceId);
       workspaceRuntimeRegistry.removeWorkspace(workspaceId);
+      await projectWindowRouting.release(workspaceId);
     }
     if (shouldRestorePrevious) {
       restorePreviousWorkspace(previousWorkspaceId);
@@ -242,6 +263,8 @@ export async function closeWorkspaceRuntime(
 
   workspaceTabs.actions.removeProjectTab(workspaceId);
   workspaceRuntimeRegistry.removeWorkspace(workspaceId);
+  const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+  await projectWindowRouting.release(workspaceId);
 
   if (!wasActive) {
     return true;
