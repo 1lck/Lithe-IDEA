@@ -173,6 +173,120 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func providerReconnectRecreatesUnpromptedSessionsAndKeepsHistoryTabs() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.selectSession("session-2")
+            try feature.receive(event("sessionLoaded", ["token": transport.connections[0].commands.last?["token"] as Any,
+                "sessionId": "session-2"]))
+            for id in ["empty-1", "empty-2"] {
+                feature.startNewConversation()
+                try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any,
+                    "sessionId": id]))
+            }
+            await feature.stop()
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.openSessionIDs == ["session-2"])
+            #expect(feature.conversations["empty-1"] == nil && feature.conversations["empty-2"] == nil)
+            #expect(!feature.sessions.contains { $0.id.hasPrefix("empty-") })
+            #expect(feature.conversations["session-2"] != nil, "loaded history is retained even if its replay was empty")
+
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let connection = transport.connections[1]
+            let create = try #require(connection.commands.last)
+            #expect(create["kind"] as? String == "newSession")
+            #expect(!connection.commands.contains { $0["kind"] as? String == "loadSession" })
+            let file = try AgentFileReference(url: URL(fileURLWithPath: "/example/project/notes.txt"))
+            try feature.send("Continue with the new provider", files: [file])
+            try feature.receive(event("sessionCreated", ["token": create["token"] as Any, "sessionId": "replacement"]))
+            let prompts = connection.commands.filter { $0["kind"] as? String == "prompt" }
+            #expect(prompts.count == 1)
+            #expect(prompts.first?["sessionId"] as? String == "replacement")
+            #expect((prompts.first?["files"] as? [[String: String]])?.first?["uri"] == file.id)
+        }
+    }
+
+    @Test
+    func agentExitDropsOnlyItsUnpersistedEmptySession() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("stopped"))
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.openSessionIDs.isEmpty && feature.sessions.isEmpty)
+            await feature.stop()
+            #expect(transport.connections[0].closeCount == 1)
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            #expect(transport.connections[1].commands.last?["kind"] as? String == "newSession")
+        }
+    }
+
+    @Test
+    func emptySessionConfirmedByUpstreamHistoryStillLoadsAfterReconnect() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("sessions"))
+            await feature.stop()
+            #expect(feature.selectedSessionID == "session-1")
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            #expect(transport.connections[1].commands.last?["kind"] as? String == "loadSession")
+            #expect(transport.connections[1].commands.last?["sessionId"] as? String == "session-1")
+        }
+    }
+
+    @Test
+    func missingHistoryReportsItsLoadFailureWithoutCreatingAReplacement() async throws {
+        try await withReconnectableFeature { feature, transport in
+            try feature.receive(event("sessions"))
+            feature.selectSession("session-2")
+            let connection = transport.connections[0]
+            let load = try #require(connection.commands.last)
+            let count = connection.commands.count
+            try feature.receive(event("requestFailed", ["token": load["token"] as Any,
+                "sessionId": "session-2", "message": "no rollout found for thread id session-2"]))
+            #expect(feature.selectedSessionID == "session-2")
+            #expect(feature.selectedConversation?.errorMessage == "no rollout found for thread id session-2")
+            #expect(connection.commands.count == count, "a missing history file is not an invitation to replace a real conversation")
+            await feature.stop()
+            #expect(feature.openSessionIDs == ["session-2"])
+            #expect(feature.sessions.contains { $0.id == "session-2" })
+        }
+    }
+
+    @Test
+    func failedFirstSendDoesNotMakeAnEmptySessionResumable() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            transport.connections[0].sendFailure = .notConnected
+            #expect(throws: AgentConversationError.sendFailed(AgentConversationError.notConnected.localizedDescription)) {
+                try feature.send("Not delivered")
+            }
+            await feature.stop()
+            #expect(feature.selectedSessionID == nil)
+            #expect(feature.conversations.isEmpty)
+        }
+    }
+
+    @Test
+    func unsolicitedTranscriptIsRetainedEvenBeforeFirstLocalPrompt() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.prepareConversation()
+            try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try feature.receive(event("agentMessageChunk"))
+            await feature.stop()
+            #expect(feature.selectedSessionID == "session-1")
+            #expect(feature.selectedConversation?.messages.first?.text == "This project **builds** an IDE.")
+        }
+    }
+
+    @Test
     func requestFailureEndsTheTurnWithoutStoppingTheConnection() throws {
         let (feature, _) = try respondingFeature()
         try feature.receive(event("requestFailed"))
@@ -411,6 +525,22 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.connectionState == .connecting)
         try feature.receive(event("ready"))
         return (feature, transport.connections[0])
+    }
+
+    private func withReconnectableFeature(
+        _ run: (AgentConnectionModel, TestAgentTransport) async throws -> Void
+    ) async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        do {
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            try await run(feature, transport)
+            await feature.stop()
+        } catch {
+            await feature.stop()
+            throw error
+        }
     }
 
     private func respondingFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
