@@ -22,6 +22,7 @@ import { Button } from "@/ui/button";
 import Switch from "@/ui/switch";
 import { LogSettingsPanel } from "./log-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
+import { KeyboardSettings } from "./tabs/keyboard-settings";
 import { ProjectEnvironmentSettings } from "./project-environment-settings";
 
 import { RunConfigurationSettings } from "./run-configuration-settings";
@@ -335,48 +336,6 @@ function EditorPanel() {
   );
 }
 
-function KeyboardPanel() {
-  const { t } = useTranslation();
-  const settings = useSettingsStore((state) => state.settings);
-  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-
-  return (
-    <div className="flex flex-col gap-4">
-      <SettingsGroup title={t("settings.mac.keymapPreset")}>
-        <SettingsRow label={t("settings.mac.preset")}>
-          <select
-            className={`${controlClassName} w-44`}
-            value={settings.keybindingPreset}
-            onChange={(event) =>
-              void updateSetting(
-                "keybindingPreset",
-                event.target.value as typeof settings.keybindingPreset,
-              )
-            }
-          >
-            <option value="none">{t("settings.mac.keymapLithe")}</option>
-            <option value="vscode">{t("settings.mac.keymapVisualStudioCode")}</option>
-            <option value="jetbrains">{t("settings.mac.keymapJetBrains")}</option>
-            <option value="xcode">{t("settings.mac.keymapXcode")}</option>
-          </select>
-        </SettingsRow>
-      </SettingsGroup>
-      <SettingsGroup title={t("settings.mac.shortcuts")}>
-        <label className="flex h-8 items-center gap-2 rounded-md border border-input bg-background px-2.5 text-subtle-foreground">
-          <span aria-hidden="true">⌕</span>
-          <input
-            className="min-w-0 flex-1 bg-transparent text-foreground outline-none"
-            placeholder={t("settings.mac.searchShortcuts")}
-          />
-        </label>
-        <p className="ui-text-sm leading-relaxed text-subtle-foreground">
-          {t("settings.mac.shortcutsDescription")}
-        </p>
-      </SettingsGroup>
-    </div>
-  );
-}
-
 function TerminalPanel() {
   const { t } = useTranslation();
   const settings = useSettingsStore((state) => state.settings);
@@ -579,7 +538,7 @@ export function MacSettingsPanel({
     case "editor":
       return <EditorPanel />;
     case "keyboard":
-      return <KeyboardPanel />;
+      return <KeyboardSettings />;
     case "terminal":
       return <TerminalPanel />;
     case "lsp":

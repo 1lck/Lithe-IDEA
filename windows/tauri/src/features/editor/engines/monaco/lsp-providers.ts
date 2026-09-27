@@ -5,6 +5,7 @@ import type * as Monaco from "monaco-editor";
 import "monaco-editor/esm/vs/editor/contrib/gotoSymbol/browser/link/goToDefinitionAtPosition.js";
 import type { CompletionItem, Hover } from "vscode-languageserver-protocol";
 import { listen } from "@tauri-apps/api/event";
+import { ownsLspSession } from "@/platform/lsp-core-adapter";
 import {
   isDocumentFeatureAvailable,
   LspClient,
@@ -333,6 +334,9 @@ export function registerMonacoLspProviders() {
     }
   });
   void listen("lsp://features-changed", () => semanticTokensChanged.fire());
+  void listen<{ sessionId: string }>("lsp://semantic-tokens-refresh", ({ payload }) => {
+    if (ownsLspSession(payload.sessionId)) semanticTokensChanged.fire();
+  });
   languages.registerDocumentSemanticTokensProvider(
     selector,
     createMonacoSemanticTokenProvider({

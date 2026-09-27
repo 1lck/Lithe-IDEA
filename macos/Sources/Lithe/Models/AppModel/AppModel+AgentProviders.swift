@@ -16,9 +16,10 @@ extension AppModel {
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
         let (provider, key) = try agentProviderConfiguration.validate(draft)
+        let previous = settings.commitMessageAI.providers.first { $0.id == provider.id }
         let affected = settings.agentConfigurations.filter { $0.value.providerID == provider.id }.map(\.key)
         try await stopAgentsForProviderChange(affected)
-        try agentProviderConfiguration.save(provider, key: key)
+        try agentProviderConfiguration.save(provider, key: key, replacing: previous)
         if !affected.isEmpty { connectAgentConversation() }
     }
 

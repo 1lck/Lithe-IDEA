@@ -76,7 +76,11 @@ struct AgentProviderConfiguration {
         return (provider, key)
     }
 
-    func save(_ provider: AIProviderProfile, key: String) throws {
+    func save(_ provider: AIProviderProfile, key: String, replacing previous: AIProviderProfile?) throws {
+        // Another project can change the shared registry while its peer awaits process exit.
+        // Check immediately before credential mutation, with no suspension before publication.
+        let current = settings.commitMessageAI.providers.first { $0.id == provider.id }
+        guard current == previous else { throw AgentProviderConfigurationError.invalidConfiguration }
         // A failed credential write must not leave an apparently usable provider in settings.
         try secureStore.write(key, key: provider.apiKeyIdentifier)
         var value = settings.commitMessageAI

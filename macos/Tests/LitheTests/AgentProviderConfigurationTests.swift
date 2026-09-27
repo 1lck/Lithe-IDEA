@@ -47,7 +47,7 @@ struct AgentProviderConfigurationTests {
             #expect(provider.model == expected["model"])
             #expect(provider.apiProtocol.rawValue == expected["apiProtocol"])
             #expect(key == "fixture-secret")
-            try feature.save(provider, key: key)
+            try feature.save(provider, key: key, replacing: nil)
             // Editing reconstructs only the fields we promise to retain, including TOML string escaping.
             draft = try feature.draft(source: source, provider: provider)
             let (roundTrip, _) = try feature.validate(draft)
@@ -82,7 +82,7 @@ struct AgentProviderConfigurationTests {
         var draft = try feature.draft(source: .codex)
         draft.name = " My provider "
         let (provider, key) = try feature.validate(draft)
-        try feature.save(provider, key: key)
+        try feature.save(provider, key: key, replacing: nil)
         #expect(settings.commitMessageAI.activeProviderID == nil)
         #expect(settings.commitMessageAI.providers.last?.name == "My provider")
         #expect(keys.read(key: provider.apiKeyIdentifier) == "fixture-secret")
@@ -113,10 +113,10 @@ struct AgentProviderConfigurationTests {
         let (provider, key) = try feature.validate(draft)
         let before = settings.commitMessageAI
         keys.fail = true
-        #expect(throws: ProviderStorageError.self) { try feature.save(provider, key: key) }
+        #expect(throws: ProviderStorageError.self) { try feature.save(provider, key: key, replacing: nil) }
         #expect(settings.commitMessageAI == before)
         keys.fail = false
-        try feature.save(provider, key: key)
+        try feature.save(provider, key: key, replacing: nil)
         settings.setAgentProvider(provider.id, for: "codex-acp", name: "Codex")
         keys.fail = true
         #expect(throws: ProviderStorageError.self) { try feature.remove(provider) }
@@ -134,18 +134,56 @@ struct AgentProviderConfigurationTests {
         var draft = try feature.draft(source: .codex)
         draft.name = "First"
         let (first, key) = try feature.validate(draft)
-        try feature.save(first, key: key)
+        try feature.save(first, key: key, replacing: nil)
         let count = settings.commitMessageAI.providers.count
         var edit = try feature.draft(source: .codex, provider: first)
         edit.name = "Renamed"
         let (updated, newKey) = try feature.validate(edit)
-        try feature.save(updated, key: newKey)
+        try feature.save(updated, key: newKey, replacing: first)
         #expect(updated.id == first.id)
         #expect(updated.apiKeyIdentifier == first.apiKeyIdentifier)
         #expect(settings.commitMessageAI.providers.count == count)
         #expect(settings.commitMessageAI.providers.last?.name == "Renamed")
         try feature.remove(updated)
         #expect(throws: AgentProviderConfigurationError.self) { try feature.validate(edit) }
+    }
+
+    @Test(arguments: [false, true])
+    func suspendedSaveRejectsDeletedOrChangedProvider(otherWindowEdits: Bool) throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let keys = ProviderSecureStore()
+        let feature = AgentProviderConfiguration(settings: settings, secureStore: keys, parser: ProviderParser())
+        var draft = try feature.draft(source: .codex)
+        draft.name = "Original"
+        let (original, key) = try feature.validate(draft)
+        try feature.save(original, key: key, replacing: nil)
+        settings.setAgentProvider(original.id, for: "codex-acp", name: "Codex")
+
+        var edit = try feature.draft(source: .codex, provider: original)
+        edit.name = "Late edit"
+        let (pending, pendingKey) = try feature.validate(edit)
+        // The first window has validated and is awaiting connection closure. Apply the
+        // second window's mutation before resuming its save, without scheduler timing.
+        let otherWindow = AgentProviderConfiguration(settings: settings, secureStore: keys,
+            parser: ProviderParser(key: "replacement-secret"))
+        if otherWindowEdits {
+            var replacement = try otherWindow.draft(source: .codex, provider: original)
+            replacement.name = "Other window"
+            let (provider, replacementKey) = try otherWindow.validate(replacement)
+            try otherWindow.save(provider, key: replacementKey, replacing: original)
+        } else {
+            try otherWindow.remove(original)
+        }
+        let expectedProfiles = settings.commitMessageAI
+        let expectedKeys = keys.values
+        let expectedSelection = settings.agentProvider(for: "codex-acp")
+
+        #expect(throws: AgentProviderConfigurationError.invalidConfiguration) {
+            try feature.save(pending, key: pendingKey, replacing: original)
+        }
+        #expect(settings.commitMessageAI == expectedProfiles)
+        #expect(keys.values == expectedKeys, "A stale save must not restore or overwrite credentials")
+        #expect(settings.agentProvider(for: "codex-acp") == expectedSelection)
     }
 
     @Test func rejectsProtocolMismatchAndCredentialBearingURLs() throws {

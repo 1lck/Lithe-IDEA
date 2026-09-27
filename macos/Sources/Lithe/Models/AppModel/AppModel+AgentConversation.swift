@@ -4,6 +4,10 @@ import LitheCoreContracts
 import LitheModuleAPI
 
 extension AppModel {
+    func copyAgentSessionID(_ id: String) {
+        platformUI.copyToClipboard(id)
+    }
+
     func openAgentFile(_ location: AgentToolDetails.Location) {
         guard let workspaceURL, let url = location.fileURL(in: workspaceURL) else {
             showNotification(String(localized: "This file is outside the current project."))
@@ -134,6 +138,7 @@ extension AppModel {
     func connectAgentConversation() {
         guard !isChangingAgentProvider else { return }
         guard let feature = agentConversationFeatureIfActive else { return }
+        if let workspaceURL { feature.bindWorkspace(workspaceURL) }
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention
         }

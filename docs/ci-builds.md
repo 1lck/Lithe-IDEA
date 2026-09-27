@@ -93,6 +93,24 @@ GitHub queue delays remain outside these build steps. Compare warm-cache runs
 with these baselines before claiming a measured improvement. A runner pool
 change should be evaluated separately if queueing continues to dominate.
 
+### macOS Git 真实窗口性能采样
+
+普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
+默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
+离屏绘制和其他性能回归验证。真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+只在专门测量滚动帧率时显式开启：
+
+```bash
+LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
+  ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
+  -- --filter 'GitGraphPerformanceBaselineTests.*[wW]indowCompositorFrameSample'
+```
+
+此命令会短暂显示两个有标题、不透明的普通层级测试窗口，不强制激活程序或抢占
+焦点。用例在成功、跳过或超时后关闭窗口、停止显示链接，并恢复原激活策略。
+没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
+帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
+
 ### 独立工作树的本地编译
 
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录。如果从一个
@@ -145,6 +163,8 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `PATH` 和原安装器决定，不属于工作树；包版本、平台与架构由原安装器校验，
   没有工作树构建身份 stamp，任何复制阶段都禁止复用。注册表的
   `excludedResources.agent-cli-runtime` 记录此边界，脚本显式拒绝选择它。
+
+- Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
 - `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
