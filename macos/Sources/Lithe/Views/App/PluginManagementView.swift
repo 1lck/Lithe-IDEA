@@ -8,37 +8,26 @@ struct PluginManagementView: View {
     @State private var hoveredPluginID: PluginID?
     @State private var pendingEnabledStates: [PluginID: Bool] = [:]
     @State private var isApplyingChanges = false
-    @State private var isLanguageExtensionsExpanded = false
+
+    private var installedPlugins: [PluginManagementSnapshot] {
+        PluginManagementListContent(plugins: model.pluginSnapshots).plugins
+    }
 
     private var filteredPlugins: [PluginManagementSnapshot] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard !query.isEmpty else { return model.pluginSnapshots }
-        return model.pluginSnapshots.filter {
+        guard !query.isEmpty else { return installedPlugins }
+        return installedPlugins.filter {
             $0.manifest.displayName.lowercased().contains(query) ||
                 $0.manifest.vendor.displayName.lowercased().contains(query)
         }
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
-        let visiblePlugins = listContent.standalonePlugins
-            + (showsLanguageExtensions ? listContent.languageExtensions : [])
-        return visiblePlugins.first { $0.id == selectedPluginID } ?? visiblePlugins.first
-    }
-
-    private var listContent: PluginManagementListContent {
-        PluginManagementListContent(plugins: filteredPlugins)
-    }
-
-    private var isSearching: Bool {
-        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private var showsLanguageExtensions: Bool {
-        isLanguageExtensionsExpanded || isSearching
+        filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
     }
 
     private var enabledPluginCount: Int {
-        model.pluginSnapshots.filter { effectiveEnabledState(for: $0) }.count
+        installedPlugins.filter { effectiveEnabledState(for: $0) }.count
     }
 
     var body: some View {
@@ -56,17 +45,7 @@ struct PluginManagementView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(LitheTheme.settingsSurface)
         .onAppear {
-            let initialContent = PluginManagementListContent(plugins: model.pluginSnapshots)
-            selectedPluginID = initialContent.standalonePlugins.first?.id
-                ?? initialContent.languageExtensions.first?.id
-            if initialContent.standalonePlugins.isEmpty {
-                isLanguageExtensionsExpanded = true
-            }
-        }
-        .onChange(of: searchText) { newValue in
-            if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                isLanguageExtensionsExpanded = true
-            }
+            selectedPluginID = installedPlugins.first?.id
         }
     }
 
@@ -104,23 +83,15 @@ struct PluginManagementView: View {
             .padding(.horizontal, 8).frame(height: 44)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
-                Text(LocalizedStringKey("Installed (\(enabledPluginCount) of \(model.pluginSnapshots.count) enabled)"))
+                Text(LocalizedStringKey("Installed (\(enabledPluginCount) of \(installedPlugins.count) enabled)"))
                     .font(LitheTheme.settingsFont)
                 Spacer()
             }
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(listContent.standalonePlugins) { plugin in
+                    ForEach(filteredPlugins) { plugin in
                         pluginRow(plugin)
-                    }
-                    if !listContent.languageExtensions.isEmpty {
-                        languageExtensionsDisclosure
-                        if showsLanguageExtensions {
-                            ForEach(listContent.languageExtensions) { plugin in
-                                pluginRow(plugin, isNested: true)
-                            }
-                        }
                     }
                 }
             }
@@ -129,59 +100,8 @@ struct PluginManagementView: View {
         .background(LitheTheme.settingsListSurface)
     }
 
-    private var languageExtensionsDisclosure: some View {
-        let plugins = listContent.languageExtensions
-        let enabledCount = plugins.filter { effectiveEnabledState(for: $0) }.count
-        return Button {
-            toggleLanguageExtensions()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: showsLanguageExtensions ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 14)
-                Image(systemName: "chevron.left.forwardslash.chevron.right")
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(LitheTheme.accent)
-                    .frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(LocalizedStringKey("More Language Support"))
-                        .font(.system(size: 13, weight: .semibold))
-                    Text(LocalizedStringKey("\(plugins.count) languages · \(enabledCount) enabled"))
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
-                Spacer()
-                Text("\(plugins.count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(LitheTheme.raised)
-                    .clipShape(Capsule())
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityValue(showsLanguageExtensions ? Text("Expanded") : Text("Collapsed"))
-        .lithePointer()
-    }
-
-    private func toggleLanguageExtensions() {
-        guard !isSearching else { return }
-        if isLanguageExtensionsExpanded,
-           let selectedPluginID,
-           listContent.languageExtensions.contains(where: { $0.id == selectedPluginID }) {
-            self.selectedPluginID = listContent.standalonePlugins.first?.id
-        }
-        isLanguageExtensionsExpanded.toggle()
-    }
-
-    private func pluginRow(_ plugin: PluginManagementSnapshot, isNested: Bool = false) -> some View {
-        let presentation = presentation(for: plugin)
+    private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
+        let presentation = phpPresentation
         let isSelected = selectedPlugin?.id == plugin.id
         let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
@@ -199,7 +119,7 @@ struct PluginManagementView: View {
             Image(systemName: effectiveEnabledState(for: plugin) ? "checkmark.square.fill" : "square")
                 .foregroundStyle(effectiveEnabledState(for: plugin) ? LitheTheme.accent : LitheTheme.secondaryText)
         }
-        .padding(.leading, isNested ? 32 : 14)
+        .padding(.leading, 14)
         .padding(.trailing, 14)
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -226,7 +146,7 @@ struct PluginManagementView: View {
 
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
-            let presentation = presentation(for: plugin)
+            let presentation = phpPresentation
             let isEnabled = effectiveEnabledState(for: plugin)
             let hasPendingChange = pendingEnabledStates[plugin.id] != nil
             VStack(alignment: .leading, spacing: 0) {
@@ -339,57 +259,20 @@ struct PluginManagementView: View {
         }
     }
 
-    private func presentation(for plugin: PluginManagementSnapshot) -> PluginPresentation {
-        let id = plugin.id.rawValue
-        if id == "dev.lithe.plugin.go-support" {
-            return PluginPresentation(
-                systemImage: "g.circle.fill",
-                tint: LitheTheme.accent,
-                summary: "Adds Go language-server integration, formatting, running, and test support."
-            )
-        }
-
-        let languageID = plugin.manifest.languageSupports?.first?.id ?? ""
-        let supportsExecution = plugin.manifest.modules.contains {
-            $0.manifest.providedCapabilities.contains(.languageExecutionExtension(languageID))
-        }
-        let summary = supportsExecution
-            ? "Adds language-server integration, formatting, running, and test support."
-            : "Adds language-server integration and formatting support."
-
-        switch languageID {
-        case "python": return .init(systemImage: "chevron.left.forwardslash.chevron.right", tint: LitheTheme.warning, summary: summary)
-        case "node": return .init(systemImage: "hexagon.fill", tint: LitheTheme.success, summary: summary)
-        case "rust": return .init(systemImage: "gearshape.2.fill", tint: Color.orange, summary: summary)
-        case "swift": return .init(systemImage: "swift", tint: Color.orange, summary: summary)
-        case "clangd", "csharp", "fsharp", "kotlin", "scala", "groovy", "zig", "solidity":
-            return .init(systemImage: "chevron.left.forwardslash.chevron.right", tint: LitheTheme.accent, summary: summary)
-        case "html", "css", "vue", "svelte", "astro", "php":
-            return .init(systemImage: "globe", tint: LitheTheme.success, summary: summary)
-        case "json", "yaml", "xml", "toml", "graphql", "protobuf", "prisma":
-            return .init(systemImage: "curlybraces.square.fill", tint: Color.cyan, summary: summary)
-        case "markdown": return .init(systemImage: "doc.richtext.fill", tint: LitheTheme.secondaryText, summary: summary)
-        case "sql": return .init(systemImage: "cylinder.fill", tint: LitheTheme.warning, summary: summary)
-        case "dockerfile": return .init(systemImage: "shippingbox.fill", tint: Color.cyan, summary: summary)
-        case "terraform": return .init(systemImage: "square.3.layers.3d", tint: Color.indigo, summary: summary)
-        case "shell", "powershell", "make", "cmake":
-            return .init(systemImage: "terminal.fill", tint: LitheTheme.secondaryText, summary: summary)
-        default: return .init(systemImage: "puzzlepiece.extension.fill", tint: LitheTheme.accent, summary: summary)
-        }
+    private var phpPresentation: PluginPresentation {
+        PluginPresentation(
+            systemImage: "globe",
+            tint: LitheTheme.success,
+            summary: "Adds PHP language-server integration, formatting, running, and test support."
+        )
     }
 }
 
 struct PluginManagementListContent {
-    let standalonePlugins: [PluginManagementSnapshot]
-    let languageExtensions: [PluginManagementSnapshot]
+    let plugins: [PluginManagementSnapshot]
 
     init(plugins: [PluginManagementSnapshot]) {
-        standalonePlugins = plugins.filter { plugin in
-            plugin.manifest.languageSupports?.isEmpty != false
-        }
-        languageExtensions = plugins.filter { plugin in
-            plugin.manifest.languageSupports?.isEmpty == false
-        }
+        self.plugins = plugins.filter { $0.id == OfficialPluginCatalog.phpPluginID }
     }
 }
 

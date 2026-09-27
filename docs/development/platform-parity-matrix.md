@@ -207,7 +207,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 插件与主题 | **插件、语言服务与主题管理**<br><sub>plugin-extension-management</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/extensions`、`windows/tauri/src/features/settings`</sub> | Extensions | macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；搜索并启用、禁用插件，确认安装入口、状态与重启恢复。Windows 检查扩展管理入口和持久化。 |  |
+| 插件与主题 | **插件、语言服务与主题管理**<br><sub>plugin-extension-management</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/extensions`、`windows/tauri/src/features/settings`</sub> | Extensions | macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；插件列表仅显示 PHP Support，搜索并启用、禁用该插件，确认安装入口、状态与重启恢复，其他语言能力仍可由原模块提供。Windows 检查扩展管理入口和持久化。 |  |
 
 </details>
 

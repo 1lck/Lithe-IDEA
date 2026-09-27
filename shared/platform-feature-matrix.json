@@ -1619,7 +1619,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Extensions",
-      "verification": "macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；搜索并启用、禁用插件，确认安装入口、状态与重启恢复。Windows 检查扩展管理入口和持久化。"
+      "verification": "macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；插件列表仅显示 PHP Support，搜索并启用、禁用该插件，确认安装入口、状态与重启恢复，其他语言能力仍可由原模块提供。Windows 检查扩展管理入口和持久化。"
     },
     {
       "id": "onboarding-welcome",

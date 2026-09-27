@@ -5,30 +5,23 @@ import LitheModuleAPI
 @Suite("Plugin management presentation")
 struct PluginManagementPresentationTests {
     @Test
-    func languagePluginsAreGroupedSeparatelyFromStandalonePlugins() throws {
+    func onlyOfficialPHPPluginAppearsInSettings() throws {
+        let phpManifest = try #require(
+            OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
+        )
+        let goManifest = try #require(
+            OfficialPluginCatalog.manifests.first { $0.id != OfficialPluginCatalog.phpPluginID }
+        )
         let pythonManifest = try #require(
             BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "python" }
         )
-        let rustManifest = try #require(
-            BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "rust" }
-        )
         let content = PluginManagementListContent(plugins: [
+            snapshot(phpManifest),
+            snapshot(goManifest),
             snapshot(pythonManifest),
-            snapshot(rustManifest)
         ])
 
-        #expect(content.standalonePlugins.isEmpty)
-        #expect(content.languageExtensions.map(\.id) == [pythonManifest.id, rustManifest.id])
-    }
-
-    @Test
-    func everyBundledLanguagePluginUsesTheLanguageExtensionGroup() {
-        let content = PluginManagementListContent(
-            plugins: BundledLanguagePluginCatalog.manifests.map(snapshot)
-        )
-
-        #expect(content.standalonePlugins.isEmpty)
-        #expect(content.languageExtensions.count == BundledLanguagePluginCatalog.manifests.count)
+        #expect(content.plugins.map(\.id) == [phpManifest.id])
     }
 
     private func snapshot(_ manifest: PluginManifest) -> PluginManagementSnapshot {
