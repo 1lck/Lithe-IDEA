@@ -1556,7 +1556,8 @@
         "evidence": [
           "macos/Sources/Lithe/LitheApp.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
-          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift"
+          "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
+          "macos/Tests/LitheTests/SettingsAppearanceContainerTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1569,7 +1570,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。"
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；设置窗口应使用普通窗口层级，切换到其他应用时不置顶遮挡，关闭后重开再检查。"
     },
     {
       "id": "keymap-customization",

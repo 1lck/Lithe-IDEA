@@ -848,7 +848,7 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
 enum SettingsWindowChrome {
     static func configure(_ window: NSWindow, title: String, themePreference: AppThemePreference) {
         window.title = title
-        window.level = .floating
+        window.level = .normal
         let windowAppearance = themePreference.windowAppearance
         if window.appearance?.name != windowAppearance?.name {
             window.appearance = windowAppearance
