@@ -140,6 +140,31 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func commitState(at root: URL) -> GitCommitState? {
+        struct Request: Encodable { let root: String }
+        let result: Result<GitCommitState, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.commitState", payload: Request(root: root.standardizedFileURL.path))
+        return try? result.get()
+    }
+
+    func commit(at root: URL, message: String, amend: Bool, expected: GitCommitState, gitlinkUpdates: [GitCommitGitlink]) -> GitProcessResult? {
+        struct Request: Encodable {
+            let root: String
+            let operation = "commit"
+            let message: String
+            let amend: Bool
+            let expectedCommitState: GitCommitState
+            let gitlinkUpdates: [GitCommitGitlink]
+        }
+        let result: Result<RustCoreBridge.GitCommandPayload, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.write", payload: Request(root: root.path, message: message, amend: amend,
+                expectedCommitState: expected, gitlinkUpdates: gitlinkUpdates))
+        switch result {
+        case .success(let response): return makeProcessResult(response)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
+    }
+
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? {
         write(at: rootURL, operation: "commit", message: message, amend: amend)
     }
@@ -396,6 +421,25 @@ struct RustGitOperations: GitOperations, Sendable {
 
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult? {
         write(at: rootURL, operation: "checkoutRevision", revision: revision)
+    }
+
+    func pushWorkspaceCommit(_ reference: GitReference, at root: URL, expected: GitCommitState) -> GitProcessResult? {
+        struct Reference: Encodable { let fullName: String; let shortName: String; let kind: String }
+        struct Request: Encodable {
+            let root: String
+            let operation = "push"
+            let gitReference: Reference
+            let expectedCommitState: GitCommitState
+            let checkSubmodules = true
+        }
+        let result: Result<RustCoreBridge.GitCommandPayload, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.write", payload: Request(root: root.path,
+                gitReference: Reference(fullName: reference.fullName, shortName: reference.shortName, kind: reference.kind.rawValue),
+                expectedCommitState: expected))
+        switch result {
+        case .success(let response): return makeProcessResult(response)
+        case .failure(let error): return GitProcessResult(output: error.userMessage, exitCode: 1)
+        }
     }
 
     func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? {

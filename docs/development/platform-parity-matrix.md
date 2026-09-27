@@ -2,11 +2,11 @@
 
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
-- 最后复核：2026-09-25
+- 最后复核：2026-09-27
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：94
-- macOS：实现：✅ 81 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 84 待验证，— 10 不适用
-- Windows：实现：✅ 82 已实现，🟡 8 部分实现，❌ 4 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 90 待验证，— 4 不适用
+- 功能项：98
+- macOS：实现：✅ 85 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 88 待验证，— 10 不适用
+- Windows：实现：✅ 82 已实现，🟡 8 部分实现，❌ 8 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 90 待验证，— 8 不适用
 
 ## 实现状态定义
 
@@ -96,17 +96,21 @@
 </details>
 
 <details>
-<summary><strong>版本控制</strong> · 7 个能力点</summary>
+<summary><strong>版本控制</strong> · 11 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`、`windows/tauri/src/features/git/api/git-repository-path.ts`、`rust/lithe-core/tests/git_path_roundtrip.rs`、`shared/fixtures/git/windows-paths.json`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 |  |
+| Git | **多仓库变更折叠分组（macOS 侧边栏）**<br><sub>git-multi-repository-change-groups</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`、`macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`、`macos/Sources/LitheGitModule/Models/GitModels.swift`、`rust/lithe-core/src/git/mod.rs`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在同一工作区打开多个 Git 仓库，确认变更按仓库折叠分组；只剩一个仓库有变更时仍显示仓库名。仓库级和文件级勾选与 Git 暂存区同步；子模块只有未提交文件时显示提示，不能勾选未变化的引用。 | macOS 本次接入；Windows 暂未接入对应的工作区聚合提交流程。 |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |
 | Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`、`macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`、`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/git/utils/git-graph-layout.ts`、`windows/tauri/src/features/git/utils/git-graph-colors.ts`、`windows/tauri/src/features/git/utils/git-graph-layout.test.ts`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 |  |
 | Git | **Rebase 与 Stash**<br><sub>git-rebase-stash</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。 |  |
 | Git | **Worktree 管理**<br><sub>git-worktrees</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。 |  |
 | Git | **多仓库引用面板：分组、配色与引用操作**<br><sub>git-multi-repository-references</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在多仓库工作区打开 Git Log：确认按仓库分组、仓库配色、非活动仓库分组只读，点其它仓库的引用会切换活动仓库且只加载一次，Pull 弹窗可选择远程分支与策略。 |  |
+| Git | **按文件所属仓库批量提交及推送，保留每仓库结果**<br><sub>git-workspace-staged-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`、`macos/Sources/Lithe/Views/Git/CommitAreaView.swift`、`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`、`rust/lithe-core/src/git/commit_state.rs`、`rust/lithe-core/src/tests/git_workspace_commit.rs`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。 | Linux 已验证共享 Core；macOS Swift 编译和交互仍待 macOS 验证。 |
+| Git | **子模块先提交与推送、自动更新父引用、计划变化再次确认**<br><sub>git-submodule-commit-plan</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`、`macos/Sources/Lithe/Views/Git/CommitAreaView.swift`、`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`、`rust/lithe-core/src/git/commit_state.rs`、`rust/lithe-core/src/tests/git_workspace_commit.rs`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 只勾选孙仓库文件，确认计划自动列出父祖仓库的引用更新且可关闭；确认期间改变暂存内容或分支，必须显示新计划再次确认。父仓库未暂存文件不能被带入；只勾选父引用时先推送子仓库现有提交，Git 发布检查应拒绝未发布的子引用。 | Linux 已验证共享 Core；macOS Swift 编译和交互仍待 macOS 验证。 |
+| Git | **失败后只重试未完成的提交或推送步骤**<br><sub>git-workspace-commit-retry</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`、`macos/Sources/Lithe/Views/Git/CommitAreaView.swift`、`macos/Tests/LitheGitModuleTests/GitModuleTests.swift`、`rust/lithe-core/src/git/commit_state.rs`、`rust/lithe-core/src/tests/git_workspace_commit.rs`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 让子仓库推送失败，确认父仓库被阻塞、独立仓库成功；重试计划应显示子仓库只推送，验证子仓库提交数不增加，随后才提交和推送父仓库。 | Linux 已验证共享 Core；macOS Swift 编译和交互仍待 macOS 验证。 |
 
 </details>
 

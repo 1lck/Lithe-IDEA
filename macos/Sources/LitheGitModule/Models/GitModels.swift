@@ -237,9 +237,80 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     }
 }
 
-/// One repository's references when a workspace aggregates several Git
-/// repositories. Only references are aggregated here; history, diff, and the
-/// console stay scoped to the active repository.
+/// A real Git submodule edge between two discovered repository roots.
+///
+/// Nested paths alone are not enough to establish this relationship: a workspace
+/// may contain independent repositories below another repository. `path` is the
+/// parent repository's gitlink path, relative to `parent`.
+package struct GitRepositorySubmoduleRelation: Hashable, Sendable {
+    package let parent: URL
+    package let child: URL
+    package let path: String
+
+    package init(parent: URL, child: URL, path: String) {
+        self.parent = parent.standardizedFileURL
+        self.child = child.standardizedFileURL
+        self.path = path
+    }
+}
+
+/// Confirmation captures both the visible operation and the Git state it reviews.
+package struct GitSubmoduleCommitPlan: Identifiable, Sendable {
+    package let id = UUID()
+    package let message: String
+    package let amend: Bool
+    package let push: Bool
+    package let orderedRoots: [URL]
+    package let propagatedRelations: [GitRepositorySubmoduleRelation]
+    package let dependencyRelations: [GitRepositorySubmoduleRelation]
+    package let includeParentReferences: Bool
+    package let states: [URL: GitCommitState]
+    package let committedRoots: Set<URL>
+    package let pendingPushRoots: Set<URL>
+    package let isRetry: Bool
+
+    func matches(_ other: Self) -> Bool {
+        message == other.message && amend == other.amend && push == other.push
+            && orderedRoots == other.orderedRoots && propagatedRelations == other.propagatedRelations
+            && dependencyRelations == other.dependencyRelations && includeParentReferences == other.includeParentReferences && states == other.states
+            && committedRoots == other.committedRoots && pendingPushRoots == other.pendingPushRoots && isRetry == other.isRetry
+    }
+}
+
+/// Shared Core payload: Git owns the index fingerprint and gitlink interpretation.
+package struct GitCommitState: Codable, Equatable, Sendable {
+    package let head: String?
+    package let branch: String?
+    package let indexEntries: String
+    package let gitlinks: [GitCommitGitlink]
+    package let stagedPaths: [String]
+    package let conflictedPaths: [String]
+    package init(head: String?, branch: String?, indexEntries: String, gitlinks: [GitCommitGitlink], stagedPaths: [String], conflictedPaths: [String] = []) {
+        self.head = head; self.branch = branch; self.indexEntries = indexEntries
+        self.gitlinks = gitlinks; self.stagedPaths = stagedPaths; self.conflictedPaths = conflictedPaths
+    }
+}
+
+package struct GitCommitGitlink: Codable, Equatable, Sendable {
+    package let path: String
+    package let revision: String
+    package init(path: String, revision: String) { self.path = path; self.revision = revision }
+}
+
+package struct GitRepositoryCommitResult: Identifiable, Sendable {
+    package let root: URL
+    package var committed = false
+    package var pushed = false
+    package var detail = "Pending"
+    package var id: String { root.path }
+}
+
+struct GitWorkspaceCommitAttempt: Sendable {
+    var plan: GitSubmoduleCommitPlan
+    var states: [URL: GitCommitState]
+    var results: [URL: GitRepositoryCommitResult]
+}
+
 package struct GitRepositoryReferences: Hashable, Sendable {
     package let repositoryRoot: URL
     package let references: [GitReference]
@@ -290,6 +361,58 @@ package enum GitRepositoryHierarchy {
             root.standardizedFileURL == active
                 || !isLinkedWorktreeRepository(root, among: repositoryRoots)
         }
+    }
+
+    /// Builds only relationships represented by a parent repository's gitlink
+    /// entries. A path-nested repository without a mode-160000 entry remains an
+    /// independent repository and must not inherit submodule commit semantics.
+    package static func submoduleRelations(
+        repositoryRoots: [URL],
+        gitlinkPathsByRoot: [URL: [String]]
+    ) -> [GitRepositorySubmoduleRelation] {
+        let normalizedRoots = repositoryRoots.map(\.standardizedFileURL)
+        var relations: [GitRepositorySubmoduleRelation] = []
+        for parent in normalizedRoots {
+            for relativePath in gitlinkPathsByRoot[parent] ?? [] {
+                let childPath = parent.appendingPathComponent(relativePath).standardizedFileURL.path
+                guard let child = normalizedRoots.first(where: { $0.path == childPath }),
+                      child.path != parent.path
+                else { continue }
+                relations.append(
+                    GitRepositorySubmoduleRelation(parent: parent, child: child, path: relativePath)
+                )
+            }
+        }
+        return relations
+    }
+
+    /// Orders staged repositories so a submodule's commit exists before its
+    /// parent's gitlink is committed. Unrelated repositories retain their
+    /// original discovery/change order.
+    package static func commitOrder(
+        _ repositoryRoots: [URL],
+        relations: [GitRepositorySubmoduleRelation]
+    ) -> [URL] {
+        let roots = repositoryRoots.map(\.standardizedFileURL)
+        let rootSet = Set(roots)
+        let relationSet = Set(relations)
+        var remaining = roots
+        var ordered: [URL] = []
+        while !remaining.isEmpty {
+            guard let next = remaining.first(where: { candidate in
+                !relationSet.contains { relation in
+                    relation.parent == candidate && rootSet.contains(relation.child) && remaining.contains(relation.child)
+                }
+            }) else {
+                // A malformed/cyclic relation should not deadlock commit. Keep
+                // the stable input order and let Git report any actual failure.
+                ordered.append(contentsOf: remaining)
+                break
+            }
+            ordered.append(next)
+            remaining.removeAll { $0 == next }
+        }
+        return ordered
     }
 
     private static func pathComponents(of url: URL) -> [String] {
@@ -786,7 +909,8 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package let originalPath: String?
     package let indexStatus: Character
     package let workTreeStatus: Character
-    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character) { self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
+    package let submodule: GitSubmoduleStatus?
+    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character, submodule: GitSubmoduleStatus? = nil) { self.submodule = submodule; self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
 
     package var id: String {
         "\(repositoryRoot.standardizedFileURL.path):\(originalPath ?? "")->\(path)"
@@ -814,6 +938,11 @@ package struct GitChange: Identifiable, Hashable, Sendable {
         if indexStatus == "R" || workTreeStatus == "R" { return .moved }
         if indexStatus == "C" || workTreeStatus == "C" { return .copied }
         return .modified
+    }
+
+    /// Worktree dirt belongs to the child; only a changed gitlink can be staged here.
+    package var canToggleStaging: Bool {
+        isStaged || submodule == nil || submodule?.commitChanged == true || isConflicted || workTreeStatus == "D"
     }
 
     package var pathspecs: [String] {
@@ -1547,5 +1676,14 @@ package enum DiffParser {
               let old = Int(header[oldRange]),
               let new = Int(header[newRange]) else { return nil }
         return (old, new)
+    }
+}
+
+package struct GitSubmoduleStatus: Codable, Hashable, Sendable {
+    package let commitChanged: Bool
+    package let trackedChanges: Bool
+    package let untrackedChanges: Bool
+    package init(commitChanged: Bool, trackedChanges: Bool, untrackedChanges: Bool) {
+        self.commitChanged = commitChanged; self.trackedChanges = trackedChanges; self.untrackedChanges = untrackedChanges
     }
 }

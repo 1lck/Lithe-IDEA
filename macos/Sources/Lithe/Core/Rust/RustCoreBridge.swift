@@ -1330,6 +1330,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let staged: Bool
         let worktree: Bool
         let untracked: Bool
+        let submodule: GitSubmoduleStatus?
     }
 
     struct GitStatusPayload: Decodable, Sendable {
@@ -1352,7 +1353,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         path: change.path,
                         originalPath: change.originalPath,
                         indexStatus: status.first ?? " ",
-                        workTreeStatus: status.dropFirst().first ?? " "
+                        workTreeStatus: status.dropFirst().first ?? " ",
+                        submodule: change.submodule
                     )
                 }
             )
@@ -2094,6 +2096,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
 
     private struct GitStatusRequest: Encodable {
         let root: String
+        let includeIndexOnlyChanges = true
     }
 
     private struct WorkspaceRepositoriesRequest: Encodable {

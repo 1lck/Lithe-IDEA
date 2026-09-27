@@ -532,6 +532,17 @@ pub struct GitChange {
     pub staged: bool,
     pub worktree: bool,
     pub untracked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub submodule: Option<GitSubmoduleStatus>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+/// Git porcelain v2 distinguishes a new gitlink target from child worktree dirt.
+pub struct GitSubmoduleStatus {
+    pub commit_changed: bool,
+    pub tracked_changes: bool,
+    pub untracked_changes: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

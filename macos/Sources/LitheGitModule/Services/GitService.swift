@@ -12,6 +12,10 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func commitState(at root: URL) -> GitCommitState?
+    func pushWorkspaceCommit(_ reference: GitReference, at root: URL, expected: GitCommitState) -> GitProcessResult?
+    func commit(at root: URL, message: String, amend: Bool, expected: GitCommitState, gitlinkUpdates: [GitCommitGitlink]) -> GitProcessResult?
+
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation?
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
     func remoteURL(at rootURL: URL, remote: String) -> String?
@@ -174,6 +178,10 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func commitState(at root: URL) -> GitCommitState? { nil }
+    func pushWorkspaceCommit(_ reference: GitReference, at root: URL, expected: GitCommitState) -> GitProcessResult? { nil }
+    func commit(at root: URL, message: String, amend: Bool, expected: GitCommitState, gitlinkUpdates: [GitCommitGitlink]) -> GitProcessResult? { nil }
+
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
     func remoteURL(at rootURL: URL, remote: String) -> String? { nil }
@@ -368,6 +376,14 @@ package struct GitService: Sendable {
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func commitState(at root: URL) async -> GitCommitState? {
+        await read(priority: .utility) { $0.commitState(at: root) }
+    }
+
+    func commit(at root: URL, message: String, amend: Bool, expected: GitCommitState, gitlinkUpdates: [GitCommitGitlink]) async -> CommandResult {
+        await command(at: root) { $0.commit(at: root, message: message, amend: amend, expected: expected, gitlinkUpdates: gitlinkUpdates) }
     }
 
     func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {
@@ -1057,6 +1073,10 @@ package struct GitService: Sendable {
 
     func checkoutRevision(_ revision: String, at repositoryRoot: URL) async -> CommandResult {
         await command(at: repositoryRoot) { $0.checkoutRevision(revision, at: repositoryRoot) }
+    }
+
+    func pushWorkspaceCommit(_ reference: GitReference, at root: URL, expected: GitCommitState) async -> CommandResult {
+        await command(at: root) { $0.pushWorkspaceCommit(reference, at: root, expected: expected) }
     }
 
     func push(_ reference: GitReference, at repositoryRoot: URL) async -> CommandResult {

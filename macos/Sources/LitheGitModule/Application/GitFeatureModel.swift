@@ -185,7 +185,13 @@ package final class GitFeatureModel: ObservableObject {
     /// Set whenever Git is mid-merge, mid-rebase, mid-cherry-pick, or mid-revert.
     @Published package var gitOperationState: GitOperationState?
     @Published package var isResolvingGitOperation = false
-    @Published package private(set) var isCommitting = false
+    @Published package internal(set) var isCommitting = false
+    /// Set when the staged selection spans a real parent/submodule edge. The
+    /// commit UI must explain the child-first order before continuing.
+    @Published package internal(set) var pendingSubmoduleCommitPlan: GitSubmoduleCommitPlan?
+    @Published package internal(set) var workspaceCommitResults: [GitRepositoryCommitResult] = []
+    var workspaceCommitAttempt: GitWorkspaceCommitAttempt?
+    var workspaceCommitGeneration = UUID()
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
     @Published package private(set) var gitReferences: [GitReference] = [] {
@@ -276,7 +282,7 @@ package final class GitFeatureModel: ObservableObject {
     @Published package private(set) var isCloningRepository = false
     @Published package private(set) var availableRepositoryRoots: [URL] = []
 
-    private let service: GitService
+    let service: GitService
     private let executionJournal: GitExecutionJournal?
     private var executionJournalSubscription: AnyCancellable?
     private var journalEntryIDs: Set<UUID> = []
@@ -295,7 +301,7 @@ package final class GitFeatureModel: ObservableObject {
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
     private var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
-    private var notify: (@MainActor (String) -> Void)?
+    var notify: (@MainActor (String) -> Void)?
     private var onStateRefreshed: (@MainActor () async -> Void)?
     private var saveChangesPolicy: (@MainActor () -> GitSaveChangesPolicy)?
     private var onGitOperationBegan: (@MainActor () -> Void)?
@@ -460,6 +466,10 @@ package final class GitFeatureModel: ObservableObject {
         pendingDiscardChange = nil
         pendingDiscardHunk = nil
         isCommitting = false
+        pendingSubmoduleCommitPlan = nil
+        workspaceCommitAttempt = nil
+        workspaceCommitResults = []
+        workspaceCommitGeneration = UUID()
         gitBlameLines = [:]
         gitLineChangeMarkers = [:]
         loadingLineChangeURLs = []
@@ -722,7 +732,18 @@ package final class GitFeatureModel: ObservableObject {
         return GitSnapshot(
             repositoryRoot: firstSnapshot.repositoryRoot,
             branch: firstSnapshot.branch,
-            changes: snapshots.flatMap(\.changes)
+            changes: snapshots.flatMap(\.changes).filter { change in
+                // Git reports an independent embedded repository as an untracked
+                // directory in its parent. Do not let a parent-level Stage All
+                // silently turn that directory into a gitlink.
+                guard change.isUntracked else { return true }
+                let path = change.url.standardizedFileURL.path
+                return !repositoryRoots.contains { root in
+                    let nested = root.standardizedFileURL.path
+                    return nested.hasPrefix(change.repositoryRoot.standardizedFileURL.path + "/")
+                        && (path == nested || path.hasPrefix(nested + "/"))
+                }
+            }
         )
     }
 
@@ -878,7 +899,7 @@ package final class GitFeatureModel: ObservableObject {
         return saveChangesPolicy?() ?? .stash
     }
 
-    private func withGitOperation<T: Sendable>(
+    func withGitOperation<T: Sendable>(
         title: String? = nil, plannedArguments: [String]? = nil,
         _ operation: () async -> T
     ) async -> T {
@@ -1101,7 +1122,10 @@ package final class GitFeatureModel: ObservableObject {
     /// deliberately bypasses the selected file's working-tree diff so a file
     /// with both staged and unstaged edits is represented correctly.
     package func stagedCommitMessageInput() async -> CommitMessageInput? {
-        let stagedChanges = activeRepositoryChanges.filter(\.isStaged)
+        // `gitChanges` is the workspace aggregate. Keeping this input
+        // aggregate in the same way as the commit operation prevents the AI
+        // button from silently ignoring staged files in child repositories.
+        let stagedChanges = gitChanges.filter(\.isStaged)
         guard !stagedChanges.isEmpty else { return nil }
 
         var files: [CommitMessageFileInput] = []
@@ -1128,14 +1152,14 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageSelectedChange() async {
-        guard let selectedChange else { return }
+        guard !isCommitting, let selectedChange, selectedChange.canToggleStaging else { return }
         let result = await withGitOperation { await service.stage(selectedChange) }
         showResult(result, success: "Staged \(selectedChange.path)")
         await refreshGit()
     }
 
     package func unstageSelectedChange() async {
-        guard let selectedChange else { return }
+        guard !isCommitting, let selectedChange else { return }
         let result = await withGitOperation { await service.unstage(selectedChange) }
         showResult(result, success: "Unstaged \(selectedChange.path)")
         await refreshGit()
@@ -1270,107 +1294,6 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    /// Paths still holding conflict markers. Committing during a merge or rebase
-    /// would finish that operation, so an unresolved file has to stop the commit
-    /// rather than be recorded with its `<<<<<<<` markers intact.
-    private var conflictedPaths: [String] {
-        activeRepositoryChanges.filter(\.isConflicted).map(\.path)
-    }
-
-    private func blockCommitWhenConflicted() -> Bool {
-        let paths = conflictedPaths
-        guard !paths.isEmpty else { return false }
-        notify?("Resolve the conflicts first: \(paths.joined(separator: ", "))")
-        return true
-    }
-
-    /// Refuses a commit whose staged content still carries conflict markers.
-    ///
-    /// Separate from `blockCommitWhenConflicted`: Git stops marking a file as
-    /// conflicted the moment it is staged, so a user who stages before deleting the
-    /// `<<<<<<<` lines would otherwise commit them. This reads the staged blobs.
-    private func blockCommitWhenMarkersRemain() async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let paths = await service.conflictMarkerPaths(at: gitRepositoryRoot)
-        guard !paths.isEmpty else { return false }
-        notify?("Conflict markers remain in: \(paths.joined(separator: ", "))")
-        return true
-    }
-
-    package func commitStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            notify?("Enter a commit message")
-            return false
-        }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
-
-        isCommitting = true
-        let result = await withGitOperation {
-            await service.commit(at: gitRepositoryRoot, message: message, amend: amend)
-        }
-        isCommitting = false
-        if result.succeeded {
-            notify?("Changes committed")
-        } else {
-            notify?(trimmedMessage(result))
-        }
-        await refreshGit()
-        return result.succeeded
-    }
-
-    @discardableResult
-    package func commitAndPushStagedChanges(message rawMessage: String, amend: Bool) async -> Bool {
-        guard let gitRepositoryRoot else { return false }
-        let message = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !message.isEmpty else {
-            notify?("Enter a commit message")
-            return false
-        }
-        guard activeRepositoryChanges.contains(where: \.isStaged) else {
-            notify?("Stage at least one change before committing")
-            return false
-        }
-        guard !blockCommitWhenConflicted() else { return false }
-        guard await !blockCommitWhenMarkersRemain() else { return false }
-
-        isCommitting = true
-        let commitResult = await withGitOperation {
-            await service.commit(
-                at: gitRepositoryRoot,
-                message: message,
-                amend: amend
-            )
-        }
-        guard commitResult.succeeded else {
-            isCommitting = false
-            notify?(trimmedMessage(commitResult))
-            await refreshGit()
-            return false
-        }
-
-        guard let currentReference = currentGitReference else {
-            isCommitting = false
-            notify?("Committed changes, but detached HEAD cannot be pushed")
-            await refreshGit()
-            return true
-        }
-
-        let pushResult = await withGitOperation {
-            await service.push(currentReference, at: gitRepositoryRoot)
-        }
-        isCommitting = false
-        if pushResult.succeeded {
-            notify?("Committed and pushed \(currentReference.shortName)")
-        } else {
-            notify?("Committed changes, but push failed: \(trimmedMessage(pushResult))")
-        }
-        await refreshGit()
-        return true
-    }
-
     func reconcilePendingStagingStates(with changes: [GitChange]) {
         let changesByID = Dictionary(uniqueKeysWithValues: changes.map { ($0.id, $0) })
         pendingStagingStates = pendingStagingStates.filter { id, staged in
@@ -1378,20 +1301,23 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
+    package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
+
     package func effectiveStagingState(for change: GitChange) -> Bool {
         pendingStagingStates[change.id] ?? change.isStaged
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
         pendingStagingStates[change.id] = staged
         return staged
     }
 
     package func beginSetStaging(_ changes: [GitChange], staged: Bool) -> [GitChange] {
+        guard !isCommitting else { return [] }
         let pendingChanges = changes.filter {
-            pendingStagingStates[$0.id] == nil && $0.isStaged != staged
+            $0.canToggleStaging && pendingStagingStates[$0.id] == nil && $0.isStaged != staged
         }
         for change in pendingChanges {
             pendingStagingStates[change.id] = staged
@@ -3563,7 +3489,7 @@ package final class GitFeatureModel: ObservableObject {
         return "\(fallback): \(warning.message)"
     }
 
-    private func trimmedMessage(_ result: GitService.CommandResult) -> String {
+    func trimmedMessage(_ result: GitService.CommandResult) -> String {
         let message = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         return message.isEmpty ? "Git operation failed" : message
     }

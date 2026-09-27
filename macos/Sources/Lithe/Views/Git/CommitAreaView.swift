@@ -63,6 +63,24 @@ struct CommitAreaView: View {
                     .allowsHitTesting(false)
             }
 
+            if !feature.workspaceCommitResults.isEmpty {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(feature.workspaceCommitResults) { result in
+                            (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail)))
+                                .font(.caption).help(result.root.path)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 90)
+                Button("Dismiss Results") { feature.dismissWorkspaceCommitResults() }
+                    .disabled(feature.isCommitting)
+                if feature.canRetryWorkspaceCommit {
+                    Button("Review and Retry Unfinished Steps…") {
+                        Task { await feature.prepareWorkspaceCommitRetry() }
+                    }.disabled(feature.isCommitting)
+                }
+            }
+
             HStack(spacing: 8) {
                 Button {
                     Task { await commitWorkflow.commit() }
@@ -115,16 +133,75 @@ struct CommitAreaView: View {
         } message: {
             Text("The generated message will replace the text currently in the editor.")
         }
+        .sheet(isPresented: Binding(
+            get: { feature.pendingSubmoduleCommitPlan != nil },
+            set: { if !$0 { feature.cancelPendingSubmoduleCommit() } }
+        )) {
+            WorkspaceCommitPlanView(feature: feature, commitWorkflow: commitWorkflow)
+        }
     }
 
     private var stagedChanges: [GitChange] {
-        feature.activeRepositoryChanges.filter(\.isStaged)
+        // Commit operates on every repository in the workspace, not only the
+        // repository selected by the branch toolbar.
+        feature.gitChanges.filter(\.isStaged)
     }
 
     private var canCommit: Bool {
         !stagedChanges.isEmpty &&
             !draft.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !feature.isCommitting
+            !feature.isCommitting && !feature.isStagingChanges && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
     }
 
+}
+
+/// Observe the plan directly so a changed selection updates the open sheet.
+private struct WorkspaceCommitPlanView: View {
+    @ObservedObject var feature: GitFeatureModel
+    let commitWorkflow: CommitWorkflowCoordinator
+
+    var body: some View {
+        if let plan = feature.pendingSubmoduleCommitPlan {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(plan.isRetry ? "Review remaining steps" : "Review repository commits").font(.headline)
+                Text("Each repository has its own commit. Completed steps are kept if another repository fails.")
+                Text("Commit message: \(plan.message)").font(.caption)
+                if plan.amend { Text("Amend applies to repositories with selected files.").font(.caption) }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(plan.orderedRoots.enumerated()), id: \.element) { index, root in
+                            VStack(alignment: .leading, spacing: 2) {
+                                let action = plan.committedRoots.contains(root) ? "Push only" : (plan.push ? "Commit and push" : "Commit")
+                                Text("\(index + 1). \(action): \(root.path)")
+                                if let state = plan.states[root] {
+                                    Text("\(state.branch ?? "Detached HEAD") · \(state.head?.prefix(10) ?? "New repository")")
+                                        .font(.caption).foregroundStyle(.secondary)
+                                    if !plan.committedRoots.contains(root) {
+                                        ForEach(state.stagedPaths, id: \.self) { path in
+                                            Text(path).font(.caption)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        ForEach(plan.propagatedRelations, id: \.self) { relation in
+                            Text("Update \(relation.parent.lastPathComponent)/\(relation.path) after \(relation.child.lastPathComponent)")
+                                .font(.caption)
+                        }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }.frame(maxHeight: 260)
+                Toggle("Update parent repository references", isOn: Binding(
+                    get: { plan.includeParentReferences },
+                    set: { include in Task { await feature.setCommitPlanParentReferences(include) } }
+                )).disabled(feature.isCommitting)
+                if plan.push { Text("Each submodule is pushed before its parent.").font(.caption) }
+                HStack {
+                    Spacer()
+                    Button("Cancel") { feature.cancelPendingSubmoduleCommit() }
+                    Button("Continue") { Task { await commitWorkflow.confirmPendingSubmoduleCommit() } }
+                        .keyboardShortcut(.defaultAction)
+                }.disabled(feature.isCommitting)
+            }.padding(20).frame(width: 540)
+        }
+    }
 }

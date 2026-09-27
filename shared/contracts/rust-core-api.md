@@ -335,6 +335,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
@@ -2073,3 +2074,43 @@ failure is visible but does not globally block unrelated targets; callers still
 build the selected target before launching. A successful preparation does not
 promise compilation success. Shared examples live in
 `shared/fixtures/lsp/project-preparation-v1.json`.
+
+### Workspace commit preconditions
+
+`git.commitState` accepts `{ root }` and returns `{ head, branch, indexEntries,
+gitlinks, stagedPaths, conflictedPaths }`. `head` is null only for an unborn branch; `branch` is
+null for detached HEAD. `indexEntries` is Git's opaque NUL-delimited staged index
+listing, including blob IDs and conflict stages; clients compare it without
+parsing it. `gitlinks` lists stage-0 mode-160000 entries as `{ path, revision }`.
+Read failures are errors, never an empty relationship list.
+
+`git.write` / `commit` optionally accepts `expectedCommitState` and
+`gitlinkUpdates: [{ path, revision }]`. Gitlink updates cannot accompany other
+operations or path-selected commits. Push also accepts `expectedCommitState`
+to reject a changed repository under its writer lease. Workspace pushes set
+`checkSubmodules: true`, invoking Git's `--recurse-submodules=check` so missing child
+commits block a parent push even when only the parent pointer was selected. Under the existing repository writer lease,
+Core verifies HEAD/index, validates all child HEAD revisions, then updates only
+those parent index entries in a single `update-index --index-info` transaction
+before the regular commit. Any changed precondition returns `invalid_request`
+through the existing operation error envelope. Unrelated unstaged parent files
+are not added. A failing hook may leave the pointer staged: clients must retain
+partial progress and re-read state before retrying. External Git processes do
+not participate in Lithe's lease; cross-repository commits are not atomic.
+
+`git.status.changes[]` additionally carries optional `submodule` with
+`commitChanged`, `trackedChanges`, and `untrackedChanges`, normalized from Git
+porcelain v2. The existing two-character `status` remains compatible. The optional request flag
+`includeIndexOnlyChanges` retains staged additions deleted only from the working
+tree (`AD`); macOS enables it so every staged file remains visible. Omission
+preserves the Windows final-worktree projection. Child dirt
+alone is informational in the parent; only a changed commit pointer (or an
+already-staged change) is eligible for the parent's staging checkbox.
+
+The macOS workflow discovers relationships across all workspace repositories,
+expands selected roots through parent gitlinks, and confirms the displayed plan.
+Confirmation re-reads state and requires another confirmation on any change.
+Each write has its own operation ID: cancellation of one write blocks dependent
+parents and continues independent roots. Session results distinguish completed
+commits from remaining pushes. Windows has not yet adopted this orchestration.
+See `shared/fixtures/git/workspace-commit-v1.json` for additive payload examples.

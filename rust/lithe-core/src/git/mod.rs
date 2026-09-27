@@ -2,6 +2,9 @@
 
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
+mod commit_state;
+pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
+
 pub(crate) mod configuration;
 pub(crate) mod console;
 pub(crate) mod execution_events;
@@ -93,6 +96,10 @@ pub struct WorkspaceRepositoriesRequest {
 /// Request for a deterministic porcelain status snapshot.
 pub struct GitStatusRequest {
     pub root: String,
+    /// Staging-based UIs must retain additions deleted only from the worktree.
+    /// Omission preserves the Windows final-worktree projection.
+    #[serde(default)]
+    pub include_index_only_changes: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -468,6 +475,12 @@ pub struct GitWriteRequest {
     pub no_checkout: bool,
     #[serde(default)]
     pub amend: bool,
+    /// Reviewed HEAD/index required by a planned workspace commit.
+    #[serde(default)]
+    pub expected_commit_state: Option<GitCommitState>,
+    /// Exact child commits to record; requires expected_commit_state.
+    #[serde(default)]
+    pub gitlink_updates: Vec<GitCommitGitlink>,
     #[serde(default)]
     pub force: bool,
     /// Tag scope for push: `none`, `all`, or `reachable`.
@@ -476,6 +489,9 @@ pub struct GitWriteRequest {
     /// Optional reviewed preview snapshot that must still match before pushing.
     #[serde(default)]
     pub expected_push: Option<GitPushExpectationRequest>,
+    /// Verify submodule commits are published before a workspace branch push.
+    #[serde(default)]
+    pub check_submodules: bool,
     #[serde(default)]
     pub auto_stash: bool,
     /// Mandatory immutable preview for undo, reword, squash, and drop.
@@ -878,6 +894,21 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             "Fetch options require a fetch operation",
         ));
     }
+    if request.check_submodules && request.operation != "push" {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Submodule publication checks require a push operation",
+        ));
+    }
+    if request.operation != "commit"
+        && (!request.gitlink_updates.is_empty()
+            || (request.expected_commit_state.is_some() && request.operation != "push"))
+    {
+        return Err(CoreError::new(
+            ErrorCode::InvalidRequest,
+            "Commit state preconditions require a commit or push operation",
+        ));
+    }
     let root = validate_root(&request.root)?;
     // Every typed writer shares the same repository lease, including linked
     // worktrees. Clone has no existing repository whose state it could race.
@@ -902,6 +933,28 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "unstage" => {
             let paths = validate_paths(&request.paths)?;
             let pathspec_input = nul_pathspec_input(&paths);
+
+            // An unborn repository has no HEAD for `restore --staged` or
+            // `reset HEAD` to resolve. Its index can only contain newly added
+            // paths, so remove those entries from the index while preserving
+            // the working tree files.
+            let head = execute_git(
+                &root,
+                &["rev-parse".into(), "--verify".into(), "HEAD".into()],
+                None,
+            )?;
+            if head.exit_code != 0 && commit_state::is_unborn(&root)? {
+                arguments = vec![
+                    "rm".into(),
+                    "--cached".into(),
+                    "--force".into(),
+                    "--ignore-unmatch".into(),
+                    "--pathspec-from-file=-".into(),
+                    "--pathspec-file-nul".into(),
+                ];
+                return execute_git(&root, &arguments, Some(pathspec_input));
+            }
+
             let restore_arguments = vec![
                 "restore".into(),
                 "--staged".into(),
@@ -959,6 +1012,20 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
         "stageAll" => arguments = vec!["add".into(), "--all".into()],
         "commit" => {
             let message = required_text(request.message.as_deref(), "commit message")?;
+            if request.expected_commit_state.is_some() && !request.paths.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Planned commits use the reviewed index",
+                ));
+            }
+            if let Some(expected) = &request.expected_commit_state {
+                commit_state::prepare(&root, expected, &request.gitlink_updates)?;
+            } else if !request.gitlink_updates.is_empty() {
+                return Err(CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Submodule updates require a reviewed commit state",
+                ));
+            }
             if !request.paths.is_empty() {
                 let paths = validate_paths(&request.paths)?;
                 return commit_selected_paths(&root, paths, message, request.amend);
@@ -1178,6 +1245,14 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
             ];
         }
         "push" => {
+            if let Some(expected) = &request.expected_commit_state {
+                if commit_state::inspect_root(&root)? != *expected {
+                    return Err(CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Push state changed; review the commit plan again",
+                    ));
+                }
+            }
             let reference = optional_write_request_reference(&root, &request)?;
             return push(
                 &root,
@@ -1185,6 +1260,7 @@ fn write_with_trace(request: GitWriteRequest) -> Result<GitCommandResponse, Core
                 request.force,
                 request.push_tags.as_deref(),
                 request.expected_push.as_ref(),
+                request.check_submodules,
             );
         }
         "checkout" => return checkout(&root, request),
@@ -4866,6 +4942,7 @@ fn push(
     force: bool,
     push_tags: Option<&str>,
     expected_push: Option<&GitPushExpectationRequest>,
+    check_submodules: bool,
 ) -> Result<GitCommandResponse, CoreError> {
     let tag_scope = push_tags.unwrap_or("none");
     let tag_argument = match tag_scope {
@@ -4885,6 +4962,9 @@ fn push(
         validate_push_expectation(root, &target, tag_scope, expected_push)?;
     }
     let mut arguments = vec!["push".to_string()];
+    if check_submodules {
+        arguments.push("--recurse-submodules=check".into());
+    }
     if force {
         // Bind reviewed pushes to the observed remote OID so an unseen remote update is rejected.
         arguments.push(match expected_push {
@@ -6473,7 +6553,8 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
             "-c",
             "core.quotepath=false",
             "status",
-            "--porcelain=v1",
+            "--porcelain=v2",
+            "--ignore-submodules=none",
             "-z",
             "--untracked-files=all",
         ],
@@ -6484,7 +6565,7 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
                 .with_details(String::from_utf8_lossy(&status_output.stderr)),
         );
     }
-    let changes = parse_status(&status_output.stdout);
+    let changes = parse_status(&status_output.stdout, request.include_index_only_changes);
     let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
@@ -6589,43 +6670,67 @@ fn run_git(directory: &Path, arguments: &[&str]) -> Result<std::process::Output,
         })
 }
 
-fn parse_status(output: &[u8]) -> Vec<GitChange> {
+fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChange> {
     let mut changes = Vec::new();
-    let records = output
+    let mut records = output
         .split(|byte| *byte == 0)
-        .filter(|record| !record.is_empty())
-        .collect::<Vec<_>>();
-    let mut index = 0;
-    while index < records.len() {
-        let record = String::from_utf8_lossy(records[index]).to_string();
-        let bytes = record.as_bytes();
-        if bytes.len() < 3 {
-            index += 1;
+        .filter(|record| !record.is_empty());
+    while let Some(record) = records.next() {
+        let record = String::from_utf8_lossy(record);
+        let (status, submodule, path, original_path) = match record.as_bytes().first() {
+            Some(b'?') => ("??".to_string(), None, record[2..].to_string(), None),
+            Some(kind @ (b'1' | b'2' | b'u')) => {
+                // v2 headers have fixed field counts; the remaining path may
+                // contain whitespace. A rename's old path is the next NUL record.
+                let count = match kind {
+                    b'1' => 9,
+                    b'2' => 10,
+                    _ => 11,
+                };
+                let fields = record.splitn(count, ' ').collect::<Vec<_>>();
+                if fields.len() != count {
+                    continue;
+                }
+                let status = fields[1].replace('.', " ");
+                let submodule = if fields[2].starts_with('S') {
+                    Some(crate::protocol::GitSubmoduleStatus {
+                        commit_changed: fields[2].as_bytes().get(1) == Some(&b'C'),
+                        tracked_changes: fields[2].as_bytes().get(2) == Some(&b'M'),
+                        untracked_changes: fields[2].as_bytes().get(3) == Some(&b'U'),
+                    })
+                } else {
+                    None
+                };
+                let original = if *kind == b'2' {
+                    records
+                        .next()
+                        .map(|path| String::from_utf8_lossy(path).to_string())
+                } else {
+                    None
+                };
+                (status, submodule, fields[count - 1].to_string(), original)
+            }
+            _ => continue,
+        };
+        let bytes = status.as_bytes();
+        if bytes.len() != 2 {
             continue;
         }
         let x = bytes[0] as char;
         let y = bytes[1] as char;
-        // The commit checkbox represents the final worktree snapshot. A path
-        // added only to the index and then deleted is identical to HEAD.
-        if x == 'A' && y == 'D' {
-            index += 1;
+        // Preserve the existing final-worktree projection used by Windows.
+        if !include_index_only_changes && x == 'A' && y == 'D' {
             continue;
-        }
-        let path = record[3..].to_string();
-        let mut original_path = None;
-        if (matches!(x, 'R' | 'C') || matches!(y, 'R' | 'C')) && index + 1 < records.len() {
-            original_path = Some(String::from_utf8_lossy(records[index + 1]).to_string());
-            index += 1;
         }
         changes.push(GitChange {
             path,
             original_path,
-            status: format!("{}{}", x, y),
+            status,
             staged: x != ' ' && x != '?',
             worktree: y != ' ' && y != '?',
             untracked: x == '?' && y == '?',
+            submodule,
         });
-        index += 1;
     }
     changes.sort_by(|left, right| left.path.cmp(&right.path));
     changes

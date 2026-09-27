@@ -1601,6 +1601,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitCommitState => {
+            match serde_json::from_value::<GitStatusRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid commit state request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::commit_state)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Commit state should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitStatus => match serde_json::from_value::<GitStatusRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git status request")
