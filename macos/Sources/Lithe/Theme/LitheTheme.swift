@@ -313,6 +313,14 @@ enum LitheTheme {
                 : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         })
     }
+    static var settingsSelectBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 57.0 / 255, green: 59.0 / 255, blue: 64.0 / 255, alpha: 1)
+                : .white
+        })
+    }
     static var toolHeader: Color { adaptive(\.toolHeader) }
     static var toolHeaderInactive: Color { adaptive(\.toolHeaderInactive) }
     static var sidebar: Color { adaptive(\.sidebar) }

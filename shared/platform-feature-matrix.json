@@ -1557,6 +1557,7 @@
           "macos/Sources/Lithe/LitheApp.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
+          "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
           "macos/Sources/Lithe/Theme/LitheTheme.swift"
         ],
         "implementationStatus": "implemented",
@@ -1570,7 +1571,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动，设置树字体、选中态与搜索框符合 IDEA 主题；关闭后重开再检查。"
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动；检查搜索框、普通及密码输入框、多行编辑框、数值步进器、下拉框和分段选择在各设置子页面中的背景、边框、焦点态及操作行为一致，关闭后重开再检查。"
     },
     {
       "id": "keymap-customization",

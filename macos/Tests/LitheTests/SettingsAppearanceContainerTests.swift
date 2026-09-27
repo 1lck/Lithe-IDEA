@@ -6,6 +6,27 @@ import Testing
 @MainActor
 struct SettingsAppearanceContainerTests {
     @Test
+    func settingsInputRolesUseDistinctIDEAStyleSurfaces() throws {
+        for (appearanceName, expected) in [
+            (NSAppearance.Name.darkAqua, [0x2B2D30, 0x393B40]),
+            (.aqua, [0xFFFFFF, 0xFFFFFF])
+        ] {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            var colors: [NSColor?] = []
+            appearance.performAsCurrentDrawingAppearance {
+                colors = [LitheTheme.settingsControlBackground, LitheTheme.settingsSelectBackground]
+                    .map { NSColor($0).usingColorSpace(.sRGB) }
+            }
+            for (color, hex) in zip(colors, expected) {
+                let color = try #require(color)
+                #expect(abs(color.redComponent - CGFloat((hex >> 16) & 0xff) / 255) < 0.005)
+                #expect(abs(color.greenComponent - CGFloat((hex >> 8) & 0xff) / 255) < 0.005)
+                #expect(abs(color.blueComponent - CGFloat(hex & 0xff) / 255) < 0.005)
+            }
+        }
+    }
+
+    @Test
     func settingsSurfaceMatchesWorkbenchLightAndDarkColors() throws {
         for appearanceName in [NSAppearance.Name.darkAqua, .aqua] {
             let appearance = try #require(NSAppearance(named: appearanceName))

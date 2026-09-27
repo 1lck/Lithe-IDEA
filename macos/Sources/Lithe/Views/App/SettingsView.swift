@@ -507,26 +507,12 @@ struct SettingsView: View {
                 Text("Directories")
                     .font(.system(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenDirectoriesDraft)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(height: 66)
-                    .padding(5)
-                    .litheRoundedControlBackground(LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                    }
+                    .litheSettingsTextEditor(height: 66)
 
                 Text("File patterns")
                     .font(.system(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenFilePatternsDraft)
-                    .font(.system(size: 12, design: .monospaced))
-                    .frame(height: 52)
-                    .padding(5)
-                    .litheRoundedControlBackground(LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                    }
+                    .litheSettingsTextEditor(height: 52)
 
                 HStack(spacing: 8) {
                     Spacer()
@@ -1025,14 +1011,7 @@ struct SettingsView: View {
                     Text("Custom instructions")
                         .font(.system(size: 11.5, weight: .medium))
                     TextEditor(text: $settings.commitMessageAI.customInstructions)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(height: 92)
-                        .padding(5)
-                        .litheRoundedControlBackground(LitheTheme.inputBackground)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                        }
+                        .litheSettingsTextEditor(height: 92)
                 }
 
                 Text("Low effort and a small output limit are recommended for fast commit-message generation.")
@@ -1041,13 +1020,13 @@ struct SettingsView: View {
             }
 
             group("Pull request description generation") {
-                Picker("Description format", selection: $settings.commitMessageAI.pullRequestFormat) {
-                    ForEach(PullRequestDescriptionFormat.allCases) { format in
-                        Text(LocalizedStringKey(format.title)).tag(format)
-                    }
-                }
-                .frame(maxWidth: 260, alignment: .leading)
-                .lithePointer()
+                LitheSettingsSelect(
+                    selection: $settings.commitMessageAI.pullRequestFormat,
+                    options: PullRequestDescriptionFormat.allCases,
+                    width: 260,
+                    accessibilityLabel: "Description format",
+                    title: \.title
+                )
 
                 if settings.commitMessageAI.pullRequestFormat == .custom {
                     HStack {
@@ -1064,15 +1043,7 @@ struct SettingsView: View {
                     }
 
                     TextEditor(text: $settings.commitMessageAI.pullRequestCustomTemplate)
-                        .font(.system(size: 12, design: .monospaced))
-                        .frame(height: 150)
-                        .padding(5)
-                        .background(LitheTheme.inputBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-                        }
+                        .litheSettingsTextEditor(height: 150)
 
                     Text("Supported placeholders: {summary}, {changes}, {testing}, {risks}.")
                         .font(LitheTheme.smallFont)
