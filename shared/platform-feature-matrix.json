@@ -129,6 +129,33 @@
       "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 待接入设置界面。"
     },
     {
+      "id": "agent-provider-configuration",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 供应商管理：读取本机配置、自定义 Codex/Claude 配置文本、添加与编辑、安全保存密钥、启用与重连、确认删除及取消关联",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift",
+          "macos/Sources/Lithe/Platform/MacOS/UI/MacConfigurationTextEditor.swift",
+          "macos/Sources/Lithe/Application/Features/AgentProviderConfiguration.swift",
+          "macos/Sources/Lithe/Models/AppModel/AppModel+AgentProviders.swift",
+          "macos/Tests/LitheTests/AgentProviderConfigurationTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "partial",
+        "verificationStatus": "pending",
+        "evidence": [
+          "rust/lithe-core/src/ai/agent_configuration.rs",
+          "shared/fixtures/agent/provider-configuration-v1.json"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：验证本机 Codex/Claude 配置读取、刷新与取消关联；添加自定义 TOML/auth JSON 或 Claude settings JSON，检查格式化、输入直引号不被自动替换、弯引号 TOML 错误在保存按钮上方始终可见、非法配置和缺失密钥、取消不保存、编辑保持 ID、删除确认及安全存储失败不丢失配置。检查窄宽面板、深浅主题、中英文本。空闲切换后确认请求到所选地址和模型，恢复历史后继续；正在响应、加载、权限待处理或配置确认时拒绝切换。提交服务商选择不被添加/启用改变。CLI 文件与 bundle 不被写入。Windows 编辑器及 Claude 真实请求待验证。"
+    },
+    {
       "id": "workspace-open-switch",
       "area": "工作区",
       "group": "工作区生命周期",

@@ -632,6 +632,7 @@ final class MacServiceContainer {
             diagnosticsExportService: diagnosticsExportService,
             credentialResolver: credentialResolver,
             agentManagement: RustAgentManagementService(core: rustCore),
+            agentProviderConfigurationParser: MacAgentProviderConfigurationParser(core: rustCore),
             aiConfigurationSources: aiConfigurationSources,
             recentProjectsStore: RecentProjectsStore(store: store),
             workspaceSessionStore: WorkspaceSessionStore(store: store),

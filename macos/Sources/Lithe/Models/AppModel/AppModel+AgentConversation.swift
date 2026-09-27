@@ -132,6 +132,7 @@ extension AppModel {
 
     /// Refresh the panel's agents and start the selected one if needed.
     func connectAgentConversation() {
+        guard !isChangingAgentProvider else { return }
         guard let feature = agentConversationFeatureIfActive else { return }
         feature.onAttentionChanged = { [weak self] needsAttention in
             self?.agentConversationNeedsAttention = needsAttention

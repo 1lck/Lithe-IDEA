@@ -45,10 +45,7 @@ final class MacLocalSecretStore: SecureStore, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        var contents = (try? loadContents()) ?? FileContents(
-            version: Self.fileVersion,
-            values: [:]
-        )
+        var contents = try loadContents()
         let data = transform(Data(value.utf8), key: key)
         contents.values[key] = data.base64EncodedString()
         try saveContents(contents)
@@ -58,7 +55,7 @@ final class MacLocalSecretStore: SecureStore, @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        guard var contents = try? loadContents() else { return }
+        var contents = try loadContents()
         contents.values.removeValue(forKey: key)
         if contents.values.isEmpty {
             if fileManager.fileExists(atPath: fileURL.path) {
@@ -76,9 +73,16 @@ final class MacLocalSecretStore: SecureStore, @unchecked Sendable {
         let data = try Data(contentsOf: fileURL)
         let contents = try JSONDecoder().decode(FileContents.self, from: data)
         guard contents.version == Self.fileVersion else {
-            return FileContents(version: Self.fileVersion, values: [:])
+            throw StoreError.unsupportedVersion
         }
         return contents
+    }
+
+    private enum StoreError: LocalizedError {
+        case unsupportedVersion
+        var errorDescription: String? {
+            String(localized: "The credential store version is unsupported. Existing credentials were preserved.")
+        }
     }
 
     private func saveContents(_ contents: FileContents) throws {

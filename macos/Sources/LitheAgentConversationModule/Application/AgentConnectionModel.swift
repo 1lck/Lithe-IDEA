@@ -590,11 +590,11 @@ public enum AgentConversationError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .featureDisabled: String(localized: "Agent conversation is turned off. Turn it on in the panel settings to send messages.")
-        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and fetch its local configuration.")
+        case .noAgentConfigured: String(localized: "No Agent is ready yet. Open the panel settings to install an Agent and choose a local or custom provider.")
         case .moduleStarting: String(localized: "The Agent module is still starting. Try again in a moment.")
         case .missingCommand: String(localized: "Set the custom Agent's executable in the panel settings.")
-        case .missingProvider: String(localized: "Fetch this Agent's local configuration in the panel settings.")
-        case .missingAPIKey: String(localized: "Your local configuration has no API key for this Agent. Add one, then fetch the configuration again.")
+        case .missingProvider: String(localized: "Choose a local or custom provider in the Agent panel settings.")
+        case .missingAPIKey: String(localized: "This Agent's provider has no API key. Update its local configuration or edit the custom provider in the panel settings.")
         case .notConnected: String(localized: "The Agent is not running. Connect to start a conversation.")
         case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
         case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
