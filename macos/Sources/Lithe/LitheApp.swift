@@ -763,7 +763,8 @@ private struct SettingsWindow: View {
             SettingsWindowAccessor(
                 reference: windowReference,
                 title: settingsWindowTitle(for: settings.language),
-                themePreference: settings.themePreference
+                themePreference: settings.themePreference,
+                closeEnabled: !viewState.isApplyingPluginChanges
             )
         )
         .onDisappear {
@@ -773,7 +774,9 @@ private struct SettingsWindow: View {
     }
 
     private func close() {
+        guard !viewState.isApplyingPluginChanges else { return }
         model.isSettingsPresented = false
+        windowReference.window?.standardWindowButton(.closeButton)?.isEnabled = true
         windowReference.window?.performClose(nil)
     }
 }
@@ -818,6 +821,7 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
     let themePreference: AppThemePreference
+    let closeEnabled: Bool
 
     func makeNSView(context: Context) -> SettingsWindowProbe {
         let view = SettingsWindowProbe(frame: .zero)
@@ -842,7 +846,12 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             reference.window = window
-            SettingsWindowChrome.configure(window, title: title, themePreference: themePreference)
+            SettingsWindowChrome.configure(
+                window,
+                title: title,
+                themePreference: themePreference,
+                closeEnabled: closeEnabled
+            )
         }
     }
 }
@@ -852,7 +861,12 @@ enum SettingsWindowChrome {
     static weak var ownerWindow: NSWindow?
     static weak var settingsWindow: NSWindow?
 
-    static func configure(_ window: NSWindow, title: String, themePreference: AppThemePreference) {
+    static func configure(
+        _ window: NSWindow,
+        title: String,
+        themePreference: AppThemePreference,
+        closeEnabled: Bool? = nil
+    ) {
         settingsWindow = window
         window.title = title
         window.level = .normal
@@ -877,6 +891,9 @@ enum SettingsWindowChrome {
         applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = true
+        if let closeEnabled {
+            window.standardWindowButton(.closeButton)?.isEnabled = closeEnabled
+        }
     }
 
     private static func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {

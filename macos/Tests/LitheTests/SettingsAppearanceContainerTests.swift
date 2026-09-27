@@ -109,6 +109,24 @@ struct SettingsAppearanceContainerTests {
         #expect(firstOwner.childWindows?.contains(settingsWindow) != true)
     }
 
+    @Test
+    func applyingPluginChangesBlocksNativeWindowClose() {
+        let (window, _) = makeWindow(theme: .dark)
+        defer { window.close() }
+
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark, closeEnabled: false)
+        window.performClose(nil)
+        #expect(window.isVisible)
+
+        // Reconfiguring ownership or appearance must not reenable closing mid-apply.
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark)
+        #expect(window.standardWindowButton(.closeButton)?.isEnabled == false)
+
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark, closeEnabled: true)
+        window.performClose(nil)
+        #expect(!window.isVisible)
+    }
+
     private func makeWindow(theme: AppThemePreference) -> (NSWindow, NSHostingView<AnyView>) {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 240),

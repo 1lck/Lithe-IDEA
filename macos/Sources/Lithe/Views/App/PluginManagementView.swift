@@ -76,14 +76,6 @@ struct PluginManagementView: View {
                 .padding(.horizontal, 12).padding(.vertical, 7)
             .background(LitheTheme.settingsSelection)
             .clipShape(RoundedRectangle(cornerRadius: 7))
-            Menu {
-                Button("Install Plugin from Disk…") { model.installPluginPackage() }
-            } label: {
-                Image(systemName: "gearshape")
-                    .foregroundStyle(LitheTheme.secondaryText)
-            }
-            .menuStyle(.borderlessButton)
-            .help("Plugin settings")
         }
         .padding(.horizontal, 16)
         .frame(height: 42)

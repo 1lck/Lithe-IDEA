@@ -36,19 +36,6 @@ extension AppModel {
         return appliedPluginIDs
     }
 
-    func installPluginPackage() {
-        guard let packageURL = platformUI.chooseDirectory(
-            title: "Install Plugin Package",
-            prompt: "Install"
-        ) else { return }
-        do {
-            try services.pluginManager.installPackage(at: packageURL)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
     func rollbackPlugin(_ pluginID: PluginID) {
         do {
             try services.pluginManager.rollback(pluginID)
