@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-25
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：89
-- macOS：实现：✅ 76 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 79 待验证，— 10 不适用
-- Windows：实现：✅ 80 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 87 待验证，— 2 不适用
+- 功能项：90
+- macOS：实现：✅ 77 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 80 待验证，— 10 不适用
+- Windows：实现：✅ 80 已实现，🟡 7 部分实现，❌ 3 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 87 待验证，— 3 不适用
 
 ## 实现状态定义
 
@@ -30,10 +30,11 @@
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。单元格第一行是实现状态，第二行是验证状态。
 
 <details>
-<summary><strong>AI</strong> · 8 个能力点</summary>
+<summary><strong>AI</strong> · 9 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
+| Agent 对话 | **CC GUI 风格历史页：标题与会话 ID 搜索、更新时间、复制 ID、刷新与恢复、收藏与本地重命名、单条与批量移除确认及恢复、筛选、多选批量管理及 Markdown 导出**<br><sub>agent-conversation-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift`、`macos/Sources/LitheAgentConversationModule/Application/AgentHistoryFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentHistoryAdapters.swift`、`macos/Tests/LitheTests/AgentHistoryTests.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`</sub> | Agent | macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 页面待实现。 |  |
 | Agent 对话 | **Agent 上下文用量：输入框圆环百分比、悬停已用/容量 token，未使用时零占位、会话隔离与压缩后更新**<br><sub>agent-context-usage</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule/Application/AgentContextUsage.swift`、`macos/Sources/Lithe/Views/Agent/AgentContextUsageView.swift`、`macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift`、`macos/Tests/LitheTests/AgentConversationPresentationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`、`shared/fixtures/agent/acp-events-v1.json`</sub> | Agent | macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 共享 host 可转发 usage_update，页面待实现。 |  |
 | Agent 对话 | **可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理**<br><sub>agent-acp-conversation</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule`、`macos/Sources/Lithe/Views/Agent`、`rust/lithe-agent-host`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host`</sub> | Agent | macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 |  |
 | Agent 对话 | **从 Finder 或项目树拖入文件到 Agent 输入框，文件选择器、可移除标签、多文件去重和数量限制、文件引用随消息发送及失败保留草稿**<br><sub>agent-file-references</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentComposerView.swift`、`macos/Sources/Lithe/Views/Agent/AgentFileReferenceList.swift`、`macos/Sources/LitheAgentConversationModule/Application/AgentFileReference.swift`、`macos/Tests/LitheTests/AgentFileReferenceTests.swift`、`macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift`、`rust/lithe-agent-host/src/tests.rs`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host/src/prompt.rs`、`shared/fixtures/agent/acp-events-v1.json`</sub> | Agent | macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。 |  |

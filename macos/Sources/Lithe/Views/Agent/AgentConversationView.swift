@@ -18,14 +18,16 @@ struct AgentConversationView: View {
                     feature: model.agentManagementFeature,
                     onDone: { showsSettings = false }
                 )
-            } else if let feature, let connection = feature.selectedConnection {
+            } else if let feature, let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
                 AgentConnectionView(
                     feature: connection,
+                    history: feature.history(for: agentID),
                     agents: feature.agents,
                     selectedAgentID: feature.selectedAgentID,
                     onSelectAgent: { model.selectAgentConversationAgent($0) },
                     onConnect: { model.connectAgentConversation() },
                     onOpenSettings: { showsSettings = true },
+                    onCopySessionID: { model.copyAgentSessionID($0) },
                     onOpenFile: { model.openAgentFile($0) }
                 )
                 .id(feature.selectedAgentID)
@@ -106,84 +108,107 @@ private struct AgentUnconfiguredConversationView: View {
 
 private struct AgentConnectionView: View {
     @ObservedObject var feature: AgentConnectionModel
+    @ObservedObject var history: AgentHistoryFeatureModel
     let agents: [AgentOption]
     let selectedAgentID: String?
     let onSelectAgent: (String) -> Void
     let onConnect: () -> Void
     let onOpenSettings: () -> Void
+    let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
     @State private var localError: String?
     @State private var showsSearch = false
     @State private var searchText = ""
     @State private var showsTabs = false
+    @State private var showsHistory = false
 
     private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
 
     var body: some View {
-        AgentPanelHeader(title: headerTitle) {
-            Button { showsSearch.toggle(); searchText = "" } label: { Image(systemName: "magnifyingglass") }
-                .buttonStyle(AgentToolbarButtonStyle())
-                .help("Search conversation")
-            Button { feature.startNewConversation() } label: { Image(systemName: "plus") }
-                .buttonStyle(AgentToolbarButtonStyle())
-                .help("New conversation")
-                .disabled(feature.selectedSessionID == nil)
-            Button { showsTabs.toggle() } label: { Image(systemName: "rectangle.split.2x1") }
-                .buttonStyle(AgentToolbarButtonStyle())
-                .help("Conversation tabs")
-            AgentHistoryMenu(feature: feature)
-            Button(action: onOpenSettings) { Image(systemName: "gearshape") }
-                .buttonStyle(AgentToolbarButtonStyle())
-                .help("Agent Settings")
-        }
-        if showsSearch {
-            HStack(spacing: 6) {
-                Image(systemName: "magnifyingglass").foregroundStyle(AgentPanelStyle.secondary)
-                TextField("Search conversation", text: $searchText).textFieldStyle(.plain)
-                Button { showsSearch = false; searchText = "" } label: { Image(systemName: "xmark") }
-                    .buttonStyle(AgentToolbarButtonStyle())
-                    .help("Close search")
+        ZStack {
+            conversation
+                .opacity(showsHistory ? 0 : 1)
+                .allowsHitTesting(!showsHistory)
+                .accessibilityHidden(showsHistory)
+            if showsHistory {
+                AgentHistoryView(feature: feature, history: history, agentName: selectedAgent?.name,
+                                 onBack: { showsHistory = false }, onCopySessionID: onCopySessionID,
+                                 onSelect: { feature.selectSession($0); showsHistory = false },
+                                 onReconnect: onConnect)
             }
-            .padding(.leading, 12)
-            .padding(.trailing, 6)
-            .frame(height: 34)
-            .background(AgentPanelStyle.context)
-        }
-        if showsTabs || feature.openSessionIDs.count > 1
-            || (feature.selectedSessionID == nil && !feature.openSessionIDs.isEmpty) {
-            sessionTabs
-        }
-        AgentConversationLayout {
-            VStack(spacing: 0) {
-                transcript
-                if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
-                    AgentInlineNotice(text: error)
-                }
-            }
-        } composer: {
-            AgentComposerView(
-                agents: agents,
-                selectedAgent: selectedAgent,
-                isResponding: feature.selectedConversation?.isResponding == true,
-                isBlocked: feature.isCreatingSession
-                    || feature.selectedConversation?.isLoading == true
-                    || feature.connectionState != .ready,
-                onSend: { try feature.send($0, files: $1) },
-                onCancel: { feature.cancel() },
-                onSelectAgent: onSelectAgent,
-                onOpenSettings: onOpenSettings,
-                onError: { localError = $0 },
-                configOptions: feature.selectedConversation?.configOptions ?? [],
-                sessionID: feature.selectedSessionID,
-                isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
-                isCancelling: feature.selectedConversation?.isCancelling == true,
-                contextUsage: feature.selectedConversation?.contextUsage,
-                onSetConfig: { feature.setConfigOption($0, value: $1) }
-            )
         }
         .onAppear { feature.prepareConversation() }
         .onChange(of: feature.connectionState) { state in
             if state == .ready { feature.prepareConversation() }
+        }
+    }
+
+    private var conversation: some View {
+        VStack(spacing: 0) {
+            AgentPanelHeader(title: headerTitle) {
+                Button { showsSearch.toggle(); searchText = "" } label: { Image(systemName: "magnifyingglass") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("Search conversation")
+                Button { feature.startNewConversation() } label: { Image(systemName: "plus") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("New conversation")
+                    .disabled(feature.selectedSessionID == nil)
+                Button { showsTabs.toggle() } label: { Image(systemName: "rectangle.split.2x1") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("Conversation tabs")
+                Button { showsHistory = true } label: { Image(systemName: "clock.arrow.circlepath") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("Conversation history")
+                    .accessibilityIdentifier("agent-history-open")
+                Button(action: onOpenSettings) { Image(systemName: "gearshape") }
+                    .buttonStyle(AgentToolbarButtonStyle())
+                    .help("Agent Settings")
+            }
+            if showsSearch {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").foregroundStyle(AgentPanelStyle.secondary)
+                    TextField("Search conversation", text: $searchText).textFieldStyle(.plain)
+                    Button { showsSearch = false; searchText = "" } label: { Image(systemName: "xmark") }
+                        .buttonStyle(AgentToolbarButtonStyle())
+                        .help("Close search")
+                }
+                .padding(.leading, 12)
+                .padding(.trailing, 6)
+                .frame(height: 34)
+                .background(AgentPanelStyle.context)
+            }
+            if showsTabs || feature.openSessionIDs.count > 1
+                || (feature.selectedSessionID == nil && !feature.openSessionIDs.isEmpty) {
+                sessionTabs
+            }
+            AgentConversationLayout {
+                VStack(spacing: 0) {
+                    transcript
+                    if let error = localError ?? feature.selectedConversation?.configurationError ?? feature.selectedConversation?.errorMessage ?? feature.errorMessage {
+                        AgentInlineNotice(text: error)
+                    }
+                }
+            } composer: {
+                AgentComposerView(
+                    agents: agents,
+                    selectedAgent: selectedAgent,
+                    isResponding: feature.selectedConversation?.isResponding == true,
+                    isBlocked: feature.isCreatingSession
+                        || feature.selectedConversation?.isLoading == true
+                        || feature.connectionState != .ready,
+                    onSend: { try feature.send($0, files: $1) },
+                    onCancel: { feature.cancel() },
+                    onSelectAgent: onSelectAgent,
+                    onOpenSettings: onOpenSettings,
+                    onError: { localError = $0 },
+                    configOptions: feature.selectedConversation?.configOptions ?? [],
+                    sessionID: feature.selectedSessionID,
+                    isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
+                    isCancelling: feature.selectedConversation?.isCancelling == true,
+                    contextUsage: feature.selectedConversation?.contextUsage,
+                    onSetConfig: { feature.setConfigOption($0, value: $1) }
+                )
+            }
         }
     }
 
@@ -192,7 +217,7 @@ private struct AgentConnectionView: View {
             tabs: feature.openSessionIDs.map { id in
                 AgentSessionTabItem(
                     id: id,
-                    title: feature.sessions.first { $0.id == id }.map(AgentSessionTitle.title(of:)) ?? String(localized: "Untitled conversation"),
+                    title: feature.sessions.first { $0.id == id }.map(sessionTitle) ?? String(localized: "Untitled conversation"),
                     isSelected: feature.selectedSessionID == id,
                     isBusy: feature.conversations[id]?.isResponding == true,
                     needsAttention: feature.conversations[id]?.permission != nil
@@ -255,41 +280,11 @@ private struct AgentConnectionView: View {
 
     private var headerTitle: String {
         guard let id = feature.selectedSessionID else { return String(localized: "New conversation") }
-        return feature.sessions.first { $0.id == id }.map(AgentSessionTitle.title(of:)) ?? String(localized: "Untitled conversation")
+        return feature.sessions.first { $0.id == id }.map(sessionTitle) ?? String(localized: "Untitled conversation")
     }
-}
 
-private struct AgentHistoryMenu: View {
-    @ObservedObject var feature: AgentConnectionModel
-
-    var body: some View {
-        Menu {
-            if feature.sessions.isEmpty {
-                Text("No earlier conversations")
-            }
-            ForEach(feature.sessions) { session in
-                Button {
-                    feature.selectSession(session.id)
-                } label: {
-                    if session.id == feature.selectedSessionID {
-                        Label(AgentSessionTitle.title(of: session), systemImage: "checkmark")
-                    } else {
-                        Text(AgentSessionTitle.title(of: session))
-                    }
-                }
-            }
-            Divider()
-            Button("Refresh history") { feature.refreshSessions() }
-        } label: {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 14))
-                .foregroundStyle(AgentPanelStyle.secondary)
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .frame(width: 28, height: 28)
-        .help("Conversation history")
+    private func sessionTitle(_ session: AgentSessionSummary) -> String {
+        AgentSessionTitle.title(of: AgentSessionSummary(id: session.id, title: history.title(for: session)))
     }
 }
 

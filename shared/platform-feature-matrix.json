@@ -51,6 +51,31 @@
   },
   "features": [
     {
+      "id": "agent-conversation-history",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "CC GUI 风格历史页：标题与会话 ID 搜索、更新时间、复制 ID、刷新与恢复、收藏与本地重命名、单条与批量移除确认及恢复、筛选、多选批量管理及 Markdown 导出",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentHistoryFeatureModel.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentHistoryAdapters.swift",
+          "macos/Tests/LitheTests/AgentHistoryTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "rust/lithe-agent-host/src/lib.rs"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 页面待实现。"
+    },
+    {
       "id": "agent-context-usage",
       "area": "AI",
       "group": "Agent 对话",

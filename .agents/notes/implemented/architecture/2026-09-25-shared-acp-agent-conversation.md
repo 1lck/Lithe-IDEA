@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目只有一个 Agent 进程，一个进程里可以有多个会话；会话历史由 Agent 自己保存，Lithe 只负责显示。第一阶段只支持用户自己的 API Key，不接任何官方账号登录。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里，Mac 与未来的 Windows 只各自实现界面。
+Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目只有一个 Agent 进程，一个进程里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。第一阶段只支持用户自己的 API Key，不接任何官方账号登录。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里，Mac 与未来的 Windows 只各自实现界面。
 
 ## 问题
 
@@ -20,7 +20,9 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 - **共享实现**：`rust/lithe-agent-host` 使用官方 `agent-client-protocol` SDK。一个 `AgentHandle` 对应一个项目的 Agent 进程和 ACP 连接，负责初始化、网关登录、会话新建/列出/加载、消息、权限、取消和进程树清理。Mac 通过 Rust Core C ABI（`lithe_agent_open_json`、`lithe_agent_send_json`、`lithe_agent_close`）调用；Windows 以后直接依赖同一个 crate。命令和事件的 JSON 形状由 `shared/fixtures/agent/acp-events-v1.json` 固定。
 - **按需启动，跟着项目走**：`LitheAgentConversationModule` 是内置可选模块，默认禁用。每个项目有自己的模块运行时，所以会话天然属于项目。切换标签或窗口不会结束任何会话，后台项目的这一轮会继续跑完；只有关闭项目、关闭功能或退出应用时才停止 Agent。后台项目的会话在等待权限时，项目标签上会显示提醒点。
 - **只用 API Key 登录**：初始化时声明 `auth._meta.gateway = true`，然后只用 `gateway` 方式登录，把服务商地址和 `Authorization: Bearer <key>` 放进 `authenticate` 请求，经 stdio 传给 Agent。Key 不进命令行参数、环境变量或文件，Lithe 也不设置 `APP_SERVER_LOGS`。Agent 不提供 `gateway` 登录时直接报错，不会退而使用它的账号登录。第一阶段只支持 Responses 协议的服务商，也就是 codex-acp。
-- **历史以 Agent 为准**：会话列表来自 `session/list`，打开旧会话用 `session/load`，由 Agent 回放历史。Lithe 不自己保存聊天记录。Agent 进程重启后，旧会话必须先加载才能继续发消息。回放可能在 `session/load` 返回之后才到达，界面按到达顺序追加即可。
+- **历史以 Agent 为准**：会话列表来自 `session/list`，打开旧会话用 `session/load`，由 Agent 回放历史。Lithe 不自己保存聊天记录。Agent 进程重启后，旧会话必须先加载才能继续发消息。导出按 [ACP 会话加载契约](https://agentclientprotocol.com/protocol/v1/session-setup) 等待完整回放后返回的 `session/load` 响应；Swift 接收到 `sessionLoaded` 时先刷新缓冲文本，再生成导出快照，不靠固定延迟猜测回放完成。
+- **历史页与本地管理**：参考 [CC GUI 历史页](https://github.com/zhukunpenglinyutong/jetbrains-cc-gui/tree/main/webview/src/components/history) 使用面板内返回、搜索、统计和分隔列表。搜索只查询标题和 ID，数量只统计已加载的用户/Agent 消息，不扫描 CLI 文件，也不伪造上游未提供的消息总数。`AgentHistoryFeatureModel` 通过 `AgentHistoryPersisting` 保存收藏、标题覆盖和隐藏标记；macOS adapter 使用既有偏好设置，键为 `lithe.agent-history.v1.<workspace-agent-digest>`，按标准化工作区与配置 Agent ID 隔离。变更前重新读取，避免另一窗口的旧快照覆盖最近注释；解码或保存失败明确显示，不重置损坏状态。移除仅隐藏本地列表，提供“已移除的会话”筛选与恢复，不宣称删除 Agent 原始会话。单条和批量移除都先弹出确认框，取消不写元数据；确认操作使用弹窗出现时的会话 ID 快照，避免把后续选择变化带入删除。进入历史页保留对话视图和输入草稿，不停止正在进行的轮次。
+- **导出与资源所有权**：导出为用户选择位置的 Markdown，包含用户、Agent 和工具消息，工具输入/输出/内容一并保留。未打开会话复用现有、有请求期限的 ACP 加载路径，逐个加载，不改变选中标签；加载失败不写部分导出；只有会话成功创建或完整加载后才标记历史快照可复用，消息非空不能证明完整性。失败或断连留下的部分回放必须重载，已完整加载的快照在断连后仍可导出。取消与模块关闭释放等待 continuation（异步结果回调），原加载请求可自然结束。正在回复或加载中的会话不导出。导出 Task 由历史功能模型拥有并在模块停止时取消、等待结束；平台 adapter 拥有保存对话框与原子文件写入，最大 32 MiB。偏好设置与用户导出都不是构建缓存，不新增下载、不跨 worktree 复制；见 `scripts/worktree-resources.json`。它们不写发行 bundle、不影响代码签名和 Sparkle delta。
 - **上下文用量以上游为准**：输入框顶部参考 CC GUI 显示圆环与整数百分比，悬停显示一位小数百分比及已用/总容量 token。提示复用工作台已有的悬停浮层与面板局部 scope（浮层可绘制的范围），圆环和百分比共用完整命中区域，鼠标进入立即显示在指示器上方，移开或面板退出时关闭；不依赖系统原生 `.help` 的延迟提示，避免宿主视图内看不到详情。使用现有 ACP `usage_update.used/size`，共享 host 已按 SDK 原样转发，不另接 Codex 私有事件、不扫描历史文件、不根据文字长度或模型名推算。计费用量是累计消耗，不是当前上下文容量，不能混用。用量按会话保存，每条有效更新替换之前值，压缩后允许下降；没有上报、容量为零或无效数据在会话状态中仍保持未知；展示层按 CC GUI 使用 0% 占位，悬停仅提示“上下文: 0.0%”，真实零使用量也使用相同简短提示，不编造已用 token 或总容量。断连、确认模型改变、重新加载会话清除旧数据，权限或思考选项改变不清除。超过容量时保留上游数值与百分比，仅圆环限制为一整圈。数据只是内存会话状态，不写入 bundle 或新增缓存资源。
 - **停止必须等上游确认**：只发送一次 `session/cancel`，撤销本轮权限请求，界面进入“正在停止”。收到原 prompt 的结束响应后才能发送下一轮。旧方案只屏蔽迟到的 prompt 响应，却不能阻止上游把新消息并入旧轮次，也不能识别没有轮次编号的迟到通知。因此改为十秒确认期限：超过期限则明确报错、停止该 Agent 的进程树，保留界面记录，用户重连后通过 `session/load` 恢复。正常取消不重启进程。这不是伪装成正常结束，用户会看到恢复原因；同一 Agent 进程里的其他会话也会断开，不能静默自动重试消息。
 - **会话配置由上游提供**：面板连接完成后准备空会话，让用户发第一条消息前就能选择模型、权限模式、思考强度。选项、分组和当前值均来自 `session/new`、`session/load`、配置更新通知及 `session/set_config_option` 的响应；不硬编码模型列表。每次启动 Agent 连接前，通过既有本机配置端口刷新已绑定导入服务商的默认模型，避免旧导入值（例如已移除的模型名）再次成为所有新会话的默认值；只刷新模型，不改提交信息的服务商选择、手动服务商、端点或凭据。模型读取独立于完整 API 配置：Codex 没有自定义服务商或 API Key 时仍能读取顶层 `model`，不能把其他 TOML 表里的同名字段当成默认模型；凭据校验失败时也更新面板的模型回退显示。读取模型不会放开第一阶段的 API Key 登录要求。仅刷新本机配置仍不够：codex-acp 1.13.1 会把不在实际模型目录中的配置值临时补进选项。共享 host 保留上游同时返回的旧式模型目录，并协商其版本化推荐值扩展（`jetbrains.air.recommendedValue`）；只有当前值确实不在目录中、推荐值同时存在于目录和选项中时，新会话才通过标准 ACP 配置请求切到该推荐值。等待上游确认后再发布会话，两次请求共用创建会话的有界超时。配置中有效的模型、历史会话和用户文件不被自动改写；扩展或目录缺失时保留标准 ACP 行为，不猜默认模型、不按版本名或描述筛选。ACP 模型菜单使用该 Agent 已有的品牌 SVG，不使用通用 CPU 图标；显示标签仍由上游确认的当前值决定。请求完成前禁止重复配置和发送，失败保留之前确认的值并显示错误。适配器没暴露的配置不画假控件，也不替用户改变网关地址或全局 CLI 配置。
@@ -54,6 +56,10 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 ### 两端各用平台语言实现 ACP
 
 界面开发起步更快，但连接、取消、权限和进程树清理都要写两遍，长期维护成本高。社区的 Swift SDK 也会带来第二套协议栈。
+
+### 直接修改 Agent 历史文件来支持收藏、重命名和删除
+
+这样看似能复刻参考项目的全部动作，但会让 Lithe 再实现各 CLI 的私有目录、文件格式、并发写入和索引，绕过 ACP 的所有权边界。当前采用 Lithe 自己的轻量注释以及可恢复隐藏，代价是 CLI 本身的名称和记录不受影响；未来 ACP 提供对应正式能力时再评估迁移。
 
 ### 整体复用 Codeg
 
@@ -110,6 +116,8 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - CLI 来源测试覆盖 Homebrew 与 npm 共存、formula/cask/渠道、npm bin 身份、另一套 Node 环境、Claude 原生、未知与坏链接、查询取消/超时、非零退出但实际升级成功、可用旧版本未变化、降级、数字等价版本和更新后 PATH 仍过旧；不执行用户级安装或外部网络下载。
 - `node --test scripts/test-reuse-worktree-resources.mjs`（拒绝复制用户级 CLI 安装与缓存）
 - `node --test rust/lithe-agent-host/tests/npm-progress.test.mjs`（本地 HTTP 响应不被观察器消费，归档字节计数准确，元数据与重定向不计入）
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentHistoryTests`（元数据隔离、筛选、刷新 token、导出回放/失败/取消及窄宽主题布局；可选 `LITHE_AGENT_HISTORY_SCREENSHOTS` 使用合成数据输出截图）
+- `./scripts/verify-runtime-bundle-immutability.sh`
 - `./scripts/verify-module-boundaries.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - 在 Mac 上实测：连续对话、权限选择、刚发出就取消、切换项目标签后旧会话继续运行、打开历史会话、关闭项目后进程全部退出。

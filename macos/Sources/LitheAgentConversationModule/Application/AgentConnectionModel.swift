@@ -26,6 +26,8 @@ public final class AgentConnectionModel: ObservableObject {
     /// Prompt of a new conversation while its session is being created.
     @Published public private(set) var pendingNewConversationPrompt: String?
     @Published public private(set) var canLoadSessions = false
+    @Published public private(set) var isRefreshingSessions = false
+    @Published public private(set) var historyError: String?
     @Published public private(set) var errorMessage: String?
 
     /// Called when any conversation starts or stops waiting for a permission
@@ -48,6 +50,8 @@ public final class AgentConnectionModel: ObservableObject {
     private var needsAttention = false
     @Published private var createToken: String?
     private var loadBackups: [String: AgentConversation] = [:]
+    private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
+    private var historyRefreshToken: String?
 
     public init(transport: any AgentConversationTransport) {
         self.transport = transport
@@ -101,9 +105,48 @@ public final class AgentConnectionModel: ObservableObject {
         if let closeTask { await closeTask.value }
     }
 
+    public var canRefreshSessions: Bool { canListSessions && connectionState == .ready }
+
     public func refreshSessions() {
-        guard canListSessions else { return }
-        sendCommand(["kind": "listSessions", "token": makeToken()])
+        guard canRefreshSessions, !isRefreshingSessions else { return }
+        let token = makeToken()
+        historyRefreshToken = token
+        isRefreshingSessions = true
+        historyError = nil
+        if !sendCommand(["kind": "listSessions", "token": token]) {
+            historyError = errorMessage
+            isRefreshingSessions = false
+            historyRefreshToken = nil
+        }
+    }
+
+    public func canExportTranscript(_ sessionID: String) -> Bool {
+        let conversation = conversations[sessionID]
+        guard conversation?.isResponding != true, conversation?.isLoading != true,
+              conversation?.pendingConfigToken == nil else { return false }
+        return conversation?.hasCompleteHistory == true
+            || (canLoadSessions && connectionState == .ready)
+    }
+
+    /// Replays an unopened transcript through the existing bounded ACP request.
+    /// Cancellation releases the waiter; the Agent may finish its replay normally.
+    public func historyTranscript(_ sessionID: String) async throws -> [AgentConversationMessage] {
+        try Task.checkCancellation()
+        guard canExportTranscript(sessionID) else { throw AgentConversationError.cannotResume }
+        if let conversation = conversations[sessionID], conversation.hasCompleteHistory {
+            return conversation.messages
+        }
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(throwing: CancellationError()); return }
+                historyContinuations[sessionID] = continuation
+                beginLoad(sessionID)
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in
+                self?.historyContinuations.removeValue(forKey: sessionID)?.resume(throwing: CancellationError())
+            }
+        }
     }
 
     // MARK: Conversations
@@ -240,7 +283,10 @@ public final class AgentConnectionModel: ObservableObject {
             canListSessions = event["canListSessions"] as? Bool ?? false
             refreshSessions()
         case "sessions":
+            guard isRefreshingSessions, token == historyRefreshToken else { return }
             mergeSessions(event["sessions"] as? [[String: Any]] ?? [])
+            historyRefreshToken = nil
+            isRefreshingSessions = false
         case "sessionCreated":
             guard let sessionID, let token, token == createToken else { return }
             conversations[sessionID, default: AgentConversation()].configOptions = AgentSessionConfigOption.parse(event["configOptions"])
@@ -250,8 +296,10 @@ public final class AgentConnectionModel: ObservableObject {
             flushPendingText()
             conversations[sessionID, default: AgentConversation()].isLoading = false
             conversations[sessionID]?.isAttached = true
+            conversations[sessionID]?.hasCompleteHistory = true
             loadBackups[sessionID] = nil
             conversations[sessionID]?.configOptions = AgentSessionConfigOption.parse(event["configOptions"])
+            historyContinuations.removeValue(forKey: sessionID)?.resume(returning: conversations[sessionID]?.messages ?? [])
             if let prompt = queuedPrompts.removeValue(forKey: sessionID) {
                 startPrompt(prompt, in: sessionID)
             }
@@ -306,6 +354,7 @@ public final class AgentConnectionModel: ObservableObject {
         }
         var conversation = conversations[sessionID] ?? AgentConversation()
         conversation.isAttached = true
+        conversation.hasCompleteHistory = true
         conversations[sessionID] = conversation
         openTab(sessionID)
         pendingNewConversationPrompt = nil
@@ -314,7 +363,11 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     private func requestFailed(token: String?, sessionID: String?, message: String) {
-        if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
+        if let token, token == historyRefreshToken {
+            historyRefreshToken = nil
+            isRefreshingSessions = false
+            historyError = message
+        } else if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
             conversations[sessionID]?.pendingConfigToken = nil
             conversations[sessionID]?.configurationError = message
         } else if let token, token == createToken {
@@ -328,6 +381,7 @@ public final class AgentConnectionModel: ObservableObject {
             if let backup = loadBackups.removeValue(forKey: loading) { conversations[loading] = backup }
             conversations[loading]?.isLoading = false
             conversations[loading]?.errorMessage = message
+            historyContinuations.removeValue(forKey: loading)?.resume(throwing: AgentConversationError.sendFailed(message))
         } else if token != nil {
             errorMessage = message
         } else if let sessionID, conversations[sessionID] != nil {
@@ -511,6 +565,13 @@ public final class AgentConnectionModel: ObservableObject {
         connection = nil
         connectionState = failure.map(ConnectionState.failed) ?? .idle
         canListSessions = false
+        canLoadSessions = false
+        isRefreshingSessions = false
+        historyRefreshToken = nil
+        for continuation in historyContinuations.values {
+            continuation.resume(throwing: AgentConversationError.notConnected)
+        }
+        historyContinuations.removeAll()
         queuedPrompts.removeAll()
         loadTokens.removeAll()
         for (id, backup) in loadBackups { conversations[id] = backup }

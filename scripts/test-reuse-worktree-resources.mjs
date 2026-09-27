@@ -72,6 +72,11 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
   });
+  await test("Agent history preferences and exports are excluded from worktree copying", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "agent-history-metadata"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /agent-history-metadata.*lithe\.agent-history\.v1.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(

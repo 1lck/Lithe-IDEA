@@ -29,12 +29,29 @@ public final class AgentConversationFeatureModel: ObservableObject {
     private let transport: any AgentConversationTransport
     private var connections: [String: AgentConnectionModel] = [:]
     private var attention: Set<String> = []
+    private var histories: [String: AgentHistoryFeatureModel] = [:]
+    private var workspaceURL: URL?
+    private let historyPersistence: (any AgentHistoryPersisting)?
+    private let historyExporter: (any AgentHistoryExporting)?
 
-    public init(transport: any AgentConversationTransport) {
+    public init(transport: any AgentConversationTransport, workspaceURL: URL? = nil,
+                historyPersistence: (any AgentHistoryPersisting)? = nil,
+                historyExporter: (any AgentHistoryExporting)? = nil) {
         self.transport = transport
+        self.workspaceURL = workspaceURL
+        self.historyPersistence = historyPersistence
+        self.historyExporter = historyExporter
     }
 
     public var hasActiveConnection: Bool { connections.values.contains { $0.hasActiveConnection } }
+
+    /// The shell creates its module runtime before opening a project. Bind the
+    /// actual project before any history UI is created, including setup failures.
+    public func bindWorkspace(_ workspaceURL: URL) {
+        guard self.workspaceURL == nil else { return }
+        self.workspaceURL = workspaceURL
+        histories.removeAll()
+    }
 
     /// Connection model of the selected agent, created on first use.
     public var selectedConnection: AgentConnectionModel? {
@@ -64,11 +81,21 @@ public final class AgentConversationFeatureModel: ObservableObject {
         return model
     }
 
+    public func history(for agentID: String) -> AgentHistoryFeatureModel {
+        if let history = histories[agentID] { return history }
+        let history = AgentHistoryFeatureModel(connection: connection(for: agentID), workspaceURL: workspaceURL,
+                                              agentID: agentID, persistence: historyPersistence, exporter: historyExporter)
+        histories[agentID] = history
+        return history
+    }
+
     /// Stop every agent of this project and wait for their processes to exit.
     public func stop() async {
+        for history in histories.values { history.cancelExport() }
         for connection in connections.values {
             await connection.stop()
         }
+        for history in histories.values { await history.stop() }
     }
 
     private func updateAttention(_ agentID: String, _ needsAttention: Bool) {

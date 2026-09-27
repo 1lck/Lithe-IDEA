@@ -63,6 +63,9 @@ public struct AgentConversation: Equatable, Sendable {
     public var configurationError: String?
     /// A new process must load this session before prompting it again.
     public var isAttached = false
+    /// Only successful creation or loading establishes a complete history snapshot.
+    /// Unlike attachment, this remains valid after disconnecting the process.
+    public var hasCompleteHistory = false
     var pendingPermissions: [AgentPermissionPrompt] = []
     public var permission: AgentPermissionPrompt? { pendingPermissions.first }
     public var errorMessage: String?
