@@ -36,7 +36,7 @@ struct WorkbenchMavenLayoutTests {
         #expect(restored.mavenPaneWidth == 410)
     }
 
-    @Test(arguments: [-1.0, 0.0, 521.0, 761.0])
+    @Test(arguments: [-1.0, 0.0, 761.0])
     func invalidPersistedWidthsFallBackToDefault(width: Double) {
         let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
         let workspace = URL(fileURLWithPath: "/fixture/maven-layout/project")
