@@ -6,7 +6,7 @@
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
 - 功能项：87
 - macOS：实现：✅ 74 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 77 待验证，— 10 不适用
-- Windows：实现：✅ 78 已实现，🟡 7 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
+- Windows：实现：✅ 79 已实现，🟡 6 部分实现，❌ 2 未实现，🧩 0 平台专属；验证：✔️ 0 已验证，🔍 85 待验证，— 2 不适用
 
 ## 实现状态定义
 
@@ -95,7 +95,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 |  |
+| Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`、`windows/tauri/src/features/git/api/git-repository-path.ts`、`rust/lithe-core/tests/git_path_roundtrip.rs`、`shared/fixtures/git/windows-paths.json`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 |  |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |
 | Git | **提交历史与图谱**<br><sub>git-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift`、`macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift`、`macos/Sources/Lithe/Views/Git/GitGraphColor.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/git/utils/git-graph-layout.ts`、`windows/tauri/src/features/git/utils/git-graph-colors.ts`、`windows/tauri/src/features/git/utils/git-graph-layout.test.ts`</sub> | Git | 分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 |  |
@@ -199,7 +199,7 @@
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。 |  |
-| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 | Windows 快捷键设置仍有占位交互，见 #718。 |
+| 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`、`windows/tauri/src/features/settings/components/macos-settings-panels.tsx`、`windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx`、`windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx`</sub> | Settings | 从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。 | Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。 |
 
 </details>
 
