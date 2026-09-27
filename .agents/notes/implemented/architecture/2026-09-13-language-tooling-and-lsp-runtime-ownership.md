@@ -78,6 +78,20 @@ Rename/Formatting/Code Action/Resolve/Execute Command 目前仍是
 LSP-only，未声明能力时返回明确的 capability 错误。Provider 抛错不会
 让路由提前结束，用于隔离第三方语言服务器故障。
 
+### Windows 语义颜色请求
+
+Windows 的语义高亮复用 Core 已有 `semanticTokens` 操作与请求时捕获的图例，
+前端只将归一化结果映射成 Monaco 的固定图例，不再解码服务器原始相对坐标。
+仅移除客户端能力检查并不能修复 #675：适配器必须映射命令，服务器的
+`semanticTokensRefresh` 也必须触发 Monaco 重新请求。
+
+正确顺序是先冲刷编辑器待发送的文档变更，再请求颜色，最后检查模型版本、
+文件路径、文档打开状态与取消状态。否则请求可能基于服务器尚未更新的旧文本，
+即便 Monaco 版本号在请求期间没变，也会把旧位置应用到新文本。
+适配器还会核对文件 attachment（文档与语言服务器会话的归属对象），归属被替换
+后丢弃旧响应。取消与 deadline 继续走现有请求路径；设置开关和大文件降级仍由
+Monaco 选项控制，缺少协商能力时保留基础语法高亮。
+
 ### 会话生命周期不变量
 
 会话生命周期必须是单一判别状态；capability 协商单独表示为 `unknown`
@@ -214,6 +228,12 @@ capability 为准。
   的唯一真值来源。
 
 ## 验证
+
+Windows 语义颜色使用 `lsp-core-adapter.test.ts` 和
+`semantic-token-provider.test.ts` 消费同一份
+`shared/fixtures/lsp/semantic-tokens-v1.json`，覆盖命令路由、图例转换、刷新通知、
+取消、归属替换、同步先后顺序及过期模型。Linux 可运行这些确定性前端测试；
+真实 JDTLS 与 WebView2 上色、大文件降级仍需 Windows 验收。
 
 Windows 启动回归由 `workspace-git-bootstrap.test.ts` 验证恢复 Java 文档与后台
 共用准备任务、子仓库未完成时不启动 Maven、失败后继续、关闭重开丢弃旧结果，
