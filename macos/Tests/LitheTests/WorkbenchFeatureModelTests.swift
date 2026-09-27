@@ -34,6 +34,18 @@ struct WorkbenchFeatureModelTests {
     }
 
     @Test
+    func pluginsOpenInSettingsWhileMavenRemainsVisible() {
+        let model = WorkbenchFeatureModel()
+        model.setVisibility(.maven, isVisible: true)
+
+        model.presentSettings(category: .plugins)
+
+        #expect(model.isSettingsPresented)
+        #expect(model.requestedSettingsCategory == .plugins)
+        #expect(model.isVisible(.maven))
+    }
+
+    @Test
     func mavenNavigationDoesNotReplaceBottomTools() {
         let model = WorkbenchFeatureModel()
         model.setVisibility(.terminal, isVisible: true)

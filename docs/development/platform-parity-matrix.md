@@ -197,7 +197,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动；关闭后重开再检查。 |  |
+| 应用配置 | **应用、项目与运行设置**<br><sub>application-settings</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift`、`macos/Sources/Lithe/Theme/LitheTheme.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings`</sub> | Settings | 修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏与面板背景同色、窗口按钮可用且可拖动，设置树字体、选中态与搜索框符合 IDEA 主题；关闭后重开再检查。 |  |
 | 应用配置 | **快捷键查看与自定义**<br><sub>keymap-customization</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift`、`macos/Sources/Lithe/Models/Keymap`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/keymaps`</sub> | Settings | 修改快捷键、制造冲突并恢复默认，确认命令实际执行。 | Windows 快捷键设置仍有占位交互，见 #718。 |
 
 </details>
@@ -207,7 +207,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 插件与主题 | **插件、语言服务与主题管理**<br><sub>plugin-extension-management</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/extensions`、`windows/tauri/src/features/settings`</sub> | Extensions | 启用、禁用和恢复插件/主题，确认启动加载、失败隔离和设置持久化。 |  |
+| 插件与主题 | **插件、语言服务与主题管理**<br><sub>plugin-extension-management</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Views/App/SettingsView.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/extensions`、`windows/tauri/src/features/settings`</sub> | Extensions | macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；搜索并启用、禁用插件，确认安装入口、状态与重启恢复。Windows 检查扩展管理入口和持久化。 |  |
 
 </details>
 

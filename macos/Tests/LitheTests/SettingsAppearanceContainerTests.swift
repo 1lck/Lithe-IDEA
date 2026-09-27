@@ -6,6 +6,22 @@ import Testing
 @MainActor
 struct SettingsAppearanceContainerTests {
     @Test
+    func settingsSurfaceUsesIDEACommunityLightAndDarkColors() throws {
+        for (appearanceName, components) in [
+            (NSAppearance.Name.darkAqua, [30.0, 31.0, 34.0]),
+            (.aqua, [247.0, 248.0, 250.0])
+        ] {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            let color = try #require(
+                LitheTheme.settingsSurfaceNSColor(for: appearance).usingColorSpace(.sRGB)
+            )
+            #expect(abs(color.redComponent - components[0] / 255) < 0.001)
+            #expect(abs(color.greenComponent - components[1] / 255) < 0.001)
+            #expect(abs(color.blueComponent - components[2] / 255) < 0.001)
+        }
+    }
+
+    @Test
     func changingAppearanceKeepsTheContentIdentity() {
         let recorder = SettingsContentIdentityRecorder()
         let hostingView = NSHostingView(rootView: makeContent(

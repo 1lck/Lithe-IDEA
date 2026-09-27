@@ -15,6 +15,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case git = "Git"
     case updates = "Updates"
     case diagnostics = "Diagnostics"
+    case plugins = "Plugins"
 
     var id: String { rawValue }
     var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
@@ -33,6 +34,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .git: "arrow.triangle.branch"
         case .updates: "arrow.down.circle"
         case .diagnostics: "stethoscope"
+        case .plugins: "puzzlepiece.extension"
         }
     }
 }

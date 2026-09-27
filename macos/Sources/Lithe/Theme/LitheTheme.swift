@@ -284,15 +284,36 @@ enum LitheTheme {
     static func settingsSurfaceNSColor(for appearance: NSAppearance) -> NSColor {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         return isDark
-            ? NSColor(srgbRed: 0.157, green: 0.161, blue: 0.173, alpha: 1)
-            : NSColor(srgbRed: 0.910, green: 0.922, blue: 0.937, alpha: 1)
+            ? NSColor(srgbRed: 30.0 / 255, green: 31.0 / 255, blue: 34.0 / 255, alpha: 1)
+            : NSColor(srgbRed: 247.0 / 255, green: 248.0 / 255, blue: 250.0 / 255, alpha: 1)
+    }
+    static var settingsListSurface: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 43.0 / 255, green: 45.0 / 255, blue: 48.0 / 255, alpha: 1)
+                : .white
+        })
+    }
+    static var settingsFont: Font { .custom("Inter-Regular", size: 13) }
+    static var settingsStrongFont: Font { .custom("Inter-SemiBold", size: 13) }
+    static var settingsSearchBorder: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 78.0 / 255, green: 81.0 / 255, blue: 87.0 / 255, alpha: 1)
+                : NSColor(srgbRed: 201.0 / 255, green: 204.0 / 255, blue: 214.0 / 255, alpha: 1)
+        })
     }
     static var settingsPrimaryAction: Color { accent }
-    static let settingsSelection = Color(
-        red: 43.0 / 255.0,
-        green: 66.0 / 255.0,
-        blue: 113.0 / 255.0
-    )
+    static var settingsSelection: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 46.0 / 255, green: 67.0 / 255, blue: 110.0 / 255, alpha: 1)
+                : NSColor(srgbRed: 212.0 / 255, green: 226.0 / 255, blue: 255.0 / 255, alpha: 1)
+        })
+    }
     static var settingsControlBackground: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua

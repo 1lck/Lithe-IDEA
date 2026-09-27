@@ -20,7 +20,9 @@ struct PluginManagementView: View {
     }
 
     private var selectedPlugin: PluginManagementSnapshot? {
-        filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
+        let visiblePlugins = listContent.standalonePlugins
+            + (showsLanguageExtensions ? listContent.languageExtensions : [])
+        return visiblePlugins.first { $0.id == selectedPluginID } ?? visiblePlugins.first
     }
 
     private var listContent: PluginManagementListContent {
@@ -47,14 +49,19 @@ struct PluginManagementView: View {
                 Rectangle().fill(LitheTheme.divider).frame(width: 1)
                 detail
             }
-            footer
+            if !pendingEnabledStates.isEmpty || isApplyingChanges {
+                footer
+            }
         }
-        .frame(minWidth: 820, minHeight: 560)
-        .litheWorkbenchSurface(LitheTheme.window)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(LitheTheme.settingsSurface)
         .onAppear {
             let initialContent = PluginManagementListContent(plugins: model.pluginSnapshots)
             selectedPluginID = initialContent.standalonePlugins.first?.id
                 ?? initialContent.languageExtensions.first?.id
+            if initialContent.standalonePlugins.isEmpty {
+                isLanguageExtensionsExpanded = true
+            }
         }
         .onChange(of: searchText) { newValue in
             if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -65,45 +72,43 @@ struct PluginManagementView: View {
 
     private var header: some View {
         HStack(spacing: 24) {
-            Text(LocalizedStringKey("Plugins")).font(.system(size: 17, weight: .semibold))
+            Text(LocalizedStringKey("Plugins")).font(LitheTheme.settingsStrongFont)
             Spacer()
-            Text(LocalizedStringKey("Marketplace")).foregroundStyle(LitheTheme.secondaryText)
-            HStack(spacing: 7) {
-                Text(LocalizedStringKey("Installed"))
-                Text("\(model.pluginSnapshots.count)")
-                    .font(.system(size: 11, weight: .bold))
-                    .frame(width: 20, height: 20)
-                    .background(LitheTheme.selection)
-                    .clipShape(Circle())
-            }
-            .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(LitheTheme.selection.opacity(0.45))
+            Text(LocalizedStringKey("Marketplace"))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .help("Plugin marketplace is not available")
+            Text(LocalizedStringKey("Installed"))
+                .font(LitheTheme.settingsFont)
+                .padding(.horizontal, 12).padding(.vertical, 7)
+            .background(LitheTheme.settingsSelection)
             .clipShape(RoundedRectangle(cornerRadius: 7))
-            Image(systemName: "gearshape").foregroundStyle(LitheTheme.secondaryText)
+            Menu {
+                Button("Install Plugin from Disk…") { model.installPluginPackage() }
+            } label: {
+                Image(systemName: "gearshape")
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            .menuStyle(.borderlessButton)
+            .help("Plugin settings")
         }
-        .padding(.horizontal, 20)
-        .frame(height: 52)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .padding(.horizontal, 16)
+        .frame(height: 42)
+        .background(LitheTheme.settingsSurface)
     }
 
     private var sidebar: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass").foregroundStyle(LitheTheme.secondaryText)
-                TextField(LocalizedStringKey("Type / to see options"), text: $searchText)
-                    .textFieldStyle(.plain)
-                Image(systemName: "ellipsis").foregroundStyle(LitheTheme.secondaryText)
+                LitheSettingsSearchField("Type / to see options", text: $searchText)
             }
-            .padding(.horizontal, 14).frame(height: 48)
+            .padding(.horizontal, 8).frame(height: 44)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
-                Text(LocalizedStringKey("Downloaded (\(model.pluginSnapshots.count) of \(enabledPluginCount) enabled)"))
-                    .font(.system(size: 13, weight: .medium))
+                Text(LocalizedStringKey("Installed (\(enabledPluginCount) of \(model.pluginSnapshots.count) enabled)"))
+                    .font(LitheTheme.settingsFont)
                 Spacer()
-                Button(LocalizedStringKey("Install")) { model.installPluginPackage() }
-                    .buttonStyle(.borderless).foregroundStyle(LitheTheme.accent)
             }
-            .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.raised)
+            .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.settingsListSurface)
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(listContent.standalonePlugins) { plugin in
@@ -121,7 +126,7 @@ struct PluginManagementView: View {
             }
         }
         .frame(width: 320)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
+        .background(LitheTheme.settingsListSurface)
     }
 
     private var languageExtensionsDisclosure: some View {
@@ -200,8 +205,8 @@ struct PluginManagementView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             isSelected
-                ? LitheTheme.selection
-                : (isHovered ? LitheTheme.raised : Color.clear)
+                ? LitheTheme.settingsSelection
+                : (isHovered ? LitheTheme.hoverBackground : Color.clear)
         )
         .contentShape(Rectangle())
         .onTapGesture(count: 1) {
@@ -265,6 +270,7 @@ struct PluginManagementView: View {
                 .padding(24)
                 Spacer()
             }
+            .background(LitheTheme.settingsSurface)
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
@@ -281,32 +287,30 @@ struct PluginManagementView: View {
     private var footer: some View {
         HStack {
             Spacer()
-            if !pendingEnabledStates.isEmpty || isApplyingChanges {
-                Text(LocalizedStringKey("Pending plugin changes: \(pendingEnabledStates.count)"))
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Button(LocalizedStringKey("Cancel")) {
-                    pendingEnabledStates.removeAll()
-                }
-                .buttonStyle(.bordered)
-                .disabled(isApplyingChanges)
-                Button {
-                    applyPendingChanges()
-                } label: {
-                    if isApplyingChanges {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Text(LocalizedStringKey("Confirm"))
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(LitheTheme.accent)
-                .disabled(isApplyingChanges)
+            Text(LocalizedStringKey("Pending plugin changes: \(pendingEnabledStates.count)"))
+                .font(LitheTheme.smallFont)
+                .foregroundStyle(LitheTheme.secondaryText)
+            Button(LocalizedStringKey("Cancel")) {
+                pendingEnabledStates.removeAll()
             }
+            .buttonStyle(.bordered)
+            .disabled(isApplyingChanges)
+            Button {
+                applyPendingChanges()
+            } label: {
+                if isApplyingChanges {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Text(LocalizedStringKey("Confirm"))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(LitheTheme.accent)
+            .disabled(isApplyingChanges)
         }
         .padding(.horizontal, 14)
         .frame(height: 58)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .background(LitheTheme.settingsSurface)
         .animation(.easeOut(duration: 0.15), value: pendingEnabledStates.isEmpty)
     }
 

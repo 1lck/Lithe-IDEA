@@ -27,13 +27,18 @@ struct LitheSettingsSearchField: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.tertiaryText)
+            HStack(spacing: 1) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .medium))
+            }
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .accessibilityHidden(true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.settingsFont)
 
             if !text.isEmpty {
                 Button {
@@ -54,7 +59,7 @@ struct LitheSettingsSearchField: View {
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                .stroke(LitheTheme.settingsSearchBorder, lineWidth: 1)
         }
         .onChange(of: text) { value in
             onTextChanged?(value)
