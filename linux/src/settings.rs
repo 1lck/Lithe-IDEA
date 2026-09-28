@@ -4,6 +4,7 @@
 //! （Unix `~/.config/lithe/settings.json`，Windows `%APPDATA%\lithe\settings.json`）。
 //! 视图通过 [`get`] / [`update`] 读取和修改，修改后写盘并刷新窗口。
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use gpui_kit::{App, Global};
@@ -274,7 +275,26 @@ pub struct Settings {
     pub custom_log_directory: String,
     // Advanced
     pub last_settings_tab: String,
+    /// 每工作区 Java 构建失败策略（`ask` / `alwaysProceed`），键为规范化
+    /// 工作区路径，对齐 Tauri `run-preferences.store` 的
+    /// `javaBuildFailurePolicyByWorkspace`。
+    pub java_build_failure_policy_by_workspace: BTreeMap<String, String>,
     pub core_features: CoreFeatures,
+}
+
+/// 工作区偏好键：对齐 Tauri `runWorkspacePreferenceKey`
+/// （反斜杠归一、去尾部分隔符、转小写）。
+pub fn workspace_preference_key(root: &str) -> String {
+    root.replace('\\', "/").trim_end_matches('/').to_lowercase()
+}
+
+/// 读取工作区 Java 构建失败策略；未设置时回退 `ask`。
+pub fn java_build_failure_policy<'a>(settings: &'a Settings, root: &str) -> &'a str {
+    settings
+        .java_build_failure_policy_by_workspace
+        .get(&workspace_preference_key(root))
+        .map(String::as_str)
+        .unwrap_or("ask")
 }
 
 impl Default for Settings {
@@ -380,6 +400,7 @@ impl Default for Settings {
             ai_commit: AiCommitSettings::default(),
             custom_log_directory: String::new(),
             last_settings_tab: "general".to_string(),
+            java_build_failure_policy_by_workspace: BTreeMap::new(),
             core_features: CoreFeatures::default(),
         }
     }

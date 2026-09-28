@@ -108,6 +108,8 @@ pub struct WorkbenchView {
     pub show_git_panel: bool,
     /// Run setup 确认对话框（对齐 mac：选中配置缺 Java 元数据时确认重生成）
     pub show_run_setup_dialog: bool,
+    /// Java 构建失败决策对话框（对齐 Tauri `JavaLaunchDecisionBanner`）
+    pub show_build_decision_dialog: bool,
     /// 右侧工具窗口当前视图（`None` 隐藏，对齐 Tauri 右侧不持久化语义）
     pub right_tool: Option<RightToolView>,
 
@@ -451,6 +453,19 @@ impl WorkbenchView {
                 // 选中配置缺 Java 启动元数据：弹出 setup 确认对话框。
                 BottomPanelEvent::RunSetupRequired => {
                     this.show_run_setup_dialog = true;
+                    cx.notify();
+                }
+                // Run 面板请求打开设置并定位分类（语言服务/日志入口）。
+                BottomPanelEvent::OpenSettings { category } => {
+                    this.show_settings_dialog = true;
+                    let _ = this.settings_dialog.update(cx, |d, cx| {
+                        d.set_category(SettingsCategory::from_id(category), cx);
+                    });
+                    cx.notify();
+                }
+                // Java 构建失败且策略为询问：弹出构建失败决策对话框。
+                BottomPanelEvent::RunBuildFailedDecision => {
+                    this.show_build_decision_dialog = true;
                     cx.notify();
                 }
             },
@@ -997,6 +1012,7 @@ impl WorkbenchView {
             show_branch_manager: false,
             show_git_panel: false,
             show_run_setup_dialog: false,
+            show_build_decision_dialog: false,
             right_tool: None,
             pending_goto_line: None,
             pane_tabs_empty: HashMap::from([(initial_pane, true)]),
@@ -1210,7 +1226,9 @@ impl WorkbenchView {
             Some(RightToolView::Maven) => Some("maven"),
             None => None,
         };
-        let _ = self.plugin_rail.update(cx, |rail, cx| rail.set_active_tool(active, cx));
+        let _ = self
+            .plugin_rail
+            .update(cx, |rail, cx| rail.set_active_tool(active, cx));
         cx.notify();
     }
 
@@ -2973,12 +2991,108 @@ impl Render for WorkbenchView {
             .when(self.show_run_setup_dialog, |view| {
                 view.child(Self::render_run_setup_dialog(cx))
             })
+            .when(self.show_build_decision_dialog, |view| {
+                view.child(Self::render_build_decision_dialog(cx))
+            })
     }
 }
 
 impl WorkbenchView {
-    /// Run setup 确认对话框（对齐 mac `runConfigurationSetup` ready 分支）：
-    /// 标题 "Rescan the project for services"，确认后等 JDT entrypoints
+    /// Java 构建失败决策对话框（对齐 Tauri `JavaLaunchDecisionBanner`）：
+    /// 仍然运行 / 始终继续 / 取消；遮罩点击视同取消。
+    fn render_build_decision_dialog(cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .bg(gpui_kit::black().opacity(0.45))
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.show_build_decision_dialog = false;
+                    this.bottom_panel.update(cx, |bp, cx| {
+                        bp.resolve_build_failure_decision(false, false, cx);
+                    });
+                    cx.notify();
+                }),
+            )
+            .child(
+                v_flex()
+                    .w(px(460.0))
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(ThemeColors::border())
+                    .bg(ThemeColors::surface())
+                    .p_4()
+                    .gap_3()
+                    .on_mouse_down(gpui_kit::MouseButton::Left, |event, _window, cx| {
+                        // 卡片内点击不冒泡到遮罩。
+                        cx.stop_propagation();
+                        let _ = event;
+                    })
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(ThemeColors::text_primary())
+                            .child(crate::i18n::menu_text(cx, "run.buildDecisionTitle")),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(crate::i18n::menu_text(cx, "run.buildDecisionBody")),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                Button::new("run-build-cancel")
+                                    .small()
+                                    .ghost()
+                                    .label(crate::i18n::menu_text(cx, "ui.cancel"))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.show_build_decision_dialog = false;
+                                        this.bottom_panel.update(cx, |bp, cx| {
+                                            bp.resolve_build_failure_decision(false, false, cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("run-build-proceed")
+                                    .small()
+                                    .ghost()
+                                    .label(crate::i18n::menu_text(cx, "run.buildDecisionProceed"))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.show_build_decision_dialog = false;
+                                        this.bottom_panel.update(cx, |bp, cx| {
+                                            bp.resolve_build_failure_decision(true, false, cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("run-build-always")
+                                    .small()
+                                    .primary()
+                                    .label(crate::i18n::menu_text(cx, "run.buildDecisionAlways"))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.show_build_decision_dialog = false;
+                                        this.bottom_panel.update(cx, |bp, cx| {
+                                            bp.resolve_build_failure_decision(true, true, cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
+    /// Run setup 确认对话框（对齐 mac `runConfigurationSetup` ready 分支）：    /// 标题 "Rescan the project for services"，确认后等 JDT entrypoints
     /// 重新生成配置并续跑。
     fn render_run_setup_dialog(cx: &mut Context<Self>) -> impl IntoElement {
         div()
@@ -3004,14 +3118,11 @@ impl WorkbenchView {
                     .bg(ThemeColors::surface())
                     .p_4()
                     .gap_3()
-                    .on_mouse_down(
-                        gpui_kit::MouseButton::Left,
-                        |event, _window, cx| {
-                            // 卡片内点击不冒泡到遮罩。
-                            cx.stop_propagation();
-                            let _ = event;
-                        },
-                    )
+                    .on_mouse_down(gpui_kit::MouseButton::Left, |event, _window, cx| {
+                        // 卡片内点击不冒泡到遮罩。
+                        cx.stop_propagation();
+                        let _ = event;
+                    })
                     .child(
                         div()
                             .text_sm()

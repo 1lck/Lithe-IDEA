@@ -9,17 +9,17 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::EventEmitter;
 use gpui_kit::Subscription;
 use gpui_kit::{
-    div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
-    IntoElement, MouseButton, ParentElement as _, Render, Rgba, StatefulInteractiveElement as _,
-    Styled as _, WeakEntity, Window,
+    div, px, AnyElement, App, AppContext as _, Context, Entity, FontWeight,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, Rgba,
+    StatefulInteractiveElement as _, Styled as _, WeakEntity, Window,
 };
 
 use crate::core::CoreClient;
 use crate::lsp;
 use crate::theme::ThemeColors;
+use crate::workbench::activity_rail::IDEA_ICON_DEBUGGER;
 use crate::workbench::console::OutputConsole;
 use crate::workbench::editor::EditorView;
-use crate::workbench::activity_rail::IDEA_ICON_DEBUGGER;
 use crate::workbench::run::{
     create_launch_plan_request, default_generated_configuration_id, list_java_sources,
     maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
@@ -132,7 +132,10 @@ fn parse_maven_issues(value: &serde_json::Value) -> Vec<MavenBuildIssue> {
                     Some(MavenBuildIssue {
                         path: item.get("path")?.as_str()?.to_string(),
                         line: item.get("line")?.as_u64()? as usize,
-                        column: item.get("column").and_then(serde_json::Value::as_u64).map(|v| v as usize),
+                        column: item
+                            .get("column")
+                            .and_then(serde_json::Value::as_u64)
+                            .map(|v| v as usize),
                         severity: item
                             .get("severity")
                             .and_then(serde_json::Value::as_str)
@@ -191,6 +194,14 @@ pub enum BottomPanelEvent {
     /// 选中配置缺 Java 启动元数据，需要用户确认后重新生成（对齐 mac
     /// 的 setup 确认对话框 → generateFromJavaEntrypoints → 续跑）。
     RunSetupRequired,
+    /// Run 面板请求打开设置对话框并定位分类（对齐 Tauri
+    /// `openSettingsDialog(category)`；`category` 为 `SettingsCategory::id`）。
+    OpenSettings {
+        category: &'static str,
+    },
+    /// Java 构建失败且策略为 `ask`：宿主展示构建失败决策对话框
+    /// （对齐 Tauri `JavaLaunchDecisionBanner`）。
+    RunBuildFailedDecision,
 }
 
 /// Git 提交记录的一行：短 hash + 首行 message，只读展示不跳转。
@@ -241,6 +252,13 @@ pub struct BottomPanelView {
     run_at_bottom: bool,
     /// Maven 控制台视口是否停在底部（同 [`Self::run_at_bottom`]）。
     maven_at_bottom: bool,
+    /// Java 准备状态区块是否展开（对齐 Tauri `<details>` 默认收起）。
+    java_prep_expanded: bool,
+    /// 等待用户决策的 Java 构建失败信息；`None` 表示无待决策项。
+    pub(crate) pending_build_error: Option<String>,
+    /// 用户对 [`Self::pending_build_error`] 的决策：`true` 仍然启动，
+    /// `false` 放弃本次运行；由 [`Self::resolve_build_failure_decision`] 写入。
+    build_failure_decision: Option<bool>,
     /// Maven 任务标题（对齐 Tauri `taskTitle`，如 `compile · pom.xml`）。
     pub(crate) maven_title: Option<String>,
     /// Maven 任务输出控制台（同 [`Self::run_console`]）。
@@ -538,9 +556,59 @@ async fn prepare_java_run_launch(
         }
     };
     if let Some(error) = build_error {
-        return Err(format!("Java project build failed: {error}"));
+        // 对齐 Tauri：构建失败按工作区策略决策——`alwaysProceed` 直接继续，
+        // `ask` 弹出决策对话框等待用户选择。
+        let proceed = wait_for_java_build_decision(run_guard, &error, cx).await;
+        if !proceed {
+            return Err(format!("Java project build failed: {error}"));
+        }
     }
     Ok((launch, session_id))
+}
+
+/// Java 构建失败后的启动决策等待：先请求面板弹出决策对话框，随后轮询
+/// 用户决策与工作区策略。运行被替换/取消或超时均视为放弃启动。
+async fn wait_for_java_build_decision(
+    run_guard: (&Entity<BottomPanelView>, u64, u64),
+    build_error: &str,
+    cx: &mut gpui_kit::AsyncApp,
+) -> bool {
+    let requested = run_guard.0.update(cx, |panel, cx| {
+        panel.request_build_failure_decision(build_error.to_string(), cx);
+    });
+    let _ = requested;
+    let deadline = Instant::now() + Duration::from_secs(10 * 60);
+    loop {
+        let current = run_guard.0.read_with(cx, |view, _app| {
+            view.is_current_run_execution(run_guard.1, run_guard.2)
+        });
+        if !current {
+            return false;
+        }
+        let (decision, policy) = run_guard.0.read_with(cx, |view, app| {
+            (
+                view.build_failure_decision,
+                crate::settings::java_build_failure_policy(
+                    crate::settings::get(app),
+                    &view.working_dir,
+                )
+                .to_string(),
+            )
+        });
+        // 用户可能在等待期间于设置里改为始终继续；决策以最新策略优先。
+        if policy == "alwaysProceed" {
+            return true;
+        }
+        if let Some(proceed) = decision {
+            return proceed;
+        }
+        if Instant::now() >= deadline {
+            return false;
+        }
+        cx.background_executor()
+            .timer(Duration::from_millis(200))
+            .await;
+    }
 }
 
 impl BottomPanelView {
@@ -573,6 +641,9 @@ impl BottomPanelView {
             run_follow_end: crate::settings::get(cx).run_scroll_to_end,
             run_at_bottom: true,
             maven_at_bottom: true,
+            java_prep_expanded: false,
+            pending_build_error: None,
+            build_failure_decision: None,
             maven_title: None,
             maven_console,
             maven_output_text: String::new(),
@@ -593,20 +664,22 @@ impl BottomPanelView {
         };
         // 控制台滚动镜像：用户滚动终端（组件 notify 自身）时更新"是否在
         // 底部"，驱动跟随语义与"跳到最新"按钮显隐。
-        view._subscriptions.push(cx.observe(&obs_run_console, |this, view, cx| {
-            let at_bottom = view.read(cx).state().display_offset() == 0;
-            if this.run_at_bottom != at_bottom {
-                this.run_at_bottom = at_bottom;
-                cx.notify();
-            }
-        }));
-        view._subscriptions.push(cx.observe(&obs_maven_console, |this, view, cx| {
-            let at_bottom = view.read(cx).state().display_offset() == 0;
-            if this.maven_at_bottom != at_bottom {
-                this.maven_at_bottom = at_bottom;
-                cx.notify();
-            }
-        }));
+        view._subscriptions
+            .push(cx.observe(&obs_run_console, |this, view, cx| {
+                let at_bottom = view.read(cx).state().display_offset() == 0;
+                if this.run_at_bottom != at_bottom {
+                    this.run_at_bottom = at_bottom;
+                    cx.notify();
+                }
+            }));
+        view._subscriptions
+            .push(cx.observe(&obs_maven_console, |this, view, cx| {
+                let at_bottom = view.read(cx).state().display_offset() == 0;
+                if this.maven_at_bottom != at_bottom {
+                    this.maven_at_bottom = at_bottom;
+                    cx.notify();
+                }
+            }));
         view
     }
 
@@ -1140,21 +1213,25 @@ impl BottomPanelView {
         let client = self.client.clone();
         let root = self.working_dir.clone();
         cx.spawn(async move |this, cx| {
-            let java_entrypoints =
-                match wait_for_java_entrypoints(&workbench, &client, Duration::from_secs(10 * 60), cx)
-                    .await
-                {
-                    Ok(value) => value,
-                    Err(error) => {
-                        let _ = this.update(cx, |view, cx| {
-                            if view.run_seq == seq {
-                                view.run_state = RunProjectState::Failed(error);
-                                cx.notify();
-                            }
-                        });
-                        return;
-                    }
-                };
+            let java_entrypoints = match wait_for_java_entrypoints(
+                &workbench,
+                &client,
+                Duration::from_secs(10 * 60),
+                cx,
+            )
+            .await
+            {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
             let paths = list_java_sources(&root);
             let mut payload = serde_json::json!({
                 "root": root,
@@ -1165,11 +1242,7 @@ impl BottomPanelView {
                 payload["javaEntrypoints"] = entrypoints;
             }
             let generated = client
-                .execute::<serde_json::Value, serde_json::Value>(
-                    &cx,
-                    "runConfig.generate",
-                    payload,
-                )
+                .execute::<serde_json::Value, serde_json::Value>(&cx, "runConfig.generate", payload)
                 .await;
             let generated = match generated {
                 Ok(value) => value,
@@ -1189,9 +1262,12 @@ impl BottomPanelView {
                 .cloned()
                 .unwrap_or_else(|| serde_json::json!({"version": 1, "toolchains": {}}));
             let default_id = default_generated_configuration_id(&generated_document);
-            if let Err(error) =
-                write_generated_documents(&root, &generated_document, &requirements, default_id.as_deref())
-            {
+            if let Err(error) = write_generated_documents(
+                &root,
+                &generated_document,
+                &requirements,
+                default_id.as_deref(),
+            ) {
                 let _ = this.update(cx, |view, cx| {
                     if view.run_seq == seq {
                         view.run_state = RunProjectState::Failed(error);
@@ -1220,6 +1296,9 @@ impl BottomPanelView {
         let execution_seq = self.run_execution_seq;
         self.set_run_running(true, cx);
         self.run_exit_code = None;
+        // 新执行开始：丢弃上一次的构建失败决策状态。
+        self.pending_build_error = None;
+        self.build_failure_decision = None;
         // 子进程 PTY 的初始尺寸取输出控制台当前实测行列数。
         let terminal_size = self.run_console.size();
         self.run_console.write_heading(&format!(
@@ -1513,6 +1592,39 @@ impl BottomPanelView {
             cx.emit(BottomPanelEvent::MavenRunningChanged(running));
             cx.notify();
         }
+    }
+
+    /// 请求用户决策 Java 构建失败（幂等；对齐 Tauri `openRunDecisionPane`）。
+    fn request_build_failure_decision(&mut self, error: String, cx: &mut Context<Self>) {
+        if self.pending_build_error.is_some() {
+            return;
+        }
+        self.build_failure_decision = None;
+        self.pending_build_error = Some(error);
+        cx.emit(BottomPanelEvent::RunBuildFailedDecision);
+        cx.notify();
+    }
+
+    /// 决策对话框回调：`proceed=false` 放弃本次运行；`always=true` 同时把
+    /// 该工作区策略写为 `alwaysProceed`（对齐 Tauri run-preferences）。
+    pub fn resolve_build_failure_decision(
+        &mut self,
+        proceed: bool,
+        always: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if always && proceed {
+            let root = self.working_dir.clone();
+            crate::settings::update(cx, |settings| {
+                settings.java_build_failure_policy_by_workspace.insert(
+                    crate::settings::workspace_preference_key(&root),
+                    "alwaysProceed".to_string(),
+                );
+            });
+        }
+        self.pending_build_error = None;
+        self.build_failure_decision = Some(proceed);
+        cx.notify();
     }
 
     /// 统一翻转 Run 运行态：写标志并通知宿主（顶部工具栏按钮联动）。
@@ -1833,8 +1945,7 @@ impl BottomPanelView {
                     if failed {
                         let output = this
                             .update(cx, |view, _cx| {
-                                (view.maven_seq == seq)
-                                    .then(|| view.maven_output_text.clone())
+                                (view.maven_seq == seq).then(|| view.maven_output_text.clone())
                             })
                             .unwrap_or(None);
                         if let Some(output) = output {
@@ -1953,10 +2064,7 @@ impl BottomPanelView {
             .items_center()
             .gap_1()
             .px_2()
-            .child(
-                icon.size(px(14.0))
-                    .text_color(ThemeColors::text_muted()),
-            )
+            .child(icon.size(px(14.0)).text_color(ThemeColors::text_muted()))
             .child(
                 div()
                     .flex_1()
@@ -2033,6 +2141,14 @@ impl BottomPanelView {
                 !can_run,
                 cx,
                 |this, _window, cx| this.run_selected_config(cx),
+            ),
+            Self::header_button(
+                "run-restart".to_string(),
+                IconName::RotateCw,
+                crate::i18n::menu_text(cx, "run.restart").to_string(),
+                !running,
+                cx,
+                |this, _window, cx| this.restart_selected_run(cx),
             ),
             Self::header_button(
                 "run-rescan".to_string(),
@@ -2164,8 +2280,314 @@ impl BottomPanelView {
         )
     }
 
-    /// Run 面板体：配置列表 + 输出区；头部由 `render_run_header` 负责。
+    /// Run 面板体：Java 准备状态区块 + 配置列表/详情/输出区；头部由
+    /// `render_run_header` 负责。
     fn render_run_panel(&mut self, cx: &mut Context<Self>) -> AnyElement {
+        let preparation = self.render_java_preparation(cx);
+        v_flex()
+            .size_full()
+            .children(preparation)
+            .child(self.render_run_body(cx))
+            .into_any_element()
+    }
+
+    /// 宿主 Java LSP 状态快照（工作台实体被释放时返回 `None`）。
+    fn java_preparation_snapshot(&self, cx: &App) -> Option<lsp::JavaLspStatus> {
+        Some(
+            self.workbench
+                .as_ref()?
+                .upgrade()?
+                .read(cx)
+                .java_lsp_status(),
+        )
+    }
+
+    /// Java 语言服务准备状态区块（对齐 Tauri `ProjectPreparationStatus`）：
+    /// 摘要行 + 可展开的四阶段列表、说明、设置/日志入口和构建失败策略重置。
+    fn render_java_preparation(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let status = self.java_preparation_snapshot(cx)?;
+        let preparation = status.project_preparation.as_ref();
+        let phase = preparation
+            .and_then(|value| value.get("phase"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        let preparation_status = preparation
+            .and_then(|value| value.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("");
+        // 无会话且无准备快照（或准备已停止）时不占位，对齐 Tauri 的
+        // `preparation.phase === "stopped"` 隐藏语义。
+        if preparation.is_none() && (status.state == "idle" || status.state == "stopped") {
+            return None;
+        }
+        if phase == "stopped" {
+            return None;
+        }
+        let failed = status.state == "failed" || preparation_status == "failed";
+        let ready = !failed && (preparation_status == "ready" || status.state == "ready");
+        let loading = !failed && !ready;
+        let label_key = if failed {
+            "preparation.failed"
+        } else {
+            match phase {
+                "importing" | "configuring" | "building" | "ready" => {
+                    // `ready` 阶段固定用就绪文案，进行中阶段显示对应动作。
+                    if phase == "ready" {
+                        "preparation.ready"
+                    } else {
+                        // 动态键来自 Core 稳定枚举，上面已穷举。
+                        match phase {
+                            "importing" => "preparation.importing",
+                            "configuring" => "preparation.configuring",
+                            _ => "preparation.building",
+                        }
+                    }
+                }
+                _ => "preparation.starting",
+            }
+        };
+        let expanded = self.java_prep_expanded;
+        let policy =
+            crate::settings::java_build_failure_policy(crate::settings::get(cx), &self.working_dir);
+        let show_policy_reset = policy == "alwaysProceed";
+
+        let summary = h_flex()
+            .id("java-prep-summary")
+            .w_full()
+            .items_center()
+            .gap_1p5()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .cursor_pointer()
+            .text_xs()
+            .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+            .on_click(cx.listener(|this, _event, _window, cx| {
+                this.java_prep_expanded = !this.java_prep_expanded;
+                cx.notify();
+            }))
+            .child(
+                Icon::new(if expanded {
+                    IconName::ChevronDown
+                } else {
+                    IconName::ChevronRight
+                })
+                .size(px(12.0))
+                .text_color(ThemeColors::text_muted()),
+            )
+            .child(if loading {
+                Icon::new(IconName::LoaderCircle)
+                    .size(px(12.0))
+                    .text_color(ThemeColors::text_muted())
+                    .into_any_element()
+            } else if failed {
+                div()
+                    .text_color(ThemeColors::destructive())
+                    .child("!".to_string())
+                    .into_any_element()
+            } else {
+                Icon::new(IconName::Check)
+                    .size(px(12.0))
+                    .text_color(ThemeColors::accent_green())
+                    .into_any_element()
+            })
+            .child(
+                div()
+                    .truncate()
+                    .text_color(if failed {
+                        ThemeColors::destructive()
+                    } else {
+                        ThemeColors::text_muted()
+                    })
+                    .child(crate::i18n::menu_text(cx, label_key).to_string()),
+            );
+
+        // 展开内容：四阶段进度、说明、设置/日志入口、构建失败策略。
+        let phase_rows: Vec<AnyElement> = ["starting", "importing", "configuring", "building"]
+            .iter()
+            .map(|step| {
+                let key = format!("preparation.{step}");
+                let current = !failed && !ready && phase == *step;
+                h_flex()
+                    .items_center()
+                    .gap_1()
+                    .text_color(if current {
+                        ThemeColors::text_primary()
+                    } else {
+                        ThemeColors::text_muted()
+                    })
+                    .when(current, |row| row.font_weight(FontWeight::MEDIUM))
+                    .child(div().child(if current { "› " } else { "· " }))
+                    .child(div().child(crate::i18n::menu_text(cx, &key).to_string()))
+                    .into_any_element()
+            })
+            .collect();
+        let mut details = v_flex()
+            .w_full()
+            .px_2()
+            .pb_2()
+            .gap_1()
+            .text_xs()
+            .children(phase_rows)
+            .child(
+                div()
+                    .text_color(ThemeColors::text_muted())
+                    .child(crate::i18n::menu_text(cx, "preparation.explanation").to_string()),
+            )
+            .child(
+                h_flex()
+                    .items_center()
+                    .gap_3()
+                    .pt_1()
+                    .child(
+                        Button::new("java-prep-settings")
+                            .small()
+                            .ghost()
+                            .label(crate::i18n::menu_text(cx, "preparation.settings"))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                cx.emit(BottomPanelEvent::OpenSettings { category: "lsp" });
+                                this.java_prep_expanded = false;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("java-prep-logs")
+                            .small()
+                            .ghost()
+                            .label(crate::i18n::menu_text(cx, "preparation.logs"))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                cx.emit(BottomPanelEvent::OpenSettings { category: "logs" });
+                                this.java_prep_expanded = false;
+                                cx.notify();
+                            })),
+                    ),
+            );
+        if show_policy_reset {
+            details = details.child(
+                v_flex()
+                    .w_full()
+                    .gap_1()
+                    .border_t_1()
+                    .border_color(ThemeColors::border())
+                    .pt_2()
+                    .mt_1()
+                    .text_color(ThemeColors::text_muted())
+                    .child(
+                        div().child(
+                            crate::i18n::menu_text(cx, "run.javaBuildAlwaysContinueEnabled")
+                                .to_string(),
+                        ),
+                    )
+                    .child(
+                        Button::new("java-prep-policy-reset")
+                            .small()
+                            .ghost()
+                            .label(crate::i18n::menu_text(cx, "run.javaBuildAskAgain"))
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                let root = this.working_dir.clone();
+                                crate::settings::update(cx, |settings| {
+                                    settings
+                                        .java_build_failure_policy_by_workspace
+                                        .remove(&crate::settings::workspace_preference_key(&root));
+                                });
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+
+        Some(
+            v_flex()
+                .flex_shrink_0()
+                .w_full()
+                .border_b_1()
+                .border_color(ThemeColors::border())
+                .px_1()
+                .py_1()
+                .child(summary)
+                .when(expanded, |block| block.child(details))
+                .into_any_element(),
+        )
+    }
+
+    /// 配置详情区块（对齐 Tauri 配置详情）：类型与主类，随选中配置变化。
+    fn render_run_config_details(&self, cx: &Context<Self>) -> AnyElement {
+        let Some(item) = self.selected_run_item() else {
+            return div().into_any_element();
+        };
+        // 类型展示与 Tauri 配置详情一致：优先 provider 语义，退回 kind。
+        let type_label = if item.provider.contains("spring-boot") {
+            "Spring Boot".to_string()
+        } else if item.provider.starts_with("java.") {
+            "Java".to_string()
+        } else if item.provider.contains("maven") {
+            "Maven".to_string()
+        } else {
+            item.kind.clone()
+        };
+        let mut rows = v_flex().gap_1();
+        rows = rows.child(
+            h_flex()
+                .items_start()
+                .gap_2()
+                .text_xs()
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .text_color(ThemeColors::text_muted())
+                        .child(crate::i18n::menu_text(cx, "run.detailType").to_string()),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .truncate()
+                        .text_color(ThemeColors::text_primary())
+                        .child(type_label),
+                ),
+        );
+        if let Some(main_class) = item.main_class.as_deref().filter(|v| !v.is_empty()) {
+            rows = rows.child(
+                h_flex()
+                    .items_start()
+                    .gap_2()
+                    .text_xs()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .text_color(ThemeColors::text_muted())
+                            .child(crate::i18n::menu_text(cx, "run.detailMainClass").to_string()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(crate::fonts::mono_family(cx))
+                            .text_color(ThemeColors::text_primary())
+                            .child(main_class.to_string()),
+                    ),
+            );
+        }
+        v_flex()
+            .flex_shrink_0()
+            .w_full()
+            .border_b_1()
+            .border_color(ThemeColors::border())
+            .px_2()
+            .py_1p5()
+            .gap_1()
+            .child(
+                div()
+                    .text_xs()
+                    .font_weight(FontWeight::MEDIUM)
+                    .text_color(ThemeColors::text_primary())
+                    .child(crate::i18n::menu_text(cx, "run.details").to_string()),
+            )
+            .child(rows)
+            .into_any_element()
+    }
+
+    /// Run 面板主体：配置列表 + 详情/输出区；头部由 `render_run_header` 负责。
+    fn render_run_body(&mut self, cx: &mut Context<Self>) -> AnyElement {
         if self.run_configs.is_empty() {
             match &self.run_state {
                 RunProjectState::Loading => {
@@ -2314,25 +2736,51 @@ impl BottomPanelView {
                             .children(diagnostic_rows),
                     )
                     .child(
-                        div()
+                        v_flex()
                             .flex_1()
                             .h_full()
                             .min_h_0()
-                            .relative()
-                            .on_mouse_up(
-                                MouseButton::Left,
-                                cx.listener(|this, _event, _window, cx| {
-                                    this.run_console.copy_selection(cx);
-                                }),
-                            )
-                            .child(self.run_console.view.clone())
-                            .when(!self.run_at_bottom, |panel| {
-                                panel.child(Self::jump_to_latest_button(
-                                    "run-jump-latest",
-                                    false,
-                                    cx,
-                                ))
-                            }),
+                            .child(self.render_run_config_details(cx))
+                            .child(
+                                div()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .relative()
+                                    .flex()
+                                    .flex_col()
+                                    .child(
+                                        div()
+                                            .flex_shrink_0()
+                                            .px_2()
+                                            .py_1()
+                                            .text_xs()
+                                            .font_weight(FontWeight::MEDIUM)
+                                            .text_color(ThemeColors::text_primary())
+                                            .child(
+                                                crate::i18n::menu_text(cx, "run.processOutput")
+                                                    .to_string(),
+                                            ),
+                                    )
+                                    .on_mouse_up(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _event, _window, cx| {
+                                            this.run_console.copy_selection(cx);
+                                        }),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_h_0()
+                                            .child(self.run_console.view.clone()),
+                                    )
+                                    .when(!self.run_at_bottom, |panel| {
+                                        panel.child(Self::jump_to_latest_button(
+                                            "run-jump-latest",
+                                            false,
+                                            cx,
+                                        ))
+                                    }),
+                            ),
                     ),
             )
             .into_any_element()
@@ -2356,18 +2804,17 @@ impl BottomPanelView {
                         .iter()
                         .map(|issue| {
                             let location = match issue.column {
-                                Some(column) => format!(
-                                    "{}:{}:{}",
-                                    issue.path,
-                                    issue.line,
-                                    column
-                                ),
+                                Some(column) => format!("{}:{}:{}", issue.path, issue.line, column),
                                 None => format!("{}:{}", issue.path, issue.line),
                             };
                             let path = issue.path.clone();
                             let line = issue.line;
                             div()
-                                .id(format!("maven-issue-{}-{line}-{}", path, issue.column.is_some()))
+                                .id(format!(
+                                    "maven-issue-{}-{line}-{}",
+                                    path,
+                                    issue.column.is_some()
+                                ))
                                 .w_full()
                                 .flex_shrink_0()
                                 .px_2p5()
@@ -2457,11 +2904,7 @@ impl BottomPanelView {
 
     /// “跳到最新”浮层按钮（对齐 macOS `Jump to latest`）：用户上翻后出现在
     /// 控制台右下角，点击回到底部并恢复跟随。
-    fn jump_to_latest_button(
-        id: &'static str,
-        maven: bool,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
+    fn jump_to_latest_button(id: &'static str, maven: bool, cx: &mut Context<Self>) -> AnyElement {
         div()
             .absolute()
             .bottom_2()
@@ -2872,8 +3315,14 @@ fn run_center_text(text: String) -> AnyElement {
 /// Tests/Debug 占位面板空态文案（UI 已就位，功能待接入）。
 fn placeholder_text(cx: &gpui_kit::App, tab: &str) -> String {
     let (zh, en) = match tab {
-        "tests" => ("测试面板 UI 占位，功能接入中。", "Tests panel placeholder; functionality coming soon."),
-        _ => ("调试面板 UI 占位，功能接入中。", "Debug panel placeholder; functionality coming soon."),
+        "tests" => (
+            "测试面板 UI 占位，功能接入中。",
+            "Tests panel placeholder; functionality coming soon.",
+        ),
+        _ => (
+            "调试面板 UI 占位，功能接入中。",
+            "Debug panel placeholder; functionality coming soon.",
+        ),
     };
     run_ui_text(cx, zh, en)
 }
