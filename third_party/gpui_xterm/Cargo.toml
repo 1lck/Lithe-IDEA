@@ -30,6 +30,6 @@ alacritty_terminal = "0.26"
 anyhow = "1"
 arboard = { version = "3", features = ["wayland-data-control"] }
 flume = "0.12"
-gpui = { package = "gpui-pre", version = "0.3.6" }
-gpui-component = "0.6.6"
+gpui = { package = "gpui-pre", version = "0.3.7" }
+gpui-component = "0.7"
 parking_lot = "0.12"

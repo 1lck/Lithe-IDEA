@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 rfd = "0.16"
-gpui-kit = { version = "0.6", features = [
+gpui-kit = { version = "0.7", features = [
     "tree-sitter-bash",
     "tree-sitter-java",
     "tree-sitter-javascript",
@@ -41,4 +41,4 @@ libc = "0.2"
 
 # UI 集成测试（gpui_kit::test 头less 窗口渲染）。
 [dev-dependencies]
-gpui-kit = { version = "0.6", features = ["test-support"] }
+gpui-kit = { version = "0.7", features = ["test-support"] }
