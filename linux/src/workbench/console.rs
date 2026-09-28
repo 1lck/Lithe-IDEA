@@ -163,6 +163,27 @@ impl OutputConsole {
         }
     }
 
+    /// 视口是否停在底部（`display_offset == 0`）。
+    ///
+    /// 对齐 macOS 输出视图的智能滚动语义：仅当用户仍跟随末尾时，宿主才在
+    /// 新输出后调用 [`Self::scroll_to_bottom`]；用户上翻查阅历史时不拉底。
+    pub fn is_at_bottom(&self, cx: &App) -> bool {
+        self.view.read(cx).state().display_offset() == 0
+    }
+
+    /// 终端网格的当前视口偏移（0 = 跟随末尾，TEMP_DIAG 用）。
+    pub fn display_offset(&self, cx: &App) -> usize {
+        self.view.read(cx).state().display_offset()
+    }
+
+    /// 最近一次实测的终端行列数（TEMP_DIAG 用）。
+    pub fn size_cells(&self) -> (u16, u16) {
+        self.size
+            .lock()
+            .map(|slot| *slot)
+            .unwrap_or((FALLBACK_COLS, FALLBACK_ROWS))
+    }
+
     /// 把视口滚到底部（“跟随末尾”）。
     pub fn scroll_to_bottom(&self, cx: &mut impl gpui_kit::AppContext) {
         self.view.update(cx, |view, cx| {

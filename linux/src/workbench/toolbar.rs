@@ -7,11 +7,12 @@
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::menu::{DropdownMenu as _, PopupMenu, PopupMenuItem};
+use gpui_kit::component::TitleBar;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Selectable as _, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, Anchor, AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
+    ParentElement as _, Render, SharedString, Styled as _, Window,
 };
 
 use crate::settings;
@@ -52,10 +53,16 @@ pub enum ToolbarEvent {
     OpenRecentProject(String),
     /// 打开分支管理器弹窗（分支徽标按钮，对齐 Tauri `GitBranchManager`）。
     OpenBranchManager,
+    // ---- 新增：顶栏运行控件（对齐 macOS runConfigurationPicker + Run/Debug/Stop） ----
+    /// 顶栏运行配置胶囊选中了某个配置，载荷为配置 id。
+    SelectRunConfig(String),
 }
 
 /// 应用图标：与 Tauri 端 `public/logo.png` 同一文件，编译期嵌入。
 const APP_LOGO_PNG: &[u8] = include_bytes!("../../assets/logo.png");
+
+/// 配置列表为空时弹层的占位提示。
+const EMPTY_RUN_TARGETS: &str = "—";
 
 pub struct ToolbarView {
     pub workspace_root: String,
@@ -65,6 +72,13 @@ pub struct ToolbarView {
     compact_menu_open: bool,
     /// 解码后的应用图标，项目菜单触发器左侧的徽标（对齐 Tauri 的 `logo.png`）。
     app_logo: std::sync::Arc<gpui_kit::Image>,
+    /// 是否有 Run 执行在跑（Run 按钮变 rerun、Stop 按钮显示，对齐 mac
+    /// `isSelectedConfigurationRunning` / `hasActiveExecution`）。
+    run_running: bool,
+    /// 选中运行配置名；`None` 显示 "Current File"（对齐 mac 默认项）。
+    run_selected: Option<String>,
+    /// 可选运行配置列表 `(id, name)`，配置胶囊弹层用。
+    run_configs: Vec<(String, String)>,
 }
 
 impl EventEmitter<ToolbarEvent> for ToolbarView {}
@@ -80,6 +94,9 @@ impl ToolbarView {
                 gpui_kit::ImageFormat::Png,
                 APP_LOGO_PNG.to_vec(),
             )),
+            run_running: false,
+            run_selected: None,
+            run_configs: Vec::new(),
         }
     }
 
@@ -92,6 +109,26 @@ impl ToolbarView {
     pub fn set_workspace_root(&mut self, root: String, cx: &mut Context<Self>) {
         self.workspace_root = root.clone();
         self.workspace_name = workspace_dir_name(&root);
+        cx.notify();
+    }
+
+    /// 同步顶栏运行控件状态（底部面板经宿主推送；变化才 notify）。
+    pub fn set_run_state(
+        &mut self,
+        running: bool,
+        selected: Option<String>,
+        configs: Vec<(String, String)>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.run_running == running
+            && self.run_selected == selected
+            && self.run_configs == configs
+        {
+            return;
+        }
+        self.run_running = running;
+        self.run_selected = selected;
+        self.run_configs = configs;
         cx.notify();
     }
 }
@@ -606,6 +643,11 @@ impl Render for ToolbarView {
             .unwrap_or_else(|| "main".to_string());
         let project_name = self.workspace_name.clone();
 
+        // 运行控件状态快照（配置胶囊/Run/Stop 用）。
+        let run_running = self.run_running;
+        let run_selected = self.run_selected.clone();
+        let run_configs = self.run_configs.clone();
+
         // 读取渲染所需的设置快照，随后立刻释放对 cx 的只读借用。
         let compact_menu = settings::get(cx).compact_menu_bar;
 
@@ -721,15 +763,14 @@ impl Render for ToolbarView {
                 .into_any_element()
         };
 
-        h_flex()
+        // 用 gpui-component `TitleBar` 承载整个工具栏：它自带窗口拖拽、双击
+        // 最大化、右键窗口菜单，并在 client 装饰模式下渲染原生的最小化/最大化/
+        // 关闭按钮（server 装饰时自动隐藏，避免与 WM 标题栏叠两层——对齐
+        // macOS 自绘标题栏的行为）。
+        TitleBar::new()
             .h(px(40.0))
-            .w_full()
             .bg(ThemeColors::surface())
-            .border_b_1()
             .border_color(ThemeColors::border())
-            .items_center()
-            .justify_between()
-            .px_3()
             // 左侧：应用菜单 + 项目菜单 + 分支胶囊（对齐 Tauri `title-bar.tsx` 的左侧组）
             .child(
                 h_flex()
@@ -838,12 +879,107 @@ impl Render for ToolbarView {
                             }))
                     }),
             )
-            // 右侧：全局搜索图标按钮 + 窗口控件（对齐 Tauri `quickOpenAction` + `WindowControls`）
+            // 右侧：运行控件组 + 全局搜索（窗口控件由 TitleBar 在 client 装饰下渲染）。
+            // 对齐 macOS 顶栏：配置胶囊 + Run（在跑变 rerun）+ Debug + Stop（仅在跑显示）。
             .child(
                 h_flex()
                     .items_center()
                     .flex_shrink_0()
                     .gap_1()
+                    .child({
+                        // 运行配置胶囊：显示选中配置名（无则 "Current File"），
+                        // 点击弹出配置列表。
+                        let selected = run_selected.clone();
+                        let configs = run_configs.clone();
+                        let view = view.clone();
+                        let label = selected.unwrap_or_else(|| {
+                            crate::i18n::menu_text(cx, "run.currentFile").to_string()
+                        });
+                        Button::new("tb-run-target")
+                            .small()
+                            .ghost()
+                            .max_w(px(190.0))
+                            .child(
+                                div()
+                                    .max_w(px(160.0))
+                                    .truncate()
+                                    .text_xs()
+                                    .text_color(ThemeColors::text_primary())
+                                    .child(label),
+                            )
+                            .child(
+                                Icon::new(IconName::ChevronDown)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::text_muted()),
+                            )
+                            .dropdown_menu(move |menu, _window, _cx| {
+                                let mut menu = menu;
+                                if configs.is_empty() {
+                                    menu = menu.item(PopupMenuItem::label(
+                                        // 空列表提示（对齐 mac：仅 currentFile 可选）。
+                                        EMPTY_RUN_TARGETS,
+                                    ));
+                                }
+                                for (id, name) in &configs {
+                                    let view = view.clone();
+                                    let id = id.clone();
+                                    let name = name.clone();
+                                    menu = menu.item(
+                                        PopupMenuItem::label(name).on_click(move |_event, _window, cx| {
+                                            view.update(cx, |_tb, cx| {
+                                                cx.emit(ToolbarEvent::SelectRunConfig(id.clone()));
+                                            });
+                                        }),
+                                    );
+                                }
+                                menu
+                            })
+                    })
+                    .child({
+                        // Run：在跑时变 rerun（对齐 mac `restartSelectedRun`）。
+                        let icon = if run_running {
+                            IconName::RotateCw
+                        } else {
+                            IconName::Play
+                        };
+                        let tooltip_key = if run_running {
+                            "run.rerunSelected"
+                        } else {
+                            "run.runSelected"
+                        };
+                        Button::new("tb-run")
+                            .small()
+                            .ghost()
+                            .icon(icon)
+                            .tooltip(crate::i18n::menu_text(cx, tooltip_key))
+                            .on_click(cx.listener(|_this, _event, _window, cx| {
+                                cx.emit(ToolbarEvent::Run);
+                            }))
+                    })
+                    .child(
+                        Button::new("tb-debug")
+                            .small()
+                            .ghost()
+                            .icon(IconName::Bug)
+                            .tooltip(crate::i18n::menu_text(cx, "menu.debug"))
+                            .on_click(cx.listener(|_this, _event, _window, cx| {
+                                cx.emit(ToolbarEvent::Debug);
+                            })),
+                    )
+                    .when(run_running, |group| {
+                        // Stop 仅在有活动执行时出现（对齐 mac `hasActiveExecution`）。
+                        group.child(
+                            Button::new("tb-stop")
+                                .small()
+                                .ghost()
+                                .icon(IconName::Square)
+                                .text_color(ThemeColors::warning())
+                                .tooltip(crate::i18n::menu_text(cx, "run.stop"))
+                                .on_click(cx.listener(|_this, _event, _window, cx| {
+                                    cx.emit(ToolbarEvent::Stop);
+                                })),
+                        )
+                    })
                     .child(
                         Button::new("tb-quick-open")
                             .small()
@@ -853,65 +989,11 @@ impl Render for ToolbarView {
                             .on_click(cx.listener(|_this, _event, _window, cx| {
                                 cx.emit(ToolbarEvent::QuickOpen);
                             })),
-                    )
-                    .child(
-                        h_flex()
-                            .items_center()
-                            .flex_shrink_0()
-                            .child(window_control(
-                                "tb-window-minimize",
-                                IconName::Minus,
-                                false,
-                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.emit(ToolbarEvent::WindowMinimize);
-                                }),
-                            ))
-                            .child(window_control(
-                                "tb-window-maximize",
-                                IconName::Square,
-                                false,
-                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.emit(ToolbarEvent::WindowMaximize);
-                                }),
-                            ))
-                            .child(window_control(
-                                "tb-window-close",
-                                IconName::Close,
-                                true,
-                                cx.listener(|_this, _event: &gpui_kit::ClickEvent, _window, cx| {
-                                    cx.emit(ToolbarEvent::WindowClose);
-                                }),
-                            )),
                     ),
             )
+            // 关闭按钮行为对齐旧实现：退出整个应用。
+            .on_close_window(|_event, _window, cx| {
+                cx.quit();
+            })
     }
-}
-
-/// 构建一个窗口控件按钮：固定 46x40、直角，悬停高亮，Close 使用 destructive。
-fn window_control(
-    id: &'static str,
-    icon: IconName,
-    destructive: bool,
-    on_click: impl Fn(&gpui_kit::ClickEvent, &mut Window, &mut gpui_kit::App) + 'static,
-) -> impl IntoElement {
-    let hover_bg = if destructive {
-        ThemeColors::destructive()
-    } else {
-        ThemeColors::accent()
-    };
-    div()
-        .id(id)
-        .w(px(46.0))
-        .h(px(40.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .cursor_pointer()
-        .hover(move |h| h.bg(hover_bg))
-        .on_click(on_click)
-        .child(
-            Icon::new(icon)
-                .size(px(14.0))
-                .text_color(ThemeColors::muted_foreground()),
-        )
 }

@@ -38,3 +38,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # `libc` 只用于 Unix 进程组信号；Windows 由 `taskkill` 终止进程树。
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# UI 集成测试（gpui_kit::test 头less 窗口渲染）。
+[dev-dependencies]
+gpui-kit = { version = "0.6", features = ["test-support"] }

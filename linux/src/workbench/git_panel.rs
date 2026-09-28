@@ -17,7 +17,7 @@ use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AppContext as _, Context, Entity, EventEmitter, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _,
+    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use rgitui_diff::{DiffSource, DiffViewer};
 use rgitui_git::{DiffHunk, DiffLine, FileChangeKind, FileDiff};
@@ -210,11 +210,7 @@ impl GitPanelView {
 impl EventEmitter<GitPanelEvent> for GitPanelView {}
 
 impl Render for GitPanelView {
-    fn render(
-        &mut self,
-        _window: &mut gpui_kit::Window,
-        cx: &mut Context<Self>,
-    ) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows: Vec<gpui_kit::AnyElement> = self
             .changes
             .iter()
@@ -243,12 +239,14 @@ impl Render for GitPanelView {
                     .when(selected, |row| row.bg(ThemeColors::bg_tab_hover()))
                     .hover(|row| row.bg(ThemeColors::bg_tab_hover()))
                     .child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .truncate()
-                            .text_color(ThemeColors::text_primary())
-                            .child(change.path.clone()),
+                        h_flex().child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .truncate()
+                                .text_color(ThemeColors::text_primary())
+                                .child(change.path.clone()),
+                        ),
                     )
                     .child(
                         div()

@@ -131,8 +131,12 @@ impl QuickOpenModal {
         }
     }
 
-    /// 替换候选文件列表并重算筛选结果。
+    /// 替换候选文件列表并重算筛选结果（内容不变时短路，避免侧边栏每次
+    /// notify 都触发重算与重渲染）。
     pub fn set_files(&mut self, files: Vec<String>, cx: &mut Context<Self>) {
+        if self.files == files {
+            return;
+        }
         self.files = files;
         self.recompute_filtered();
         cx.notify();
@@ -140,6 +144,9 @@ impl QuickOpenModal {
 
     /// 同步已打开的编辑器标签页路径（打开分组置顶，对齐 Tauri `openBufferFiles`）。
     pub fn set_open_files(&mut self, open: Vec<String>, cx: &mut Context<Self>) {
+        if self.open_files == open {
+            return;
+        }
         self.open_files = open;
         self.recompute_filtered();
         cx.notify();

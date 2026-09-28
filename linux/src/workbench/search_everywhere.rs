@@ -215,6 +215,9 @@ impl SearchEverywhereModal {
     }
 
     pub fn set_files(&mut self, files: Vec<String>, cx: &mut Context<Self>) {
+        if self.files == files {
+            return;
+        }
         // 小写副本一次性预算，查询匹配只做 `contains`，不再逐路径分配。
         self.files_lower = files.iter().map(|f| f.to_lowercase()).collect();
         self.files = files;

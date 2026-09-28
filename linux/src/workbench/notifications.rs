@@ -12,7 +12,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::menu::DropdownMenu as _;
 use gpui_kit::component::scroll::ScrollableElement as _;
-use gpui_kit::component::{h_flex, v_flex, Icon, Sizable as _};
+use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AppContext as _, Context, Entity, EventEmitter, FontWeight, InteractiveElement as _,
@@ -439,30 +439,18 @@ impl Render for NotificationsView {
                         h_flex()
                             .items_center()
                             .gap_1()
-                            .when(unread > 0, |actions| {
-                                actions.child(
-                                    Button::new("notifications-mark-read")
-                                        .small()
-                                        .ghost()
-                                        .label(crate::i18n::menu_text(
-                                            cx,
-                                            "notifications.markAllRead",
-                                        ))
-                                        .on_click(cx.listener(|this, _event, _window, cx| {
-                                            this.mark_all_read(cx);
-                                        })),
-                                )
-                            })
+                            // 对齐 macOS 通知中心：打开即全部已读，头部只有
+                            // "Clear All" 文字按钮（无逐条/批量已读按钮）。
                             .when(!is_empty, |actions| {
                                 actions.child(
                                     Button::new("notifications-clear-all")
                                         .small()
                                         .ghost()
-                                        .icon(IconName::Trash)
-                                        .tooltip(crate::i18n::menu_text(
+                                        .label(crate::i18n::menu_text(
                                             cx,
                                             "notifications.clearAll",
                                         ))
+                                        .disabled(is_empty)
                                         .on_click(cx.listener(|this, _event, _window, cx| {
                                             this.clear_all(cx);
                                         })),

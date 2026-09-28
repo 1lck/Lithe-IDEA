@@ -8,7 +8,7 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::{h_flex, v_flex};
+use gpui_kit::component::{v_flex, Icon};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AnyElement, Context, EventEmitter, IntoElement, ParentElement as _, Render,
@@ -27,7 +27,8 @@ use crate::theme::ThemeColors;
 pub enum ActivityRailEvent {
     /// 切换顶部侧边视图，载荷为 "files" | "git" | "search"。
     SelectView(String),
-    /// 切换底部工具窗口，载荷为 "maven" | "run" | "terminal" | "diagnostics" | "gitLog"。
+    /// 切换底部工具窗口，载荷为 "maven" | "run" | "terminal" | "diagnostics" |
+    /// "gitLog" | "tests" | "debug"。
     ToggleBottomPane(String),
     /// 打开设置。
     OpenSettings,
@@ -215,13 +216,16 @@ pub enum PluginRailEvent {
     ToggleMaven,
 }
 
-/// 右侧插件活动栏：Extensions / Notifications（带未读角标）/ Maven。
+/// 右侧插件活动栏：Notifications / Extensions / Maven（顺序与图标对齐 macOS
+/// `pluginActivityBar`：通知第一、插件第二、Maven 第三）。
 #[allow(dead_code)]
 pub struct PluginActivityRailView {
     /// 通知未读数，用于角标；为 0 时不渲染角标。
     pub unread_notifications: usize,
     /// Maven 是否可用（无 Maven 项目时隐藏入口）。
     pub maven_available: bool,
+    /// 当前展开的右侧工具面板，用于按钮选中高亮（对齐 mac `isSelected`）。
+    active_tool: Option<&'static str>,
 }
 
 impl EventEmitter<PluginRailEvent> for PluginActivityRailView {}
@@ -239,6 +243,7 @@ impl PluginActivityRailView {
         Self {
             unread_notifications: 0,
             maven_available: true,
+            active_tool: None,
         }
     }
 
@@ -250,13 +255,23 @@ impl PluginActivityRailView {
         }
     }
 
+    /// 同步当前展开的右侧工具面板（对齐 mac 按钮选中态）。
+    pub fn set_active_tool(&mut self, active: Option<&'static str>, cx: &mut Context<Self>) {
+        if self.active_tool != active {
+            self.active_tool = active;
+            cx.notify();
+        }
+    }
+
     /// 单个插件按钮：尺寸与左侧栏按钮一致；图标沿用按钮 Medium 尺寸（16px）。
+    /// 选中态样式与左侧活动栏一致（accent 背景 + 前景文字）。
     fn render_button(
         &self,
         id: &'static str,
-        icon: IconName,
+        icon: Icon,
         tooltip: String,
         event: PluginRailEvent,
+        is_active: bool,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         Button::new(id)
@@ -266,7 +281,12 @@ impl PluginActivityRailView {
             .w(px(32.0))
             .h(px(32.0))
             .rounded(px(4.0))
-            .text_color(ThemeColors::subtle_foreground())
+            .text_color(if is_active {
+                ThemeColors::text_primary()
+            } else {
+                ThemeColors::subtle_foreground()
+            })
+            .when(is_active, |btn| btn.bg(ThemeColors::accent()))
             .on_click(cx.listener(move |_this, _event, _window, cx| {
                 cx.emit(event.clone());
             }))
@@ -276,19 +296,52 @@ impl PluginActivityRailView {
 
 impl Render for PluginActivityRailView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // 顺序对齐 macOS pluginActivityBar：Notifications → Plugins → Maven。
+        let has_unread = self.unread_notifications > 0;
+        let notifications_active = self.active_tool == Some("notifications");
+        let notifications = div()
+            .w(px(32.0))
+            .h(px(32.0))
+            .relative()
+            .flex_shrink_0()
+            .child(self.render_button(
+                "plugin-notifications",
+                // 对齐 mac：有未读时铃铛强调（mac 用 bell.fill 实心态）。
+                Icon::new(IconName::Bell),
+                crate::i18n::menu_text(cx, "notifications.title").to_string(),
+                PluginRailEvent::ToggleNotifications,
+                notifications_active,
+                cx,
+            ))
+            .when(has_unread, |wrapper| {
+                wrapper.child(
+                    // 对齐 mac：7px 纯色圆点徽标（非数字），带 1px 面板底色描边。
+                    div()
+                        .absolute()
+                        .top(px(3.0))
+                        .right(px(3.0))
+                        .size(px(7.0))
+                        .rounded_full()
+                        .bg(ThemeColors::destructive())
+                        .border_1()
+                        .border_color(ThemeColors::surface()),
+                )
+            });
         let extensions = self.render_button(
             "plugin-extensions",
-            IconName::Puzzle,
+            Icon::new(IconName::Puzzle),
             crate::i18n::menu_text(cx, "extensions.title").to_string(),
             PluginRailEvent::OpenExtensions,
+            self.active_tool == Some("extensions"),
             cx,
         );
         let maven = self.maven_available.then(|| {
             self.render_button(
                 "plugin-maven",
-                IconName::Box,
+                Icon::default().data(IDEA_ICON_MAVEN),
                 crate::i18n::menu_text(cx, "maven.title").to_string(),
                 PluginRailEvent::ToggleMaven,
+                self.active_tool == Some("maven"),
                 cx,
             )
         });
@@ -303,61 +356,39 @@ impl Render for PluginActivityRailView {
             .items_center()
             .pt_1()
             .gap_1()
+            .child(notifications)
             .child(extensions)
-            .child(
-                // 通知按钮 + 右上角未读角标。角标叠加在按钮容器上，避免撑开按钮尺寸。
-                div()
-                    .w(px(32.0))
-                    .h(px(32.0))
-                    .relative()
-                    .flex_shrink_0()
-                    .child(self.render_button(
-                        "plugin-notifications",
-                        IconName::Bell,
-                        crate::i18n::menu_text(cx, "notifications.title").to_string(),
-                        PluginRailEvent::ToggleNotifications,
-                        cx,
-                    ))
-                    .when(self.unread_notifications > 0, |d| {
-                        // 超过 9 条统一显示 9+，避免角标随数字变宽。
-                        let label = if self.unread_notifications > 9 {
-                            "9+".to_string()
-                        } else {
-                            self.unread_notifications.to_string()
-                        };
-                        d.child(
-                            h_flex()
-                                .absolute()
-                                .top_0()
-                                .right_0()
-                                .min_w(px(14.0))
-                                .h(px(14.0))
-                                .rounded_full()
-                                .bg(ThemeColors::destructive())
-                                .items_center()
-                                .justify_center()
-                                .text_xs()
-                                .text_color(gpui_kit::white())
-                                .child(label),
-                        )
-                    }),
-            )
             .when_some(maven, |rail, maven| rail.child(maven))
     }
 }
 
-/// id → 图标，对齐 Tauri 侧边栏各项图标。
-fn item_icon(id: &str) -> IconName {
+/// macOS 活动栏同款 IDEA 图标（`assets/icons/idea/` 为 `macos/Resources/IDEAIcons`
+/// 的副本）。GPUI 的 svg 元素以 text_color 着色，原文件的硬编码颜色不影响显示。
+const IDEA_ICON_VCS: &[u8] = include_bytes!("../../assets/icons/idea/toolwindows/toolWindowVcs.svg");
+const IDEA_ICON_PROBLEMS: &[u8] =
+    include_bytes!("../../assets/icons/idea/toolwindows/toolWindowProblems.svg");
+const IDEA_ICON_RUN: &[u8] =
+    include_bytes!("../../assets/icons/idea/toolwindows/toolWindowRun.svg");
+pub(crate) const IDEA_ICON_DEBUGGER: &[u8] =
+    include_bytes!("../../assets/icons/idea/toolwindows/toolWindowDebugger.svg");
+const IDEA_ICON_MAVEN: &[u8] = include_bytes!("../../assets/icons/idea/maven/toolWindowMaven.svg");
+const IDEA_ICON_GEAR: &[u8] = include_bytes!("../../assets/icons/idea/general/gear.svg");
+
+/// id → 图标，底部组对齐 macOS 活动栏（IDEA toolWindow 图标）；
+/// 顶部组与 terminal 沿用 Lucide（macOS 侧同样使用 SF Symbol `terminal`）。
+fn item_icon(id: &str) -> Icon {
     match id {
-        "files" => IconName::Files,
-        "git" => IconName::GitBranch,
-        "search" => IconName::Search,
-        "maven" => IconName::Box,
-        "run" => IconName::Play,
-        "terminal" => IconName::Terminal,
-        "diagnostics" => IconName::TriangleAlert,
-        "gitLog" => IconName::GitGraph,
-        _ => IconName::Settings,
+        "files" => Icon::new(IconName::Files),
+        "git" => Icon::new(IconName::GitBranch),
+        "search" => Icon::new(IconName::Search),
+        "maven" => Icon::default().data(IDEA_ICON_MAVEN),
+        "run" => Icon::default().data(IDEA_ICON_RUN),
+        "terminal" => Icon::new(IconName::Terminal),
+        "diagnostics" => Icon::default().data(IDEA_ICON_PROBLEMS),
+        "gitLog" => Icon::default().data(IDEA_ICON_VCS),
+        "tests" => Icon::new(IconName::BadgeCheck),
+        "debug" => Icon::default().data(IDEA_ICON_DEBUGGER),
+        _ => Icon::default().data(IDEA_ICON_GEAR),
     }
 }
 
@@ -371,6 +402,8 @@ fn item_tooltip(cx: &mut Context<ActivityRailView>, id: &'static str) -> String 
         "terminal" => crate::i18n::menu_text(cx, "workbench.terminal"),
         "diagnostics" => crate::i18n::menu_text(cx, "workbench.diagnostics"),
         "gitLog" => crate::i18n::menu_text(cx, "workbench.gitLog"),
+        "tests" => crate::i18n::menu_text(cx, "workbench.tests"),
+        "debug" => crate::i18n::menu_text(cx, "workbench.debug"),
         "settings" => crate::i18n::menu_text(cx, "workbench.settings"),
         _ => crate::i18n::menu_text(cx, "maven.title"),
     };

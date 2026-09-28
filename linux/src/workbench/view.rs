@@ -9,7 +9,7 @@ use gpui_kit::component::resizable::{h_resizable, resizable_panel, v_resizable, 
 use gpui_kit::component::{h_flex, v_flex, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
-    div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle,
+    div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, KeyDownEvent, ModifiersChangedEvent, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Render, Styled as _,
     Subscription, Window,
@@ -106,6 +106,8 @@ pub struct WorkbenchView {
     pub show_branch_manager: bool,
     /// Git 面板（变更列表 + diff）是否可见
     pub show_git_panel: bool,
+    /// Run setup 确认对话框（对齐 mac：选中配置缺 Java 元数据时确认重生成）
+    pub show_run_setup_dialog: bool,
     /// 右侧工具窗口当前视图（`None` 隐藏，对齐 Tauri 右侧不持久化语义）
     pub right_tool: Option<RightToolView>,
 
@@ -123,6 +125,17 @@ pub struct WorkbenchView {
     pub extensions: Entity<ExtensionsView>,
     /// 通知诊断行点击后的待跳转行号（1 起，文件加载完成后在 render 应用）
     pending_goto_line: Option<u32>,
+    /// 各窗格编辑器"无标签页"镜像（观察者维护，render 不再读取编辑器实体，
+    /// 避免每次按键都触发整棵工作台重渲染）。
+    pane_tabs_empty: HashMap<PaneId, bool>,
+    /// 底部面板可见性镜像（观察者维护，理由同上；进程输出高频 notify
+    /// 底部面板时不再连带整树重建）。
+    bottom_visible: bool,
+    /// 上次同步给全局搜索/快速打开的文件快照（侧边栏观察者据此短路，
+    /// 避免过滤框每个按键都重推文件列表）。
+    synced_file_list: Vec<String>,
+    /// 上次同步的已打开标签页路径并集。
+    synced_open_files: Vec<String>,
     /// LSP：provider id → Core 会话 id（非空即已启动）。
     lsp_sessions: HashMap<String, String>,
     /// LSP：正在启动中的 provider id，避免重复 `lsp.startServer`。
@@ -316,12 +329,14 @@ impl WorkbenchView {
                 sb.set_git_changes(sidebar.read(cx).git_changes.len(), cx);
             });
 
-            // 收集所有文件供全局搜索与快速打开
+            // 收集所有文件供全局搜索与快速打开；与上次快照相同则跳过
+            // （侧边栏过滤框每个按键都会 notify，不能每次都重推列表）。
             let mut file_list = Vec::new();
             if let Some(root_node) = &sidebar.read(cx).root_node {
                 Self::collect_all_file_paths(root_node, &mut file_list);
             }
-            if !file_list.is_empty() {
+            if !file_list.is_empty() && *this.synced_file_list != file_list {
+                this.synced_file_list = file_list.clone();
                 let _ = search_sync.update(cx, |search, cx| {
                     search.set_files(file_list.clone(), cx);
                 });
@@ -330,7 +345,7 @@ impl WorkbenchView {
                 });
             }
             // 已打开标签页同步给快速打开置顶分组（对齐 Tauri `openBufferFiles`，
-            // 多窗格取各窗格 tabs 去重并集）。
+            // 多窗格取各窗格 tabs 去重并集）；与上次快照相同则跳过。
             let mut open_files: Vec<String> = Vec::new();
             for leaf in this.pane_tree.leaves() {
                 if let Some(ed) = this.pane_editors.get(&leaf) {
@@ -341,7 +356,8 @@ impl WorkbenchView {
                     }
                 }
             }
-            if !open_files.is_empty() {
+            if !open_files.is_empty() && *this.synced_open_files != open_files {
+                this.synced_open_files = open_files.clone();
                 let _ = quick_open_sync.update(cx, |qo, cx| {
                     qo.set_open_files(open_files, cx);
                 });
@@ -350,8 +366,10 @@ impl WorkbenchView {
             // 同步 Maven 可用性：有 pom 项目时右侧插件栏才显示 Maven 入口。
             let has_maven = this.maven.read(cx).has_projects();
             let _ = plugin_rail_maven.update(cx, |r, cx| {
-                r.maven_available = has_maven;
-                cx.notify();
+                if r.maven_available != has_maven {
+                    r.maven_available = has_maven;
+                    cx.notify();
+                }
             });
         });
 
@@ -414,6 +432,27 @@ impl WorkbenchView {
                 BottomPanelEvent::ClearDiagnostics => {
                     this.lsp_diagnostics.clear();
                 }
+                // Maven 运行态变化：同步右侧 Maven 面板的 run/stop 按钮切换。
+                BottomPanelEvent::MavenRunningChanged(running) => {
+                    let _ = this.maven.update(cx, |maven, cx| {
+                        maven.set_running(*running, cx);
+                    });
+                    cx.notify();
+                }
+                // Run 运行态/选中配置变化：同步顶部工具栏按钮与配置胶囊。
+                BottomPanelEvent::RunStateChanged => {
+                    let (running, selected, configs) =
+                        this.bottom_panel.read(cx).run_toolbar_state();
+                    let _ = this.toolbar.update(cx, |toolbar, cx| {
+                        toolbar.set_run_state(running, selected, configs, cx);
+                    });
+                    cx.notify();
+                }
+                // 选中配置缺 Java 启动元数据：弹出 setup 确认对话框。
+                BottomPanelEvent::RunSetupRequired => {
+                    this.show_run_setup_dialog = true;
+                    cx.notify();
+                }
             },
         );
 
@@ -438,8 +477,7 @@ impl WorkbenchView {
             &notifications,
             |this, _view, event: &NotificationsEvent, cx| match event {
                 NotificationsEvent::Close => {
-                    this.right_tool = None;
-                    cx.notify();
+                    this.set_right_tool(None, cx);
                 }
                 NotificationsEvent::OpenFile(path, line) => {
                     this.pending_goto_line = Some(*line);
@@ -453,8 +491,7 @@ impl WorkbenchView {
             &extensions,
             |this, _view, event: &ExtensionsEvent, cx| match event {
                 ExtensionsEvent::Close => {
-                    this.right_tool = None;
-                    cx.notify();
+                    this.set_right_tool(None, cx);
                 }
             },
         );
@@ -477,6 +514,12 @@ impl WorkbenchView {
                 });
                 cx.notify();
             }
+            MavenEvent::StopRun => {
+                let _ = this.bottom_panel.update(cx, |bp, cx| {
+                    bp.stop_running(cx);
+                });
+                cx.notify();
+            }
             MavenEvent::OpenFile(path) => {
                 this.open_file(path, cx);
             }
@@ -489,8 +532,7 @@ impl WorkbenchView {
                 cx.notify();
             }
             MavenEvent::Close => {
-                this.right_tool = None;
-                cx.notify();
+                this.set_right_tool(None, cx);
             }
         });
 
@@ -547,16 +589,31 @@ impl WorkbenchView {
                         this.open_quick_open(cx);
                     }
                     ToolbarEvent::Run => {
-                        this.open_run_pane(cx);
+                        // 对齐 mac：Run 直接启动选中配置（在跑时 rerun）。
+                        let running = this.bottom_panel.read(cx).run_running;
+                        if running {
+                            this.bottom_panel.update(cx, |bp, cx| {
+                                bp.restart_selected_run(cx);
+                            });
+                        } else {
+                            this.open_run_pane(cx);
+                        }
                     }
                     ToolbarEvent::Debug => {
-                        // Linux 无独立 DAP 面板：对齐 Tauri 可见行为，Debug 同样
-                        // 走底部受管进程（Run 页），不再只记一条假日志。
-                        this.open_run_pane(cx);
+                        // Linux 无 DAP：打开 Debug 占位工具窗，等调试器接入后
+                        // 换成 mac 的 startOrRestartDebugging 真实调试流程。
+                        this.bottom_panel.update(cx, |bp, cx| {
+                            bp.set_tab(BottomTab::Debug, cx);
+                        });
                     }
                     ToolbarEvent::Stop => {
                         let _ = this.bottom_panel.update(cx, |bp, cx| {
                             bp.stop_running(cx);
+                        });
+                    }
+                    ToolbarEvent::SelectRunConfig(id) => {
+                        this.bottom_panel.update(cx, |bp, cx| {
+                            bp.select_run_config(id.clone(), cx);
                         });
                     }
                     ToolbarEvent::OpenSettings => {
@@ -902,6 +959,22 @@ impl WorkbenchView {
             }
         });
 
+        // 13. 高频子实体镜像观察者：编辑器（每个按键 notify）与底部面板
+        // （进程输出每批 notify）都不得被 render 直接读取，否则整棵工作台
+        // 会被连带重渲染。这里维护镜像值，仅在真正变化时 notify 工作台。
+        let obs_pane_editor = editor.clone();
+        let obs_pane_id = initial_pane;
+        let obs_pane_editor_sub = cx.observe(&obs_pane_editor, move |this, editor, cx| {
+            this.sync_pane_tabs_empty(obs_pane_id, &editor, cx);
+        });
+        let obs_bottom_visible_sub = cx.observe(&bottom_panel, |this, panel, cx| {
+            let visible = panel.read(cx).is_visible();
+            if this.bottom_visible != visible {
+                this.bottom_visible = visible;
+                cx.notify();
+            }
+        });
+
         let mut view = Self {
             workspace_root,
             sidebar_visible: true,
@@ -923,8 +996,13 @@ impl WorkbenchView {
             show_project_dialog: false,
             show_branch_manager: false,
             show_git_panel: false,
+            show_run_setup_dialog: false,
             right_tool: None,
             pending_goto_line: None,
+            pane_tabs_empty: HashMap::from([(initial_pane, true)]),
+            bottom_visible: bottom_panel.read(cx).is_visible(),
+            synced_file_list: Vec::new(),
+            synced_open_files: Vec::new(),
             lsp_sessions: HashMap::new(),
             lsp_starting: HashSet::new(),
             lsp_polling: HashSet::new(),
@@ -985,6 +1063,8 @@ impl WorkbenchView {
                 sub_welcome,
                 sub_status,
                 sub_appearance,
+                obs_pane_editor_sub,
+                obs_bottom_visible_sub,
             ],
         };
 
@@ -1104,9 +1184,9 @@ impl WorkbenchView {
     /// 通知页打开即全标已读（对齐 Tauri 打开工具窗即已读）。
     fn toggle_right_tool(&mut self, view: RightToolView, cx: &mut Context<Self>) {
         if self.right_tool == Some(view) {
-            self.right_tool = None;
+            self.set_right_tool(None, cx);
         } else {
-            self.right_tool = Some(view);
+            self.set_right_tool(Some(view), cx);
             if view == RightToolView::Extensions
                 && settings::get(cx).right_tool_window_width < 560.0
             {
@@ -1118,6 +1198,19 @@ impl WorkbenchView {
                 });
             }
         }
+        cx.notify();
+    }
+
+    /// 统一设置右侧工具面板并同步插件栏按钮选中态（对齐 mac `isSelected`）。
+    fn set_right_tool(&mut self, view: Option<RightToolView>, cx: &mut Context<Self>) {
+        self.right_tool = view;
+        let active: Option<&'static str> = match view {
+            Some(RightToolView::Notifications) => Some("notifications"),
+            Some(RightToolView::Extensions) => Some("extensions"),
+            Some(RightToolView::Maven) => Some("maven"),
+            None => None,
+        };
+        let _ = self.plugin_rail.update(cx, |rail, cx| rail.set_active_tool(active, cx));
         cx.notify();
     }
 
@@ -1741,14 +1834,20 @@ impl WorkbenchView {
                             {
                                 return;
                             }
+                            // 轮询每 400ms 一次：仅在状态真正变化时 notify，
+                            // 否则空闲项目也会以 ~2.5 次/秒整树重渲染（卡顿主因）。
+                            let mut changed = false;
                             if !diagnostics.is_empty() {
+                                // lsp_apply_diagnostics 内部有变化判断，仅在
+                                // 诊断实际变化时 notify。
                                 this.lsp_apply_diagnostics(diagnostics, cx);
                             }
                             for (operation_id, result) in results {
                                 let key = format!("{session_key}\u{0}{operation_id}");
-                                if !this.lsp_operation_results.contains_key(&key)
-                                    && this.lsp_operation_results.len() >= MAX_LSP_OPERATION_RESULTS
-                                {
+                                if this.lsp_operation_results.contains_key(&key) {
+                                    continue;
+                                }
+                                if this.lsp_operation_results.len() >= MAX_LSP_OPERATION_RESULTS {
                                     if let Some(evicted) =
                                         this.lsp_operation_results.keys().next().cloned()
                                     {
@@ -1756,15 +1855,22 @@ impl WorkbenchView {
                                     }
                                 }
                                 this.lsp_operation_results.insert(key, result);
+                                changed = true;
                             }
                             if provider == lsp::JAVA_PROVIDER_ID {
                                 if let Some(state) = java_state.clone() {
-                                    this.java_lsp_state = state;
-                                    if this.java_lsp_state == "ready" {
-                                        this.java_lsp_error = None;
+                                    if this.java_lsp_state != state {
+                                        this.java_lsp_state = state;
+                                        if this.java_lsp_state == "ready" {
+                                            this.java_lsp_error = None;
+                                        }
+                                        changed = true;
                                     }
                                 }
-                                this.java_lsp_project_preparation = preparation;
+                                if this.java_lsp_project_preparation != preparation {
+                                    this.java_lsp_project_preparation = preparation;
+                                    changed = true;
+                                }
                             }
                             if finished {
                                 let java_failed = provider == lsp::JAVA_PROVIDER_ID
@@ -1777,8 +1883,11 @@ impl WorkbenchView {
                                             .to_string(),
                                     );
                                 }
+                                changed = true;
                             }
-                            cx.notify();
+                            if changed {
+                                cx.notify();
+                            }
                         });
                         finished
                     }
@@ -1965,6 +2074,13 @@ impl WorkbenchView {
         let new_editor = cx.new(|cx| EditorView::new(root, window, cx));
         Self::wire_pane_editor(&self.pane_tree, cx.entity(), new_id, &new_editor, cx);
         self.pane_editors.insert(new_id, new_editor.clone());
+        self.pane_tabs_empty.insert(new_id, true);
+        let obs_new_pane_editor = new_editor.clone();
+        let obs_new_pane_id = new_id;
+        let obs_new_pane_sub = cx.observe(&obs_new_pane_editor, move |this, editor, cx| {
+            this.sync_pane_tabs_empty(obs_new_pane_id, &editor, cx);
+        });
+        self._subscriptions.push(obs_new_pane_sub);
         let sub = cx.subscribe(
             &new_editor,
             |this, _ed, event: &EditorTabEvent, cx| match event {
@@ -1984,6 +2100,7 @@ impl WorkbenchView {
     fn close_pane(&mut self, pane_id: PaneId, cx: &mut Context<Self>) {
         if self.pane_tree.close_leaf(pane_id) {
             self.pane_editors.remove(&pane_id);
+            self.pane_tabs_empty.remove(&pane_id);
             self.sync_run_editor(cx);
             cx.notify();
         }
@@ -2587,6 +2704,9 @@ fn bottom_tab_for(pane_id: &str) -> Option<BottomTab> {
         "maven" => Some(BottomTab::Maven),
         "diagnostics" => Some(BottomTab::Diagnostics),
         "gitLog" => Some(BottomTab::GitLog),
+        // UI 占位：面板功能待接入（对齐 macOS Tests/Debug 工具窗）。
+        "tests" => Some(BottomTab::Tests),
+        "debug" => Some(BottomTab::Debug),
         _ => None,
     }
 }
@@ -2667,6 +2787,8 @@ impl Render for WorkbenchView {
                         this.show_global_search = false;
                     } else if this.show_settings_dialog {
                         this.show_settings_dialog = false;
+                    } else if this.show_run_setup_dialog {
+                        this.show_run_setup_dialog = false;
                     }
                     cx.notify();
                     return;
@@ -2848,13 +2970,97 @@ impl Render for WorkbenchView {
             .when(self.show_git_panel, |view| {
                 view.child(self.git_panel.clone())
             })
+            .when(self.show_run_setup_dialog, |view| {
+                view.child(Self::render_run_setup_dialog(cx))
+            })
     }
 }
 
 impl WorkbenchView {
+    /// Run setup 确认对话框（对齐 mac `runConfigurationSetup` ready 分支）：
+    /// 标题 "Rescan the project for services"，确认后等 JDT entrypoints
+    /// 重新生成配置并续跑。
+    fn render_run_setup_dialog(cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .absolute()
+            .inset_0()
+            .bg(gpui_kit::black().opacity(0.45))
+            .flex()
+            .items_center()
+            .justify_center()
+            .on_mouse_down(
+                gpui_kit::MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.show_run_setup_dialog = false;
+                    cx.notify();
+                }),
+            )
+            .child(
+                v_flex()
+                    .w(px(460.0))
+                    .rounded(px(10.0))
+                    .border_1()
+                    .border_color(ThemeColors::border())
+                    .bg(ThemeColors::surface())
+                    .p_4()
+                    .gap_3()
+                    .on_mouse_down(
+                        gpui_kit::MouseButton::Left,
+                        |event, _window, cx| {
+                            // 卡片内点击不冒泡到遮罩。
+                            cx.stop_propagation();
+                            let _ = event;
+                        },
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(ThemeColors::text_primary())
+                            .child(crate::i18n::menu_text(cx, "run.setup.rescanTitle")),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(crate::i18n::menu_text(cx, "run.setup.rescanBody")),
+                    )
+                    .child(
+                        h_flex()
+                            .justify_end()
+                            .gap_2()
+                            .child(
+                                Button::new("run-setup-cancel")
+                                    .small()
+                                    .ghost()
+                                    .label(crate::i18n::menu_text(cx, "ui.cancel"))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.show_run_setup_dialog = false;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new("run-setup-confirm")
+                                    .small()
+                                    .primary()
+                                    .label(crate::i18n::menu_text(cx, "run.setup.rescan"))
+                                    .on_click(cx.listener(|this, _event, _window, cx| {
+                                        this.show_run_setup_dialog = false;
+                                        this.bottom_panel.update(cx, |bp, cx| {
+                                            bp.regenerate_run_project(cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            ),
+                    ),
+            )
+    }
+
     /// 渲染工作台主体（顶栏 / 侧边栏 / 编辑区 / 底部面板 / 状态栏）。
     fn render_workbench(&self, show_status_bar: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let bottom_visible = self.bottom_panel.read(cx).is_visible();
+        // 底部面板可见性用观察者镜像（见 `obs_bottom_visible_sub`），
+        // render 不读取 bottom_panel 实体。
+        let bottom_visible = self.bottom_visible;
         let bottom_splitter = self.render_bottom_splitter(cx);
         let right_width = settings::get(cx)
             .right_tool_window_width
@@ -2998,13 +3204,29 @@ impl WorkbenchView {
         }
     }
 
+    /// 同步窗格"无标签页"镜像（编辑器观察者调用；变化才 notify 工作台）。
+    fn sync_pane_tabs_empty(
+        &mut self,
+        pane_id: PaneId,
+        editor: &Entity<EditorView>,
+        cx: &mut Context<Self>,
+    ) {
+        let is_empty = editor.read(cx).tabs.is_empty();
+        if self.pane_tabs_empty.get(&pane_id) != Some(&is_empty) {
+            self.pane_tabs_empty.insert(pane_id, is_empty);
+            cx.notify();
+        }
+    }
+
     /// 渲染单个窗格叶：对应 editor；整个叶包左键设 active。空拆分窗格保留
     /// 编辑器空态，并在右上角提供关闭操作；根窗格不可关闭，不显示该操作。
     fn render_pane_leaf(&self, id: PaneId, cx: &mut Context<Self>) -> AnyElement {
         let Some(editor) = self.pane_editors.get(&id).cloned() else {
             return div().size_full().into_any_element();
         };
-        let is_empty = editor.read(cx).tabs.is_empty();
+        // 用观察者维护的镜像值，避免 render 读取编辑器实体（编辑器每个按键
+        // 都 notify，读取会让整棵工作台跟着重渲染）。
+        let is_empty = self.pane_tabs_empty.get(&id).copied().unwrap_or(false);
         let can_close = !matches!(
             self.pane_tree.root(),
             Some(PaneNode::Leaf(root_id)) if *root_id == id

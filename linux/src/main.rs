@@ -62,10 +62,19 @@ fn main() {
         // 并把深浅外观同步给 rgitui diff 引擎。
         theme::sync_git_engine_theme(cx);
 
-        cx.open_window(WindowOptions::default(), |window, cx| {
-            let view = cx.new(|cx| WorkbenchView::new(window, cx));
-            cx.new(|cx| Root::new(view, window, cx))
-        })
+        // 主窗口自绘标题栏（toolbar.rs 的 `TitleBar`）：请求 client 装饰去掉
+        // WM 标题栏，避免出现两层窗口控制按钮。gpui 在无 compositor 的 X11
+        // 会话会自动回退 server 装饰，此时 TitleBar 也会隐藏自绘控件。
+        cx.open_window(
+            WindowOptions {
+                window_decorations: Some(gpui_kit::WindowDecorations::Client),
+                ..WindowOptions::default()
+            },
+            |window, cx| {
+                let view = cx.new(|cx| WorkbenchView::new(window, cx));
+                cx.new(|cx| Root::new(view, window, cx))
+            },
+        )
         .expect("Failed to open window");
     });
 }

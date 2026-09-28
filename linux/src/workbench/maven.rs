@@ -355,6 +355,8 @@ pub enum MavenEvent {
     },
     OpenFile(String),
     OpenSettings,
+    /// 请求停止正在运行的 Maven 任务（对齐 mac 运行按钮运行中变停止）。
+    StopRun,
     Close,
 }
 
@@ -384,6 +386,9 @@ pub struct MavenView {
     _goal_subscription: Option<Subscription>,
     client: CoreClient,
     scan_seq: u64,
+    /// 是否有 Maven 任务在跑（由宿主从底部 Maven 页同步，对齐 mac
+    /// 运行按钮的 run/stop 切换态）。
+    running: bool,
 }
 
 impl EventEmitter<MavenEvent> for MavenView {}
@@ -410,9 +415,18 @@ impl MavenView {
             _goal_subscription: None,
             client: CoreClient::new(),
             scan_seq: 0,
+            running: false,
         };
         view.reload(cx);
         view
+    }
+
+    /// 同步运行状态（宿主在渲染循环里调用；变化时才 notify）。
+    pub fn set_running(&mut self, running: bool, cx: &mut Context<Self>) {
+        if self.running != running {
+            self.running = running;
+            cx.notify();
+        }
     }
 
     pub fn set_root(&mut self, root: String, cx: &mut Context<Self>) {
@@ -759,6 +773,7 @@ impl Render for MavenView {
         let profiles = self.profiles.clone();
         let selected_profiles = self.selected_profiles.clone();
         let skip_tests = self.skip_tests;
+        let running = self.running;
         let selected_module = self.selected_module.clone();
         let selected_phase = self.selected_phase.clone();
         let project_status = self.project_status.clone();
@@ -978,15 +993,28 @@ impl Render for MavenView {
                     .border_b_1()
                     .border_color(ThemeColors::border())
                     .child(
-                        Button::new("maven-run-selected")
-                            .small()
-                            .ghost()
-                            .icon(IconName::Play)
-                            .tooltip(crate::i18n::menu_text(cx, "maven.runSelected"))
-                            .disabled(!has_project)
-                            .on_click(cx.listener(|this, _event, _window, cx| {
-                                this.run_selected(cx);
-                            })),
+                        // 对齐 mac：运行中按钮切换为停止（warning 色）。
+                        if running {
+                            Button::new("maven-stop")
+                                .small()
+                                .ghost()
+                                .icon(IconName::Square)
+                                .text_color(ThemeColors::warning())
+                                .tooltip(crate::i18n::menu_text(cx, "maven.stop"))
+                                .on_click(cx.listener(|_this, _event, _window, cx| {
+                                    cx.emit(MavenEvent::StopRun);
+                                }))
+                        } else {
+                            Button::new("maven-run-selected")
+                                .small()
+                                .ghost()
+                                .icon(IconName::Play)
+                                .tooltip(crate::i18n::menu_text(cx, "maven.runSelected"))
+                                .disabled(!has_project)
+                                .on_click(cx.listener(|this, _event, _window, cx| {
+                                    this.run_selected(cx);
+                                }))
+                        },
                     )
                     .child(
                         Button::new("maven-exec-goal")

@@ -182,6 +182,18 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "workbench.terminal" => ("终端", "Terminal"),
         "workbench.diagnostics" => ("诊断", "Diagnostics"),
         "workbench.gitLog" => ("提交记录", "Git Log"),
+        "workbench.tests" => ("测试", "Tests"),
+        "workbench.debug" => ("调试", "Debug"),
+        "ui.jumpToLatest" => ("跳到最新", "Jump to latest"),
+        "run.runSelected" => ("运行选中配置", "Run selected configuration"),
+        "run.rerunSelected" => ("重新运行选中配置", "Rerun selected configuration"),
+        "run.currentFile" => ("当前文件", "Current File"),
+        "run.setup.rescanTitle" => ("重新扫描工程服务", "Rescan the project for services"),
+        "run.setup.rescanBody" => (
+            "Lithe 将再次查找工程服务并刷新 .lithe/run/generated.json。工程级与个人覆盖配置不会被更改。",
+            "Lithe will look for services again and refresh .lithe/run/generated.json. Project and local overrides will not be changed.",
+        ),
+        "run.setup.rescan" => ("重新扫描", "Rescan"),
         "terminal.session" => (
             "Lithe 终端（PTY 会话：{shell}）",
             "Lithe Terminal (PTY Session: {shell})",

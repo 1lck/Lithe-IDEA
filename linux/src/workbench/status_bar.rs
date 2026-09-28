@@ -78,12 +78,18 @@ impl StatusBarView {
 
     #[allow(dead_code)]
     pub fn set_git_branch(&mut self, branch: Option<String>, cx: &mut Context<Self>) {
+        if self.git_branch == branch {
+            return;
+        }
         self.git_branch = branch;
         cx.notify();
     }
 
     #[allow(dead_code)]
     pub fn set_git_changes(&mut self, count: usize, cx: &mut Context<Self>) {
+        if self.git_changes == count {
+            return;
+        }
         self.git_changes = count;
         cx.notify();
     }

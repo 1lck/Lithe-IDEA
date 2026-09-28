@@ -7,6 +7,7 @@ use gpui_kit::component::scroll::ScrollableElement as _;
 use gpui_kit::component::{h_flex, v_flex, Disableable as _, Icon, Sizable as _};
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::EventEmitter;
+use gpui_kit::Subscription;
 use gpui_kit::{
     div, px, AnyElement, AppContext as _, Context, Entity, FontWeight, InteractiveElement as _,
     IntoElement, MouseButton, ParentElement as _, Render, Rgba, StatefulInteractiveElement as _,
@@ -18,6 +19,7 @@ use crate::lsp;
 use crate::theme::ThemeColors;
 use crate::workbench::console::OutputConsole;
 use crate::workbench::editor::EditorView;
+use crate::workbench::activity_rail::IDEA_ICON_DEBUGGER;
 use crate::workbench::run::{
     create_launch_plan_request, default_generated_configuration_id, list_java_sources,
     maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
@@ -57,6 +59,97 @@ struct MavenGoalParams {
 /// Git 提交记录行数上限。
 const MAX_GIT_LOG_ENTRIES: usize = 50;
 
+/// Maven 输出文本缓冲上限（字节）；超过后丢弃较早的一半，保住近期输出。
+const MAX_MAVERN_OUTPUT_TEXT: usize = 1_000_000;
+
+/// 一条 Maven 构建诊断（对齐 mac `MavenBuildIssue`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MavenBuildIssue {
+    pub path: String,
+    pub line: usize,
+    pub column: Option<usize>,
+    pub severity: String,
+    pub message: String,
+}
+
+/// 剥离 ANSI 转义序列并丢弃 `\r`（对齐 mac `ANSIOutputRenderer.parse`：
+/// 进度条回车行不单独成行），得到可正则解析的纯文本。
+fn strip_ansi_bytes(bytes: &[u8]) -> String {
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            0x1b => {
+                index += 1;
+                if index < bytes.len() && bytes[index] == b']' {
+                    // OSC 序列：吞到 BEL。
+                    while index < bytes.len() && bytes[index] != 0x07 {
+                        index += 1;
+                    }
+                    index += 1;
+                } else if index < bytes.len() && bytes[index] == b'[' {
+                    index += 1;
+                    // CSI 序列：吞到终止字节（@ 到 ~）。
+                    while index < bytes.len() && !(0x40..=0x7e).contains(&bytes[index]) {
+                        index += 1;
+                    }
+                    index += 1;
+                }
+            }
+            0x0d => index += 1,
+            byte => {
+                out.push(byte);
+                index += 1;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// 把控制台输出追加进诊断文本缓冲（超限时丢弃较早的一半）。
+fn append_maven_output_text(buffer: &mut String, bytes: &[u8]) {
+    buffer.push_str(&strip_ansi_bytes(bytes));
+    if buffer.len() > MAX_MAVERN_OUTPUT_TEXT {
+        let cut = buffer
+            // 在上限之后找最近的换行，避免截断出半行。
+            .char_indices()
+            .map(|(index, _)| index)
+            .find(|&index| index >= MAX_MAVERN_OUTPUT_TEXT / 2 && buffer.is_char_boundary(index))
+            .unwrap_or(MAX_MAVERN_OUTPUT_TEXT / 2);
+        buffer.drain(..cut);
+    }
+}
+
+/// 解析 core `maven.diagnostics` 响应。
+fn parse_maven_issues(value: &serde_json::Value) -> Vec<MavenBuildIssue> {
+    value
+        .get("issues")
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| {
+                    Some(MavenBuildIssue {
+                        path: item.get("path")?.as_str()?.to_string(),
+                        line: item.get("line")?.as_u64()? as usize,
+                        column: item.get("column").and_then(serde_json::Value::as_u64).map(|v| v as usize),
+                        severity: item
+                            .get("severity")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("error")
+                            .to_string(),
+                        message: item
+                            .get("message")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or_default()
+                            .to_string(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BottomTab {
     Terminal,
@@ -64,6 +157,10 @@ pub enum BottomTab {
     Maven,
     Diagnostics,
     GitLog,
+    /// 测试工具窗（对齐 macOS `execution.tests`，UI 占位，功能待接入）。
+    Tests,
+    /// 调试工具窗（对齐 macOS `debug.session`，UI 占位，功能待接入）。
+    Debug,
 }
 
 /// 诊断面板中的一条问题，字段与 Tauri DiagnosticsBuffer 的展示模型对齐。
@@ -87,6 +184,13 @@ pub enum BottomPanelEvent {
     },
     /// 面板清空按钮：请求宿主同步丢弃缓存的 LSP 诊断。
     ClearDiagnostics,
+    /// Maven 运行态变化（宿主同步右侧 Maven 面板的 run/stop 按钮切换）。
+    MavenRunningChanged(bool),
+    /// Run 运行态/选中配置变化（宿主同步顶部工具栏的 Run/Stop 与配置胶囊）。
+    RunStateChanged,
+    /// 选中配置缺 Java 启动元数据，需要用户确认后重新生成（对齐 mac
+    /// 的 setup 确认对话框 → generateFromJavaEntrypoints → 续跑）。
+    RunSetupRequired,
 }
 
 /// Git 提交记录的一行：短 hash + 首行 message，只读展示不跳转。
@@ -131,10 +235,21 @@ pub struct BottomPanelView {
     pub(crate) run_exit_code: Option<i32>,
     /// 输出跟随末尾（对齐 Tauri `scrollOutputToEnd`，默认开，落盘持久化）。
     pub(crate) run_follow_end: bool,
+    /// Run 控制台视口是否停在底部（观察者镜像，变化才 notify）。
+    /// 跟随末尾开启时也只在底部才拉底（对齐 macOS 智能滚动：上翻查阅
+    /// 历史时不被新输出拉走），离开底部时显示"跳到最新"浮层按钮。
+    run_at_bottom: bool,
+    /// Maven 控制台视口是否停在底部（同 [`Self::run_at_bottom`]）。
+    maven_at_bottom: bool,
     /// Maven 任务标题（对齐 Tauri `taskTitle`，如 `compile · pom.xml`）。
     pub(crate) maven_title: Option<String>,
     /// Maven 任务输出控制台（同 [`Self::run_console`]）。
     pub(crate) maven_console: OutputConsole,
+    /// Maven 输出文本缓冲（剥离 ANSI 后累积，供诊断解析；超限截断头部）。
+    maven_output_text: String,
+    /// 最近一次 Maven 任务的编译诊断（对齐 mac `MavenBuildIssue` 列表，
+    /// 来自 core `maven.diagnostics`）。
+    pub maven_issues: Vec<MavenBuildIssue>,
     /// 最近一次应用到输出控制台的主题背景色；主题切换时用于同步配色。
     console_background: Rgba,
     /// Maven 任务是否在跑。
@@ -159,6 +274,8 @@ pub struct BottomPanelView {
     pub git_log: Vec<GitLogEntry>,
     /// Git 记录加载失败时的展示文案；成功后清空。
     pub git_log_error: Option<String>,
+    /// 控制台滚动观察者订阅，保持到视图销毁。
+    _subscriptions: Vec<Subscription>,
 }
 
 impl EventEmitter<BottomPanelEvent> for BottomPanelView {}
@@ -429,8 +546,12 @@ async fn prepare_java_run_launch(
 impl BottomPanelView {
     pub fn new(working_dir: String, cx: &mut Context<Self>) -> Self {
         let terminal = cx.new(|cx| TerminalView::new(working_dir.clone(), cx));
+        let run_console = OutputConsole::new(cx);
+        let maven_console = OutputConsole::new(cx);
+        let obs_run_console = run_console.view.clone();
+        let obs_maven_console = maven_console.view.clone();
 
-        Self {
+        let mut view = Self {
             active_tab: BottomTab::Terminal,
             is_collapsed: true,
             height: 240.0,
@@ -446,12 +567,16 @@ impl BottomPanelView {
             pending_run_id: None,
             run_on_ready: false,
             run_diagnostics: Vec::new(),
-            run_console: OutputConsole::new(cx),
+            run_console,
             run_running: false,
             run_exit_code: None,
             run_follow_end: crate::settings::get(cx).run_scroll_to_end,
+            run_at_bottom: true,
+            maven_at_bottom: true,
             maven_title: None,
-            maven_console: OutputConsole::new(cx),
+            maven_console,
+            maven_output_text: String::new(),
+            maven_issues: Vec::new(),
             console_background: crate::theme::palette().background,
             maven_running: false,
             client: CoreClient::new(),
@@ -464,7 +589,25 @@ impl BottomPanelView {
             run_editor: None,
             git_log: Vec::new(),
             git_log_error: None,
-        }
+            _subscriptions: Vec::new(),
+        };
+        // 控制台滚动镜像：用户滚动终端（组件 notify 自身）时更新"是否在
+        // 底部"，驱动跟随语义与"跳到最新"按钮显隐。
+        view._subscriptions.push(cx.observe(&obs_run_console, |this, view, cx| {
+            let at_bottom = view.read(cx).state().display_offset() == 0;
+            if this.run_at_bottom != at_bottom {
+                this.run_at_bottom = at_bottom;
+                cx.notify();
+            }
+        }));
+        view._subscriptions.push(cx.observe(&obs_maven_console, |this, view, cx| {
+            let at_bottom = view.read(cx).state().display_offset() == 0;
+            if this.maven_at_bottom != at_bottom {
+                this.maven_at_bottom = at_bottom;
+                cx.notify();
+            }
+        }));
+        view
     }
 
     pub fn is_visible(&self) -> bool {
@@ -580,7 +723,11 @@ impl BottomPanelView {
     }
 
     /// 用最新一轮 LSP 诊断替换面板内容；顺序与 [`crate::lsp`] 投影一致。
+    /// 内容不变时短路（LSP 抖动期每批都全量推送，避免无谓重渲染）。
     pub fn set_diagnostics(&mut self, diagnostics: Vec<DiagnosticEntry>, cx: &mut Context<Self>) {
+        if self.diagnostics == diagnostics {
+            return;
+        }
         self.diagnostics = diagnostics;
         cx.notify();
     }
@@ -613,7 +760,7 @@ impl BottomPanelView {
         let _ = self.processes.request_stop("run", None);
         self.maven_seq += 1;
         let _ = self.processes.request_stop("maven", None);
-        self.maven_running = false;
+        self.set_maven_running(false, cx);
         self.pending_run_id = None;
         self.run_on_ready = false;
         self.working_dir = dir.clone();
@@ -703,12 +850,15 @@ impl BottomPanelView {
         let seq = self.run_seq;
         if self.run_running {
             let _ = self.processes.request_stop("run", None);
-            self.run_running = false;
+            self.set_run_running(false, cx);
         }
         self.run_project_name = crate::settings::project_dir_name(&self.working_dir).to_string();
         self.run_configs.clear();
         self.default_run_config = None;
-        self.selected_run_config = None;
+        if self.selected_run_config.take().is_some() {
+            // 选中项被 reload 重置，顶部胶囊名称需要同步。
+            cx.emit(BottomPanelEvent::RunStateChanged);
+        }
         self.run_diagnostics.clear();
         self.run_state = RunProjectState::Loading;
         cx.notify();
@@ -935,6 +1085,13 @@ impl BottomPanelView {
             }
             return;
         }
+        // 对齐 mac：框架服务配置缺 Java 启动元数据时不回退 mvn goal
+        //（会因插件前缀解析失败），先走 setup 确认重新生成。
+        if self.needs_run_setup() {
+            cx.emit(BottomPanelEvent::RunSetupRequired);
+            cx.notify();
+            return;
+        }
         if let Some(item) = self.selected_run_item() {
             self.start_run(item, cx);
         } else {
@@ -949,7 +1106,7 @@ impl BottomPanelView {
             return;
         }
         self.pending_run_id = Some(id.clone());
-        self.selected_run_config = Some(id.clone());
+        self.select_run_config(id.clone(), cx);
         self.run_on_ready = true;
         if matches!(self.run_state, RunProjectState::Ready)
             && self.run_configs.iter().any(|item| item.id == id)
@@ -966,13 +1123,102 @@ impl BottomPanelView {
         }
     }
 
+    /// 对齐 mac `generateFromJavaEntrypoints`：等待 Java 语言服务就绪、
+    /// 取 JDT entrypoints 重新生成配置文档，再 reload 并按 `run_on_ready`
+    /// 续跑。供 setup 确认对话框的确认动作调用。
+    pub fn regenerate_run_project(&mut self, cx: &mut Context<Self>) {
+        self.run_seq += 1;
+        self.run_execution_seq += 1;
+        let seq = self.run_seq;
+        self.run_state = RunProjectState::Loading;
+        cx.notify();
+        let Some(workbench) = self.workbench.as_ref().and_then(WeakEntity::upgrade) else {
+            // 无宿主可等 JDT：退化为普通 reload（行为与旧行为一致）。
+            self.reload_run_project(cx);
+            return;
+        };
+        let client = self.client.clone();
+        let root = self.working_dir.clone();
+        cx.spawn(async move |this, cx| {
+            let java_entrypoints =
+                match wait_for_java_entrypoints(&workbench, &client, Duration::from_secs(10 * 60), cx)
+                    .await
+                {
+                    Ok(value) => value,
+                    Err(error) => {
+                        let _ = this.update(cx, |view, cx| {
+                            if view.run_seq == seq {
+                                view.run_state = RunProjectState::Failed(error);
+                                cx.notify();
+                            }
+                        });
+                        return;
+                    }
+                };
+            let paths = list_java_sources(&root);
+            let mut payload = serde_json::json!({
+                "root": root,
+                "paths": paths,
+                "modulePaths": []
+            });
+            if let Some(entrypoints) = java_entrypoints {
+                payload["javaEntrypoints"] = entrypoints;
+            }
+            let generated = client
+                .execute::<serde_json::Value, serde_json::Value>(
+                    &cx,
+                    "runConfig.generate",
+                    payload,
+                )
+                .await;
+            let generated = match generated {
+                Ok(value) => value,
+                Err(error) => {
+                    let _ = this.update(cx, |view, cx| {
+                        if view.run_seq == seq {
+                            view.run_state = RunProjectState::Failed(error);
+                            cx.notify();
+                        }
+                    });
+                    return;
+                }
+            };
+            let generated_document = generated.get("generated").cloned().unwrap_or_default();
+            let requirements = generated
+                .get("toolchainRequirements")
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({"version": 1, "toolchains": {}}));
+            let default_id = default_generated_configuration_id(&generated_document);
+            if let Err(error) =
+                write_generated_documents(&root, &generated_document, &requirements, default_id.as_deref())
+            {
+                let _ = this.update(cx, |view, cx| {
+                    if view.run_seq == seq {
+                        view.run_state = RunProjectState::Failed(error);
+                        cx.notify();
+                    }
+                });
+                return;
+            }
+            let _ = this.update(cx, |view, cx| {
+                if view.run_seq != seq {
+                    return;
+                }
+                // 生成完成后续跑选中的配置（对齐 mac 的 intent 续跑）。
+                view.run_on_ready = true;
+                view.reload_run_project(cx);
+            });
+        })
+        .detach();
+    }
+
     fn start_run(&mut self, item: RunConfigItem, cx: &mut Context<Self>) {
         if self.run_running {
             return;
         }
         self.run_execution_seq += 1;
         let execution_seq = self.run_execution_seq;
-        self.run_running = true;
+        self.set_run_running(true, cx);
         self.run_exit_code = None;
         // 子进程 PTY 的初始尺寸取输出控制台当前实测行列数。
         let terminal_size = self.run_console.size();
@@ -1003,7 +1249,7 @@ impl BottomPanelView {
                 if let Err(error) = save.await {
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_console.write_error(&error);
                             cx.notify();
                         }
@@ -1063,7 +1309,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_exit_code = Some(1);
                             view.run_diagnostics.push(error.clone());
                             view.run_diagnostics.dedup();
@@ -1084,7 +1330,7 @@ impl BottomPanelView {
                     let error = "Java language-server session changed before launch planning.";
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_exit_code = Some(1);
                             view.run_diagnostics.push(error.to_string());
                             view.run_console.write_error(&error.to_string());
@@ -1121,7 +1367,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_console.write_error(&error);
                             cx.notify();
                         }
@@ -1134,7 +1380,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_console.write_error(&error);
                             cx.notify();
                         }
@@ -1148,7 +1394,7 @@ impl BottomPanelView {
                     Err(error) => {
                         let _ = this.update(cx, |view, cx| {
                             if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                                view.run_running = false;
+                                view.set_run_running(false, cx);
                                 view.run_console.write_error(&error);
                                 cx.notify();
                             }
@@ -1171,7 +1417,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.is_current_run_execution(launch_seq, launch_execution_seq) {
-                            view.run_running = false;
+                            view.set_run_running(false, cx);
                             view.run_console.write_error(&error);
                             cx.notify();
                         }
@@ -1220,7 +1466,9 @@ impl BottomPanelView {
                     }
                     ProcessEvent::Output { bytes } => {
                         view.run_console.write_bytes(&bytes);
-                        if view.run_follow_end {
+                        // 对齐 macOS 智能滚动：仅当用户仍停在底部才拉底，
+                        // 上翻查阅历史时不被新输出拉走。
+                        if view.run_follow_end && view.run_console.is_at_bottom(cx) {
                             view.run_console.scroll_to_bottom(cx);
                         }
                         cx.notify();
@@ -1245,7 +1493,7 @@ impl BottomPanelView {
                             ));
                         }
                         view.run_exit_code = exit_code;
-                        view.run_running = false;
+                        view.set_run_running(false, cx);
                         cx.notify();
                     }
                 });
@@ -1258,6 +1506,84 @@ impl BottomPanelView {
         .detach();
     }
 
+    /// 统一翻转 Maven 运行态：写标志、通知宿主（右侧 Maven 面板按钮联动）并刷新。
+    fn set_maven_running(&mut self, running: bool, cx: &mut Context<Self>) {
+        if self.maven_running != running {
+            self.maven_running = running;
+            cx.emit(BottomPanelEvent::MavenRunningChanged(running));
+            cx.notify();
+        }
+    }
+
+    /// 统一翻转 Run 运行态：写标志并通知宿主（顶部工具栏按钮联动）。
+    fn set_run_running(&mut self, running: bool, cx: &mut Context<Self>) {
+        if self.run_running != running {
+            self.run_running = running;
+            cx.emit(BottomPanelEvent::RunStateChanged);
+            cx.notify();
+        }
+    }
+
+    /// 选中运行配置（顶部工具栏胶囊点击；变化才通知宿主）。
+    pub fn select_run_config(&mut self, id: String, cx: &mut Context<Self>) {
+        if self.selected_run_config.as_deref() != Some(id.as_str()) {
+            self.select_run_config(id, cx);
+            cx.emit(BottomPanelEvent::RunStateChanged);
+            cx.notify();
+        }
+    }
+
+    /// 顶部工具栏所需运行态快照：(在跑, 选中配置名, 配置列表)。
+    pub fn run_toolbar_state(&self) -> (bool, Option<String>, Vec<(String, String)>) {
+        let selected = self
+            .selected_run_item()
+            .map(|item| item.name)
+            .or_else(|| self.run_configs.first().map(|item| item.name.clone()));
+        let configs = self
+            .run_configs
+            .iter()
+            .map(|item| (item.id.clone(), item.name.clone()))
+            .collect();
+        (self.run_running, selected, configs)
+    }
+
+    /// 顶部工具栏 Run：在跑时对齐 mac `restartSelectedRun` 直接重跑
+    ///（ProcessManager.start 会先停同 id 旧会话），未在跑走常规启动。
+    pub fn restart_selected_run(&mut self, cx: &mut Context<Self>) {
+        if self.needs_run_setup() {
+            cx.emit(BottomPanelEvent::RunSetupRequired);
+            cx.notify();
+            return;
+        }
+        if let Some(item) = self.selected_run_item() {
+            self.run_execution_seq += 1;
+            let _ = self.processes.request_stop("run", None);
+            self.set_run_running(false, cx);
+            self.start_run(item, cx);
+        } else {
+            self.run_selected_config(cx);
+        }
+    }
+
+    /// 选中配置是否需要先重新生成才能启动（对齐 mac `configurationReadiness`
+    /// 的 needsGeneration 语义）：Spring Boot 等框架服务配置缺 Java 启动元数据
+    /// （source/main_class）时，直接发 mvn goal 会因插件前缀解析失败
+    /// （如 `No plugin found for prefix 'spring-boot'`），必须等 JDT
+    /// entrypoints 就绪后重新生成配置再直启。
+    pub fn needs_run_setup(&self) -> bool {
+        self.selected_run_item().is_some_and(|item| {
+            let has_source = item
+                .source
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty());
+            let has_main = item
+                .main_class
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty());
+            item.provider == "spring-boot.maven" && (!has_source || !has_main)
+        })
+    }
+
     /// 停止在跑进程；ProcessManager 异步终止完整进程树并在输出泵中回收。
     pub fn stop_running(&mut self, cx: &mut Context<Self>) {
         let mut stopped = false;
@@ -1266,7 +1592,7 @@ impl BottomPanelView {
             let _ = self.processes.request_stop("run", None);
             self.run_console
                 .write_muted(crate::i18n::menu_text(cx, "run.stopping"));
-            self.run_running = false;
+            self.set_run_running(false, cx);
             stopped = true;
         }
         if self.maven_running {
@@ -1274,7 +1600,7 @@ impl BottomPanelView {
             let _ = self.processes.request_stop("maven", None);
             self.maven_console
                 .write_muted(crate::i18n::menu_text(cx, "run.stopping"));
-            self.maven_running = false;
+            self.set_maven_running(false, cx);
             stopped = true;
         }
         if stopped {
@@ -1318,8 +1644,9 @@ impl BottomPanelView {
         self.is_collapsed = false;
         self.maven_title = Some(title);
         self.maven_console.clear();
-        self.maven_running = true;
-        cx.notify();
+        self.maven_output_text.clear();
+        self.maven_issues.clear();
+        self.set_maven_running(true, cx);
 
         let client = self.client.clone();
         let root = self.working_dir.clone();
@@ -1327,6 +1654,13 @@ impl BottomPanelView {
         let profiles = profiles.to_vec();
         let processes = self.processes.clone();
         let terminal_size = self.maven_console.size();
+        // TEMP_DIAG: 定位“输出只剩一行”问题——确认 spawn 时的 PTY 行列。
+        tracing::debug!(
+            target: "maven_pump",
+            pty_cols = terminal_size.cols,
+            pty_rows = terminal_size.rows,
+            "maven process spawning"
+        );
         cx.spawn(async move |this, cx| {
             let plan = client
                 .execute::<serde_json::Value, serde_json::Value>(
@@ -1356,7 +1690,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.maven_seq == seq {
-                            view.maven_running = false;
+                            view.set_maven_running(false, cx);
                             view.maven_console.write_error(&error);
                             cx.notify();
                         }
@@ -1369,7 +1703,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.maven_seq == seq {
-                            view.maven_running = false;
+                            view.set_maven_running(false, cx);
                             view.maven_console.write_error(&error);
                             cx.notify();
                         }
@@ -1384,7 +1718,7 @@ impl BottomPanelView {
                     Err(error) => {
                         let _ = this.update(cx, |view, cx| {
                             if view.maven_seq == seq {
-                                view.maven_running = false;
+                                view.set_maven_running(false, cx);
                                 view.maven_console.write_error(&error);
                                 cx.notify();
                             }
@@ -1406,7 +1740,7 @@ impl BottomPanelView {
                 Err(error) => {
                     let _ = this.update(cx, |view, cx| {
                         if view.maven_seq == seq {
-                            view.maven_running = false;
+                            view.set_maven_running(false, cx);
                             view.maven_console.write_error(&error);
                             cx.notify();
                         }
@@ -1435,6 +1769,13 @@ impl BottomPanelView {
                     Some(Err(mpsc::RecvTimeoutError::Disconnected)) | None => break,
                 };
                 let finished = matches!(&event, ProcessEvent::Finished { .. });
+                let failed = matches!(
+                    &event,
+                    ProcessEvent::Finished {
+                        exit_code: Some(code),
+                        ..
+                    } if *code != 0
+                );
                 let _ = this.update(cx, |view, cx| {
                     if view.maven_seq != seq {
                         return;
@@ -1446,9 +1787,22 @@ impl BottomPanelView {
                         }
                         ProcessEvent::Output { bytes } => {
                             view.maven_console.write_bytes(&bytes);
-                            if view.run_follow_end {
+                            append_maven_output_text(&mut view.maven_output_text, &bytes);
+                            // 对齐 macOS 智能滚动：仅当用户仍停在底部才拉底。
+                            if view.run_follow_end && view.maven_console.is_at_bottom(cx) {
                                 view.maven_console.scroll_to_bottom(cx);
                             }
+                            // TEMP_DIAG: 定位“输出只剩一行”问题。
+                            let (cols, rows) = view.maven_console.size_cells();
+                            let offset = view.maven_console.display_offset(cx);
+                            tracing::debug!(
+                                target: "maven_pump",
+                                bytes = bytes.len(),
+                                terminal_cols = cols,
+                                terminal_rows = rows,
+                                display_offset = offset,
+                                "maven output chunk"
+                            );
                         }
                         ProcessEvent::Finished {
                             exit_code,
@@ -1468,12 +1822,41 @@ impl BottomPanelView {
                                 view.maven_console
                                     .write_muted(crate::i18n::menu_text(cx, "run.finished"));
                             }
-                            view.maven_running = false;
+                            view.set_maven_running(false, cx);
                         }
                     }
                     cx.notify();
                 });
                 if finished {
+                    // 对齐 mac：构建失败时把输出交给 core `maven.diagnostics`
+                    // 解析为可点击的 issue 列表。
+                    if failed {
+                        let output = this
+                            .update(cx, |view, _cx| {
+                                (view.maven_seq == seq)
+                                    .then(|| view.maven_output_text.clone())
+                            })
+                            .unwrap_or(None);
+                        if let Some(output) = output {
+                            let parsed = client
+                                .execute::<serde_json::Value, serde_json::Value>(
+                                    &cx,
+                                    "maven.diagnostics",
+                                    serde_json::json!({ "root": root, "output": output }),
+                                )
+                                .await;
+                            let _ = this.update(cx, |view, cx| {
+                                if view.maven_seq != seq {
+                                    return;
+                                }
+                                view.maven_issues = parsed
+                                    .ok()
+                                    .map(|value| parse_maven_issues(&value))
+                                    .unwrap_or_default();
+                                cx.notify();
+                            });
+                        }
+                    }
                     break;
                 }
             }
@@ -1554,7 +1937,7 @@ impl BottomPanelView {
     /// 对齐 Tauri 各窗格自带按钮头（底部无标签切换条，切换只走左侧活动栏）。
     fn render_pane_header(
         &self,
-        icon: IconName,
+        icon: Icon,
         title: String,
         status: Option<AnyElement>,
         buttons: Vec<AnyElement>,
@@ -1571,8 +1954,7 @@ impl BottomPanelView {
             .gap_1()
             .px_2()
             .child(
-                Icon::new(icon)
-                    .size(px(14.0))
+                icon.size(px(14.0))
                     .text_color(ThemeColors::text_muted()),
             )
             .child(
@@ -1692,7 +2074,7 @@ impl BottomPanelView {
                 cx.notify();
             },
         ));
-        self.render_pane_header(IconName::Play, title, status, buttons, cx)
+        self.render_pane_header(Icon::new(IconName::Play), title, status, buttons, cx)
     }
 
     /// Maven 窗格头部：停止 + 重跑 + 清空 + 最小化（对齐 Tauri MavenRunPane 头）。
@@ -1709,17 +2091,44 @@ impl BottomPanelView {
                 crate::i18n::menu_text(cx, "maven.title")
             ),
         };
-        let status = self.maven_running.then(|| {
-            div()
-                .text_xs()
-                .text_color(ThemeColors::accent_green())
-                .child(crate::i18n::menu_text(cx, "run.running"))
+        // 状态区：运行中标记 + issue 计数徽标（对齐 mac 头部徽标）。
+        let has_status = self.maven_running || !self.maven_issues.is_empty();
+        let status = has_status.then(|| {
+            h_flex()
+                .gap_2()
+                .items_center()
+                .when(self.maven_running, |status| {
+                    status.child(
+                        div()
+                            .text_xs()
+                            .text_color(ThemeColors::accent_green())
+                            .child(crate::i18n::menu_text(cx, "run.running")),
+                    )
+                })
+                .when(!self.maven_issues.is_empty(), |status| {
+                    status.child(
+                        h_flex()
+                            .gap_1()
+                            .items_center()
+                            .child(
+                                Icon::new(IconName::TriangleAlert)
+                                    .size(px(12.0))
+                                    .text_color(ThemeColors::warning()),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(ThemeColors::warning())
+                                    .child(self.maven_issues.len().to_string()),
+                            ),
+                    )
+                })
                 .into_any_element()
         });
         let can_rerun = self.last_maven_goal.is_some() && !self.maven_running;
         let can_clear = !self.maven_console.is_empty() || self.maven_title.is_some();
         self.render_pane_header(
-            IconName::Box,
+            Icon::new(IconName::Box),
             title,
             status,
             vec![
@@ -1878,7 +2287,7 @@ impl BottomPanelView {
                             })),
                     )
                     .on_click(cx.listener(move |this, _event, _window, cx| {
-                        this.selected_run_config = Some(id.clone());
+                        this.select_run_config(id.clone(), cx);
                         cx.notify();
                     }))
                     .into_any_element()
@@ -1909,31 +2318,168 @@ impl BottomPanelView {
                             .flex_1()
                             .h_full()
                             .min_h_0()
+                            .relative()
                             .on_mouse_up(
                                 MouseButton::Left,
                                 cx.listener(|this, _event, _window, cx| {
                                     this.run_console.copy_selection(cx);
                                 }),
                             )
-                            .child(self.run_console.view.clone()),
+                            .child(self.run_console.view.clone())
+                            .when(!self.run_at_bottom, |panel| {
+                                panel.child(Self::jump_to_latest_button(
+                                    "run-jump-latest",
+                                    false,
+                                    cx,
+                                ))
+                            }),
                     ),
             )
             .into_any_element()
     }
 
-    /// Maven 面板体：输出区（首行 `$ mvn …`，流式追加）；头部由 `render_maven_header` 负责。
+    /// Maven 面板体：issue 列表（失败诊断，可点击跳转）+ 输出区；头部由
+    /// `render_maven_header` 负责。
     fn render_maven_panel(&self, cx: &mut Context<Self>) -> AnyElement {
+        let issues = self.maven_issues.clone();
         div()
             .flex_1()
             .w_full()
             .min_h_0()
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _event, _window, cx| {
-                    this.maven_console.copy_selection(cx);
-                }),
+            .flex()
+            .flex_col()
+            .when(!issues.is_empty(), |panel| {
+                // 对齐 mac `MavenBuildOutputView.issueList`：错误/警告可点击
+                // 跳源码，限高避免挤掉输出区。
+                panel.child({
+                    let rows: Vec<AnyElement> = issues
+                        .iter()
+                        .map(|issue| {
+                            let location = match issue.column {
+                                Some(column) => format!(
+                                    "{}:{}:{}",
+                                    issue.path,
+                                    issue.line,
+                                    column
+                                ),
+                                None => format!("{}:{}", issue.path, issue.line),
+                            };
+                            let path = issue.path.clone();
+                            let line = issue.line;
+                            div()
+                                .id(format!("maven-issue-{}-{line}-{}", path, issue.column.is_some()))
+                                .w_full()
+                                .flex_shrink_0()
+                                .px_2p5()
+                                .py_1()
+                                .rounded(px(4.0))
+                                .hover(|row| row.bg(ThemeColors::bg_tab_hover()))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |_this, _event, _window, cx| {
+                                        // maven 行号 1 起，跳转语义一致。
+                                        cx.emit(BottomPanelEvent::OpenFile {
+                                            path: path.clone(),
+                                            line: line as u32,
+                                        });
+                                    }),
+                                )
+                                .child(
+                                    h_flex()
+                                        .items_start()
+                                        .gap_1p5()
+                                        .child(
+                                            Icon::new(if issue.severity == "warning" {
+                                                IconName::TriangleAlert
+                                            } else {
+                                                IconName::OctagonX
+                                            })
+                                            .size(px(13.0))
+                                            .text_color(if issue.severity == "warning" {
+                                                ThemeColors::warning()
+                                            } else {
+                                                ThemeColors::destructive()
+                                            }),
+                                        )
+                                        .child(
+                                            v_flex()
+                                                .min_w_0()
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .font_weight(FontWeight::MEDIUM)
+                                                        .text_color(ThemeColors::text_primary())
+                                                        .truncate()
+                                                        .child(issue.message.clone()),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(ThemeColors::text_muted())
+                                                        .truncate()
+                                                        .child(location),
+                                                ),
+                                        ),
+                                )
+                                .into_any_element()
+                        })
+                        .collect();
+                    div()
+                        .max_h(px(132.0))
+                        .w_full()
+                        .flex_shrink_0()
+                        .overflow_y_scrollbar()
+                        .border_b_1()
+                        .border_color(ThemeColors::border())
+                        .bg(ThemeColors::surface())
+                        .py_1()
+                        .children(rows)
+                })
+            })
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .relative()
+                    .on_mouse_up(
+                        MouseButton::Left,
+                        cx.listener(|this, _event, _window, cx| {
+                            this.maven_console.copy_selection(cx);
+                        }),
+                    )
+                    .child(self.maven_console.view.clone())
+                    .when(!self.maven_at_bottom, |panel| {
+                        panel.child(Self::jump_to_latest_button("maven-jump-latest", true, cx))
+                    }),
             )
-            .child(self.maven_console.view.clone())
+            .into_any_element()
+    }
+
+    /// “跳到最新”浮层按钮（对齐 macOS `Jump to latest`）：用户上翻后出现在
+    /// 控制台右下角，点击回到底部并恢复跟随。
+    fn jump_to_latest_button(
+        id: &'static str,
+        maven: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .absolute()
+            .bottom_2()
+            .right_3()
+            .child(
+                Button::new(id)
+                    .small()
+                    .icon(IconName::ArrowDownToLine)
+                    .label(crate::i18n::menu_text(cx, "ui.jumpToLatest").to_string())
+                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                        if maven {
+                            this.maven_console.scroll_to_bottom(cx);
+                        } else {
+                            this.run_console.scroll_to_bottom(cx);
+                        }
+                        cx.notify();
+                    })),
+            )
             .into_any_element()
     }
 
@@ -2032,7 +2578,7 @@ impl Render for BottomPanelView {
                 };
                 (
                     self.render_pane_header(
-                        IconName::Terminal,
+                        Icon::new(IconName::Terminal),
                         crate::i18n::menu_text(cx, "workbench.terminal").to_string(),
                         status,
                         vec![
@@ -2135,12 +2681,7 @@ impl Render for BottomPanelView {
                 let mut status = h_flex()
                     .gap_2()
                     .items_center()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(summary_color)
-                            .child(summary),
-                    );
+                    .child(div().text_xs().text_color(summary_color).child(summary));
                 if error_count > 0 {
                     status = status.child(
                         h_flex()
@@ -2179,7 +2720,7 @@ impl Render for BottomPanelView {
                 }
                 (
                     self.render_pane_header(
-                        IconName::TriangleAlert,
+                        Icon::new(IconName::TriangleAlert),
                         crate::i18n::menu_text(cx, "workbench.diagnostics").to_string(),
                         Some(status.into_any_element()),
                         vec![Self::header_button(
@@ -2201,7 +2742,7 @@ impl Render for BottomPanelView {
             }
             BottomTab::GitLog => (
                 self.render_pane_header(
-                    IconName::GitGraph,
+                    Icon::new(IconName::GitGraph),
                     crate::i18n::menu_text(cx, "workbench.gitLog").to_string(),
                     None,
                     vec![Self::header_button(
@@ -2215,6 +2756,26 @@ impl Render for BottomPanelView {
                     cx,
                 ),
                 self.render_git_log_panel(cx),
+            ),
+            BottomTab::Tests => (
+                self.render_pane_header(
+                    Icon::new(IconName::BadgeCheck),
+                    crate::i18n::menu_text(cx, "workbench.tests").to_string(),
+                    None,
+                    vec![],
+                    cx,
+                ),
+                run_center_text(placeholder_text(cx, "tests")),
+            ),
+            BottomTab::Debug => (
+                self.render_pane_header(
+                    Icon::default().data(IDEA_ICON_DEBUGGER),
+                    crate::i18n::menu_text(cx, "workbench.debug").to_string(),
+                    None,
+                    vec![],
+                    cx,
+                ),
+                run_center_text(placeholder_text(cx, "debug")),
             ),
         };
 
@@ -2308,6 +2869,15 @@ fn run_center_text(text: String) -> AnyElement {
         .into_any_element()
 }
 
+/// Tests/Debug 占位面板空态文案（UI 已就位，功能待接入）。
+fn placeholder_text(cx: &gpui_kit::App, tab: &str) -> String {
+    let (zh, en) = match tab {
+        "tests" => ("测试面板 UI 占位，功能接入中。", "Tests panel placeholder; functionality coming soon."),
+        _ => ("调试面板 UI 占位，功能接入中。", "Debug panel placeholder; functionality coming soon."),
+    };
+    run_ui_text(cx, zh, en)
+}
+
 fn run_ui_text(cx: &gpui_kit::App, zh: &str, en: &str) -> String {
     if crate::i18n::is_zh(cx) {
         zh.to_string()
@@ -2335,6 +2905,36 @@ fn git_log_failed_text(cx: &gpui_kit::App) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 复现“Maven 输出只剩一行”的终端层验证：与 run_maven_goal 相同的字节
+    /// 序列（清屏 → 命令回显 → 30 行流式输出）逐块喂入终端状态后，光标应
+    /// 深入网格、视口跟随底部。若此测试通过而线上仍只显示一行，问题在
+    /// 布局/PTY 链路而非终端语义。
+    #[test]
+    fn maven_stream_clears_screen_and_keeps_lines() {
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let proxy = gpui_xterm::GpuiEventProxy::new(tx);
+        let mut state = gpui_xterm::TerminalState::new(120, 30, proxy);
+
+        state.process_bytes(b"\x1b[2J\x1b[H");
+        state.process_bytes(b"\x1b[1m$ mvn clean\x1b[0m\r\n");
+        for i in 0..30 {
+            state.process_bytes(format!("[INFO] Building module-{i}\r\n").as_bytes());
+        }
+
+        assert_eq!(state.display_offset(), 0, "viewport should follow the tail");
+        state.with_term(|term| {
+            use alacritty_terminal::grid::Dimensions as _;
+            let grid = term.grid();
+            assert_eq!(grid.screen_lines(), 30);
+            let cursor_row = grid.cursor.point.line.0;
+            // 31 行写入 30 行网格：第一行（回显）滚入回滚区，光标在末行。
+            assert_eq!(
+                cursor_row, 29,
+                "cursor should sit on the last grid row after scrolling once, got {cursor_row}"
+            );
+        });
+    }
 
     fn item(
         provider: &str,

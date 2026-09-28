@@ -24,13 +24,17 @@ pub const SIDEBAR_ACTIVITY_ITEM_IDS: &[&str] = &[
     "settings",
 ];
 
-/// 活动栏底部固定组，对应 Tauri `SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS`。
+/// 活动栏底部固定组，顺序对齐 macOS `BuiltInModuleCatalog` 的 order：
+/// terminal(100) → gitLog(200) → diagnostics(300) → maven(400) → run(500)
+/// → tests(600) → debug(700)。tests/debug 仅 UI 占位，面板功能待接入。
 pub const SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS: &[&str] = &[
+    "terminal",
+    "gitLog",
+    "diagnostics",
     "maven",
     "run",
-    "terminal",
-    "diagnostics",
-    "gitLog",
+    "tests",
+    "debug",
     "settings",
 ];
 
