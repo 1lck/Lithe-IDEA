@@ -479,6 +479,16 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         projectSessions.noteWindowBecameKey()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
@@ -594,7 +604,10 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             window.title = ""
             window.titleVisibility = .hidden
         }
-        guard self.layout != layout else { return }
+        guard self.layout != layout else {
+            alignWindowButtons(in: window, for: layout)
+            return
+        }
 
         let shouldAnimate = self.layout != nil && window.isVisible
         self.layout = layout
@@ -618,6 +631,20 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
         window.setFrame(targetFrame, display: true, animate: shouldAnimate)
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    private func alignWindowButtons(in window: NSWindow, for layout: LitheWindowLayout) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        // AppKit centers these buttons in its native titlebar; the workspace
+        // draws a taller toolbar underneath them.
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), let host = button.superview else { continue }
+            let headerHeight = layout == .workspace ? LitheTheme.Metrics.toolbarHeight : host.bounds.height
+            let centeredY = host.bounds.maxY - headerHeight / 2 - button.frame.height / 2
+            guard abs(button.frame.minY - centeredY) > 0.5 else { continue }
+            button.setFrameOrigin(NSPoint(x: button.frame.minX, y: centeredY))
+        }
     }
 
     private func defaultWorkspaceFrame(for window: NSWindow, fitting visibleFrame: NSRect) -> NSRect {

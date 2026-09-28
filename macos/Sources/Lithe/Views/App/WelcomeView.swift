@@ -162,12 +162,7 @@ struct WelcomeView: View {
                 if exists { model.openProject(project.url) }
             } label: {
                 HStack(spacing: 12) {
-                    Text(initials(for: project.name))
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(exists ? color(for: project.name) : LitheTheme.raised)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    ProjectAvatarBadge(name: project.name, colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url), size: 34, isEnabled: exists)
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(project.name)
@@ -250,28 +245,6 @@ struct WelcomeView: View {
             $0.name.localizedCaseInsensitiveContains(projectFilter) ||
                 $0.path.localizedCaseInsensitiveContains(projectFilter)
         }
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        let characters = words.prefix(2).compactMap(\.first)
-        return characters.isEmpty ? "LI" : String(characters).uppercased()
-    }
-
-    private func color(for value: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.90, green: 0.43, blue: 0.28),
-            Color(red: 0.12, green: 0.63, blue: 0.68),
-            Color(red: 0.28, green: 0.53, blue: 0.88),
-            Color(red: 0.30, green: 0.66, blue: 0.48),
-            Color(red: 0.70, green: 0.52, blue: 0.12)
-        ]
-        var hash: UInt64 = 1_469_598_103_934_665_603
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return palette[Int(hash % UInt64(palette.count))]
     }
 }
 
