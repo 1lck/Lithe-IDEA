@@ -15,6 +15,7 @@ use gpui_kit::{
 
 use crate::settings;
 use crate::theme::ThemeColors;
+use crate::workbench::process_memory::ProcessMemoryUsage;
 
 /// 状态栏事件。
 #[derive(Debug, Clone)]
@@ -36,8 +37,9 @@ pub struct StatusBarView {
     pub indent_size: usize,
     /// 当前编辑器是否为只读。
     pub read_only: bool,
-    /// 进程内存占用（MB）。
-    pub memory_mb: usize,
+    /// 进程内存占用（应用本体 + 受管语言服务），对齐 Tauri footer 的
+    /// `Total {total} · Lithe {used}`。
+    pub memory: Option<ProcessMemoryUsage>,
     /// 工作区变更文件数。
     pub git_changes: usize,
 }
@@ -55,7 +57,7 @@ impl StatusBarView {
             encoding: "UTF-8".to_string(),
             indent_size: 4,
             read_only: false,
-            memory_mb: 0,
+            memory: None,
             git_changes: 0,
         }
     }
@@ -95,10 +97,31 @@ impl StatusBarView {
     }
 
     #[allow(dead_code)]
-    pub fn set_memory_mb(&mut self, mb: usize, cx: &mut Context<Self>) {
-        self.memory_mb = mb;
+    pub fn set_memory(&mut self, usage: ProcessMemoryUsage, cx: &mut Context<Self>) {
+        // 与 Tauri 一致：仅在渲染文本真正变化时通知，避免高频采样唤醒状态栏。
+        if self.memory.map(display_text) == Some(display_text(usage)) {
+            self.memory = Some(usage);
+            return;
+        }
+        self.memory = Some(usage);
         cx.notify();
     }
+}
+
+/// 内存项的展示文本，与 Tauri `footer.memoryUsage` 的格式对齐：
+/// `Total {total} · Lithe {used}`，两者均按 MB 保留一位小数。
+fn display_text(usage: ProcessMemoryUsage) -> String {
+    format!(
+        "Total {} · Lithe {}",
+        format_memory_megabytes(usage.total_bytes()),
+        format_memory_megabytes(usage.lithe_bytes)
+    )
+}
+
+/// 字节 → `123.4 MB`，与 Tauri `formatMemoryMegabytes` 同一口径。
+fn format_memory_megabytes(bytes: u64) -> String {
+    const BYTES_PER_MEGABYTE: f64 = 1024.0 * 1024.0;
+    format!("{:.1} MB", bytes as f64 / BYTES_PER_MEGABYTE)
 }
 
 impl Default for StatusBarView {
@@ -173,11 +196,14 @@ impl StatusBarView {
                 .to_string(),
                 ThemeColors::subtle_foreground(),
             )),
-            "memory" => Some(labeled(
-                IconName::MemoryStick,
-                format!("{} MB", self.memory_mb),
-                ThemeColors::subtle_foreground(),
-            )),
+            // 采样尚未成功时整项不渲染，对齐 Tauri（memoryUsage 为 null）。
+            "memory" => self.memory.map(|usage| {
+                labeled(
+                    IconName::MemoryStick,
+                    display_text(usage),
+                    ThemeColors::subtle_foreground(),
+                )
+            }),
             "gitChanges" => Some(self.render_git_changes(cx)),
             _ => None,
         }

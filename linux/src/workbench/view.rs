@@ -39,7 +39,9 @@ use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
-use crate::workbench::process_memory::{ProcessMemoryUsage, Procfs, JDTLS_PROCESS_SIGNATURE};
+use crate::workbench::process_memory::{
+    Procfs, ProcessMemoryUsage, JDTLS_PROCESS_SIGNATURE,
+};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
@@ -1147,8 +1149,9 @@ impl WorkbenchView {
     }
 
     /// 内存采样轮询：与 Tauri `ApplicationMemoryPoller` 同样每 10 秒采样一次，
-    /// 首帧立即取一次。读取 `/proc` 放到后台 executor，避免阻塞 UI 线程；
-    /// 采样失败时保留上一次成功值，绝不让异常中断轮询或影响工作台。
+    /// 首帧立即取一次。采样实现位于平台适配层 [`crate::workbench::process_memory`]，
+    /// UI 只消费平台无关的 `ProcessMemoryUsage`；采样失败时保留上一次成功值，
+    /// 绝不让异常中断轮询或影响工作台。
     fn spawn_memory_poll(&self, cx: &mut Context<Self>) {
         const MEMORY_POLL_INTERVAL: Duration = Duration::from_secs(10);
         let status_bar = self.status_bar.clone();
