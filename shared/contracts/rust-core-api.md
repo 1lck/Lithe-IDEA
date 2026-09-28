@@ -12,6 +12,9 @@ int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_lsp_provider_catalog_json(const char *workspace_root);
 int32_t lithe_core_cancel(const char *operation_id);
 void lithe_core_free_string(char *value);
+void *lithe_agent_open_json(const char *configuration, void (*callback)(const char *, void *), void *context);
+int32_t lithe_agent_send_json(void *handle, const char *command);
+void lithe_agent_close(void *handle);
 ```
 
 The macOS package uses the small C bridge in `macos/Sources/LitheRustCore/`. The
@@ -37,6 +40,91 @@ spawn failures clean it up, while successful launches retain it until that exact
 process exits. A replacement execution never shares its predecessor's file.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
+
+The ACP Agent calls use an opaque handle for one agent process and connection
+per workspace and agent; one connection carries many conversation sessions.
+`lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
+"args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
+"provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
+"baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
+"allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
+installed by `agent.install` under `dataDirectory`. Every agent signs in through
+the ACP `gateway` method over stdio: Responses providers send
+`Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
+user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
+non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
+a user-provided agent that must support gateway sign-in with a Responses
+provider. Agents start with the executable's directory and the login shell's
+`PATH` first. Account logins offered by agents are never used. Invalid settings
+and launch failures are reported as a `stopped` event with a message.
+
+`lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
+`listSessions`, `setConfigOption`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
+`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+their camel-case field names, are fixed by
+`shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
+can correlate concurrent requests. `stopReason` uses ACP wire names such as
+`end_turn` and `cancelled`.
+
+`prompt` retains `text` and optionally carries ordered `files` entries with `uri`
+(a native `file://` URL) and `name` (the display filename). The host validates up to
+32 references and sends upstream ACP `resource_link` blocks after the text block;
+empty text is allowed when files are present. It never reads, copies, or embeds
+file bytes. These native resource URLs identify user-selected context, not portable
+workspace records; the agent owns reading, permissions, and history. Invalid
+references produce `requestFailed` before reserving a turn. Older text-only callers
+remain compatible by omitting `files`.
+
+`sessionCreated` and `sessionLoaded` optionally carry the agent's `configOptions`.
+`setConfigOption` carries `token`, `sessionId`, `configId`, and a select-option
+string `value`; the host uses ACP `session/set_config_option`. Its acknowledged
+full option list arrives as `sessionConfigured`. Consumers also accept ACP
+`config_option_update` notifications. Agent-provided IDs, choices and current
+values remain authoritative; unsupported controls are not synthesized.
+Configuration failure echoes the token and does not finish a prompt.
+
+For a new session, the host also preserves the adapter's optional legacy model
+catalog while decoding the ACP response and negotiates only the versioned
+`jetbrains.air.recommendedValue` extension. If the configured current model is
+absent from that catalog and the upstream recommendation is present in both the
+catalog and selector, the host requests that model before publishing
+`sessionCreated`. Only the acknowledged full configuration is exposed. Both
+requests share the session creation deadline; rejection, timeout, or an
+unconfirmed selection emits `requestFailed`. Valid configured models, loaded
+history, and global CLI files remain unchanged. Missing or malformed optional
+catalog/recommendation data leaves standard ACP behavior intact. The `upstream`
+scenarios in the agent fixture protect this workflow without changing the
+command/event JSON shape.
+
+A `cancel` answers pending permissions with `cancelled`, sends one
+ACP `session/cancel`, and reports `turnCancelling`. The session remains busy
+until its prompt response arrives. A second prompt and configuration changes
+are rejected while it is busy. If the agent fails to acknowledge within ten
+seconds, the connection fails and its process tree is stopped; clients retain
+the visible transcript and offer reconnect followed by `session/load`. This
+explicit recovery prevents another message from entering a lost cancelled turn.
+Other sessions on the same process are also detached on this failure.
+Normal cancellation does not restart the process.
+
+ACP `usage_update` notifications are forwarded unchanged in `update`, with
+`used` (tokens currently in context) and `size` (context window capacity), scoped
+by `sessionId`. Consumers replace the previous snapshot, allowing usage to drop
+after compaction; these values are not cumulative billing tokens. Missing or
+invalid data and a zero capacity represent unknown usage, not an empty window.
+The macOS indicator clears stale capacity on disconnect or confirmed model
+changes and waits for a new report; it does not infer limits from model names.
+
+Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
+`content` (including diffs). Partial updates replace only fields supplied by
+the agent. Permission displays combine already received tool details with the
+permission request, and distinguish allow/reject option kinds.
+
+The caller must close each handle
+exactly once; closing revokes callbacks and stops the process tree, force
+killing processes that do not exit after a short grace period. The callback
+context must remain valid until close returns. This API is owned by
+`lithe-agent-host` and is separate from the synchronous JSON command envelope.
 
 ## Envelope
 
@@ -79,6 +167,80 @@ stable error code and a user-facing message:
 ```
 
 ## Commands
+
+### Agent adapters
+
+`agent.parseProviderConfiguration` takes `{source, configuration}` with `source`
+equal to `codex` (TOML) or `claude` (JSON). It reuses the typed AI configuration
+parsers with an empty environment and returns provider metadata only, without
+credentials or credential-presence flags. Configuration text is limited to
+64 KiB UTF-8. Invalid source, malformed text and oversized input return
+`invalid_request` without raw input or parser diagnostics. The fixture is
+`shared/fixtures/agent/provider-configuration-v1.json`. Hosts extract explicit
+API keys, validate Agent protocol compatibility, and persist credentials in their
+native vault. This operation does not discover or write local CLI files.
+
+`agent.status`, `agent.install`, `agent.uninstall`, and `agent.installCli` manage ACP adapters in
+`<dataDirectory>/agents/<agentId>`, using the Node.js and npm the user installed.
+Lithe never installs Node.js or npm; the agents' own command-line tools are installed only through `agent.installCli` on an explicit user action. `agent.status`
+detects Node.js and npm through the login shell's `PATH` and lists every
+supported agent with its pinned version, installed version, provider protocol,
+and blocking issues. Adapters that drive the agent's own CLI (Codex, Claude Code) report the
+CLI found on that `PATH` with its minimum version; they are installed with
+`--omit=optional`, so their bundled CLI copy is not downloaded, and are launched
+with the user's CLI through the adapter's variable (`CODEX_PATH`,
+`CLAUDE_CODE_EXECUTABLE`). A missing or
+too old CLI is an issue for the user to resolve, never installed by Lithe.
+`agent.install` runs `npm install` into a staging directory
+and replaces the previous install only after the adapter executable exists; it
+honors `operationId` cancellation and `timeoutMilliseconds`. Failures use
+`runtime_missing` (Node.js or npm unusable), `process_failed` (npm failed, with
+its output tail), `invalid_request`, `cancelled`, or `timed_out`. Payloads and
+results are fixed by `shared/fixtures/agent/agent-management-v1.json`.
+
+`agent.installCli` resolves the current PATH executable and its installation
+owner again on each explicit action. A missing CLI uses npm; an existing npm CLI
+requires the selected npm's global root, package manifest/bin and active link
+to agree before `npm install -g <package>@latest`. Homebrew requires the active
+target to belong to its reported Caskroom/Cellar and an installed package receipt;
+it runs `brew upgrade --cask/--formula <owning-package>`, retaining the installed
+channel. A standard Claude native launcher uses `claude update`. Unknown,
+broken, unrecorded, or mismatched Node/npm installations require manual updating;
+there is no force overwrite, installer migration or automatic npm fallback.
+After completion, the host refreshes the login-shell PATH and requires the CLI
+selected there to meet the adapter's minimum version before returning `cliVersion`.
+The successful response also includes optional `updaterWarning` (null for a clean
+exit, a bounded output tail for a recovered installer failure). A nonzero exit
+can succeed only if the CLI is now present and usable, and its numeric version
+strictly increased compared with the pre-update CLI (or it was previously absent).
+An unchanged, downgraded, missing or still-too-old CLI remains `process_failed`;
+cancellation, timeout and process-start failure never recover through a version
+probe. Hosts show the verified version as success and keep any warning/log separate
+from errors. Older responses without `updaterWarning` decode as a clean result.
+Node.js and npm remain user-managed. Detection is read-only and locally bounded.
+
+`agent.status` includes optional `cli.installation` with `source` (`npm`,
+`homebrew`, `native`, `missing`, `unknown`), `canUpdate`, and display-only
+`updateHint`. Hosts show the source and guidance, and offer automatic update
+only when `canUpdate` is true. The hint is never executable input. Absent fields
+remain backward compatible with older hosts. Windows installer/shim ownership
+has not been verified; unrecognized installations use the manual path.
+
+`agent.install` and `agent.installCli` publish `agentInstallProgress` through the
+existing synchronous `execute_json_with_events`/C ABI event callback. Each event
+carries the request's `operationId` and a `progress` object: `stage` (`preparing`,
+`downloading`, `installing`, `updating`), `downloadedBytes` (received archive body bytes),
+`bytesPerSecond` (most recent sample), `elapsedMilliseconds`, and
+`idleMilliseconds` (since the last archive bytes). Counters contain no URLs,
+headers, credentials, or paths. npm still owns fetching, proxies, retries, cache,
+and extraction. A built-in Node observer counts bytes without consuming its
+stream and restores inherited `NODE_OPTIONS` before npm starts child scripts.
+No total or overall percentage is supplied: npm can discover additional packages
+and may use cached packages. Events stop before the final response, including
+failure, timeout, and cancellation. Hosts reject stale operation IDs and clear
+live counters at completion. Examples are in `agent-management-v1.json`.
+Homebrew and native updaters emit `updating` with zero transfer counters: their
+package manager owns the download and Lithe does not infer bytes from logs.
 
 | Command | Purpose |
 | --- | --- |
@@ -295,8 +457,22 @@ workspace containment, depth, and path. Each entry contains an absolute native
 `path` because repository roots are platform boundary values and may be outside
 the opened folder when the folder is nested inside a checkout. Canonical paths
 are reported in plain native form: Core strips the Windows verbatim `\\?\`
-prefix so roots remain valid Git working directories and stay resolvable after
-consumers normalize separators. Core treats both
+prefix only for supported drive/UNC paths so roots remain valid Git working
+directories after consumers normalize separators. On Windows, path components
+ending in an ASCII dot or space, reserved DOS device basenames, verbatim dot
+segments, and non-drive/non-UNC device namespaces are
+unsupported: discovery, status, watch context and Git reads return
+`invalid_request` before filesystem lookup, rather than aliasing another path.
+The same validation applies after canonicalization and to Git-reported paths;
+missing-worktree fallbacks must not suppress it. Frontend file resolution
+normalizes native UNC/verbatim inputs before deciding whether to join a repository
+root, and rejects unsupported names before stripping their prefix. Remote/WSL
+identifiers retain their protocol and POSIX name semantics. Chinese names,
+embedded spaces and long paths are not rejected by length; native Git/filesystem
+errors remain visible. In particular, Windows may reject an over-MAX_PATH Git
+working directory at process creation even when filesystem lookup succeeds;
+this is reported as `process_start_failed`, not a missing repository. Shared examples live in `shared/fixtures/git/windows-paths.json`.
+Core treats both
 `.git` directories and `.git` files as repository markers. The default traversal
 visits the entire workspace tree, including build and dependency folders, and
 continues below discovered repositories. Git metadata itself is not traversed.
@@ -1435,7 +1611,10 @@ Range-only providers are not advertised as supporting this operation. No delta
 result ID crosses the boundary. See `shared/fixtures/lsp/semantic-tokens-v1.json`.
 The `semanticTokensRefresh` event invalidates the host's semantic color cache
 when the server requests `workspace/semanticTokens/refresh`; the request receives
-a JSON-RPC null acknowledgment.
+a JSON-RPC null acknowledgment. Windows maps `lsp_get_semantic_tokens` to this
+existing operation and forwards refresh events as `lsp://semantic-tokens-refresh`
+with `{ sessionId, workspacePath }`; only the owning frontend session invalidates
+its Monaco provider. The shared payload and legend remain unchanged.
 The `virtualDocument` operation accepts `{ sessionId, operation,
 virtualUri }` without a document `uri`. Its terminal `requestCompleted` event
 returns `{ text }`, where `text` is the provider-resolved UTF-8 source for the

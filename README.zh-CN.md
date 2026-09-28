@@ -43,7 +43,7 @@
   </tr>
   <tr>
     <td align="center"><a href="https://qm.qq.com/cgi-bin/qm/qr?k=&amp;group_code=163027877"><img src="./docs/assets/contact/qq-group-qr.png" width="280" alt="Lithe QQ 群二维码"></a></td>
-    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr.png" width="280" alt="Lithe 微信群二维码"></a></td>
+    <td align="center"><a href="https://gcnctzuuwe9u.feishu.cn/wiki/HJFbwZ0hZirAPnkWF3xcPWkCnid?from=from_copylink"><img src="./docs/assets/contact/wechat-group-qr-2026-09.png" width="280" alt="Lithe 微信群二维码"></a></td>
   </tr>
 </table>
 </div>

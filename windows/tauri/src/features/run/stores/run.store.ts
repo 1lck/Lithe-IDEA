@@ -2,7 +2,11 @@ import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
-import { mavenLaunchContextForWorkspace } from "@/features/maven/stores/maven.store";
+import {
+  mavenLaunchContextForWorkspace,
+  useMavenStore,
+} from "@/features/maven/stores/maven.store";
+import type { MavenLaunchContext, MavenSettings } from "@/features/maven/types/maven.types";
 import {
   createLaunchPlan,
   generateRunConfiguration,
@@ -161,6 +165,7 @@ export interface RunStoreDependencies {
   resolveRunLaunch: typeof resolveRunLaunch;
   executePreLaunchStep: typeof executePreLaunchStep;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
+  seedMavenLocalConfiguration: (workspaceId: string, settings: Partial<MavenSettings>) => void;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
   prepareJavaRunLaunch: typeof prepareJavaRunLaunch;
@@ -175,12 +180,23 @@ export interface RunStoreDependencies {
   writeGeneratedRunDocuments?: typeof writeGeneratedRunDocuments;
 }
 
+// Explicit import of a legacy run toolchain into blank Maven settings. Load and
+// launch do not call it: a per-configuration override stays on the run document,
+// and project settings are written only when the user saves them.
+function seedMavenLocalConfiguration(
+  workspaceId: string,
+  settings: Partial<MavenSettings>,
+): void {
+  useMavenStore.getStore(workspaceId).getState().actions.seedLocalConfiguration(settings);
+}
+
 const defaultRunStoreDependencies: RunStoreDependencies = {
   createLaunchPlan,
   mavenLaunchContextForWorkspace,
   resolveRunLaunch,
   executePreLaunchStep,
   saveWorkspaceBeforeLaunch,
+  seedMavenLocalConfiguration,
   startRunProcess,
   stopRunProcess,
   prepareJavaRunLaunch,
@@ -294,6 +310,21 @@ function appendStampedOutput(sessionId: string, existing: string, chunk: string)
 
 function flushStampedOutput(sessionId: string, existing: string): string {
   return trimOutput(existing + stamperFor(sessionId).flush());
+}
+
+// A value written on the run configuration wins. An empty field falls back to
+// the Maven project context, matching macOS RunService.effectiveOptions.
+function mavenProcessPaths(
+  mavenContext: MavenLaunchContext | null,
+  configuration: { mavenExecutablePath: string; mavenJavaHomePath: string },
+) {
+  const configuredExecutable = configuration.mavenExecutablePath.trim();
+  const configuredJavaHome = configuration.mavenJavaHomePath.trim();
+  return {
+    mavenExecutablePath:
+      configuredExecutable || mavenContext?.mavenExecutablePath || "",
+    mavenJavaHomePath: configuredJavaHome || mavenContext?.javaHomePath || "",
+  };
 }
 
 function optionsFromConfiguration(configuration: RunConfiguration): RunOptions {
@@ -875,10 +906,7 @@ export const createRunStore = (
             executable: plan.executable,
             workingDirectory: plan.workingDirectory,
             javaHomePath: configuration.javaHomePath,
-            mavenExecutablePath:
-              configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-            mavenJavaHomePath:
-              configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+            ...mavenProcessPaths(mavenContext, configuration),
             runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
@@ -959,10 +987,7 @@ export const createRunStore = (
               executable: step.executable,
               workingDirectory: plan.workingDirectory,
               javaHomePath: configuration.javaHomePath,
-              mavenExecutablePath:
-                configuration.mavenExecutablePath || mavenContext?.mavenExecutablePath || "",
-              mavenJavaHomePath:
-                configuration.mavenJavaHomePath || mavenContext?.javaHomePath || "",
+              ...mavenProcessPaths(mavenContext, configuration),
               runtimeExecutablePaths: state.effectiveRuntimeExecutablePaths,
               environment: mergeLaunchEnvironment(configuration.env, plan),
             });

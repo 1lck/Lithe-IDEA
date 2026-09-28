@@ -44,13 +44,11 @@ extension AppModel {
     }
 
     var activeCommitMessageAPIKey: String {
-        guard let provider = settings.activeCommitMessageProvider else { return "" }
-        return services.credentialResolver.readAPIKey(for: provider) ?? ""
+        settings.activeCommitMessageProvider.map(apiKey(for:)) ?? ""
     }
 
     var activeCommitMessageCredentialIsConfigurationManaged: Bool {
-        guard let provider = settings.activeCommitMessageProvider else { return false }
-        return configurationSource(for: provider) != nil
+        settings.activeCommitMessageProvider.map(credentialIsConfigurationManaged(_:)) ?? false
     }
 
     var activeCommitMessageConfigurationSourceTitle: String? {
@@ -58,7 +56,7 @@ extension AppModel {
     }
 
     var activeCommitMessageConfigurationSourceDescription: String? {
-        settings.activeCommitMessageProvider.flatMap(configurationSource(for:))?.settingsDescription
+        settings.activeCommitMessageProvider.flatMap(configurationSourceDescription(for:))
     }
 
     var activeCommitMessageCredentialIsCodexManaged: Bool {
@@ -67,8 +65,25 @@ extension AppModel {
 
     func saveActiveCommitMessageAPIKey(_ value: String) {
         guard let provider = settings.activeCommitMessageProvider else { return }
-        if activeCommitMessageCredentialIsConfigurationManaged {
-            showNotification("API key is managed by \(activeCommitMessageConfigurationSourceTitle ?? "AI") configuration")
+        saveAPIKey(value, for: provider)
+    }
+
+    func apiKey(for provider: AIProviderProfile) -> String {
+        services.credentialResolver.readAPIKey(for: provider) ?? ""
+    }
+
+    /// Imported providers read their key from the Codex or Claude configuration.
+    func credentialIsConfigurationManaged(_ provider: AIProviderProfile) -> Bool {
+        configurationSource(for: provider) != nil
+    }
+
+    func configurationSourceDescription(for provider: AIProviderProfile) -> String? {
+        configurationSource(for: provider)?.settingsDescription
+    }
+
+    func saveAPIKey(_ value: String, for provider: AIProviderProfile) {
+        if let source = configurationSource(for: provider) {
+            showNotification("API key is managed by \(source.title) configuration")
             return
         }
         do {

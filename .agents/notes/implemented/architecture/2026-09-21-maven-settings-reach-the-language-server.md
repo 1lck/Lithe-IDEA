@@ -239,6 +239,26 @@ Maven、版本、路径和来源，例如「自动 → JDK 21.0.4 · 路径 · �
 「自动」本身的选择规则（是否按项目要求版本挑选、Windows 候选排序）属于 #815，不在此处
 改变。
 
+### Maven 设置页的检测边界（#844）
+
+Windows Maven 设置页的空字段展示当前已保存配置下的生效值。例如选择了团队的
+`settings.xml`，本地仓库留空时应显示该文件声明的仓库，不能显示忽略团队设置后
+得到的 `~/.m2/repository`。Maven 安装使用启动上下文已经解析的路径；JDK 与独立
+Maven 目标共用项目默认值继承逻辑。显式字段不再显示未启用的自动候选，检测中
+也不继续显示上一份配置的路径。切换项目必须丢弃未保存草稿，即使两个项目的
+已保存字段刚好相同。
+
+检测命令在后台工作线程执行。Maven 路径只做文件检查，不运行 Wrapper；JDK
+仅探测 Java 候选，不连带运行 Maven、Node。每次版本探测设三秒截止时间，复用
+`lithe-git-host` 的原生进程执行器处理输出上限、进程树终止和有界清理，避免用户
+打开设置就因 Wrapper 下载或卡住的版本命令冻结界面。
+
+设置文件中的仓库提示复用 Core 已使用的 `quick-xml`，解码实体和 CDATA（XML 中
+保留原始文字的区段），只读取 `settings` 的直接子元素，并读完整个文档后再接受
+结果。不能截取标签间的原始字符串，否则 `D:/R&amp;D` 会变成错误目录，缺失闭合
+标签也可能被当作路径。这里只提供只读提示，不生成 Maven 的完整生效模型；
+`${user.home}` 以外的属性保持原文，完整插值和最终构建配置仍由 Maven 负责。
+
 ## 验证
 
 - Rust Core：`cargo test --manifest-path rust/lithe-core/Cargo.toml`
@@ -254,6 +274,11 @@ Maven、版本、路径和来源，例如「自动 → JDK 21.0.4 · 路径 · �
 - Windows 宿主：`cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
   maven_resolution_without_probing` 覆盖 Wrapper 优先、主目录与启动器两种覆盖
   写法、残缺 Wrapper 不被选中。
+- Maven 设置：Windows 宿主 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml
+  maven::settings_xml` 覆盖实体、CDATA、命名空间、注释和不完整 XML；同一宿主的
+  `toolchain_probe_` 测试覆盖已到期的探测和两个输出流。前端
+  `maven-detected-value.test.tsx`、`maven-project-jdk.test.ts`、`maven.store.test.ts`
+  验证显示与启动选择一致，`maven-settings-panel.test.tsx` 验证项目切换丢弃草稿。
 - 共享契约：`./scripts/verify-shared-contracts.sh`。
 - 测试稳定性：`./.agents/skills/write-stable-tests/scripts/verify-test-stability.sh`。
 - 生效值显示：Windows 宿主 `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml

@@ -1474,6 +1474,8 @@ export class LspClient {
 
   async getSemanticTokens(filePath: string): Promise<LspSemanticTokensResponse | null> {
     if (!isLspSemanticCommandSupported("lsp_get_semantic_tokens")) return null;
+    const availability = this.getDocumentAvailability(filePath, "semanticTokens");
+    if (availability.phase !== "ready" || availability.feature !== "supported") return null;
     try {
       return await invoke<LspSemanticTokensResponse>("lsp_get_semantic_tokens", { filePath });
     } catch (error) {

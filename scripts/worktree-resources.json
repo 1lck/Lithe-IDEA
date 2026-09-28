@@ -29,29 +29,61 @@
   ],
   "excludedResources": [
     {
+      "id": "agent-cli-runtime",
+      "reusable": false,
+      "locations": ["npm global prefix and cache", "Homebrew Cellar, Caskroom and download cache", "user home .local/share/claude/versions"],
+      "identity": "Runtime PATH executable, package-manager ownership and package/version/platform/architecture validated by the owning installer; no worktree build identity stamp",
+      "reason": "User-managed runtime installations and mutable package-manager caches are outside worktrees. Never copy, symlink, publish or share them through build resource reuse. No copy stage is permitted."
+    },
+    {
       "id": "official-plugin-packages",
       "path": ".build/<triple>/<configuration>/OfficialPlugins",
-      "reason": "原生插件产物绑定宿主 API、Swift 工具链、平台架构和签名；没有可靠 identity stamp，各工作树单独构建并用 LitheOfficialPluginVerifier 校验，不复制。"
+      "reusable": false,
+      "locations": [".build/<triple>/<configuration>/OfficialPlugins"],
+      "identity": "Native plugin output is tied to the host API, Swift toolchain, platform architecture and signing; no reliable worktree identity stamp",
+      "reason": "Build each official plugin independently in every worktree and validate it with LitheOfficialPluginVerifier; do not copy or symlink it across worktrees."
     },
     {
       "id": "language-tools",
       "path": "<app-cache>/language-tools/<language>/<tool>",
-      "reason": "用户显式安装的可变工具及锁文件属于运行时插件状态，没有工作树级 identity stamp；禁止跨工作树复用，由插件卸载清理。"
+      "reusable": false,
+      "locations": ["<app-cache>/language-tools/<language>/<tool>"],
+      "identity": "User-installed language tools and lock files are mutable runtime state without a worktree identity stamp",
+      "reason": "Do not reuse user-managed language tools across worktrees; plugin lifecycle owns installation and cleanup."
     },
     {
       "id": "phpunit-fixture",
       "path": "shared/fixtures/phpunit-project/vendor",
-      "reason": "PHPUnit 依赖由测试工作树的 Composer 安装，身份取决于 PHP 和依赖解析；没有可靠 identity stamp，不复制 vendor。"
+      "reusable": false,
+      "locations": ["shared/fixtures/phpunit-project/vendor"],
+      "identity": "Composer dependencies depend on the test worktree PHP version and dependency resolution without a reliable identity stamp",
+      "reason": "Install PHPUnit dependencies independently in each worktree; do not copy vendor directories."
     },
     {
       "id": "windows-worker-plugins",
       "path": ".artifacts/windows-plugins",
-      "reason": "独立 Worker 插件绑定包格式、宿主 SDK 与 Bun 构建版本；没有可靠 identity stamp，不跨工作树复制，每棵树独立构建并运行 verify-windows-plugin-isolation.mjs。"
+      "reusable": false,
+      "locations": [".artifacts/windows-plugins"],
+      "identity": "Worker plugins are tied to package format, host SDK and Bun build versions without a reliable identity stamp",
+      "reason": "Build worker plugins independently in each worktree and run verify-windows-plugin-isolation.mjs; do not copy them across worktrees."
     },
     {
       "id": "installed-worker-plugins",
       "path": "<webview-profile>/Local Storage/lithe.worker-package:*",
-      "reason": "用户导入的插件源码与安装状态属于应用配置，不是下载缓存；卸载按插件 ID 删除，没有工作树身份，不跨工作树复制。"
+      "reusable": false,
+      "locations": ["<webview-profile>/Local Storage/lithe.worker-package:*"],
+      "identity": "Imported plugin source and install state belong to application configuration and have no worktree identity",
+      "reason": "Do not copy installed worker plugin state across worktrees; uninstall by plugin ID through the application lifecycle."
+    },
+    {
+      "id": "agent-history-metadata",
+      "reusable": false,
+      "locations": [
+        "platform preferences: lithe.agent-history.v1.<workspace-agent-digest>",
+        "user-chosen Markdown export destination"
+      ],
+      "identity": "Mutable user annotations scoped by standardized workspace identity and configured Agent ID; no build, platform, architecture or toolchain stamp",
+      "reason": "Favorites, custom titles and hidden rows are runtime preferences. Never copy them across worktrees or read Agent files to reconstruct them; exports are user documents, not build resources. No copy stage is permitted."
     }
   ]
 }

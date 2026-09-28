@@ -10,8 +10,8 @@ verification scripts are the executable source of boundary checks.
 
 - All payloads are UTF-8 JSON when exchanged across a process or language boundary.
 - Workspace paths are relative to the opened workspace and use `/` separators.
-- Absolute paths may appear at native editor/process boundaries and as LSP
-  `file://` URIs, but are not persisted as cross-platform identifiers.
+- Absolute paths may appear at native editor/process boundaries and as LSP/ACP
+  `file://` resource URIs, but are not persisted as cross-platform identifiers.
 - Product-facing line numbers are one-based. Editor/LSP positions explicitly use
   zero-based lines and UTF-16 columns. Missing locations are `null`.
 - Lists have deterministic ordering so contract fixtures can be compared directly.
@@ -28,6 +28,7 @@ verification scripts are the executable source of boundary checks.
 | Git | changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | [AI commit messages](ai-commit.md) | provider configuration parsing, commit rules, bounded diff evidence, request plans, and response text | local configuration discovery, credentials, HTTP, cancellation, and draft UI |
+| Agent conversation (ACP) | supported-agent catalog, Node.js/npm detection, adapter install with the user's npm and numbers-only live download progress, CLI provenance and owner-preserving updates, per-agent API-key and model delivery, ACP v1 connection per workspace and agent, agent-owned session history (list/load), session config options, user-selected file references as ACP resource links, streamed tool evidence, permission decisions, acknowledged cancellation with bounded recovery, and process-tree lifecycle in the shared Rust host | provider and agent settings, API-key storage, credential-independent local default-model reading through AI configuration ports, data directory, workspace selection, module enablement, conversation UI, workspace/Agent-scoped local history annotations (favorites, title overrides and recoverable hidden rows), and user-selected Markdown export destinations |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
 | Java/Maven/Spring | deterministic Maven-root selection, project structure, modules and profiles, bounded dependency-tree normalization; compiler diagnostic parsing; Java source structure, symbols, code vision, run-configuration detection, Spring configuration/bean/endpoint indexing, and JDTLS/Java Debug adapter policy | JDK/Maven discovery, local dependency-repository selection, Java/Maven child processes, and sockets |
@@ -86,7 +87,7 @@ contract must preserve these invariants:
 - Native plugin factories receive a read-only host context. Host services use
   stable IDs and shared protocols; plugin code cannot import a platform
   composition root or the application executable.
-- AI Assistance, Terminal, Git, Search, Local History, Debug, and Java/Maven
+- AI Assistance, Agent Conversation, Terminal, Git, Search, Local History, Debug, and Java/Maven
   execution are built-in lifecycle modules. They are not marketplace plugins.
 - Java language tooling remains part of the built-in product. Every other
   language provider is represented by an independently configurable bundled
