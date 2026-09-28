@@ -190,7 +190,7 @@ package final class GitFeatureModel: ObservableObject {
     /// commit UI must explain the child-first order before continuing.
     @Published package internal(set) var pendingSubmoduleCommitPlan: GitSubmoduleCommitPlan?
     @Published package internal(set) var workspaceCommitResults: [GitRepositoryCommitResult] = []
-    var workspaceCommitAttempt: GitWorkspaceCommitAttempt?
+    var workspaceCommitAttempt: GitWorkspaceCommitSession?
     var workspaceCommitGeneration = UUID()
     @Published package private(set) var gitBlameLines: [URL: [GitBlameLine]] = [:]
     @Published package private(set) var gitLineChangeMarkers: [URL: [GitLineChangeMarker]] = [:]
@@ -292,14 +292,14 @@ package final class GitFeatureModel: ObservableObject {
     private var selectedGitCommitFilesGeneration: UInt64 = 0
     private var gitLogFilterGeneration = UUID()
     private let shelveService: ShelveService?
-    private let snapshotProvider: @Sendable (URL) async -> GitSnapshot?
+    private let snapshotProvider: @Sendable (URL, [URL]) async -> GitSnapshot?
     private let stashesProvider: @Sendable (URL) async -> [GitStash]
     private let operationStateProvider: @Sendable (URL) async -> GitOperationState?
     private let worktreesProvider: @Sendable (URL) async -> [GitWorktree]?
     private let repositoryRootsProvider: @Sendable (URL) async -> [URL]
     private var requestedRepositoryRoot: URL?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
-    private var workspaceURLProvider: (@MainActor () -> URL?)?
+    var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
     var notify: (@MainActor (String) -> Void)?
     private var onStateRefreshed: (@MainActor () async -> Void)?
@@ -356,7 +356,11 @@ package final class GitFeatureModel: ObservableObject {
         self.executionJournal = executionJournal
         commitFilesLoader = GitCommitFilesLoader(service: service)
         self.shelveService = shelveService
-        self.snapshotProvider = snapshotProvider ?? { await service.snapshot(for: $0) }
+        if let snapshotProvider {
+            self.snapshotProvider = { root, _ in await snapshotProvider(root) }
+        } else {
+            self.snapshotProvider = { root, roots in await service.snapshot(for: root, repositoryRoots: roots) }
+        }
         self.stashesProvider = stashesProvider ?? { await service.stashes(at: $0) }
         self.operationStateProvider = operationStateProvider ?? { await service.operationState(at: $0) }
         self.worktreesProvider = worktreesProvider ?? { await service.worktrees(at: $0) }
@@ -710,13 +714,13 @@ package final class GitFeatureModel: ObservableObject {
         repositoryRoots: [URL]
     ) async -> GitSnapshot? {
         if repositoryRoots.isEmpty {
-            return await snapshotProvider(workspaceURL)
+            return await snapshotProvider(workspaceURL, [])
         }
 
         var snapshots: [GitSnapshot] = []
         for repositoryRoot in repositoryRoots {
             guard !Task.isCancelled else { return nil }
-            if let snapshot = await snapshotProvider(repositoryRoot) {
+            if let snapshot = await snapshotProvider(repositoryRoot, repositoryRoots) {
                 snapshots.append(snapshot)
             }
         }
@@ -732,18 +736,7 @@ package final class GitFeatureModel: ObservableObject {
         return GitSnapshot(
             repositoryRoot: firstSnapshot.repositoryRoot,
             branch: firstSnapshot.branch,
-            changes: snapshots.flatMap(\.changes).filter { change in
-                // Git reports an independent embedded repository as an untracked
-                // directory in its parent. Do not let a parent-level Stage All
-                // silently turn that directory into a gitlink.
-                guard change.isUntracked else { return true }
-                let path = change.url.standardizedFileURL.path
-                return !repositoryRoots.contains { root in
-                    let nested = root.standardizedFileURL.path
-                    return nested.hasPrefix(change.repositoryRoot.standardizedFileURL.path + "/")
-                        && (path == nested || path.hasPrefix(nested + "/"))
-                }
-            }
+            changes: snapshots.flatMap(\.changes)
         )
     }
 

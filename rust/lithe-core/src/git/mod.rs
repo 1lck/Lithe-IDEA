@@ -3,6 +3,7 @@
 // The initial projection/routing IR is deliberately not command- or host-facing
 // until both native products can consume the same versioned contract.
 mod commit_state;
+pub(crate) mod workspace_commit;
 pub use commit_state::{inspect as commit_state, GitCommitGitlink, GitCommitState};
 
 pub(crate) mod configuration;
@@ -100,6 +101,9 @@ pub struct GitStatusRequest {
     /// Omission preserves the Windows final-worktree projection.
     #[serde(default)]
     pub include_index_only_changes: bool,
+    /// Discovered native root bindings used to exclude independently owned untracked paths.
+    #[serde(default)]
+    pub repository_roots: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -425,7 +429,7 @@ pub struct GitPushTagExpectationRequest {
     pub object_id: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Typed mutation request translated into a controlled Git invocation.
 pub struct GitWriteRequest {
@@ -6565,7 +6569,18 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
                 .with_details(String::from_utf8_lossy(&status_output.stderr)),
         );
     }
-    let changes = parse_status(&status_output.stdout, request.include_index_only_changes);
+    let mut changes = parse_status(&status_output.stdout, request.include_index_only_changes);
+    // An embedded independent repository must not become a gitlink through a
+    // parent Stage All. Gitlinks already tracked by the parent remain visible.
+    changes.retain(|change| {
+        !change.untracked
+            || !request.repository_roots.iter().any(|other| {
+                let other = Path::new(other);
+                other != repository_root
+                    && other.starts_with(&repository_root)
+                    && repository_root.join(&change.path).starts_with(other)
+            })
+    });
     let (ahead, behind) = tracking_counts(&repository_root);
     Ok(GitStatusResponse {
         repository_root: Some(relative_or_absolute(&repository_root, &root)),
@@ -6722,7 +6737,14 @@ fn parse_status(output: &[u8], include_index_only_changes: bool) -> Vec<GitChang
         if !include_index_only_changes && x == 'A' && y == 'D' {
             continue;
         }
+        let can_toggle_staging = (x != ' ' && x != '?')
+            || submodule.as_ref().is_none_or(|s| s.commit_changed)
+            || x == 'U'
+            || y == 'U'
+            || y == 'D'
+            || (x == 'A' && y == 'A');
         changes.push(GitChange {
+            can_toggle_staging,
             path,
             original_path,
             status,

@@ -2110,10 +2110,49 @@ preserves the Windows final-worktree projection. Child dirt
 alone is informational in the parent; only a changed commit pointer (or an
 already-staged change) is eligible for the parent's staging checkbox.
 
-The macOS workflow discovers relationships across all workspace repositories,
-expands selected roots through parent gitlinks, and confirms the displayed plan.
-Confirmation re-reads state and requires another confirmation on any change.
-Each write has its own operation ID: cancellation of one write blocks dependent
-parents and continues independent roots. Session results distinguish completed
-commits from remaining pushes. Windows has not yet adopted this orchestration.
-See `shared/fixtures/git/workspace-commit-v1.json` for additive payload examples.
+`git.status` accepts optional `repositoryRoots` (native bindings of discovered
+repositories). Untracked paths owned by a nested root are excluded from the
+parent list. Each change returns `canToggleStaging`; platforms render that
+eligibility instead of reinterpreting submodule dirt.
+
+`git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
+`repositories: [{ id, root }]`, `message`, `amend`, `push`,
+`includeParentReferences`, optional `previous` session for retry, and optional
+`reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
+separators (`..` is allowed for enclosing repositories); `root` is the native
+execution binding, never a portable identity. The response is
+`{ session, reviewChanged, requiresConfirmation }`. Core reads all repositories,
+finds real gitlink relationships, includes clean parents when requested, orders
+children first, and adds push-only child work where needed. Cycles fail closed.
+A changed reviewed plan must be displayed and confirmed again before any step.
+
+`git.workspaceCommitStep` accepts `{ session }` and returns the next session,
+executing at most one commit or push. Session fields are `plan`, last observed
+`states`, per-ID `results`, `blocked`, `cursor`, `commandFailed`, `finished`,
+`succeeded`, and `canRetry`. They are Core-owned continuations: clients return
+them unchanged and must not independently choose roots, reorder work, or infer
+completion. `plan` includes bindings, options, `orderedIds`, propagation and
+dependency relations, reviewed states, `committedIds`, and `pendingPushIds`.
+Each result separates `committed`, `pushed`, stable `status`, and Git `detail`.
+Status keys are `pending`, `notIncluded`, `waitingForSubmodule`, `reviewRequired`,
+`committed`, `committedPushPending`, `committedAndPushed`, `commitFailed`,
+`pushFailed`, `headAdvanced`, and `outcomeUnknown`.
+
+Each step uses a fresh host operation ID and the existing Git writer lease,
+process runner, authentication and event stream. Cancellation blocks dependent
+parents while independent roots may continue under subsequent operation IDs.
+A read-only cleanup deadline of five seconds reconciles a commit whose HEAD may
+have advanced before cancellation. This command preserves the reconciled session
+instead of replacing it with a generic late-cancellation envelope. Transport
+errors before a continuation is returned must never be treated as success.
+Retry re-inspects current state, preserves completed commits, and re-pushes
+externally advanced completed branches before updating dependent parents.
+
+Sessions own no background resources and are retained only for the current
+workspace lifetime. Native clients discard old responses after workspace changes,
+show confirmation/progress, and drive steps until `finished`. macOS uses this
+shared workflow; Windows still needs its product UI and staging semantics wired
+to it. The native products must not duplicate planning or retry policy.
+See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
+`shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
+and continuation fixture consumed by Rust and Swift tests.

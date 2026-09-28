@@ -1331,6 +1331,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let worktree: Bool
         let untracked: Bool
         let submodule: GitSubmoduleStatus?
+        let canToggleStaging: Bool?
     }
 
     struct GitStatusPayload: Decodable, Sendable {
@@ -1354,7 +1355,8 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                         originalPath: change.originalPath,
                         indexStatus: status.first ?? " ",
                         workTreeStatus: status.dropFirst().first ?? " ",
-                        submodule: change.submodule
+                        submodule: change.submodule,
+                        canToggleStaging: change.canToggleStaging ?? true
                     )
                 }
             )
@@ -2095,6 +2097,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     }
 
     private struct GitStatusRequest: Encodable {
+        let repositoryRoots: [String]
         let root: String
         let includeIndexOnlyChanges = true
     }
@@ -2838,10 +2841,10 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
-    func gitStatus(at rootURL: URL) -> GitStatusPayload? {
+    func gitStatus(at rootURL: URL, repositoryRoots: [URL] = []) -> GitStatusPayload? {
         execute(
             command: "git.status",
-            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(repositoryRoots: repositoryRoots.map { $0.standardizedFileURL.path }, root: rootURL.standardizedFileURL.path)
         )
     }
 
@@ -2863,7 +2866,7 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
     func gitWorktrees(at rootURL: URL) -> GitWorktreesPayload? {
         execute(
             command: "git.worktrees",
-            payload: GitStatusRequest(root: rootURL.standardizedFileURL.path)
+            payload: GitStatusRequest(repositoryRoots: [], root: rootURL.standardizedFileURL.path)
         )
     }
 

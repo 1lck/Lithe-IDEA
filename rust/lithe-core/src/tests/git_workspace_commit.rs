@@ -103,6 +103,7 @@ fn git_workspace_commit_distinguishes_child_dirt_and_updates_only_the_gitlink() 
         false
     );
     assert_eq!(dirty["data"]["changes"].as_array().unwrap().len(), 1);
+    assert_eq!(dirty["data"]["changes"][0]["canToggleStaging"], false);
     fs::write(repo.0.join("parent.txt"), "must stay unstaged").unwrap();
     let expected = state(&repo.0);
     git(&child, &["add", "hello.ts"]);
@@ -332,4 +333,170 @@ fn git_workspace_commit_rejects_a_removed_submodule_before_updating_its_pointer(
         "{result}"
     );
     assert_eq!(state(&parent.0), expected);
+}
+
+fn prepare_workspace(root: &Path, repositories: &[(&str, &Path)], push: bool) -> Value {
+    let repositories: Vec<_> = repositories
+        .iter()
+        .map(|(id, path)| json!({"id":id,"root":path}))
+        .collect();
+    let response = request(
+        root,
+        "git.workspaceCommitPrepare",
+        json!({"repositories":repositories,"message":"batch","push":push,"includeParentReferences":true}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
+}
+
+fn next_workspace(root: &Path, session: Value) -> Value {
+    let response = request(root, "git.workspaceCommitStep", json!({"session":session}));
+    assert_eq!(response["ok"], true, "{response}");
+    response["data"].clone()
+}
+
+fn staged_file(root: &Path, path: &str, content: &str) {
+    fs::write(root.join(path), content).unwrap();
+    git(root, &["add", path]);
+}
+
+#[test]
+fn git_workspace_workflow_commits_independent_repositories_and_rejects_replayed_steps() {
+    let repo = repository("workspace-workflow-independent");
+    let child = repo.0.join("independent");
+    init(&child);
+    staged_file(&repo.0, "parent.txt", "one");
+    staged_file(&child, "child.txt", "one");
+    let prepared = prepare_workspace(&repo.0, &[(".", &repo.0), ("independent", &child)], false);
+    assert_eq!(prepared["requiresConfirmation"], false);
+    let original = prepared["session"].clone();
+    let first = next_workspace(&repo.0, original.clone());
+    assert_eq!(first["results"]["."]["committed"], true);
+    assert!(state(&child)["head"].is_null());
+    let replay = next_workspace(&repo.0, original);
+    assert_eq!(replay["results"]["."]["status"], "reviewRequired");
+    let finished = next_workspace(&repo.0, first);
+    assert_eq!(finished["succeeded"], true, "{finished}");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert_eq!(git(&child, &["rev-list", "--count", "HEAD"]).trim(), "1");
+}
+
+#[test]
+fn git_workspace_workflow_updates_clean_parent_without_including_unstaged_parent_files() {
+    let repo = repository("workspace-workflow-parent");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&child, "hello.ts", "one");
+    git(&child, &["commit", "-qm", "initial"]);
+    staged_file(&repo.0, "parent.txt", "one");
+    git(&repo.0, &["add", "B"]);
+    git(&repo.0, &["commit", "-qm", "initial"]);
+    staged_file(&child, "hello.ts", "two");
+    fs::write(repo.0.join("parent.txt"), "unstaged").unwrap();
+    let prepared = prepare_workspace(&repo.0, &[(".", &repo.0), ("B", &child)], false);
+    assert_eq!(prepared["session"]["plan"]["orderedIds"], json!(["B", "."]));
+    let child_done = next_workspace(&repo.0, prepared["session"].clone());
+    let finished = next_workspace(&repo.0, child_done);
+    assert_eq!(finished["succeeded"], true, "{finished}");
+    assert_eq!(
+        git(&repo.0, &["rev-parse", "HEAD:B"]),
+        git(&child, &["rev-parse", "HEAD"])
+    );
+    assert_eq!(git(&repo.0, &["show", "HEAD:parent.txt"]), "one");
+}
+
+#[test]
+fn git_workspace_workflow_failed_push_continues_independent_and_retries_without_duplicate_commits()
+{
+    let repo = repository("workspace-workflow-retry");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&repo.0, "a.txt", "one");
+    staged_file(&child, "b.txt", "one");
+    // No remote: the first repository's push fails through Git's real target resolver.
+    let prepared = prepare_workspace(&repo.0, &[(".", &repo.0), ("B", &child)], true);
+    let mut session = prepared["session"].clone();
+    for _ in 0..4 {
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["finished"], true);
+    assert_eq!(session["canRetry"], true);
+    assert_eq!(session["results"]["."]["committed"], true);
+    assert_eq!(session["results"]["B"]["committed"], true);
+    let mut retry = prepared["session"]["plan"].clone();
+    retry["previous"] = session;
+    let response = request(&repo.0, "git.workspaceCommitPrepare", retry);
+    assert_eq!(response["ok"], true, "{response}");
+    let next = next_workspace(&repo.0, response["data"]["session"].clone());
+    assert_eq!(next["cursor"], 1); // One push, never another commit.
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "1");
+}
+
+#[test]
+fn git_workspace_workflow_confirmation_detects_external_staging_without_writing() {
+    let repo = repository("workspace-workflow-confirm");
+    staged_file(&repo.0, "one.txt", "one");
+    let prepared = prepare_workspace(&repo.0, &[(".", &repo.0)], false);
+    staged_file(&repo.0, "two.txt", "two");
+    let mut review = prepared["session"]["plan"].clone();
+    review["reviewed"] = review.clone();
+    let response = request(&repo.0, "git.workspaceCommitPrepare", review);
+    assert_eq!(response["data"]["reviewChanged"], true, "{response}");
+    assert!(state(&repo.0)["head"].is_null());
+}
+
+#[test]
+fn git_workspace_status_excludes_discovered_independent_nested_roots() {
+    let repo = repository("workspace-status-ownership");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&child, "hello.ts", "one");
+    git(&child, &["commit", "-qm", "initial"]);
+    let response = request(
+        &repo.0,
+        "git.status",
+        json!({"repositoryRoots":[repo.0,child]}),
+    );
+    assert_eq!(response["data"]["changes"], json!([]), "{response}");
+    assert_eq!(
+        request(&repo.0, "git.status", json!({}))["data"]["changes"][0]["path"],
+        "B/"
+    );
+}
+
+#[test]
+fn git_workspace_workflow_retains_a_completed_commit_when_cancellation_races_its_return() {
+    use std::sync::{Arc, Mutex};
+    let repo = repository("workspace-workflow-cancel");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&repo.0, "a.txt", "one");
+    staged_file(&child, "b.txt", "one");
+    let prepared = prepare_workspace(&repo.0, &[(".", &repo.0), ("B", &child)], false);
+    let invocation = Arc::new(Mutex::new(None));
+    let observed = invocation.clone();
+    // Cancel synchronously at the native commit's completion event: the ref has
+    // advanced, but the JSON response and cleanup inspection have not returned.
+    let response=crate::execute_json_with_events(&json!({"id":"workspace-cancel-after-commit",
+        "command":"git.workspaceCommitStep","payload":{"session":prepared["session"]},"timeoutMilliseconds":10000}).to_string(),
+        Arc::new(move |event| {
+            let event:Value=serde_json::from_str(event).unwrap();
+            if event["type"]=="started" && event["arguments"].as_array().is_some_and(|args| args.iter().any(|arg| arg=="commit")) {
+                *observed.lock().unwrap()=event["invocationId"].as_u64();
+            }
+            if event["type"]=="finished" && event["invocationId"].as_u64()==*observed.lock().unwrap() {
+                assert!(crate::cancel_operation("workspace-cancel-after-commit"));
+            }
+        }));
+    let response: Value = serde_json::from_str(&response).unwrap();
+    assert!(invocation.lock().unwrap().is_some());
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        response["data"]["results"]["."]["committed"], true,
+        "{response}"
+    );
+    assert!(!crate::cancel_operation("workspace-cancel-after-commit"));
+    let finished = next_workspace(&repo.0, response["data"].clone());
+    assert_eq!(finished["succeeded"], true, "{finished}");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "1");
 }

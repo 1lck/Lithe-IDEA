@@ -534,6 +534,8 @@ pub struct GitChange {
     pub untracked: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub submodule: Option<GitSubmoduleStatus>,
+    /// False for parent gitlinks with only uncommitted child content.
+    pub can_toggle_staging: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
