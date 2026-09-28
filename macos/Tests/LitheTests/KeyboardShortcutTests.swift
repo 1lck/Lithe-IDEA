@@ -36,6 +36,34 @@ struct KeyboardShortcutTests {
     }
 
     @Test
+    func eclipseResolvesJetBrainsInheritanceAndExplicitlyClearedActions() throws {
+        func bindings(_ id: String) throws -> [KeyboardShortcutBinding] {
+            KeyboardShortcutPreset.eclipse.bindings(for: try #require(LitheCommandCatalog.command(id: id)))
+        }
+
+        #expect(try bindings("save") == [.keyPress(key: "s", modifiers: [.control])]) // $default
+        #expect(try bindings("settings") == [.keyPress(key: ",", modifiers: [.command])]) // Mac parent
+        #expect(try bindings("toggle-run") == [.keyPress(key: "4", modifiers: [.command])])
+        #expect(try bindings("debug-resume") == [.keyPress(key: "f8", modifiers: [])]) // Eclipse override
+        for id in ["find-in-file", "replace-in-file", "go-to-implementation", "replace-in-project"] {
+            #expect(try bindings(id).isEmpty, "Eclipse explicitly clears \(id)")
+        }
+        #expect(try bindings("open-project") == [.keyPress(key: "o", modifiers: [.command])]) // Lithe-only
+
+        let feature = KeyboardShortcutFeatureModel(settings: AppSettings(store: KeyboardShortcutTestStore()))
+        feature.selectPreset(.eclipse)
+        #expect(feature.displayText(for: "find-in-file") == nil)
+        #expect(feature.registrations.first { $0.commandID == "find-in-file" }?.bindings == [])
+    }
+
+    @Test
+    func ideaClassicStopUsesControlF2() throws {
+        let stop = try #require(LitheCommandCatalog.command(id: "stop-run"))
+        #expect(KeyboardShortcutPreset.ideaClassic.bindings(for: stop)
+            == [.keyPress(key: "f2", modifiers: [.control])])
+    }
+
+    @Test
     func toggleBreakpointUsesTheIDEADefaultShortcut() throws {
         let command = try #require(LitheCommandCatalog.command(id: "toggle-breakpoint"))
 

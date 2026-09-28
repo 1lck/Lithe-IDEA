@@ -37,9 +37,15 @@ Command、Control 或 Option 之一，功能键、方向键等特殊按键可以
 - 未知命令、非法绑定和重复绑定被忽略；
 - 整个载荷无法解码时回退到全部默认值。
 
-预设只映射 Lithe 已有且与 IntelliJ Community 源码能对应的操作，未映射的
-命令沿用 Lithe 默认绑定。切换预设时先切换预设身份，再发布该预设的覆盖值，
+预设只映射 Lithe 已有且与 IntelliJ Community 源码能对应的操作，真正没有
+对应上游动作的 Lithe 命令才沿用 Lithe 默认绑定。Eclipse 预设先解析
+`$default`、`Mac OS X 10.5+`、`Eclipse (Mac OS X)` 的继承顺序；子层
+没有声明动作时继承父层，声明空动作时清除父层绑定。例如 Eclipse 的
+`Find` 为空，不能回退成 Lithe 的 `⌘F`。切换预设时先切换预设身份，再发布该预设的覆盖值，
 使设置页、菜单和原生监听器同时看到新绑定；录制中的操作在切换前取消。
+IDEA 的 `Stop` 是按上下文停止运行或调试的单一动作；Lithe 目前仍有独立的
+`stop-run` 和 `stop-debug`，因此 `Control-F2` 暂时只绑定 `stop-run`。
+要同时覆盖调试场景，需要先提供能识别当前会话的统一 Stop 命令。
 应用级恢复默认清除所有预设的用户覆盖并返回 macOS，Keymap 页的恢复默认
 只清除当前预设的覆盖。官方映射依据是 IntelliJ Community 的
 [`$default.xml`](https://github.com/JetBrains/intellij-community/blob/master/platform/platform-resources/src/keymaps/%24default.xml)

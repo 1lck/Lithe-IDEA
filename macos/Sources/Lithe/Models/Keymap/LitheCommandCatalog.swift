@@ -25,7 +25,9 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         switch self {
         case .macOS: command.defaultBindings
         case .ideaClassic: Self.ideaClassicBindings[command.id] ?? command.defaultBindings
-        case .eclipse: Self.eclipseBindings[command.id] ?? command.defaultBindings
+        case .eclipse: Self.eclipseBindings[command.id]
+            ?? Self.eclipseParentBindings[command.id]
+            ?? command.defaultBindings
         }
     }
 
@@ -39,7 +41,9 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "save": shortcut("s", [.control]),
         "run": shortcut("f10", [.shift]),
         "debug": shortcut("f9", [.shift]),
-        "stop-run": shortcut("f2"),
+        // ponytail: JetBrains has one context-aware Stop action. Lithe binds Stop Run only
+        // until a shared Stop command can choose the active run or debug session.
+        "stop-run": shortcut("f2", [.control]),
         "toggle-breakpoint": shortcut("f8", [.control]),
         "view-breakpoints": shortcut("f8", [.control, .shift]),
         "search-everywhere": [.doubleTap(.shift)],
@@ -60,19 +64,63 @@ enum KeyboardShortcutPreset: String, CaseIterable, Sendable {
         "toggle-debug": shortcut("5", [.option])
     ]
 
-    // Adapt the matching actions from Eclipse (Mac OS X), which inherits the macOS keymap.
+    // Resolved matching actions from Mac OS X 10.5+, including its $default parent.
+    // Only Lithe-only commands fall back to Lithe defaults.
+    private static let eclipseParentBindings: [String: [KeyboardShortcutBinding]] = [
+        "settings": shortcut(",", [.command]),
+        "save": shortcut("s", [.control]),
+        "run": shortcut("r", [.control]),
+        "debug": shortcut("d", [.control]),
+        "stop-run": shortcut("f2", [.control]),
+        "debug-resume": shortcut("f9"),
+        "debug-step-over": shortcut("f8"),
+        "debug-step-into": shortcut("f7"),
+        "debug-step-out": shortcut("f8", [.shift]),
+        "toggle-breakpoint": shortcut("f8", [.control]),
+        "view-breakpoints": shortcut("f8", [.control, .shift]),
+        "search-everywhere": [.doubleTap(.shift)],
+        "navigate-back": shortcut("[", [.command]),
+        "navigate-forward": shortcut("]", [.command]),
+        "find-in-file": shortcut("f", [.command]),
+        "find-next": [
+            .keyPress(key: "f3", modifiers: []),
+            .keyPress(key: "l", modifiers: [.control])
+        ],
+        "find-previous": [
+            .keyPress(key: "f3", modifiers: [.shift]),
+            .keyPress(key: "l", modifiers: [.control, .shift])
+        ],
+        "replace-in-file": shortcut("r", [.control]),
+        "go-to-line": shortcut("l", [.command]),
+        "go-to-definition": shortcut("b", [.command]),
+        "go-to-implementation": shortcut("b", [.control, .option]),
+        "find-usages": shortcut("f7", [.option]),
+        "search-in-project": shortcut("f", [.command, .shift]),
+        "replace-in-project": shortcut("r", [.command, .shift]),
+        "toggle-terminal": shortcut("f12", [.option]),
+        "toggle-problems": shortcut("6", [.command]),
+        "toggle-run": shortcut("4", [.command]),
+        "toggle-debug": shortcut("5", [.command])
+    ]
+
+    // Eclipse (Mac OS X).xml overrides its parent; an empty action clears the inherited binding.
     private static let eclipseBindings: [String: [KeyboardShortcutBinding]] = [
         "run": shortcut("f11", [.command, .shift]),
         "debug": shortcut("f11", [.command]),
+        "debug-resume": shortcut("f8"),
         "debug-step-over": shortcut("f6"),
         "debug-step-into": shortcut("f5"),
         "debug-step-out": shortcut("f7"),
         "toggle-breakpoint": shortcut("b", [.command, .shift]),
+        "find-in-file": [],
         "find-next": shortcut("k", [.command]),
         "find-previous": shortcut("k", [.command, .shift]),
+        "replace-in-file": [],
         "find-usages": shortcut("g", [.command, .shift]),
         "go-to-definition": shortcut("f3"),
-        "search-in-project": shortcut("h", [.control])
+        "go-to-implementation": [],
+        "search-in-project": shortcut("h", [.control]),
+        "replace-in-project": []
     ]
 }
 

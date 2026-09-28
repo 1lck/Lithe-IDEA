@@ -1786,7 +1786,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等对应操作在界面和实际监听器中的绑定；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认。Windows 保持现有快捷键编辑、导出和导入验证。",
+      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等对应操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8、继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认。Windows 保持现有快捷键编辑、导出和导入验证。",
       "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
