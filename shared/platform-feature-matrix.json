@@ -235,6 +235,59 @@
       "verification": "macOS：验证本机 Codex/Claude 配置读取、刷新与取消关联；添加自定义 TOML/auth JSON 或 Claude settings JSON，检查格式化、输入直引号不被自动替换、弯引号 TOML 错误在保存按钮上方始终可见、非法配置和缺失密钥、取消不保存、编辑保持 ID、删除确认及安全存储失败不丢失配置。在一个窗口保存并等待连接关闭期间，由另一窗口删除或修改同一供应商，确认旧保存失败且不恢复/覆盖供应商、密钥或 Agent 关联。检查窄宽面板、深浅主题、中英文本。空闲切换后确认请求到所选地址和模型；未发送空会话切换或意外退出后重新创建，不向旧 ID 加载，首条消息与文件只发送一次；已有消息、上游列出或成功加载的会话继续恢复，历史加载失败保留记录；正在响应、加载、权限待处理或配置确认时拒绝切换。提交服务商选择不被添加/启用改变。CLI 文件与 bundle 不被写入。Windows 编辑器及 Claude 真实请求待验证。"
     },
     {
+      "id": "agent-codex-subscription",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Codex 供应商选择官方订阅：复用本机账号、显式浏览器登录与取消、API Key 模式切换及旧配置兼容",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift",
+          "macos/Sources/Lithe/Models/AppModel/AppModel+AgentProviders.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+          "macos/Tests/LitheTests/AgentProviderConfigurationTests.swift",
+          "rust/lithe-agent-host/src/subscription.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "partial",
+        "verificationStatus": "pending",
+        "evidence": [
+          "rust/lithe-agent-host/src/lib.rs",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 仅共享 host 已实现，UI 待接入。"
+    },
+    {
+      "id": "agent-subscription-quota",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Codex 订阅额度：上下文右侧紧凑显示、可见时定时刷新、悬停多窗口与重置时间、未知与过期状态及账号隔离",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentSubscriptionQuotaView.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentSubscriptionQuota.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "rust/lithe-agent-host/src/subscription/tests.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "partial",
+        "verificationStatus": "pending",
+        "evidence": [
+          "rust/lithe-agent-host/src/subscription.rs",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows UI 与真实账号验证待完成。"
+    },
+    {
       "id": "workspace-open-switch",
       "area": "工作区",
       "group": "工作区生命周期",
