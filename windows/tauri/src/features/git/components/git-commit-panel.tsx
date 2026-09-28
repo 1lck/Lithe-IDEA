@@ -31,7 +31,6 @@ import { generateCommitDraft } from "../services/ai-commit-workflow";
 import { showConfirmDialog } from "@/ui/dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { showGitPushDialog } from "../services/git-push-dialog-service";
-import { useGitBlameStore } from "../stores/git-blame.store";
 import {
   useActiveWorkspaceId,
   useWorkspaceReady,
@@ -50,7 +49,6 @@ interface GitCommitPanelProps {
   repoPath?: string;
   ahead?: number;
   behind?: number;
-  onCommitSuccess?: () => void;
   onPull?: () => Promise<unknown> | void;
   isPulling?: boolean;
   isPullLocked?: boolean;
@@ -71,7 +69,6 @@ const GitCommitPanel = ({
   repoPath,
   ahead = 0,
   behind = 0,
-  onCommitSuccess,
   onPull,
   isPulling = false,
   isPullLocked = false,
@@ -100,35 +97,7 @@ const GitCommitPanel = ({
   const workspaceId = useWorkspaceStoreScopeId() ?? activeWorkspaceId;
   const workspaceReady = useWorkspaceReady(workspaceId);
   const isCurrentWorkspace = workspaceReady && workspaceId === activeWorkspaceId;
-  useEffect(() => {
-    if (workspaceId !== activeWorkspaceId || !workspaceReady) workflow.dispose();
-    return () => workflow.dispose();
-  }, [workflow, workspaceId, activeWorkspaceId, workspaceReady]);
-  const submittedOwner = useRef<string | null>(null);
-  const completedRef = useRef<unknown>(null);
-  useEffect(() => {
-    if (
-      workspaceId !== activeWorkspaceId ||
-      !workspaceReady ||
-      !batch.session?.succeeded ||
-      completedRef.current === batch.session
-    )
-      return;
-    completedRef.current = batch.session;
-    useGitBlameStore.getStore(workspaceId).getState().actions.clearAllBlame();
-    if (submittedOwner.current === repoPath && commitMessage.trim() === batch.session.plan.message)
-      onCommitMessageChange("");
-    onCommitSuccess?.();
-  }, [
-    batch.session,
-    commitMessage,
-    onCommitMessageChange,
-    onCommitSuccess,
-    workspaceId,
-    activeWorkspaceId,
-    workspaceReady,
-    repoPath,
-  ]);
+  const setDraftOwner = useWorkspaceCommitStore((state) => state.setDraftOwner);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCommitActionMenuOpen, setIsCommitActionMenuOpen] = useState(false);
   const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
@@ -188,14 +157,20 @@ const GitCommitPanel = ({
   };
 
   const handleCommit = async (pushAfterCommit = false) => {
-    if (!isCurrentWorkspace || isStaging || batch.busy || batch.review || (batch.session && !batch.session.succeeded))
+    if (
+      !isCurrentWorkspace ||
+      isStaging ||
+      batch.busy ||
+      batch.review ||
+      (batch.session && !batch.session.succeeded)
+    )
       return;
     if (selectedFilesCount === 0) {
       setError(t("git.selectFilesToCommit"));
       return;
     }
     if (!repoPath || !commitMessage.trim()) return;
-    submittedOwner.current = repoPath;
+    setDraftOwner(repoPath);
     setError(null);
     await workflow.prepare({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
@@ -209,7 +184,6 @@ const GitCommitPanel = ({
   const handleRetry = () => {
     const previous = batch.session;
     if (!previous || isStaging || !isCurrentWorkspace) return;
-    submittedOwner.current = repoPath ?? null;
     setError(null);
     return workflow.prepare({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
@@ -325,11 +299,18 @@ const GitCommitPanel = ({
         {batch.review && isCurrentWorkspace && (
           <GitWorkspaceCommitReview
             preparation={batch.review.preparation}
-            busy={isCommitting}
+            busy={isCommitting || isStaging}
             error={batch.error}
-            onConfirm={() => void workflow.confirm()}
+            onConfirm={() =>
+              void workflow.confirm(workspaceCommitBindings(workspacePath, repositoryPaths))
+            }
             onClose={workflow.closeReview}
-            onIncludeParents={(include) => void workflow.setIncludeParentReferences(include)}
+            onIncludeParents={(include) =>
+              void workflow.setIncludeParentReferences(
+                include,
+                workspaceCommitBindings(workspacePath, repositoryPaths),
+              )
+            }
           />
         )}
 

@@ -773,9 +773,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 repoPath={activeRepoPath}
                 ahead={gitStatus.ahead}
                 behind={gitStatus.behind}
-                onCommitSuccess={() => {
-                  void refreshAfterAction();
-                }}
                 onPull={handlePull}
                 isPulling={pullWorkflow.isPulling}
                 isPullLocked={pullWorkflow.isPullLocked}

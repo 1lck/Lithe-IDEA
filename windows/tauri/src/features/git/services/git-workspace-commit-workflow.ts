@@ -3,6 +3,7 @@ import type {
   WorkspaceCommitPreparation,
   WorkspaceCommitRequest,
   WorkspaceCommitSession,
+  WorkspaceRepositoryBinding,
 } from "../types/git-workspace-commit.types";
 
 export interface WorkspaceCommitPort {
@@ -87,16 +88,22 @@ export function createWorkspaceCommitWorkflow(port: WorkspaceCommitPort) {
   return {
     ...store,
     prepare: (request: WorkspaceCommitRequest) => prepare(request),
-    confirm: () => {
-      const review = store.getState().review;
-      if (!review) return Promise.resolve();
-      return prepare({ ...review.request, reviewed: review.preparation.session.plan }, true);
-    },
-    setIncludeParentReferences: (includeParentReferences: boolean) => {
+    confirm: (repositories: WorkspaceRepositoryBinding[]) => {
       const review = store.getState().review;
       if (!review) return Promise.resolve();
       return prepare(
-        { ...review.request, includeParentReferences, reviewed: undefined },
+        { ...review.request, repositories, reviewed: review.preparation.session.plan },
+        true,
+      );
+    },
+    setIncludeParentReferences: (
+      includeParentReferences: boolean,
+      repositories: WorkspaceRepositoryBinding[],
+    ) => {
+      const review = store.getState().review;
+      if (!review) return Promise.resolve();
+      return prepare(
+        { ...review.request, repositories, includeParentReferences, reviewed: undefined },
         false,
         true,
       );

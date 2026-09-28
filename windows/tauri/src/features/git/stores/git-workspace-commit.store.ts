@@ -8,7 +8,13 @@ import {
 import { createWorkspaceCommitWorkflow } from "../services/git-workspace-commit-workflow";
 
 export const useWorkspaceCommitStore = createWorkspaceScopedStore("git-workspace-commit", () =>
-  createStore(() => ({
+  createStore<{
+    workflow: ReturnType<typeof createWorkspaceCommitWorkflow>;
+    draftOwner: string | null;
+    setDraftOwner: (owner: string | null) => void;
+  }>((set) => ({
+    draftOwner: null,
+    setDraftOwner: (draftOwner) => set({ draftOwner }),
     workflow: createWorkspaceCommitWorkflow({
       prepare: prepareWorkspaceCommit,
       step: stepWorkspaceCommit,

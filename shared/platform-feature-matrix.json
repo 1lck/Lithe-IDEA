@@ -2396,7 +2396,9 @@
           "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
           "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
           "windows/tauri/src-tauri/src/platform.rs",
-          "shared/fixtures/git/workspace-commit-workflow-v1.json"
+          "shared/fixtures/git/workspace-commit-workflow-v1.json",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.tsx",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.test.tsx"
         ]
       },
       "owner": "Git",
@@ -2433,7 +2435,9 @@
           "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
           "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
           "windows/tauri/src-tauri/src/platform.rs",
-          "shared/fixtures/git/workspace-commit-workflow-v1.json"
+          "shared/fixtures/git/workspace-commit-workflow-v1.json",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.tsx",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.test.tsx"
         ]
       },
       "owner": "Git",
@@ -2470,7 +2474,9 @@
           "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
           "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
           "windows/tauri/src-tauri/src/platform.rs",
-          "shared/fixtures/git/workspace-commit-workflow-v1.json"
+          "shared/fixtures/git/workspace-commit-workflow-v1.json",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.tsx",
+          "windows/tauri/src/features/git/runtime/git-workspace-commit-host.test.tsx"
         ]
       },
       "owner": "Git",

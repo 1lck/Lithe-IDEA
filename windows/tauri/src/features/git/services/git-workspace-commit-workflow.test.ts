@@ -42,7 +42,7 @@ describe("workspace commit native continuation adapter", () => {
     await workflow.prepare(fixture.request);
     expect(workflow.getState().review?.preparation).toEqual(fixture.preparation);
     expect(step).not.toHaveBeenCalled();
-    await workflow.confirm();
+    await workflow.confirm(fixture.request.repositories);
     expect(prepare.mock.calls[1]![0]).toEqual({
       ...fixture.request,
       reviewed: fixture.preparation.session.plan,
@@ -60,19 +60,33 @@ describe("workspace commit native continuation adapter", () => {
     changed.reviewChanged = true;
     changed.session.plan.states["A/B"]!.stagedPaths.push("new.ts");
     prepare.mockResolvedValueOnce(changed);
-    await workflow.confirm();
+    await workflow.confirm(fixture.request.repositories);
     expect(workflow.getState().review?.preparation).toEqual(changed);
     expect(step).not.toHaveBeenCalled();
-    await workflow.confirm();
+    await workflow.confirm(fixture.request.repositories);
     expect(prepare.mock.calls[2]![0].reviewed).toEqual(changed.session.plan);
     expect(step).toHaveBeenCalledTimes(1);
+  });
+
+  test("confirmation includes newly discovered roots and presents Core's replacement plan", async () => {
+    const { workflow, prepare, step } = setup();
+    await workflow.prepare(fixture.request);
+    const repositories = [...fixture.request.repositories, { id: "C", root: "/workspace/C" }];
+    const changed = preparation();
+    changed.session.plan.repositories = repositories;
+    changed.reviewChanged = true;
+    prepare.mockResolvedValueOnce(changed);
+    await workflow.confirm(repositories);
+    expect(prepare.mock.calls[1]![0].repositories).toEqual(repositories);
+    expect(workflow.getState().review?.preparation).toEqual(changed);
+    expect(step).not.toHaveBeenCalled();
   });
 
   test("parent opt-out regenerates a review and retry forwards the prior session", async () => {
     const { workflow, prepare, step } = setup();
     const previous = { ...preparation().session, finished: true, canRetry: true };
     await workflow.prepare({ ...fixture.request, previous });
-    await workflow.setIncludeParentReferences(false);
+    await workflow.setIncludeParentReferences(false, fixture.request.repositories);
     expect(prepare.mock.calls[1]![0]).toEqual({
       ...fixture.request,
       previous,
@@ -94,7 +108,7 @@ describe("workspace commit native continuation adapter", () => {
       detail: "",
     };
     step.mockResolvedValueOnce(progress).mockRejectedValueOnce(new Error("bridge unavailable"));
-    await workflow.confirm();
+    await workflow.confirm(fixture.request.repositories);
     expect(step.mock.calls[1]![0]).toEqual(progress);
     expect(workflow.getState().session).toEqual(progress);
     expect(workflow.getState().error).toBe("bridge unavailable");
@@ -105,7 +119,7 @@ describe("workspace commit native continuation adapter", () => {
     const { workflow, step } = setup();
     await workflow.prepare(fixture.request);
     step.mockRejectedValueOnce(new Error("connection lost"));
-    await workflow.confirm();
+    await workflow.confirm(fixture.request.repositories);
     expect(workflow.getState().session).toEqual(fixture.preparation.session);
     workflow.dismiss();
     expect(workflow.getState().session).toBeNull();
@@ -120,7 +134,7 @@ describe("workspace commit native continuation adapter", () => {
       return release.promise;
     });
     await workflow.prepare(fixture.request);
-    const running = workflow.confirm();
+    const running = workflow.confirm(fixture.request.repositories);
     const progress = preparation().session;
     progress.results["A/B"] = {
       committed: true,
@@ -150,7 +164,7 @@ describe("workspace commit native continuation adapter", () => {
       return release.promise;
     });
     await workflow.prepare(fixture.request);
-    const running = workflow.confirm();
+    const running = workflow.confirm(fixture.request.repositories);
     try {
       await entered.promise;
       workflow.cancel();
