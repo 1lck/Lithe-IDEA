@@ -5,12 +5,12 @@ private enum SettingsSelectMetrics {
     static let controlHeight: CGFloat = 28
     static let controlCornerRadius: CGFloat = 4
     static let fontSize: CGFloat = 12.5
-    static let checkmarkWidth: CGFloat = 14
-    static let itemSpacing: CGFloat = 8
+    static let popupCornerRadius: CGFloat = 8
+    static let itemHeight: CGFloat = 24
     static let itemHorizontalPadding: CGFloat = 8
-    static let popupPadding: CGFloat = 5
+    static let popupPadding: CGFloat = 6
     static let screenMargin: CGFloat = 24
-    static let maximumPopupHeight: CGFloat = 360
+    static let maximumPopupHeight: CGFloat = 10 * itemHeight + 2 * popupPadding
 }
 
 private struct LitheSettingsControlChrome: ViewModifier {
@@ -170,7 +170,6 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         let content = LitheSettingsSelectPopupContent(
             state: state,
             options: options,
-            selected: selection,
             width: popupWidth,
             title: title,
             expandsToFitOptions: expandsToFitOptions,
@@ -205,10 +204,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
         }
-        // Include the checkmark, both HStack gaps, trailing spacer, and both layers of padding.
-        let chromeWidth = SettingsSelectMetrics.checkmarkWidth
-            + 3 * SettingsSelectMetrics.itemSpacing
-            + 2 * SettingsSelectMetrics.itemHorizontalPadding
+        let chromeWidth = 2 * SettingsSelectMetrics.itemHorizontalPadding
             + 2 * SettingsSelectMetrics.popupPadding
         let contentWidth = max(width, ceil(titleWidth) + chromeWidth)
         // Derive the width from current titles when discovery refreshes an open list.
@@ -271,7 +267,6 @@ private final class LitheSettingsSelectPopupState: ObservableObject {
 private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     @ObservedObject var state: LitheSettingsSelectPopupState
     let options: [Value]
-    let selected: Value
     let width: CGFloat
     let title: (Value) -> String
     let expandsToFitOptions: Bool
@@ -292,39 +287,38 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
         .litheSettingsControlChrome(
             background: LitheTheme.settingsPopupBackground,
             border: LitheTheme.settingsPopupBorder,
-            cornerRadius: SettingsSelectMetrics.controlCornerRadius
+            cornerRadius: SettingsSelectMetrics.popupCornerRadius
         )
-        .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.controlCornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.popupCornerRadius))
     }
 
     var rows: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 0) {
             ForEach(Array(options.enumerated()), id: \.offset) { index, option in
                 Button {
                     state.onChoose(index)
                 } label: {
-                    HStack(spacing: SettingsSelectMetrics.itemSpacing) {
-                        Image(systemName: "checkmark")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(LitheTheme.settingsControlAccent)
-                            .frame(width: SettingsSelectMetrics.checkmarkWidth)
-                            .opacity(selected == option ? 1 : 0)
-
+                    HStack {
                         Text(LocalizedStringKey(title(option)))
                             .font(.system(size: SettingsSelectMetrics.fontSize))
-                            .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
+                            .foregroundStyle(
+                                isAvailable(option)
+                                    ? (state.highlightedIndex == index ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+                                    : LitheTheme.tertiaryText
+                            )
                             .lineLimit(expandsToFitOptions ? nil : 1)
                             .fixedSize(horizontal: false, vertical: true)
                             .multilineTextAlignment(.leading)
 
-                        Spacer(minLength: SettingsSelectMetrics.itemSpacing)
+                        Spacer(minLength: 0)
                     }
                     .padding(.horizontal, SettingsSelectMetrics.itemHorizontalPadding)
                     .padding(.vertical, expandsToFitOptions ? 4 : 0)
-                    .frame(maxWidth: .infinity, minHeight: SettingsSelectMetrics.controlHeight, alignment: .leading)
+                    .frame(maxWidth: .infinity, minHeight: SettingsSelectMetrics.itemHeight, alignment: .leading)
                     .litheRowHover(
                         isActive: state.highlightedIndex == index,
-                        activeBackground: LitheTheme.subtleSelection.opacity(isAvailable(option) ? 1 : 0.35)
+                        cornerRadius: SettingsSelectMetrics.controlCornerRadius,
+                        activeBackground: LitheTheme.settingsSelection.opacity(isAvailable(option) ? 1 : 0.35)
                     )
                     .contentShape(Rectangle())
                 }
