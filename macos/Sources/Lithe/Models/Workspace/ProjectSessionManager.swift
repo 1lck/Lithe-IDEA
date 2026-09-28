@@ -32,6 +32,7 @@ final class ProjectSessionManager: ObservableObject {
     @Published private(set) var activeSessionIDs: [ProjectWindowScope: UUID] = [:]
     /// Window that currently owns menu-bar commands and focus-driven actions.
     @Published private(set) var focusedScope: ProjectWindowScope = .primary
+    @Published private(set) var settingsModel: AppModel?
     @Published var pendingProjectOpen: PendingProjectOpen?
 
     private let settings: AppSettings
@@ -117,6 +118,15 @@ final class ProjectSessionManager: ObservableObject {
 
     func session(for id: UUID) -> AppModel? {
         sessions.first(where: { $0.id == id })
+    }
+
+    func bindSettings(to sessionID: UUID) {
+        settingsModel = session(for: sessionID)
+    }
+
+    func releaseSettings(for sessionID: UUID) {
+        guard settingsModel?.id == sessionID else { return }
+        settingsModel = nil
     }
 
     func sessions(in scope: ProjectWindowScope) -> [AppModel] {

@@ -32,6 +32,13 @@ struct PluginManagementView: View {
         filteredPlugins.first { $0.id == selectedPluginID } ?? filteredPlugins.first
     }
 
+    private var availablePHPManifest: PluginManifest? {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard let manifest = PluginManagementListContent(plugins: model.pluginSnapshots).availablePHPManifest,
+              query.isEmpty || manifest.displayName.lowercased().contains(query) else { return nil }
+        return manifest
+    }
+
     private var enabledPluginCount: Int {
         installedPlugins.filter { effectiveEnabledState(for: $0) }.count
     }
@@ -100,6 +107,9 @@ struct PluginManagementView: View {
                     ForEach(filteredPlugins) { plugin in
                         pluginRow(plugin)
                     }
+                    if let manifest = availablePHPManifest {
+                        availablePluginRow(manifest)
+                    }
                 }
             }
         }
@@ -150,6 +160,27 @@ struct PluginManagementView: View {
         .accessibilityAddTraits(.isButton)
     }
 
+    private func availablePluginRow(_ manifest: PluginManifest) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: phpPresentation.systemImage)
+                .font(.system(size: 22))
+                .foregroundStyle(phpPresentation.tint)
+                .frame(width: 42, height: 42)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(LocalizedStringKey(manifest.displayName))
+                    .font(.system(size: 13, weight: .semibold))
+                Text(LocalizedStringKey("Not installed"))
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(LitheTheme.settingsSelection)
+    }
+
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
             let presentation = phpPresentation
@@ -175,11 +206,6 @@ struct PluginManagementView: View {
                     .buttonStyle(.borderedProminent)
                     .tint(LitheTheme.accent)
                     .disabled(isApplyingChanges || plugin.isRequired)
-                    if plugin.origin == .marketplace {
-                        Button(LocalizedStringKey("Uninstall"), role: .destructive) { model.uninstallPlugin(plugin.id) }
-                            .buttonStyle(.bordered)
-                            .disabled(isApplyingChanges)
-                    }
                 }.padding(24)
                 Text(LocalizedStringKey("Overview")).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 24)
                 VStack(alignment: .leading, spacing: 12) {
@@ -197,6 +223,21 @@ struct PluginManagementView: View {
                 Spacer()
             }
             .background(LitheTheme.settingsSurface)
+        } else if let manifest = availablePHPManifest {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(LocalizedStringKey(manifest.displayName))
+                    .font(.system(size: 22, weight: .bold))
+                Text(LocalizedStringKey("Install PHP Support from a signed plugin package."))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                Button(LocalizedStringKey("Install Plugin from Disk…")) {
+                    model.installPHPPluginPackage()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isApplyingChanges)
+                Spacer()
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
@@ -265,6 +306,11 @@ struct PluginManagementView: View {
 
 struct PluginManagementListContent {
     let plugins: [PluginManagementSnapshot]
+
+    var availablePHPManifest: PluginManifest? {
+        guard plugins.isEmpty else { return nil }
+        return OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
+    }
 
     init(plugins: [PluginManagementSnapshot]) {
         self.plugins = plugins.filter { $0.id == OfficialPluginCatalog.phpPluginID }

@@ -238,6 +238,50 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem() throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode,
+                        javaMavenOperations: NoProjectJavaOperations()
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-settings-primary"))
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-settings-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        manager.bindSettings(to: primaryID)
+        manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
+        #expect(manager.activeSessionID == dedicatedID)
+        #expect(manager.settingsModel?.id == primaryID)
+
+        manager.bindSettings(to: dedicatedID)
+        manager.releaseSettings(for: primaryID)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        manager.releaseSettings(for: dedicatedID)
+        #expect(manager.settingsModel == nil)
+    }
+
+    @Test
+    @MainActor
     func openingAProjectInANewWindowCreatesADedicatedSession() throws {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)

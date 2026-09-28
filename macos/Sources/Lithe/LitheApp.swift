@@ -671,10 +671,7 @@ struct LitheApp: App {
         .windowStyle(.hiddenTitleBar)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
-            SettingsWindow(
-                model: model,
-                settings: settings
-            )
+            SettingsWindowHost(projectSessions: projectSessions, settings: settings)
             .tint(LitheTheme.accent)
             .environmentObject(settings)
             .environmentObject(updateChecker)
@@ -733,15 +730,31 @@ private struct ProjectWindowMissingSessionView: View {
     }
 }
 
+private struct SettingsWindowHost: View {
+    @ObservedObject var projectSessions: ProjectSessionManager
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        if let model = projectSessions.settingsModel {
+            SettingsWindow(model: model, settings: settings) {
+                projectSessions.releaseSettings(for: model.id)
+            }
+            .id(model.id)
+        }
+    }
+}
+
 private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
+    let onDisappear: () -> Void
 
-    init(model: AppModel, settings: AppSettings) {
+    init(model: AppModel, settings: AppSettings, onDisappear: @escaping () -> Void) {
         self.model = model
         self.settings = settings
+        self.onDisappear = onDisappear
         _viewState = StateObject(wrappedValue: SettingsViewState(
             initialCategory: model.requestedSettingsCategory
         ))
@@ -770,6 +783,7 @@ private struct SettingsWindow: View {
         .onDisappear {
             viewState.pendingPluginEnabledStates.removeAll()
             model.isSettingsPresented = false
+            onDisappear()
         }
     }
 

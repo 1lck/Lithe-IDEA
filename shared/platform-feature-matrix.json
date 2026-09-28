@@ -1861,6 +1861,8 @@
           "macos/Sources/Lithe/Views/App/RootView.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
           "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
+          "macos/Sources/Lithe/Models/Workspace/ProjectSessionManager.swift",
+          "macos/Sources/Lithe/Models/AppModel/AppModel+PluginManagement.swift",
           "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
           "macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift",
           "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
@@ -1918,6 +1920,8 @@
         "evidence": [
           "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
           "macos/Sources/Lithe/Views/App/SettingsView.swift",
+          "macos/Sources/Lithe/Models/AppModel/AppModel+PluginManagement.swift",
+          "macos/Tests/LitheTests/PluginManagementPresentationTests.swift",
           "macos/Sources/Lithe/Platform/MacOS/Plugins"
         ],
         "implementationStatus": "implemented",
@@ -1932,7 +1936,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Extensions",
-      "verification": "macOS 从右侧插件按钮打开设置窗口的插件页，同时打开 Maven 面板，确认插件内容不再被遮挡；插件列表仅显示 PHP Support，搜索并启用、禁用该插件，确认状态与重启恢复；确认页面不提供无法管理非 PHP 插件的磁盘安装入口，其他语言能力仍可由原模块提供。Windows 检查扩展管理入口和持久化。"
+      "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。"
     },
     {
       "id": "onboarding-welcome",

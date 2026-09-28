@@ -11,6 +11,9 @@
 "Installed" = "Installed";
 "Installed (%lld of %lld enabled)" = "Installed (%lld of %lld enabled)";
 "Install Plugin from Disk…" = "Install Plugin from Disk…";
+"Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
+"Install PHP Support Plugin" = "Install PHP Support Plugin";
+"Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
 "Plugin settings" = "Plugin settings";
 "Appearance & Behavior" = "Appearance & Behavior";

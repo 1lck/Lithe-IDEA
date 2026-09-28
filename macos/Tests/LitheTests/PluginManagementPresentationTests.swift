@@ -24,6 +24,14 @@ struct PluginManagementPresentationTests {
         #expect(content.plugins.map(\.id) == [phpManifest.id])
     }
 
+    @Test
+    func cleanInstallShowsPHPInstallEntry() {
+        let content = PluginManagementListContent(plugins: [])
+
+        #expect(content.plugins.isEmpty)
+        #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
+    }
+
     @MainActor
     @Test
     func settingsOKKeepsFailedPluginChangesForRetry() async {
