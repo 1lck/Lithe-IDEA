@@ -32,7 +32,7 @@ enum WorkbenchModuleUIComposition {
         renderers: [
             .init(
                 id: "agent.conversation",
-                ideaAssetPath: nil,
+                ideaAssetPath: "toolwindows/toolWindowAgent.svg",
                 isVisible: { $0.workspaceURL != nil },
                 isSelected: { $0.workbenchFeature.isVisible(.agent) },
                 // The panel renders its full layout even before the optional
