@@ -39,6 +39,7 @@ use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
+use crate::workbench::process_memory::{ProcessMemoryUsage, Procfs, JDTLS_PROCESS_SIGNATURE};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
@@ -50,6 +51,16 @@ use crate::workbench::toolbar::{ToolbarEvent, ToolbarView};
 use crate::workbench::welcome_screen::{WelcomeEvent, WelcomeScreenView};
 
 const MAX_LSP_OPERATION_RESULTS: usize = 256;
+
+/// 采样一次应用与受管语言服务的内存。应用本体读不到时返回 `None`，由调用方
+/// 保留上一次成功值；语言服务读不到时计 0，不阻断应用数值展示。
+fn sample_memory(procfs: &Procfs) -> Option<ProcessMemoryUsage> {
+    let lithe_bytes = procfs.current_process_resident_bytes()?;
+    Some(ProcessMemoryUsage {
+        lithe_bytes,
+        language_server_bytes: procfs.managed_language_server_bytes(JDTLS_PROCESS_SIGNATURE),
+    })
+}
 
 /// 右侧工具窗口当前视图，对齐 Tauri `activeRightSidebarView`
 ///（`notifications` / `maven` / 扩展）。`None` 即隐藏，不持久化，重启丢失。
@@ -455,11 +466,18 @@ impl WorkbenchView {
                     this.show_run_setup_dialog = true;
                     cx.notify();
                 }
-                // Run 面板请求打开设置并定位分类（语言服务/日志入口）。
-                BottomPanelEvent::OpenSettings { category } => {
+                // Run 面板请求打开设置并定位分类；带 configuration_id 时直接
+                // 进入该运行配置的编辑器（对齐 Tauri `editInSettings`）。
+                BottomPanelEvent::OpenSettings {
+                    category,
+                    configuration_id,
+                } => {
                     this.show_settings_dialog = true;
                     let _ = this.settings_dialog.update(cx, |d, cx| {
                         d.set_category(SettingsCategory::from_id(category), cx);
+                        if let Some(id) = configuration_id {
+                            d.open_run_configuration(&id, cx);
+                        }
                     });
                     cx.notify();
                 }
@@ -1123,7 +1141,30 @@ impl WorkbenchView {
             cx.notify();
         });
 
+        view.spawn_memory_poll(cx);
+
         view
+    }
+
+    /// 内存采样轮询：与 Tauri `ApplicationMemoryPoller` 同样每 10 秒采样一次，
+    /// 首帧立即取一次。读取 `/proc` 放到后台 executor，避免阻塞 UI 线程；
+    /// 采样失败时保留上一次成功值，绝不让异常中断轮询或影响工作台。
+    fn spawn_memory_poll(&self, cx: &mut Context<Self>) {
+        const MEMORY_POLL_INTERVAL: Duration = Duration::from_secs(10);
+        let status_bar = self.status_bar.clone();
+        let procfs = Procfs::system();
+        cx.spawn(async move |_this, cx| loop {
+            let procfs = procfs.clone();
+            let usage = cx
+                .background_executor()
+                .spawn(async move { sample_memory(&procfs) })
+                .await;
+            if let Some(usage) = usage {
+                let _ = status_bar.update(cx, |sb, cx| sb.set_memory(usage, cx));
+            }
+            cx.background_executor().timer(MEMORY_POLL_INTERVAL).await;
+        })
+        .detach();
     }
 
     /// 切换侧边栏展开状态；展开时回到活动栏当前视图。

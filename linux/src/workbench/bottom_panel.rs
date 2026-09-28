@@ -196,8 +196,11 @@ pub enum BottomPanelEvent {
     RunSetupRequired,
     /// Run 面板请求打开设置对话框并定位分类（对齐 Tauri
     /// `openSettingsDialog(category)`；`category` 为 `SettingsCategory::id`）。
+    /// `configuration_id` 用于运行配置行齿轮：打开设置→运行配置并直接进入
+    /// 该配置的编辑器（对齐 Tauri `editInSettings`）。
     OpenSettings {
         category: &'static str,
+        configuration_id: Option<String>,
     },
     /// Java 构建失败且策略为 `ask`：宿主展示构建失败决策对话框
     /// （对齐 Tauri `JavaLaunchDecisionBanner`）。
@@ -2451,7 +2454,10 @@ impl BottomPanelView {
                             .ghost()
                             .label(crate::i18n::menu_text(cx, "preparation.settings"))
                             .on_click(cx.listener(|this, _event, _window, cx| {
-                                cx.emit(BottomPanelEvent::OpenSettings { category: "lsp" });
+                                cx.emit(BottomPanelEvent::OpenSettings {
+                                    category: "lsp",
+                                    configuration_id: None,
+                                });
                                 this.java_prep_expanded = false;
                                 cx.notify();
                             })),
@@ -2462,7 +2468,10 @@ impl BottomPanelView {
                             .ghost()
                             .label(crate::i18n::menu_text(cx, "preparation.logs"))
                             .on_click(cx.listener(|this, _event, _window, cx| {
-                                cx.emit(BottomPanelEvent::OpenSettings { category: "logs" });
+                                cx.emit(BottomPanelEvent::OpenSettings {
+                                    category: "logs",
+                                    configuration_id: None,
+                                });
                                 this.java_prep_expanded = false;
                                 cx.notify();
                             })),
@@ -2808,6 +2817,7 @@ impl BottomPanelView {
             .map(|(index, item)| {
                 let id = item.id.clone();
                 let run_id = item.id.clone();
+                let run_edit_id = item.id.clone();
                 let selected = self.selected_run_config.as_deref() == Some(item.id.as_str());
                 // 每行独立 hover group，避免兄弟行共享 group 名互相影响。
                 let group_name = format!("run-row-{section_id}-{index}");
@@ -2850,7 +2860,11 @@ impl BottomPanelView {
                                     .icon(IconName::Cog)
                                     .tooltip(crate::i18n::menu_text(cx, "run.editService"))
                                     .on_click(cx.listener(move |this, _event, _window, cx| {
-                                        cx.emit(BottomPanelEvent::OpenSettings { category: "run" });
+                                        let target = Some(run_edit_id.clone());
+                                        cx.emit(BottomPanelEvent::OpenSettings {
+                                            category: "run",
+                                            configuration_id: target,
+                                        });
                                         this.java_prep_expanded = false;
                                         cx.notify();
                                     })),

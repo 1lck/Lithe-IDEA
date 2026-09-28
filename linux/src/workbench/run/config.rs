@@ -181,6 +181,270 @@ impl RunConfigItem {
     }
 }
 
+/// 运行配置编辑器的可编辑选项（对齐 Tauri `RunOptions`）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RunOptionsDraft {
+    pub java_home_path: String,
+    pub maven_executable_path: String,
+    pub maven_java_home_path: String,
+    /// `None` 继承项目默认；`Some(false)` 与"运行测试"必须可区分。
+    pub maven_skip_tests: Option<bool>,
+    pub working_directory_path: String,
+    pub vm_arguments: String,
+    pub program_arguments: String,
+    pub environment: BTreeMap<String, String>,
+}
+
+impl RunConfigItem {
+    /// resolve 结果 → 编辑器草稿（对齐 Tauri `optionsFromConfiguration`）：
+    /// JVM/程序实参优先取 maven 扩展，缺失时回退通用 `args`。
+    pub fn options(&self) -> RunOptionsDraft {
+        let maven = self.extensions.get("maven");
+        let join_array = |value: Option<&Value>| -> Option<String> {
+            value.and_then(Value::as_array).map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+        };
+        let program_arguments = match maven.and_then(|value| value.get("programArguments")) {
+            Some(Value::Array(_)) => {
+                join_array(maven.and_then(|value| value.get("programArguments")))
+                    .unwrap_or_default()
+            }
+            _ => self.args.join(" "),
+        };
+        RunOptionsDraft {
+            java_home_path: self.java_home_path().unwrap_or_default().to_string(),
+            maven_executable_path: self.maven_executable_path().unwrap_or_default().to_string(),
+            maven_java_home_path: self.maven_java_home_path().unwrap_or_default().to_string(),
+            maven_skip_tests: maven
+                .and_then(|value| value.get("skipTests"))
+                .and_then(Value::as_bool),
+            working_directory_path: if self.cwd == "." {
+                String::new()
+            } else {
+                self.cwd.clone()
+            },
+            vm_arguments: join_array(maven.and_then(|value| value.get("jvmArguments")))
+                .unwrap_or_default(),
+            program_arguments,
+            environment: self.env.clone(),
+        }
+    }
+
+    /// 展示类型标题（对齐 Tauri `FRAMEWORK_TITLES` + 命名空间首字母大写）。
+    pub fn kind_title(&self) -> String {
+        match self.provider.as_str() {
+            "spring-boot.maven" => return "Spring Boot".to_string(),
+            "quarkus.maven" => return "Quarkus".to_string(),
+            "micronaut.maven" => return "Micronaut".to_string(),
+            "java.main" => return "Java Application".to_string(),
+            "java.current-file" => return "Current File".to_string(),
+            "maven.module" => return "Maven Module".to_string(),
+            _ => {}
+        }
+        let namespace = self.provider.split('.').next().unwrap_or(&self.provider);
+        let mut title = namespace.to_string();
+        if let Some(first) = title.get_mut(..1) {
+            first.make_ascii_uppercase();
+        }
+        title
+    }
+
+    /// 配置来源标签：`project`/`local` 原样，其余（含缺失）视为 `generated`。
+    pub fn source_label(&self) -> &'static str {
+        match self.source.as_deref() {
+            Some("project") => "project",
+            Some("local") => "local",
+            _ => "generated",
+        }
+    }
+
+    /// 是否依赖 Maven 工具链（对齐 Tauri `configurationUsesMaven`）。
+    pub fn uses_maven_toolchain(&self) -> bool {
+        self.toolchains.contains_key("maven")
+    }
+
+    /// 是否依赖 Java 工具链（对齐 Tauri `configurationUsesJava`）。
+    pub fn uses_java_toolchain(&self) -> bool {
+        self.toolchains.contains_key("java") || self.uses_maven_toolchain()
+    }
+
+    /// 是否依赖 Node 工具链（对齐 Tauri `configurationUsesNode`）。
+    pub fn uses_node_toolchain(&self) -> bool {
+        self.toolchains.get("runtime").map(String::as_str) == Some("project-node")
+    }
+}
+
+/// 编辑器草稿 → 应用项目默认后的覆盖值：与项目默认相同的工具链路径清空，
+/// 展示为"继承项目默认"（对齐 Tauri `configurationOverrides`）。
+pub fn run_options_overrides(
+    options: &RunOptionsDraft,
+    defaults: &ToolchainPaths,
+) -> RunOptionsDraft {
+    let mut draft = options.clone();
+    if draft.java_home_path == defaults.java_home_path {
+        draft.java_home_path.clear();
+    }
+    if draft.maven_executable_path == defaults.maven_executable_path {
+        draft.maven_executable_path.clear();
+    }
+    if draft.maven_java_home_path == defaults.maven_java_home_path {
+        draft.maven_java_home_path.clear();
+    }
+    draft
+}
+
+/// `KEY=VALUE` 多行文本 ↔ 环境变量表（对齐 Tauri `environmentText/FromText`）：
+/// 空行与 `#` 注释跳过，缺少 `=` 的行忽略。
+pub fn environment_text(environment: &BTreeMap<String, String>) -> String {
+    environment
+        .iter()
+        .map(|(key, value)| format!("{key}={value}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn environment_from_text(text: &str) -> BTreeMap<String, String> {
+    let mut environment = BTreeMap::new();
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if let Some(separator) = trimmed.find('=') {
+            if separator > 0 {
+                environment.insert(
+                    trimmed[..separator].to_string(),
+                    trimmed[separator + 1..].to_string(),
+                );
+            }
+        }
+    }
+    environment
+}
+
+/// `project` 保存范围下的路径归一：工作区内的绝对路径改写为工作区相对
+/// （对齐 Tauri `projectScopedPath`）；其余原样。
+pub fn scope_editor_path(root: &str, scope: &str, path: &str) -> String {
+    if scope != "project" || path.trim().is_empty() {
+        return path.to_string();
+    }
+    Path::new(path)
+        .strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string())
+}
+
+/// 构造 `runConfig.saveEditorChanges` 请求（对齐 Tauri
+/// `saveRunConfigurationEditorChanges`）：`toolchain` 携带项目当前默认值，
+/// Core 用它重写本机工具链文档。
+pub fn save_editor_changes_request(
+    root: &str,
+    configuration_id: &str,
+    scope: &str,
+    options: &RunOptionsDraft,
+    project_defaults: &ToolchainPaths,
+) -> Value {
+    json!({
+        "root": root,
+        "scope": scope,
+        "configurationId": configuration_id,
+        "workingDirectory": scope_editor_path(root, scope, &options.working_directory_path),
+        "jvmArguments": options.vm_arguments,
+        "programArguments": options.program_arguments,
+        "environment": options.environment,
+        "mavenSkipTests": options.maven_skip_tests,
+        "javaHomePath": scope_editor_path(root, scope, &options.java_home_path),
+        "mavenExecutablePath": scope_editor_path(root, scope, &options.maven_executable_path),
+        "mavenJavaHomePath": scope_editor_path(root, scope, &options.maven_java_home_path),
+        "toolchain": {
+            "javaHomePath": project_defaults.java_home_path,
+            "mavenExecutablePath": project_defaults.maven_executable_path,
+            "mavenJavaHomePath": project_defaults.maven_java_home_path,
+            "runtimeExecutablePaths": project_defaults.runtime_executable_paths,
+        }
+    })
+}
+
+/// Core `saveEditorChanges` 返回文档字符串（非空才写），由宿主落盘；
+/// 对齐 Tauri `writeRunDocuments` 的路径约定。
+pub fn write_editor_documents(
+    root: &str,
+    local_document: Option<&str>,
+    project_document: Option<&str>,
+    toolchain_document: Option<&str>,
+) -> Result<(), String> {
+    let mut documents: Vec<(PathBuf, String)> = Vec::new();
+    if let Some(document) = local_document.filter(|value| !value.is_empty()) {
+        documents.push((PathBuf::from("run/local.json"), document.to_string()));
+    }
+    if let Some(document) = project_document.filter(|value| !value.is_empty()) {
+        documents.push((
+            PathBuf::from("run/configurations.json"),
+            document.to_string(),
+        ));
+    }
+    if let Some(document) = toolchain_document.filter(|value| !value.is_empty()) {
+        documents.push((PathBuf::from("toolchains/local.json"), document.to_string()));
+    }
+    if documents.is_empty() {
+        return Ok(());
+    }
+    let root_path = Path::new(root).join(".lithe");
+    let mut snapshots: Vec<(PathBuf, Option<String>, String)> = documents
+        .into_iter()
+        .map(|(relative, contents)| {
+            let path = root_path.join(relative);
+            let previous = if path.is_file() {
+                fs::read_to_string(&path).ok()
+            } else {
+                None
+            };
+            (path, previous, contents)
+        })
+        .collect();
+    let mut completed: Vec<PathBuf> = Vec::new();
+    for index in 0..snapshots.len() {
+        let (path, previous, contents) = {
+            let (path, previous, contents) = &mut snapshots[index];
+            (path.clone(), previous.clone(), contents.clone())
+        };
+        if previous.as_deref() == Some(contents.as_str()) {
+            completed.push(path);
+            continue;
+        }
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        }
+        if let Err(error) = fs::write(&path, contents.as_bytes()) {
+            // 回滚：把本次会话已写的文件恢复为各自的原快照；原先不存在的
+            // 文件直接删除，保证失败不留半套新文档。
+            for completed_path in completed {
+                if let Some((_, snapshot, _)) = snapshots
+                    .iter()
+                    .find(|(candidate, _, _)| candidate == &completed_path)
+                {
+                    match snapshot {
+                        Some(text) => {
+                            let _ = fs::write(completed_path, text);
+                        }
+                        None => {
+                            let _ = fs::remove_file(completed_path);
+                        }
+                    }
+                }
+            }
+            return Err(error.to_string());
+        }
+        completed.push(path);
+    }
+    Ok(())
+}
+
 /// 判断一次异步结果是否仍属于当前请求；旧 reload/execution token 必须被拒绝。
 pub fn sequence_is_current(current: u64, expected: u64) -> bool {
     current == expected
@@ -1079,6 +1343,125 @@ mod tests {
         assert_eq!(
             config["extensions"]["java"]["mavenJavaHomePath"],
             "/fixture/maven-jdk"
+        );
+    }
+
+    #[test]
+    fn editor_options_mirror_tauri_mapping() {
+        let item = RunConfigItem::from_value(&json!({
+            "id": "boot",
+            "name": "boot",
+            "provider": "spring-boot.maven",
+            "cwd": ".",
+            "args": ["fallback"],
+            "env": {"A": "1"},
+            "toolchains": {"java": "project-jdk", "maven": "project-maven", "runtime": "project-node"},
+            "extensions": {
+                "java": {"homePath": "/jdk", "mavenExecutablePath": "/mvn", "mavenJavaHomePath": "/mjdk"},
+                "maven": {
+                    "mainClass": "com.demo.App",
+                    "jvmArguments": ["-Xmx1g"],
+                    "skipTests": true
+                }
+            }
+        }))
+        .unwrap();
+        let options = item.options();
+        assert_eq!(options.java_home_path, "/jdk");
+        assert_eq!(options.maven_executable_path, "/mvn");
+        assert_eq!(options.maven_java_home_path, "/mjdk");
+        assert_eq!(options.maven_skip_tests, Some(true));
+        assert_eq!(options.working_directory_path, "");
+        assert_eq!(options.vm_arguments, "-Xmx1g");
+        // maven 扩展没有 programArguments 时回退通用 args。
+        assert_eq!(options.program_arguments, "fallback");
+        assert_eq!(options.environment.get("A").map(String::as_str), Some("1"));
+        assert!(item.uses_java_toolchain());
+        assert!(item.uses_maven_toolchain());
+        assert!(item.uses_node_toolchain());
+        assert_eq!(item.kind_title(), "Spring Boot");
+        assert_eq!(item.source_label(), "generated");
+    }
+
+    #[test]
+    fn editor_overrides_blank_paths_equal_to_project_defaults() {
+        let defaults = ToolchainPaths {
+            java_home_path: "/jdk".to_string(),
+            ..ToolchainPaths::default()
+        };
+        let options = RunOptionsDraft {
+            java_home_path: "/jdk".to_string(),
+            maven_executable_path: "/other".to_string(),
+            ..RunOptionsDraft::default()
+        };
+        let draft = run_options_overrides(&options, &defaults);
+        assert_eq!(draft.java_home_path, "");
+        assert_eq!(draft.maven_executable_path, "/other");
+    }
+
+    #[test]
+    fn environment_text_round_trip_skips_malformed_lines() {
+        let mut environment = BTreeMap::new();
+        environment.insert("B".to_string(), "2".to_string());
+        environment.insert("A".to_string(), "x=y".to_string());
+        let text = environment_text(&environment);
+        assert_eq!(text, "A=x=y\nB=2");
+        let parsed = environment_from_text("# comment\n\nA=x=y\nbroken\nB=2\n");
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed.get("A").map(String::as_str), Some("x=y"));
+    }
+
+    #[test]
+    fn editor_save_request_scopes_project_paths_and_keeps_defaults() {
+        let defaults = ToolchainPaths {
+            java_home_path: "/default/jdk".to_string(),
+            maven_executable_path: "/default/mvn".to_string(),
+            maven_java_home_path: String::new(),
+            runtime_executable_paths: BTreeMap::new(),
+            maven_settings_path: String::new(),
+            local_repository_path: String::new(),
+        };
+        let options = RunOptionsDraft {
+            working_directory_path: "/root/module".to_string(),
+            java_home_path: "/custom/jdk".to_string(),
+            program_arguments: "--serve".to_string(),
+            maven_skip_tests: Some(false),
+            ..RunOptionsDraft::default()
+        };
+        let request = save_editor_changes_request("/root", "boot", "project", &options, &defaults);
+        assert_eq!(request["scope"], "project");
+        // 工作区内的绝对路径改写为相对，工作区外原样。
+        assert_eq!(request["workingDirectory"], "module");
+        assert_eq!(request["javaHomePath"], "/custom/jdk");
+        assert_eq!(request["programArguments"], "--serve");
+        assert_eq!(request["mavenSkipTests"], false);
+        assert_eq!(request["toolchain"]["javaHomePath"], "/default/jdk");
+        let local = save_editor_changes_request("/root", "boot", "local", &options, &defaults);
+        assert_eq!(local["workingDirectory"], "/root/module");
+    }
+
+    #[test]
+    fn editor_documents_write_rollback_and_skip_unchanged() {
+        let fixture = fixture("editor-documents");
+        let root = fixture.0.to_string_lossy().into_owned();
+        fs::create_dir_all(fixture.0.join(".lithe/run")).unwrap();
+        fs::write(fixture.0.join(".lithe/run/local.json"), "{\"version\":2}").unwrap();
+        write_editor_documents(
+            &root,
+            Some("{\"version\":2,\"configurations\":[]}"),
+            None,
+            None,
+        )
+        .unwrap();
+        let written = fs::read_to_string(fixture.0.join(".lithe/run/local.json")).unwrap();
+        assert_eq!(written, "{\"version\":2,\"configurations\":[]}");
+        // 写入失败（toolchains 目录被文件占用）时回滚已写文件。
+        fs::create_dir_all(fixture.0.join(".lithe/toolchains")).unwrap();
+        fs::write(fixture.0.join(".lithe/toolchains/local.json"), "old").unwrap();
+        write_editor_documents(&root, Some("new-local"), None, Some("new-toolchains")).unwrap();
+        assert_eq!(
+            fs::read_to_string(fixture.0.join(".lithe/toolchains/local.json")).unwrap(),
+            "new-toolchains"
         );
     }
 

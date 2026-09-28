@@ -7,9 +7,11 @@ pub mod config;
 pub mod process;
 
 pub use config::{
-    create_launch_plan_request, default_generated_configuration_id, list_java_sources,
-    maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
-    sequence_is_current, toolchain_candidates, write_generated_documents, write_toolchain_paths,
-    LaunchPlan, RunConfigGroup, RunConfigItem, ToolchainPaths,
+    create_launch_plan_request, default_generated_configuration_id, environment_from_text,
+    environment_text, list_java_sources, maven_context_for_configuration,
+    parse_resolved_configurations, read_toolchain_paths, run_options_overrides,
+    save_editor_changes_request, sequence_is_current, toolchain_candidates, write_editor_documents,
+    write_generated_documents, write_toolchain_paths, LaunchPlan, RunConfigGroup, RunConfigItem,
+    RunOptionsDraft, ToolchainPaths,
 };
 pub use process::{ProcessEvent, ProcessManager};

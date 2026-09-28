@@ -25,8 +25,10 @@ use crate::core::CoreClient;
 use crate::settings::{self, Settings};
 use crate::theme::ThemeColors;
 use crate::workbench::run::{
-    default_generated_configuration_id, list_java_sources, parse_resolved_configurations,
-    read_toolchain_paths, write_generated_documents, write_toolchain_paths, ToolchainPaths,
+    default_generated_configuration_id, environment_from_text, environment_text, list_java_sources,
+    parse_resolved_configurations, read_toolchain_paths, run_options_overrides,
+    save_editor_changes_request, write_editor_documents, write_generated_documents,
+    write_toolchain_paths, RunConfigItem, RunOptionsDraft, ToolchainPaths,
 };
 
 /// 设置分类，顺序与 Tauri `categories` 数组一致。
@@ -169,7 +171,27 @@ pub struct SettingsDialog {
     project_loaded_for: String,
     /// 项目/运行/日志/更新分组的操作回执展示。
     project_status: String,
-    run_configs: Vec<String>,
+    run_configs: Vec<RunConfigItem>,
+    /// 编辑器当前打开的配置（对齐 Tauri `editingConfigurationId`）。
+    editing_run_config: Option<RunConfigItem>,
+    /// 待定位配置 id：列表尚未加载完成时先记录，加载完成后自动打开编辑器。
+    pending_run_editor_id: Option<String>,
+    /// 编辑器保存范围：`local`（本机）或 `project`（团队共享）。
+    run_editor_scope: &'static str,
+    /// 编辑器 Maven 测试策略；`None` 继承项目默认。
+    run_editor_skip_tests: Option<bool>,
+    run_editor_error: String,
+    /// 编辑器草稿输入框（懒创建，切换配置时整体回填）。
+    run_java_input: Option<Entity<InputState>>,
+    run_maven_input: Option<Entity<InputState>>,
+    run_maven_jdk_input: Option<Entity<InputState>>,
+    run_node_input: Option<Entity<InputState>>,
+    run_args_input: Option<Entity<InputState>>,
+    run_vm_input: Option<Entity<InputState>>,
+    run_cwd_input: Option<Entity<InputState>>,
+    run_env_input: Option<Entity<TextareaState>>,
+    /// 已回填输入框的配置 id，避免覆盖用户编辑。
+    run_editor_loaded_for: String,
     run_status: String,
     run_load_seq: u64,
     client: CoreClient,
@@ -207,6 +229,20 @@ impl SettingsDialog {
             project_loaded_for: String::new(),
             project_status: String::new(),
             run_configs: Vec::new(),
+            editing_run_config: None,
+            pending_run_editor_id: None,
+            run_editor_scope: "local",
+            run_editor_skip_tests: None,
+            run_editor_error: String::new(),
+            run_java_input: None,
+            run_maven_input: None,
+            run_maven_jdk_input: None,
+            run_node_input: None,
+            run_args_input: None,
+            run_vm_input: None,
+            run_cwd_input: None,
+            run_env_input: None,
+            run_editor_loaded_for: String::new(),
             run_status: String::new(),
             run_load_seq: 0,
             client: CoreClient::new(),
@@ -227,8 +263,49 @@ impl SettingsDialog {
         self.run_load_seq += 1;
         self.run_configs.clear();
         self.run_status.clear();
+        self.close_run_editor();
         self.project_loaded_for.clear();
         self.project_status.clear();
+        cx.notify();
+    }
+
+    /// 关闭编辑器回到配置列表，清空草稿输入框。
+    fn close_run_editor(&mut self) {
+        self.editing_run_config = None;
+        self.pending_run_editor_id = None;
+        self.run_editor_loaded_for.clear();
+        self.run_editor_error.clear();
+        self.run_java_input = None;
+        self.run_maven_input = None;
+        self.run_maven_jdk_input = None;
+        self.run_node_input = None;
+        self.run_args_input = None;
+        self.run_vm_input = None;
+        self.run_cwd_input = None;
+        self.run_env_input = None;
+    }
+
+    /// 请求打开某个配置的编辑器（对齐 Tauri `editConfiguration(id)`）：
+    /// 列表已就绪时立即打开，否则记录待定位 id，加载完成后自动打开。
+    pub fn open_run_configuration(&mut self, id: &str, cx: &mut Context<Self>) {
+        if let Some(item) = self.run_configs.iter().find(|item| item.id == id).cloned() {
+            self.edit_run_configuration(item, cx);
+            return;
+        }
+        self.pending_run_editor_id = Some(id.to_string());
+        if self.active_category == SettingsCategory::Run && self.run_status.is_empty() {
+            self.refresh_run_configs(false, cx);
+        }
+        cx.notify();
+    }
+
+    fn edit_run_configuration(&mut self, item: RunConfigItem, cx: &mut Context<Self>) {
+        self.pending_run_editor_id = None;
+        self.editing_run_config = Some(item);
+        // loaded_for 由渲染时回填；这里只清掉上个配置的草稿状态。
+        self.run_editor_loaded_for.clear();
+        self.run_editor_error.clear();
+        self.run_editor_scope = "local";
         cx.notify();
     }
 
@@ -263,7 +340,7 @@ impl SettingsDialog {
         };
         cx.notify();
         cx.spawn(async move |this, cx| {
-            let result: Result<Vec<String>, String> = async {
+            let result: Result<Vec<RunConfigItem>, String> = async {
                 if generate {
                     let generated = client
                         .execute::<serde_json::Value, serde_json::Value>(
@@ -315,11 +392,7 @@ impl SettingsDialog {
                     )
                     .await?;
                 let parsed = parse_resolved_configurations(&resolved)?;
-                Ok(parsed
-                    .configurations
-                    .into_iter()
-                    .map(|item| format!("{} ({})", item.name, item.provider))
-                    .collect())
+                Ok(parsed.configurations)
             }
             .await;
             let _ = this.update(cx, |view, cx| {
@@ -334,6 +407,16 @@ impl SettingsDialog {
                         } else {
                             String::new()
                         };
+                        // 外部（运行面板齿轮）请求定位的配置：加载完成后自动打开。
+                        if let Some(pending) = view.pending_run_editor_id.clone() {
+                            match view.run_configs.iter().find(|item| item.id == pending) {
+                                Some(item) => view.edit_run_configuration(item.clone(), cx),
+                                None if !view.run_configs.is_empty() => {
+                                    view.pending_run_editor_id = None;
+                                }
+                                None => {}
+                            }
+                        }
                         if generate {
                             cx.emit(SettingsEvent::RunConfigurationChanged);
                         }
@@ -360,6 +443,7 @@ impl SettingsDialog {
         self.run_configs = Vec::new();
         self.run_status = String::new();
         self.run_load_seq = self.run_load_seq.saturating_add(1);
+        self.close_run_editor();
         self.ai_model_input = None;
         self.git_exe_input = None;
         self.log_dir_input = None;
@@ -580,9 +664,9 @@ impl Render for SettingsDialog {
                                                 SettingsCategory::Project => self
                                                     .render_project_content(window, cx)
                                                     .into_any_element(),
-                                                SettingsCategory::Run => {
-                                                    self.render_run_content(cx).into_any_element()
-                                                }
+                                                SettingsCategory::Run => self
+                                                    .render_run_content(window, cx)
+                                                    .into_any_element(),
                                                 SettingsCategory::Editor => self
                                                     .render_editor_content(cx)
                                                     .into_any_element(),
@@ -1355,8 +1439,19 @@ impl SettingsDialog {
             )
     }
 
-    /// 运行配置：通过 Core inspect/resolve 读取，生成按钮走 Core generate。
-    fn render_run_content(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
+    /// 运行配置：列表 + 单配置编辑器（对齐 Tauri `run-configuration-settings`
+    /// 与 `RunConfigurationEditor`）。数据走 Core inspect/resolve，保存走
+    /// `runConfig.saveEditorChanges`。
+    fn render_run_content(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        if let Some(config) = self.editing_run_config.clone() {
+            return self
+                .render_run_editor(&config, window, cx)
+                .into_any_element();
+        }
         let configs = self.run_configs.clone();
         let status = self.run_status.clone();
         let list = if configs.is_empty() {
@@ -1366,58 +1461,602 @@ impl SettingsDialog {
             v_flex()
                 .w_full()
                 .gap_1p5()
-                .children(configs.iter().map(|name| {
-                    div()
+                .children(configs.iter().enumerate().map(|(index, item)| {
+                    let id = item.id.clone();
+                    h_flex()
+                        .id(("run-edit-entry", index))
                         .w_full()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
                         .px_2p5()
                         .py_1()
                         .rounded_sm()
                         .border_1()
                         .border_color(ThemeColors::border())
                         .bg(ThemeColors::background())
-                        .font_family(crate::fonts::mono_family(cx))
-                        .text_xs()
-                        .text_color(ThemeColors::foreground())
-                        .child(name.clone())
+                        .cursor_pointer()
+                        .hover(|h| h.bg(ThemeColors::bg_tab_hover()))
+                        .on_click(cx.listener(move |this, _event, _window, cx| {
+                            this.open_run_configuration(&id, cx);
+                        }))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .font_family(crate::fonts::mono_family(cx))
+                                .text_xs()
+                                .text_color(ThemeColors::foreground())
+                                .child(item.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_shrink_0()
+                                .text_xs()
+                                .text_color(ThemeColors::subtle_foreground())
+                                .child(crate::i18n::menu_text(cx, "ui.edit").to_string()),
+                        )
                 }))
                 .into_any_element()
         };
-        v_flex().w_full().gap_4().child(
-            self.render_group(
-                crate::i18n::menu_text(cx, "settings.run.title").to_string(),
-                v_flex()
-                    .w_full()
-                    .gap_3()
-                    .child(self.render_note(
-                        crate::i18n::menu_text(cx, "settings.run.description").to_string(),
-                    ))
-                    .child(list)
+        v_flex()
+            .w_full()
+            .gap_4()
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "settings.run.title").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_3()
+                        .child(self.render_note(
+                            crate::i18n::menu_text(cx, "settings.run.description").to_string(),
+                        ))
+                        .child(list)
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .text_color(ThemeColors::subtle_foreground())
+                                        .child(status),
+                                )
+                                .child(
+                                    Button::new("run-generate")
+                                        .small()
+                                        .primary()
+                                        .label(
+                                            crate::i18n::menu_text(cx, "settings.run.generate")
+                                                .to_string(),
+                                        )
+                                        .on_click(cx.listener(|this, _event, _window, cx| {
+                                            this.refresh_run_configs(true, cx);
+                                        })),
+                                ),
+                        ),
+                ),
+            )
+            .into_any_element()
+    }
+
+    /// 单配置编辑器（对齐 Tauri `RunConfigurationEditor`）：项目默认设置、
+    /// 配置信息、保存范围与配置覆盖；首次渲染时从配置草稿回填输入框。
+    fn render_run_editor(
+        &mut self,
+        config: &RunConfigItem,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        if self.run_editor_loaded_for != config.id {
+            let defaults = read_toolchain_paths(&self.workspace_root);
+            let draft = run_options_overrides(&config.options(), &defaults);
+            let mut fill_input = |slot: &mut Option<Entity<InputState>>, value: String| {
+                if let Some(entity) = slot.clone() {
+                    entity.update(cx, |state, cx| state.set_value(value, window, cx));
+                } else {
+                    *slot = Some(cx.new(|cx| InputState::new(window, cx).default_value(value)));
+                }
+            };
+            fill_input(&mut self.run_java_input, draft.java_home_path);
+            fill_input(&mut self.run_maven_input, draft.maven_executable_path);
+            fill_input(&mut self.run_maven_jdk_input, draft.maven_java_home_path);
+            fill_input(&mut self.run_node_input, String::new());
+            fill_input(&mut self.run_args_input, draft.program_arguments);
+            fill_input(&mut self.run_vm_input, draft.vm_arguments);
+            fill_input(&mut self.run_cwd_input, draft.working_directory_path);
+            let env_text = environment_text(&draft.environment);
+            if let Some(entity) = self.run_env_input.clone() {
+                entity.update(cx, |state, cx| state.set_value(env_text, window, cx));
+            } else {
+                self.run_env_input =
+                    Some(cx.new(|cx| TextareaState::new(window, cx).default_value(env_text)));
+            }
+            self.run_editor_scope = "local";
+            self.run_editor_skip_tests = draft.maven_skip_tests;
+            self.run_editor_error.clear();
+            self.run_editor_loaded_for = config.id.clone();
+        }
+        let java_entity = self.run_java_input.clone().expect("run editor java input");
+        let maven_entity = self
+            .run_maven_input
+            .clone()
+            .expect("run editor maven input");
+        let maven_jdk_entity = self
+            .run_maven_jdk_input
+            .clone()
+            .expect("run editor maven jdk input");
+        let args_entity = self.run_args_input.clone().expect("run editor args input");
+        let vm_entity = self.run_vm_input.clone().expect("run editor vm input");
+        let cwd_entity = self.run_cwd_input.clone().expect("run editor cwd input");
+        let env_entity = self.run_env_input.clone().expect("run editor env input");
+        let scope = self.run_editor_scope;
+        let skip_tests = self.run_editor_skip_tests;
+        let uses_java = config.uses_java_toolchain();
+        let uses_maven = config.uses_maven_toolchain();
+        let uses_node = config.uses_node_toolchain();
+        let error = self.run_editor_error.clone();
+        let scope_hint_key = if scope == "project" {
+            "run.saveScopeProjectHint"
+        } else {
+            "run.saveScopeLocalHint"
+        };
+        let mut defaults_group = v_flex().w_full().gap_3();
+        if uses_java || uses_maven {
+            defaults_group = defaults_group.child(
+                Button::new("run-open-project-settings")
+                    .small()
+                    .ghost()
+                    .label(crate::i18n::menu_text(cx, "run.openProjectSettings").to_string())
+                    .on_click(cx.listener(|this, _event, _window, cx| {
+                        this.set_category(SettingsCategory::Project, cx);
+                    })),
+            );
+        }
+        if uses_node {
+            defaults_group = defaults_group.child(
+                self.render_row(
+                    crate::i18n::menu_text(cx, "run.nodeExecutable").to_string(),
+                    Some(crate::i18n::menu_text(cx, "run.nodeExecutableHint").to_string()),
+                    h_flex()
+                        .gap_1p5()
+                        .child(Self::render_text_input(
+                            self.run_node_input.clone().expect("run editor node input"),
+                        ))
+                        .child(
+                            Button::new("run-node-browse")
+                                .small()
+                                .ghost()
+                                .label("…".to_string())
+                                .on_click(cx.listener(|this, _event, _window, cx| {
+                                    if let Some(path) =
+                                        super::project_dialog::ProjectDialog::pick_folder(None)
+                                    {
+                                        if let Some(entity) = this.run_node_input.clone() {
+                                            entity.update(cx, |state, cx| {
+                                                state.set_value(path, _window, cx);
+                                            });
+                                        }
+                                    }
+                                })),
+                        ),
+                ),
+            );
+        }
+        let mut info_rows = v_flex().w_full().gap_1().text_xs();
+        info_rows = info_rows
+            .child(
+                h_flex()
+                    .gap_2()
                     .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(90.0))
+                            .text_color(ThemeColors::subtle_foreground())
+                            .child(crate::i18n::menu_text(cx, "run.detailType").to_string()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(ThemeColors::foreground())
+                            .child(config.kind_title()),
+                    ),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(90.0))
+                            .text_color(ThemeColors::subtle_foreground())
+                            .child(crate::i18n::menu_text(cx, "run.effectiveSource").to_string()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .text_color(ThemeColors::foreground())
+                            .child(
+                                crate::i18n::menu_text(
+                                    cx,
+                                    match config.source_label() {
+                                        "project" => "run.source.project",
+                                        "local" => "run.source.local",
+                                        _ => "run.source.generated",
+                                    },
+                                )
+                                .to_string(),
+                            ),
+                    ),
+            );
+        if let Some(main_class) = config.main_class.as_deref().filter(|v| !v.is_empty()) {
+            info_rows = info_rows.child(
+                h_flex()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(90.0))
+                            .text_color(ThemeColors::subtle_foreground())
+                            .child(crate::i18n::menu_text(cx, "run.detailMainClass").to_string()),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .font_family(crate::fonts::mono_family(cx))
+                            .text_color(ThemeColors::foreground())
+                            .child(main_class.to_string()),
+                    ),
+            );
+        }
+
+        let skip_tests_label = match skip_tests {
+            None => "run.mavenTestsProjectDefault",
+            Some(false) => "run.mavenTestsRun",
+            Some(true) => "run.mavenTestsSkip",
+        };
+        let mut overrides = v_flex().w_full().gap_3();
+        if uses_java {
+            overrides = overrides.child(
+                self.render_row(
+                    crate::i18n::menu_text(cx, "run.jdkHome").to_string(),
+                    Some(crate::i18n::menu_text(cx, "run.configurationOverrideHint").to_string()),
+                    h_flex()
+                        .gap_1p5()
+                        .child(Self::render_text_input(java_entity))
+                        .child(
+                            Button::new("run-java-browse")
+                                .small()
+                                .ghost()
+                                .label("…".to_string())
+                                .on_click(cx.listener(|this, _event, _window, cx| {
+                                    if let Some(dir) =
+                                        super::project_dialog::ProjectDialog::pick_folder(None)
+                                    {
+                                        if let Some(entity) = this.run_java_input.clone() {
+                                            entity.update(cx, |state, cx| {
+                                                state.set_value(dir, _window, cx);
+                                            });
+                                        }
+                                    }
+                                })),
+                        ),
+                ),
+            );
+        }
+        if uses_maven {
+            overrides = overrides
+                .child(
+                    self.render_row(
+                        crate::i18n::menu_text(cx, "run.mavenExecutable").to_string(),
+                        Some(
+                            crate::i18n::menu_text(cx, "run.configurationOverrideHint").to_string(),
+                        ),
                         h_flex()
-                            .w_full()
-                            .items_center()
-                            .justify_between()
+                            .gap_1p5()
+                            .child(Self::render_text_input(maven_entity))
                             .child(
-                                div()
-                                    .text_xs()
-                                    .text_color(ThemeColors::subtle_foreground())
-                                    .child(status),
-                            )
-                            .child(
-                                Button::new("run-generate")
+                                Button::new("run-maven-browse")
                                     .small()
-                                    .primary()
-                                    .label(
-                                        crate::i18n::menu_text(cx, "settings.run.generate")
-                                            .to_string(),
-                                    )
+                                    .ghost()
+                                    .label("…".to_string())
                                     .on_click(cx.listener(|this, _event, _window, cx| {
-                                        this.refresh_run_configs(true, cx);
+                                        if let Some(dir) =
+                                            super::project_dialog::ProjectDialog::pick_folder(None)
+                                        {
+                                            if let Some(entity) = this.run_maven_input.clone() {
+                                                entity.update(cx, |state, cx| {
+                                                    state.set_value(dir, _window, cx);
+                                                });
+                                            }
+                                        }
                                     })),
                             ),
                     ),
-            ),
-        )
+                )
+                .child(self.render_row(
+                    crate::i18n::menu_text(cx, "run.mavenJdkHome").to_string(),
+                    Some(crate::i18n::menu_text(cx, "run.configurationOverrideHint").to_string()),
+                    Self::render_text_input(maven_jdk_entity),
+                ))
+                .child(self.render_row(
+                    crate::i18n::menu_text(cx, "run.mavenTests").to_string(),
+                    Some(crate::i18n::menu_text(cx, "run.mavenTestsHint").to_string()),
+                    self.render_dropdown(
+                        "run-maven-tests",
+                        skip_tests_label.to_string(),
+                        180.0,
+                        vec![
+                            (
+                                "run.mavenTestsProjectDefault",
+                                crate::i18n::menu_text(cx, "run.mavenTestsProjectDefault")
+                                    .to_string(),
+                            ),
+                            (
+                                "run.mavenTestsRun",
+                                crate::i18n::menu_text(cx, "run.mavenTestsRun").to_string(),
+                            ),
+                            (
+                                "run.mavenTestsSkip",
+                                crate::i18n::menu_text(cx, "run.mavenTestsSkip").to_string(),
+                            ),
+                        ],
+                        cx,
+                        |this, value, cx| {
+                            this.run_editor_skip_tests = match value {
+                                "run.mavenTestsRun" => Some(false),
+                                "run.mavenTestsSkip" => Some(true),
+                                _ => None,
+                            };
+                            cx.notify();
+                        },
+                    ),
+                ));
+        }
+        overrides = overrides
+            .child(self.render_row(
+                crate::i18n::menu_text(cx, "run.programArguments").to_string(),
+                None,
+                Self::render_text_input(args_entity),
+            ))
+            .child(self.render_row(
+                crate::i18n::menu_text(cx, "run.vmArguments").to_string(),
+                None,
+                Self::render_text_input(vm_entity),
+            ))
+            .child(
+                self.render_row(
+                    crate::i18n::menu_text(cx, "run.workingDirectory").to_string(),
+                    Some(crate::i18n::menu_text(cx, "run.workingDirectoryHint").to_string()),
+                    h_flex()
+                        .gap_1p5()
+                        .child(Self::render_text_input(cwd_entity))
+                        .child(
+                            Button::new("run-cwd-browse")
+                                .small()
+                                .ghost()
+                                .label("…".to_string())
+                                .on_click(cx.listener(|this, _event, _window, cx| {
+                                    if let Some(dir) =
+                                        super::project_dialog::ProjectDialog::pick_folder(None)
+                                    {
+                                        if let Some(entity) = this.run_cwd_input.clone() {
+                                            entity.update(cx, |state, cx| {
+                                                state.set_value(dir, _window, cx);
+                                            });
+                                        }
+                                    }
+                                })),
+                        ),
+                ),
+            )
+            .child(
+                self.render_row(
+                    crate::i18n::menu_text(cx, "run.environment").to_string(),
+                    None,
+                    div()
+                        .w(px(320.0))
+                        .child(Textarea::new(&env_entity).h(px(64.0))),
+                ),
+            );
+
+        v_flex()
+            .w_full()
+            .gap_4()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(ThemeColors::foreground())
+                    .child(config.name.clone()),
+            )
+            .child(self.render_group(
+                format!(
+                    "{} · {}",
+                    crate::i18n::menu_text(cx, "run.projectDefaultsSection"),
+                    crate::i18n::menu_text(cx, "run.saveScopeLocal")
+                ),
+                defaults_group,
+            ))
+            .child(self.render_group(
+                crate::i18n::menu_text(cx, "run.configuration").to_string(),
+                info_rows,
+            ))
+            .child(
+                self.render_group(
+                    crate::i18n::menu_text(cx, "run.saveScope").to_string(),
+                    v_flex()
+                        .w_full()
+                        .gap_2()
+                        .child(
+                            h_flex()
+                                .gap_1()
+                                .child(self.render_run_scope_button(
+                                    "run-scope-local",
+                                    scope == "local",
+                                    crate::i18n::menu_text(cx, "run.saveScopeLocal").to_string(),
+                                    "local",
+                                    cx,
+                                ))
+                                .child(self.render_run_scope_button(
+                                    "run-scope-project",
+                                    scope == "project",
+                                    crate::i18n::menu_text(cx, "run.saveScopeProject").to_string(),
+                                    "project",
+                                    cx,
+                                )),
+                        )
+                        .child(
+                            self.render_note(
+                                crate::i18n::menu_text(cx, scope_hint_key).to_string(),
+                            ),
+                        ),
+                ),
+            )
+            .child(self.render_group(
+                crate::i18n::menu_text(cx, "run.configurationOverridesSection").to_string(),
+                overrides,
+            ))
+            .child(
+                h_flex()
+                    .w_full()
+                    .items_center()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate()
+                            .text_xs()
+                            .text_color(ThemeColors::destructive())
+                            .child(error),
+                    )
+                    .child(
+                        Button::new("run-editor-cancel")
+                            .small()
+                            .ghost()
+                            .label(crate::i18n::menu_text(cx, "ui.cancel").to_string())
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.close_run_editor();
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new("run-editor-save")
+                            .small()
+                            .primary()
+                            .label(crate::i18n::menu_text(cx, "ui.save").to_string())
+                            .on_click(cx.listener(|this, _event, _window, cx| {
+                                this.save_run_editor(cx);
+                            })),
+                    ),
+            )
+    }
+
+    /// 保存范围切换按钮（本机 / 项目，对齐 Tauri 分段按钮）。
+    fn render_run_scope_button(
+        &self,
+        id: &'static str,
+        active: bool,
+        label: String,
+        value: &'static str,
+        cx: &mut Context<Self>,
+    ) -> gpui_kit::component::button::Button {
+        Button::new(id)
+            .small()
+            .when(active, |b| b.primary())
+            .when(!active, |b| b.ghost())
+            .label(label)
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                this.run_editor_scope = value;
+                cx.notify();
+            }))
+    }
+
+    /// 读取编辑器草稿输入并异步保存（`runConfig.saveEditorChanges` →
+    /// Core 返回文档 → 宿主落盘 → 刷新列表并广播 `RunConfigurationChanged`）。
+    fn save_run_editor(&mut self, cx: &mut Context<Self>) {
+        let Some(config) = self.editing_run_config.clone() else {
+            return;
+        };
+        let get = |slot: &Option<Entity<InputState>>, cx: &Context<Self>| {
+            slot.as_ref()
+                .map(|e| e.read(cx).value().to_string().trim().to_string())
+                .unwrap_or_default()
+        };
+        let env = self
+            .run_env_input
+            .as_ref()
+            .map(|e| e.read(cx).value().to_string())
+            .unwrap_or_default();
+        let options = RunOptionsDraft {
+            java_home_path: get(&self.run_java_input, cx),
+            maven_executable_path: get(&self.run_maven_input, cx),
+            maven_java_home_path: get(&self.run_maven_jdk_input, cx),
+            maven_skip_tests: self.run_editor_skip_tests,
+            working_directory_path: get(&self.run_cwd_input, cx),
+            vm_arguments: get(&self.run_vm_input, cx),
+            program_arguments: get(&self.run_args_input, cx),
+            environment: environment_from_text(&env),
+        };
+        let root = self.workspace_root.clone();
+        let defaults = read_toolchain_paths(&root);
+        let request = save_editor_changes_request(
+            &root,
+            &config.id,
+            self.run_editor_scope,
+            &options,
+            &defaults,
+        );
+        let client = self.client.clone();
+        self.run_editor_error.clear();
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result: Result<(), String> = async {
+                let response = client
+                    .execute::<serde_json::Value, serde_json::Value>(
+                        &cx,
+                        "runConfig.saveEditorChanges",
+                        request,
+                    )
+                    .await?;
+                let data = response
+                    .get("data")
+                    .or_else(|| response.get("document"))
+                    .cloned()
+                    .unwrap_or(response);
+                let document = |key: &str| -> Option<String> {
+                    data.get(key)
+                        .and_then(serde_json::Value::as_str)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_string)
+                };
+                write_editor_documents(
+                    &root,
+                    document("localDocument").as_deref(),
+                    document("projectDocument").as_deref(),
+                    document("toolchainDocument").as_deref(),
+                )
+            }
+            .await;
+            let _ = this.update(cx, |view, cx| {
+                match result {
+                    Ok(()) => {
+                        view.close_run_editor();
+                        view.refresh_run_configs(false, cx);
+                        cx.emit(SettingsEvent::RunConfigurationChanged);
+                    }
+                    Err(error) => view.run_editor_error = error,
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// 编辑器：对齐 Tauri `EditorPanel`（显示/编辑器标签页/缩进）。
