@@ -204,16 +204,19 @@ struct KeyboardShortcutSettingsView: View {
             .frame(height: 24)
             .background(selectedCommandID == command.id ? LitheTheme.settingsSelection : .clear)
             .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contextMenu {
-                Button("Add Shortcut") {
-                    beginEditing(commandID: command.id, bindingIndex: nil)
-                }
+            .litheContextMenu {
+                var items: [LitheContextMenuItem] = [
+                    .action("Add Shortcut") {
+                        beginEditing(commandID: command.id, bindingIndex: nil)
+                    }
+                ]
                 if feature.isCustomized(command.id) {
-                    Button("Restore Default") {
+                    items.append(.action("Restore Default") {
                         cancelEditing()
                         feature.resetCommand(command.id)
-                    }
+                    })
                 }
+                return items
             }
 
             if editingTarget?.commandID == command.id {
@@ -282,10 +285,10 @@ struct KeyboardShortcutSettingsView: View {
         .lithePointer()
         .help("Edit Shortcut")
         .accessibilityLabel(binding.displayText)
-        .contextMenu {
-            Button("Remove Shortcut") {
+        .litheContextMenu {
+            [LitheContextMenuItem.action("Remove Shortcut") {
                 removeBinding(commandID: commandID, index: index)
-            }
+            }]
         }
     }
 
