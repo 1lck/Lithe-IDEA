@@ -8,6 +8,7 @@
 
 use gpui_kit::assets::IconName;
 use gpui_kit::component::{h_flex, Icon};
+use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::{
     div, px, AnyElement, Context, EventEmitter, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
@@ -137,6 +138,37 @@ fn format_memory_megabytes(bytes: u64) -> String {
     format!("{:.1} MB", bytes as f64 / BYTES_PER_MEGABYTE)
 }
 
+/// 缩进项文案，对齐 Tauri `footer.spaces`：中文 `{n} 个空格`，英文 `{n} spaces`。
+fn indent_text(size: usize, zh: bool) -> String {
+    if zh {
+        format!("{size} 个空格")
+    } else {
+        format!("{size} spaces")
+    }
+}
+
+/// 只读项文案，对齐 Tauri `footer.readOnly` / `footer.writable`。
+fn read_only_text(read_only: bool, zh: bool) -> String {
+    match (read_only, zh) {
+        (true, true) => "只读",
+        (true, false) => "Read-only",
+        (false, true) => "可写",
+        (false, false) => "Writable",
+    }
+    .to_string()
+}
+
+/// 变更数项文案，对齐 Tauri `footer.change` / `footer.changes`。
+fn changes_text(count: usize, zh: bool) -> String {
+    if zh {
+        format!("{count} 个更改")
+    } else if count == 1 {
+        format!("{count} change")
+    } else {
+        format!("{count} changes")
+    }
+}
+
 impl Default for StatusBarView {
     fn default() -> Self {
         Self::new()
@@ -154,13 +186,14 @@ fn separator() -> AnyElement {
 }
 
 /// 带图标的标签：图标 + 文本共用同一颜色，避免两段颜色不一致。
-fn labeled(icon: IconName, label: String, color: gpui_kit::Rgba) -> AnyElement {
+/// `label` 为 `None` 时只渲染图标（如无变更时的成功色对勾）。
+fn labeled(icon: IconName, label: Option<String>, color: gpui_kit::Rgba) -> AnyElement {
     h_flex()
         .items_center()
         .gap_1()
         .text_color(color)
         .child(Icon::new(icon).size(px(12.0)).text_color(color))
-        .child(div().child(label))
+        .when_some(label, |this, label| this.child(div().child(label)))
         .into_any_element()
 }
 
@@ -170,67 +203,62 @@ impl StatusBarView {
             "filePath" => {
                 // 无活动文件时整项不渲染，对齐 Tauri（filePath 为 null）。
                 self.current_file.clone().map(|label| {
-                    labeled(IconName::FileText, label, ThemeColors::subtle_foreground())
+                    labeled(IconName::FileText, Some(label), ThemeColors::subtle_foreground())
                 })
             }
             // 分支未知时整项不渲染，避免用占位名误导用户。
             "branch" => self
                 .git_branch
                 .as_ref()
-                .map(|branch| labeled(IconName::GitBranch, branch.clone(), ThemeColors::success())),
+                .map(|branch| labeled(IconName::GitBranch, Some(branch.clone()), ThemeColors::success())),
             _ => None,
         }
     }
 
     fn render_trailing_item(&self, id: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
+        // 与 Tauri `useFooterEditorStatusItems` 一致：cursor / encoding / indent /
+        // readOnly 只在当前存在活动编辑器缓冲区时渲染，memory / gitChanges 始终渲染。
+        let has_editor = self.current_file.is_some();
+        let zh = crate::i18n::is_zh(cx);
         match id {
-            "cursor" => Some(
+            "cursor" if has_editor => Some(
                 div()
-                    .child(format!("Ln {}, Col {}", self.cursor_line, self.cursor_col))
+                    .child(format!("{}:{}", self.cursor_line, self.cursor_col))
                     .into_any_element(),
             ),
-            "encoding" => Some(div().child(self.encoding.clone()).into_any_element()),
-            "indent" => Some(
+            "encoding" if has_editor => Some(div().child(self.encoding.clone()).into_any_element()),
+            "indent" if has_editor => Some(
                 div()
-                    .child(format!("{} spaces", self.indent_size))
+                    .child(indent_text(self.indent_size, zh))
                     .into_any_element(),
             ),
-            "readOnly" => Some(labeled(
+            "readOnly" if has_editor => Some(labeled(
                 if self.read_only {
                     IconName::Lock
                 } else {
                     IconName::LockOpen
                 },
-                if self.read_only {
-                    "Read-only"
-                } else {
-                    "Editable"
-                }
-                .to_string(),
+                Some(read_only_text(self.read_only, zh)),
                 ThemeColors::subtle_foreground(),
             )),
             // 采样尚未成功时整项不渲染，对齐 Tauri（memoryUsage 为 null）。
             "memory" => self.memory.map(|usage| {
-                let zh = crate::i18n::is_zh(cx);
                 labeled(
                     IconName::MemoryStick,
-                    display_text(usage, zh),
+                    Some(display_text(usage, zh)),
                     ThemeColors::subtle_foreground(),
                 )
             }),
-            "gitChanges" => Some(self.render_git_changes(cx)),
+            "gitChanges" => Some(self.render_git_changes(zh, cx)),
             _ => None,
         }
     }
 
-    fn render_git_changes(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn render_git_changes(&self, zh: bool, cx: &mut Context<Self>) -> AnyElement {
         if self.git_changes == 0 {
-            // 无变更时用成功色对勾，和 Tauri 的 CheckCircleIcon text-success 对齐。
-            labeled(
-                IconName::CircleCheck,
-                "0".to_string(),
-                ThemeColors::success(),
-            )
+            // 无变更时只显示成功色对勾（不显示数字），对齐 Tauri 的
+            // CheckCircleIcon text-success 分支。
+            labeled(IconName::CircleCheck, None, ThemeColors::success())
         } else {
             let count = self.git_changes;
             h_flex()
@@ -240,7 +268,7 @@ impl StatusBarView {
                 .cursor_pointer()
                 .text_color(ThemeColors::git_modified())
                 .hover(|h| h.bg(ThemeColors::accent()))
-                .child(div().child(count.to_string()))
+                .child(div().child(changes_text(count, zh)))
                 .on_click(cx.listener(|_this, _event, _window, cx| {
                     cx.emit(StatusBarEvent::OpenGit);
                 }))
@@ -327,5 +355,27 @@ mod tests {
 
         // 1_500_000 / 1048576 ≈ 1.43 → 一位小数。
         assert_eq!(display_text(usage, false), "Total 1.4 MB · Lithe 1.4 MB");
+    }
+
+    #[test]
+    fn indent_text_matches_tauri_footer_spaces() {
+        assert_eq!(indent_text(4, true), "4 个空格");
+        assert_eq!(indent_text(4, false), "4 spaces");
+    }
+
+    #[test]
+    fn read_only_text_matches_tauri_footer_labels() {
+        assert_eq!(read_only_text(true, true), "只读");
+        assert_eq!(read_only_text(true, false), "Read-only");
+        assert_eq!(read_only_text(false, true), "可写");
+        assert_eq!(read_only_text(false, false), "Writable");
+    }
+
+    #[test]
+    fn changes_text_matches_tauri_footer_labels() {
+        assert_eq!(changes_text(1, true), "1 个更改");
+        assert_eq!(changes_text(3, true), "3 个更改");
+        assert_eq!(changes_text(1, false), "1 change");
+        assert_eq!(changes_text(3, false), "3 changes");
     }
 }
