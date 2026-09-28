@@ -736,7 +736,12 @@ private struct SettingsWindowHost: View {
 
     var body: some View {
         if let model = projectSessions.settingsModel {
-            SettingsWindow(model: model, settings: settings) {
+            SettingsWindow(
+                model: model,
+                settings: settings,
+                projectSessions: projectSessions,
+                bindingID: projectSessions.settingsBindingID
+            ) {
                 projectSessions.releaseSettings(for: model.id)
             }
             .id(model.id)
@@ -747,13 +752,23 @@ private struct SettingsWindowHost: View {
 private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
+    let projectSessions: ProjectSessionManager
+    let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
     let onDisappear: () -> Void
 
-    init(model: AppModel, settings: AppSettings, onDisappear: @escaping () -> Void) {
+    init(
+        model: AppModel,
+        settings: AppSettings,
+        projectSessions: ProjectSessionManager,
+        bindingID: UUID,
+        onDisappear: @escaping () -> Void
+    ) {
         self.model = model
         self.settings = settings
+        self.projectSessions = projectSessions
+        self.bindingID = bindingID
         self.onDisappear = onDisappear
         _viewState = StateObject(wrappedValue: SettingsViewState(
             initialCategory: model.requestedSettingsCategory
@@ -789,9 +804,11 @@ private struct SettingsWindow: View {
 
     private func close() {
         guard !viewState.isApplyingPluginChanges else { return }
-        model.isSettingsPresented = false
-        windowReference.window?.standardWindowButton(.closeButton)?.isEnabled = true
-        windowReference.window?.performClose(nil)
+        projectSessions.closeSettingsIfCurrent(for: model.id, bindingID: bindingID) {
+            model.isSettingsPresented = false
+            windowReference.window?.standardWindowButton(.closeButton)?.isEnabled = true
+            windowReference.window?.performClose(nil)
+        }
     }
 }
 

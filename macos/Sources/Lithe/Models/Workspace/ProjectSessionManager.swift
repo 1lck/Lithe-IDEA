@@ -33,6 +33,8 @@ final class ProjectSessionManager: ObservableObject {
     /// Window that currently owns menu-bar commands and focus-driven actions.
     @Published private(set) var focusedScope: ProjectWindowScope = .primary
     @Published private(set) var settingsModel: AppModel?
+    /// Invalidates close callbacks from an earlier opening of the shared settings window.
+    private(set) var settingsBindingID = UUID()
     @Published var pendingProjectOpen: PendingProjectOpen?
 
     private let settings: AppSettings
@@ -121,7 +123,13 @@ final class ProjectSessionManager: ObservableObject {
     }
 
     func bindSettings(to sessionID: UUID) {
+        settingsBindingID = UUID()
         settingsModel = session(for: sessionID)
+    }
+
+    func closeSettingsIfCurrent(for sessionID: UUID, bindingID: UUID, close: () -> Void) {
+        guard settingsModel?.id == sessionID, settingsBindingID == bindingID else { return }
+        close()
     }
 
     func releaseSettings(for sessionID: UUID) {

@@ -238,7 +238,7 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
-    func settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem() throws {
+    func settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem() async throws {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)
         settings.projectOpenBehavior = .newWindow
@@ -269,13 +269,44 @@ struct LitheCoreLogicTests {
         let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
 
         manager.bindSettings(to: primaryID)
+        let firstBindingID = manager.settingsBindingID
         manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
         #expect(manager.activeSessionID == dedicatedID)
         #expect(manager.settingsModel?.id == primaryID)
 
-        manager.bindSettings(to: dedicatedID)
+        let firstDraft = SettingsViewState(initialCategory: .plugins)
+        let secondDraft = SettingsViewState(initialCategory: .plugins)
+        let pluginID = OfficialPluginCatalog.phpPluginID
+        firstDraft.pendingPluginEnabledStates[pluginID] = true
+        let applied = await firstDraft.applyPluginChanges { _ in
+            await withCheckedContinuation { continuation in
+                manager.bindSettings(to: dedicatedID)
+                secondDraft.pendingPluginEnabledStates[pluginID] = false
+                continuation.resume(returning: [pluginID])
+            }
+        }
+        #expect(applied)
+        var didCloseSettings = false
+        manager.closeSettingsIfCurrent(for: primaryID, bindingID: firstBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        #expect(secondDraft.pendingPluginEnabledStates[pluginID] == false)
+
         manager.releaseSettings(for: primaryID)
         #expect(manager.settingsModel?.id == dedicatedID)
+        let secondBindingID = manager.settingsBindingID
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(didCloseSettings)
+        didCloseSettings = false
+        manager.bindSettings(to: dedicatedID)
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
         manager.releaseSettings(for: dedicatedID)
         #expect(manager.settingsModel == nil)
     }
