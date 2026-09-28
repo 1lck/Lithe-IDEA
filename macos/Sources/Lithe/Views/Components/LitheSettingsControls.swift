@@ -181,7 +181,6 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             SettingsSelectMetrics.maximumPopupHeight,
             max(1, visibleFrame.height - SettingsSelectMetrics.screenMargin)
         )
-        state.popupHeight = popupHeight
         let popup = content.environment(\.locale, locale)
         LitheSettingsSelectPopupPresenter.shared.show(
             ownerID: popupID,
@@ -237,6 +236,7 @@ private final class LitheSettingsSelectAnchorNSView: NSView {
 @MainActor
 private final class LitheSettingsSelectPopupState: ObservableObject {
     @Published var highlightedIndex: Int
+    @Published var keyboardScrollIndex: Int?
     @Published var popupHeight: CGFloat = 0
     let optionCount: Int
     let onChoose: (Int) -> Void
@@ -252,6 +252,7 @@ private final class LitheSettingsSelectPopupState: ObservableObject {
         case 125, 126: // Down / Up
             guard optionCount > 0 else { return true }
             highlightedIndex = (highlightedIndex + (event.keyCode == 125 ? 1 : optionCount - 1)) % optionCount
+            keyboardScrollIndex = highlightedIndex
         case 36, 76: // Return / keypad Enter
             guard optionCount > 0 else { return true }
             onChoose(highlightedIndex)
@@ -277,9 +278,9 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
             ScrollView(.vertical, showsIndicators: false) {
                 rows
             }
-            .onAppear { proxy.scrollTo(state.highlightedIndex, anchor: .center) }
-            .onChange(of: state.highlightedIndex) { index in
-                proxy.scrollTo(index, anchor: .center)
+            .onAppear { proxy.scrollTo(state.highlightedIndex) }
+            .onChange(of: state.keyboardScrollIndex) { index in
+                if let index { proxy.scrollTo(index) }
             }
         }
         .scrollContentBackground(.hidden)
@@ -339,10 +340,11 @@ struct LitheSettingsSelectPopupGeometry {
     static func frame(anchor: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
         let bounds = visibleFrame.insetBy(dx: 6, dy: 6)
         let width = min(size.width, bounds.width)
-        let height = min(size.height, bounds.height)
-        let below = anchor.minY - bounds.minY - 2
-        let above = bounds.maxY - anchor.maxY - 2
-        let preferredY = below >= height || below >= above
+        let below = max(0, anchor.minY - bounds.minY - 2)
+        let above = max(0, bounds.maxY - anchor.maxY - 2)
+        let opensBelow = below >= size.height || below >= above
+        let height = min(size.height, opensBelow ? below : above)
+        let preferredY = opensBelow
             ? anchor.minY - height - 2
             : anchor.maxY + 2
         return NSRect(
@@ -389,6 +391,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         let frame = LitheSettingsSelectPopupGeometry.frame(
             anchor: anchorFrame, size: size, visibleFrame: visibleFrame
         )
+        state.popupHeight = frame.height
         let panel = LitheSettingsSelectPopupPanel(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -491,6 +494,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                 }
                 .buttonStyle(LitheTreeRowButtonStyle())
                 .lithePointer()
+                .accessibilityValue(selection == option ? Text("Selected") : Text("Not selected"))
             }
         }
         .padding(2)
@@ -544,7 +548,9 @@ struct LitheSettingsCheckbox: View {
         }
         .buttonStyle(LitheTreeRowButtonStyle())
         .lithePointer()
-        .accessibilityLabel(Text(accessibilityLabel))
+        .accessibilityRepresentation {
+            Toggle(accessibilityLabel, isOn: $isOn)
+        }
     }
 }
 
