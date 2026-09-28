@@ -6,6 +6,11 @@
 "Try a different search term." = "请尝试其他搜索词。";
 "Project" = "项目";
 "General" = "通用";
+"Appearance & Behavior" = "外观与行为";
+"Build, Execution, Deployment" = "构建、执行、部署";
+"Languages & Frameworks" = "语言与框架";
+"Version Control" = "版本控制";
+"Tools" = "工具";
 "Appearance" = "外观";
 "Theme" = "主题";
 "Color theme" = "配色主题";
