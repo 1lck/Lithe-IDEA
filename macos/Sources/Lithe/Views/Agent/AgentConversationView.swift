@@ -272,7 +272,7 @@ private struct AgentConnectionView: View {
         case .authenticating:
             AgentEmptyStateView(systemImage: "person.crop.circle", title: "Waiting for ChatGPT sign-in…",
                 message: String(localized: "Complete sign-in in your browser. Your credentials are managed by Codex."),
-                actionTitle: "Cancel", action: { Task { await feature.stop() } }, isBusy: true)
+                actionTitle: "Cancel", action: { Task { await feature.cancelAuthentication() } }, isBusy: true)
         case .failed(let message):
             if feature.selectedConversation?.messages.isEmpty == false {
                 AgentTranscriptView(

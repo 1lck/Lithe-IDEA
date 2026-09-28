@@ -2517,3 +2517,5 @@
 "Quota is temporarily unavailable. The last value may be out of date." = "暂时无法更新额度，上次读数可能已过期。";
 
 "Waiting for subscription quota…" = "正在等待订阅额度…";
+
+"ChatGPT sign-in was cancelled." = "已取消 ChatGPT 登录。";

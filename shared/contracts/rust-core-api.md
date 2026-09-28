@@ -64,7 +64,9 @@ and launch failures are reported as a `stopped` event with a message.
 `provider`. It reuses the locally installed Codex CLI and its own account storage
 (including `CODEX_HOME`). The child uses the official `openai` model provider;
 inherited API-key, endpoint, token and gateway overrides are removed for this
-child only. No Lithe HTTP provider, stored API key or configured provider model
+child only. Session configuration also clears `openai_base_url` and selects the
+official `chatgpt_base_url`, preventing saved custom routes from overriding the
+subscription selection. The quota probe receives the same route overrides. No Lithe HTTP provider, stored API key or configured provider model
 is consulted. Codex owns login, token refresh and session model options.
 The pinned ACP adapter's `_auth/status_update` notification confirms the account.
 An existing account proceeds to `account` then `ready`; otherwise

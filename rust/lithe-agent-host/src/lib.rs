@@ -52,8 +52,7 @@ const MAX_SESSION_LIST_PAGES: usize = 50;
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
 /// Auth method id and `_meta` key of the ACP custom model gateway extension.
-/// Lithe authenticates only with user-supplied API keys through this method and
-/// never triggers an agent's own account login.
+/// API-key mode uses this method and never falls back to account login.
 const GATEWAY_AUTH_METHOD: &str = "gateway";
 
 /// Launch configuration supplied by the owning desktop product.

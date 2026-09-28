@@ -1030,6 +1030,33 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     fake_install(&data, "codex-acp");
     fake_install(&data, "claude-acp");
 
+    let mut subscription = launch("codex-acp", provider());
+    subscription.authentication = AgentAuthentication::CodexSubscription;
+    subscription.provider = None;
+    let subscription = resolve(subscription).unwrap();
+    assert!(subscription.gateway.is_none());
+    assert!(subscription.secret.is_empty());
+    assert_eq!(
+        subscription.subscription_cli,
+        Some("/opt/example/bin/codex".into())
+    );
+    let config: Value = serde_json::from_str(
+        &subscription
+            .env
+            .iter()
+            .find(|(name, _)| name == "CODEX_CONFIG")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(config["model_provider"], "openai");
+    assert_eq!(config["openai_base_url"], "");
+    assert_eq!(
+        config["chatgpt_base_url"],
+        "https://chatgpt.com/backend-api/"
+    );
+    assert!(config.get("model").is_none());
+
     let codex = resolve(launch("codex-acp", provider())).unwrap();
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
     // The adapter drives the user's own Codex; the key never enters the environment.

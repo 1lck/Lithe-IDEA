@@ -8,6 +8,10 @@ use super::*;
 use serde_json::{json, Value};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
+// Official Codex ChatGPT route, matching the upstream default. This is passed
+// to Codex configuration only; Lithe never issues authenticated HTTP requests.
+const CHATGPT_BASE_URL: &str = "https://chatgpt.com/backend-api/";
+
 const PROBE_TIMEOUT: Duration = Duration::from_secs(20);
 const MAX_REPLY_BYTES: u64 = 1024 * 1024;
 pub(super) const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -162,7 +166,13 @@ pub(super) fn resolve(
             ("MODEL_PROVIDER".into(), "openai".into()),
             (
                 "CODEX_CONFIG".into(),
-                json!({"model_provider": "openai"}).to_string(),
+                json!({
+                    "model_provider": "openai",
+                    // Empty disables a saved openai_base_url override in Codex.
+                    "openai_base_url": "",
+                    "chatgpt_base_url": CHATGPT_BASE_URL,
+                })
+                .to_string(),
             ),
         ],
         gateway: None,
@@ -209,7 +219,15 @@ pub(super) async fn read_quota(
     let mut process = std::process::Command::new(command);
     isolate_environment(&mut process);
     process
-        .args(["-c", "model_provider=\"openai\"", "app-server"])
+        .args([
+            "-c",
+            "model_provider=\"openai\"",
+            "-c",
+            "openai_base_url=\"\"",
+            "-c",
+        ])
+        .arg(format!("chatgpt_base_url=\"{CHATGPT_BASE_URL}\""))
+        .arg("app-server")
         .current_dir(cwd)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

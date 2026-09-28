@@ -1289,3 +1289,5 @@
 "Quota is temporarily unavailable. The last value may be out of date." = "Quota is temporarily unavailable. The last value may be out of date.";
 
 "Waiting for subscription quota…" = "Waiting for subscription quota…";
+
+"ChatGPT sign-in was cancelled." = "ChatGPT sign-in was cancelled.";

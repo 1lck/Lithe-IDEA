@@ -10,8 +10,8 @@ public enum AgentAuthentication: String, Codable, Equatable, Sendable {
 ///
 /// API providers and local Codex subscription accounts use distinct launch paths.
 public struct AgentLaunchConfiguration: Equatable, Sendable {
-    /// ACP registry id of a Lithe-installed adapter, or `nil` for `command`.
     public let authentication: AgentAuthentication
+    /// ACP registry id of a Lithe-installed adapter, or `nil` for `command`.
     public let agentID: String?
     public let command: String
     public let arguments: [String]

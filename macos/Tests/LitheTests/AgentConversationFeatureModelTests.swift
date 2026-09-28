@@ -646,6 +646,16 @@ struct AgentConversationFeatureModelTests {
             try feature.receive(event("quota"))
             #expect(feature.subscriptionQuota == nil)
             #expect(connection.closeCount == 1)
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("authenticationRequired"))
+            feature.authenticate()
+            await feature.cancelAuthentication()
+            guard case .failed = feature.connectionState else {
+                Issue.record("Cancelled login must not enter the auto-connecting idle view")
+                return
+            }
+            #expect(transport.connections.count == 2)
+            #expect(transport.connections[1].closeCount == 1)
         } catch { await feature.stop(); throw error }
     }
 

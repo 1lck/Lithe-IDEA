@@ -126,6 +126,18 @@ public final class AgentConnectionModel: ObservableObject {
         if sendCommand(["kind": "authenticate"]) { connectionState = .authenticating }
     }
 
+    /// Keep a cancelled login out of the idle view, which auto-connects on appear.
+    public func cancelAuthentication() async {
+        guard connectionState == .authenticating else { return }
+        let old = detachConnection(failure: String(localized: "ChatGPT sign-in was cancelled."))
+        if let old {
+            let closing = Task { await old.close() }
+            closeTask = closing
+            await closing.value
+            closeTask = nil
+        }
+    }
+
     /// The visible panel owns the polling task; the native host coalesces requests.
     public func refreshQuota() {
         guard usesSubscription, connectionState == .ready else { return }
