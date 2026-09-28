@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "lastReviewed": "2026-09-27",
+  "lastReviewed": "2026-09-28",
   "review": {
     "status": "initial-static-inventory",
     "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
@@ -117,13 +117,14 @@
       "windows": {
         "evidence": [
           "rust/lithe-agent-host/src/lib.rs",
-          "shared/fixtures/agent/acp-events-v1.json"
+          "shared/fixtures/agent/acp-events-v1.json",
+          "windows/tauri/src-tauri/src/agent.rs"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 共享 host 可转发 usage_update，页面待实现。"
+      "verification": "macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 连接桥已转发 usage_update，页面待实现。"
     },
     {
       "id": "agent-acp-conversation",
@@ -141,13 +142,14 @@
       },
       "windows": {
         "evidence": [
-          "rust/lithe-agent-host"
+          "rust/lithe-agent-host",
+          "windows/tauri/src-tauri/src/agent.rs"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 连接桥已接通共享 host，Windows 与 Claude 端到端仍待验证。"
     },
     {
       "id": "agent-file-references",
@@ -255,11 +257,12 @@
         "verificationStatus": "pending",
         "evidence": [
           "rust/lithe-agent-host/src/lib.rs",
-          "shared/fixtures/agent/acp-events-v1.json"
+          "shared/fixtures/agent/acp-events-v1.json",
+          "windows/tauri/src-tauri/src/agent.rs"
         ]
       },
       "owner": "Agent",
-      "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 仅共享 host 已实现，UI 待接入。"
+      "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 连接桥已接通共享 host，UI 待接入。"
     },
     {
       "id": "agent-subscription-quota",
@@ -281,11 +284,12 @@
         "verificationStatus": "pending",
         "evidence": [
           "rust/lithe-agent-host/src/subscription.rs",
-          "shared/fixtures/agent/acp-events-v1.json"
+          "shared/fixtures/agent/acp-events-v1.json",
+          "windows/tauri/src-tauri/src/agent.rs"
         ]
       },
       "owner": "Agent",
-      "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows UI 与真实账号验证待完成。"
+      "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows 连接桥已接通，UI 与真实账号验证待完成。"
     },
     {
       "id": "workspace-open-switch",

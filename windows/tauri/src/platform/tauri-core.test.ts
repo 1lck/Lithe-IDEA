@@ -27,6 +27,24 @@ test("Java index maintenance routes directly to the Tauri host", async () => {
 });
 
 
+test("Agent connection commands route directly to the Tauri host", async () => {
+  const args = { connectionId: "fixture-connection", command: { authenticate: null } };
+
+  expect(isNativeCommand("agent_open")).toBe(true);
+  expect(isNativeCommand("agent_send")).toBe(true);
+  expect(isNativeCommand("agent_close")).toBe(true);
+
+  await invoke("agent_open", args);
+  await invoke("agent_close", { connectionId: "fixture-connection" });
+
+  expect(tauriInvoke).toHaveBeenCalledWith("agent_open", args, undefined);
+  expect(tauriInvoke).toHaveBeenCalledWith(
+    "agent_close",
+    { connectionId: "fixture-connection" },
+    undefined,
+  );
+});
+
 test("pure console projection bypasses execution events and Git settings", async () => {
   const args = { records: [], search: "" };
   await invoke("git.consolePresentation", args);

@@ -2869,6 +2869,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "keyring",
+ "lithe-agent-host",
  "lithe-core",
  "lithe-git-host",
  "lithe-project",

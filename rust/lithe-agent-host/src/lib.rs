@@ -48,6 +48,11 @@ const PERMISSION_TIMEOUT: Duration = Duration::from_secs(300);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Upper bound on `session/list` pages so a misbehaving cursor cannot loop forever.
 const MAX_SESSION_LIST_PAGES: usize = 50;
+/// Windows flag that runs the adapter with a console it cannot display. The
+/// desktop shell is a GUI process without a console, so a console-subsystem
+/// adapter would otherwise open a visible console window on every launch.
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// Bytes of agent stderr kept for failure reports; older output is discarded.
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
@@ -700,6 +705,10 @@ async fn run_agent(
         command.process_group(0);
     }
     let mut command = tokio::process::Command::from(command);
+    #[cfg(windows)]
+    {
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

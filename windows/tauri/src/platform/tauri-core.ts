@@ -16,6 +16,11 @@ import { adaptCoreResult } from "./core-result-adapter";
 export { Channel, convertFileSrc };
 
 const nativeCommands = new Set([
+  // Agent connections keep a long-lived handle in the Tauri host, so they are
+  // invoked directly instead of through the shared command envelope.
+  "agent_open",
+  "agent_send",
+  "agent_close",
   "begin_frontend_terminal_session",
   "clipboard_clear",
   "clipboard_get",

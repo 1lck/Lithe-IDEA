@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目的每种 Agent 只有一个对话连接，一个连接里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。供应商管理允许 Codex 在自定义 API Key 和本机 ChatGPT 订阅间切换；Claude 仍只支持 API Key。订阅额度放在输入框上下文的右侧，不新增页面。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里，Mac 与未来的 Windows 只各自实现界面。
+Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 Agent。每个项目的每种 Agent 只有一个对话连接，一个连接里可以有多个会话；会话历史由 Agent 自己保存；Lithe 负责显示，并单独保存收藏、自定义标题和可恢复的隐藏状态。供应商管理允许 Codex 在自定义 API Key 和本机 ChatGPT 订阅间切换；Claude 仍只支持 API Key。订阅额度放在输入框上下文的右侧，不新增页面。Agent 需要的 Node.js 由用户自己安装，Lithe 只负责检测；ACP 适配器由 Lithe 提供一键安装，安装时用的是用户本机的 npm。ACP（Agent Client Protocol，编辑器与 Agent 之间的对话协议）连接和进程管理写在同一个 Rust crate 里：Mac 通过 C ABI 调用，Windows 通过 `windows/tauri/src-tauri/src/agent.rs` 的连接桥调用，两端只各自实现界面。
 
 ## 问题
 
@@ -43,6 +43,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **CLI 更新保留安装来源**：以 PATH 中实际命令及其真实文件为准，不能仅看到用户装了 npm 就把所有 CLI 交给 npm。Homebrew 通过自己报告的 Cellar/Caskroom 位置和已安装记录确认归属，保留 cask/formula 及 `claude-code@latest` 等渠道；npm 必须确认当前 global root、包名、bin 声明和链接都指向同一 CLI，另一套 Node 环境不能代更新；Claude 标准原生 launcher 使用上游 `claude update`。未知来源、损坏链接、缺少原安装器或安装记录时拒绝自动覆盖，明确提供手动指引。更新后重新读取登录 shell 的 PATH 并验证最低版本；更新命令退出成功但实际 CLI 仍过旧也应失败。安装器可能在首次下载失败后重试成功，却保留非零退出状态，因此正常结束的命令无论退出状态如何，都要检查实际版本。只有新安装或数字版本严格提升且达到最低要求时，才能把非零退出降为“已成功、带警告”，返回有界日志并在界面折叠展示；原本可用但版本没变、降级、仍过旧或找不到命令时继续报错。不能根据日志中的“successfully upgraded”字样猜测成功，也不能把取消、超时或启动失败改判成功。读取来源只使用有界的本地查询，不更新包管理器索引、不改变用户配置。Homebrew 和原生下载归原安装器拥有，仅显示“正在更新”与耗时，不伪造字节进度；它们的全局安装和缓存不注册成可复制的工作树构建资源，排除清单与测试同步维护。
   - **下载进度以 npm 的真实传输为准**：安装与 CLI 升级通过现有 Core 事件回调报告已接收软件包字节数、最近采样速度、耗时和等待时间。npm 没有提供整次安装的总量，且会继续发现依赖，所以不显示总体百分比。内嵌的 Node 观察模块只统计 HTTP 响应进入流缓冲区的字节，不添加消费数据的监听器，也不重写下载、代理、重试、校验或缓存行为。模块通过内存中的 data URL 加载，启动后先恢复用户原有 `NODE_OPTIONS`，防止 npm 子脚本继承观察器；不生成辅助文件或新的可复用缓存。正确做法是显示“已下载 25 MB、75 KB/秒、已用时 300 秒”；不要把 npm 静默时的日志时间或整个共享缓存大小当成下载进度。Core 事件只携带数字和阶段，界面按操作标识丢弃迟到事件，完成、失败或取消后清除进度。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
+  - **Windows 连接桥**：`windows/tauri/src-tauri/src/agent.rs` 直接依赖 `lithe-agent-host`，用 `agent_open`、`agent_send`、`agent_close` 三个 Tauri 命令转发 fixture 里的同一套 JSON，协议、会话和取消语义仍只有共享 crate 一份。连接 ID 由界面自己生成：界面先订阅 `agent_event` 再开连接，因此不存在“事件先于连接标识到达”的竞态；重复或为空的 ID 直接拒绝，不会顶掉在用的连接。事件只发给打开它的那个窗口，不广播给其他项目。连接按窗口标签登记，项目窗口销毁和应用退出都会释放连接与进程树，退出路径同步等待。Windows 桌面外壳是 GUI 进程、没有控制台，所以共享 host 在 Windows 上以 `CREATE_NO_WINDOW` 启动适配器，避免每开一次 Agent 都弹出一个控制台窗口。
   - **Key 和模型的传法**：API Key 模式的适配器通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置放在面板里，只有 Agent 管理一页**：Agent 的开关、预检清单（Node、npm、CLI、适配器、本机配置）、适配器和 CLI 的一键安装都在 Agent 面板右上角的设置视图里，不进全局设置窗口。布局仿照 Codeg 和 CC GUI：左侧图标栏，右侧标题加分段切换各个 Agent。
    - **本机配置保留 CLI 所有权**：每个 Agent 通过本机配置行读取用户自己 CLI 的地址、模型和密钥（Codex 读 `~/.codex/config.toml` 和 `auth.json`，Claude 读 `~/.claude/settings.json` 和 `~/.claude.json`），生成的服务商配置绑定到该 Agent。本机模式的密钥不复制进 Lithe，启动时从用户文件现读；要改本机地址或密钥时编辑自己的文件再刷新。需要独立配置时使用上面的自定义供应商编辑器，不改写 CLI 文件，也不改变提交信息使用的服务商选择。
@@ -104,10 +105,11 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 后果
 
-两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。
+两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。Windows 的连接桥只多一层连接登记、事件转发和进程回收，不会成为第二份协议实现。
 
 代价：
 
+- Windows 面板 UI、供应商切换和额度展示仍需另做；共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在面板内安装。
 - codex-acp 丢失取消时，最多等待十秒后需要用户重连；同一进程的其他会话也会断开。上游未持久化的最后片段可能无法完整回放，界面保留旧记录用于诊断，不能保证 Agent 保存了未完成轮次。
@@ -115,9 +117,10 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 ## 验证
 
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
-- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和 host，但订阅选择和额度 UI 待接入。
+- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
+- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接；不需要真实 Agent 或网络）
 - `cargo test -p lithe-core agent`（`agent.*` 命令与 `shared/fixtures/agent/agent-management-v1.json`）
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
@@ -135,4 +138,4 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
