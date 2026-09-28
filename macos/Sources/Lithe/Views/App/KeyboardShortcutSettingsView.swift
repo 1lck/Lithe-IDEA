@@ -4,6 +4,8 @@ struct KeyboardShortcutSettingsView: View {
     @ObservedObject var feature: KeyboardShortcutFeatureModel
     let language: AppLanguage
     @State private var query = ""
+    @State private var expandedGroups: Set<LitheActionGroup> = []
+    @State private var selectedCommandID: String?
     @State private var editingTarget: EditingTarget?
     @State private var validationIssue: ValidationIssue?
 
@@ -21,15 +23,9 @@ struct KeyboardShortcutSettingsView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            toolbar
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
-                    let sections = feature.groupedCommands(query: query) { command in
-                        [
-                            localizedString(command.title),
-                            localizedString(command.subtitle),
-                            localizedString(command.group.rawValue)
-                        ].joined(separator: " ")
-                    }
+                LazyVStack(alignment: .leading, spacing: 0) {
                     if sections.isEmpty {
                         emptyState
                     } else {
@@ -38,77 +34,155 @@ struct KeyboardShortcutSettingsView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 20)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
         .background(LitheTheme.settingsSurface)
     }
 
+    private var sections: [KeyboardShortcutCommandSection] {
+        feature.groupedCommands(query: query) { command in
+            [
+                localizedString(command.title),
+                localizedString(command.subtitle),
+                localizedString(command.group.rawValue)
+            ].joined(separator: " ")
+        }
+    }
+
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text("Customize shortcuts for Lithe actions. Changes apply immediately.")
-                    .font(LitheTheme.smallFont)
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Spacer()
+        HStack(spacing: 10) {
+            Text("macOS")
+                .font(.system(size: 12.5, weight: .medium))
+                .frame(width: 190, height: 28, alignment: .leading)
+                .padding(.horizontal, 9)
+                .litheSettingsControlChrome()
+            Menu {
                 Button("Restore All Defaults") {
-                    editingTarget = nil
-                    validationIssue = nil
+                    cancelEditing()
                     feature.resetAll()
                 }
-                .buttonStyle(.bordered)
-                .lithePointer()
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 13))
             }
-
-            LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
-                    editingTarget = nil
-                    validationIssue = nil
-            }
+            .menuStyle(.borderlessButton)
+            .frame(width: 26)
+            .accessibilityLabel("Restore All Defaults")
+            .lithePointer()
+            Spacer()
         }
         .foregroundStyle(LitheTheme.primaryText)
         .padding(.horizontal, 16)
-        .padding(.bottom, 16)
+        .padding(.bottom, 12)
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 12) {
+            Button {
+                expandedGroups = Set(LitheActionGroup.allCases)
+            } label: {
+                Image(systemName: "arrow.down.right.and.arrow.up.left")
+            }
+            .help("Expand All")
+
+            Button {
+                expandedGroups = []
+                cancelEditing()
+            } label: {
+                Image(systemName: "arrow.up.left.and.arrow.down.right")
+            }
+            .help("Collapse All")
+
+            Button {
+                if let selectedCommandID,
+                   let command = LitheCommandCatalog.command(id: selectedCommandID) {
+                    expandedGroups.insert(command.group)
+                    beginEditing(commandID: selectedCommandID, bindingIndex: nil)
+                }
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .disabled(selectedCommandID == nil)
+            .help("Add Shortcut")
+
+            Spacer(minLength: 12)
+            LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
+                cancelEditing()
+                selectedCommandID = nil
+            }
+            .frame(width: 250)
+        }
+        .font(.system(size: 12))
+        .buttonStyle(.borderless)
+        .foregroundStyle(LitheTheme.secondaryText)
+        .padding(.horizontal, 16)
+        .frame(height: 38)
+        .background(alignment: .top) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+        .background(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 
     private func commandSection(_ section: KeyboardShortcutCommandSection) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Text(LocalizedStringKey(section.group.rawValue))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
-            VStack(spacing: 0) {
-                ForEach(Array(section.commands.enumerated()), id: \.element.id) { index, command in
-                    commandRow(command)
-                    if index < section.commands.count - 1 {
-                        Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if expandedGroups.contains(section.group) {
+                    expandedGroups.remove(section.group)
+                    cancelEditing()
+                } else {
+                    expandedGroups.insert(section.group)
                 }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 9, weight: .medium))
+                        .rotationEffect(.degrees(isExpanded(section.group) ? 90 : 0))
+                        .frame(width: 12)
+                    Image(systemName: "folder")
+                        .font(.system(size: 12))
+                    Text(LocalizedStringKey(section.group.rawValue))
+                        .font(.system(size: 12.5))
+                    Spacer()
+                }
+                .foregroundStyle(LitheTheme.primaryText)
+                .padding(.horizontal, 8)
+                .frame(height: 26)
+                .contentShape(Rectangle())
             }
-            .background(LitheTheme.sidebar)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay {
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(LitheTheme.divider, lineWidth: 1)
+            .buttonStyle(.plain)
+            .disabled(!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if isExpanded(section.group) {
+                ForEach(section.commands) { command in
+                    commandRow(command)
+                }
             }
         }
     }
 
+    private func isExpanded(_ group: LitheActionGroup) -> Bool {
+        !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || expandedGroups.contains(group)
+    }
+
     private func commandRow(_ command: LitheCommandDefinition) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(LocalizedStringKey(command.title))
-                        .font(.system(size: 12.5, weight: .medium))
-                    Text(command.id)
-                        .font(.system(size: 10.5, design: .monospaced))
-                        .foregroundStyle(LitheTheme.tertiaryText)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Button {
+                    selectedCommandID = command.id
+                } label: {
+                    HStack(spacing: 7) {
+                        Image(systemName: "bolt.horizontal")
+                            .font(.system(size: 11))
+                            .frame(width: 12)
+                        Text(LocalizedStringKey(command.title))
+                            .font(.system(size: 12.5))
+                            .lineLimit(1)
+                        Spacer(minLength: 6)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .frame(minWidth: 160, maxWidth: .infinity, alignment: .leading)
+                .buttonStyle(.plain)
 
                 shortcutControls(for: command)
 
@@ -122,6 +196,12 @@ struct KeyboardShortcutSettingsView: View {
                     .lithePointer()
                 }
             }
+            .foregroundStyle(selectedCommandID == command.id ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+            .padding(.leading, 31)
+            .padding(.trailing, 8)
+            .frame(height: 28)
+            .background(selectedCommandID == command.id ? LitheTheme.settingsSelection : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             if editingTarget?.commandID == command.id {
                 KeyboardShortcutRecorderView(
@@ -134,6 +214,7 @@ struct KeyboardShortcutSettingsView: View {
                     onCancel: cancelEditing
                 )
                 .id("\(command.id)-\(editingTarget?.bindingIndex ?? -1)")
+                .padding(.leading, 31)
 
                 if let validationIssue {
                     Label {
@@ -141,14 +222,12 @@ struct KeyboardShortcutSettingsView: View {
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                        .font(.system(size: 11))
-                        .foregroundStyle(LitheTheme.warning)
+                    .font(.system(size: 11))
+                    .foregroundStyle(LitheTheme.warning)
+                    .padding(.leading, 31)
                 }
             }
         }
-        .foregroundStyle(LitheTheme.primaryText)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
     }
 
     private func shortcutControls(for command: LitheCommandDefinition) -> some View {
@@ -218,6 +297,7 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private func beginEditing(commandID: String, bindingIndex: Int?) {
+        selectedCommandID = commandID
         validationIssue = nil
         editingTarget = EditingTarget(commandID: commandID, bindingIndex: bindingIndex)
     }
