@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import CoreServices
 import Foundation
+import SwiftUI
 import LitheApplicationKernel
 @testable import LitheDatabaseModule
 @testable import LitheGitModule
@@ -814,6 +815,73 @@ struct LitheCoreLogicTests {
 
         #expect(window.title == "Lithe-IDEA")
         #expect(window.titleVisibility == .hidden)
+    }
+
+    @Test
+    @MainActor
+    func workspaceTrafficLightsStayCenteredOnTheFortyPointToolbar() throws {
+        let sessions = TestProjectWindowSessions(hasActiveProject: true)
+        let coordinator = LitheWindowCoordinator(projectSessions: sessions)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+
+        func buttonCenterFromTop() throws -> CGFloat {
+            let button = try #require(window.standardWindowButton(.closeButton))
+            let host = try #require(button.superview)
+            return host.bounds.maxY - button.frame.midY
+        }
+
+        coordinator.attach(to: window, layout: .workspace, title: "Project")
+        #expect(try abs(buttonCenterFromTop() - LitheTheme.Metrics.toolbarHeight / 2) < 0.5)
+
+        window.setContentSize(NSSize(width: 1000, height: 700))
+        #expect(try abs(buttonCenterFromTop() - LitheTheme.Metrics.toolbarHeight / 2) < 0.5)
+
+        coordinator.attach(to: window, layout: .welcome)
+        let nativeTitlebarHeight = try #require(window.standardWindowButton(.closeButton)?.superview?.bounds.height)
+        #expect(try abs(buttonCenterFromTop() - nativeTitlebarHeight / 2) < 0.5)
+    }
+
+    @Test
+    @MainActor
+    func generatedProjectToolbarColorUsesIDEABlendStrength() throws {
+        let appearance = ProjectIdentityAppearance(colorIndex: 3, isDark: true)
+        let lightAppearance = ProjectIdentityAppearance(colorIndex: 3, isDark: false)
+        let darkBase = Color(nsColor: LitheTheme.nsColor(.titlebar, theme: .lithe, isDark: true))
+        let lightBase = Color(nsColor: LitheTheme.nsColor(.titlebar, theme: .lithe, isDark: false))
+        let darkCorner = try #require(NSColor(ProjectIdentityAppearance.blend(darkBase, with: appearance.toolbarColor, fraction: 0)).usingColorSpace(.sRGB))
+        let lightCorner = try #require(NSColor(ProjectIdentityAppearance.blend(lightBase, with: appearance.toolbarColor, fraction: 0)).usingColorSpace(.sRGB))
+        #expect(darkCorner.redComponent < 0.2)
+        #expect(lightCorner.redComponent > 0.9)
+        let avatar = try #require(NSColor(appearance.avatarStart).usingColorSpace(.sRGB))
+        #expect(abs(avatar.redComponent - (0x3B / 255.0)) < 0.001)
+        #expect(abs(avatar.greenComponent - (0x92 / 255.0)) < 0.001)
+        #expect(abs(avatar.blueComponent - (0xB8 / 255.0)) < 0.001)
+        let lightAvatar = try #require(NSColor(lightAppearance.avatarStart).usingColorSpace(.sRGB))
+        #expect(abs(avatar.redComponent - lightAvatar.redComponent) < 0.001)
+        #expect(abs(avatar.greenComponent - lightAvatar.greenComponent) < 0.001)
+        #expect(abs(avatar.blueComponent - lightAvatar.blueComponent) < 0.001)
+        let color = try #require(NSColor(appearance.toolbarGlow(over: .black)).usingColorSpace(.sRGB))
+        #expect(abs(color.redComponent - (0x33 / 255.0 * 0.85)) < 0.001)
+        #expect(abs(color.greenComponent - (0x56 / 255.0 * 0.85)) < 0.001)
+        #expect(abs(color.blueComponent - (0x61 / 255.0 * 0.85)) < 0.001)
+    }
+
+    @Test
+    func projectAvatarColorsStayStableBeyondPaletteSize() {
+        let project = URL(fileURLWithPath: "/projects/alpha")
+        let equivalentProject = URL(fileURLWithPath: "/projects/tmp/../alpha")
+        #expect(ProjectIdentityAppearance.colorIndex(for: project) == ProjectIdentityAppearance.colorIndex(for: equivalentProject))
+
+        let colors = (0..<20).map {
+            ProjectIdentityAppearance.colorIndex(for: URL(fileURLWithPath: "/projects/project-\($0)"))
+        }
+        #expect(Set(colors.suffix(11)).count > 1)
+        #expect(ProjectIdentityAppearance.initials(for: "Lithe-IDEA") == "LI")
     }
 
     @Test
