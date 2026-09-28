@@ -72,8 +72,7 @@ import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
   files: GitFile[];
-  commitSelectedPaths: ReadonlySet<string>;
-  onCommitSelectedPathsChange: (paths: Set<string>) => void;
+  repositoryCount?: number;
   collapsedFolders: ReadonlySet<string>;
   onCollapsedFoldersChange: (folders: Set<string>) => void;
   collapsedSections: ReadonlySet<string>;
@@ -88,6 +87,7 @@ interface GitStatusPanelProps {
   onShowStashDiffPicker?: () => void;
   onRefresh?: () => void;
   onStagingRefresh: () => Promise<void>;
+  onStagingPendingChange?: (pending: boolean) => void;
   repoPath?: string;
 }
 
@@ -103,10 +103,11 @@ interface GitStatusSelectionEntry {
   files: GitFile[];
 }
 
-type StatusSection = "tracked" | "untracked";
+type StatusSection = string;
 type GitStatusDiffScope = "all" | "unstaged" | "staged";
 
 type GitStatusVirtualRow =
+  | { kind: "repository"; key: string; repoPath: string; count: number }
   | {
       kind: "section";
       key: string;
@@ -166,9 +167,9 @@ function groupGitFilesByRepository(
 }
 
 function getRepoRelativePaths(files: readonly GitFile[]): string[] {
-  return [
-    ...new Set(files.map(getGitFileRepositoryRelativePath).filter(Boolean)),
-  ].sort((left, right) => left.localeCompare(right));
+  return [...new Set(files.map(getGitFileRepositoryRelativePath).filter(Boolean))].sort(
+    (left, right) => left.localeCompare(right),
+  );
 }
 
 function logStagingFailure(
@@ -205,8 +206,7 @@ function logStagingFailure(
 
 const GitStatusPanel = ({
   files,
-  commitSelectedPaths,
-  onCommitSelectedPathsChange,
+  repositoryCount = 1,
   collapsedFolders,
   onCollapsedFoldersChange,
   collapsedSections,
@@ -221,6 +221,7 @@ const GitStatusPanel = ({
   onShowStashDiffPicker,
   onRefresh,
   onStagingRefresh,
+  onStagingPendingChange,
   repoPath,
 }: GitStatusPanelProps) => {
   const { t } = useTranslation();
@@ -236,6 +237,10 @@ const GitStatusPanel = ({
   const [optimisticStageMap, setOptimisticStageMap] = useState<Record<string, boolean>>({});
   const stagingOperationsRef = useRef(new Map<string, Set<symbol>>());
   const [stagePendingPaths, setStagePendingPaths] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    onStagingPendingChange?.(stagePendingPaths.size > 0);
+    return () => onStagingPendingChange?.(false);
+  }, [stagePendingPaths, onStagingPendingChange]);
   const [selectedEntryIds, setSelectedEntryIds] = useState<Set<string>>(new Set());
 
   const [stashModal, setStashModal] = useState<{
@@ -250,9 +255,11 @@ const GitStatusPanel = ({
   });
 
   useEffect(() => {
-    setOptimisticStageMap((current) => Object.fromEntries(
-      Object.entries(current).filter(([path]) => stagingOperationsRef.current.has(path)),
-    ));
+    setOptimisticStageMap((current) =>
+      Object.fromEntries(
+        Object.entries(current).filter(([path]) => stagingOperationsRef.current.has(path)),
+      ),
+    );
   }, [files]);
 
   const displayFiles = useMemo(() => {
@@ -272,18 +279,36 @@ const GitStatusPanel = ({
     hasUnstagedDiffableFiles,
     visibleFiles,
     displayFileByPath,
-    trackedFiles,
-    untrackedFiles,
-    groupedTrackedFiles,
-    groupedUntrackedFiles,
   } = useMemo(() => buildGitStatusPresentation(displayFiles), [displayFiles]);
-  const trackedFolderTree = useMemo(
-    () => (gitChangesFolderView ? buildGitFolderTree(trackedFiles) : null),
-    [gitChangesFolderView, trackedFiles],
+  const repositoryGroups = useMemo(
+    () => groupGitFilesByRepository(visibleFiles, repoPath),
+    [visibleFiles, repoPath],
   );
-  const untrackedFolderTree = useMemo(
-    () => (gitChangesFolderView ? buildGitFolderTree(untrackedFiles) : null),
-    [gitChangesFolderView, untrackedFiles],
+  const sections = useMemo(
+    () =>
+      repositoryGroups.flatMap((group) => {
+        const presentation = buildGitStatusPresentation(group.files);
+        return ["tracked", "untracked"].map((kind) => {
+          const sectionFiles =
+            kind === "tracked" ? presentation.trackedFiles : presentation.untrackedFiles;
+          return {
+            id: `${group.repoPath}:${kind}`,
+            repoPath: group.repoPath,
+            kind,
+            files: sectionFiles,
+            grouped:
+              kind === "tracked"
+                ? presentation.groupedTrackedFiles
+                : presentation.groupedUntrackedFiles,
+            tree: gitChangesFolderView ? buildGitFolderTree(sectionFiles, true) : null,
+          };
+        });
+      }),
+    [repositoryGroups, gitChangesFolderView],
+  );
+  const sectionById = useMemo(
+    () => new Map(sections.map((section) => [section.id, section])),
+    [sections],
   );
   const entryById = useMemo(() => {
     const entries = new Map<string, GitStatusSelectionEntry>();
@@ -294,7 +319,7 @@ const GitStatusPanel = ({
         id,
         kind: "file",
         path: file.path,
-        filePaths: resolveGitFileMutationPaths([file]),
+        filePaths: [file.path],
         files: [file],
       });
     }
@@ -317,7 +342,7 @@ const GitStatusPanel = ({
           id,
           kind: "folder",
           path: branch.path,
-          filePaths: resolveGitFileMutationPaths(files),
+          filePaths: files.map((file) => file.path),
           files,
         });
         branch.children.forEach(registerNode);
@@ -326,10 +351,9 @@ const GitStatusPanel = ({
       tree.nodes.forEach(registerNode);
     };
 
-    registerFolders(trackedFolderTree, "tracked");
-    registerFolders(untrackedFolderTree, "untracked");
+    for (const section of sections) registerFolders(section.tree, section.id);
     return entries;
-  }, [displayFileByPath, trackedFolderTree, untrackedFolderTree, visibleFiles]);
+  }, [displayFileByPath, sections, visibleFiles]);
 
   const statusRows = useMemo(() => {
     const rows: GitStatusVirtualRow[] = [];
@@ -403,20 +427,25 @@ const GitStatusPanel = ({
       }
     };
 
-    appendSection("tracked", trackedFiles.length, trackedFolderTree, groupedTrackedFiles);
-    appendSection("untracked", untrackedFiles.length, untrackedFolderTree, groupedUntrackedFiles);
+    for (const group of repositoryGroups) {
+      const key = `repository:${group.repoPath}`;
+      if (repositoryCount > 1 || repositoryGroups.length > 1) {
+        rows.push({ kind: "repository", key, repoPath: group.repoPath, count: group.files.length });
+        if (collapsedSections.has(key)) continue;
+      }
+      for (const section of sections.filter((section) => section.repoPath === group.repoPath)) {
+        appendSection(section.id, section.files.length, section.tree, section.grouped);
+      }
+    }
     return rows;
   }, [
     collapsedFolders,
     collapsedSections,
     fileTreePresentation.compactFolders,
     gitChangesFolderView,
-    groupedTrackedFiles,
-    groupedUntrackedFiles,
-    trackedFiles.length,
-    trackedFolderTree,
-    untrackedFiles.length,
-    untrackedFolderTree,
+    repositoryGroups,
+    repositoryCount,
+    sections,
   ]);
 
   const statusVirtualizer = useVirtualizer({
@@ -424,7 +453,8 @@ const GitStatusPanel = ({
     getScrollElement: () => statusViewportRef.current,
     estimateSize: (index) => {
       const row = statusRows[index];
-      if (row?.kind === "section") return GIT_STATUS_SECTION_HEADER_HEIGHT;
+      if (row?.kind === "section" || row?.kind === "repository")
+        return GIT_STATUS_SECTION_HEADER_HEIGHT;
       if (row?.kind === "spacer") return row.size;
       return fileTreePresentation.rowHeight;
     },
@@ -449,7 +479,11 @@ const GitStatusPanel = ({
     });
   };
 
-  const handleSetFilesStaged = async (filesToStage: GitFile[], staged: boolean): Promise<boolean> => {
+  const handleSetFilesStaged = async (
+    filesToStage: GitFile[],
+    staged: boolean,
+  ): Promise<boolean> => {
+    filesToStage = filesToStage.filter((file) => file.canToggleStaging !== false);
     const repositoryGroups = groupGitFilesByRepository(filesToStage, repoPath);
     if (repositoryGroups.length === 0) return false;
     const displayFilePaths = [...new Set(filesToStage.map((file) => file.path))];
@@ -470,7 +504,8 @@ const GitStatusPanel = ({
       );
       for (const [repositoryIndex, result] of results.entries()) {
         if (result.status === "rejected") {
-          const message = result.reason instanceof Error ? result.reason.message : String(result.reason);
+          const message =
+            result.reason instanceof Error ? result.reason.message : String(result.reason);
           logStagingFailure(
             message,
             staged,
@@ -487,7 +522,13 @@ const GitStatusPanel = ({
       return results.every((result) => result.status === "fulfilled" && result.value);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logStagingFailure(message, staged, "refresh", displayFilePaths.length, repositoryGroups.length);
+      logStagingFailure(
+        message,
+        staged,
+        "refresh",
+        displayFilePaths.length,
+        repositoryGroups.length,
+      );
       toast.error(t("git.operationError", { error: message }));
       return false;
     } finally {
@@ -498,9 +539,9 @@ const GitStatusPanel = ({
       }
       const pendingPaths = new Set(stagingOperationsRef.current.keys());
       setStagePendingPaths(pendingPaths);
-      setOptimisticStageMap((current) => Object.fromEntries(
-        Object.entries(current).filter(([path]) => pendingPaths.has(path)),
-      ));
+      setOptimisticStageMap((current) =>
+        Object.fromEntries(Object.entries(current).filter(([path]) => pendingPaths.has(path))),
+      );
     }
   };
 
@@ -511,13 +552,18 @@ const GitStatusPanel = ({
     ...new Set(entries.flatMap((entry) => entry.filePaths)),
   ];
 
-  const handleCommitEntries = (entries: GitStatusSelectionEntry[]) => {
+  const handleCommitEntries = async (entries: GitStatusSelectionEntry[]) => {
     const filePaths = [
       ...new Set(entries.flatMap((entry) => entry.files.map((file) => file.path))),
     ];
     if (filePaths.length === 0) return;
-    onCommitSelectedPathsChange(new Set(filePaths));
-    onCommitSelection?.(filePaths);
+    if (
+      await handleSetFilesStaged(
+        entries.flatMap((entry) => entry.files),
+        true,
+      )
+    )
+      onCommitSelection?.(filePaths);
   };
 
   const handleRollbackEntries = async (entries: GitStatusSelectionEntry[]) => {
@@ -529,10 +575,13 @@ const GitStatusPanel = ({
 
     if (
       confirmBeforeDiscard &&
-      !(await showConfirmDialog(t("git.rollbackPathsConfirm", { count: displayTrackedFilePaths.length }), {
-        title: t("git.rollback"),
-        confirmLabel: t("git.rollback"),
-      }))
+      !(await showConfirmDialog(
+        t("git.rollbackPathsConfirm", { count: displayTrackedFilePaths.length }),
+        {
+          title: t("git.rollback"),
+          confirmLabel: t("git.rollback"),
+        },
+      ))
     ) {
       return;
     }
@@ -575,13 +624,19 @@ const GitStatusPanel = ({
 
     setIsLoading(true);
     try {
-      const result = await deleteGitStatusPaths(filePaths, async (filePath) => {
-        const file = entries.flatMap((entry) => entry.files).find((candidate) => candidate.path === filePath);
-        const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
-        const relativePath = file ? getGitFileRepositoryRelativePath(file) : filePath;
-        if (!fileRepoPath) throw new Error("Missing Git repository path for delete operation");
-        return deleteFile(joinPath(fileRepoPath, relativePath));
-      }, async () => onRefresh?.());
+      const result = await deleteGitStatusPaths(
+        filePaths,
+        async (filePath) => {
+          const file = entries
+            .flatMap((entry) => entry.files)
+            .find((candidate) => candidate.path === filePath);
+          const fileRepoPath = file ? getGitFileRepositoryPath(file, repoPath) : repoPath;
+          const relativePath = file ? getGitFileRepositoryRelativePath(file) : filePath;
+          if (!fileRepoPath) throw new Error("Missing Git repository path for delete operation");
+          return deleteFile(joinPath(fileRepoPath, relativePath));
+        },
+        async () => onRefresh?.(),
+      );
       for (const failure of result.failures) {
         console.error(`Failed to delete source-control file ${failure.path}:`, failure.error);
       }
@@ -687,16 +742,14 @@ const GitStatusPanel = ({
     });
   };
 
-  const handleSetCommitPathsSelected = (filePaths: string[], selected: boolean) => {
-    const next = new Set(commitSelectedPaths);
-    for (const filePath of filePaths) {
-      if (selected) {
-        next.add(filePath);
-      } else {
-        next.delete(filePath);
-      }
-    }
-    onCommitSelectedPathsChange(next);
+  const handleSetCommitPathsSelected = (filePaths: string[], staged: boolean) => {
+    void handleSetFilesStaged(
+      filePaths.flatMap((path) => {
+        const file = displayFileByPath.get(path);
+        return file ? [file] : [];
+      }),
+      staged,
+    );
   };
 
   const handleStashAllUnstaged = async () => {
@@ -720,7 +773,8 @@ const GitStatusPanel = ({
     if (stashModal.filePaths?.length) {
       await createStash(
         stashModal.repoPath ?? repoPath,
-        message || t(stashModal.type === "all" ? "git.stashAllUnstagedChanges" : "git.stashSelectedDefault"),
+        message ||
+          t(stashModal.type === "all" ? "git.stashAllUnstagedChanges" : "git.stashSelectedDefault"),
         stashModal.includeUntracked,
         stashModal.filePaths,
       );
@@ -855,10 +909,42 @@ const GitStatusPanel = ({
 
   const renderStatusRow = (row: GitStatusVirtualRow) => {
     if (row.kind === "spacer") return null;
+    if (row.kind === "repository") {
+      const groupFiles =
+        repositoryGroups.find((group) => group.repoPath === row.repoPath)?.files ?? [];
+      const eligible = groupFiles.filter((file) => file.canToggleStaging !== false);
+      const checked = eligible.length > 0 && eligible.every((file) => file.staged);
+      return (
+        <div className="flex h-full items-center gap-1">
+          <SidebarSectionHeader
+            variant="surface"
+            count={row.count}
+            expanded={!collapsedSections.has(row.key)}
+            onToggle={() => toggleSectionCollapsed(row.key)}
+            className="h-full min-w-0 flex-1"
+            title={row.repoPath}
+          >
+            {row.repoPath}
+          </SidebarSectionHeader>
+          <Checkbox
+            checked={checked}
+            onCheckedChange={(staged) => void handleSetFilesStaged(eligible, staged)}
+            disabled={
+              isLoading ||
+              eligible.length === 0 ||
+              groupFiles.some((file) => stagePendingPaths.has(file.path))
+            }
+            aria-label={t(checked ? "git.excludeFolderFromCommit" : "git.includeFolderInCommit", {
+              name: row.repoPath,
+            })}
+          />
+        </div>
+      );
+    }
     if (row.kind === "section") {
       return renderSectionHeader(
         row.section,
-        t(row.section === "tracked" ? "git.tracked" : "git.untracked"),
+        t(sectionById.get(row.section)?.kind === "tracked" ? "git.tracked" : "git.untracked"),
         row.count,
       );
     }
@@ -877,9 +963,11 @@ const GitStatusPanel = ({
             }
           }}
           onContextMenu={(event) => handleContextMenu(event, entry)}
-          checked={commitSelectedPaths.has(row.file.path)}
+          checked={row.file.staged}
           onCheckedChange={(checked) => handleSetCommitPathsSelected([row.file.path], checked)}
-          disabled={isLoading}
+          disabled={
+            isLoading || row.file.canToggleStaging === false || stagePendingPaths.has(row.file.path)
+          }
           onStagedChange={(staged) => void handleSetFilesStaged([row.file], staged)}
           stagePending={stagePendingPaths.has(row.file.path)}
           showDirectory={row.showDirectory}
@@ -894,13 +982,13 @@ const GitStatusPanel = ({
       );
     }
 
-    const tree = row.section === "tracked" ? trackedFolderTree : untrackedFolderTree;
+    const tree = sectionById.get(row.section)?.tree;
     const folderState = tree?.folderStateById.get(row.branch.id);
     const entry = entryById.get(getFolderEntryId(row.section, row.branch.path));
     if (!folderState || !entry) return null;
     const isCollapsed = collapsedFolders.has(`${row.section}:${row.branch.path}`);
-    const isChecked = folderState.descendantFilePaths.every((filePath) =>
-      commitSelectedPaths.has(filePath),
+    const isChecked = folderState.descendantFilePaths.every(
+      (filePath) => displayFileByPath.get(filePath)?.staged,
     );
 
     return (
@@ -947,7 +1035,11 @@ const GitStatusPanel = ({
             onCheckedChange={(checked) =>
               handleSetCommitPathsSelected(folderState.descendantFilePaths, checked)
             }
-            disabled={folderState.descendantFilePaths.length === 0}
+            disabled={
+              isLoading ||
+              entry.files.every((file) => file.canToggleStaging === false) ||
+              entry.files.some((file) => stagePendingPaths.has(file.path))
+            }
             aria-label={
               isChecked
                 ? t("git.excludeFolderFromCommit", { name: row.label })
@@ -955,12 +1047,13 @@ const GitStatusPanel = ({
             }
           />
         }
-        draggable={!!repoPath}
+        draggable={!!sectionById.get(row.section)?.repoPath}
         onDragStart={(event) => {
-          if (!repoPath) return;
+          const owner = sectionById.get(row.section)?.repoPath;
+          if (!owner) return;
           writeSidebarResourceDragData(event.dataTransfer, {
             type: "file",
-            path: `${repoPath}/${row.branch.path}`,
+            path: joinPath(owner, row.branch.path),
             name: row.branch.name,
             isDir: true,
           });
@@ -1247,8 +1340,7 @@ const GitStatusPanel = ({
                         label: getStageActionLabel(false),
                         icon: <Plus />,
                         disabled: isLoading,
-                        onClick: () =>
-                          void handleSetFilesStaged(contextMenuUnstagedFiles, true),
+                        onClick: () => void handleSetFilesStaged(contextMenuUnstagedFiles, true),
                       },
                     ]
                   : []),
@@ -1259,26 +1351,33 @@ const GitStatusPanel = ({
                         label: getStageActionLabel(true),
                         icon: <Minus />,
                         disabled: isLoading,
-                        onClick: () =>
-                          void handleSetFilesStaged(contextMenuStagedFiles, false),
+                        onClick: () => void handleSetFilesStaged(contextMenuStagedFiles, false),
                       },
                     ]
                   : []),
                 {
                   id: "create-patch-selection",
-                  label: contextMenuRepositories.length === 1 ? t("git.patch.create") : t("git.patch.singleRepository"),
+                  label:
+                    contextMenuRepositories.length === 1
+                      ? t("git.patch.create")
+                      : t("git.patch.singleRepository"),
                   icon: <GitDiff />,
                   disabled: isLoading || contextMenuRepositories.length !== 1,
                   onClick: () => {
                     const repository = contextMenuRepositories[0];
-                    if (repository) void showGitPatchDialog(repository.repoPath, { mode: "export", paths: getRepoRelativePaths(repository.files) });
+                    if (repository)
+                      void showGitPatchDialog(repository.repoPath, {
+                        mode: "export",
+                        paths: getRepoRelativePaths(repository.files),
+                      });
                   },
                 },
                 {
                   id: "commit-selection",
                   label: t("git.commit"),
                   icon: <GitCommit />,
-                  disabled: contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
+                  disabled:
+                    contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
                   onClick: () => void handleCommitEntries(contextMenuEntries),
                 },
                 {
@@ -1304,12 +1403,7 @@ const GitStatusPanel = ({
                     if (contextMenuTarget) {
                       const file = contextMenuTarget.files[0];
                       const isDirectory = contextMenuTarget.kind === "folder";
-                      const prefixLength = file?.repositoryRelativePath
-                        ? file.path.length - file.repositoryRelativePath.length
-                        : 0;
-                      const path = isDirectory
-                        ? contextMenuTarget.path.slice(prefixLength)
-                        : contextMenuTarget.path;
+                      const path = contextMenuTarget.path;
                       onOpenPath?.(path, isDirectory, file?.repositoryPath);
                     }
                   },
@@ -1318,7 +1412,10 @@ const GitStatusPanel = ({
                   id: "delete-selection",
                   label: t("git.delete"),
                   icon: <Trash2 />,
-                  disabled: contextMenuDeletionPaths.length === 0 || isLoading || stagePendingPaths.size > 0,
+                  disabled:
+                    contextMenuDeletionPaths.length === 0 ||
+                    isLoading ||
+                    stagePendingPaths.size > 0,
                   className: "text-destructive",
                   onClick: () => void handleDeleteEntries(contextMenuEntries),
                 },
@@ -1361,7 +1458,8 @@ const GitStatusPanel = ({
                   id: "stash-selection",
                   label: t("git.stash"),
                   icon: <Archive />,
-                  disabled: contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
+                  disabled:
+                    contextMenuEntries.length === 0 || isLoading || stagePendingPaths.size > 0,
                   onClick: () => handleStashEntries(contextMenuEntries),
                 },
               ]
