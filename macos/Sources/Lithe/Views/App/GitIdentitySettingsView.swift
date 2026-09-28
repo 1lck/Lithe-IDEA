@@ -26,13 +26,22 @@ private struct GitIdentitySettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Commit identity").font(.system(size: 15, weight: .semibold))
+            HStack(spacing: 8) {
+                Text("Commit identity")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             Text("Git records this name and email in new commits. These settings do not change existing commits.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-            Picker("Configuration scope", selection: $scope) {
-                Text("Current repository").tag(GitIdentityScope.local)
-                Text("Global Git configuration").tag(GitIdentityScope.global)
-            }.pickerStyle(.segmented).disabled(editor.isBusy)
+            LitheSettingsSegmentedControl(
+                selection: $scope,
+                options: GitIdentityScope.allCases,
+                width: 360,
+                title: { $0 == .local ? "Current repository" : "Global Git configuration" }
+            )
+            .disabled(editor.isBusy)
             Text(scope == .global
                  ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")
                  : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
@@ -69,7 +78,7 @@ private struct GitIdentitySettingsPane: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.system(size: 12, weight: .medium))
             HStack {
-                TextField(title, text: draft).textFieldStyle(.roundedBorder)
+                TextField(title, text: draft).litheSettingsTextField()
                 Button("Save") { save(field) }
                     .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.wrappedValue == configured)
                     .lithePointer()

@@ -13,7 +13,6 @@ struct ProjectRuntimeSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if model.workspaceURL == nil {
                 emptyWorkspace
             } else {
@@ -43,9 +42,6 @@ struct ProjectRuntimeSettingsView: View {
 
     private var header: some View {
         HStack {
-            Text("Project · JDK & Maven")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
             Spacer()
             if feature.isDiscovering {
                 ProgressView()
@@ -72,7 +68,7 @@ struct ProjectRuntimeSettingsView: View {
             .disabled(feature.isDiscovering)
         }
         .padding(.horizontal, 16)
-        .frame(height: 42)
+        .frame(height: 40)
         .background(LitheTheme.settingsSurface)
     }
 
@@ -85,7 +81,7 @@ struct ProjectRuntimeSettingsView: View {
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
-        .padding(28)
+        .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -120,7 +116,7 @@ struct ProjectRuntimeSettingsView: View {
                     if subproject.displaysPath {
                         Text(subproject.relativePath)
                             .font(.system(size: 10.5, design: .monospaced))
-                            .foregroundStyle(isSelected ? Color.white.opacity(0.8) : LitheTheme.tertiaryText)
+                            .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText.opacity(0.8) : LitheTheme.tertiaryText)
                             .lineLimit(1)
                     }
                 }
@@ -134,7 +130,7 @@ struct ProjectRuntimeSettingsView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(LitheTreeRowButtonStyle())
-        .foregroundStyle(isSelected ? Color.white : LitheTheme.primaryText)
+        .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
         .padding(.leading, subproject.parentID == nil ? 0 : 12)
     }
 
@@ -148,9 +144,9 @@ struct ProjectRuntimeSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let subproject = selectedSubproject {
                     Text(subproject.title)
-                        .font(.system(size: 22, weight: .semibold))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 4)
                     if subproject.kind == .projectDefaults {
                         projectDefaultsDetail
                     } else if subproject.usesJava {
@@ -160,8 +156,8 @@ struct ProjectRuntimeSettingsView: View {
                     }
                 }
             }
-            .padding(.horizontal, 28)
-            .padding(.vertical, 22)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
@@ -440,26 +436,28 @@ struct ProjectRuntimeSettingsView: View {
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(LocalizedStringKey(title))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             content()
         }
         .font(.system(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.vertical, 16)
+        .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-        }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-            Spacer()
+                .fixedSize(horizontal: true, vertical: false)
             content()
+            Spacer(minLength: 0)
         }
         .frame(minHeight: 28)
     }

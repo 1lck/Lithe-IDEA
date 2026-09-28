@@ -2,12 +2,33 @@ import AppKit
 import SwiftUI
 
 private enum SettingsSelectMetrics {
+    static let controlHeight: CGFloat = 28
+    static let controlCornerRadius: CGFloat = 4
     static let fontSize: CGFloat = 12.5
     static let checkmarkWidth: CGFloat = 14
     static let itemSpacing: CGFloat = 8
     static let itemHorizontalPadding: CGFloat = 8
     static let popupPadding: CGFloat = 5
     static let screenMargin: CGFloat = 24
+    static let maximumPopupHeight: CGFloat = 360
+}
+
+private struct LitheSettingsControlChrome: ViewModifier {
+    let background: Color
+    let border: Color
+    let cornerRadius: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .background {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(background)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .strokeBorder(border, lineWidth: 1)
+            }
+    }
 }
 
 struct LitheSettingsSearchField: View {
@@ -50,12 +71,7 @@ struct LitheSettingsSearchField: View {
         }
         .padding(.horizontal, 9)
         .frame(height: 28)
-        .background(Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        .litheSettingsControlChrome(background: .clear)
         .onChange(of: text) { value in
             onTextChanged?(value)
         }
@@ -73,7 +89,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
     @State private var isPresented = false
-    @State private var availablePopupWidth: CGFloat?
+    @State private var popupID = UUID()
+    @State private var popupAnchor = LitheSettingsSelectAnchorReference()
 
     init(
         selection: Binding<Value>,
@@ -97,14 +114,11 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
     var body: some View {
         Button {
-            if !isPresented {
-                // Capture the presenting screen before the popover can become the key window.
-                let screen = NSApp.keyWindow?.screen ?? NSScreen.main
-                availablePopupWidth = screen.map {
-                    max(1, $0.visibleFrame.width - 2 * SettingsSelectMetrics.screenMargin)
-                }
+            if isPresented {
+                LitheSettingsSelectPopupPresenter.shared.dismiss(ownerID: popupID)
+            } else {
+                showPopup()
             }
-            isPresented.toggle()
         } label: {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title(selection)))
@@ -120,68 +134,71 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                     .rotationEffect(.degrees(isPresented ? 180 : 0))
             }
             .padding(.horizontal, 9)
-            .frame(width: width, height: 30, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.settingsControlBackground)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(isPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder, lineWidth: 1)
-            }
+            .frame(width: width, height: SettingsSelectMetrics.controlHeight, alignment: .leading)
+            .litheSettingsControlChrome(border: isPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder)
+            .background(LitheSettingsSelectAnchorView(reference: popupAnchor))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-            VStack(spacing: 2) {
-                ForEach(options, id: \.self) { option in
-                    Button {
-                        if isAvailable(option) {
-                            selection = option
-                        } else {
-                            onUnavailableSelection?(option)
-                        }
-                        isPresented = false
-                    } label: {
-                        HStack(spacing: SettingsSelectMetrics.itemSpacing) {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundStyle(LitheTheme.accent)
-                                .frame(width: SettingsSelectMetrics.checkmarkWidth)
-                                .opacity(selection == option ? 1 : 0)
-
-                            Text(LocalizedStringKey(title(option)))
-                                .font(.system(size: SettingsSelectMetrics.fontSize))
-                                .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
-                                .lineLimit(expandsToFitOptions ? nil : 1)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .multilineTextAlignment(.leading)
-
-                            Spacer(minLength: SettingsSelectMetrics.itemSpacing)
-                        }
-                        .padding(.horizontal, SettingsSelectMetrics.itemHorizontalPadding)
-                        .padding(.vertical, expandsToFitOptions ? 4 : 0)
-                        .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-                        .litheRowHover(
-                            isActive: selection == option,
-                            activeBackground: LitheTheme.subtleSelection.opacity(isAvailable(option) ? 1 : 0.35)
-                        )
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(LitheTreeRowButtonStyle())
-                    .lithePointer()
-                    .help(isAvailable(option) ? "" : "Shell is not available at this path")
-                }
-            }
-            .padding(SettingsSelectMetrics.popupPadding)
-            .frame(width: preferredPopupWidth)
-            .lithePopupChrome(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+        .onChange(of: options) { _ in
+            if isPresented { showPopup() }
+        }
+        .onDisappear {
+            LitheSettingsSelectPopupPresenter.shared.dismiss(ownerID: popupID)
         }
     }
 
-    private var preferredPopupWidth: CGFloat {
+    private func showPopup() {
+        guard let anchor = popupAnchor.view, let window = anchor.window else { return }
+        let anchorFrame = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        let visibleFrame = window.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? anchorFrame
+        let popupWidth = preferredPopupWidth(maximumWidth: max(1, visibleFrame.width - SettingsSelectMetrics.screenMargin))
+        let state = LitheSettingsSelectPopupState(
+            selectedIndex: options.firstIndex(of: selection) ?? 0,
+            optionCount: options.count
+        ) { index in
+            let option = options[index]
+            if isAvailable(option) {
+                selection = option
+            } else {
+                onUnavailableSelection?(option)
+            }
+            LitheSettingsSelectPopupPresenter.shared.dismiss(ownerID: popupID)
+        }
+        let content = LitheSettingsSelectPopupContent(
+            state: state,
+            options: options,
+            selected: selection,
+            width: popupWidth,
+            title: title,
+            expandsToFitOptions: expandsToFitOptions,
+            isAvailable: isAvailable
+        )
+        let measured = NSHostingView(rootView: content.rows.environment(\.locale, locale))
+        let popupHeight = min(
+            measured.fittingSize.height,
+            SettingsSelectMetrics.maximumPopupHeight,
+            max(1, visibleFrame.height - SettingsSelectMetrics.screenMargin)
+        )
+        state.popupHeight = popupHeight
+        let popup = content.environment(\.locale, locale)
+        LitheSettingsSelectPopupPresenter.shared.show(
+            ownerID: popupID,
+            content: AnyView(popup),
+            state: state,
+            anchorFrame: anchorFrame,
+            size: NSSize(width: popupWidth, height: popupHeight),
+            visibleFrame: visibleFrame,
+            appearance: window.effectiveAppearance
+        ) {
+            isPresented = false
+        }
+        isPresented = true
+    }
+
+    private func preferredPopupWidth(maximumWidth: CGFloat) -> CGFloat {
         guard expandsToFitOptions else { return width }
         let font = NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
@@ -194,8 +211,252 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             + 2 * SettingsSelectMetrics.itemHorizontalPadding
             + 2 * SettingsSelectMetrics.popupPadding
         let contentWidth = max(width, ceil(titleWidth) + chromeWidth)
-        // Derive the width from current titles so discovery updates also resize an open popover.
-        return min(contentWidth, availablePopupWidth ?? width)
+        // Derive the width from current titles when discovery refreshes an open list.
+        return min(contentWidth, maximumWidth)
+    }
+}
+
+private final class LitheSettingsSelectAnchorReference {
+    weak var view: NSView?
+}
+
+private struct LitheSettingsSelectAnchorView: NSViewRepresentable {
+    let reference: LitheSettingsSelectAnchorReference
+
+    func makeNSView(context: Context) -> NSView {
+        let view = LitheSettingsSelectAnchorNSView()
+        reference.view = view
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        reference.view = view
+    }
+}
+
+private final class LitheSettingsSelectAnchorNSView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+@MainActor
+private final class LitheSettingsSelectPopupState: ObservableObject {
+    @Published var highlightedIndex: Int
+    @Published var popupHeight: CGFloat = 0
+    let optionCount: Int
+    let onChoose: (Int) -> Void
+
+    init(selectedIndex: Int, optionCount: Int, onChoose: @escaping (Int) -> Void) {
+        highlightedIndex = selectedIndex
+        self.optionCount = optionCount
+        self.onChoose = onChoose
+    }
+
+    func handleKey(_ event: NSEvent, dismiss: () -> Void) -> Bool {
+        switch event.keyCode {
+        case 125, 126: // Down / Up
+            guard optionCount > 0 else { return true }
+            highlightedIndex = (highlightedIndex + (event.keyCode == 125 ? 1 : optionCount - 1)) % optionCount
+        case 36, 76: // Return / keypad Enter
+            guard optionCount > 0 else { return true }
+            onChoose(highlightedIndex)
+        case 53: // Escape
+            dismiss()
+        default:
+            return false
+        }
+        return true
+    }
+}
+
+private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
+    @ObservedObject var state: LitheSettingsSelectPopupState
+    let options: [Value]
+    let selected: Value
+    let width: CGFloat
+    let title: (Value) -> String
+    let expandsToFitOptions: Bool
+    let isAvailable: (Value) -> Bool
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.vertical, showsIndicators: false) {
+                rows
+            }
+            .onAppear { proxy.scrollTo(state.highlightedIndex, anchor: .center) }
+            .onChange(of: state.highlightedIndex) { index in
+                proxy.scrollTo(index, anchor: .center)
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .frame(width: width, height: state.popupHeight)
+        .litheSettingsControlChrome(
+            background: LitheTheme.settingsPopupBackground,
+            border: LitheTheme.settingsPopupBorder,
+            cornerRadius: SettingsSelectMetrics.controlCornerRadius
+        )
+        .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.controlCornerRadius))
+    }
+
+    var rows: some View {
+        VStack(spacing: 2) {
+            ForEach(Array(options.enumerated()), id: \.offset) { index, option in
+                Button {
+                    state.onChoose(index)
+                } label: {
+                    HStack(spacing: SettingsSelectMetrics.itemSpacing) {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(LitheTheme.settingsControlAccent)
+                            .frame(width: SettingsSelectMetrics.checkmarkWidth)
+                            .opacity(selected == option ? 1 : 0)
+
+                        Text(LocalizedStringKey(title(option)))
+                            .font(.system(size: SettingsSelectMetrics.fontSize))
+                            .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
+                            .lineLimit(expandsToFitOptions ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .multilineTextAlignment(.leading)
+
+                        Spacer(minLength: SettingsSelectMetrics.itemSpacing)
+                    }
+                    .padding(.horizontal, SettingsSelectMetrics.itemHorizontalPadding)
+                    .padding(.vertical, expandsToFitOptions ? 4 : 0)
+                    .frame(maxWidth: .infinity, minHeight: SettingsSelectMetrics.controlHeight, alignment: .leading)
+                    .litheRowHover(
+                        isActive: state.highlightedIndex == index,
+                        activeBackground: LitheTheme.subtleSelection.opacity(isAvailable(option) ? 1 : 0.35)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    if hovering { state.highlightedIndex = index }
+                }
+                .id(index)
+                .help(isAvailable(option) ? "" : "Shell is not available at this path")
+            }
+        }
+        .padding(SettingsSelectMetrics.popupPadding)
+        .frame(width: width)
+    }
+}
+
+struct LitheSettingsSelectPopupGeometry {
+    static func frame(anchor: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
+        let bounds = visibleFrame.insetBy(dx: 6, dy: 6)
+        let width = min(size.width, bounds.width)
+        let height = min(size.height, bounds.height)
+        let below = anchor.minY - bounds.minY - 2
+        let above = bounds.maxY - anchor.maxY - 2
+        let preferredY = below >= height || below >= above
+            ? anchor.minY - height - 2
+            : anchor.maxY + 2
+        return NSRect(
+            x: min(max(anchor.minX, bounds.minX), bounds.maxX - width),
+            y: min(max(preferredY, bounds.minY), bounds.maxY - height),
+            width: width,
+            height: height
+        )
+    }
+}
+
+@MainActor
+private final class LitheSettingsSelectPopupPanel: NSPanel {
+    var handleKey: ((NSEvent) -> Bool)?
+    override var canBecomeKey: Bool { true }
+
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, handleKey?(event) == true { return }
+        super.sendEvent(event)
+    }
+}
+
+@MainActor
+private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegate {
+    static let shared = LitheSettingsSelectPopupPresenter()
+
+    private var panel: LitheSettingsSelectPopupPanel?
+    private var ownerID: UUID?
+    private var onDismiss: (() -> Void)?
+    private var localEventMonitor: Any?
+    private var globalEventMonitor: Any?
+
+    func show(
+        ownerID: UUID,
+        content: AnyView,
+        state: LitheSettingsSelectPopupState,
+        anchorFrame: NSRect,
+        size: NSSize,
+        visibleFrame: NSRect,
+        appearance: NSAppearance,
+        onDismiss: @escaping () -> Void
+    ) {
+        dismiss()
+        let frame = LitheSettingsSelectPopupGeometry.frame(
+            anchor: anchorFrame, size: size, visibleFrame: visibleFrame
+        )
+        let panel = LitheSettingsSelectPopupPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.handleKey = { [weak self, weak state] event in
+            state?.handleKey(event) { self?.dismiss(ownerID: ownerID) } ?? false
+        }
+        panel.contentViewController = NSHostingController(rootView: content)
+        panel.appearance = appearance
+        panel.animationBehavior = .none
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.level = .popUpMenu
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = true
+        panel.collectionBehavior = [.transient, .fullScreenAuxiliary]
+        panel.delegate = self
+        self.panel = panel
+        self.ownerID = ownerID
+        self.onDismiss = onDismiss
+        installEventMonitors()
+        panel.orderFrontRegardless()
+        panel.makeKey()
+    }
+
+    func dismiss(ownerID: UUID? = nil) {
+        guard ownerID == nil || ownerID == self.ownerID else { return }
+        removeEventMonitors()
+        let callback = onDismiss
+        onDismiss = nil
+        self.ownerID = nil
+        let closingPanel = panel
+        panel = nil
+        closingPanel?.delegate = nil
+        closingPanel?.orderOut(nil)
+        closingPanel?.close()
+        callback?()
+    }
+
+    func windowDidResignKey(_ notification: Notification) {
+        dismiss()
+    }
+
+    private func installEventMonitors() {
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self else { return event }
+            if event.window !== self.panel { self.dismiss() }
+            return event
+        }
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.dismiss()
+        }
+    }
+
+    private func removeEventMonitors() {
+        if let localEventMonitor { NSEvent.removeMonitor(localEventMonitor) }
+        if let globalEventMonitor { NSEvent.removeMonitor(globalEventMonitor) }
+        localEventMonitor = nil
+        globalEventMonitor = nil
     }
 }
 
@@ -225,12 +486,12 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                 } label: {
                     Text(LocalizedStringKey(title(option)))
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(selection == option ? Color.white : LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, minHeight: 26)
+                        .foregroundStyle(selection == option ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
+                        .frame(maxWidth: .infinity, minHeight: 24)
                         .contentShape(Rectangle())
                         .litheRowHover(
                             isActive: selection == option,
-                            cornerRadius: LitheTheme.Metrics.cornerRadius,
+                            cornerRadius: SettingsSelectMetrics.controlCornerRadius,
                             activeBackground: LitheTheme.settingsSelection
                         )
                 }
@@ -239,15 +500,8 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
             }
         }
         .padding(2)
-        .frame(width: width, height: 30)
-        .background(
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .fill(LitheTheme.settingsControlBackground)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        .frame(width: width, height: SettingsSelectMetrics.controlHeight)
+        .litheSettingsControlChrome()
     }
 }
 
@@ -274,16 +528,17 @@ struct LitheSettingsCheckbox: View {
         } label: {
             HStack(spacing: 8) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isOn ? LitheTheme.accent : LitheTheme.inputBackground)
-                    RoundedRectangle(cornerRadius: 4)
-                        .stroke(isOn ? LitheTheme.accent : LitheTheme.inputBorder, lineWidth: 1)
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color.white)
                         .opacity(isOn ? 1 : 0)
                 }
                 .frame(width: 16, height: 16)
+                .litheSettingsControlChrome(
+                    background: isOn ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBackground,
+                    border: isOn ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder,
+                    cornerRadius: 3
+                )
 
                 if let title {
                     Text(title)
@@ -333,8 +588,8 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
                 .padding(.horizontal, 8)
 
             Rectangle()
-                .fill(LitheTheme.inputBorder)
-                .frame(width: 1, height: 20)
+                .fill(LitheTheme.settingsControlBorder)
+                .frame(width: 1, height: 18)
 
             stepButton(systemImage: "minus", isDisabled: value <= range.lowerBound) {
                 value = max(range.lowerBound, value.advanced(by: -step))
@@ -344,16 +599,9 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
                 value = min(range.upperBound, value.advanced(by: step))
             }
         }
-        .frame(width: width, height: 30)
-        .background(
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .fill(LitheTheme.inputBackground)
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+        .frame(width: width, height: SettingsSelectMetrics.controlHeight)
+        .litheSettingsControlChrome()
+        .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.controlCornerRadius))
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(accessibilityLabel))
     }
@@ -367,7 +615,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
             Image(systemName: systemImage)
                 .font(.system(size: 9, weight: .semibold))
                 .foregroundStyle(isDisabled ? LitheTheme.tertiaryText : LitheTheme.secondaryText)
-                .frame(width: 26, height: 28)
+                .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
                 .litheRowHover(cornerRadius: 0)
         }
@@ -385,21 +633,27 @@ private struct LitheSettingsTextFieldModifier: ViewModifier {
             .textFieldStyle(.plain)
             .font(.system(size: 12.5))
             .padding(.horizontal, 9)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.inputBackground)
-            )
-            .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(LitheTheme.inputBorder, lineWidth: 1)
-            }
+            .frame(height: SettingsSelectMetrics.controlHeight)
+            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
             .opacity(isEnabled ? 1 : 0.55)
     }
 }
 
 extension View {
+    func litheSettingsControlChrome(
+        background: Color = LitheTheme.settingsControlBackground,
+        border: Color = LitheTheme.settingsControlBorder,
+        cornerRadius: CGFloat = SettingsSelectMetrics.controlCornerRadius
+    ) -> some View {
+        modifier(LitheSettingsControlChrome(background: background, border: border, cornerRadius: cornerRadius))
+    }
+
     func litheSettingsTextField() -> some View {
         modifier(LitheSettingsTextFieldModifier())
+    }
+
+    func litheSettingsTextEditor() -> some View {
+        scrollContentBackground(.hidden)
+            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
     }
 }

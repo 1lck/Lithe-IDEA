@@ -10,12 +10,12 @@ struct GitExecutionSettingsView: View {
 
     var body: some View {
         GitSettingsCard {
-            GitSettingsHeader(icon: "arrow.triangle.branch", title: "Git execution", subtitle: "Choose how Lithe locates Git and handles credentials.")
+            GitSettingsHeader(title: "Git execution", subtitle: "Choose how Lithe locates Git and handles credentials.")
 
             GitSettingsRow("Git executable") {
                 HStack(spacing: 8) {
                     TextField("Use Git from PATH", text: $executable)
-                        .textFieldStyle(.roundedBorder)
+                        .litheSettingsTextField()
                         .frame(maxWidth: .infinity)
                     Button("Save") { settings.gitExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
@@ -27,7 +27,7 @@ struct GitExecutionSettingsView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 GitSettingsRow("Credentials") {
-                    Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
+                    LitheSettingsCheckbox(isOn: $settings.gitUseCredentialHelper, title: "Use credential helper")
                 }
                 Text("Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.")
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
@@ -55,22 +55,25 @@ struct GitSettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14, content: { content })
-            .padding(.vertical, 14)
+        VStack(alignment: .leading, spacing: 10, content: { content })
+            .padding(.top, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 }
 
 struct GitSettingsHeader: View {
-    let icon: String
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Label(title, systemImage: icon)
-                .font(.system(size: 14, weight: .semibold))
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             Text(subtitle).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -112,12 +115,12 @@ private struct GitExecutionConfigurationPane: View {
                 subtitle: "Choose whether this setting belongs to the open repository or to Git everywhere."
             )
             GitSettingsRow("Configuration scope") {
-                Picker("Configuration scope", selection: $scope) {
-                    Text("Current repository").tag("local")
-                    Text("Global Git configuration").tag("global")
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                LitheSettingsSegmentedControl(
+                    selection: $scope,
+                    options: ["local", "global"],
+                    width: 360,
+                    title: { $0 == "local" ? "Current repository" : "Global Git configuration" }
+                )
             }
 
             GitBranchContextView(feature: feature, remoteURL: remoteURL)
@@ -130,16 +133,7 @@ private struct GitExecutionConfigurationPane: View {
                     title: "Git configuration",
                     subtitle: "Choose a behavior on the right. Lithe shows the value Git is using and the value a reset would restore."
                 )
-                HStack(spacing: 10) {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    Text("Show Git key names")
-                        .font(.system(size: 11.5, weight: .medium))
-                    Toggle("Show Git key names", isOn: $showsTechnicalDetails)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-                .foregroundStyle(LitheTheme.secondaryText)
+                LitheSettingsCheckbox(isOn: $showsTechnicalDetails, title: "Show Git key names")
                 configurationGroup("Update", subtitle: "How Pull and Update Project combine your local and remote commits.", icon: "arrow.triangle.2.circlepath", fields: snapshot.fields.filter(isUpdateField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
                 configurationGroup("Fetch", subtitle: "What Fetch removes or downloads before you start working.", icon: "arrow.down.circle", fields: snapshot.fields.filter(isFetchField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
                 configurationGroup("Push", subtitle: "Where Push goes when you do not choose a target explicitly.", icon: "arrow.up.circle", fields: snapshot.fields.filter(isPushField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)

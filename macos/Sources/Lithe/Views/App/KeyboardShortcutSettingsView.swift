@@ -38,8 +38,8 @@ struct KeyboardShortcutSettingsView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
@@ -47,15 +47,11 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Keymap")
-                        .font(.system(size: 20, weight: .semibold))
-                    Text("Customize shortcuts for Lithe actions. Changes apply immediately.")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                }
+                Text("Customize shortcuts for Lithe actions. Changes apply immediately.")
+                    .font(LitheTheme.smallFont)
+                    .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Restore All Defaults") {
                     editingTarget = nil
@@ -72,15 +68,19 @@ struct KeyboardShortcutSettingsView: View {
             }
         }
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(24)
+        .padding(.horizontal, 16)
+        .padding(.bottom, 16)
     }
 
     private func commandSection(_ section: KeyboardShortcutCommandSection) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(LocalizedStringKey(section.group.rawValue))
-                .font(.system(size: 11.5, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .textCase(.uppercase)
+            HStack(spacing: 8) {
+                Text(LocalizedStringKey(section.group.rawValue))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             VStack(spacing: 0) {
                 ForEach(Array(section.commands.enumerated()), id: \.element.id) { index, command in
                     commandRow(command)
@@ -202,12 +202,7 @@ struct KeyboardShortcutSettingsView: View {
         }
         .padding(.horizontal, 7)
         .frame(height: 24)
-        .background(LitheTheme.settingsControlBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay {
-            RoundedRectangle(cornerRadius: 4)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        .litheSettingsControlChrome()
     }
 
     private var emptyState: some View {

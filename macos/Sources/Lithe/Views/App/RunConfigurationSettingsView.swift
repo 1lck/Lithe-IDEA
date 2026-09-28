@@ -37,9 +37,9 @@ private struct RunConfigurationSettingsContent: View {
             .id(configuration.id)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("Run configurations").font(.title2)
+                VStack(alignment: .leading, spacing: 12) {
                     Text("Select a service or task to configure its arguments, environment and project-environment overrides. Changes apply after Save.")
+                        .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
                     if feature.isLoadingProject || isGenerating {
                         ProgressView("Identifying project…")
@@ -72,7 +72,8 @@ private struct RunConfigurationSettingsContent: View {
                         .disabled(feature.configurationStatus != .ready || feature.isLoadingProject || isGenerating)
                     }
                 }
-                .padding(24)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
             }
             .confirmationDialog("Identify Again", isPresented: $confirmGeneration) {
                 Button("Rescan") {

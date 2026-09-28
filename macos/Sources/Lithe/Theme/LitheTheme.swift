@@ -276,6 +276,7 @@ enum LitheTheme {
     // MARK: - 背景层次
     static var window: Color { adaptive(\.window) }
     static var titlebar: Color { adaptive(\.titlebar) }
+    // IntelliJ Community Islands theme tokens: platform/platform-resources/src/themes/islands/ManyIslands{Dark,Light}.theme.json.
     static var settingsSurface: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             settingsSurfaceNSColor(for: appearance)
@@ -284,21 +285,58 @@ enum LitheTheme {
     static func settingsSurfaceNSColor(for appearance: NSAppearance) -> NSColor {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         return isDark
-            ? NSColor(srgbRed: 0.157, green: 0.161, blue: 0.173, alpha: 1)
-            : NSColor(srgbRed: 0.910, green: 0.922, blue: 0.937, alpha: 1)
+            ? NSColor(srgbRed: 25.0 / 255.0, green: 26.0 / 255.0, blue: 28.0 / 255.0, alpha: 1)
+            : NSColor(srgbRed: 247.0 / 255.0, green: 248.0 / 255.0, blue: 249.0 / 255.0, alpha: 1)
     }
-    static var settingsPrimaryAction: Color { accent }
-    static let settingsSelection = Color(
-        red: 43.0 / 255.0,
-        green: 66.0 / 255.0,
-        blue: 113.0 / 255.0
+    static let settingsControlAccent = Color(
+        red: 56.0 / 255.0,
+        green: 113.0 / 255.0,
+        blue: 225.0 / 255.0
     )
+    static var settingsPrimaryAction: Color { settingsControlAccent }
+    static var settingsSelection: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 42.0 / 255.0, green: 67.0 / 255.0, blue: 113.0 / 255.0, alpha: 1)
+                : NSColor(srgbRed: 208.0 / 255.0, green: 223.0 / 255.0, blue: 254.0 / 255.0, alpha: 1)
+        })
+    }
+    static var settingsSelectionText: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark ? .white : .black
+        })
+    }
     static var settingsControlBackground: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return isDark
-                ? NSColor(srgbRed: 43.0 / 255.0, green: 45.0 / 255.0, blue: 48.0 / 255.0, alpha: 1)
+                ? NSColor(srgbRed: 38.0 / 255.0, green: 40.0 / 255.0, blue: 44.0 / 255.0, alpha: 1)
                 : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
+        })
+    }
+    static var settingsTextFieldBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark ? settingsSurfaceNSColor(for: appearance) : .white
+        })
+    }
+    static var settingsControlBorder: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 64.0 / 255.0, green: 67.0 / 255.0, blue: 74.0 / 255.0, alpha: 1)
+                : NSColor(srgbRed: 209.0 / 255.0, green: 211.0 / 255.0, blue: 217.0 / 255.0, alpha: 1)
+        })
+    }
+    static var settingsPopupBackground: Color { settingsControlBackground }
+    static var settingsPopupBorder: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 76.0 / 255.0, green: 79.0 / 255.0, blue: 86.0 / 255.0, alpha: 1)
+                : NSColor(srgbRed: 233.0 / 255.0, green: 234.0 / 255.0, blue: 238.0 / 255.0, alpha: 1)
         })
     }
     static var toolHeader: Color { adaptive(\.toolHeader) }
