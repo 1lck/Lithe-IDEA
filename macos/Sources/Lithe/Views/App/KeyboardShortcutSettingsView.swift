@@ -66,6 +66,20 @@ struct KeyboardShortcutSettingsView: View {
                 .lithePointer()
             }
 
+            LitheSettingsSelect(
+                selection: Binding(
+                    get: { feature.selectedPreset },
+                    set: { preset in
+                        cancelEditing()
+                        feature.selectPreset(preset)
+                    }
+                ),
+                options: KeyboardShortcutPreset.allCases,
+                width: 200,
+                accessibilityLabel: "Keymap",
+                title: { $0.title }
+            )
+
             LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
                     editingTarget = nil
                     validationIssue = nil
@@ -228,6 +242,7 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private func cancelEditing() {
+        feature.endRecording()
         editingTarget = nil
         validationIssue = nil
     }
