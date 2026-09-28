@@ -147,16 +147,23 @@ export function adaptCoreResult<T>(
         behind: data.behind ?? 0,
         files: Array.isArray(data.changes)
           ? data.changes
-              .filter((change: JsonRecord) => String(change.status ?? "") !== "AD")
+              .filter(
+                (change: JsonRecord) =>
+                  args?.includeIndexOnlyChanges || String(change.status ?? "") !== "AD",
+              )
               .map((change: JsonRecord) => ({
-              path: change.path,
-              ...(typeof change.originalPath === "string"
-                ? { originalPath: change.originalPath }
-                : {}),
-              status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
-              staged: Boolean(change.staged),
-              rawStatus: String(change.status ?? ""),
-              worktree: Boolean(change.worktree),
+                path: change.path,
+                ...(typeof change.originalPath === "string"
+                  ? { originalPath: change.originalPath }
+                  : {}),
+                status: normalizeStatus(String(change.status ?? ""), Boolean(change.untracked)),
+                staged: Boolean(change.staged),
+                rawStatus: String(change.status ?? ""),
+                ...(typeof change.canToggleStaging === "boolean"
+                  ? { canToggleStaging: change.canToggleStaging }
+                  : {}),
+                ...(change.submodule ? { submodule: change.submodule } : {}),
+                worktree: Boolean(change.worktree),
               }))
           : [],
       } as T;
@@ -287,7 +294,7 @@ export function adaptCoreResult<T>(
     case "git_status_diff_stats":
       return adaptDiffStats(args, value) as T;
     case "git_discover_repo":
-      return String(typeof value === "string" ? value : data.output ?? "").trim() as T;
+      return String(typeof value === "string" ? value : (data.output ?? "")).trim() as T;
     case "git_get_remotes": {
       const remotes = new Map<string, string>();
       for (const line of String(data.output ?? "").split("\n")) {

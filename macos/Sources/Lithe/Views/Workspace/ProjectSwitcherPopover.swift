@@ -113,8 +113,7 @@ struct ProjectSwitcherPopover: View {
             projectRowContent(
                 name: projectModel.projectName,
                 path: projectModel.workspaceURL?.path ?? "",
-                badge: initials(for: projectModel.projectName),
-                badgeColor: color(for: projectModel.projectName),
+                colorIndex: ProjectIdentityAppearance.colorIndex(for: projectModel.workspaceURL),
                 isCurrent: isCurrent
             )
         }
@@ -136,8 +135,8 @@ struct ProjectSwitcherPopover: View {
             projectRowContent(
                 name: project.name,
                 path: project.path,
-                badge: initials(for: project.name),
-                badgeColor: exists ? color(for: project.name) : LitheTheme.raised,
+                colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url),
+                isEnabled: exists,
                 isCurrent: false
             )
         }
@@ -150,17 +149,12 @@ struct ProjectSwitcherPopover: View {
     private func projectRowContent(
         name: String,
         path: String,
-        badge: String,
-        badgeColor: Color,
+        colorIndex: Int,
+        isEnabled: Bool = true,
         isCurrent: Bool
     ) -> some View {
         HStack(spacing: 10) {
-            Text(badge)
-                .font(.system(size: 11.5, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-                .frame(width: 30, height: 30)
-                .background(badgeColor)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
+            ProjectAvatarBadge(name: name, colorIndex: colorIndex, size: 30, isEnabled: isEnabled)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
@@ -185,23 +179,5 @@ struct ProjectSwitcherPopover: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .contentShape(Rectangle())
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        let characters = words.prefix(2).compactMap(\.first)
-        return characters.isEmpty ? "LI" : String(characters).uppercased()
-    }
-
-    private func color(for value: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.24, green: 0.49, blue: 0.88),
-            Color(red: 0.24, green: 0.63, blue: 0.43),
-            Color(red: 0.86, green: 0.39, blue: 0.20),
-            Color(red: 0.56, green: 0.34, blue: 0.82),
-            Color(red: 0.72, green: 0.52, blue: 0.10)
-        ]
-        let hash = value.utf8.reduce(0) { ($0 * 31 + Int($1)) & 0x7fffffff }
-        return palette[hash % palette.count]
     }
 }

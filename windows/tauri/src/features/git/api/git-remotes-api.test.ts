@@ -93,7 +93,10 @@ describe("Git remote Pull API", () => {
       pullResult: { status: "cancelled" },
     });
     expect(invoke).not.toHaveBeenCalledWith("git_pull", expect.anything());
-    expect(invoke).toHaveBeenCalledWith("git_status", { repoPath: "C:/repo" });
+    expect(invoke).toHaveBeenCalledWith(
+      "git_status",
+      expect.objectContaining({ repoPath: "C:/repo" }),
+    );
     expect(invoke).toHaveBeenCalledWith("git_log", { repoPath: "C:/repo", limit: 50 });
     expect(invoke).toHaveBeenCalledWith("git_branches", { repoPath: "C:/repo" });
     expect(invoke).toHaveBeenCalledWith("git_get_remotes", { repoPath: "C:/repo" });

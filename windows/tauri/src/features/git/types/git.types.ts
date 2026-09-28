@@ -9,6 +9,8 @@ export interface GitFile {
   repositoryOriginalRelativePath?: string;
   status: "modified" | "added" | "deleted" | "untracked" | "renamed";
   staged: boolean;
+  canToggleStaging?: boolean;
+  submodule?: { commitChanged: boolean; trackedChanges: boolean; untrackedChanges: boolean };
   /** Raw porcelain XY status retained for whole-path commit review semantics. */
   rawStatus?: string;
   /** Whether the worktree differs from the index for this path. */

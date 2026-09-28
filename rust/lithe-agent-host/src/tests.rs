@@ -39,7 +39,8 @@ fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
         args: vec![],
         cwd: std::env::temp_dir(),
         data_directory: None,
-        provider,
+        provider: Some(provider),
+        authentication: AgentAuthentication::ApiKey,
     }
 }
 
@@ -111,6 +112,10 @@ impl Drop for Harness {
 
 impl Harness {
     fn start() -> Self {
+        Self::start_with(false)
+    }
+
+    fn start_with(subscription: bool) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -120,7 +125,8 @@ impl Harness {
         let connection = tokio::spawn(run_connection(
             ByteStreams::new(client_writer.compat_write(), client_reader.compat()),
             std::env::temp_dir(),
-            gateway(),
+            if subscription { None } else { gateway() },
+            subscription.then(|| PathBuf::from("/fixture/codex")),
             receiver,
             permissions.clone(),
             Arc::new(move |event| {
@@ -999,7 +1005,8 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         args: vec![],
         cwd: std::env::temp_dir(),
         data_directory: Some(data.clone()),
-        provider,
+        provider: Some(provider),
+        authentication: AgentAuthentication::ApiKey,
     };
     let anthropic = ProviderCredentials {
         protocol: ProviderProtocol::AnthropicMessages,
@@ -1022,6 +1029,33 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
     assert!(not_installed.contains("not installed"), "{not_installed}");
     fake_install(&data, "codex-acp");
     fake_install(&data, "claude-acp");
+
+    let mut subscription = launch("codex-acp", provider());
+    subscription.authentication = AgentAuthentication::CodexSubscription;
+    subscription.provider = None;
+    let subscription = resolve(subscription).unwrap();
+    assert!(subscription.gateway.is_none());
+    assert!(subscription.secret.is_empty());
+    assert_eq!(
+        subscription.subscription_cli,
+        Some("/opt/example/bin/codex".into())
+    );
+    let config: Value = serde_json::from_str(
+        &subscription
+            .env
+            .iter()
+            .find(|(name, _)| name == "CODEX_CONFIG")
+            .unwrap()
+            .1,
+    )
+    .unwrap();
+    assert_eq!(config["model_provider"], "openai");
+    assert_eq!(config["openai_base_url"], "");
+    assert_eq!(
+        config["chatgpt_base_url"],
+        "https://chatgpt.com/backend-api/"
+    );
+    assert!(config.get("model").is_none());
 
     let codex = resolve(launch("codex-acp", provider())).unwrap();
     assert!(codex.command.ends_with("node_modules/.bin/codex-acp") || cfg!(windows));
@@ -1274,4 +1308,127 @@ async fn invalid_file_reference_does_not_reserve_or_finish_a_turn() {
         AgentEvent::TurnFinished { .. }
     ));
     harness.stop().await.expect("owned connection stopped");
+}
+
+/// The adapter owns login and reports identity before any session can start.
+async fn subscription_initialize(harness: &mut Harness, account: bool) {
+    let initialize = harness.agent.expect("initialize").await;
+    harness
+        .agent
+        .reply(
+            &initialize,
+            json!({
+                "protocolVersion": 1,
+                "authMethods": [{"id":"chat-gpt","name":"ChatGPT"}],
+                "agentCapabilities": {"_meta":{"authStatus":{}}}
+            }),
+        )
+        .await;
+    subscription_identity(harness, account).await;
+}
+
+async fn subscription_identity(harness: &mut Harness, account: bool) {
+    harness.agent.write(json!({"jsonrpc":"2.0","method":"_auth/status_update","params":{
+        "authStatus": if account {
+            json!({"kind":"account","label":"ChatGPT Plus","account":{"email":"person@example.test","plan":"plus"}})
+        } else { json!({"kind":"none","label":"Not logged in"}) }
+    }})).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn subscription_reuses_account_without_api_key_or_browser_login() {
+    let mut harness = Harness::start_with(true);
+    subscription_initialize(&mut harness, true).await;
+    assert!(matches!(harness.event().await, AgentEvent::Account { .. }));
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    harness.send(json!({"kind":"newSession","token":"new"}));
+    // No authenticate call is needed for an already reported account.
+    let request = harness.agent.expect("session/new").await;
+    harness
+        .agent
+        .reply(&request, json!({"sessionId":"subscription-session"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::SessionCreated { .. }
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn subscription_login_requires_explicit_command_and_confirmed_account() {
+    let mut harness = Harness::start_with(true);
+    subscription_initialize(&mut harness, false).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::AuthenticationRequired
+    ));
+    harness.send(json!({"kind":"authenticate"}));
+    assert!(matches!(harness.event().await, AgentEvent::Authenticating));
+    let request = harness.agent.expect("authenticate").await;
+    assert_eq!(request["params"], json!({"methodId":"chat-gpt"}));
+    // A response can be dispatched before its separate account notification.
+    harness.agent.reply(&request, json!({})).await;
+    subscription_identity(&mut harness, true).await;
+    assert!(matches!(harness.event().await, AgentEvent::Account { .. }));
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn subscription_login_can_stop_without_waiting_for_browser() {
+    let mut harness = Harness::start_with(true);
+    subscription_initialize(&mut harness, false).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::AuthenticationRequired
+    ));
+    harness.send(json!({"kind":"authenticate"}));
+    assert!(matches!(harness.event().await, AgentEvent::Authenticating));
+    harness.agent.expect("authenticate").await;
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn subscription_account_change_disconnects_before_reusing_old_identity() {
+    let mut harness = Harness::start_with(true);
+    subscription_initialize(&mut harness, true).await;
+    harness.event().await;
+    harness.event().await;
+    subscription_identity(&mut harness, false).await;
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
+        .await
+        .expect("bounded account change")
+        .unwrap();
+    assert!(result.unwrap_err().contains("account changed"));
+}
+
+#[test]
+fn subscription_rejects_claude_custom_agents_and_ambiguous_api_credentials() {
+    for agent in [None, Some("claude-acp"), Some("codex-acp")] {
+        let mut launch = custom_launch("fixture-agent", provider());
+        launch.authentication = AgentAuthentication::CodexSubscription;
+        launch.agent_id = agent.map(str::to_owned);
+        assert!(resolve_with(launch, &|_| None)
+            .err()
+            .unwrap()
+            .contains("only available for Codex"));
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn subscription_login_deadline_does_not_leave_a_waiting_connection() {
+    let mut harness = Harness::start_with(true);
+    subscription_initialize(&mut harness, false).await;
+    harness.event().await;
+    harness.send(json!({"kind":"authenticate"}));
+    harness.event().await;
+    harness.agent.expect("authenticate").await;
+    tokio::time::pause();
+    tokio::time::advance(subscription::LOGIN_TIMEOUT + Duration::from_secs(1)).await;
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
+        .await
+        .expect("bounded login deadline")
+        .unwrap();
+    assert!(result.unwrap_err().contains("sign-in timed out"));
 }

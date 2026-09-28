@@ -45,23 +45,65 @@ The ACP Agent calls use an opaque handle for one agent process and connection
 per workspace and agent; one connection carries many conversation sessions.
 `lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
 "args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
-"provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
+"authentication"?: "apiKey" | "codexSubscription",
+"provider"?: { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
 "baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
 "allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
-installed by `agent.install` under `dataDirectory`. Every agent signs in through
+installed by `agent.install` under `dataDirectory`. Omitted `authentication`
+defaults to `apiKey`, which requires `provider` and signs in through
 the ACP `gateway` method over stdio: Responses providers send
 `Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
 non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
 provider. Agents start with the executable's directory and the login shell's
-`PATH` first. Account logins offered by agents are never used. Invalid settings
+`PATH` first. API-key mode never falls back to account login. Invalid settings
 and launch failures are reported as a `stopped` event with a message.
 
+`codexSubscription` is accepted only for `agentId: "codex-acp"` with no
+`provider`. It reuses the locally installed Codex CLI and its own account storage
+(including `CODEX_HOME`). The child uses the official `openai` model provider;
+inherited API-key, endpoint, token and gateway overrides are removed for this
+child only. Session configuration also clears `openai_base_url` and selects the
+official `chatgpt_base_url`, preventing saved custom routes from overriding the
+subscription selection. The quota probe receives the same route overrides. No Lithe HTTP provider, stored API key or configured provider model
+is consulted. Codex owns login, token refresh and session model options.
+The pinned ACP adapter's `_auth/status_update` notification confirms the account.
+An existing account proceeds to `account` then `ready`; otherwise
+`authenticationRequired` waits for the user's `authenticate` command before
+`authenticating` opens the upstream ChatGPT browser login. Login is cancellable
+by closing the handle, with a five-minute deadline. Account loss or email change
+disconnects the connection rather than silently changing its billing identity.
+`account` exposes only nullable `email` and `plan`, never credentials.
+
+`refreshQuota` is ignored outside subscription mode, coalesced while in flight,
+and throttled to one read per connection per 60 seconds. The host uses a bounded
+20-second, short-lived official `codex app-server` process because codex-acp
+1.13.1 does not expose structured rate limits. It only initializes, checks
+`account/read`, reads `account/rateLimits/read`, and checks the account again;
+it never creates a thread or prompt. The process tree is owned by the connection
+and terminated after the query or cancellation. The account email must match
+the active ACP account; missing identity cannot prove a match. This is not a
+workspace/account-ID verification guarantee: the upstream ACP identity provides
+no stable account ID. Lithe reads no credential files for this path.
+
+`quota.snapshot` has `fetchedAt` (Unix seconds) and deterministic `windows` with
+`id`, `name`, `limitSeconds`, nullable `usedPercent` (0–100) and nullable
+`resetsAt` (Unix seconds). Actual window durations are preserved; primary does
+not imply five hours. Unknown usage remains null. `quotaFailed.code` is
+`unavailable`, `timeout`, `unparsable`, `unauthorized`, or `accountChanged`.
+Consumers retain the last snapshot as stale for transient errors, clear it on
+identity failures/disconnect, and never reinterpret unknown as zero. The macOS
+composer shows a small chip to the right of context usage, refreshes while
+visible and active, and requests a throttled refresh after turns. Hover details
+include all windows and reset times; API-key connections show no quota chip.
+
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`listSessions`, `setConfigOption`, `prompt`, `cancel`, `permission`, `authenticate`,
+or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
 can correlate concurrent requests. `stopReason` uses ACP wire names such as
@@ -335,6 +377,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
@@ -2073,3 +2116,87 @@ failure is visible but does not globally block unrelated targets; callers still
 build the selected target before launching. A successful preparation does not
 promise compilation success. Shared examples live in
 `shared/fixtures/lsp/project-preparation-v1.json`.
+
+### Workspace commit preconditions
+
+`git.commitState` accepts `{ root }` and returns `{ head, branch, indexEntries,
+gitlinks, stagedPaths, conflictedPaths }`. `head` is null only for an unborn branch; `branch` is
+null for detached HEAD. `indexEntries` is Git's opaque NUL-delimited staged index
+listing, including blob IDs and conflict stages; clients compare it without
+parsing it. `gitlinks` lists stage-0 mode-160000 entries as `{ path, revision }`.
+Read failures are errors, never an empty relationship list.
+The requested root must still be Git's exact working-tree root. Removing a
+nested repository's metadata must fail instead of falling back to its parent;
+gitlink updates also verify the child boundary before reading its HEAD.
+
+`git.write` / `commit` optionally accepts `expectedCommitState` and
+`gitlinkUpdates: [{ path, revision }]`. Gitlink updates cannot accompany other
+operations or path-selected commits. Push also accepts `expectedCommitState`
+to reject a changed repository under its writer lease. Workspace pushes set
+`checkSubmodules: true`, invoking Git's `--recurse-submodules=check` so missing child
+commits block a parent push even when only the parent pointer was selected. Under the existing repository writer lease,
+Core verifies HEAD/index, validates all child HEAD revisions, then updates only
+those parent index entries in a single `update-index --index-info` transaction
+before the regular commit. Any changed precondition returns `invalid_request`
+through the existing operation error envelope. Unrelated unstaged parent files
+are not added. A failing hook may leave the pointer staged: clients must retain
+partial progress and re-read state before retrying. External Git processes do
+not participate in Lithe's lease; cross-repository commits are not atomic.
+
+`git.status.changes[]` additionally carries optional `submodule` with
+`commitChanged`, `trackedChanges`, and `untrackedChanges`, normalized from Git
+porcelain v2. The existing two-character `status` remains compatible. The optional request flag
+`includeIndexOnlyChanges` retains staged additions deleted only from the working
+tree (`AD`); both products enable it so every staged file remains visible. Omission
+preserves the legacy final-worktree projection. Child dirt
+alone is informational in the parent; only a changed commit pointer (or an
+already-staged change) is eligible for the parent's staging checkbox.
+
+`git.status` accepts optional `repositoryRoots` (native bindings of discovered
+repositories). Untracked paths owned by a nested root are excluded from the
+parent list. Each change returns `canToggleStaging`; platforms render that
+eligibility instead of reinterpreting submodule dirt.
+
+`git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
+`repositories: [{ id, root }]`, `message`, `amend`, `push`,
+`includeParentReferences`, optional `previous` session for retry, and optional
+`reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
+separators (`..` is allowed for enclosing repositories). Windows manually selected
+roots on another volume use a stable `external/<encoded-volume>/<path>` virtual
+workspace ID. `root` is the native
+execution binding, never a portable identity. The response is
+`{ session, reviewChanged, requiresConfirmation }`. Core reads all repositories,
+finds real gitlink relationships, includes clean parents when requested, orders
+children first, and adds push-only child work where needed. Cycles fail closed.
+A changed reviewed plan must be displayed and confirmed again before any step.
+
+`git.workspaceCommitStep` accepts `{ session }` and returns the next session,
+executing at most one commit or push. Session fields are `plan`, last observed
+`states`, per-ID `results`, `blocked`, `cursor`, `commandFailed`, `finished`,
+`succeeded`, and `canRetry`. They are Core-owned continuations: clients return
+them unchanged and must not independently choose roots, reorder work, or infer
+completion. `plan` includes bindings, options, `orderedIds`, propagation and
+dependency relations, reviewed states, `committedIds`, and `pendingPushIds`.
+Each result separates `committed`, `pushed`, stable `status`, and Git `detail`.
+Status keys are `pending`, `notIncluded`, `waitingForSubmodule`, `reviewRequired`,
+`committed`, `committedPushPending`, `committedAndPushed`, `commitFailed`,
+`pushFailed`, `headAdvanced`, and `outcomeUnknown`.
+
+Each step uses a fresh host operation ID and the existing Git writer lease,
+process runner, authentication and event stream. Cancellation blocks dependent
+parents while independent roots may continue under subsequent operation IDs.
+A read-only cleanup deadline of five seconds reconciles a commit whose HEAD may
+have advanced before cancellation. This command preserves the reconciled session
+instead of replacing it with a generic late-cancellation envelope. Transport
+errors before a continuation is returned must never be treated as success.
+Retry re-inspects current state, preserves completed commits, and re-pushes
+externally advanced completed branches before updating dependent parents.
+
+Sessions own no background resources and are retained only for the current
+workspace lifetime. Native clients discard old responses after workspace changes,
+show confirmation/progress, and drive steps until `finished`. macOS uses this
+shared workflow, as does Windows through its workspace-scoped continuation adapter
+and real staging checkboxes. The native products must not duplicate planning or retry policy.
+See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
+`shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
+and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.

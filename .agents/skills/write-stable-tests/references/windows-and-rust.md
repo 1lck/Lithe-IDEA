@@ -52,8 +52,11 @@ Git subprocesses, sometimes rebuilding several repositories in one case. The
 SharedRust lane assigns the `tests::git_history_rewrite::` module and the older
 `tests::git::git_write_squashes_`, `git_write_deletes_a_local_commit_`, and
 `git_write_edits_a_local_commit_message_` scenarios a 30-second process budget.
-Core rebase requests use a nested 20-second deadline. Other cases retain the
-normal 15-second budget. The Rust runner's repeatable
+The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset`
+case also gets 30 seconds because it writes and inspects a real file larger
+than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
+the default 15-second limit. Core rebase requests use a nested 20-second
+deadline. Other cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.

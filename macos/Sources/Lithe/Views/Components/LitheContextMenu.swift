@@ -148,11 +148,13 @@ private final class LitheContextMenuSelection: ObservableObject {
 }
 
 private struct LitheContextMenuContent: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var selection: LitheContextMenuSelection
     let width: CGFloat
     let submenuWidth: CGFloat
     let submenuOnLeft: Bool
     let maximumHeight: CGFloat
+    let settingsStyle: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: LitheContextMenuMetrics.submenuSpacing) {
@@ -178,6 +180,7 @@ private struct LitheContextMenuContent: View {
                             LitheContextMenuRow(
                                 item: item,
                                 isSelected: (isChild ? selection.childID : selection.selectedID) == item.id,
+                                settingsStyle: settingsStyle,
                                 action: {
                                     if case .submenu = item.kind { selection.open(item.id) }
                                     else { selection.dismiss(); item.action() }
@@ -203,26 +206,42 @@ private struct LitheContextMenuContent: View {
                 if let id { proxy.scrollTo(id) }
             }
         }
-        .frame(width: width, height: min(LitheContextMenuPresenter.menuHeight(for: items), maximumHeight))
-        .litheContextMenuSurface()
+        .frame(width: width, height: min(LitheContextMenuPresenter.menuHeight(for: items, settingsStyle: settingsStyle), maximumHeight))
+        .background {
+            RoundedRectangle(cornerRadius: settingsStyle ? 8 : LitheTheme.Metrics.contextMenuCornerRadius)
+                .fill(settingsStyle
+                      ? (colorScheme == .dark ? Color(red: 38 / 255, green: 40 / 255, blue: 44 / 255) : .white)
+                      : LitheTheme.contextMenuBackground)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: settingsStyle ? 8 : LitheTheme.Metrics.contextMenuCornerRadius)
+                .stroke(settingsStyle
+                        ? (colorScheme == .dark ? Color(red: 76 / 255, green: 79 / 255, blue: 86 / 255)
+                           : Color(red: 233 / 255, green: 234 / 255, blue: 238 / 255))
+                        : LitheTheme.panelBorder, lineWidth: 1)
+        }
     }
 }
 
 private struct LitheContextMenuRow: View {
+    @Environment(\.colorScheme) private var colorScheme
     let item: LitheContextMenuItem
     let action: (() -> Void)?
     let onSubmenuHover: ((Bool) -> Void)?
     let isSelected: Bool
+    let settingsStyle: Bool
     private var isHovering: Bool { isSelected }
 
     init(
         item: LitheContextMenuItem,
         isSelected: Bool,
+        settingsStyle: Bool,
         action: @escaping () -> Void,
         onHover: ((Bool) -> Void)? = nil
     ) {
         self.item = item
         self.isSelected = isSelected
+        self.settingsStyle = settingsStyle
         self.action = action
         self.onSubmenuHover = onHover
     }
@@ -237,24 +256,26 @@ private struct LitheContextMenuRow: View {
             action?()
         } label: {
             HStack(spacing: 9) {
-                Group {
-                    if let iconKind = item.iconKind {
-                        LitheIcon(kind: iconKind, size: 16)
-                    } else if let systemImage = item.systemImage {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 13, weight: .regular))
-                    } else {
-                        Color.clear
+                if !settingsStyle {
+                    Group {
+                        if let iconKind = item.iconKind {
+                            LitheIcon(kind: iconKind, size: 16)
+                        } else if let systemImage = item.systemImage {
+                            Image(systemName: systemImage)
+                                .font(.system(size: 13, weight: .regular))
+                        } else {
+                            Color.clear
+                        }
                     }
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
                 }
-                .frame(width: 16, height: 16)
-                .foregroundStyle(
-                    isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText
-                )
 
                 Text(LocalizedStringKey(item.title))
-                    .font(Font(LitheContextMenuMetrics.itemFont))
-                    .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.primaryText)
+                    .font(settingsStyle ? .system(size: 12.5) : Font(LitheContextMenuMetrics.itemFont))
+                    .foregroundStyle(isHovering
+                                     ? (settingsStyle ? (colorScheme == .dark ? .white : .black) : LitheTheme.toolWindowSelectedText)
+                                     : LitheTheme.primaryText)
                     .lineLimit(1)
 
                 Spacer(minLength: 14)
@@ -269,14 +290,19 @@ private struct LitheContextMenuRow: View {
                         .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText.opacity(0.78) : LitheTheme.tertiaryText)
                 }
             }
-            .padding(.horizontal, 9)
-            .frame(height: LitheContextMenuMetrics.rowHeight)
+            .padding(.horizontal, settingsStyle ? 8 : 9)
+            .frame(height: settingsStyle ? 24 : LitheContextMenuMetrics.rowHeight)
             .contentShape(Rectangle())
             .background {
-                RoundedRectangle(cornerRadius: 5, style: .continuous)
-                    .fill(isHovering ? LitheTheme.selection : .clear)
+                RoundedRectangle(cornerRadius: settingsStyle ? 4 : 5, style: .continuous)
+                    .fill(isHovering
+                          ? (settingsStyle
+                             ? (colorScheme == .dark ? Color(red: 42 / 255, green: 67 / 255, blue: 113 / 255)
+                                : Color(red: 208 / 255, green: 223 / 255, blue: 254 / 255))
+                             : LitheTheme.selection)
+                          : .clear)
             }
-            .padding(.horizontal, 5)
+            .padding(.horizontal, settingsStyle ? 6 : 5)
         }
         .buttonStyle(.plain)
         .disabled(!item.isEnabled)
@@ -310,20 +336,23 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         items: [LitheContextMenuItem],
         at screenPoint: NSPoint,
         appearance: NSAppearance?,
-        locale: Locale
+        locale: Locale,
+        opensUpward: Bool = false,
+        settingsStyle: Bool = false
     ) {
         dismiss()
         guard !items.isEmpty else { return }
 
         let menuWidth = Self.menuWidth(
             for: items,
-            minimumWidth: LitheContextMenuMetrics.minimumRootWidth
+            minimumWidth: settingsStyle ? 156 : LitheContextMenuMetrics.minimumRootWidth,
+            chromeWidth: settingsStyle ? 28 : 67
         )
         let visibleFrame = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? .zero
         self.visibleFrame = visibleFrame.insetBy(dx: 6, dy: 6)
         let maximumHeight = max(1, visibleFrame.height - 12)
-        let menuHeight = min(Self.menuHeight(for: items), maximumHeight)
+        let menuHeight = min(Self.menuHeight(for: items, settingsStyle: settingsStyle), maximumHeight)
         let submenuWidths = items.compactMap { item -> CGFloat? in
             guard case .submenu(let submenuItems) = item.kind else { return nil }
             return Self.menuWidth(
@@ -337,7 +366,10 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         }
         let submenuWidth = submenuWidths.max() ?? 0
         let submenuHeight = min(submenuHeights.max() ?? 0, maximumHeight)
-        let preferredOrigin = NSPoint(x: screenPoint.x - 6, y: screenPoint.y - menuHeight + 6)
+        let preferredOrigin = NSPoint(
+            x: screenPoint.x - 6,
+            y: opensUpward ? screenPoint.y + 6 : screenPoint.y - menuHeight + 6
+        )
         let origin = NSPoint(
             x: min(max(preferredOrigin.x, visibleFrame.minX + 6), visibleFrame.maxX - menuWidth - 6),
             y: min(max(preferredOrigin.y, visibleFrame.minY + 6), visibleFrame.maxY - menuHeight - 6)
@@ -354,7 +386,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         }
         let content = LitheContextMenuContent(
             selection: selection, width: menuWidth, submenuWidth: submenuWidth,
-            submenuOnLeft: submenuOnLeft, maximumHeight: maximumHeight
+            submenuOnLeft: submenuOnLeft, maximumHeight: maximumHeight, settingsStyle: settingsStyle
         )
         .environment(\.locale, locale)
 
@@ -416,7 +448,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
     fileprivate static func menuWidth(
         for items: [LitheContextMenuItem],
-        minimumWidth: CGFloat
+        minimumWidth: CGFloat,
+        chromeWidth: CGFloat = 67
     ) -> CGFloat {
         let widestItem = items.reduce(CGFloat.zero) { width, item in
             guard case .action = item.kind else {
@@ -425,20 +458,20 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             }
             return max(width, menuItemWidth(item))
         }
-        let contentWidth = widestItem + 67
+        let contentWidth = widestItem + chromeWidth
         return min(
             max(contentWidth, minimumWidth),
             LitheContextMenuMetrics.maximumWidth
         )
     }
 
-    fileprivate static func menuHeight(for items: [LitheContextMenuItem]) -> CGFloat {
+    fileprivate static func menuHeight(for items: [LitheContextMenuItem], settingsStyle: Bool = false) -> CGFloat {
         items.reduce(LitheContextMenuMetrics.verticalPadding) { height, item in
             switch item.kind {
             case .separator:
                 height + LitheContextMenuMetrics.separatorHeight
             case .action, .submenu:
-                height + LitheContextMenuMetrics.rowHeight
+                height + (settingsStyle ? 24 : LitheContextMenuMetrics.rowHeight)
             }
         }
     }

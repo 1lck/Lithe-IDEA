@@ -1,11 +1,7 @@
-import {
-  buildPathTree,
-  type PathTreeNode,
-} from "@/features/sidebar/lib/path-tree";
+import { buildPathTree, type PathTreeNode } from "@/features/sidebar/lib/path-tree";
 import type { GitFile } from "../types/git.types";
 
-export type GitStatusGroup =
-  "added" | "modified" | "deleted" | "renamed" | "untracked";
+export type GitStatusGroup = "added" | "modified" | "deleted" | "renamed" | "untracked";
 
 export const GIT_STATUS_ORDER: GitStatusGroup[] = [
   "added",
@@ -52,19 +48,13 @@ const createEmptyGitStatusGroups = (): Record<GitStatusGroup, GitFile[]> => ({
 });
 
 function mergeWholePathStatus(existing: GitFile, incoming: GitFile): GitFile {
-  const deleted = [existing, incoming].find(
-    (file) => file.status === "deleted",
-  );
-  const recreated = [existing, incoming].find(
-    (file) => file.status === "untracked",
-  );
+  const deleted = [existing, incoming].find((file) => file.status === "deleted");
+  const recreated = [existing, incoming].find((file) => file.status === "untracked");
   if (deleted && recreated) {
-    // Git reports an index deletion and a same-path untracked file separately.
-    // Selected-path commit stages the current file, so present it as the
-    // modified whole-path snapshot that the user will actually commit.
+    // The checkbox reflects the index deletion. Keep the recreated worktree
+    // content available for diff/staging without relabeling the staged change.
     return {
       ...deleted,
-      status: "modified",
       staged: deleted.staged || recreated.staged,
       worktree: true,
     };
@@ -76,19 +66,16 @@ function coalesceWholePathStatuses(files: readonly GitFile[]): GitFile[] {
   const fileByPath = new Map<string, GitFile>();
   for (const file of files) {
     const existing = fileByPath.get(file.path);
-    fileByPath.set(
-      file.path,
-      existing ? mergeWholePathStatus(existing, file) : file,
-    );
+    fileByPath.set(file.path, existing ? mergeWholePathStatus(existing, file) : file);
   }
   return [...fileByPath.values()];
 }
 
-export function buildGitFolderTree(fileList: GitFile[]): GitFolderTree {
+export function buildGitFolderTree(fileList: GitFile[], repositoryRelative = false): GitFolderTree {
   const nodes = buildPathTree(fileList, {
-    getKey: (file) =>
-      `${file.path}:${file.staged ? "staged" : "unstaged"}:${file.status}`,
-    getPath: (file) => file.path,
+    getKey: (file) => `${file.path}:${file.staged ? "staged" : "unstaged"}:${file.status}`,
+    getPath: (file) =>
+      repositoryRelative ? (file.repositoryRelativePath ?? file.path) : file.path,
   });
   const folderStateById = new Map<string, GitFolderState>();
 
@@ -99,8 +86,7 @@ export function buildGitFolderTree(fileList: GitFile[]): GitFolderTree {
     folderStateById.set(node.id, {
       descendantFilePaths: descendantFiles.map((file) => file.path),
       areAllDescendantFilesStaged:
-        descendantFiles.length > 0 &&
-        descendantFiles.every((file) => file.staged),
+        descendantFiles.length > 0 && descendantFiles.every((file) => file.staged),
     });
     return descendantFiles;
   };
@@ -109,9 +95,7 @@ export function buildGitFolderTree(fileList: GitFile[]): GitFolderTree {
   return { nodes, folderStateById };
 }
 
-export function buildGitStatusPresentation(
-  files: GitFile[],
-): GitStatusPresentation {
+export function buildGitStatusPresentation(files: GitFile[]): GitStatusPresentation {
   const stagedFiles: GitFile[] = [];
   const unstagedFiles: GitFile[] = [];
   const displayFileByPath = new Map<string, GitFile>();
