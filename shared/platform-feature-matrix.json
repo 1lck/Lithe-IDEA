@@ -408,6 +408,31 @@
       "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。"
     },
     {
+      "id": "editor-pointer-selection",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "鼠标与触控板点击、选词和拖选",
+      "macos": {
+        "evidence": [
+          "macos/EditorFrontend/main.ts",
+          "macos/EditorFrontend/mouse-input.ts",
+          "macos/Experiments/Monaco/mouse-input.integration.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor/components/monaco-editor.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Editor",
+      "notes": "macOS 在宿主修正 WebKit 零按钮按下事件，保留 Monaco 选择语义。Linux Chromium 真实 Monaco 控制事件回放通过，仍待 macOS 微信输入法与 Windows WebView2 实机验证。",
+      "verification": "macOS 分别启用微信输入法和系统 ABC，快速轻点不同位置后松手移动，确认不扩展选区、不移动文字；验证同位置双击选词、Shift 点击扩选、按住拖选、选中文字拖放、主编辑器和分屏及 diff。运行 scripts/probe-macos-monaco.sh --workbench-tests；Windows 验证同样的正常鼠标交互。"
+    },
+    {
       "id": "editor-language-basics",
       "area": "编辑器",
       "group": "文本编辑",
