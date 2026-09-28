@@ -179,12 +179,12 @@ struct WelcomeView: View {
                 if exists { model.openProject(project.url) }
             } label: {
                 HStack(spacing: 8) {
-                    Text(initials(for: project.name))
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 20, height: 20)
-                        .background(exists ? color(for: project.name) : hoverColor)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                    ProjectAvatarBadge(
+                        name: project.name,
+                        colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url),
+                        size: 20,
+                        isEnabled: exists
+                    )
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(project.name)
@@ -311,32 +311,6 @@ struct WelcomeView: View {
             opensUpward: true,
             settingsStyle: true
         )
-    }
-
-    private func initials(for name: String) -> String {
-        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        let characters = words.prefix(2).compactMap(\.first)
-        return characters.isEmpty ? "LI" : String(characters).uppercased()
-    }
-
-    private func color(for value: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.878, green: 0.533, blue: 0.333),
-            Color(red: 0.690, green: 0.545, blue: 0.078),
-            Color(red: 0.631, green: 0.639, blue: 0.349),
-            Color(red: 0.231, green: 0.573, blue: 0.722),
-            Color(red: 0.208, green: 0.455, blue: 0.941),
-            Color(red: 0.584, green: 0.353, blue: 0.878),
-            Color(red: 0.373, green: 0.678, blue: 0.396),
-            Color(red: 0.141, green: 0.639, blue: 0.580),
-            Color(red: 0.784, green: 0.302, blue: 0.561)
-        ]
-        var hash: UInt64 = 1_469_598_103_934_665_603
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
-        }
-        return palette[Int(hash % UInt64(palette.count))]
     }
 }
 
