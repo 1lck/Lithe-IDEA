@@ -132,7 +132,7 @@ async fn dropping_a_probe_closes_descendant_pipes() {
     use std::os::unix::process::CommandExt;
     let mut command = std::process::Command::new("sh");
     command
-        .args(["-c", "sh -c 'printf ready; cat' & wait"])
+        .args(["-c", "sh -c 'printf ready; cat'; :"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
