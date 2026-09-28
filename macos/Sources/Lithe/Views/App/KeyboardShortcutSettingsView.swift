@@ -82,11 +82,11 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 14) {
+        HStack(spacing: 8) {
             Button {
                 expandedGroups = Set(LitheActionGroup.allCases)
             } label: {
-                expansionIcon(expand: true)
+                LitheIDEAIcon(resourcePath: "expui/general/expandAll.svg", size: 16, fallbackSystemImage: "arrow.down.right.and.arrow.up.left")
             }
             .help("Expand All")
 
@@ -94,7 +94,7 @@ struct KeyboardShortcutSettingsView: View {
                 expandedGroups = []
                 cancelEditing()
             } label: {
-                expansionIcon(expand: false)
+                LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, fallbackSystemImage: "arrow.up.left.and.arrow.down.right")
             }
             .help("Collapse All")
 
@@ -118,7 +118,7 @@ struct KeyboardShortcutSettingsView: View {
                     }
                 }
             } label: {
-                Image(systemName: "pencil")
+                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil")
             }
             .menuStyle(.borderlessButton)
             .tint(LitheTheme.secondaryText)
@@ -126,11 +126,12 @@ struct KeyboardShortcutSettingsView: View {
             .help("Edit Shortcuts")
 
             Spacer(minLength: 12)
-            LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
+            LitheSettingsSearchField("", text: $query) { _ in
                 cancelEditing()
                 selectedCommandID = nil
             }
-            .frame(width: 250)
+            .frame(width: 244)
+            .accessibilityLabel("Search actions or shortcuts")
         }
         .font(.system(size: 12))
         .buttonStyle(.borderless)
@@ -139,15 +140,6 @@ struct KeyboardShortcutSettingsView: View {
         .frame(height: 36)
         .background(alignment: .top) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
         .background(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
-    }
-
-    private func expansionIcon(expand: Bool) -> some View {
-        VStack(spacing: 3) {
-            Image(systemName: expand ? "chevron.up" : "chevron.down")
-            Image(systemName: expand ? "chevron.down" : "chevron.up")
-        }
-        .font(.system(size: 7, weight: .medium))
-        .frame(width: 16, height: 20)
     }
 
     private func commandSection(_ section: KeyboardShortcutCommandSection) -> some View {
