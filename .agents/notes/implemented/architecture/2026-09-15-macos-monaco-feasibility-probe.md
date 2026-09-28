@@ -345,6 +345,9 @@ Monaco 视图。语法 token 仍使用统一的 `color-mappings.json` 与共享�
 选择、当前行和缩进引导线仍使用当前主题颜色。只把 SwiftUI 外层设为透明是不够的，
 因为不透明的 WebView 或 `editor.background` 仍会覆盖图片。也不能把 Monaco 永久设成
 透明，否则没有背景图时会丢失正常的编辑器表面和主题颜色。
+主题背景色还必须传给 `editorOverviewRuler.background`。启用右侧代码缩略图时，
+Monaco 会给未指定背景的概览标尺填入默认分词背景色，在壁纸模式下形成黑色竖条；
+显式传入透明色后，概览标尺与编辑区一起露出工作台图片。
 
 ### 只读差异视图
 
