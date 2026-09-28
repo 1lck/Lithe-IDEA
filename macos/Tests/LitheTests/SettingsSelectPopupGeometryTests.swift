@@ -1,9 +1,80 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Lithe
 
-@Suite("Settings select popup geometry")
+@Suite("Settings select popup")
 struct SettingsSelectPopupGeometryTests {
+    @MainActor
+    @Test
+    func popupClosesOnItsTriggerAndBlankSpaceButSwitchesToAnotherSelect() async throws {
+        let host = NSHostingView(rootView: HStack(spacing: 20) {
+            LitheSettingsSelect(
+                selection: .constant("First"), options: ["First", "Another"],
+                width: 180, accessibilityLabel: "First select", title: { $0 }
+            )
+            LitheSettingsSelect(
+                selection: .constant("Second"), options: ["Second", "Another"],
+                width: 180, accessibilityLabel: "Second select", title: { $0 }
+            )
+            Spacer()
+        }.frame(width: 450, height: 120, alignment: .topLeading))
+        let window = NSWindow(
+            contentRect: NSRect(x: 100, y: 100, width: 450, height: 120),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        func popup() -> NSPanel? {
+            NSApp.windows.compactMap { $0 as? NSPanel }.first {
+                $0.isVisible && NSStringFromClass(type(of: $0)).hasSuffix("LitheSettingsSelectPopupPanel")
+            }
+        }
+
+        func click(_ point: NSPoint) throws {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(
+                    with: type, location: host.convert(point, to: nil), modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+                ))
+                NSApp.sendEvent(event)
+            }
+        }
+        defer {
+            if popup() != nil { try? click(NSPoint(x: 420, y: 80)) }
+            window.orderOut(nil)
+            window.close()
+        }
+
+        func waitForPopup(_ condition: @escaping (NSPanel?) -> Bool) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while clock.now < deadline {
+                if condition(popup()) { return true }
+                await Task.yield()
+            }
+            return condition(popup())
+        }
+
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 != nil })
+        let firstFrame = try #require(popup()?.frame)
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 == nil }, "Clicking the open select must close it")
+
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 != nil })
+        try click(NSPoint(x: 280, y: 14))
+        #expect(await waitForPopup { ($0?.frame.minX ?? 0) > firstFrame.minX + 100 },
+                "The second select must replace the first popup")
+
+        try click(NSPoint(x: 420, y: 80))
+        #expect(await waitForPopup { $0 == nil }, "Blank space must close the popup")
+    }
+
     @MainActor
     @Test
     func onlyLeftClickOnOriginalControlDefersDismissal() throws {
