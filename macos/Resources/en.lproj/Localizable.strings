@@ -1255,3 +1255,9 @@
 "Expand repository" = "Expand repository";
 "Unstage all files in repository" = "Unstage all files in repository";
 "Stage all files in repository" = "Stage all files in repository";
+"Pending" = "Pending";
+"Not included in the updated plan" = "Not included in the updated plan";
+"Committed; push failed" = "Committed; push failed";
+"HEAD advanced; review before continuing." = "HEAD advanced; review before continuing.";
+"Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
+"Repository needs attention" = "Repository needs attention";

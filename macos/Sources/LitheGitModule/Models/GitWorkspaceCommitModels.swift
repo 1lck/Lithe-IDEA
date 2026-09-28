@@ -52,7 +52,7 @@ package struct GitWorkspaceRepositoryResult: Codable, Sendable {
         case "outcomeUnknown": label = "Could not verify the commit outcome. Review before retrying."
         default: label = "Repository needs attention"
         }
-        return detail.isEmpty ? label : "\(label): \(detail)"
+        return label
     }
 }
 
@@ -70,7 +70,7 @@ package struct GitWorkspaceCommitSession: Codable, Sendable {
     var displayedResults: [GitRepositoryCommitResult] {
         results.compactMap { id, result in
             plan.root(id).map { GitRepositoryCommitResult(root: $0, committed: result.committed,
-                pushed: result.pushed, detail: result.displayDetail) }
+                pushed: result.pushed, detail: result.displayDetail, diagnostic: result.detail) }
         }.sorted { $0.root.path < $1.root.path }
     }
 }

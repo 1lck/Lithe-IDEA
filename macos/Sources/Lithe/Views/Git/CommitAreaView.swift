@@ -67,7 +67,8 @@ struct CommitAreaView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(feature.workspaceCommitResults) { result in
-                            (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail)))
+                            (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
+                                + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
                                 .font(.caption).help(result.root.path)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)

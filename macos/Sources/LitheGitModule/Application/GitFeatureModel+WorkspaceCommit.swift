@@ -111,6 +111,7 @@ extension GitFeatureModel {
     private func executeWorkspaceCommit(_ plan: GitSubmoduleCommitPlan, generation: UUID) async -> Bool {
         var session = plan.preparation.session
         workspaceCommitAttempt = session
+        workspaceCommitResults = session.displayedResults
         while !session.finished {
             guard generation == workspaceCommitGeneration, !Task.isCancelled else { return false }
             // Core chooses the repository and operation. Native code only owns

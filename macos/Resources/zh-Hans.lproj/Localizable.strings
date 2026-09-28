@@ -2483,3 +2483,9 @@
 "Expand repository" = "展开仓库";
 "Unstage all files in repository" = "取消暂存仓库的所有文件";
 "Stage all files in repository" = "暂存仓库的所有文件";
+"Pending" = "等待执行";
+"Not included in the updated plan" = "未包含在更新后的计划中";
+"Committed; push failed" = "已提交，推送失败";
+"HEAD advanced; review before continuing." = "提交记录已推进，请检查后再继续。";
+"Could not verify the commit outcome. Review before retrying." = "无法确认提交结果，请检查后再重试。";
+"Repository needs attention" = "仓库需要处理";

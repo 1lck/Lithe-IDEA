@@ -279,6 +279,7 @@ package struct GitRepositoryCommitResult: Identifiable, Sendable {
     package var committed = false
     package var pushed = false
     package var detail = "Pending"
+    package var diagnostic = ""
     package var id: String { root.path }
 }
 

@@ -696,6 +696,23 @@ struct GitModuleTests {
     }
 
     @Test
+    func firstCoreStepFailureKeepsRecoveryActionsVisible() async throws {
+        let original = try workspacePreparation()
+        let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)
+        let probe = WorkspaceCommitProbe(preparations: [immediate])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.commitStagedChanges(message: "commit", amend: false))
+        #expect(feature.canRetryWorkspaceCommit)
+        #expect(!feature.workspaceCommitResults.isEmpty)
+        #expect(!feature.isCommitting)
+        feature.dismissWorkspaceCommitResults()
+        #expect(!feature.canRetryWorkspaceCommit)
+        #expect(feature.workspaceCommitResults.isEmpty)
+    }
+
+    @Test
     func workspaceResetDuringCommitDoesNotStartTheNextStepOrPublishOldResults() async throws {
         let original = try workspacePreparation()
         let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)

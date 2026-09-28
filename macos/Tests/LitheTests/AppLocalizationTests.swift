@@ -332,6 +332,13 @@ struct GitLocalizationTests {
             "Committed; push pending",
             "Committed and pushed",
             "Waiting for submodule",
+            "Pending",
+            "Not included in the updated plan",
+            "Committed; push failed",
+            "HEAD advanced; review before continuing.",
+            "Could not verify the commit outcome. Review before retrying.",
+            "Repository needs attention",
+
             "Update %@/%@ after %@",
             "Repository changed; review and retry",
             "Committed",
