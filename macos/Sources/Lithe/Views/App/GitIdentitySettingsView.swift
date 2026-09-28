@@ -26,21 +26,16 @@ private struct GitIdentitySettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 8) {
-                Text("Commit identity")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
+            Text("Commit identity").font(.system(size: 15, weight: .semibold))
             Text("Git records this name and email in new commits. These settings do not change existing commits.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             LitheSettingsSegmentedControl(
                 selection: $scope,
                 options: GitIdentityScope.allCases,
-                width: 360,
+                width: 340,
                 title: { $0 == .local ? "Current repository" : "Global Git configuration" }
             )
+            .accessibilityLabel("Configuration scope")
             .disabled(editor.isBusy)
             Text(scope == .global
                  ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")

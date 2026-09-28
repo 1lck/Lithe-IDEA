@@ -58,7 +58,7 @@ export function RunOutputText({
         <pre
           ref={preRef}
           className={cn(
-            "cursor-text font-mono text-[12px] text-foreground select-text *:select-text",
+            "cursor-text font-mono text-[12px] text-foreground select-text *:select-text [font-variant-ligatures:none]",
             outputClassName,
           )}
         >
@@ -71,7 +71,7 @@ export function RunOutputText({
       ) : (
         <pre
           className={cn(
-            "cursor-text font-mono text-[12px] text-foreground select-text",
+            "cursor-text font-mono text-[12px] text-foreground select-text [font-variant-ligatures:none]",
             outputClassName,
           )}
         >

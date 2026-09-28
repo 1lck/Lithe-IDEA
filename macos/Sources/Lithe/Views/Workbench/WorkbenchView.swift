@@ -237,7 +237,6 @@ struct WorkbenchView: View {
     @State private var pendingTopBarPushReference: GitReference?
     @State private var pendingTopBarDeleteReference: GitReference?
     @State private var isProjectSwitcherPresented = false
-    @State private var isPluginPanelPresented = false
     @State private var isNotificationCenterPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
@@ -1394,8 +1393,9 @@ struct WorkbenchView: View {
                 ideaAssetPath: "expui/nodes/plugin.svg",
                 help: "Plugins",
                 tooltipPlacement: .leading,
-                isSelected: isPluginPanelPresented,
-                action: { isPluginPanelPresented.toggle() }
+                isSelected: model.workbenchFeature.isSettingsPresented
+                    && model.requestedSettingsCategory == .plugins,
+                action: { model.showSettings(category: .plugins) }
             )
 
             ForEach(model.rightSidebarContributions) { contribution in
@@ -1548,10 +1548,7 @@ struct WorkbenchView: View {
             },
             editor: {
                 Group {
-                    if isPluginPanelPresented {
-                        PluginManagementView()
-                            .environmentObject(model)
-                    } else if model.workbenchFeature.selectedSidebar == .pullRequests {
+                    if model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {

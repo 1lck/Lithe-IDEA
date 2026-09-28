@@ -32,6 +32,8 @@ private struct LitheSettingsControlChrome: ViewModifier {
 }
 
 struct LitheSettingsSearchField: View {
+    @FocusState private var isFocused: Bool
+    private let externalFocus: FocusState<Bool>.Binding?
     private let placeholder: LocalizedStringKey
     @Binding private var text: String
     private let onTextChanged: ((String) -> Void)?
@@ -39,10 +41,12 @@ struct LitheSettingsSearchField: View {
     init(
         _ placeholder: LocalizedStringKey,
         text: Binding<String>,
+        focus: FocusState<Bool>.Binding? = nil,
         onTextChanged: ((String) -> Void)? = nil
     ) {
         self.placeholder = placeholder
         _text = text
+        externalFocus = focus
         self.onTextChanged = onTextChanged
     }
 
@@ -52,7 +56,8 @@ struct LitheSettingsSearchField: View {
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.settingsFont)
+                .focused(externalFocus ?? $isFocused)
 
             if !text.isEmpty {
                 Button {
@@ -69,7 +74,10 @@ struct LitheSettingsSearchField: View {
         }
         .padding(.horizontal, 9)
         .frame(height: 28)
-        .litheSettingsControlChrome(background: .clear)
+        .litheSettingsControlChrome(
+            background: .clear,
+            border: (externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+        )
         .onChange(of: text) { value in
             onTextChanged?(value)
         }
@@ -120,7 +128,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         } label: {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title(selection)))
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.settingsFont)
                     .foregroundStyle(isAvailable(selection) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                     .lineLimit(1)
 
@@ -133,7 +141,10 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             }
             .padding(.horizontal, 9)
             .frame(width: width, height: SettingsSelectMetrics.controlHeight, alignment: .leading)
-            .litheSettingsControlChrome(border: isPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder)
+            .litheSettingsControlChrome(
+                background: LitheTheme.settingsSelectBackground,
+                border: isPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+            )
             .background(LitheSettingsSelectAnchorView(reference: popupAnchor))
             .contentShape(Rectangle())
         }
@@ -198,7 +209,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
     private func preferredPopupWidth(maximumWidth: CGFloat) -> CGFloat {
         guard expandsToFitOptions else { return width }
-        let font = NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
+        let font = NSFont(name: "Inter-Regular", size: SettingsSelectMetrics.fontSize)
+            ?? NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
             let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
@@ -603,7 +615,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     var body: some View {
         HStack(spacing: 0) {
             Text(title(value))
-                .font(.system(size: 12.5))
+                .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.primaryText)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -649,15 +661,38 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
 
 private struct LitheSettingsTextFieldModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @FocusState private var isFocused: Bool
 
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .font(.system(size: 12.5))
+            .font(LitheTheme.settingsFont)
+            .focused($isFocused)
             .padding(.horizontal, 9)
             .frame(height: SettingsSelectMetrics.controlHeight)
-            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
+            .litheSettingsControlChrome(
+                background: LitheTheme.settingsTextFieldBackground,
+                border: isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+            )
             .opacity(isEnabled ? 1 : 0.55)
+    }
+}
+
+private struct LitheSettingsTextEditorModifier: ViewModifier {
+    @FocusState private var isFocused: Bool
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .font(.system(size: 12, design: .monospaced))
+            .focused($isFocused)
+            .frame(height: height)
+            .padding(5)
+            .litheSettingsControlChrome(
+                background: LitheTheme.settingsTextFieldBackground,
+                border: isFocused ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+            )
     }
 }
 
@@ -674,8 +709,7 @@ extension View {
         modifier(LitheSettingsTextFieldModifier())
     }
 
-    func litheSettingsTextEditor() -> some View {
-        scrollContentBackground(.hidden)
-            .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
+    func litheSettingsTextEditor(height: CGFloat) -> some View {
+        modifier(LitheSettingsTextEditorModifier(height: height))
     }
 }

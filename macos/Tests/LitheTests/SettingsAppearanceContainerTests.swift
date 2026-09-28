@@ -4,7 +4,42 @@ import Testing
 @testable import Lithe
 
 @MainActor
+@Suite(.serialized)
 struct SettingsAppearanceContainerTests {
+    @Test
+    func settingsInputRolesUseDistinctIDEAStyleSurfaces() throws {
+        for (appearanceName, expected) in [
+            (NSAppearance.Name.darkAqua, [0x2B2D30, 0x393B40]),
+            (.aqua, [0xFFFFFF, 0xFFFFFF])
+        ] {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            var colors: [NSColor?] = []
+            appearance.performAsCurrentDrawingAppearance {
+                colors = [LitheTheme.settingsControlBackground, LitheTheme.settingsSelectBackground]
+                    .map { NSColor($0).usingColorSpace(.sRGB) }
+            }
+            for (color, hex) in zip(colors, expected) {
+                let color = try #require(color)
+                #expect(abs(color.redComponent - CGFloat((hex >> 16) & 0xff) / 255) < 0.005)
+                #expect(abs(color.greenComponent - CGFloat((hex >> 8) & 0xff) / 255) < 0.005)
+                #expect(abs(color.blueComponent - CGFloat(hex & 0xff) / 255) < 0.005)
+            }
+        }
+    }
+
+    @Test
+    func settingsSurfaceMatchesWorkbenchLightAndDarkColors() throws {
+        for appearanceName in [NSAppearance.Name.darkAqua, .aqua] {
+            let appearance = try #require(NSAppearance(named: appearanceName))
+            let isDark = appearanceName == .darkAqua
+            let actual = try #require(
+                LitheTheme.settingsSurfaceNSColor(for: appearance).usingColorSpace(.sRGB)
+            )
+            let expected = try #require(LitheTheme.nsColor(.sidebar, isDark: isDark).usingColorSpace(.sRGB))
+            #expect(actual == expected)
+        }
+    }
+
     @Test
     func changingAppearanceKeepsTheContentIdentity() {
         let recorder = SettingsContentIdentityRecorder()
@@ -47,6 +82,49 @@ struct SettingsAppearanceContainerTests {
         defer { reopened.close() }
         try assertWindowChrome(reopened, host: reopenedHost, theme: .system)
         #expect(reopened !== window)
+    }
+
+    @Test
+    func settingsWindowFollowsItsOwningWorkbenchWindow() {
+        let (firstOwner, _) = makeWindow(theme: .dark)
+        let (secondOwner, _) = makeWindow(theme: .dark)
+        let (settingsWindow, _) = makeWindow(theme: .dark)
+        defer {
+            settingsWindow.parent?.removeChildWindow(settingsWindow)
+            SettingsWindowChrome.ownerWindow = nil
+            SettingsWindowChrome.settingsWindow = nil
+            settingsWindow.close()
+            firstOwner.close()
+            secondOwner.close()
+        }
+
+        SettingsWindowChrome.ownerWindow = firstOwner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === firstOwner)
+        #expect(settingsWindow.level == .normal)
+
+        SettingsWindowChrome.ownerWindow = secondOwner
+        SettingsWindowChrome.configure(settingsWindow, title: "Settings", themePreference: .dark)
+        #expect(settingsWindow.parent === secondOwner)
+        #expect(firstOwner.childWindows?.contains(settingsWindow) != true)
+    }
+
+    @Test
+    func applyingPluginChangesBlocksNativeWindowClose() {
+        let (window, _) = makeWindow(theme: .dark)
+        defer { window.close() }
+
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark, closeEnabled: false)
+        window.performClose(nil)
+        #expect(window.isVisible)
+
+        // Reconfiguring ownership or appearance must not reenable closing mid-apply.
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark)
+        #expect(window.standardWindowButton(.closeButton)?.isEnabled == false)
+
+        SettingsWindowChrome.configure(window, title: "Settings", themePreference: .dark, closeEnabled: true)
+        window.performClose(nil)
+        #expect(!window.isVisible)
     }
 
     private func makeWindow(theme: AppThemePreference) -> (NSWindow, NSHostingView<AnyView>) {

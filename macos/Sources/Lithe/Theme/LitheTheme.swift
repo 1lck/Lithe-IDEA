@@ -286,9 +286,7 @@ enum LitheTheme {
     }
     static func settingsSurfaceNSColor(for appearance: NSAppearance) -> NSColor {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        return isDark
-            ? NSColor(srgbRed: 25.0 / 255.0, green: 26.0 / 255.0, blue: 28.0 / 255.0, alpha: 1)
-            : NSColor(srgbRed: 247.0 / 255.0, green: 248.0 / 255.0, blue: 249.0 / 255.0, alpha: 1)
+        return nsColor(.sidebar, isDark: isDark)
     }
     static let settingsControlAccent = Color(
         red: 56.0 / 255.0,
@@ -296,6 +294,17 @@ enum LitheTheme {
         blue: 225.0 / 255.0
     )
     static var settingsPrimaryAction: Color { settingsControlAccent }
+    static var settingsListSurface: Color { settingsSurface }
+    static var settingsFont: Font { .custom("Inter-Regular", size: 13) }
+    static var settingsStrongFont: Font { .custom("Inter-SemiBold", size: 13) }
+    static var settingsSearchBorder: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 78.0 / 255, green: 81.0 / 255, blue: 87.0 / 255, alpha: 1)
+                : NSColor(srgbRed: 201.0 / 255, green: 204.0 / 255, blue: 214.0 / 255, alpha: 1)
+        })
+    }
     static var settingsSelection: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -314,7 +323,7 @@ enum LitheTheme {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             return isDark
-                ? NSColor(srgbRed: 38.0 / 255.0, green: 40.0 / 255.0, blue: 44.0 / 255.0, alpha: 1)
+                ? NSColor(srgbRed: 43.0 / 255.0, green: 45.0 / 255.0, blue: 48.0 / 255.0, alpha: 1)
                 : NSColor(srgbRed: 1, green: 1, blue: 1, alpha: 1)
         })
     }
@@ -339,6 +348,14 @@ enum LitheTheme {
             return isDark
                 ? NSColor(srgbRed: 76.0 / 255.0, green: 79.0 / 255.0, blue: 86.0 / 255.0, alpha: 1)
                 : NSColor(srgbRed: 233.0 / 255.0, green: 234.0 / 255.0, blue: 238.0 / 255.0, alpha: 1)
+        })
+    }
+    static var settingsSelectBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return isDark
+                ? NSColor(srgbRed: 57.0 / 255, green: 59.0 / 255, blue: 64.0 / 255, alpha: 1)
+                : .white
         })
     }
     static var toolHeader: Color { adaptive(\.toolHeader) }
@@ -577,14 +594,16 @@ private struct LitheRowHoverModifier: ViewModifier {
 struct LithePrimaryButtonStyle: ButtonStyle {
     var backgroundColor = LitheTheme.accent
     var restingOpacity = 0.92
+    var horizontalPadding: CGFloat = 18
+    var height: CGFloat = 30
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 13, weight: .medium))
             .foregroundStyle(.white)
-            .padding(.horizontal, 18)
-            .frame(height: 30)
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: height)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
                     .fill(backgroundColor.opacity(configuration.isPressed ? 0.78 : (isHovering ? 1 : restingOpacity)))
@@ -613,7 +632,7 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    .strokeBorder(LitheTheme.panelBorder, lineWidth: 1)
             }
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
@@ -621,18 +640,33 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
     }
 }
 
+private struct LithePointingHandCursorKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var lithePointingHandCursorEnabled: Bool {
+        get { self[LithePointingHandCursorKey.self] }
+        set { self[LithePointingHandCursorKey.self] = newValue }
+    }
+}
+
 private struct LithePointerModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.lithePointingHandCursorEnabled) private var pointingHandCursorEnabled
     @State private var cursor = LithePointerCursor()
 
     func body(content: Content) -> some View {
         content
             .onHover { isInside in
                 cursor.isHovered = isInside
-                cursor.update(isPointing: isInside && isEnabled)
+                cursor.update(isPointing: isInside && isEnabled && pointingHandCursorEnabled)
             }
             .onChange(of: isEnabled) { _ in
-                cursor.update(isPointing: cursor.isHovered && isEnabled)
+                cursor.update(isPointing: cursor.isHovered && isEnabled && pointingHandCursorEnabled)
+            }
+            .onChange(of: pointingHandCursorEnabled) { _ in
+                cursor.update(isPointing: cursor.isHovered && isEnabled && pointingHandCursorEnabled)
             }
             .onDisappear {
                 cursor.isHovered = false

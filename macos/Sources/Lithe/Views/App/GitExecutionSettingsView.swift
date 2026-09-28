@@ -10,7 +10,7 @@ struct GitExecutionSettingsView: View {
 
     var body: some View {
         GitSettingsCard {
-            GitSettingsHeader(title: "Git execution", subtitle: "Choose how Lithe locates Git and handles credentials.")
+            GitSettingsHeader(icon: "arrow.triangle.branch", title: "Git execution", subtitle: "Choose how Lithe locates Git and handles credentials.")
 
             GitSettingsRow("Git executable") {
                 HStack(spacing: 8) {
@@ -27,7 +27,7 @@ struct GitExecutionSettingsView: View {
 
             VStack(alignment: .leading, spacing: 7) {
                 GitSettingsRow("Credentials") {
-                    LitheSettingsCheckbox(isOn: $settings.gitUseCredentialHelper, title: "Use credential helper")
+                    Toggle("Use credential helper", isOn: $settings.gitUseCredentialHelper)
                 }
                 Text("Git can request credentials in Lithe. Passwords are not saved by Lithe; the selected Git helper controls credential storage.")
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
@@ -55,25 +55,22 @@ struct GitSettingsCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10, content: { content })
-            .padding(.top, 16)
+        VStack(alignment: .leading, spacing: 14, content: { content })
+            .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
     }
 }
 
 struct GitSettingsHeader: View {
+    let icon: String
     let title: LocalizedStringKey
     let subtitle: LocalizedStringKey
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .fixedSize()
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            }
+        VStack(alignment: .leading, spacing: 3) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 14, weight: .semibold))
             Text(subtitle).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -118,9 +115,10 @@ private struct GitExecutionConfigurationPane: View {
                 LitheSettingsSegmentedControl(
                     selection: $scope,
                     options: ["local", "global"],
-                    width: 360,
+                    width: 340,
                     title: { $0 == "local" ? "Current repository" : "Global Git configuration" }
                 )
+                .accessibilityLabel("Configuration scope")
             }
 
             GitBranchContextView(feature: feature, remoteURL: remoteURL)
@@ -133,7 +131,16 @@ private struct GitExecutionConfigurationPane: View {
                     title: "Git configuration",
                     subtitle: "Choose a behavior on the right. Lithe shows the value Git is using and the value a reset would restore."
                 )
-                LitheSettingsCheckbox(isOn: $showsTechnicalDetails, title: "Show Git key names")
+                HStack(spacing: 10) {
+                    Image(systemName: "slider.horizontal.3")
+                        .foregroundStyle(LitheTheme.secondaryText)
+                    Text("Show Git key names")
+                        .font(.system(size: 11.5, weight: .medium))
+                    Toggle("Show Git key names", isOn: $showsTechnicalDetails)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+                .foregroundStyle(LitheTheme.secondaryText)
                 configurationGroup("Update", subtitle: "How Pull and Update Project combine your local and remote commits.", icon: "arrow.triangle.2.circlepath", fields: snapshot.fields.filter(isUpdateField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
                 configurationGroup("Fetch", subtitle: "What Fetch removes or downloads before you start working.", icon: "arrow.down.circle", fields: snapshot.fields.filter(isFetchField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
                 configurationGroup("Push", subtitle: "Where Push goes when you do not choose a target explicitly.", icon: "arrow.up.circle", fields: snapshot.fields.filter(isPushField), entries: snapshot.entries, fetchOptions: snapshot.fetchOptions)
