@@ -1648,7 +1648,7 @@ impl BottomPanelView {
     /// 选中运行配置（顶部工具栏胶囊点击；变化才通知宿主）。
     pub fn select_run_config(&mut self, id: String, cx: &mut Context<Self>) {
         if self.selected_run_config.as_deref() != Some(id.as_str()) {
-            self.select_run_config(id, cx);
+            self.selected_run_config = Some(id);
             cx.emit(BottomPanelEvent::RunStateChanged);
             cx.notify();
         }
