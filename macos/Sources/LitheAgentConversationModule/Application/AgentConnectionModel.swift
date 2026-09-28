@@ -9,11 +9,19 @@ public final class AgentConnectionModel: ObservableObject {
     public enum ConnectionState: Equatable, Sendable {
         case idle
         case connecting
+        case authenticationRequired
+        case authenticating
         case ready
         case failed(String)
     }
 
     @Published public private(set) var connectionState: ConnectionState = .idle
+    @Published public private(set) var usesSubscription = false
+    @Published public private(set) var subscriptionEmail: String?
+    @Published public private(set) var subscriptionPlan: String?
+    @Published public private(set) var subscriptionQuota: AgentSubscriptionQuota?
+    @Published public private(set) var quotaFailure: String?
+
     /// Name and version the agent reported on `ready`, for the panel header.
     @Published public private(set) var agentName: String?
     @Published public private(set) var agentVersion: String?
@@ -75,6 +83,11 @@ public final class AgentConnectionModel: ObservableObject {
         guard closeTask == nil else { throw AgentConversationError.sessionStopping }
         let (events, continuation) = AsyncStream<String>.makeStream()
         errorMessage = nil
+        usesSubscription = configuration.authentication == .codexSubscription
+        subscriptionEmail = nil
+        subscriptionPlan = nil
+        subscriptionQuota = nil
+        quotaFailure = nil
         connectionState = .connecting
         do {
             connection = try transport.open(configuration: configuration) { event in
@@ -106,6 +119,29 @@ public final class AgentConnectionModel: ObservableObject {
         let old = detachConnection(failure: nil)
         await old?.close()
         if let closeTask { await closeTask.value }
+    }
+
+    public func authenticate() {
+        guard usesSubscription, connectionState == .authenticationRequired else { return }
+        if sendCommand(["kind": "authenticate"]) { connectionState = .authenticating }
+    }
+
+    /// Keep a cancelled login out of the idle view, which auto-connects on appear.
+    public func cancelAuthentication() async {
+        guard connectionState == .authenticating else { return }
+        let old = detachConnection(failure: String(localized: "ChatGPT sign-in was cancelled."))
+        if let old {
+            let closing = Task { await old.close() }
+            closeTask = closing
+            await closing.value
+            closeTask = nil
+        }
+    }
+
+    /// The visible panel owns the polling task; the native host coalesces requests.
+    public func refreshQuota() {
+        guard usesSubscription, connectionState == .ready else { return }
+        sendCommand(["kind": "refreshQuota"])
     }
 
     public var canRefreshSessions: Bool { canListSessions && connectionState == .ready }
@@ -279,6 +315,26 @@ public final class AgentConnectionModel: ObservableObject {
         let sessionID = event["sessionId"] as? String
         let token = event["token"] as? String
         switch kind {
+        case "authenticationRequired":
+            guard usesSubscription else { return }
+            connectionState = .authenticationRequired
+        case "authenticating":
+            guard usesSubscription else { return }
+            connectionState = .authenticating
+        case "account":
+            guard usesSubscription, let account = event["account"] as? [String: Any] else { return }
+            subscriptionEmail = account["email"] as? String
+            subscriptionPlan = account["plan"] as? String
+        case "quota":
+            guard usesSubscription, connectionState == .ready else { return }
+            if let snapshot = AgentSubscriptionQuota.parse(event["snapshot"]) {
+                subscriptionQuota = snapshot
+                quotaFailure = nil
+            } else { quotaFailure = "unparsable" }
+        case "quotaFailed":
+            guard usesSubscription, connectionState == .ready else { return }
+            quotaFailure = event["code"] as? String ?? "unavailable"
+            if quotaFailure == "accountChanged" || quotaFailure == "unauthorized" { subscriptionQuota = nil }
         case "ready":
             connectionState = .ready
             agentName = event["agentName"] as? String
@@ -327,6 +383,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
             updateAttention()
         case "turnFinished":
+            refreshQuota()
             guard let sessionID else { return }
             flushPendingText()
             conversations[sessionID]?.isResponding = false
@@ -572,6 +629,10 @@ public final class AgentConnectionModel: ObservableObject {
         eventTask = nil
         let old = connection
         connection = nil
+        subscriptionQuota = nil
+        subscriptionEmail = nil
+        subscriptionPlan = nil
+        quotaFailure = nil
         connectionState = failure.map(ConnectionState.failed) ?? .idle
         canListSessions = false
         canLoadSessions = false

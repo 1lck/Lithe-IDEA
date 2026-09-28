@@ -249,7 +249,7 @@ private struct AgentsManagementPage: View {
         let checks = AgentSetupDiagnostics.preflight(
             for: agent,
             environment: environment,
-            hasProvider: settings.agentConfigurations[agent.id]?.providerID != nil
+            hasProvider: settings.agentConfigurations[agent.id]?.isConfigured == true
         )
         switch AgentSetupDiagnostics.summary(of: checks) {
         case .pass: return LitheTheme.success
@@ -271,7 +271,7 @@ private struct AgentDetailView: View {
     @State private var expanded: Set<String> = []
 
     private var isBusy: Bool { feature.busyAgentID == agent.id }
-    private var hasProvider: Bool { settings.agentConfigurations[agent.id]?.providerID != nil }
+    private var hasProvider: Bool { settings.agentConfigurations[agent.id]?.isConfigured == true }
     private var checks: [AgentPreflightCheck] {
         AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: hasProvider)
     }

@@ -9,8 +9,12 @@ import failedIcon from "../Resources/IDEAIcons/testState/red2.svg" with { type: 
 import { mountWorkbench } from "@lithe/editor/workbench";
 import { KeyCode, KeyMod } from "monaco-editor/esm/vs/editor/editor.api.js";
 import palette from "../Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json";
+import { installWebKitMouseInput } from "./mouse-input";
 
 declare global { interface Window { webkit: any; MonacoEnvironment: any; lithe: any; } }
+
+const mouseInput = installWebKitMouseInput(document);
+window.addEventListener("beforeunload", () => mouseInput.dispose(), { once: true });
 
 const workbench = mountWorkbench({
   request: payload => window.webkit.messageHandlers.litheEditor.postMessage(payload),
