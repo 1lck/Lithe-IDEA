@@ -10,6 +10,25 @@ extension AppModel {
         services.pluginManager.issues
     }
 
+    func installPHPPluginPackage() {
+        guard let packageURL = platformUI.chooseDirectory(
+            title: NSLocalizedString("Install PHP Support Plugin", comment: "PHP plugin package picker title"),
+            prompt: "Install"
+        ) else { return }
+        do {
+            let manifestURL = packageURL.appendingPathComponent("plugin.json")
+            let manifest = try JSONDecoder().decode(PluginManifest.self, from: Data(contentsOf: manifestURL))
+            guard manifest.id == OfficialPluginCatalog.phpPluginID else {
+                showNotification(NSLocalizedString("Select a PHP Support plugin package.", comment: "Wrong plugin package selected"))
+                return
+            }
+            try services.pluginManager.installPackage(at: packageURL)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
     func applyPluginEnabledChanges(_ changes: [PluginID: Bool]) async -> Set<PluginID> {
         let snapshotsByID = Dictionary(uniqueKeysWithValues: pluginSnapshots.map { ($0.id, $0) })
         let closesDatabase = changes.contains { pluginID, enabled in
@@ -36,19 +55,6 @@ extension AppModel {
         return appliedPluginIDs
     }
 
-    func installPluginPackage() {
-        guard let packageURL = platformUI.chooseDirectory(
-            title: "Install Plugin Package",
-            prompt: "Install"
-        ) else { return }
-        do {
-            try services.pluginManager.installPackage(at: packageURL)
-            objectWillChange.send()
-        } catch {
-            showNotification(error.localizedDescription)
-        }
-    }
-
     func rollbackPlugin(_ pluginID: PluginID) {
         do {
             try services.pluginManager.rollback(pluginID)
@@ -58,14 +64,4 @@ extension AppModel {
         }
     }
 
-    func uninstallPlugin(_ pluginID: PluginID) {
-        Task { @MainActor in
-            do {
-                try await services.pluginManager.uninstall(pluginID)
-                objectWillChange.send()
-            } catch {
-                showNotification(error.localizedDescription)
-            }
-        }
-    }
 }

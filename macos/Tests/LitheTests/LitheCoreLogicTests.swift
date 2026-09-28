@@ -239,6 +239,81 @@ struct LitheCoreLogicTests {
 
     @Test
     @MainActor
+    func settingsStayBoundToOpeningSessionUntilAnotherSessionReopensThem() async throws {
+        let store = MutableKeyValueStore()
+        let settings = AppSettings(store: store)
+        settings.projectOpenBehavior = .newWindow
+        var presentedWindowIDs: [UUID] = []
+        let manager = ProjectSessionManager(
+            settings: settings,
+            modelFactory: {
+                AppModel(
+                    settings: settings,
+                    services: MacServiceContainer(
+                        store: store,
+                        settings: settings,
+                        moduleLaunchMode: .safeMode,
+                        javaMavenOperations: NoProjectJavaOperations()
+                    ).services
+                )
+            },
+            projectWindowPresenter: { presentedWindowIDs.append($0) }
+        )
+
+        let primaryID = manager.activeSessionID(in: .primary)
+        manager.openStartupProject(URL(fileURLWithPath: "/tmp/lithe-settings-primary"))
+        manager.requestOpenProject(
+            URL(fileURLWithPath: "/tmp/lithe-settings-dedicated"),
+            from: primaryID
+        )
+        let dedicatedWindowID = try #require(presentedWindowIDs.first)
+        let dedicatedID = manager.activeSessionID(in: .dedicated(dedicatedWindowID))
+
+        manager.bindSettings(to: primaryID)
+        let firstBindingID = manager.settingsBindingID
+        manager.noteWindowBecameKey(.dedicated(dedicatedWindowID))
+        #expect(manager.activeSessionID == dedicatedID)
+        #expect(manager.settingsModel?.id == primaryID)
+
+        let firstDraft = SettingsViewState(initialCategory: .plugins)
+        let secondDraft = SettingsViewState(initialCategory: .plugins)
+        let pluginID = OfficialPluginCatalog.phpPluginID
+        firstDraft.pendingPluginEnabledStates[pluginID] = true
+        let applied = await firstDraft.applyPluginChanges { _ in
+            await withCheckedContinuation { continuation in
+                manager.bindSettings(to: dedicatedID)
+                secondDraft.pendingPluginEnabledStates[pluginID] = false
+                continuation.resume(returning: [pluginID])
+            }
+        }
+        #expect(applied)
+        var didCloseSettings = false
+        manager.closeSettingsIfCurrent(for: primaryID, bindingID: firstBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        #expect(secondDraft.pendingPluginEnabledStates[pluginID] == false)
+
+        manager.releaseSettings(for: primaryID)
+        #expect(manager.settingsModel?.id == dedicatedID)
+        let secondBindingID = manager.settingsBindingID
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(didCloseSettings)
+        didCloseSettings = false
+        manager.bindSettings(to: dedicatedID)
+        manager.closeSettingsIfCurrent(for: dedicatedID, bindingID: secondBindingID) {
+            didCloseSettings = true
+        }
+        #expect(!didCloseSettings)
+        manager.releaseSettings(for: dedicatedID)
+        #expect(manager.settingsModel == nil)
+    }
+
+    @Test
+    @MainActor
     func openingAProjectInANewWindowCreatesADedicatedSession() throws {
         let store = MutableKeyValueStore()
         let settings = AppSettings(store: store)

@@ -5,30 +5,51 @@ import LitheModuleAPI
 @Suite("Plugin management presentation")
 struct PluginManagementPresentationTests {
     @Test
-    func languagePluginsAreGroupedSeparatelyFromStandalonePlugins() throws {
+    func onlyOfficialPHPPluginAppearsInSettings() throws {
+        let phpManifest = try #require(
+            OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
+        )
+        let goManifest = try #require(
+            OfficialPluginCatalog.manifests.first { $0.id != OfficialPluginCatalog.phpPluginID }
+        )
         let pythonManifest = try #require(
             BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "python" }
         )
-        let rustManifest = try #require(
-            BundledLanguagePluginCatalog.manifests.first { $0.languageSupports?.first?.id == "rust" }
-        )
         let content = PluginManagementListContent(plugins: [
+            snapshot(phpManifest),
+            snapshot(goManifest),
             snapshot(pythonManifest),
-            snapshot(rustManifest)
         ])
 
-        #expect(content.standalonePlugins.isEmpty)
-        #expect(content.languageExtensions.map(\.id) == [pythonManifest.id, rustManifest.id])
+        #expect(content.plugins.map(\.id) == [phpManifest.id])
     }
 
     @Test
-    func everyBundledLanguagePluginUsesTheLanguageExtensionGroup() {
-        let content = PluginManagementListContent(
-            plugins: BundledLanguagePluginCatalog.manifests.map(snapshot)
-        )
+    func cleanInstallShowsPHPInstallEntry() {
+        let content = PluginManagementListContent(plugins: [])
 
-        #expect(content.standalonePlugins.isEmpty)
-        #expect(content.languageExtensions.count == BundledLanguagePluginCatalog.manifests.count)
+        #expect(content.plugins.isEmpty)
+        #expect(content.availablePHPManifest?.id == OfficialPluginCatalog.phpPluginID)
+    }
+
+    @MainActor
+    @Test
+    func settingsOKKeepsFailedPluginChangesForRetry() async {
+        let state = SettingsViewState(initialCategory: .plugins)
+        let pluginID = OfficialPluginCatalog.phpPluginID
+        state.pendingPluginEnabledStates[pluginID] = true
+
+        let shouldCloseAfterFailure = await state.applyPluginChanges { changes in
+            #expect(changes == [pluginID: true])
+            return []
+        }
+        #expect(!shouldCloseAfterFailure)
+        #expect(state.pendingPluginEnabledStates[pluginID] == true)
+        #expect(!state.isApplyingPluginChanges)
+
+        let shouldCloseAfterRetry = await state.applyPluginChanges { _ in [pluginID] }
+        #expect(shouldCloseAfterRetry)
+        #expect(state.pendingPluginEnabledStates.isEmpty)
     }
 
     private func snapshot(_ manifest: PluginManifest) -> PluginManagementSnapshot {
