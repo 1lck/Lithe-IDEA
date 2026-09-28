@@ -500,3 +500,29 @@ fn git_workspace_workflow_retains_a_completed_commit_when_cancellation_races_its
     assert_eq!(finished["succeeded"], true, "{finished}");
     assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "1");
 }
+
+#[test]
+#[cfg(unix)]
+fn git_workspace_status_normalizes_native_repository_binding_aliases() {
+    let repo = repository("workspace-status-alias");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&child, "hello.ts", "one");
+    git(&child, &["commit", "-qm", "initial"]);
+    let alias = repo.0.join("binding-link");
+    std::os::unix::fs::symlink(&child, &alias).unwrap();
+    let response = request(
+        &repo.0,
+        "git.status",
+        json!({"repositoryRoots":[repo.0,alias]}),
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    let paths: Vec<_> = response["data"]["changes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| c["path"].as_str().unwrap())
+        .collect();
+    // The parent still owns the symlink itself; only B's independent files are excluded.
+    assert_eq!(paths, ["binding-link"]);
+}

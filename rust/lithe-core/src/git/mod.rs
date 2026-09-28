@@ -6570,13 +6570,19 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         );
     }
     let mut changes = parse_status(&status_output.stdout, request.include_index_only_changes);
+    // Native bindings may use macOS /var aliases or Windows short/verbatim
+    // paths. Compare the same canonical identity as Git's reported root.
+    let known_roots = request
+        .repository_roots
+        .iter()
+        .map(|root| canonicalize_or_original(Path::new(root)).map_err(git_path_error))
+        .collect::<Result<Vec<_>, _>>()?;
     // An embedded independent repository must not become a gitlink through a
     // parent Stage All. Gitlinks already tracked by the parent remain visible.
     changes.retain(|change| {
         !change.untracked
-            || !request.repository_roots.iter().any(|other| {
-                let other = Path::new(other);
-                other != repository_root
+            || !known_roots.iter().any(|other| {
+                other != &repository_root
                     && other.starts_with(&repository_root)
                     && repository_root.join(&change.path).starts_with(other)
             })
