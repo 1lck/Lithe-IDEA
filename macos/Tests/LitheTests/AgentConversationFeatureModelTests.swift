@@ -608,6 +608,75 @@ struct AgentConversationFeatureModelTests {
         #expect((connection.commands.last?["files"] as? [[String: String]])?.count == 1)
     }
 
+    @Test
+    func subscriptionWaitsForUserLoginAndRetainsOnlySameAccountQuota() async throws {
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport)
+        let configuration = AgentLaunchConfiguration(agentID: "codex-acp", command: "", arguments: [],
+            workspaceURL: URL(fileURLWithPath: "/example/project"), dataDirectory: URL(fileURLWithPath: "/example/data"),
+            providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
+            allowsInsecureHTTP: false, authentication: .codexSubscription)
+        do {
+            try feature.connect(configuration: configuration)
+            let connection = try #require(transport.connections.first)
+            try feature.receive(event("authenticationRequired"))
+            #expect(feature.connectionState == .authenticationRequired)
+            feature.refreshQuota()
+            #expect(connection.commands.isEmpty)
+            feature.authenticate()
+            #expect(connection.commands.last?["kind"] as? String == "authenticate")
+            feature.authenticate()
+            #expect(connection.commands.count == 1)
+            try feature.receive(event("account"))
+            try feature.receive(event("ready"))
+            feature.refreshQuota()
+            #expect(connection.commands.last?["kind"] as? String == "refreshQuota")
+            try feature.receive(event("quota"))
+            #expect(feature.subscriptionQuota?.mostUsedWindow?.usedPercent == 68)
+            let previous = feature.subscriptionQuota
+            try feature.receive(event("quotaFailed"))
+            #expect(feature.subscriptionQuota == previous)
+            #expect(feature.quotaFailure == "timeout")
+            try feature.receive(event("quotaFailed", ["code": "accountChanged"]))
+            #expect(feature.subscriptionQuota == nil)
+            try feature.receive(event("quota"))
+            await feature.stop()
+            #expect(feature.subscriptionQuota == nil)
+            #expect(feature.subscriptionEmail == nil)
+            try feature.receive(event("quota"))
+            #expect(feature.subscriptionQuota == nil)
+            #expect(connection.closeCount == 1)
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("authenticationRequired"))
+            feature.authenticate()
+            await feature.cancelAuthentication()
+            guard case .failed = feature.connectionState else {
+                Issue.record("Cancelled login must not enter the auto-connecting idle view")
+                return
+            }
+            #expect(transport.connections.count == 2)
+            #expect(transport.connections[1].closeCount == 1)
+        } catch { await feature.stop(); throw error }
+    }
+
+    @Test
+    func apiKeyConnectionsNeverRequestOrDisplaySubscriptionQuota() async throws {
+        let (feature, connection) = try connectedFeature()
+        do {
+            let before = connection.commands.count
+            feature.refreshQuota()
+            feature.authenticate()
+            try feature.receive(event("quota"))
+            try feature.receive(event("account"))
+            try feature.receive(event("authenticationRequired"))
+            #expect(connection.commands.count == before)
+            #expect(feature.subscriptionQuota == nil)
+            #expect(feature.subscriptionEmail == nil)
+            #expect(feature.connectionState == .ready)
+        } catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
     private func connectedFeature() throws -> (AgentConnectionModel, TestAgentConnection) {
         let transport = TestAgentTransport()
         let feature = AgentConnectionModel(transport: transport)

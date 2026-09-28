@@ -105,6 +105,7 @@ fn execute(request: &str) -> CoreResponse {
         );
     };
 
+    let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
         CoreCommand::Ping => CoreResponse::success(
             id,
@@ -1601,6 +1602,59 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::GitWorkspaceCommitPrepare => {
+            let result =
+                serde_json::from_value::<git::workspace_commit::PrepareRequest>(parsed.payload)
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid workspace commit request",
+                        )
+                        .with_details(error.to_string())
+                    })
+                    .and_then(git::workspace_commit::prepare);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Workspace commit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitWorkspaceCommitStep => {
+            let result =
+                serde_json::from_value::<git::workspace_commit::StepRequest>(parsed.payload)
+                    .map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid workspace commit request",
+                        )
+                        .with_details(error.to_string())
+                    })
+                    .and_then(git::workspace_commit::step);
+            match result {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Workspace commit response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::GitCommitState => {
+            match serde_json::from_value::<GitStatusRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid commit state request")
+                        .with_details(error.to_string())
+                })
+                .and_then(git::commit_state)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Commit state should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::GitStatus => match serde_json::from_value::<GitStatusRequest>(parsed.payload)
             .map_err(|error| {
                 CoreError::new(ErrorCode::InvalidRequest, "Invalid Git status request")
@@ -2300,7 +2354,9 @@ fn execute(request: &str) -> CoreResponse {
             }
         }
     };
-    if response.is_success() {
+    // Workspace steps already reconcile cancelled writes under a bounded cleanup
+    // deadline. Preserve that continuation so a retry cannot duplicate a commit.
+    if response.is_success() && !preserve_workspace_outcome {
         match crate::protocol::cancellation::check() {
             Ok(()) => response,
             Err(error) => CoreResponse::failure(response_id, error),

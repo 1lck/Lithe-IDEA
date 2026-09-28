@@ -148,14 +148,15 @@ fn open(workspace: &std::path::Path) -> Session {
             .unwrap_or_default(),
         cwd: workspace.to_path_buf(),
         data_directory,
-        provider: ProviderCredentials {
+        authentication: lithe_agent_host::AgentAuthentication::ApiKey,
+        provider: Some(ProviderCredentials {
             protocol: ProviderProtocol::Responses,
             base_url: required("LITHE_ACP_E2E_BASE_URL"),
             api_key: required("LITHE_ACP_E2E_API_KEY"),
             name: Some("Lithe end-to-end test".into()),
             model: std::env::var("LITHE_ACP_E2E_MODEL").ok(),
             allow_insecure_http: false,
-        },
+        }),
     };
     let handle = AgentHandle::open(
         launch,
