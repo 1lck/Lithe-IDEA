@@ -4,6 +4,8 @@ set -euo pipefail
 ROOT_DIR="${0:A:h:h}"
 cd "$ROOT_DIR"
 
+"$ROOT_DIR/scripts/verify-runtime-bundle-immutability.sh"
+
 SWIFT_ARGS=(
     test --disable-sandbox
     -Xswiftc -Xfrontend
@@ -17,7 +19,9 @@ SWIFT_ARGS=(
 # Keep it opt-in so the normal unit-test build remains lightweight and does not
 # change its existing linkage behavior.
 if [[ "${LITHE_RUN_JAVA_DEBUG_INTEGRATION:-0}" == "1" \
-   || "${LITHE_RUN_JAVA_TEST_DEBUG_INTEGRATION:-0}" == "1" ]]; then
+   || "${LITHE_RUN_JAVA_TEST_DEBUG_INTEGRATION:-0}" == "1" \
+   || "${LITHE_RUN_GOPLS_INTEGRATION:-0}" == "1" \
+   || "${LITHE_RUN_PHP_INTEGRATION:-0}" == "1" ]]; then
     case "$(uname -m)" in
         arm64) RUST_TARGET="aarch64-apple-darwin" ;;
         x86_64) RUST_TARGET="x86_64-apple-darwin" ;;

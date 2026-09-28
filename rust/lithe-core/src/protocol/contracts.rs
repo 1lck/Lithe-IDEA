@@ -285,6 +285,14 @@ pub struct MavenDependencyResponse {
     pub resolution: MavenDependencyResolutionResponse,
     /// Version Maven selected when this occurrence was omitted for conflict.
     pub selected_version: Option<String>,
+    /// Version before dependency management replaced it with `version`.
+    pub premanaged_version: Option<String>,
+    /// Scope before dependency management replaced it with `scope`.
+    pub premanaged_scope: Option<String>,
+    /// Declared scope before mediation widened it to `scope`.
+    pub original_scope: Option<String>,
+    /// Wider scope from another path that mediation did not apply here.
+    pub ignored_scope: Option<String>,
     pub children: Vec<MavenDependencyResponse>,
 }
 

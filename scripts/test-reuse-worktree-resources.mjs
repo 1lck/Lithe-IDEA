@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import test from "node:test";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,6 +64,19 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("agent-cli-runtime"));
+    const refused = reuse(["--resource", "agent-cli-runtime"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /agent-cli-runtime.*cannot be reused/);
+  });
+  await test("Agent history preferences and exports are excluded from worktree copying", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "agent-history-metadata"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /agent-history-metadata.*lithe\.agent-history\.v1.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(
@@ -149,6 +163,16 @@ try {
   assertSucceeded(result);
   assert.match(result.stdout, /^cargo\t\.artifacts\/cargo-home\/registry\/cache$/m);
   assert.match(result.stdout, /^jdk\t\.artifacts\/jdk-downloads$/m);
+
+  result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--target", targetRoot, "--resource", "language-tools"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /language-tools is isolated/);
+
+  for (const id of ["windows-worker-plugins", "installed-worker-plugins"]) {
+    const result = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", id]);
+    assert.notEqual(result.status, 0);
+    assert.match(diagnostics(result), /isolated/);
+  }
 
   process.stdout.write("Worktree resource reuse tests passed.\n");
 } finally {

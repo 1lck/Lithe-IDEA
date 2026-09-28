@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import pathCases from "../../../../../../shared/fixtures/git/windows-paths.json";
+
 const invoke = mock(async (_command: string, _args?: unknown): Promise<unknown> => null);
 const readDirectory = mock(async (_path: string): Promise<unknown[]> => []);
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
-mock.module("@/features/file-system/controllers/platform", () => ({ readDirectory }));
+// Spread the real modules so each override stays scoped to a single export;
+// a partial mock would strip the sibling exports (Channel, createDirectory, …)
+// for every other test sharing this module registry.
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
+const platformModule = await import("@/features/file-system/controllers/platform");
+mock.module("@/features/file-system/controllers/platform", () => ({
+  ...platformModule,
+  readDirectory,
+}));
 
 const {
   clearRepositoryDiscoveryCache,
@@ -188,5 +198,51 @@ describe("resolveRepositoryForFile", () => {
       repoPath: "D:/work/project",
       filePath: "removed/directory/Deleted.java",
     });
+  });
+});
+
+
+describe("Windows Git path identity", () => {
+  for (const { input, normalized } of pathCases.accepted) {
+    test(`normalizes supported path ${JSON.stringify(input)}`, () => {
+      expect(normalizeRepositoryPath(input)).toBe(normalized);
+    });
+  }
+  for (const input of pathCases.rejected) {
+    test(`rejects unsupported path ${JSON.stringify(input)} before discovery`, async () => {
+      expect(normalizeRepositoryPath(input)).toBe(input);
+      await expect(resolveRepositoryForFile("C:/work", input)).rejects.toThrow("Git does not support Windows paths");
+      expect(invoke).not.toHaveBeenCalled();
+    });
+  }
+  for (const [input, root, directory] of [
+    [String.raw`\\server\share\repo\src\main.ts`, "//server/share/repo", "//server/share/repo/src"],
+    [String.raw`\\?\C:\work\repo\src\main.ts`, "C:/work/repo", "C:/work/repo/src"],
+    [String.raw`\\?\UNC\server\share\repo\src\main.ts`, "//server/share/repo", "//server/share/repo/src"],
+    [String.raw`\\?\C:\src\main.ts`, "C:/", "C:/src"],
+    ["remote://host/repo/src/main.ts", "remote://host/repo", "remote://host/repo/src"],
+    ["wsl://Ubuntu/repo/src/main.ts", "wsl://Ubuntu/repo", "wsl://Ubuntu/repo/src"],
+  ]) {
+    test(`resolves an absolute file without prepending the active repository: ${input}`, async () => {
+      invoke.mockResolvedValue(root);
+      expect(await resolveRepositoryForFile("D:/different-repository", input!)).toEqual({
+        repoPath: root, filePath: "src/main.ts",
+      });
+      expect(invoke).toHaveBeenCalledWith("git_discover_repo", { path: directory });
+    });
+  }
+  test("does not hide an unsupported Core response with the deleted-directory fallback", async () => {
+    invoke.mockResolvedValueOnce(String.raw`\\?\C:\work\repo.`);
+    invoke.mockResolvedValue("C:/work/repo");
+    await expect(resolveRepositoryForFile("C:/work/repo", "src/main.ts")).rejects.toThrow("Git does not support Windows paths");
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+  test("rejects trailing dots in relative filenames before looking up their parent", async () => {
+    await expect(resolveRepositoryForFile("C:/work/repo", "src/main.ts.")).rejects.toThrow("Git does not support Windows paths");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+  test("retains POSIX names in remote and WSL repositories", () => {
+    expect(normalizeRepositoryPath("remote://host/repo./file ")).toBe("remote://host/repo./file ");
+    expect(normalizeRepositoryPath("wsl://Ubuntu/repo./file ")).toBe("wsl://Ubuntu/repo./file ");
   });
 });

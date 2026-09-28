@@ -43,6 +43,7 @@ import {
 } from "./sidebar/main-sidebar";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
+import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
 import { getUpdateControlVisibility } from "../utils/update-control-visibility";
 
 const CommandPalette = lazy(() => import("@/features/command-palette/components/command-palette"));
@@ -204,6 +205,8 @@ export function MainLayout() {
           console.warn("Persisted workspace no longer exists:", activeTab.path, error);
         }
 
+        const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+        await projectWindowRouting.release(activeTab.id);
         useWorkspaceTabsStore.getState().actions.removeProjectTab(activeTab.id);
         toast.warning(
           t("fileSystem.removedMissingProject", { name: getProjectDisplayLabel(activeTab) }),
@@ -296,7 +299,7 @@ export function MainLayout() {
         <>
           <div className="lithe-workbench-glass relative z-10 flex flex-1 flex-col overflow-hidden">
             <div
-              className="flex flex-1 flex-row overflow-hidden pr-(--lithe-workbench-gap)"
+              className="flex flex-1 flex-row overflow-hidden"
               style={{ minHeight: 0 }}
             >
               <SidebarActivityRail expanded={false} />
@@ -358,6 +361,7 @@ export function MainLayout() {
       )}
 
       <PendingBufferCloseDialog />
+      <AppUpdateDetailsDialog />
 
       {/* Global modals and overlays */}
       {deferredSurfacesReady ? (

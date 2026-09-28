@@ -50,6 +50,27 @@ pub fn execute_json(request: &str) -> String {
     })
 }
 
+/// Decode an agent management payload and run `operation` on it.
+fn agent_response<T: serde::de::DeserializeOwned>(
+    id: Option<String>,
+    payload: serde_json::Value,
+    operation: fn(T) -> Result<serde_json::Value, CoreError>,
+) -> CoreResponse {
+    match serde_json::from_value::<T>(payload)
+        .map_err(|error| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Invalid agent management request",
+            )
+            .with_details(error.to_string())
+        })
+        .and_then(operation)
+    {
+        Ok(data) => CoreResponse::success(id, data),
+        Err(error) => CoreResponse::failure(id, error),
+    }
+}
+
 fn execute(request: &str) -> CoreResponse {
     let parsed: CoreRequest = match serde_json::from_str(request) {
         Ok(request) => request,
@@ -92,6 +113,18 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
+        CoreCommand::AgentParseProviderConfiguration => {
+            match crate::ai::parse_provider_configuration(parsed.payload) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::AgentInstall => agent_response(id, parsed.payload, crate::agent::install),
+        CoreCommand::AgentUninstall => agent_response(id, parsed.payload, crate::agent::uninstall),
+        CoreCommand::AgentInstallCli => {
+            agent_response(id, parsed.payload, crate::agent::install_cli)
+        }
         CoreCommand::CommunityDiscourseAuthBegin => {
             match serde_json::from_value::<DiscourseAuthorizationBeginRequest>(parsed.payload)
                 .map_err(|error| {
@@ -498,6 +531,25 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("Maven launch plan should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::ExecutionPlanLaunchCommand => {
+            match serde_json::from_value::<crate::execution::LaunchCommandPlanRequest>(
+                parsed.payload,
+            )
+            .map(crate::execution::plan_launch_command_request)
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Java launch-command request",
+                )
+                .with_details(error.to_string())
+            }) {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java launch-command plan should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

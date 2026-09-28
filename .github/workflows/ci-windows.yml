@@ -173,6 +173,32 @@ jobs:
         shell: pwsh
         run: bun run typecheck
 
+      - name: Build and verify optional PHP worker plugin
+        shell: pwsh
+        run: |
+          bun scripts/build-windows-php-plugin.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-windows-plugin-isolation.mjs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --report .artifacts/test-stability/windows-optional-plugins.json -- src/extensions/registry/extension-package-bootstrap.test.ts src/extensions/packages/local-extension-package.test.ts src/extensions/run src/extensions/ui/services/ui-extension-worker-runtime.test.ts src/extensions/registry/extension-store-lifecycle.test.ts src/features/run-actions/utils/run-action-discovery.test.ts
+
+      - name: Verify PHP is absent from the application bundle
+        shell: pwsh
+        run: |
+          Push-Location windows/tauri
+          try {
+            bun run build
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } finally { Pop-Location }
+          node scripts/verify-windows-plugin-isolation.mjs --dist
+
+      - name: Upload optional PHP plugin package
+        uses: actions/upload-artifact@v6
+        with:
+          name: windows-php-plugin
+          path: .artifacts/windows-plugins/*.lithe-extension
+          if-no-files-found: error
+
       - name: Verify Windows boundaries
         shell: pwsh
         run: ./scripts/verify-windows-boundaries.ps1
@@ -184,6 +210,8 @@ jobs:
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-documents.json -- src/features/editor/stores/editor-app.store.test.ts src/features/editor/services/document-external-change-workflow.test.ts src/features/editor/services/document-save-lifecycle.test.ts src/features/editor/services/document-watch-controller.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           bun test src/features/editor/lsp/language-server-navigation.test.ts src/features/editor/lsp/java-navigation-marker-loader.test.ts src/features/editor/engines/monaco/definition-link-scheduler.test.ts src/features/editor/engines/monaco/java-implementation-markers.test.ts src/features/editor/engines/monaco/java-run-markers.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-semantic-tokens.json -- src/platform/lsp-core-adapter.test.ts src/features/editor/lsp/lsp-client-semantic-tokens.test.ts src/features/editor/engines/monaco/semantic-token-provider.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-editor-ownership.json -- src/features/editor/extensions/api.owner-navigation.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
@@ -218,6 +246,10 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+      - name: Test Windows Git path identity
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
+
       - name: Test Git query recovery and isolation
         shell: pwsh
         timeout-minutes: 5
@@ -234,6 +266,7 @@ jobs:
             "src/features/editor/lsp/resolve-editor-lsp-launch.test.ts",
             "src/features/git/utils/monaco-diff-rows.test.ts",
             "src/features/git/utils/git-diff-parser.test.ts",
+            "src/features/git/utils/git-graph-layout.test.ts",
             "src/features/git/utils/monaco-diff-hunk-actions.test.ts"
           )
           foreach ($seed in @(1, 3, 7)) {
@@ -243,9 +276,9 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-execution-journal.json -- src/features/git/services/git-execution-journal.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-      - name: Test terminal discovery and profile selection
+      - name: Test terminal discovery, default shell, profiles, and tab layout
         shell: pwsh
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts,src/features/settings/lib/default-shell-options.test.ts,src/features/terminal/components/terminal-tab-strip.test.tsx
 
       - name: Upload Windows frontend test reports
         if: always()

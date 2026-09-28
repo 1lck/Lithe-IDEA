@@ -253,6 +253,36 @@ struct UpdateCheckerTests {
         #expect(completedCycles == 3)
     }
 
+    // Issue #853: an update is offered where it can be installed. Scheduled
+    // offers only update the title bar; the window opens on request.
+    @Test
+    func offeredUpdateOpensTheSoftwareUpdateWindowOnlyOnRequest() {
+        let checker = UpdateChecker()
+        var windowRequests = 0
+        checker.presentDetailsWindow = { windowRequests += 1 }
+
+        checker.presentDetails()
+        #expect(windowRequests == 0)
+
+        checker.receiveOffer(SUAppcastItem.empty())
+        #expect(checker.updateInfo != nil)
+        #expect(windowRequests == 0)
+        if case .available = checker.status {} else {
+            Issue.record("Expected an available update, got \(checker.status)")
+        }
+
+        checker.presentDetails()
+        #expect(windowRequests == 1)
+
+        let controller = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil
+        )
+        checker.updater(controller.updater, didFinishUpdateCycleFor: .updates, error: nil)
+        #expect(checker.updateInfo == nil)
+        checker.presentDetails()
+        #expect(windowRequests == 1)
+    }
+
     private final class BundleMarker: NSObject {}
 }
 

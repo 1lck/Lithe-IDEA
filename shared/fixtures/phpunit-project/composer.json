@@ -1,0 +1,5 @@
+{
+  "name": "lithe/phpunit-fixture",
+  "require-dev": { "phpunit/phpunit": "9.6.22" },
+  "scripts": { "test": ["@php vendor/bin/phpunit"] }
+}

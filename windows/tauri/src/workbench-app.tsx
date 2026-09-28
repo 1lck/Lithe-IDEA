@@ -14,7 +14,7 @@ import {
 } from "@/features/window/utils/window-open-diagnostics";
 import { NotificationRecorder } from "@/features/notifications/components/notification-recorder";
 import { GitPushDialogHost } from "@/features/git/components/git-push-dialog";
-import { GitPullStrategyDialogHost } from "@/features/git/components/git-pull-strategy-dialog";
+import { GitPullDialogHost } from "@/features/git/components/git-pull-dialog";
 import { GitRebaseDialogHost } from "@/features/git/components/git-rebase-dialog";
 import { GitWorktreeDialogHost } from "@/features/git/components/git-worktree-dialog";
 import { GitPatchDialogHost } from "@/features/git/components/git-patch-dialog";
@@ -87,7 +87,7 @@ function WorkbenchApp() {
             <ZoomIndicator />
             <LogFallbackNotification />
             <GitPushDialogHost />
-            <GitPullStrategyDialogHost />
+            <GitPullDialogHost />
             <GitPatchDialogHost />
             <GitWorktreeDialogHost />
             <GitRebaseDialogHost />

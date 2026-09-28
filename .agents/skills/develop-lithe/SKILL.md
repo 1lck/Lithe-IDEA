@@ -152,6 +152,32 @@ change platform implementation paths are required by CI to update the JSON. A
 reviewer may add the `matrix-exempt` label only for a reviewed refactor with no
 user-observable change; explain that exception in the pull request.
 
+### Mandatory pre-PR matrix gate
+
+Do not declare a platform change complete, commit it as ready for review, push
+it, or create/update a pull request until the local equivalent of the CI change
+gate has passed. First inspect the actual platform paths changed relative to the
+PR base:
+
+```bash
+git diff --name-only origin/preview...HEAD
+```
+
+When any platform implementation path listed above changed, run both checks:
+
+```bash
+./scripts/verify-platform-feature-matrix-change.sh origin/preview HEAD
+./scripts/verify-platform-feature-matrix.sh
+```
+
+Use the exact pull-request base and head SHA instead of `origin/preview` and
+`HEAD` when those SHAs are available. If the change gate reports platform paths
+without `shared/platform-feature-matrix.json`, stop and update the matrix source
+and its generated Markdown/CSV views before proceeding. Do not use
+`matrix-exempt` to bypass a user-visible behavior change. A user request to skip
+optional tests does not waive this contract gate when the work is being prepared
+for a pull request.
+
 ## Follow the codebase's language conventions
 
 Apply the style used by surrounding files. Prefer descriptive names, focused
@@ -233,6 +259,27 @@ Windows/Tauri Rust crates, generated code, or third-party sources.
   strings or numbers across platforms.
 - Test fixtures may use clearly fake values, but must not contain real secrets
   or machine-specific paths.
+
+## Keep installed packages read-only
+
+The installed macOS app bundle and the Windows installation directory are the
+release baseline: Sparkle builds differential updates against their exact
+bytes, and a runtime write turns the next update into a full download.
+
+- Runtime state (caches, indexes, Eclipse/OSGi state, downloads, extracted
+  archives, logs, and locks) goes to the platform cache, Application Support,
+  temporary storage, or the workspace, resolved through the platform storage
+  adapter. Never derive a write destination from `Bundle.main.resourceURL`,
+  `resource_dir()`, or the installation directory.
+- A packaged tool that writes next to its own files, as Equinox does with
+  `-configuration`, receives a writable copy of its inputs in the cache
+  instead; see `rust/lithe-core/src/lsp/languages/jdt_configuration.rs`.
+- Cover a new packaged runtime with a test that compares the installation's
+  file listing before and after a typical workflow, and keep
+  `scripts/verify-runtime-bundle-immutability.sh` passing.
+
+The decision record is
+`.agents/notes/implemented/bug-fix/2026-09-25-runtime-bundle-immutability-and-update-delta.md`.
 
 ## Handle failures explicitly
 

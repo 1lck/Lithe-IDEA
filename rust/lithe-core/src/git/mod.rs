@@ -1433,6 +1433,7 @@ fn capture_git_process(
     environment: &[(String, String)],
     visible: bool,
 ) -> Result<GitProcessOutput, CoreError> {
+    validate_windows_git_path(Path::new(root)).map_err(git_path_error)?;
     crate::protocol::cancellation::check()?;
     let mut process = git_process();
     let version = lithe_git_host::configuration::version(process.get_program(), || {
@@ -3047,34 +3048,119 @@ pub fn blame(request: GitBlameRequest) -> Result<GitBlameResponse, CoreError> {
     Ok(GitBlameResponse { lines })
 }
 
-/// Removes the Windows verbatim prefix that `Path::canonicalize` adds.
-///
-/// Canonical Windows paths come back as `\\?\C:\...` or `\\?\UNC\server\share`.
-/// Once a consumer normalizes separators, both forms turn into `//?/...`,
-/// which no longer resolves to the original location. Repository roots cross
-/// the platform boundary as identifiers and are reused as Git working
-/// directories, so they must stay in plain native form. Non-Windows paths are
-/// returned unchanged.
-pub(crate) fn simplified_canonical_path(path: PathBuf) -> PathBuf {
-    let simplified = {
-        let text = path.to_string_lossy();
-        if let Some(network_path) = text.strip_prefix(r"\\?\UNC\") {
-            Some(PathBuf::from(format!(r"\\{network_path}")))
-        } else {
-            text.strip_prefix(r"\\?\").map(PathBuf::from)
+/// Rejects Windows names that cannot round-trip through ordinary path identifiers.
+/// POSIX names keep their native meaning; Windows validates relative paths too.
+fn validate_windows_git_path(path: &Path) -> std::io::Result<()> {
+    let text = path.to_string_lossy().replace('\\', "/");
+    let windows_path = cfg!(windows)
+        || text.starts_with("//")
+        || (text.as_bytes().get(1) == Some(&b':') && text.as_bytes()[0].is_ascii_alphabetic());
+    if !windows_path {
+        return Ok(());
+    }
+    let verbatim = text.strip_prefix("//?/");
+    let ordinary = match verbatim {
+        Some(rest)
+            if rest
+                .get(..4)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("UNC/")) =>
+        {
+            format!("//{}", &rest[4..])
         }
+        Some(rest) => rest.to_string(),
+        None => text.clone(),
     };
-    simplified.unwrap_or(path)
+    let drive = ordinary.as_bytes().get(1..3) == Some(b":/")
+        && ordinary.as_bytes()[0].is_ascii_alphabetic();
+    let network = ordinary.starts_with("//");
+    // Server/share names identify the UNC route, not local file components.
+    let components: Vec<_> = ordinary
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
+    let skip = if network {
+        2
+    } else if drive {
+        1
+    } else {
+        0
+    };
+    let invalid_component = components.iter().skip(skip).any(|part| {
+        if matches!(*part, "." | "..") {
+            return verbatim.is_some();
+        }
+        let basename = part
+            .split('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_uppercase();
+        let reserved = matches!(basename.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || basename
+                .strip_prefix("COM")
+                .or_else(|| basename.strip_prefix("LPT"))
+                .is_some_and(|number| {
+                    matches!(
+                        number,
+                        "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+                    )
+                });
+        part.ends_with('.') || part.ends_with(' ') || reserved
+    });
+    if text.starts_with("//./")
+        || (verbatim.is_some() && !drive && !(network && components.len() >= 2))
+        || invalid_component
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Git does not support Windows paths requiring verbatim semantics (trailing dots/spaces, reserved names or device namespaces)",
+        ));
+    }
+    Ok(())
 }
 
-/// Canonicalizes `path` and strips the Windows verbatim prefix from the result.
+/// Removes a Windows verbatim prefix only for paths safe in ordinary native form.
+/// Canonical roots cross the UI boundary and return as Git working directories;
+/// unsupported names fail explicitly instead of silently accessing a sibling.
+pub(crate) fn simplified_canonical_path(path: PathBuf) -> std::io::Result<PathBuf> {
+    validate_windows_git_path(&path)?;
+    let text = path.to_string_lossy();
+    let normalized = text.replace('\\', "/");
+    if normalized
+        .get(..8)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("//?/UNC/"))
+    {
+        Ok(PathBuf::from(format!(r"\\{}", &text[8..])))
+    } else if normalized.starts_with("//?/") {
+        Ok(PathBuf::from(&text[4..]))
+    } else {
+        Ok(path)
+    }
+}
+
+/// Validates before filesystem I/O and again after canonicalization (symlinks).
 fn canonicalize_simplified(path: &Path) -> std::io::Result<PathBuf> {
-    path.canonicalize().map(simplified_canonical_path)
+    validate_windows_git_path(path)?;
+    path.canonicalize().and_then(simplified_canonical_path)
+}
+
+/// Missing worktrees may still be listed, but invalid path identities never fall back.
+fn canonicalize_or_original(path: &Path) -> std::io::Result<PathBuf> {
+    match canonicalize_simplified(path) {
+        Err(error) if error.kind() != std::io::ErrorKind::InvalidInput => Ok(path.to_path_buf()),
+        result => result,
+    }
+}
+
+fn git_path_error(error: std::io::Error) -> CoreError {
+    if error.kind() == std::io::ErrorKind::InvalidInput {
+        CoreError::new(ErrorCode::InvalidRequest, error.to_string())
+    } else {
+        CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist")
+    }
 }
 
 fn validate_root(raw_root: &str) -> Result<String, CoreError> {
-    let root = canonicalize_simplified(Path::new(raw_root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(raw_root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -3085,6 +3171,9 @@ fn validate_root(raw_root: &str) -> Result<String, CoreError> {
 }
 
 fn repository_scan_error(error: std::io::Error) -> CoreError {
+    if error.kind() == std::io::ErrorKind::InvalidInput {
+        return git_path_error(error);
+    }
     CoreError::new(
         ErrorCode::Unknown,
         "Could not complete workspace repository discovery",
@@ -3101,12 +3190,11 @@ fn discover_containing_repository(root: &Path) -> Result<Option<PathBuf>, CoreEr
     if output.exit_code != 0 {
         return Ok(None);
     }
-    let repository_root = output.stdout.trim();
+    let repository_root = output.stdout.trim_end_matches(['\r', '\n']);
     if repository_root.is_empty() {
         return Ok(None);
     }
-    let path = canonicalize_simplified(Path::new(repository_root))
-        .unwrap_or_else(|_| PathBuf::from(repository_root));
+    let path = canonicalize_or_original(Path::new(repository_root)).map_err(git_path_error)?;
     Ok(Some(path))
 }
 
@@ -3468,13 +3556,14 @@ fn git_resolved_path(root: &str, arguments: &[&str], label: &str) -> Result<Path
         )
         .with_details(response.output));
     }
-    let path = response.output.trim();
+    let path = response.output.trim_end_matches(['\r', '\n']);
     if path.is_empty() {
         return Err(CoreError::new(
             ErrorCode::ProcessFailed,
             format!("Could not resolve {label}"),
         ));
     }
+    validate_windows_git_path(Path::new(path)).map_err(git_path_error)?;
     Ok(PathBuf::from(path))
 }
 
@@ -4877,8 +4966,7 @@ fn list_worktrees(root: &str) -> Result<Vec<GitWorktreeResponse>, CoreError> {
                 .with_details(response.output),
         );
     }
-    let current_root =
-        canonicalize_simplified(&repository_root(root)?).unwrap_or_else(|_| PathBuf::from(root));
+    let current_root = canonicalize_or_original(&repository_root(root)?).map_err(git_path_error)?;
     let mut records = Vec::new();
     let mut fields = Vec::new();
     for field in response.stdout.split('\0') {
@@ -4963,8 +5051,7 @@ fn parse_worktree_record(
     let lock = value_after_marker("locked");
     let prunable = value_after_marker("prunable");
     let reported_path = PathBuf::from(path);
-    let normalized_path =
-        canonicalize_simplified(&reported_path).unwrap_or_else(|_| reported_path.clone());
+    let normalized_path = canonicalize_or_original(&reported_path).map_err(git_path_error)?;
     Ok(GitWorktreeResponse {
         path: normalized_path.to_string_lossy().to_string(),
         head,
@@ -6182,8 +6269,7 @@ fn parse_diff(patch: &str) -> (Vec<GitDiffRowResponse>, Vec<GitDiffHunkResponse>
 pub fn watch_context(
     request: GitWatchContextRequest,
 ) -> Result<Option<GitWatchContextResponse>, CoreError> {
-    let root = canonicalize_simplified(Path::new(&request.root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -6217,10 +6303,13 @@ fn canonical_git_output(output: std::process::Output, label: &str) -> Result<Str
         .with_details(String::from_utf8_lossy(&output.stderr)));
     }
     let raw_path = String::from_utf8_lossy(&output.stdout);
-    let path = PathBuf::from(raw_path.trim());
+    let path = PathBuf::from(raw_path.trim_end_matches(['\r', '\n']));
     canonicalize_simplified(&path)
         .map(|path| path.to_string_lossy().into_owned())
         .map_err(|error| {
+            if error.kind() == std::io::ErrorKind::InvalidInput {
+                return git_path_error(error);
+            }
             CoreError::new(
                 ErrorCode::ProcessFailed,
                 format!("Could not resolve {label}"),
@@ -6352,8 +6441,7 @@ fn branch_requires_publish(root: &str, branch: &str) -> bool {
 
 /// Returns the normalized repository status and branch context.
 pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError> {
-    let root = canonicalize_simplified(Path::new(&request.root))
-        .map_err(|_| CoreError::new(ErrorCode::WorkspaceNotFound, "Workspace does not exist"))?;
+    let root = canonicalize_simplified(Path::new(&request.root)).map_err(git_path_error)?;
     if !root.is_dir() {
         return Err(CoreError::new(
             ErrorCode::WorkspaceNotFound,
@@ -6371,9 +6459,9 @@ pub fn status(request: GitStatusRequest) -> Result<GitStatusResponse, CoreError>
         });
     }
     let repository_root_text = String::from_utf8_lossy(&repository_root_output.stdout);
-    let repository_root_path = PathBuf::from(repository_root_text.trim());
+    let repository_root_path = PathBuf::from(repository_root_text.trim_end_matches(['\r', '\n']));
     let repository_root =
-        canonicalize_simplified(&repository_root_path).unwrap_or(repository_root_path);
+        canonicalize_or_original(&repository_root_path).map_err(git_path_error)?;
     let branch = run_git(&repository_root, &["branch", "--show-current"])
         .ok()
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -6576,17 +6664,40 @@ mod tests {
         // separators, which would turn them into `//?/C:/...` and break every
         // later lookup of the discovered repository root.
         assert_eq!(
-            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")),
+            simplified_canonical_path(PathBuf::from(r"\\?\C:\work\repo")).unwrap(),
             PathBuf::from(r"C:\work\repo")
         );
         assert_eq!(
-            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")),
+            simplified_canonical_path(PathBuf::from(r"\\?\UNC\server\share\repo")).unwrap(),
             PathBuf::from(r"\\server\share\repo")
         );
         assert_eq!(
-            simplified_canonical_path(PathBuf::from("/work/repo")),
+            simplified_canonical_path(PathBuf::from("/work/repo")).unwrap(),
             PathBuf::from("/work/repo")
         );
+    }
+
+    #[test]
+    fn windows_git_paths_follow_shared_identity_policy() {
+        let cases: Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/windows-paths.json"
+        ))
+        .unwrap();
+        for case in cases["accepted"].as_array().unwrap() {
+            let path =
+                simplified_canonical_path(PathBuf::from(case["input"].as_str().unwrap())).unwrap();
+            assert_eq!(
+                path.to_string_lossy().replace('\\', "/"),
+                case["normalized"].as_str().unwrap()
+            );
+        }
+        for path in cases["rejected"].as_array().unwrap() {
+            let path = PathBuf::from(path.as_str().unwrap());
+            let error = simplified_canonical_path(path.clone()).unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput, "{path:?}");
+            // A missing/stale worktree must not bypass the same identity check.
+            assert!(super::canonicalize_or_original(&path).is_err());
+        }
     }
 
     #[test]

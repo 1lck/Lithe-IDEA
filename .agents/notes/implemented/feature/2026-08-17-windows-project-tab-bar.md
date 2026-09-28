@@ -39,8 +39,27 @@ Tab Bar 使用固定高度和水平溢出容器，不改变标题栏尺寸，也
 这样保留了文件系统 store 已有的切换保护，并避免用户在并发操作期间看到
 过期项目状态。
 
+### 同一本地项目只属于一个窗口
+
+Tauri 宿主记录目录实际对应的文件系统对象与所属窗口，前端项目 store 继续
+拥有项目列表和活动标签。使用锁定依赖中的 `same-file` 原生句柄判断目录身份，
+不把所有路径强制转成小写，避免误合并支持大小写区分的两个目录。
+
+新窗口创建把查找、预留和构建放在同一个异步锁内。连续打开同一目录时，
+第二次请求会复用第一个窗口，即使它的前端尚未完成加载。已有项目的重复
+打开会显示窗口、解除最小化、聚焦，并通知所属前端切换到对应项目标签。
+例如窗口 A 的后台标签打开了项目 B，再从窗口 C 打开 B，应激活 A 中的 B；
+不要只聚焦 A 而仍显示 A 的其他项目，也不要扫描各窗口持久化缓存来猜测归属。
+
+前端先注册激活监听器，再登记恢复的项目标签；当前窗口打开项目也先登记，
+所以不会绕过新窗口去重。项目关闭、初始化失败、新窗口构建失败和窗口销毁
+分别释放登记。初始路径校验失败也释放尚未登记为项目的预留，允许重试。
+销毁事件不能同步等待宿主异步锁，否则可能阻塞正在构建窗口的 UI 线程。
+远程和 WSL 协议路径不参与本地目录身份判断。
+
 ## 考虑过的备选方案
 
+- **按路径字符串或各窗口缓存查重**：字符串会漏掉链接与路径别名，缓存无法原子处理连续打开，也会残留已关闭窗口；因此窗口去重使用宿主原生身份登记。
 - **继续只使用标题栏项目菜单**：可以复用现有入口，但多项目切换需要多次
   打开菜单和识别项目，因此增加工作台内的直接切换条。
 - **让 Tab Bar 成为原生窗口拖拽区**：会和项目按钮、关闭按钮争抢鼠标事件，
@@ -58,6 +77,9 @@ Tab Bar 使用固定高度和水平溢出容器，不改变标题栏尺寸，也
 持久化继续归属于 workspace/file-system store。固定尺寸和水平滚动使项目
 数量增长时不会改变标题栏和工作台的布局。
 
+窗口去重额外保留每个本地项目的目录句柄，随项目或窗口关闭释放；原生恢复、
+聚焦和网络目录身份仍需 Windows 实机验证。
+
 代价是单项目时用户看不到这条切换条，关闭动作只能在多项目工作台中使用；
 Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用 store 的排序
 语义并补充相应的状态和并发测试。
@@ -68,6 +90,9 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 - `bun --cwd windows/tauri run typecheck`
 - `./scripts/verify-windows-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`
+- `bun test windows/tauri/src/features/window/services/project-window-router.test.ts`
+- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml project_window_registry`
+- Windows 手工验证：项目位于后台标签、窗口最小化、连续重复打开、目录别名、关闭重开及初始化失败重试。
 
 测试覆盖可访问角色、项目切换、关闭按钮、异步状态清理、事件冒泡隔离、
 项目顺序保持、单一活动项投影以及无项目/单项目/多项目的显示条件。
@@ -80,3 +105,8 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 - `windows/tauri/src/features/window/stores/workspace-tabs.store.ts`
 - `windows/tauri/src/features/window/components/project-tab-bar.test.ts`
 - `windows/tauri/src/features/window/utils/project-tab-bar-model.test.ts`
+
+- `windows/tauri/src-tauri/src/project_windows.rs`
+- `windows/tauri/src-tauri/src/project_window_registry.rs`
+- `windows/tauri/src/features/window/services/project-window-routing.ts`
+- `windows/tauri/src/features/window/services/project-window-router.ts`

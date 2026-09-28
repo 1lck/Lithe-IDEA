@@ -6,13 +6,16 @@ import { frontendTrace } from "@/utils/frontend-trace";
 import {
   createMavenDependencyPlan,
   createMavenLaunchPlan,
-  parseMavenDependencies,
+  readMavenDependencies,
   parseMavenDiagnostics,
   parseMavenTestResults,
   scanMavenProject,
 } from "../api/maven-core-api";
 import {
+  createMavenDependencyOutput,
   loadMavenConfiguration,
+  removeMavenDependencyOutput,
+  resolveMavenEffectiveConfiguration,
   resolveMavenLaunch,
   startMavenProcess,
   stopMavenProcess,
@@ -28,10 +31,12 @@ import { resolveEffectiveMavenExecutable } from "../services/resolve-maven-toolc
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
+  MavenEffectiveConfiguration,
   MavenLaunchContext,
   MavenLocalConfiguration,
   MavenPortableConfiguration,
   MavenProfile,
+  MavenEffectiveConfigurationStatus,
   MavenProject,
   MavenProjectStatus,
   MavenSettings,
@@ -48,7 +53,6 @@ import {
 } from "../utils/maven-test-selection";
 
 const MAXIMUM_OUTPUT_CHARACTERS = 500_000;
-const MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS = 500_000;
 const MAVEN_DEPENDENCY_TIMEOUT_MILLISECONDS = 60_000;
 const MAVEN_TEST_TIMEOUT_MILLISECONDS = 120_000;
 const MAVEN_TEST_ALLOW_EMPTY_UPSTREAM_MODULES = "-Dsurefire.failIfNoSpecifiedTests=false";
@@ -63,15 +67,18 @@ const mavenProjectLoads = new Map<string, MavenProjectLoad>();
 
 export interface MavenStoreDependencies {
   createMavenPomWatchOperations: typeof createMavenPomWatchOperations;
+  createMavenDependencyOutput: typeof createMavenDependencyOutput;
   createMavenDependencyPlan: typeof createMavenDependencyPlan;
   createMavenLaunchPlan: typeof createMavenLaunchPlan;
   loadMavenConfiguration: typeof loadMavenConfiguration;
   parseMavenDiagnostics: typeof parseMavenDiagnostics;
-  parseMavenDependencies: typeof parseMavenDependencies;
+  readMavenDependencies: typeof readMavenDependencies;
   parseMavenTestResults: typeof parseMavenTestResults;
+  removeMavenDependencyOutput: typeof removeMavenDependencyOutput;
   resolveEffectiveMavenExecutable: typeof resolveEffectiveMavenExecutable;
   resolveMavenLaunch: typeof resolveMavenLaunch;
   resolveJavaTestClass: typeof resolveJavaTestClass;
+  resolveMavenEffectiveConfiguration: typeof resolveMavenEffectiveConfiguration;
   saveWorkspaceBeforeLaunch: typeof saveWorkspaceBeforeLaunch;
   scanMavenProject: typeof scanMavenProject;
   startMavenProcess: typeof startMavenProcess;
@@ -82,15 +89,18 @@ export interface MavenStoreDependencies {
 
 const defaultMavenStoreDependencies: MavenStoreDependencies = {
   createMavenPomWatchOperations,
+  createMavenDependencyOutput,
   createMavenDependencyPlan,
   createMavenLaunchPlan,
   loadMavenConfiguration,
   parseMavenDiagnostics,
-  parseMavenDependencies,
+  readMavenDependencies,
   parseMavenTestResults,
+  removeMavenDependencyOutput,
   resolveEffectiveMavenExecutable,
   resolveMavenLaunch,
   resolveJavaTestClass,
+  resolveMavenEffectiveConfiguration,
   saveWorkspaceBeforeLaunch,
   scanMavenProject,
   startMavenProcess,
@@ -135,6 +145,12 @@ export interface MavenState {
   resolvedMavenExecutablePath: string;
   javaHomePath: string;
   configurationSaveError: string | null;
+  /**
+   * What a Maven launch would use for the saved configuration, shared by every
+   * surface that shows these fields. `null` hides the detected values.
+   */
+  effectiveConfiguration: MavenEffectiveConfiguration | null;
+  effectiveConfigurationStatus: MavenEffectiveConfigurationStatus;
   reloadRequired: boolean;
   projectReloadRequired: boolean;
   reloadRevision: number;
@@ -159,7 +175,6 @@ export interface MavenState {
   dependencyLoads: Record<string, MavenDependencyLoad>;
   activeDependencySessionId: string | null;
   activeDependencyModulePath: string | null;
-  dependencyOutput: string;
   actions: {
     loadProject: (root: string, visiblePaths?: string[]) => Promise<void>;
     markPomReloadRequired: (changedPath: string) => void;
@@ -175,6 +190,8 @@ export interface MavenState {
     setSkipTests: (enabled: boolean) => void;
     updateLocalConfiguration: (settings: MavenSettings) => void;
     saveLocalConfiguration: (settings: MavenSettings) => Promise<void>;
+    seedLocalConfiguration: (settings: Partial<MavenSettings>) => void;
+    resolveEffectiveConfiguration: () => Promise<void>;
     acknowledgeReload: (revision?: number) => void;
     runGoals: (
       goals: string[],
@@ -197,7 +214,6 @@ export interface MavenState {
     finishProcess: (sessionId: string, exitCode: number) => void;
     loadDependencies: (modulePath: string) => Promise<void>;
     cancelDependencies: (modulePath: string) => Promise<void>;
-    appendDependencyOutput: (sessionId: string, chunk: string) => void;
     finishDependencyProcess: (sessionId: string, exitCode: number) => Promise<void>;
   };
 }
@@ -233,6 +249,42 @@ function normalizedProfiles(values: readonly string[]): string[] {
 
 function normalizedPath(value: string | null | undefined): string {
   return value?.trim() ?? "";
+}
+
+type MavenLocalPaths = Pick<
+  MavenState,
+  "settingsPath" | "localRepositoryPath" | "mavenExecutablePath" | "javaHomePath"
+>;
+
+function mavenLocalPaths(settings: Partial<MavenSettings>): MavenLocalPaths {
+  return {
+    settingsPath: normalizedPath(settings.settingsPath),
+    localRepositoryPath: normalizedPath(settings.localRepositoryPath),
+    mavenExecutablePath: normalizedPath(settings.mavenExecutablePath),
+    javaHomePath: normalizedPath(settings.javaHomePath),
+  };
+}
+
+function withBlankFieldsFilled(
+  current: MavenLocalPaths,
+  incoming: Partial<MavenSettings>,
+): MavenLocalPaths {
+  const next = mavenLocalPaths(incoming);
+  return {
+    settingsPath: current.settingsPath || next.settingsPath,
+    localRepositoryPath: current.localRepositoryPath || next.localRepositoryPath,
+    mavenExecutablePath: current.mavenExecutablePath || next.mavenExecutablePath,
+    javaHomePath: current.javaHomePath || next.javaHomePath,
+  };
+}
+
+function sameLocalPaths(left: MavenLocalPaths, right: MavenLocalPaths): boolean {
+  return (
+    left.settingsPath === right.settingsPath &&
+    left.localRepositoryPath === right.localRepositoryPath &&
+    left.mavenExecutablePath === right.mavenExecutablePath &&
+    left.javaHomePath === right.javaHomePath
+  );
 }
 
 export function availableMavenProfiles(state: Pick<MavenState, "project" | "customProfiles">) {
@@ -363,6 +415,12 @@ export const createMavenStore = (
 ) => {
   let projectLoadRevision = 0;
   let configurationRevision = 0;
+  let effectiveConfigurationRevision = 0;
+  // True once this workspace has a Maven local document, including one the user
+  // saved with blank fields. Blank then means automatic, so a legacy run
+  // toolchain must not fill those fields back in.
+  let localConfigurationPersisted = false;
+  let pendingLocalSeed: MavenLocalPaths | null = null;
   let launchRevision = 0;
   let diagnosticsRevision = 0;
   let dependencyRevision = 0;
@@ -373,6 +431,34 @@ export const createMavenStore = (
   let pomWatchTask = Promise.resolve();
   let watchedPomPaths = new Set<string>();
   const now = dependencyScheduler.now ?? (() => Date.now());
+
+  const rememberPendingSeed = (settings: Partial<MavenSettings>) => {
+    pendingLocalSeed = withBlankFieldsFilled(
+      pendingLocalSeed ?? {
+        settingsPath: "",
+        localRepositoryPath: "",
+        mavenExecutablePath: "",
+        javaHomePath: "",
+      },
+      settings,
+    );
+  };
+
+  // Applies a toolchain seed only while this workspace has never saved Maven
+  // settings. A saved document, even one whose paths are blank, already chose
+  // automatic for those fields.
+  const adoptPendingLocalSeed = (settings: MavenLocalPaths) => {
+    if (localConfigurationPersisted) {
+      pendingLocalSeed = null;
+      return { settings, migrated: false };
+    }
+    if (!pendingLocalSeed) return { settings, migrated: false };
+    const next = withBlankFieldsFilled(settings, pendingLocalSeed);
+    pendingLocalSeed = null;
+    const migrated = !sameLocalPaths(settings, next);
+    if (migrated) localConfigurationPersisted = true;
+    return { settings: next, migrated };
+  };
 
   return createStore<MavenState>()((set, get) => {
     const pomWatchOperations = dependencies.createMavenPomWatchOperations(workspaceId);
@@ -407,6 +493,24 @@ export const createMavenStore = (
       }));
     };
 
+    // Maven writes each session's tree to its own host scratch file. Every
+    // path that ends a session releases it here, after which the session can
+    // no longer produce a result, so no tree outlives the session that wrote it.
+    const dependencyOutputFiles = new Map<string, string>();
+    const releaseDependencySession = (sessionId: string) => {
+      releaseMavenSessionWorkspace(sessionId);
+      dependencyOutputFiles.delete(sessionId);
+      void dependencies.removeMavenDependencyOutput(sessionId).catch((error: unknown) => {
+        // The host clears the scratch directory at startup, so a file the
+        // dying Maven process still held open is removed on the next launch.
+        dependencies.trace("warn", "maven.dependencies", "Dependency tree file was not removed", {
+          workspaceId,
+          sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    };
+
     const invalidateDependencies = () => {
       dependencyRevision += 1;
       clearDependencyTimer();
@@ -415,7 +519,6 @@ export const createMavenStore = (
         dependencyLoads: {},
         activeDependencySessionId: null,
         activeDependencyModulePath: null,
-        dependencyOutput: "",
       });
       if (!sessionId) return;
       void dependencies
@@ -424,7 +527,7 @@ export const createMavenStore = (
           // Invalidation owns stale-result rejection even if the native process
           // has already exited before the stop request reaches it.
         })
-        .finally(() => releaseMavenSessionWorkspace(sessionId));
+        .finally(() => releaseDependencySession(sessionId));
     };
 
     const failDependencySession = async (
@@ -443,7 +546,6 @@ export const createMavenStore = (
       set({
         activeDependencySessionId: null,
         activeDependencyModulePath: null,
-        dependencyOutput: "",
       });
       setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
       try {
@@ -452,7 +554,7 @@ export const createMavenStore = (
         // The failure state remains actionable when the process exited while
         // the stop request was in flight.
       } finally {
-        releaseMavenSessionWorkspace(sessionId);
+        releaseDependencySession(sessionId);
       }
     };
 
@@ -566,6 +668,8 @@ export const createMavenStore = (
       resolvedMavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
+      effectiveConfiguration: null,
+      effectiveConfigurationStatus: "idle",
       reloadRequired: false,
       projectReloadRequired: false,
       reloadRevision: 0,
@@ -585,7 +689,6 @@ export const createMavenStore = (
       dependencyLoads: {},
       activeDependencySessionId: null,
       activeDependencyModulePath: null,
-      dependencyOutput: "",
       actions: {
         loadProject: async (root, visiblePaths = []) => {
           const revision = ++projectLoadRevision;
@@ -601,6 +704,8 @@ export const createMavenStore = (
             releaseMavenSessionWorkspace(previous.activeSessionId);
           }
           if (previous.root && previous.root !== root) {
+            pendingLocalSeed = null;
+            localConfigurationPersisted = false;
             await synchronizePomWatches(new Set());
             if (projectLoadRevision !== revision) return;
           }
@@ -639,6 +744,7 @@ export const createMavenStore = (
             if (!project) {
               await synchronizePomWatches(new Set());
               if (projectLoadRevision !== revision || get().root !== root) return;
+              localConfigurationPersisted = false;
               set({
                 projectStatus: "ready",
                 project: null,
@@ -703,12 +809,26 @@ export const createMavenStore = (
             const selectedProfiles = normalizedProfiles(
               stored.portable?.selectedProfiles ?? defaultProfiles,
             ).filter((profile) => knownProfiles.has(profile));
-            const mavenExecutablePath = normalizedPath(stored.local?.mavenExecutablePath);
+            if (!preserveLatestInMemoryConfiguration) {
+              localConfigurationPersisted = stored.local != null;
+            }
+            const loadedPaths = {
+              settingsPath: normalizedPath(stored.local?.settingsPath),
+              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
+              mavenExecutablePath: normalizedPath(stored.local?.mavenExecutablePath),
+              javaHomePath: normalizedPath(stored.local?.javaHomePath),
+            };
+            const adopted = preserveLatestInMemoryConfiguration
+              ? { settings: loadedPaths, migrated: false }
+              : adoptPendingLocalSeed(loadedPaths);
             // Project import must follow the same installation the command line
             // uses, so JDT LS reads its repository and mirrors instead of the
-            // embedded defaults.
+            // embedded defaults. The adopted path is the one launch will use.
             const resolvedMavenExecutablePath =
-              await dependencies.resolveEffectiveMavenExecutable(root, mavenExecutablePath);
+              await dependencies.resolveEffectiveMavenExecutable(
+                root,
+                adopted.settings.mavenExecutablePath,
+              );
             if (projectLoadRevision !== revision || get().root !== root) return;
             set({
               projectStatus: "ready",
@@ -717,12 +837,10 @@ export const createMavenStore = (
               selectedProfiles,
               customProfiles,
               skipTests: stored.portable?.skipTests ?? false,
-              settingsPath: normalizedPath(stored.local?.settingsPath),
-              localRepositoryPath: normalizedPath(stored.local?.localRepositoryPath),
-              mavenExecutablePath,
+              ...adopted.settings,
               resolvedMavenExecutablePath,
-              javaHomePath: normalizedPath(stored.local?.javaHomePath),
             });
+            if (adopted.migrated) persistConfiguration();
           } catch (error) {
             if (projectLoadRevision !== revision || get().root !== root) return;
             const message =
@@ -737,6 +855,7 @@ export const createMavenStore = (
               }));
               return;
             }
+            localConfigurationPersisted = false;
             set({
               projectStatus: "failed",
               projectError: message,
@@ -754,6 +873,12 @@ export const createMavenStore = (
               lastTestRun: null,
               testOutcomes: [],
             });
+          } finally {
+            // Deliberately not awaited: the scan has already produced the project
+            // state, and detection probes the machine, which must not delay
+            // opening a workspace. The action resolves once detection settles.
+            const resolveEffectiveConfiguration = get().actions.resolveEffectiveConfiguration;
+            void resolveEffectiveConfiguration();
           }
         },
 
@@ -849,7 +974,67 @@ export const createMavenStore = (
               ? {}
               : { resolvedMavenExecutablePath: "" }),
           });
+          localConfigurationPersisted = true;
+          pendingLocalSeed = null;
           configurationDidChange();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Imports a legacy run-toolchain path into a blank field, once, before
+        // this workspace has its own Maven settings document. A document that
+        // exists — including one the user saved with blank paths — already owns
+        // those fields, so a later toolchain value cannot overwrite automatic.
+        // The reload prompt stays off: this migrates an already effective value.
+        seedLocalConfiguration: (settings) => {
+          if (localConfigurationPersisted) return;
+          const state = get();
+          if (!state.project) {
+            rememberPendingSeed(settings);
+            return;
+          }
+          const next = withBlankFieldsFilled(state, settings);
+          if (sameLocalPaths(state, next)) return;
+          localConfigurationPersisted = true;
+          pendingLocalSeed = null;
+          set(next);
+          persistConfiguration();
+          void get().actions.resolveEffectiveConfiguration();
+        },
+
+        // Resolves the launch values and the machine-detected values for the
+        // saved configuration. A detection failure clears the result so the
+        // surfaces can say detection did not finish, and a workspace without a
+        // Maven project clears it without asking the host at all.
+        resolveEffectiveConfiguration: async () => {
+          const state = get();
+          const revision = ++effectiveConfigurationRevision;
+          if (!state.root || !state.project) {
+            if (
+              get().effectiveConfiguration !== null ||
+              get().effectiveConfigurationStatus !== "idle"
+            ) {
+              set({ effectiveConfiguration: null, effectiveConfigurationStatus: "idle" });
+            }
+            return;
+          }
+          set({ effectiveConfigurationStatus: "loading" });
+          try {
+            const resolved = await dependencies.resolveMavenEffectiveConfiguration(
+              state.root,
+              state.project.relativePath,
+              {
+                settingsPath: state.settingsPath,
+                localRepositoryPath: state.localRepositoryPath,
+                mavenExecutablePath: state.mavenExecutablePath || state.resolvedMavenExecutablePath,
+                javaHomePath: state.javaHomePath,
+              },
+            );
+            if (effectiveConfigurationRevision !== revision) return;
+            set({ effectiveConfiguration: resolved, effectiveConfigurationStatus: "ready" });
+          } catch {
+            if (effectiveConfigurationRevision !== revision) return;
+            set({ effectiveConfiguration: null, effectiveConfigurationStatus: "failed" });
+          }
         },
 
         saveLocalConfiguration: async (settings) => {
@@ -1198,7 +1383,6 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-              dependencyOutput: "",
             });
             if (previousModulePath) {
               setDependencyLoad(previousModulePath, {
@@ -1214,7 +1398,7 @@ export const createMavenStore = (
                 // A superseded request remains cancelled when its native process
                 // completed before the stop reached the host.
               } finally {
-                releaseMavenSessionWorkspace(previousSessionId);
+                releaseDependencySession(previousSessionId);
               }
             }
           }
@@ -1229,23 +1413,25 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: sessionId,
             activeDependencyModulePath: modulePath,
-            dependencyOutput: "",
           });
           setDependencyLoad(modulePath, { status: "loading", dependencies: [], error: null });
 
           try {
             await dependencies.saveWorkspaceBeforeLaunch(workspaceId);
+            const outputFile = await dependencies.createMavenDependencyOutput(sessionId);
+            dependencyOutputFiles.set(sessionId, outputFile);
             const plan = await dependencies.createMavenDependencyPlan(
               root,
               context,
               modulePath === "." ? null : modulePath,
+              outputFile,
             );
             const resolved = await dependencies.resolveMavenLaunch(root, context, plan);
             if (
               dependencyRevision !== revision ||
               get().activeDependencySessionId !== sessionId
             ) {
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
               return;
             }
             dependencyTimer = dependencyScheduler.setTimer(
@@ -1270,14 +1456,14 @@ export const createMavenStore = (
             ) {
               clearDependencyTimer();
               await dependencies.stopMavenProcess(sessionId).catch(() => undefined);
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
             }
           } catch (error) {
             if (
               dependencyRevision !== revision ||
               get().activeDependencySessionId !== sessionId
             ) {
-              releaseMavenSessionWorkspace(sessionId);
+              releaseDependencySession(sessionId);
               return;
             }
             clearDependencyTimer();
@@ -1288,10 +1474,9 @@ export const createMavenStore = (
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
-              dependencyOutput: "",
             });
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
-            releaseMavenSessionWorkspace(sessionId);
+            releaseDependencySession(sessionId);
           }
         },
 
@@ -1313,7 +1498,6 @@ export const createMavenStore = (
           set({
             activeDependencySessionId: null,
             activeDependencyModulePath: null,
-            dependencyOutput: "",
           });
           setDependencyLoad(modulePath, { status: "cancelled", dependencies: [], error: null });
           if (!sessionId) return;
@@ -1326,28 +1510,8 @@ export const createMavenStore = (
                 : "Unable to stop Maven dependency resolution.";
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
           } finally {
-            releaseMavenSessionWorkspace(sessionId);
+            releaseDependencySession(sessionId);
           }
-        },
-
-        appendDependencyOutput: (sessionId, chunk) => {
-          const state = get();
-          if (
-            state.activeDependencySessionId !== sessionId ||
-            !state.activeDependencyModulePath
-          ) {
-            return;
-          }
-          const output = (state.dependencyOutput + chunk).replace(/\r/g, "");
-          if (output.length > MAXIMUM_DEPENDENCY_OUTPUT_CHARACTERS) {
-            void failDependencySession(
-              sessionId,
-              state.activeDependencyModulePath,
-              "Maven dependency output exceeded the supported limit.",
-            );
-            return;
-          }
-          set({ dependencyOutput: output });
         },
 
         finishDependencyProcess: async (sessionId, exitCode) => {
@@ -1357,24 +1521,23 @@ export const createMavenStore = (
           }
           const revision = dependencyRevision;
           const modulePath = state.activeDependencyModulePath;
-          const output = state.dependencyOutput;
+          const outputFile = dependencyOutputFiles.get(sessionId);
           clearDependencyTimer();
-          releaseMavenSessionWorkspace(sessionId);
-          set({
-            activeDependencySessionId: null,
-            dependencyOutput: "",
-          });
-          if (exitCode !== 0) {
-            set({ activeDependencyModulePath: null });
-            setDependencyLoad(modulePath, {
-              status: "failed",
-              dependencies: [],
-              error: `Maven dependency resolution exited with code ${exitCode}.`,
-            });
-            return;
-          }
+          set({ activeDependencySessionId: null });
           try {
-            const result = await dependencies.parseMavenDependencies(modulePath, output);
+            if (exitCode !== 0 || !outputFile) {
+              set({ activeDependencyModulePath: null });
+              setDependencyLoad(modulePath, {
+                status: "failed",
+                dependencies: [],
+                error:
+                  exitCode !== 0
+                    ? `Maven dependency resolution exited with code ${exitCode}.`
+                    : "Unable to parse Maven dependencies for this module.",
+              });
+              return;
+            }
+            const result = await dependencies.readMavenDependencies(modulePath, outputFile);
             if (
               dependencyRevision !== revision ||
               get().activeDependencyModulePath !== modulePath ||
@@ -1405,6 +1568,9 @@ export const createMavenStore = (
                   ? error.message
                   : "Unable to parse Maven dependencies for this module.",
             });
+          } finally {
+            // Core has finished reading, successfully or not, before the file goes.
+            releaseDependencySession(sessionId);
           }
         },
       },

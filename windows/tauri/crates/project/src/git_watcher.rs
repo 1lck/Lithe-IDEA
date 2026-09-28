@@ -203,12 +203,24 @@ impl GitMetadataWatcher {
     }
 }
 
+/// Lithe Core creates short-lived `<git-common-dir>/lithe-commit-<pid>-<seq>`
+/// directories (`TemporaryGitCommitContext`) for read-only snapshot diffs and
+/// isolated commits. They never change repository state, and reporting them
+/// makes every snapshot diff refresh the views that requested it.
+const LITHE_TEMPORARY_GIT_CONTEXT_PREFIX: &str = "lithe-commit-";
+
 fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
     if let Ok(relative) = path.strip_prefix(&context.git_directory) {
         let first = relative
             .components()
             .next()
             .map(|part| part.as_os_str().to_string_lossy());
+        if first
+            .as_deref()
+            .is_some_and(|part| part.starts_with(LITHE_TEMPORARY_GIT_CONTEXT_PREFIX))
+        {
+            return false;
+        }
         if !matches!(
             first.as_deref(),
             Some("objects" | "lfs" | "modules" | "worktrees")
@@ -240,6 +252,79 @@ fn is_relevant_metadata_change(context: &GitWatchContext, path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    fn assert_native_linked_worktree_notification(relative_metadata_path: &str) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::mpsc;
+
+        static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
+        struct Fixture(PathBuf);
+        impl Drop for Fixture {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+        struct Emitter(mpsc::Sender<Vec<PathBuf>>);
+        impl GitMetadataEmitter for Emitter {
+            fn emit_git_metadata_change(&self, event: &GitMetadataChange) {
+                let _ = self.0.send(event.repository_roots.clone());
+            }
+        }
+        let fixture = Fixture(std::env::temp_dir().join(format!(
+            "lithe-git-watch-path-{}-{}",
+            std::process::id(),
+            NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
+        )));
+        let repository_root = fixture.0.join("linked 工作树");
+        let git_common_directory = fixture.0.join("main repo/.git");
+        let git_directory = git_common_directory.join("worktrees/linked");
+        std::fs::create_dir_all(&repository_root).unwrap();
+        std::fs::create_dir_all(&git_directory).unwrap();
+        std::fs::create_dir_all(git_common_directory.join("refs/heads")).unwrap();
+        std::fs::write(
+            repository_root.join(".git"),
+            format!("gitdir: {}\n", git_directory.display()),
+        )
+        .unwrap();
+        let metadata_path = git_common_directory.join(relative_metadata_path);
+        std::fs::write(&metadata_path, "before\n").unwrap();
+        let (sender, receiver) = mpsc::channel();
+        // The watcher drops before the fixture even if the assertion fails.
+        let watcher = GitMetadataWatcher::new(Arc::new(Emitter(sender)));
+        watcher.begin("fixture-window", "fixture-lease").unwrap();
+        watcher
+            .install(
+                "fixture-window",
+                "fixture-lease",
+                GitWatchContext {
+                    repository_root: repository_root.clone(),
+                    git_directory,
+                    git_common_directory,
+                },
+            )
+            .unwrap();
+        // Model the metadata writes made by an external commit or checkout.
+        // Registration is synchronous; wait for the observable native event,
+        // never for an assumed amount of time needed by the debounce timer.
+        std::fs::write(metadata_path, "after\n").unwrap();
+        let roots = receiver
+            .recv_timeout(Duration::from_secs(5))
+            .expect("native Git metadata notification should arrive within five seconds");
+        assert!(roots.contains(&repository_root), "{roots:?}");
+        watcher
+            .remove("fixture-window", Some("fixture-lease"))
+            .unwrap();
+    }
+
+    #[test]
+    fn native_linked_worktree_watch_receives_external_commit_metadata() {
+        assert_native_linked_worktree_notification("refs/heads/main");
+    }
+
+    #[test]
+    fn native_linked_worktree_watch_receives_external_checkout_metadata() {
+        assert_native_linked_worktree_notification("worktrees/linked/HEAD");
+    }
+
     #[test]
     fn shared_refs_and_worktree_registration_changes_refresh_all_related_worktrees() {
         let context = GitWatchContext {
@@ -262,6 +347,34 @@ mod tests {
         for path in ["objects/ab/object", "worktrees/other/index", "index"] {
             assert!(
                 !is_relevant_metadata_change(&context, &context.git_common_directory.join(path)),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
+    fn temporary_core_git_contexts_do_not_report_repository_changes() {
+        // Snapshot diffs create and delete these directories while a diff opens;
+        // reporting them made the open working-tree diff refresh and close itself.
+        let context = GitWatchContext {
+            repository_root: PathBuf::from("workspace/repo"),
+            git_directory: PathBuf::from("workspace/repo/.git"),
+            git_common_directory: PathBuf::from("workspace/repo/.git"),
+        };
+        for path in [
+            "lithe-commit-4242-7",
+            "lithe-commit-4242-7/HEAD",
+            "lithe-commit-4242-7/index",
+            "lithe-commit-4242-7/index.lock",
+        ] {
+            assert!(
+                !is_relevant_metadata_change(&context, &context.git_directory.join(path)),
+                "{path}"
+            );
+        }
+        for path in ["index", "HEAD", "refs/heads/main"] {
+            assert!(
+                is_relevant_metadata_change(&context, &context.git_directory.join(path)),
                 "{path}"
             );
         }

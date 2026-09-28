@@ -55,20 +55,27 @@ export function createMavenLaunchPlan(
   });
 }
 
+/**
+ * Plans a dependency-tree query that writes the tree to `outputFile`, a
+ * host-owned scratch file from `createMavenDependencyOutput`.
+ */
 export function createMavenDependencyPlan(
   root: string,
   context: MavenLaunchContext,
-  module?: string | null,
+  module: string | null,
+  outputFile: string,
 ) {
   return mavenCore<MavenLaunchPlan>("maven.dependencyPlan", {
     root,
     context,
-    module: module ?? null,
+    module,
+    outputFile,
   });
 }
 
-export function parseMavenDependencies(modulePath: string, output: string) {
-  return mavenCore<MavenDependenciesResponse>("maven.dependencies", { modulePath, output });
+/** Reads the tree a finished dependency plan wrote to `outputFile`. */
+export function readMavenDependencies(modulePath: string, outputFile: string) {
+  return mavenCore<MavenDependenciesResponse>("maven.dependencies", { modulePath, outputFile });
 }
 
 export async function parseMavenDiagnostics(root: string, output: string) {

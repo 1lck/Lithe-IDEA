@@ -1,7 +1,7 @@
 {
-  "version": 1,
+  "version": 2,
   "modulePath": "service",
-  "output": "\u001b[36m[INFO]\u001b[0m Scanning for projects...\n[INFO] com.example:service:jar:1.0.0\n[INFO] +- org.example:runtime-lib:jar:2.0:runtime\n[INFO] |  \\- org.example:transitive-lib:jar:1.5:runtime\n[INFO] +- org.example:provided-lib:jar:3.0:provided\n[INFO] +- org.example:test-lib:jar:tests:4.0:test\n[INFO] \\- org.example:compile-lib:jar:1.0:compile\n[INFO]    +- (org.example:duplicate-lib:jar:1.0:compile - version managed from 1.0; omitted for duplicate)\n[INFO]    \\- (org.example:conflict-lib:jar:1.0:compile - version managed from 1.0; omitted for conflict with 2.0)\n[INFO] BUILD SUCCESS\n",
+  "treeFile": "com.example:service:jar:1.0.0\n+- org.example:runtime-lib:jar:2.0:runtime\n|  \\- org.example:transitive-lib:jar:1.5:runtime (scope updated from test)\n+- org.example:provided-lib:jar:3.0:provided (scope managed from compile)\n+- org.example:test-lib:jar:tests:4.0:test\n+- org.example:managed-lib:jar:2.1:compile (version managed from 0.9.0; scope not updated to compile)\n\\- org.example:compile-lib:jar:1.0:compile\n   +- (org.example:duplicate-lib:jar:1.0:compile - version managed from 1.0; omitted for duplicate)\n   \\- (org.example:conflict-lib:jar:1.0:compile - version managed from 1.1; omitted for conflict with 2.0)\n",
   "expected": {
     "modulePath": "service",
     "dependencies": [
@@ -15,6 +15,10 @@
         "scope": "compile",
         "resolution": "resolved",
         "selectedVersion": null,
+        "premanagedVersion": null,
+        "premanagedScope": null,
+        "originalScope": null,
+        "ignoredScope": null,
         "children": [
           {
             "modulePath": "service",
@@ -26,6 +30,10 @@
             "scope": "compile",
             "resolution": "omittedConflict",
             "selectedVersion": "2.0",
+            "premanagedVersion": "1.1",
+            "premanagedScope": null,
+            "originalScope": null,
+            "ignoredScope": null,
             "children": []
           },
           {
@@ -38,9 +46,29 @@
             "scope": "compile",
             "resolution": "omittedDuplicate",
             "selectedVersion": null,
+            "premanagedVersion": "1.0",
+            "premanagedScope": null,
+            "originalScope": null,
+            "ignoredScope": null,
             "children": []
           }
         ]
+      },
+      {
+        "modulePath": "service",
+        "groupId": "org.example",
+        "artifactId": "managed-lib",
+        "version": "2.1",
+        "type": "jar",
+        "classifier": null,
+        "scope": "compile",
+        "resolution": "resolved",
+        "selectedVersion": null,
+        "premanagedVersion": "0.9.0",
+        "premanagedScope": null,
+        "originalScope": null,
+        "ignoredScope": "compile",
+        "children": []
       },
       {
         "modulePath": "service",
@@ -52,6 +80,10 @@
         "scope": "provided",
         "resolution": "resolved",
         "selectedVersion": null,
+        "premanagedVersion": null,
+        "premanagedScope": "compile",
+        "originalScope": null,
+        "ignoredScope": null,
         "children": []
       },
       {
@@ -64,6 +96,10 @@
         "scope": "runtime",
         "resolution": "resolved",
         "selectedVersion": null,
+        "premanagedVersion": null,
+        "premanagedScope": null,
+        "originalScope": null,
+        "ignoredScope": null,
         "children": [
           {
             "modulePath": "service",
@@ -75,6 +111,10 @@
             "scope": "runtime",
             "resolution": "resolved",
             "selectedVersion": null,
+            "premanagedVersion": null,
+            "premanagedScope": null,
+            "originalScope": "test",
+            "ignoredScope": null,
             "children": []
           }
         ]
@@ -89,6 +129,10 @@
         "scope": "test",
         "resolution": "resolved",
         "selectedVersion": null,
+        "premanagedVersion": null,
+        "premanagedScope": null,
+        "originalScope": null,
+        "ignoredScope": null,
         "children": []
       }
     ]

@@ -6,7 +6,8 @@ const invoke = mock(
 );
 const emitGitChanged = spyOn(gitEvents, "emitGitChanged");
 
-mock.module("@/platform/tauri-core", () => ({ invoke }));
+const tauriCoreModule = await import("@/platform/tauri-core");
+mock.module("@/platform/tauri-core", () => ({ ...tauriCoreModule, invoke }));
 
 const { addWorktreeFromReference, createWorktree, removeWorktree } =
   await import("./git-worktrees-api");

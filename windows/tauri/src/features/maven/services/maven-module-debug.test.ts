@@ -234,6 +234,7 @@ for (const execution of ["service", "application"] as const) {
           processes.set(sessionId, executionId!);
         },
         stopRunProcess,
+        seedMavenLocalConfiguration: () => undefined,
         prepareJavaRunLaunch: async () => null,
       };
       const selected = { ...configuration, execution };

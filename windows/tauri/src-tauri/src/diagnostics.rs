@@ -388,7 +388,8 @@ mod tests {
         // redaction provably shrinks the content; that keeps the raw-size vs
         // redacted-size distinction below meaningful. (A short secret like
         // `hunter2` would grow into `<redacted>` and invert the comparison.)
-        let raw = "token=0123456789abcdef0123456789abcdef0123 trailing text to keep the line long\n";
+        let raw =
+            "token=0123456789abcdef0123456789abcdef0123 trailing text to keep the line long\n";
         fs::write(directory.join(planted_name), raw).unwrap();
         let planted_relative_path = format!("logs/{planted_name}");
 

@@ -1124,7 +1124,14 @@ pub fn resolve(request: ResolveRequest) -> Result<Value, CoreError> {
             continue;
         }
         if let Some(module) = configuration.module().filter(|value| value != ".") {
-            let workspace_module = workspace_maven_path(Some(&configuration.cwd), &module);
+            // `maven.module` is relative to the reactor that owns the entry, not
+            // to the effective `cwd`: a user-chosen working directory such as
+            // the module itself must not turn `web` into `web/web`. Entries
+            // without detected ownership were validated against the root.
+            let reactor = configuration
+                .extension_string("maven", "reactorPath")
+                .unwrap_or_else(dot);
+            let workspace_module = workspace_maven_path(Some(&reactor), &module);
             if !project_directory_exists(&root, &workspace_module) {
                 configuration.disabled = true;
                 diagnostics.push(json!({
@@ -1385,10 +1392,9 @@ fn update_configuration_options(
     let working_directory = if request.working_directory.trim().is_empty() {
         None
     } else {
-        Some(normalize_project_directory(
+        Some(normalize_working_directory(
             &root,
             request.working_directory.trim(),
-            false,
         )?)
     };
     let mut document = if request.scope == "local" {
@@ -1562,7 +1568,6 @@ pub fn create_user_configuration(
         } else {
             request.module.trim()
         },
-        true,
     )?;
     let main_class = request.main_class.trim();
     if configuration_kind == "spring-boot.maven" {
@@ -2497,17 +2502,34 @@ fn normalize_scoped_toolchain_path(
         return Ok(String::new());
     }
     if scope == "project" {
-        normalize_project_directory(root, value, true)
+        normalize_project_directory(root, value)
     } else {
         Ok(value.to_string())
     }
 }
 
-fn normalize_project_directory(
-    root: &Path,
-    value: &str,
-    must_exist: bool,
-) -> Result<String, CoreError> {
+/// Validates the literal value of a `cwd` override before it is persisted.
+///
+/// Resolution disables a configuration whose `cwd` is missing and hides it from
+/// the run list, so a directory that does not exist must fail here, where the
+/// editor can show the error, instead of making the saved entry disappear.
+/// Values are not expanded: `${workspaceFolder}` style variables from other
+/// editors would otherwise be stored as a literal directory name.
+fn normalize_working_directory(root: &Path, value: &str) -> Result<String, CoreError> {
+    normalize_project_directory(root, value).map_err(|error| {
+        if value.contains('$') && !root.join(value).is_dir() {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Working directory variables are not supported; use a path relative to the project",
+            )
+            .with_details(value)
+        } else {
+            error
+        }
+    })
+}
+
+fn normalize_project_directory(root: &Path, value: &str) -> Result<String, CoreError> {
     let candidate = Path::new(value);
     if (!candidate.is_absolute() && invalid_relative_path(value))
         || candidate
@@ -2525,20 +2547,6 @@ fn normalize_project_directory(
     } else {
         root.join(candidate)
     };
-    if !must_exist {
-        let normalized = target.components().collect::<PathBuf>();
-        let relative = normalized.strip_prefix(root).map_err(|_| {
-            CoreError::new(
-                ErrorCode::InvalidRequest,
-                "Project configuration paths must stay inside the project",
-            )
-        })?;
-        return if relative.as_os_str().is_empty() {
-            Ok(".".to_string())
-        } else {
-            Ok(relative.to_string_lossy().replace('\\', "/"))
-        };
-    }
     let canonical_target = fs::canonicalize(&target).map_err(|error| {
         CoreError::new(
             ErrorCode::InvalidRequest,

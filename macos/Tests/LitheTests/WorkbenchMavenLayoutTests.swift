@@ -24,7 +24,19 @@ struct WorkbenchMavenLayoutTests {
         #expect(store.load(for: URL(fileURLWithPath: "/fixture/maven-layout/other")).mavenPaneWidth == nil)
     }
 
-    @Test(arguments: [-1.0, 0.0, 521.0])
+    @Test(arguments: [30.0, 219.0])
+    func narrowSidebarWidthIsRestoredWithOtherLayoutValues(width: Double) {
+        let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
+        let workspace = URL(fileURLWithPath: "/fixture/maven-layout/narrow-sidebar")
+        store.save(WorkbenchLayout(sidebarWidth: width, topPaneHeight: 280, mavenPaneWidth: 410), for: workspace)
+
+        let restored = store.load(for: workspace)
+        #expect(restored.sidebarWidth == width)
+        #expect(restored.topPaneHeight == 280)
+        #expect(restored.mavenPaneWidth == 410)
+    }
+
+    @Test(arguments: [-1.0, 0.0, 761.0])
     func invalidPersistedWidthsFallBackToDefault(width: Double) {
         let store = WorkbenchLayoutStore(store: MavenLayoutTestStore())
         let workspace = URL(fileURLWithPath: "/fixture/maven-layout/project")
@@ -67,7 +79,7 @@ struct WorkbenchMavenLayoutTests {
         #expect(WorkbenchRightToolGeometry.resolvedWidth(restored, in: 1440) == preferred)
         #expect(WorkbenchRightToolGeometry.committedWidth(380, in: 1440) == 380)
         #expect(WorkbenchRightToolGeometry.resolvedWidth(10, in: 1440) == 300)
-        #expect(WorkbenchRightToolGeometry.resolvedWidth(900, in: 1440) == 520)
+        #expect(WorkbenchRightToolGeometry.resolvedWidth(900, in: 1440) == 760)
     }
 }
 

@@ -29,7 +29,7 @@ test("workbench keeps the Project divider without outer horizontal or editor-to-
     '!hidden && "rounded-xl border-border border-x"',
   );
   expect(pluginRailSource).toContain(
-    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center rounded-r-xl border-border border-r bg-surface pt-1"',
+    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center bg-surface pt-1"',
   );
   expect(pluginRailSource).not.toContain('ml-(--lithe-workbench-gap)');
   expect(pluginRailSource).not.toContain("border-l");

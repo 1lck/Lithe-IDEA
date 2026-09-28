@@ -2,6 +2,20 @@
   "version": 1,
   "modules": [
     {
+      "id": "dev.lithe.agent-conversation",
+      "displayName": "Agent Conversation",
+      "scope": "application",
+      "defaultState": "disabled",
+      "activationPolicy": "onDemand",
+      "sleepPolicy": { "kind": "never" },
+      "dependencies": [],
+      "capabilities": ["dev.lithe.capability.agent-conversation"],
+      "contributions": [
+        { "id": "agent.conversation", "kind": "toolWindow", "actionID": "agent.conversation.toggle", "rendererID": "agent.conversation" }
+      ],
+      "required": false
+    },
+    {
       "id": "dev.lithe.ai-assistance",
       "displayName": "AI Assistance",
       "scope": "application",

@@ -8,10 +8,10 @@ java_debug_server_version="$(
     /usr/bin/plutil -extract javaDebugServerVersion raw -o - third_party/jdtls/manifest.json
 )"
 java_debug_plugin_name="com.microsoft.java.debug.plugin-$java_debug_server_version.jar"
-java_test_extension_version="$(
-    /usr/bin/plutil -extract javaTestExtensionVersion raw -o - third_party/jdtls/manifest.json
+java_test_plugin_version="$(
+    /usr/bin/plutil -extract javaTestPluginVersion raw -o - third_party/jdtls/manifest.json
 )"
-java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_extension_version.jar"
+java_test_plugin_name="com.microsoft.java.test.plugin-$java_test_plugin_version.jar"
 java_test_runner_name="com.microsoft.java.test.runner-jar-with-dependencies.jar"
 
 temporary_directory=$(mktemp -d "${TMPDIR:-/tmp}/lithe-package-verification.XXXXXX")
@@ -73,6 +73,7 @@ java_test_extension_bundles=(
 )
 for bundle in "${java_test_extension_bundles[@]}"; do
     : > "$jdtls_root/java-test/extensions/$bundle"
+    print -r -- "$bundle" >> "$jdtls_root/java-test/extensions.txt"
 done
 : > "$jdtls_root/java-test/runner/$java_test_runner_name"
 : > "$jdtls_root/java-test/LICENSE-MIT.txt"
@@ -184,6 +185,11 @@ done
 /usr/bin/lipo \
     "$app_path/Contents/Resources/LanguageServers/jdk-x86_64/bin/java" \
     -verify_arch x86_64
+
+if [[ -e "$app_path/Contents/Resources/OfficialPlugins/dev.lithe.plugin.php-support" ]]; then
+    print -u2 -- "Optional PHP support must not be bundled with Lithe"
+    exit 1
+fi
 
 plugin_manifests=("$app_path/Contents/Resources/OfficialPlugins"/*/plugin.json(N))
 if (( ${#plugin_manifests[@]} == 0 )); then

@@ -17,6 +17,7 @@ docs/visual-qa/
 reasonix.toml
 .codex/
 .codegraph/
+.planning/
 /node_modules/
 *.swp
 *.swo
