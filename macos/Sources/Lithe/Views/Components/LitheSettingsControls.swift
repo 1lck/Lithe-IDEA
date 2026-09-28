@@ -185,6 +185,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             ownerID: popupID,
             content: AnyView(popup),
             state: state,
+            anchorWindow: window,
             anchorFrame: anchorFrame,
             size: NSSize(width: popupWidth, height: popupHeight),
             visibleFrame: visibleFrame,
@@ -339,6 +340,14 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
 }
 
 struct LitheSettingsSelectPopupGeometry {
+    @MainActor
+    static func isAnchorClick(_ event: NSEvent?, anchorWindow: NSWindow?, anchorFrame: NSRect?) -> Bool {
+        guard let event, event.type == .leftMouseDown,
+              let anchorWindow, let anchorFrame,
+              event.windowNumber == anchorWindow.windowNumber else { return false }
+        return anchorFrame.contains(anchorWindow.convertPoint(toScreen: event.locationInWindow))
+    }
+
     static func frame(anchor: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
         let bounds = visibleFrame.insetBy(dx: 6, dy: 6)
         let width = min(size.width, bounds.width)
@@ -374,6 +383,8 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     static let shared = LitheSettingsSelectPopupPresenter()
 
     private var panel: LitheSettingsSelectPopupPanel?
+    private weak var anchorWindow: NSWindow?
+    private var anchorFrame: NSRect?
     private var ownerID: UUID?
     private var onDismiss: (() -> Void)?
     private var localEventMonitor: Any?
@@ -383,6 +394,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         ownerID: UUID,
         content: AnyView,
         state: LitheSettingsSelectPopupState,
+        anchorWindow: NSWindow,
         anchorFrame: NSRect,
         size: NSSize,
         visibleFrame: NSRect,
@@ -415,6 +427,8 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         panel.collectionBehavior = [.transient, .fullScreenAuxiliary]
         panel.delegate = self
         self.panel = panel
+        self.anchorWindow = anchorWindow
+        self.anchorFrame = anchorFrame
         self.ownerID = ownerID
         self.onDismiss = onDismiss
         installEventMonitors()
@@ -428,6 +442,8 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         let callback = onDismiss
         onDismiss = nil
         self.ownerID = nil
+        anchorWindow = nil
+        anchorFrame = nil
         let closingPanel = panel
         panel = nil
         closingPanel?.delegate = nil
@@ -437,13 +453,17 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        dismiss()
+        if !LitheSettingsSelectPopupGeometry.isAnchorClick(
+            NSApp.currentEvent, anchorWindow: anchorWindow, anchorFrame: anchorFrame
+        ) { dismiss() }
     }
 
     private func installEventMonitors() {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
-            if event.window !== self.panel { self.dismiss() }
+            if event.window !== self.panel && !LitheSettingsSelectPopupGeometry.isAnchorClick(
+                event, anchorWindow: self.anchorWindow, anchorFrame: self.anchorFrame
+            ) { self.dismiss() }
             return event
         }
         globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
