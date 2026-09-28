@@ -35,6 +35,14 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         LitheCommandCatalog.commands
     }
 
+    var selectedPreset: KeyboardShortcutPreset {
+        settings.keyboardShortcutPreset
+    }
+
+    func selectPreset(_ preset: KeyboardShortcutPreset) {
+        settings.selectKeyboardShortcutPreset(preset)
+    }
+
     var registrations: [KeyboardShortcutRegistration] {
         registrations(for: settings.keyboardShortcutOverrides)
     }
@@ -45,7 +53,7 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         commands.map { command in
             KeyboardShortcutRegistration(
                 commandID: command.id,
-                bindings: overrides[command.id] ?? command.defaultBindings
+                bindings: overrides[command.id] ?? settings.keyboardShortcutPreset.bindings(for: command)
             )
         }
     }
@@ -85,7 +93,8 @@ final class KeyboardShortcutFeatureModel: ObservableObject {
         if let override = settings.keyboardShortcutOverrides[commandID] {
             return override
         }
-        return LitheCommandCatalog.command(id: commandID)?.defaultBindings ?? []
+        guard let command = LitheCommandCatalog.command(id: commandID) else { return [] }
+        return settings.keyboardShortcutPreset.bindings(for: command)
     }
 
     func displayText(for commandID: String) -> String? {

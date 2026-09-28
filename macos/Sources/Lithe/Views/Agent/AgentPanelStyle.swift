@@ -56,27 +56,51 @@ struct AgentBrandIcon: View {
 @MainActor
 enum AgentBrandIconLoader {
     private struct CacheKey: Hashable {
+        let bundleURL: URL
         let filename: String
         let size: Int
     }
     private static var images: [CacheKey: NSImage] = [:]
 
-    static func image(name: String?, size: CGFloat = 64) -> NSImage? {
+    static func image(
+        name: String?, size: CGFloat = 64,
+        resourceBundle: Bundle? = resolveResourceBundle()
+    ) -> NSImage? {
         let filename: String
         switch name?.lowercased() {
         case "codex": filename = "openai"
         case "claude", "claude code": filename = "claude"
         default: return nil
         }
-        let key = CacheKey(filename: filename, size: max(1, Int(size.rounded())))
+        guard let resourceBundle else { return nil }
+        let key = CacheKey(bundleURL: resourceBundle.bundleURL, filename: filename, size: max(1, Int(size.rounded())))
         if let image = images[key] { return image }
-        guard let url = Bundle.module.url(forResource: filename, withExtension: "svg", subdirectory: "AgentIcons"),
+        guard let url = resourceBundle.url(forResource: filename, withExtension: "svg", subdirectory: "AgentIcons"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = true
         // Native Menu labels read NSImage.size rather than the SwiftUI frame.
         image.size = NSSize(width: key.size, height: key.size)
         images[key] = image
         return image
+    }
+
+    nonisolated static func resolveResourceBundle(
+        mainBundle: Bundle = .main,
+        developmentBundle: () -> Bundle = { Bundle.module }
+    ) -> Bundle? {
+        // Packaged assets are read-only inputs. SwiftPM's generated accessor looks
+        // beside the app or in the build tree, not in Contents/Resources.
+        let packagedURL = mainBundle.resourceURL?
+            .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
+        if let packagedURL, let bundle = Bundle(url: packagedURL) {
+            return bundle
+        }
+        // A damaged installed app must use the fallback glyph, never the fatal
+        // SwiftPM accessor or an unrelated development machine's build output.
+        guard mainBundle.bundleURL.pathExtension != "app" else { return nil }
+        let adjacentURL = mainBundle.bundleURL
+            .appendingPathComponent("Lithe_Lithe.bundle", isDirectory: true)
+        return Bundle(url: adjacentURL) ?? developmentBundle()
     }
 }
 
