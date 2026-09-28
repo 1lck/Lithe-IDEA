@@ -12,6 +12,9 @@ package struct NullGitPerformanceLogger: GitPerformanceLogger {
 }
 
 package protocol GitOperations: Sendable {
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure>
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure>
+
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation?
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure>
     func remoteURL(at rootURL: URL, remote: String) -> String?
@@ -26,6 +29,7 @@ package protocol GitOperations: Sendable {
     ) -> GitProcessResult
 
     func snapshot(at rootURL: URL) -> GitSnapshot?
+    func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot?
     func repositories(in workspaceURL: URL) -> [URL]
     func watchContext(at rootURL: URL) -> GitWatchContext?
     func worktrees(at rootURL: URL) -> [GitWorktree]?
@@ -174,6 +178,14 @@ package protocol GitOperations: Sendable {
 }
 
 package extension GitOperations {
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        .failure(GitWorkspaceCommitFailure("Workspace commit planning is unavailable"))
+    }
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        .failure(GitWorkspaceCommitFailure("Workspace commit execution is unavailable"))
+    }
+    func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? { snapshot(at: rootURL) }
+
     func consolePresentation(_ request: GitConsolePresentationRequest) -> GitConsolePresentation? { nil }
     func executionSettings(_ request: GitConfigurationEdit, save: Bool) -> Result<GitExecutionSettingsSnapshot, GitFetchFailure> { .failure(GitFetchFailure("Git configuration inspection is unavailable.")) }
     func remoteURL(at rootURL: URL, remote: String) -> String? { nil }
@@ -362,12 +374,35 @@ package struct GitService: Sendable {
         }
     }
 
-    func snapshot(for workspace: URL) async -> GitSnapshot? {
-        await read(priority: .utility) { $0.snapshot(at: workspace) }
+    func snapshot(for workspace: URL, repositoryRoots: [URL] = []) async -> GitSnapshot? {
+        await read(priority: .utility) { $0.snapshot(at: workspace, repositoryRoots: repositoryRoots) }
     }
 
     func repositories(in workspace: URL) async -> [URL] {
         await read(priority: .utility) { $0.repositories(in: workspace) } ?? []
+    }
+
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) async -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        await workspaceCommitOperation { $0.prepareWorkspaceCommit(request) }
+    }
+
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) async -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        await workspaceCommitOperation { $0.stepWorkspaceCommit(session) }
+    }
+
+    private func workspaceCommitOperation<T: Sendable>(
+        _ operation: @escaping @Sendable (any GitOperations) -> Result<T, GitWorkspaceCommitFailure>
+    ) async -> Result<T, GitWorkspaceCommitFailure> {
+        let operations = self.operations
+        let execution = GitExecutionContext.current
+        return await withTaskCancellationHandler {
+            await Task.detached(priority: .userInitiated) {
+                GitExecutionContext.$current.withValue(execution) { operation(operations) }
+            }.value
+        } onCancel: {
+            execution?.requestCancellation()
+            if let execution { _ = operations.cancel(operationID: execution.operationID) }
+        }
     }
 
     func worktrees(at repositoryRoot: URL) async -> [GitWorktree]? {
