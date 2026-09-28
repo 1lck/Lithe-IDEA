@@ -8,6 +8,23 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func subscriptionQuotaPreservesWindowLengthsUnknownUsageAndStaleness() throws {
+        let snapshot = try #require(AgentSubscriptionQuota.parse([
+            "windows": [
+                ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 68, "resetsAt": 1800000200],
+                ["id": "short", "name": "codex", "limitSeconds": 18000, "usedPercent": NSNull()]
+            ], "fetchedAt": 1800000000
+        ]))
+        #expect(AgentSubscriptionQuotaPresentation.duration(snapshot.windows[0].limitSeconds) == "7d")
+        #expect(AgentSubscriptionQuotaPresentation.duration(snapshot.windows[1].limitSeconds) == "5h")
+        #expect(snapshot.mostUsedWindow?.id == "weekly")
+        #expect(snapshot.windows[1].usedPercent == nil)
+        #expect(!snapshot.isStale(at: Date(timeIntervalSince1970: 1800000100)))
+        #expect(snapshot.isStale(at: Date(timeIntervalSince1970: 1800000121)))
+        #expect(AgentSubscriptionQuota.parse(["windows": [], "fetchedAt": 1]) == nil)
+    }
+
+    @Test
     func contextIndicatorUsesZeroPlaceholderAndReportedCountsWhenInUse() throws {
         let locale = Locale(identifier: "en_US")
         let usage = try #require(AgentContextUsage(usedTokens: 18700, capacityTokens: 258400))

@@ -1,11 +1,17 @@
 import Foundation
 
+/// The billing source explicitly selected for an Agent connection.
+public enum AgentAuthentication: String, Codable, Equatable, Sendable {
+    case apiKey
+    case codexSubscription
+}
+
 /// Settings required to launch one ACP agent for a workspace.
 ///
-/// Phase one signs in only with a user-supplied API key; account logins
-/// offered by the agent are never used.
+/// API providers and local Codex subscription accounts use distinct launch paths.
 public struct AgentLaunchConfiguration: Equatable, Sendable {
     /// ACP registry id of a Lithe-installed adapter, or `nil` for `command`.
+    public let authentication: AgentAuthentication
     public let agentID: String?
     public let command: String
     public let arguments: [String]
@@ -32,8 +38,10 @@ public struct AgentLaunchConfiguration: Equatable, Sendable {
         apiKey: String,
         providerName: String,
         model: String,
-        allowsInsecureHTTP: Bool
+        allowsInsecureHTTP: Bool,
+        authentication: AgentAuthentication = .apiKey
     ) {
+        self.authentication = authentication
         self.agentID = agentID
         self.command = command
         self.arguments = arguments

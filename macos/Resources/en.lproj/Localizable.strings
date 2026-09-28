@@ -1261,3 +1261,31 @@
 "HEAD advanced; review before continuing." = "HEAD advanced; review before continuing.";
 "Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
 "Repository needs attention" = "Repository needs attention";
+
+"Codex subscription" = "Codex subscription";
+
+"Use your local ChatGPT account. No API key or URL is needed." = "Use your local ChatGPT account. No API key or URL is needed.";
+
+"Sign in to Codex" = "Sign in to Codex";
+
+"Sign in with ChatGPT" = "Sign in with ChatGPT";
+
+"Waiting for ChatGPT sign-in…" = "Waiting for ChatGPT sign-in…";
+
+"Complete sign-in in your browser. Your credentials are managed by Codex." = "Complete sign-in in your browser. Your credentials are managed by Codex.";
+
+"%@ · %@ used" = "%@ · %@ used";
+
+"Quota —" = "Quota —";
+
+"Codex subscription quota" = "Codex subscription quota";
+
+"Resets: %@" = "Resets: %@";
+
+"Updated: %@" = "Updated: %@";
+
+"The local Codex account changed. Reconnect to refresh quota." = "The local Codex account changed. Reconnect to refresh quota.";
+
+"Quota is temporarily unavailable. The last value may be out of date." = "Quota is temporarily unavailable. The last value may be out of date.";
+
+"Waiting for subscription quota…" = "Waiting for subscription quota…";

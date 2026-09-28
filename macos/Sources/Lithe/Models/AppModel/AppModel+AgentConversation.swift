@@ -122,13 +122,13 @@ extension AppModel {
     var configuredAgentOptions: [AgentOption] {
         settings.agentConfigurations
             .filter { id, configuration in
-                configuration.providerID != nil
+                configuration.isConfigured
                     && (id != AgentConfiguration.customAgentID
                         || !settings.agentCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
             .map { id, configuration -> AgentOption in
                 let provider = settings.agentProvider(for: id)
-                let model = provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let model = configuration.authentication == .codexSubscription ? String(localized: "Codex subscription") : (provider?.model.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
                 return AgentOption(id: id, name: configuration.name, modelName: model.isEmpty ? provider?.name : model)
             }
             .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
@@ -164,6 +164,13 @@ extension AppModel {
 
     func agentLaunchConfiguration(agentID: String) throws -> AgentLaunchConfiguration {
         guard let workspaceURL else { throw AgentConversationError.notConnected }
+        if settings.agentConfigurations[agentID]?.authentication == .codexSubscription {
+            guard agentID == "codex-acp" else { throw AgentConversationError.missingProvider }
+            return AgentLaunchConfiguration(agentID: agentID, command: "", arguments: [],
+                workspaceURL: workspaceURL, dataDirectory: agentDataDirectory,
+                providerProtocol: "", providerEndpoint: "", apiKey: "", providerName: "", model: "",
+                allowsInsecureHTTP: false, authentication: .codexSubscription)
+        }
         // A saved import is not the current CLI default. Read through the same
         // configuration ports used for credentials, once at connection startup.
         settings.refreshAgentModels(from: services.aiConfigurationSources.compactMap { $0.loadModel() })

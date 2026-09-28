@@ -45,23 +45,63 @@ The ACP Agent calls use an opaque handle for one agent process and connection
 per workspace and agent; one connection carries many conversation sessions.
 `lithe_agent_open_json` accepts `{ "agentId"?: string, "command"?: string,
 "args": string[], "cwd": absolutePath, "dataDirectory"?: absolutePath,
-"provider": { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
+"authentication"?: "apiKey" | "codexSubscription",
+"provider"?: { "protocol": "responses" | "chatCompletions" | "anthropicMessages",
 "baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
 "allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
-installed by `agent.install` under `dataDirectory`. Every agent signs in through
+installed by `agent.install` under `dataDirectory`. Omitted `authentication`
+defaults to `apiKey`, which requires `provider` and signs in through
 the ACP `gateway` method over stdio: Responses providers send
 `Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
 non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
 provider. Agents start with the executable's directory and the login shell's
-`PATH` first. Account logins offered by agents are never used. Invalid settings
+`PATH` first. API-key mode never falls back to account login. Invalid settings
 and launch failures are reported as a `stopped` event with a message.
 
+`codexSubscription` is accepted only for `agentId: "codex-acp"` with no
+`provider`. It reuses the locally installed Codex CLI and its own account storage
+(including `CODEX_HOME`). The child uses the official `openai` model provider;
+inherited API-key, endpoint, token and gateway overrides are removed for this
+child only. No Lithe HTTP provider, stored API key or configured provider model
+is consulted. Codex owns login, token refresh and session model options.
+The pinned ACP adapter's `_auth/status_update` notification confirms the account.
+An existing account proceeds to `account` then `ready`; otherwise
+`authenticationRequired` waits for the user's `authenticate` command before
+`authenticating` opens the upstream ChatGPT browser login. Login is cancellable
+by closing the handle, with a five-minute deadline. Account loss or email change
+disconnects the connection rather than silently changing its billing identity.
+`account` exposes only nullable `email` and `plan`, never credentials.
+
+`refreshQuota` is ignored outside subscription mode, coalesced while in flight,
+and throttled to one read per connection per 60 seconds. The host uses a bounded
+20-second, short-lived official `codex app-server` process because codex-acp
+1.13.1 does not expose structured rate limits. It only initializes, checks
+`account/read`, reads `account/rateLimits/read`, and checks the account again;
+it never creates a thread or prompt. The process tree is owned by the connection
+and terminated after the query or cancellation. The account email must match
+the active ACP account; missing identity cannot prove a match. This is not a
+workspace/account-ID verification guarantee: the upstream ACP identity provides
+no stable account ID. Lithe reads no credential files for this path.
+
+`quota.snapshot` has `fetchedAt` (Unix seconds) and deterministic `windows` with
+`id`, `name`, `limitSeconds`, nullable `usedPercent` (0–100) and nullable
+`resetsAt` (Unix seconds). Actual window durations are preserved; primary does
+not imply five hours. Unknown usage remains null. `quotaFailed.code` is
+`unavailable`, `timeout`, `unparsable`, `unauthorized`, or `accountChanged`.
+Consumers retain the last snapshot as stale for transient errors, clear it on
+identity failures/disconnect, and never reinterpret unknown as zero. The macOS
+composer shows a small chip to the right of context usage, refreshes while
+visible and active, and requests a throttled refresh after turns. Hover details
+include all windows and reset times; API-key connections show no quota chip.
+
 `lithe_agent_send_json` queues one command: `newSession`, `loadSession`,
-`listSessions`, `setConfigOption`, `prompt`, `cancel`, or `permission`. Results arrive as events:
+`listSessions`, `setConfigOption`, `prompt`, `cancel`, `permission`, `authenticate`,
+or `refreshQuota`. Results arrive as events:
 `ready`, `sessionCreated`, `sessionLoaded`, `sessions`, `update`, `permission`,
-`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, and `stopped`. Commands and events, including
+`sessionConfigured`, `turnCancelling`, `turnFinished`, `requestFailed`, `stopped`,
+`authenticationRequired`, `authenticating`, `account`, `quota`, and `quotaFailed`. Commands and events, including
 their camel-case field names, are fixed by
 `shared/fixtures/agent/acp-events-v1.json`; `token` values are echoed so a caller
 can correlate concurrent requests. `stopReason` uses ACP wire names such as

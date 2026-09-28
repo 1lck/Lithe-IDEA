@@ -825,4 +825,23 @@ struct AgentConfiguration: Codable, Equatable {
     /// Display name recorded when the agent was set up, for the Agent panel.
     var name: String
     var providerID: UUID?
+    var authentication: AgentAuthentication
+    var isConfigured: Bool { authentication == .codexSubscription || providerID != nil }
+
+    init(name: String, providerID: UUID?, authentication: AgentAuthentication = .apiKey) {
+        self.name = name
+        self.providerID = providerID
+        self.authentication = authentication
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, providerID, authentication }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        name = try values.decode(String.self, forKey: .name)
+        providerID = try values.decodeIfPresent(UUID.self, forKey: .providerID)
+        authentication = try values.decodeIfPresent(AgentAuthentication.self, forKey: .authentication) ?? .apiKey
+        if authentication == .codexSubscription { providerID = nil }
+    }
+
 }

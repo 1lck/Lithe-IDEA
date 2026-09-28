@@ -48,6 +48,16 @@ extension AppModel {
         connectAgentConversation()
     }
 
+    func useCodexSubscription() async throws {
+        try beginAgentProviderChange()
+        defer { finishAgentProviderChange() }
+        try await stopAgentsForProviderChange(["codex-acp"])
+        settings.agentConfigurations["codex-acp"] = AgentConfiguration(name: "Codex", providerID: nil,
+                                                                      authentication: .codexSubscription)
+        agentConversationFeatureIfActive?.setAgents(configuredAgentOptions)
+        agentConversationFeatureIfActive?.selectAgent("codex-acp")
+    }
+
     func useLocalAgentProvider(source: AIConfigurationSourceKind, agentID: String, name: String) async throws {
         try beginAgentProviderChange()
         defer { finishAgentProviderChange() }
@@ -68,7 +78,7 @@ extension AppModel {
         guard let feature = agentConversationFeatureIfActive else { return }
         let connections = agentIDs.sorted().map { feature.connection(for: $0) }
         guard connections.allSatisfy({ connection in
-            !connection.isCreatingSession && connection.connectionState != .connecting &&
+            !connection.isCreatingSession && connection.connectionState != .connecting && connection.connectionState != .authenticating &&
                 !connection.conversations.values.contains {
                     $0.isResponding || $0.isLoading || $0.pendingConfigToken != nil || $0.permission != nil
                 }

@@ -7,6 +7,24 @@ import Testing
 @MainActor
 @Suite("Agent provider configuration")
 struct AgentProviderConfigurationTests {
+    @Test func subscriptionBindingRoundTripsWithoutBecomingAnAPIProvider() throws {
+        let settings = AppSettings(store: ProviderSettingsStore())
+        let before = settings.commitMessageAI
+        let configuration = AgentConfiguration(name: "Codex", providerID: nil, authentication: .codexSubscription)
+        settings.agentConfigurations["codex-acp"] = configuration
+        #expect(settings.agentProvider(for: "codex-acp") == nil)
+        #expect(settings.commitMessageAI == before)
+        let decoded = try JSONDecoder().decode(AgentConfiguration.self, from: JSONEncoder().encode(configuration))
+        #expect(decoded == configuration)
+        #expect(decoded.isConfigured)
+        let legacy = try JSONDecoder().decode(AgentConfiguration.self, from: Data(#"{"name":"Codex","providerID":null}"#.utf8))
+        #expect(legacy.authentication == .apiKey)
+        #expect(!legacy.isConfigured)
+        settings.setAgentProvider(nil, for: "codex-acp", name: "Codex")
+        #expect(settings.agentConfigurations["codex-acp"]?.authentication == .apiKey)
+        #expect(settings.agentConfigurations["codex-acp"]?.isConfigured == false)
+    }
+
     @Test func configurationInputKeepsLiteralSyntax() {
         let editor = MacConfigurationTextView()
         #expect(!editor.isAutomaticQuoteSubstitutionEnabled)
