@@ -13,3 +13,6 @@ the Community icon set.
 The source project and these resources are distributed under the Apache License
 2.0. Lithe does not include JetBrains product logos or external third-party
 plugin icons. See LICENSE-APACHE-2.0.txt for the license text.
+
+Exception: toolwindows/toolWindowAgent.svg is an original Lithe icon, not an
+imported JetBrains asset. It follows the Lithe repository license.
