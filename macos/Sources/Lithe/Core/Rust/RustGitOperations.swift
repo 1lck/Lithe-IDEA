@@ -140,6 +140,19 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: change.repositoryRoot, operation: "discardAll", paths: change.pathspecs)
     }
 
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        let result: Result<GitWorkspaceCommitPreparation, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.workspaceCommitPrepare", payload: request)
+        return result.mapError { GitWorkspaceCommitFailure($0.userMessage) }
+    }
+
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        struct Request: Encodable { let session: GitWorkspaceCommitSession }
+        let result: Result<GitWorkspaceCommitSession, RustCoreBridge.CoreCallError> = core.executeResult(
+            command: "git.workspaceCommitStep", payload: Request(session: session))
+        return result.mapError { GitWorkspaceCommitFailure($0.userMessage) }
+    }
+
     func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? {
         write(at: rootURL, operation: "commit", message: message, amend: amend)
     }
@@ -455,8 +468,10 @@ struct RustGitOperations: GitOperations, Sendable {
         write(at: rootURL, operation: "deleteTag", name: name)
     }
 
-    func snapshot(at rootURL: URL) -> GitSnapshot? {
-        core.gitStatus(at: rootURL)?.makeSnapshot(at: rootURL)
+    func snapshot(at rootURL: URL) -> GitSnapshot? { snapshot(at: rootURL, repositoryRoots: []) }
+
+    func snapshot(at rootURL: URL, repositoryRoots: [URL]) -> GitSnapshot? {
+        core.gitStatus(at: rootURL, repositoryRoots: repositoryRoots)?.makeSnapshot(at: rootURL)
     }
 
     func repositories(in workspaceURL: URL) -> [URL] {

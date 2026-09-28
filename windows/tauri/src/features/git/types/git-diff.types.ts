@@ -103,6 +103,8 @@ export interface ImageDiffViewerProps {
  * initial open instead of re-deriving them from workspace display paths.
  */
 export interface WorkingTreeDiffTarget {
+  /** Preserve index review semantics across automatic refreshes. */
+  staged?: boolean;
   repoPath: string;
   /** Path relative to repoPath. */
   filePath: string;

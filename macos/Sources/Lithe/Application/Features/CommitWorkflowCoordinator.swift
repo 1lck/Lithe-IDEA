@@ -4,10 +4,16 @@ import LitheCoreContracts
 /// The Git operations needed by the application-owned commit workflow.
 @MainActor
 protocol CommitWorkflowGit: AnyObject {
+    /// Staged changes from every repository discovered in the workspace.
     var stagedChangeIDs: Set<String> { get }
+    var pendingCommitDraft: (message: String, amend: Bool)? { get }
     func stagedCommitMessageInput() async -> CommitMessageInput?
+    /// Commits each repository's staged changes independently while sharing the
+    /// commit message. The Git feature owns repository grouping and failure
+    /// reporting so the coordinator remains unaware of Git's storage model.
     func commitStagedChanges(message: String, amend: Bool) async -> Bool
     func commitAndPushStagedChanges(message: String, amend: Bool) async -> Bool
+    func confirmPendingSubmoduleCommit() async -> Bool
 }
 
 /// Coordinates submission and AI generation without owning Git or AI services.
@@ -35,6 +41,14 @@ final class CommitWorkflowCoordinator {
     }
 
     func commit(push: Bool = false) async {
+        await submitCommit(push: push, confirmSubmodulePlan: false)
+    }
+
+    func confirmPendingSubmoduleCommit() async {
+        await submitCommit(push: false, confirmSubmodulePlan: true)
+    }
+
+    private func submitCommit(push: Bool, confirmSubmodulePlan: Bool) async {
         guard !isSubmitting else { return }
         isSubmitting = true
         defer { isSubmitting = false }
@@ -43,14 +57,19 @@ final class CommitWorkflowCoordinator {
         let amend = draft.amend
         guard let git = await activateGit(),
               generation == workspaceGeneration(), !Task.isCancelled else { return }
-        let succeeded = if push {
-            await git.commitAndPushStagedChanges(message: message, amend: amend)
+        let submittedMessage = confirmSubmodulePlan ? git.pendingCommitDraft?.message ?? message : message
+        let submittedAmend = confirmSubmodulePlan ? git.pendingCommitDraft?.amend ?? amend : amend
+        let succeeded: Bool
+        if confirmSubmodulePlan {
+            succeeded = await git.confirmPendingSubmoduleCommit()
+        } else if push {
+            succeeded = await git.commitAndPushStagedChanges(message: message, amend: amend)
         } else {
-            await git.commitStagedChanges(message: message, amend: amend)
+            succeeded = await git.commitStagedChanges(message: message, amend: amend)
         }
         guard succeeded, generation == workspaceGeneration() else { return }
         // Preserve edits made while Git was running, even after a successful commit.
-        if draft.message == message && draft.amend == amend {
+        if draft.message.trimmingCharacters(in: .whitespacesAndNewlines) == submittedMessage.trimmingCharacters(in: .whitespacesAndNewlines) && draft.amend == submittedAmend {
             draft.clearAfterCommit()
         }
     }

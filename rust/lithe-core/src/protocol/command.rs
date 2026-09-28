@@ -226,6 +226,12 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
+    GitCommitState,
+    /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
+    GitWorkspaceCommitPrepare,
+    /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
+    GitWorkspaceCommitStep,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -419,6 +425,9 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.commitState" => Some(Self::GitCommitState),
+            "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
+            "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),

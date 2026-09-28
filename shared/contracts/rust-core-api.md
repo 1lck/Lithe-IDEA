@@ -335,6 +335,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.initialize` | Initialize a directory outside existing repositories without staging or committing |
 | `git.configureIdentity` | Save or clear one local/global `user.name` or `user.email` override |
 | `git.status` | Resolve the repository, current branch, and working-tree changes |
+| `git.commitState` | Read exact HEAD, symbolic branch and index preconditions for a workspace commit |
 | `git.watchContext` | Resolve the repository and absolute Git metadata roots needed by native file watchers |
 | `git.worktrees` | Return deterministic registered-worktree metadata without scanning each checkout |
 | `git.pullRequestContext` | Resolve worktree-aware PR branch defaults, publication state, and uncommitted-change state |
@@ -2073,3 +2074,87 @@ failure is visible but does not globally block unrelated targets; callers still
 build the selected target before launching. A successful preparation does not
 promise compilation success. Shared examples live in
 `shared/fixtures/lsp/project-preparation-v1.json`.
+
+### Workspace commit preconditions
+
+`git.commitState` accepts `{ root }` and returns `{ head, branch, indexEntries,
+gitlinks, stagedPaths, conflictedPaths }`. `head` is null only for an unborn branch; `branch` is
+null for detached HEAD. `indexEntries` is Git's opaque NUL-delimited staged index
+listing, including blob IDs and conflict stages; clients compare it without
+parsing it. `gitlinks` lists stage-0 mode-160000 entries as `{ path, revision }`.
+Read failures are errors, never an empty relationship list.
+The requested root must still be Git's exact working-tree root. Removing a
+nested repository's metadata must fail instead of falling back to its parent;
+gitlink updates also verify the child boundary before reading its HEAD.
+
+`git.write` / `commit` optionally accepts `expectedCommitState` and
+`gitlinkUpdates: [{ path, revision }]`. Gitlink updates cannot accompany other
+operations or path-selected commits. Push also accepts `expectedCommitState`
+to reject a changed repository under its writer lease. Workspace pushes set
+`checkSubmodules: true`, invoking Git's `--recurse-submodules=check` so missing child
+commits block a parent push even when only the parent pointer was selected. Under the existing repository writer lease,
+Core verifies HEAD/index, validates all child HEAD revisions, then updates only
+those parent index entries in a single `update-index --index-info` transaction
+before the regular commit. Any changed precondition returns `invalid_request`
+through the existing operation error envelope. Unrelated unstaged parent files
+are not added. A failing hook may leave the pointer staged: clients must retain
+partial progress and re-read state before retrying. External Git processes do
+not participate in Lithe's lease; cross-repository commits are not atomic.
+
+`git.status.changes[]` additionally carries optional `submodule` with
+`commitChanged`, `trackedChanges`, and `untrackedChanges`, normalized from Git
+porcelain v2. The existing two-character `status` remains compatible. The optional request flag
+`includeIndexOnlyChanges` retains staged additions deleted only from the working
+tree (`AD`); both products enable it so every staged file remains visible. Omission
+preserves the legacy final-worktree projection. Child dirt
+alone is informational in the parent; only a changed commit pointer (or an
+already-staged change) is eligible for the parent's staging checkbox.
+
+`git.status` accepts optional `repositoryRoots` (native bindings of discovered
+repositories). Untracked paths owned by a nested root are excluded from the
+parent list. Each change returns `canToggleStaging`; platforms render that
+eligibility instead of reinterpreting submodule dirt.
+
+`git.workspaceCommitPrepare` owns the complete multi-repository policy. It accepts
+`repositories: [{ id, root }]`, `message`, `amend`, `push`,
+`includeParentReferences`, optional `previous` session for retry, and optional
+`reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
+separators (`..` is allowed for enclosing repositories). Windows manually selected
+roots on another volume use a stable `external/<encoded-volume>/<path>` virtual
+workspace ID. `root` is the native
+execution binding, never a portable identity. The response is
+`{ session, reviewChanged, requiresConfirmation }`. Core reads all repositories,
+finds real gitlink relationships, includes clean parents when requested, orders
+children first, and adds push-only child work where needed. Cycles fail closed.
+A changed reviewed plan must be displayed and confirmed again before any step.
+
+`git.workspaceCommitStep` accepts `{ session }` and returns the next session,
+executing at most one commit or push. Session fields are `plan`, last observed
+`states`, per-ID `results`, `blocked`, `cursor`, `commandFailed`, `finished`,
+`succeeded`, and `canRetry`. They are Core-owned continuations: clients return
+them unchanged and must not independently choose roots, reorder work, or infer
+completion. `plan` includes bindings, options, `orderedIds`, propagation and
+dependency relations, reviewed states, `committedIds`, and `pendingPushIds`.
+Each result separates `committed`, `pushed`, stable `status`, and Git `detail`.
+Status keys are `pending`, `notIncluded`, `waitingForSubmodule`, `reviewRequired`,
+`committed`, `committedPushPending`, `committedAndPushed`, `commitFailed`,
+`pushFailed`, `headAdvanced`, and `outcomeUnknown`.
+
+Each step uses a fresh host operation ID and the existing Git writer lease,
+process runner, authentication and event stream. Cancellation blocks dependent
+parents while independent roots may continue under subsequent operation IDs.
+A read-only cleanup deadline of five seconds reconciles a commit whose HEAD may
+have advanced before cancellation. This command preserves the reconciled session
+instead of replacing it with a generic late-cancellation envelope. Transport
+errors before a continuation is returned must never be treated as success.
+Retry re-inspects current state, preserves completed commits, and re-pushes
+externally advanced completed branches before updating dependent parents.
+
+Sessions own no background resources and are retained only for the current
+workspace lifetime. Native clients discard old responses after workspace changes,
+show confirmation/progress, and drive steps until `finished`. macOS uses this
+shared workflow, as does Windows through its workspace-scoped continuation adapter
+and real staging checkboxes. The native products must not duplicate planning or retry policy.
+See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
+`shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
+and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.

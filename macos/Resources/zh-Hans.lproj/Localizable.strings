@@ -2458,3 +2458,34 @@
 "Context usage" = "上下文用量";
 "Context: %@" = "上下文: %@";
 "%@ · %@ / %@ context tokens" = "%@ · %@ / %@ 上下文 token";
+
+/* Workspace repository commits */
+"Review remaining steps" = "确认剩余步骤";
+"Review repository commits" = "确认各仓库提交";
+"Each repository has its own commit. Completed steps are kept if another repository fails." = "每个仓库会分别提交。某个仓库失败时，已完成的步骤仍会保留。";
+"Review and Retry Unfinished Steps…" = "查看并重试未完成的步骤…";
+"Dismiss Results" = "清除结果";
+"Update parent repository references" = "更新父仓库引用";
+"Each submodule is pushed before its parent." = "先推送子模块，再推送父仓库。";
+"Uncommitted submodule changes" = "子模块有未提交的修改";
+"Commit changed files in the submodule first" = "请先在子模块中提交修改的文件";
+"Amend applies to repositories with selected files." = "修订提交仅作用于有已选文件的仓库。";
+"Commit message: %@" = "提交说明：%@";
+"Push only" = "仅推送";
+"Commit and push" = "提交并推送";
+"Committed; push pending" = "已提交，等待推送";
+"Committed and pushed" = "已提交并推送";
+"Waiting for submodule" = "等待子模块完成";
+"Update %@/%@ after %@" = "在 %@/%@ 更新引用，等待 %@ 完成";
+"Repository changed; review and retry" = "仓库状态已改变，请检查并重试";
+"Committed" = "已提交";
+"Collapse repository" = "折叠仓库";
+"Expand repository" = "展开仓库";
+"Unstage all files in repository" = "取消暂存仓库的所有文件";
+"Stage all files in repository" = "暂存仓库的所有文件";
+"Pending" = "等待执行";
+"Not included in the updated plan" = "未包含在更新后的计划中";
+"Committed; push failed" = "已提交，推送失败";
+"HEAD advanced; review before continuing." = "提交记录已推进，请检查后再继续。";
+"Could not verify the commit outcome. Review before retrying." = "无法确认提交结果，请检查后再重试。";
+"Repository needs attention" = "仓库需要处理";

@@ -56,18 +56,12 @@ afterEach(() => invokeSpy.mockRestore());
 
 describe("Git status batch mutations", () => {
   const expectSingleGitWrite = () => {
-    expect(
-      invoke.mock.calls.filter(([command]) => command === "git.write"),
-    ).toHaveLength(1);
+    expect(invoke.mock.calls.filter(([command]) => command === "git.write")).toHaveLength(1);
   };
 
   test("stages a directory selection with one shared Core invocation", async () => {
     await expect(
-      setFilesStaged(
-        "C:/repo",
-        ["src/first.ts", "src/second.ts", "src/first.ts"],
-        true,
-      ),
+      setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts", "src/first.ts"], true),
     ).resolves.toBe(true);
 
     expectSingleGitWrite();
@@ -79,9 +73,9 @@ describe("Git status batch mutations", () => {
   });
 
   test("unstages every selected path with one shared Core invocation", async () => {
-    await expect(
-      setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts"], false),
-    ).resolves.toBe(true);
+    await expect(setFilesStaged("C:/repo", ["src/first.ts", "src/second.ts"], false)).resolves.toBe(
+      true,
+    );
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -105,9 +99,7 @@ describe("Git status batch mutations", () => {
   });
 
   test("adds selected paths to the repository gitignore", async () => {
-    await expect(
-      addPathsToGitignore("C:/repo", ["generated/", "local.env"]),
-    ).resolves.toBe(true);
+    await expect(addPathsToGitignore("C:/repo", ["generated/", "local.env"])).resolves.toBe(true);
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -118,9 +110,7 @@ describe("Git status batch mutations", () => {
   });
 
   test("adds selected paths to the local Git exclude file", async () => {
-    await expect(
-      addPathsToLocalGitExclude("C:/repo", ["generated/"]),
-    ).resolves.toBe(true);
+    await expect(addPathsToLocalGitExclude("C:/repo", ["generated/"])).resolves.toBe(true);
 
     expectSingleGitWrite();
     expect(invoke).toHaveBeenLastCalledWith("git.write", {
@@ -134,7 +124,10 @@ describe("Git status batch mutations", () => {
 describe("Workspace Git status", () => {
   test("aggregates changed files from every discovered repository", async () => {
     await expect(
-      getWorkspaceGitStatus(["C:/workspace/service-a", "C:/workspace/service-b"], "C:/workspace/service-b"),
+      getWorkspaceGitStatus(
+        ["C:/workspace/service-a", "C:/workspace/service-b"],
+        "C:/workspace/service-b",
+      ),
     ).resolves.toEqual({
       branch: "develop",
       ahead: 0,
@@ -161,11 +154,18 @@ describe("Workspace Git status", () => {
   });
 });
 
+test("workspace status sends all roots to Core for file ownership and preserves the index", async () => {
+  const roots = ["C:/workspace/service-a", "C:/workspace/service-b"];
+  await getWorkspaceGitStatus(roots);
+  const queries = invoke.mock.calls.filter(([command]) => command === "git_status");
+  expect(queries).toHaveLength(2);
+  for (const [, args] of queries)
+    expect(args).toMatchObject({ repositoryRoots: roots, includeIndexOnlyChanges: true });
+});
+
 describe("Git status review diffs", () => {
   test("reviews a partially staged path against HEAD before selected-path commit", async () => {
-    await expect(
-      getWorkingTreePathDiff("C:/repo", "src/partially-staged.ts"),
-    ).resolves.toBeNull();
+    await expect(getWorkingTreePathDiff("C:/repo", "src/partially-staged.ts")).resolves.toBeNull();
 
     expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
       repoPath: "C:/repo",
@@ -177,7 +177,9 @@ describe("Git status review diffs", () => {
 
 function deferred() {
   let resolve!: () => void;
-  const promise = new Promise<void>((done) => { resolve = done; });
+  const promise = new Promise<void>((done) => {
+    resolve = done;
+  });
   return { promise, resolve };
 }
 
@@ -268,22 +270,26 @@ describe("Git staging write coordination", () => {
 describe("Git status query failures", () => {
   test("bootstrap preserves root-relative paths while reading every discovered repository", async () => {
     const snapshot = await getWorkspaceRootGitStatus("C:/repo", [
-      "C:/repo", "C:/workspace/service-a", "C:/workspace/service-b",
+      "C:/repo",
+      "C:/workspace/service-a",
+      "C:/workspace/service-b",
     ]);
     expect(snapshot?.files.map((file) => file.path)).toEqual(["src/App.tsx"]);
     const queriedRepos = invoke.mock.calls
       .filter(([command]) => command === "git_status")
       .map(([, args]) => args?.repoPath);
     expect(queriedRepos.sort()).toEqual([
-      "C:/repo", "C:/workspace/service-a", "C:/workspace/service-b",
+      "C:/repo",
+      "C:/workspace/service-a",
+      "C:/workspace/service-b",
     ]);
   });
 
   test("bootstrap reports a child repository failure even when the root status succeeds", async () => {
     unavailableRepo = "C:/workspace/service-b";
-    await expect(getWorkspaceRootGitStatus("C:/repo", [
-      "C:/repo", "C:/workspace/service-b",
-    ])).rejects.toThrow("no snapshot");
+    await expect(
+      getWorkspaceRootGitStatus("C:/repo", ["C:/repo", "C:/workspace/service-b"]),
+    ).rejects.toThrow("no snapshot");
   });
 
   test("rejects an empty snapshot for a selected repository and recovers on retry", async () => {
@@ -295,9 +301,9 @@ describe("Git status query failures", () => {
 
   test("does not return a partial workspace when one repository is unavailable", async () => {
     unavailableRepo = "C:/workspace/service-b";
-    await expect(getWorkspaceGitStatus([
-      "C:/workspace/service-a", "C:/workspace/service-b",
-    ])).rejects.toThrow("no snapshot");
+    await expect(
+      getWorkspaceGitStatus(["C:/workspace/service-a", "C:/workspace/service-b"]),
+    ).rejects.toThrow("no snapshot");
   });
 
   test("propagates native query failures to workspace refresh", async () => {

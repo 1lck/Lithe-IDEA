@@ -16,7 +16,7 @@ const diff = (path: string, patch = "+change"): GitDiff => ({
   lines: [],
   raw_patch: patch,
 });
-test("reads all selected paths including staged and unstaged worktree content", async () => {
+test("reads all selected staged paths", async () => {
   const selected = Array.from({ length: 14 }, (_, i) => file(`file${i}`));
   const paths: string[] = [];
   const result = await collectCommitContext(
@@ -52,17 +52,19 @@ test("retains original rename path and owner repository", async () => {
   );
   expect(calls).toEqual([["repo", "new", false, "old"]]);
 });
-test("rejects mixed repositories and unreadable paths without partial generation", async () => {
-  await expect(
-    collectCommitContext(
-      "repo",
-      [file("one"), { ...file("two"), repositoryPath: "other" }],
-      new AbortController().signal,
-      async () => {
-        throw new Error("must not read");
-      },
-    ),
-  ).rejects.toThrow("AI_COMMIT_MULTIPLE_REPOSITORIES");
+test("keeps files from multiple repositories distinct and rejects unreadable paths", async () => {
+  const calls: string[] = [];
+  const inputs = await collectCommitContext(
+    "repo",
+    [file("same"), { ...file("same"), repositoryPath: "other" }],
+    new AbortController().signal,
+    async (root, path) => {
+      calls.push(root);
+      return diff(path);
+    },
+  );
+  expect(calls.sort()).toEqual(["other", "repo"]);
+  expect(inputs.map((input) => input.path)).toEqual(["repository-2/same", "repository-1/same"]);
   await expect(
     collectCommitContext("repo", [file("one")], new AbortController().signal, async () => null),
   ).rejects.toThrow("AI_COMMIT_DIFF_FAILED");

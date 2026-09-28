@@ -315,7 +315,37 @@ struct GitLocalizationTests {
             "Show worktree repositories", "Hide worktree repositories",
             "Copy Branch Name", "Tracking Branch", "Stop Tracking Branch", "No Remote Branches",
             "Soft Reset (Keep Changes Staged)", "Mixed Reset (Keep Changes Unstaged)",
-            "Hard Reset (Discard Changes)"
+            "Hard Reset (Discard Changes)",
+            "Review remaining steps",
+            "Review repository commits",
+            "Each repository has its own commit. Completed steps are kept if another repository fails.",
+            "Review and Retry Unfinished Steps…",
+            "Dismiss Results",
+            "Update parent repository references",
+            "Each submodule is pushed before its parent.",
+            "Uncommitted submodule changes",
+            "Commit changed files in the submodule first",
+            "Amend applies to repositories with selected files.",
+            "Commit message: %@",
+            "Push only",
+            "Commit and push",
+            "Committed; push pending",
+            "Committed and pushed",
+            "Waiting for submodule",
+            "Pending",
+            "Not included in the updated plan",
+            "Committed; push failed",
+            "HEAD advanced; review before continuing.",
+            "Could not verify the commit outcome. Review before retrying.",
+            "Repository needs attention",
+
+            "Update %@/%@ after %@",
+            "Repository changed; review and retry",
+            "Committed",
+            "Collapse repository",
+            "Expand repository",
+            "Unstage all files in repository",
+            "Stage all files in repository"
         ]
         let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
         for key in keys {
