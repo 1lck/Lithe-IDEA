@@ -1,3 +1,4 @@
+import Foundation
 import LitheGitModule
 
 /// Splits the working-tree changes into the sections the sidebar renders, once
@@ -11,12 +12,22 @@ import LitheGitModule
 /// invalidate the view that reads it.
 @MainActor
 final class GitChangeSectionsCache {
+    struct RepositorySection: Identifiable {
+        let root: URL
+        let changes: [GitChange]
+        let tracked: [GitChange]
+        let added: [GitChange]
+
+        var id: String { root.standardizedFileURL.path }
+    }
+
     struct Sections {
         /// All changes, minus anything hidden by an active conflict filter.
         let displayed: [GitChange]
         let tracked: [GitChange]
         let added: [GitChange]
         let staged: [GitChange]
+        let repositories: [RepositorySection]
     }
 
     private var cachedChanges: [GitChange] = []
@@ -35,6 +46,10 @@ final class GitChangeSectionsCache {
         var tracked: [GitChange] = []
         var added: [GitChange] = []
         var staged: [GitChange] = []
+        var repositoryOrder: [String] = []
+        var repositoryChanges: [String: [GitChange]] = [:]
+        var repositoryTracked: [String: [GitChange]] = [:]
+        var repositoryAdded: [String: [GitChange]] = [:]
         displayed.reserveCapacity(changes.count)
 
         for change in changes {
@@ -45,18 +60,36 @@ final class GitChangeSectionsCache {
                 continue
             }
             displayed.append(change)
+            let repositoryID = change.repositoryRoot.standardizedFileURL.path
+            if repositoryChanges[repositoryID] == nil {
+                repositoryOrder.append(repositoryID)
+            }
+            repositoryChanges[repositoryID, default: []].append(change)
             if change.kind == .added {
                 added.append(change)
+                repositoryAdded[repositoryID, default: []].append(change)
             } else {
                 tracked.append(change)
+                repositoryTracked[repositoryID, default: []].append(change)
             }
         }
 
+        let repositories = repositoryOrder.compactMap { repositoryID -> RepositorySection? in
+            guard let changes = repositoryChanges[repositoryID],
+                  let root = changes.first?.repositoryRoot else { return nil }
+            return RepositorySection(
+                root: root,
+                changes: changes,
+                tracked: repositoryTracked[repositoryID] ?? [],
+                added: repositoryAdded[repositoryID] ?? []
+            )
+        }
         let sections = Sections(
             displayed: displayed,
             tracked: tracked,
             added: added,
-            staged: staged
+            staged: staged,
+            repositories: repositories
         )
         cachedChanges = changes
         cachedFilterPaths = conflictFilterPaths

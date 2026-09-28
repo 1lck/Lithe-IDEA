@@ -237,9 +237,52 @@ package struct GitReference: Identifiable, Hashable, Sendable {
     }
 }
 
-/// One repository's references when a workspace aggregates several Git
-/// repositories. Only references are aggregated here; history, diff, and the
-/// console stay scoped to the active repository.
+/// A real Git submodule edge between two discovered repository roots.
+///
+/// Nested paths alone are not enough to establish this relationship: a workspace
+/// may contain independent repositories below another repository. `path` is the
+/// parent repository's gitlink path, relative to `parent`.
+package struct GitRepositorySubmoduleRelation: Hashable, Sendable {
+    package let parent: URL
+    package let child: URL
+    package let path: String
+
+    package init(parent: URL, child: URL, path: String) {
+        self.parent = parent.standardizedFileURL
+        self.child = child.standardizedFileURL
+        self.path = path
+    }
+}
+
+/// Shared Core payload: Git owns the index fingerprint and gitlink interpretation.
+package struct GitCommitState: Codable, Equatable, Sendable {
+    package let head: String?
+    package let branch: String?
+    package let indexEntries: String
+    package let gitlinks: [GitCommitGitlink]
+    package let stagedPaths: [String]
+    package let conflictedPaths: [String]
+    package init(head: String?, branch: String?, indexEntries: String, gitlinks: [GitCommitGitlink], stagedPaths: [String], conflictedPaths: [String] = []) {
+        self.head = head; self.branch = branch; self.indexEntries = indexEntries
+        self.gitlinks = gitlinks; self.stagedPaths = stagedPaths; self.conflictedPaths = conflictedPaths
+    }
+}
+
+package struct GitCommitGitlink: Codable, Equatable, Sendable {
+    package let path: String
+    package let revision: String
+    package init(path: String, revision: String) { self.path = path; self.revision = revision }
+}
+
+package struct GitRepositoryCommitResult: Identifiable, Sendable {
+    package let root: URL
+    package var committed = false
+    package var pushed = false
+    package var detail = "Pending"
+    package var diagnostic = ""
+    package var id: String { root.path }
+}
+
 package struct GitRepositoryReferences: Hashable, Sendable {
     package let repositoryRoot: URL
     package let references: [GitReference]
@@ -786,7 +829,9 @@ package struct GitChange: Identifiable, Hashable, Sendable {
     package let originalPath: String?
     package let indexStatus: Character
     package let workTreeStatus: Character
-    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character) { self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
+    package let submodule: GitSubmoduleStatus?
+    package let canToggleStaging: Bool
+    package init(repositoryRoot: URL, path: String, originalPath: String?, indexStatus: Character, workTreeStatus: Character, submodule: GitSubmoduleStatus? = nil, canToggleStaging: Bool = true) { self.canToggleStaging = canToggleStaging; self.submodule = submodule; self.repositoryRoot = repositoryRoot; self.path = path; self.originalPath = originalPath; self.indexStatus = indexStatus; self.workTreeStatus = workTreeStatus }
 
     package var id: String {
         "\(repositoryRoot.standardizedFileURL.path):\(originalPath ?? "")->\(path)"
@@ -1547,5 +1592,14 @@ package enum DiffParser {
               let old = Int(header[oldRange]),
               let new = Int(header[newRange]) else { return nil }
         return (old, new)
+    }
+}
+
+package struct GitSubmoduleStatus: Codable, Hashable, Sendable {
+    package let commitChanged: Bool
+    package let trackedChanges: Bool
+    package let untrackedChanges: Bool
+    package init(commitChanged: Bool, trackedChanges: Bool, untrackedChanges: Bool) {
+        self.commitChanged = commitChanged; self.trackedChanges = trackedChanges; self.untrackedChanges = untrackedChanges
     }
 }

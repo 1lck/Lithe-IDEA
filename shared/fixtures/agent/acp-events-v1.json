@@ -1,6 +1,8 @@
 {
   "version": 1,
   "commands": {
+    "authenticate": { "kind": "authenticate" },
+    "refreshQuota": { "kind": "refreshQuota" },
     "newSession": { "kind": "newSession", "token": "token-1" },
     "loadSession": { "kind": "loadSession", "token": "token-2", "sessionId": "session-1" },
     "listSessions": { "kind": "listSessions", "token": "token-3" },
@@ -13,6 +15,11 @@
     "denyPermission": { "kind": "permission", "requestId": "permission-1", "optionId": null }
   },
   "events": {
+    "authenticationRequired": {"kind": "authenticationRequired"},
+    "authenticating": {"kind": "authenticating"},
+    "account": {"kind": "account", "account": {"email": "person@example.test", "plan": "plus"}},
+    "quota": {"kind": "quota", "snapshot": {"windows": [{"id": "codex:primary", "name": "codex", "limitSeconds": 18000, "usedPercent": 68, "resetsAt": 1800003600}], "fetchedAt": 1800000000}},
+    "quotaFailed": {"kind": "quotaFailed", "code": "timeout"},
     "ready": {
       "kind": "ready",
       "agentName": "example-agent",

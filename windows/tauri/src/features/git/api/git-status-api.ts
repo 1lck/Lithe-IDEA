@@ -42,14 +42,18 @@ export const getGitStatus = async (repoPath: string): Promise<GitStatus | null> 
 
 // Keep failures distinct from a missing repository for workspace refreshes.
 // Optional status consumers retain the nullable getGitStatus API.
-const queryGitStatus = async (repoPath: string, source: GitExecutionSource = "unknown"): Promise<GitStatus | null> => {
+const queryGitStatus = async (
+  repoPath: string,
+  source: GitExecutionSource = "unknown",
+  repositoryRoots: readonly string[] = [],
+): Promise<GitStatus | null> => {
   const resolvedRepoPath = await resolveRepositoryPath(repoPath);
 
   if (!resolvedRepoPath) {
     return null;
   }
 
-  const requestKey = `${resolvedRepoPath}\0${source}`;
+  const requestKey = `${resolvedRepoPath}\0${source}\0${JSON.stringify(repositoryRoots)}`;
   const existingRequest = inFlightGitStatusRequests.get(requestKey);
   if (existingRequest) {
     return existingRequest;
@@ -59,12 +63,22 @@ const queryGitStatus = async (repoPath: string, source: GitExecutionSource = "un
   if (!gitStatusGenerations.has(resolvedRepoPath)) {
     gitStatusGenerations.set(resolvedRepoPath, generation);
   }
-  const request = (source === "unknown"
-    ? tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath })
-    : tauriInvoke<GitStatus>("git_status", { repoPath: resolvedRepoPath }, { gitExecutionSource: source }))
+  const request = (
+    source === "unknown"
+      ? tauriInvoke<GitStatus>("git_status", {
+          repoPath: resolvedRepoPath,
+          includeIndexOnlyChanges: true,
+          repositoryRoots,
+        })
+      : tauriInvoke<GitStatus>(
+          "git_status",
+          { repoPath: resolvedRepoPath, includeIndexOnlyChanges: true, repositoryRoots },
+          { gitExecutionSource: source },
+        )
+  )
     .then((status) => {
       if (generation !== (gitStatusGenerations.get(resolvedRepoPath) ?? 0)) {
-        return queryGitStatus(resolvedRepoPath, source);
+        return queryGitStatus(resolvedRepoPath, source, repositoryRoots);
       }
       return status;
     })
@@ -124,7 +138,7 @@ export const getWorkspaceGitStatus = async (
   // These paths are already discovered/selected repositories. A null response
   // is an unavailable snapshot, not evidence that the workspace has no changes.
   const readStatus = async (repoPath: string): Promise<GitStatus> => {
-    const status = await queryGitStatus(repoPath, source);
+    const status = await queryGitStatus(repoPath, source, normalizedRepoPaths);
     if (!status) throw new Error("Git status query returned no snapshot");
     return status;
   };
@@ -151,8 +165,7 @@ export const getWorkspaceGitStatus = async (
   });
 
   const activeStatus =
-    statuses.find((entry) => entry.repoPath === activeRepoPath)?.status ??
-    statuses[0]!.status;
+    statuses.find((entry) => entry.repoPath === activeRepoPath)?.status ?? statuses[0]!.status;
   return {
     branch: activeStatus.branch,
     ahead: activeStatus.ahead,

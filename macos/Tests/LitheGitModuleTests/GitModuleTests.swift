@@ -597,8 +597,6 @@ struct GitModuleTests {
         #expect(feature.gitChanges == [firstChange, secondChange])
         #expect(feature.currentBranch == "main")
         #expect(feature.activeRepositoryChanges == [firstChange])
-        // A conflict or staged entry in another repository must not block this commit.
-        #expect(await feature.commitStagedChanges(message: "First repository", amend: false))
         #expect(firstChange.id != secondChange.id)
         #expect(feature.gitTreeStatus.change(relativePath: firstChange.url.path) == firstChange)
         #expect(feature.gitTreeStatus.change(relativePath: secondChange.url.path) == secondChange)
@@ -606,8 +604,163 @@ struct GitModuleTests {
         #expect(feature.gitRepositoryRoot == secondRoot)
         #expect(feature.currentBranch == "develop")
         #expect(feature.activeRepositoryChanges == [secondChange])
-        #expect(await !feature.commitStagedChanges(message: "Conflicted repository", amend: false))
         #expect(feature.gitChanges == [firstChange, secondChange])
+    }
+
+    @Test
+    func sharedStagingEligibilityDisablesParentCheckbox() {
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))
+        let change = GitChange(repositoryRoot: URL(fileURLWithPath: "/workspace"), path: "libs/B",
+            originalPath: nil, indexStatus: " ", workTreeStatus: "M",
+            submodule: GitSubmoduleStatus(commitChanged: false, trackedChanges: true, untrackedChanges: false), canToggleStaging: false)
+        #expect(feature.beginToggleStaging(change) == nil)
+        #expect(feature.beginSetStaging([change], staged: true).isEmpty)
+    }
+
+    @Test
+    func workspaceCommitConfirmationUsesTheSharedPlanAndForwardsOptions() async throws {
+        let preparation = try workspacePreparation()
+        let probe = WorkspaceCommitProbe(preparations: [preparation, preparation], steps: [completedWorkspace(preparation)])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.commitAndPushStagedChanges(message: "commit", amend: true))
+        #expect(probe.stepCount == 0)
+        #expect(feature.pendingSubmoduleCommitPlan?.orderedRoots.map(\.lastPathComponent) == ["B", "A"])
+        #expect(await feature.confirmPendingSubmoduleCommit())
+        #expect(probe.stepCount == 1)
+        #expect(probe.requests.first?.amend == true)
+        #expect(probe.requests.first?.push == true)
+        #expect(probe.requests.first?.repositories.map(\.id) == ["A", "A/B"])
+        #expect(probe.requests.last?.reviewed == preparation.session.plan)
+        #expect(feature.workspaceCommitResults.allSatisfy { $0.committed && $0.pushed })
+    }
+
+    @Test
+    func changedSharedCommitPlanRequiresAnotherConfirmationBeforeAnyStep() async throws {
+        let original = try workspacePreparation()
+        let changed = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: true, requiresConfirmation: true)
+        let probe = WorkspaceCommitProbe(preparations: [original, changed, original], steps: [completedWorkspace(original)])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.commitStagedChanges(message: "commit", amend: false))
+        let oldID = feature.pendingSubmoduleCommitPlan?.id
+        #expect(await !feature.confirmPendingSubmoduleCommit())
+        #expect(probe.stepCount == 0)
+        #expect(feature.pendingSubmoduleCommitPlan?.id != oldID)
+        #expect(await feature.confirmPendingSubmoduleCommit())
+        #expect(probe.stepCount == 1)
+    }
+
+    @Test
+    func parentReferenceToggleAndRetryAreForwardedToCore() async throws {
+        let original = try workspacePreparation()
+        var failed = original.session
+        failed.finished = true
+        failed.results["A/B"] = GitWorkspaceRepositoryResult(committed: true, pushed: false, status: "pushFailed", detail: "stopped")
+        failed.results["A"] = GitWorkspaceRepositoryResult(committed: false, pushed: false, status: "waitingForSubmodule", detail: "")
+        let probe = WorkspaceCommitProbe(preparations: [original, original, original, original], steps: [failed])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.commitAndPushStagedChanges(message: "commit", amend: false))
+        await feature.setCommitPlanParentReferences(false)
+        #expect(probe.requests.last?.includeParentReferences == false)
+        #expect(await !feature.confirmPendingSubmoduleCommit())
+        #expect(feature.canRetryWorkspaceCommit)
+        #expect(feature.workspaceCommitResults.first { $0.root.lastPathComponent == "A" }?.detail == "Waiting for submodule")
+        await feature.prepareWorkspaceCommitRetry()
+        #expect(probe.requests.last?.previous?.results["A/B"]?.committed == true)
+        #expect(feature.pendingSubmoduleCommitPlan != nil)
+        feature.cancelPendingSubmoduleCommit()
+        #expect(feature.pendingSubmoduleCommitPlan == nil)
+        #expect(feature.canRetryWorkspaceCommit)
+    }
+
+    @Test
+    func workspaceWithoutRequiredConfirmationDrivesCoreStepsUntilFinished() async throws {
+        let original = try workspacePreparation()
+        let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)
+        var progress = original.session
+        progress.cursor = 1
+        let probe = WorkspaceCommitProbe(preparations: [immediate], steps: [progress, completedWorkspace(original)])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await feature.commitStagedChanges(message: "commit", amend: false))
+        #expect(probe.stepCount == 2)
+        #expect(!feature.canRetryWorkspaceCommit)
+        feature.dismissWorkspaceCommitResults()
+        #expect(feature.workspaceCommitResults.isEmpty)
+    }
+
+    @Test
+    func firstCoreStepFailureKeepsRecoveryActionsVisible() async throws {
+        let original = try workspacePreparation()
+        let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)
+        let probe = WorkspaceCommitProbe(preparations: [immediate])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(await !feature.commitStagedChanges(message: "commit", amend: false))
+        #expect(feature.canRetryWorkspaceCommit)
+        #expect(!feature.workspaceCommitResults.isEmpty)
+        #expect(!feature.isCommitting)
+        feature.dismissWorkspaceCommitResults()
+        #expect(!feature.canRetryWorkspaceCommit)
+        #expect(feature.workspaceCommitResults.isEmpty)
+    }
+
+    @Test
+    func workspaceResetDuringCommitDoesNotStartTheNextStepOrPublishOldResults() async throws {
+        let original = try workspacePreparation()
+        let immediate = GitWorkspaceCommitPreparation(session: original.session, reviewChanged: false, requiresConfirmation: false)
+        var progress = original.session
+        progress.cursor = 1
+        let started = GitModuleTestGate()
+        let release = GitModuleTestGate()
+        let probe = WorkspaceCommitProbe(preparations: [immediate], steps: [progress], started: started, release: release)
+        let feature = workspaceCommitFeature(probe: probe)
+        await feature.refreshGit()
+        let task = Task { await feature.commitStagedChanges(message: "commit", amend: false) }
+        defer { release.open(); task.cancel(); feature.reset() }
+        #expect(await started.waitUntilOpen())
+        feature.reset()
+        release.open()
+        #expect(await !task.value)
+        #expect(probe.stepCount == 1)
+        #expect(feature.workspaceCommitResults.isEmpty)
+        #expect(!feature.isCommitting)
+    }
+
+    private func workspacePreparation() throws -> GitWorkspaceCommitPreparation {
+        struct Fixture: Decodable { let preparation: GitWorkspaceCommitPreparation }
+        let fixtureURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("shared/fixtures/git/workspace-commit-workflow-v1.json")
+        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL)).preparation
+    }
+
+    private func completedWorkspace(_ preparation: GitWorkspaceCommitPreparation) -> GitWorkspaceCommitSession {
+        var session = preparation.session
+        session.finished = true; session.succeeded = true; session.canRetry = false
+        session.cursor = session.plan.orderedIds.count
+        session.results = ["A": GitWorkspaceRepositoryResult(committed: true, pushed: true, status: "committedAndPushed", detail: ""),
+            "A/B": GitWorkspaceRepositoryResult(committed: true, pushed: true, status: "committedAndPushed", detail: "")]
+        return session
+    }
+
+    private func workspaceCommitFeature(roots: [URL] = [URL(fileURLWithPath: "/workspace/A"), URL(fileURLWithPath: "/workspace/A/B")],
+        changes: [GitChange] = [], probe: WorkspaceCommitProbe = WorkspaceCommitProbe()) -> GitFeatureModel {
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotsByRoot: Dictionary(uniqueKeysWithValues: roots.map { root in
+                (root.path, GitSnapshot(repositoryRoot: root, branch: "main", changes: changes.filter { $0.repositoryRoot == root }))
+            }), repositoryRoots: roots, workspaceCommitProbe: probe)))
+        feature.configure(workspaceURLProvider: { URL(fileURLWithPath: "/workspace") }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+        return feature
     }
 
     @Test
@@ -3393,6 +3546,54 @@ private final class GitPerformanceLogRecorder: GitPerformanceLogger, @unchecked 
     }
 }
 
+/// Records each repository commit so multi-repository submission can assert
+/// that one Git commit is issued per independent index.
+private final class CommitCallRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let root: URL
+        let message: String
+        let amend: Bool
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(_ call: Call) {
+        lock.lock()
+        calls.append(call)
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
+/// Records the parent gitlink restage issued after a child submodule commit.
+private final class StageCallRecorder: @unchecked Sendable {
+    struct Call: Equatable {
+        let root: URL
+        let path: String
+    }
+
+    private let lock = NSLock()
+    private var calls: [Call] = []
+
+    func record(_ change: GitChange) {
+        lock.lock()
+        calls.append(Call(root: change.repositoryRoot, path: change.path))
+        lock.unlock()
+    }
+
+    var recorded: [Call] {
+        lock.lock()
+        defer { lock.unlock() }
+        return calls
+    }
+}
+
 /// Records tag create/delete arguments so restore flows can be asserted on
 /// the exact parameters the feature model replays.
 private final class TagCallRecorder: @unchecked Sendable {
@@ -3568,6 +3769,10 @@ private struct TestGitOperations: GitOperations {
     private let applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)?
     private let stageResult: GitProcessResult?
     private let commitResult: GitProcessResult?
+    private let commitCallRecorder: CommitCallRecorder?
+    private let stageCallRecorder: StageCallRecorder?
+    private let gitlinkPathsByRoot: [String: [String]]
+    private let workspaceCommitProbe: WorkspaceCommitProbe
     private let revertHandler: (@Sendable (String) -> GitProcessResult?)?
     private let runGate: TestGitRunGate?
     private let filesRecorder: GitFilesCallRecorder?
@@ -3609,6 +3814,10 @@ private struct TestGitOperations: GitOperations {
         applyPatchHandler: (@Sendable (String, URL, String) -> GitProcessResult?)? = nil,
         stageResult: GitProcessResult? = nil,
         commitResult: GitProcessResult? = nil,
+        commitCallRecorder: CommitCallRecorder? = nil,
+        stageCallRecorder: StageCallRecorder? = nil,
+        gitlinkPathsByRoot: [String: [String]] = [:],
+        workspaceCommitProbe: WorkspaceCommitProbe? = nil,
         revertHandler: (@Sendable (String) -> GitProcessResult?)? = nil,
         runGate: TestGitRunGate? = nil,
         filesRecorder: GitFilesCallRecorder? = nil,
@@ -3649,6 +3858,10 @@ private struct TestGitOperations: GitOperations {
         self.applyPatchHandler = applyPatchHandler
         self.stageResult = stageResult
         self.commitResult = commitResult
+        self.commitCallRecorder = commitCallRecorder
+        self.stageCallRecorder = stageCallRecorder
+        self.gitlinkPathsByRoot = gitlinkPathsByRoot
+        self.workspaceCommitProbe = workspaceCommitProbe ?? WorkspaceCommitProbe()
         self.revertHandler = revertHandler
         self.runGate = runGate
         self.filesRecorder = filesRecorder
@@ -3673,10 +3886,17 @@ private struct TestGitOperations: GitOperations {
 
     func run(arguments: [String], workingDirectory: String, input: String?) -> GitProcessResult {
         runGate?.blockFirstRun()
+        let standardOutput: String
+        if arguments == ["ls-files", "--stage", "-z"] {
+            let paths = gitlinkPathsByRoot[URL(fileURLWithPath: workingDirectory).standardizedFileURL.path] ?? []
+            standardOutput = paths.map { "160000 abc123 0\t\($0)\0" }.joined()
+        } else {
+            standardOutput = "git version 2.55.0\n"
+        }
         return GitProcessResult(
             arguments: arguments,
-            output: "git version 2.55.0\n",
-            standardOutput: "git version 2.55.0\n",
+            output: standardOutput,
+            standardOutput: standardOutput,
             standardError: "",
             exitCode: 0
         )
@@ -3773,11 +3993,23 @@ private struct TestGitOperations: GitOperations {
     func comparison(from reference: GitReference, to target: GitReference, at rootURL: URL) -> GitBranchComparison? { typedComparisonValue }
     func stashes(at rootURL: URL) -> [GitStash]? { nil }
     func blame(at rootURL: URL, relativePath: String) -> [GitBlameLine]? { nil }
-    func stage(_ change: GitChange) -> GitProcessResult? { stageResult }
+    func stage(_ change: GitChange) -> GitProcessResult? {
+        stageCallRecorder?.record(change)
+        return stageResult
+    }
     func unstage(_ change: GitChange) -> GitProcessResult? { nil }
     func discard(_ change: GitChange) -> GitProcessResult? { discardHandler?(change) }
     func discardAll(_ change: GitChange) -> GitProcessResult? { nil }
-    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? { commitResult }
+    func prepareWorkspaceCommit(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        workspaceCommitProbe.prepare(request)
+    }
+    func stepWorkspaceCommit(_ session: GitWorkspaceCommitSession) -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        workspaceCommitProbe.step()
+    }
+    func commit(at rootURL: URL, message: String, amend: Bool) -> GitProcessResult? {
+        commitCallRecorder?.record(CommitCallRecorder.Call(root: rootURL, message: message, amend: amend))
+        return commitResult
+    }
     func cherryPick(_ hash: String, at rootURL: URL) -> GitProcessResult? { nil }
     func revert(_ hash: String, at rootURL: URL) -> GitProcessResult? { revertHandler?(hash) }
     func resetCurrentBranch(to hash: String, mode: String, at rootURL: URL) -> GitProcessResult? { nil }
@@ -3840,7 +4072,7 @@ private struct TestGitOperations: GitOperations {
     func abortOperation(at rootURL: URL) -> GitProcessResult? { nil }
     func skipOperationStep(at rootURL: URL) -> GitProcessResult? { nil }
     func checkoutRevision(_ revision: String, at rootURL: URL) -> GitProcessResult? { nil }
-    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { nil }
+    func push(_ reference: GitReference, at rootURL: URL) -> GitProcessResult? { GitProcessResult(output: "Pushed", exitCode: 0) }
     func cloneRepository(from remote: String, to destination: URL) -> GitProcessResult? { nil }
     func stash(message: String, includeUntracked: Bool, at rootURL: URL) -> GitProcessResult? { nil }
     func applyStash(_ stash: GitStash, at rootURL: URL) -> GitProcessResult? { nil }
@@ -3855,4 +4087,38 @@ private struct TestGitOperations: GitOperations {
         tagCallRecorder?.record(TagCallRecorder.Call(name: name, revision: "", message: nil))
         return deleteTagResults?.next() ?? deleteTagResult
     }
+}
+
+/// Synchronous GitOperations test state; the production service reads it on workers.
+/// Scripted Core responses only: ordering, dependencies and retry policy are
+/// exercised in Rust instead of reimplemented in this native test double.
+private final class WorkspaceCommitProbe: @unchecked Sendable {
+    private let lock = NSLock()
+    private var preparations: [GitWorkspaceCommitPreparation]
+    private var steps: [GitWorkspaceCommitSession]
+    private var recordedRequests: [GitWorkspaceCommitRequest] = []
+    private var recordedSteps = 0
+    private let started: GitModuleTestGate?
+    private let release: GitModuleTestGate?
+    init(preparations: [GitWorkspaceCommitPreparation] = [], steps: [GitWorkspaceCommitSession] = [],
+        started: GitModuleTestGate? = nil, release: GitModuleTestGate? = nil) {
+        self.preparations = preparations; self.steps = steps
+        self.started = started; self.release = release
+    }
+    func prepare(_ request: GitWorkspaceCommitRequest) -> Result<GitWorkspaceCommitPreparation, GitWorkspaceCommitFailure> {
+        lock.lock(); defer { lock.unlock() }
+        recordedRequests.append(request)
+        guard !preparations.isEmpty else { return .failure(GitWorkspaceCommitFailure("No scripted preparation")) }
+        return .success(preparations.removeFirst())
+    }
+    func step() -> Result<GitWorkspaceCommitSession, GitWorkspaceCommitFailure> {
+        started?.open()
+        guard release?.waitSynchronously() ?? true else { return .failure(GitWorkspaceCommitFailure("Test gate timed out")) }
+        lock.lock(); defer { lock.unlock() }
+        recordedSteps += 1
+        guard !steps.isEmpty else { return .failure(GitWorkspaceCommitFailure("No scripted step")) }
+        return .success(steps.removeFirst())
+    }
+    var requests: [GitWorkspaceCommitRequest] { lock.lock(); defer { lock.unlock() }; return recordedRequests }
+    var stepCount: Int { lock.lock(); defer { lock.unlock() }; return recordedSteps }
 }
