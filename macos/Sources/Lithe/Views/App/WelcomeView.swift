@@ -9,6 +9,7 @@ struct WelcomeView: View {
     @State private var projectFilter = ""
     @State private var hoveredProjectID: String?
     @State private var hoveredProjectMenuID: String?
+    @State private var showingStableRollback = false
     @FocusState private var searchFocused: Bool
 
     // JetBrains/intellij-community: platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
@@ -31,6 +32,15 @@ struct WelcomeView: View {
         }
         .background(surface.ignoresSafeArea(.container, edges: .top))
         .background(WelcomeInitialFocusReset())
+        .sheet(isPresented: $showingStableRollback) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Return to Stable").font(.headline)
+                StableRollbackControl()
+                Button("Close") { showingStableRollback = false }
+            }
+            .padding(20)
+            .frame(width: 420)
+        }
     }
 
     private var welcomeSidebar: some View {
@@ -266,9 +276,22 @@ struct WelcomeView: View {
             .action("Settings…", action: { model.showSettings() }),
             .separator
         ]
-        if case .available(let version, _) = updateChecker.status {
+        switch updateChecker.status {
+        case .available(let version, _):
             items.append(.action("Update to \(version)…", action: { updateChecker.presentDetails() }))
-        } else {
+        case .waitingForTermination:
+            items.append(.action("Continue Installation", action: {
+                Task { await updateChecker.retryInstallation() }
+            }))
+        case .checking:
+            items.append(.action("Checking for Updates…", isEnabled: false, action: {}))
+        case .downloading:
+            items.append(.action("Downloading Update…", isEnabled: false, action: {}))
+        case .installing:
+            items.append(.action("Installing Update…", isEnabled: false, action: {}))
+        case .failed where updateChecker.updateInfo != nil:
+            items.append(.action("Retry Update…", action: { updateChecker.presentDetails() }))
+        case .idle, .upToDate, .failed:
             items.append(.action(
                 "Check for Updates…",
                 isEnabled: !updateChecker.isBusy,
@@ -276,6 +299,9 @@ struct WelcomeView: View {
                     Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
                 }
             ))
+        }
+        if updateChecker.isPreview {
+            items.append(.action("Return to Stable…", action: { showingStableRollback = true }))
         }
         LitheContextMenuPresenter.shared.show(
             items: items,
