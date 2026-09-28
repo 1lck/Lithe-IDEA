@@ -2489,3 +2489,33 @@
 "HEAD advanced; review before continuing." = "提交记录已推进，请检查后再继续。";
 "Could not verify the commit outcome. Review before retrying." = "无法确认提交结果，请检查后再重试。";
 "Repository needs attention" = "仓库需要处理";
+
+"Codex subscription" = "Codex 官方订阅（本机账号）";
+
+"Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
+
+"Sign in to Codex" = "登录 Codex";
+
+"Sign in with ChatGPT" = "登录 ChatGPT";
+
+"Waiting for ChatGPT sign-in…" = "正在等待 ChatGPT 登录…";
+
+"Complete sign-in in your browser. Your credentials are managed by Codex." = "请在浏览器中完成登录，凭据由 Codex 管理。";
+
+"%@ · %@ used" = "%@ · 已用 %@";
+
+"Quota —" = "额度 —";
+
+"Codex subscription quota" = "Codex 订阅额度";
+
+"Resets: %@" = "重置时间：%@";
+
+"Updated: %@" = "更新时间：%@";
+
+"The local Codex account changed. Reconnect to refresh quota." = "本机 Codex 账号已变更，请重新连接以刷新额度。";
+
+"Quota is temporarily unavailable. The last value may be out of date." = "暂时无法更新额度，上次读数可能已过期。";
+
+"Waiting for subscription quota…" = "正在等待订阅额度…";
+
+"ChatGPT sign-in was cancelled." = "已取消 ChatGPT 登录。";
