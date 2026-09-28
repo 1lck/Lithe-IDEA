@@ -140,6 +140,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
+        .accessibilityValue(Text(LocalizedStringKey(title(selection))))
         .onChange(of: options) { _ in
             if isPresented { showPopup() }
         }
@@ -233,6 +234,7 @@ private final class LitheSettingsSelectAnchorNSView: NSView {
 
 @MainActor
 private final class LitheSettingsSelectPopupState: ObservableObject {
+    let selectedIndex: Int
     @Published var highlightedIndex: Int
     @Published var keyboardScrollIndex: Int?
     @Published var popupHeight: CGFloat = 0
@@ -240,6 +242,7 @@ private final class LitheSettingsSelectPopupState: ObservableObject {
     let onChoose: (Int) -> Void
 
     init(selectedIndex: Int, optionCount: Int, onChoose: @escaping (Int) -> Void) {
+        self.selectedIndex = selectedIndex
         highlightedIndex = selectedIndex
         self.optionCount = optionCount
         self.onChoose = onChoose
@@ -322,6 +325,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
+                .accessibilityAddTraits(state.selectedIndex == index ? .isSelected : [])
                 .onHover { hovering in
                     if hovering { state.highlightedIndex = index }
                 }
