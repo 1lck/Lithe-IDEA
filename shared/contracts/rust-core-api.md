@@ -2105,8 +2105,8 @@ not participate in Lithe's lease; cross-repository commits are not atomic.
 `commitChanged`, `trackedChanges`, and `untrackedChanges`, normalized from Git
 porcelain v2. The existing two-character `status` remains compatible. The optional request flag
 `includeIndexOnlyChanges` retains staged additions deleted only from the working
-tree (`AD`); macOS enables it so every staged file remains visible. Omission
-preserves the Windows final-worktree projection. Child dirt
+tree (`AD`); both products enable it so every staged file remains visible. Omission
+preserves the legacy final-worktree projection. Child dirt
 alone is informational in the parent; only a changed commit pointer (or an
 already-staged change) is eligible for the parent's staging checkbox.
 
@@ -2119,7 +2119,9 @@ eligibility instead of reinterpreting submodule dirt.
 `repositories: [{ id, root }]`, `message`, `amend`, `push`,
 `includeParentReferences`, optional `previous` session for retry, and optional
 `reviewed` plan for confirmation. `id` is a workspace-relative path with `/`
-separators (`..` is allowed for enclosing repositories); `root` is the native
+separators (`..` is allowed for enclosing repositories). Windows manually selected
+roots on another volume use a stable `external/<encoded-volume>/<path>` virtual
+workspace ID. `root` is the native
 execution binding, never a portable identity. The response is
 `{ session, reviewChanged, requiresConfirmation }`. Core reads all repositories,
 finds real gitlink relationships, includes clean parents when requested, orders
@@ -2151,8 +2153,8 @@ externally advanced completed branches before updating dependent parents.
 Sessions own no background resources and are retained only for the current
 workspace lifetime. Native clients discard old responses after workspace changes,
 show confirmation/progress, and drive steps until `finished`. macOS uses this
-shared workflow; Windows still needs its product UI and staging semantics wired
-to it. The native products must not duplicate planning or retry policy.
+shared workflow, as does Windows through its workspace-scoped continuation adapter
+and real staging checkboxes. The native products must not duplicate planning or retry policy.
 See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
 `shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
-and continuation fixture consumed by Rust and Swift tests.
+and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.

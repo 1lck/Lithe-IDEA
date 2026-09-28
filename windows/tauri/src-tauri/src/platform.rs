@@ -30,25 +30,7 @@ pub async fn platform_invoke(
         .map(ToString::to_string)
         .unwrap_or_else(|| format!("windows-{}", REQUEST_ID.fetch_add(1, Ordering::Relaxed)));
     let (core_command, payload) = translate(&command, args)?;
-    let interactive_git = matches!(
-        core_command.as_str(),
-        "git.write"
-            | "git.commit"
-            | "git.apply"
-            | "git.patchApply"
-            | "git.rebaseStart"
-            | "git.rebaseControl"
-            | "git.executionConfigure"
-            | "git.initialize"
-            | "git.configureIdentity"
-    ) || matches!(
-        command.as_str(),
-        "git_add_remote"
-            | "git_remove_remote"
-            | "git_create_tag"
-            | "git_delete_tag"
-            | "git.command"
-    );
+    let interactive_git = is_interactive_git(&core_command, &command);
     // Observe every Git request at the shared boundary. Core suppresses its
     // parser-only probes, so new operation entry points cannot miss the console.
     let observe_git = observes_git_execution(&core_command);
@@ -98,6 +80,29 @@ pub async fn platform_invoke(
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
     core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+}
+
+fn is_interactive_git(core_command: &str, command: &str) -> bool {
+    matches!(
+        core_command,
+        "git.write"
+            | "git.workspaceCommitStep"
+            | "git.commit"
+            | "git.apply"
+            | "git.patchApply"
+            | "git.rebaseStart"
+            | "git.rebaseControl"
+            | "git.executionConfigure"
+            | "git.initialize"
+            | "git.configureIdentity"
+    ) || matches!(
+        command,
+        "git_add_remote"
+            | "git_remove_remote"
+            | "git_create_tag"
+            | "git_delete_tag"
+            | "git.command"
+    )
 }
 
 fn observes_git_execution(command: &str) -> bool {
@@ -752,12 +757,54 @@ mod tests {
             "git.executionConfigure",
             "git.snapshot",
             "git.futureOperation",
+            "git.workspaceCommitPrepare",
+            "git.workspaceCommitStep",
         ] {
             assert!(super::observes_git_execution(command), "{command}");
         }
         assert!(!super::observes_git_execution("git.authRespond"));
         assert!(!super::observes_git_execution("git.consolePresentation"));
         assert!(!super::observes_git_execution("workspace.scan"));
+    }
+
+    #[test]
+    fn workspace_commit_steps_use_interactive_authentication_and_write_timeout() {
+        assert!(super::is_interactive_git(
+            "git.workspaceCommitStep",
+            "git.workspaceCommitStep"
+        ));
+        assert!(!super::is_interactive_git(
+            "git.workspaceCommitPrepare",
+            "git.workspaceCommitPrepare"
+        ));
+    }
+
+    #[test]
+    fn workspace_commit_continuations_and_partial_outcomes_cross_the_native_boundary_unchanged() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/git/workspace-commit-workflow-v1.json"
+        ))
+        .unwrap();
+        let mut session = fixture["preparation"]["session"].clone();
+        session["commandFailed"] = serde_json::json!(true);
+        let (command, payload) = super::translate(
+            "git.workspaceCommitStep",
+            serde_json::json!({
+                "operationId": "step", "session": session
+            }),
+        )
+        .unwrap();
+        assert_eq!(command, "git.workspaceCommitStep");
+        assert_eq!(payload, serde_json::json!({ "session": session }));
+        assert_eq!(
+            super::core_response(
+                &serde_json::json!({ "ok": true, "data": session }),
+                false,
+                false
+            )
+            .unwrap(),
+            session
+        );
     }
 
     use super::{

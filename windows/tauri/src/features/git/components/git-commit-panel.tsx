@@ -7,8 +7,12 @@ import {
   GearSixIcon as SettingsIcon,
 } from "@/ui/icons";
 import type React from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
+import { GitWorkspaceCommitReview } from "./git-workspace-commit-review";
+import { workspaceCommitEnglish } from "@/i18n/git-workspace-commit";
+import type { TranslationKey } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -26,18 +30,20 @@ import {
 import { generateCommitDraft } from "../services/ai-commit-workflow";
 import { showConfirmDialog } from "@/ui/dialog";
 import { useUIState } from "@/features/window/stores/ui-state.store";
-import { commitSelectedChanges } from "../api/git-commits-api";
 import { showGitPushDialog } from "../services/git-push-dialog-service";
 import { useGitBlameStore } from "../stores/git-blame.store";
-import { useGitStore } from "../stores/git.store";
-import type { GitFile } from "../types/git.types";
 import {
-  getGitFileRepositoryPath,
-  resolveGitFileMutationPaths,
-} from "../utils/git-status-selection";
+  useActiveWorkspaceId,
+  useWorkspaceReady,
+  useWorkspaceStoreScopeId,
+} from "@/features/workspace/stores/create-workspace-scoped-store";
+import type { GitFile } from "../types/git.types";
 
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
+  workspacePath: string;
+  repositoryPaths: string[];
+  isStaging?: boolean;
   commitMessage: string;
   onCommitMessageChange: (message: string) => void;
   currentBranch?: string;
@@ -56,6 +62,9 @@ const COMMIT_TEXTAREA_MAX_HEIGHT = 128;
 
 const GitCommitPanel = ({
   selectedFiles,
+  workspacePath,
+  repositoryPaths,
+  isStaging = false,
   commitMessage,
   onCommitMessageChange,
   currentBranch,
@@ -84,7 +93,42 @@ const GitCommitPanel = ({
       generationRef.current = null;
     };
   }, [selection]);
-  const [isCommitting, setIsCommitting] = useState(false);
+  const workflow = useWorkspaceCommitStore((state) => state.workflow);
+  const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
+  const isCommitting = batch.busy;
+  const activeWorkspaceId = useActiveWorkspaceId();
+  const workspaceId = useWorkspaceStoreScopeId() ?? activeWorkspaceId;
+  const workspaceReady = useWorkspaceReady(workspaceId);
+  const isCurrentWorkspace = workspaceReady && workspaceId === activeWorkspaceId;
+  useEffect(() => {
+    if (workspaceId !== activeWorkspaceId || !workspaceReady) workflow.dispose();
+    return () => workflow.dispose();
+  }, [workflow, workspaceId, activeWorkspaceId, workspaceReady]);
+  const submittedOwner = useRef<string | null>(null);
+  const completedRef = useRef<unknown>(null);
+  useEffect(() => {
+    if (
+      workspaceId !== activeWorkspaceId ||
+      !workspaceReady ||
+      !batch.session?.succeeded ||
+      completedRef.current === batch.session
+    )
+      return;
+    completedRef.current = batch.session;
+    useGitBlameStore.getStore(workspaceId).getState().actions.clearAllBlame();
+    if (submittedOwner.current === repoPath && commitMessage.trim() === batch.session.plan.message)
+      onCommitMessageChange("");
+    onCommitSuccess?.();
+  }, [
+    batch.session,
+    commitMessage,
+    onCommitMessageChange,
+    onCommitSuccess,
+    workspaceId,
+    activeWorkspaceId,
+    workspaceReady,
+    repoPath,
+  ]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isCommitActionMenuOpen, setIsCommitActionMenuOpen] = useState(false);
   const [remoteAction, setRemoteAction] = useState<"push" | null>(null);
@@ -92,7 +136,6 @@ const GitCommitPanel = ({
   const commitMenuAnchorRef = useRef<HTMLDivElement>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
-  const operationState = useGitStore((state) => state.operationState);
 
   useEffect(() => {
     if (focusRequest <= 0) return;
@@ -145,76 +188,41 @@ const GitCommitPanel = ({
   };
 
   const handleCommit = async (pushAfterCommit = false) => {
+    if (!isCurrentWorkspace || isStaging || batch.busy || batch.review || (batch.session && !batch.session.succeeded))
+      return;
     if (selectedFilesCount === 0) {
       setError(t("git.selectFilesToCommit"));
       return;
     }
     if (!repoPath || !commitMessage.trim()) return;
-    const selectedRepoPaths = new Set(
-      selectedFiles.map((file) => getGitFileRepositoryPath(file, repoPath) ?? repoPath),
-    );
-    if (selectedRepoPaths.size > 1 || !selectedRepoPaths.has(repoPath)) {
-      setError(t("git.selectSingleRepositoryForCommit"));
-      return;
-    }
-
-    // A conflicted merge/rebase must be resolved before the merge commit can
-    // be finalized; guard here so Git's raw refusal never reaches the user.
-    const activeOperation = useGitStore.getState().operationState;
-    const conflictedPaths = activeOperation?.conflictedPaths ?? [];
-    if (activeOperation && conflictedPaths.length > 0) {
-      setError(t("git.resolveConflictsFirst", { paths: conflictedPaths.join(", ") }));
-      return;
-    }
-    if (activeOperation) {
-      setError(t("git.finishOperationBeforeCommit"));
-      return;
-    }
-
-    setIsCommitting(true);
+    submittedOwner.current = repoPath;
     setError(null);
+    await workflow.prepare({
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      message: commitMessage.trim(),
+      amend: false,
+      push: pushAfterCommit,
+      includeParentReferences: true,
+    });
+  };
 
-    try {
-      const warnings = await commitSelectedChanges(
-        repoPath,
-        commitMessage.trim(),
-        resolveGitFileMutationPaths(selectedFiles),
-      );
-      useGitBlameStore.getState().actions.clearAllBlame();
-      onCommitMessageChange("");
-      for (const warning of warnings) {
-        toast.warning(
-          warning.code === "git_index_reconcile_failed"
-            ? t("git.commitIndexReconcileFailed")
-            : warning.message,
-        );
-      }
-      if (pushAfterCommit) {
-        setRemoteAction("push");
-        try {
-          await showGitPushDialog(repoPath);
-        } catch (pushError) {
-          setError(pushError instanceof Error ? pushError.message : t("git.pushFailed"));
-        } finally {
-          setRemoteAction(null);
-        }
-      }
-      onCommitSuccess?.();
-    } catch (error) {
-      setError(
-        error instanceof Error
-          ? error.message
-          : typeof error === "string"
-            ? error
-            : t("ai.unknownError"),
-      );
-    } finally {
-      setIsCommitting(false);
-    }
+  const handleRetry = () => {
+    const previous = batch.session;
+    if (!previous || isStaging || !isCurrentWorkspace) return;
+    submittedOwner.current = repoPath ?? null;
+    setError(null);
+    return workflow.prepare({
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      message: previous.plan.message,
+      amend: previous.plan.amend,
+      push: previous.plan.push,
+      includeParentReferences: previous.plan.includeParentReferences,
+      previous,
+    });
   };
 
   const handlePush = async () => {
-    if (!repoPath) return;
+    if (!repoPath || isCommitting) return;
 
     setRemoteAction("push");
     setError(null);
@@ -234,9 +242,12 @@ const GitCommitPanel = ({
   };
 
   const isCommitDisabled =
+    !isCurrentWorkspace ||
+    isStaging ||
     selectedFilesCount === 0 ||
     !commitMessage.trim() ||
-    Boolean(operationState) ||
+    Boolean(batch.review) ||
+    Boolean(batch.session && !batch.session.succeeded) ||
     isCommitting ||
     isGenerating;
   const isGenerateDisabled =
@@ -261,7 +272,7 @@ const GitCommitPanel = ({
   return (
     <>
       <SidebarComposerBody>
-        {error && (
+        {(error || batch.error) && (
           <div
             className={cn(
               "mx-2 mt-2 flex items-center gap-2 rounded-md border border-destructive/30",
@@ -269,8 +280,57 @@ const GitCommitPanel = ({
             )}
           >
             <AlertCircle />
-            {error}
+            {error || batch.error}
           </div>
+        )}
+
+        {batch.session && (
+          <div className="max-h-40 overflow-auto px-3 py-2 ui-text-sm" aria-live="polite">
+            {Object.entries(batch.session.results).map(([id, result]) => {
+              const key = `git.workspaceCommit.${result.status}`;
+              const label =
+                key in workspaceCommitEnglish
+                  ? (key as TranslationKey)
+                  : "git.workspaceCommit.attention";
+              return (
+                <div key={id} className="break-words">
+                  <strong>{id}</strong>: {t(label)}
+                  {result.detail && <p className="whitespace-pre-wrap">{result.detail}</p>}
+                </div>
+              );
+            })}
+            {!isCommitting && (
+              <div className="flex flex-wrap gap-2">
+                {!batch.session.succeeded && (
+                  <Button
+                    size="xs"
+                    onClick={() => void handleRetry()}
+                    disabled={Boolean(batch.review) || isStaging}
+                  >
+                    {t("git.workspaceCommit.retry")}
+                  </Button>
+                )}
+                <Button size="xs" onClick={workflow.dismiss}>
+                  {t("git.workspaceCommit.dismiss")}
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+        {isCommitting && (
+          <Button size="xs" onClick={workflow.cancel}>
+            {t("git.workspaceCommit.stop")}
+          </Button>
+        )}
+        {batch.review && isCurrentWorkspace && (
+          <GitWorkspaceCommitReview
+            preparation={batch.review.preparation}
+            busy={isCommitting}
+            error={batch.error}
+            onConfirm={() => void workflow.confirm()}
+            onClose={workflow.closeReview}
+            onIncludeParents={(include) => void workflow.setIncludeParentReferences(include)}
+          />
         )}
 
         <Textarea
@@ -306,7 +366,7 @@ const GitCommitPanel = ({
                 <Button
                   type="button"
                   onClick={() => void handlePush()}
-                  disabled={!repoPath || isRemoteActionLoading || isPulling}
+                  disabled={!repoPath || isCommitting || isRemoteActionLoading || isPulling}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-added hover:text-git-added")}
@@ -321,7 +381,7 @@ const GitCommitPanel = ({
                 <Button
                   type="button"
                   onClick={() => void onPull?.()}
-                  disabled={!repoPath || isRemoteActionLoading || isPullLocked}
+                  disabled={!repoPath || isCommitting || isRemoteActionLoading || isPullLocked}
                   variant="ghost"
                   size="xs"
                   className={cn(composerButtonClassName, "text-git-deleted hover:text-git-deleted")}

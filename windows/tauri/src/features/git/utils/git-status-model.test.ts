@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { GitFile } from "../types/git.types";
-import {
-  buildGitStatusPresentation,
-  buildVisibleGitFiles,
-} from "./git-status-model";
+import { buildGitStatusPresentation, buildVisibleGitFiles } from "./git-status-model";
 
 const files: GitFile[] = [
   { path: "src/tracked.ts", status: "modified", staged: false },
@@ -22,13 +19,10 @@ describe("Git status model", () => {
   test("includes untracked files when the setting is enabled", () => {
     const presentation = buildVisibleGitFiles(files, true);
     expect(presentation.files).toEqual(files);
-    expect([...presentation.fileByPath.keys()]).toEqual([
-      "src/tracked.ts",
-      "src/new.ts",
-    ]);
+    expect([...presentation.fileByPath.keys()]).toEqual(["src/tracked.ts", "src/new.ts"]);
   });
 
-  test("coalesces an index deletion and same-path recreation for whole-path review", () => {
+  test("preserves the staged deletion when a worktree file is recreated", () => {
     const splitStatus: GitFile[] = [
       {
         path: "src/recreated.ts",
@@ -50,12 +44,9 @@ describe("Git status model", () => {
     expect(visible.files).toEqual([
       {
         ...splitStatus[0],
-        status: "modified",
         worktree: true,
       },
     ]);
-    expect(buildGitStatusPresentation(splitStatus).visibleFiles).toEqual(
-      visible.files,
-    );
+    expect(buildGitStatusPresentation(splitStatus).visibleFiles).toEqual(visible.files);
   });
 });

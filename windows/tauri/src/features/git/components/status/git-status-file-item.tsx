@@ -110,7 +110,7 @@ export const GitFileItem = ({
   stagePending = false,
 }: GitFileItemProps) => {
   const { t } = useTranslation();
-  const pathParts = file.path.split("/");
+  const pathParts = getGitFileRepositoryRelativePath(file).split("/");
   const fileName = pathParts.pop() || file.path;
   const directory = pathParts.join("/");
   const dragRepoPath = getGitFileRepositoryPath(file, repoPath);
@@ -177,7 +177,7 @@ export const GitFileItem = ({
           name: fileName,
         });
       }}
-      title={file.path}
+      title={file.canToggleStaging === false ? t("git.workspaceCommit.dirtySubmodule") : file.path}
     />
   );
 };

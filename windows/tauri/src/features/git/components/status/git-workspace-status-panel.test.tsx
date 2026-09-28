@@ -1,0 +1,95 @@
+import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import * as virtual from "@tanstack/react-virtual";
+import * as statusApi from "../../api/git-status-api";
+import { installHappyDom } from "@/test-utils/happy-dom";
+import { LocaleProvider } from "@/i18n/locale-provider";
+import GitStatusPanel from "./git-status-panel";
+import type { GitFile } from "../../types/git.types";
+
+let restoreDom: () => void;
+let root: Root;
+let container: HTMLDivElement;
+let staging: ReturnType<typeof spyOn<typeof statusApi, "setFilesStaged">>;
+let virtualizer: ReturnType<typeof spyOn<typeof virtual, "useVirtualizer">>;
+const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
+let previousAct: boolean | undefined;
+beforeEach(() => {
+  restoreDom = installHappyDom();
+  previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
+  actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  staging = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
+  // Expose visible rows without relying on browser layout measurements in happy-dom.
+  virtualizer = spyOn(virtual, "useVirtualizer").mockImplementation(((
+    options: Parameters<typeof virtual.useVirtualizer>[0],
+  ) => ({
+    getVirtualItems: () =>
+      Array.from({ length: options.count }, (_, index) => ({ index, size: 32, start: index * 32 })),
+    getTotalSize: () => options.count * 32,
+    scrollToIndex: () => {},
+  })) as unknown as typeof virtual.useVirtualizer);
+});
+afterEach(async () => {
+  await act(async () => root.unmount());
+  staging.mockRestore();
+  virtualizer.mockRestore();
+  container.remove();
+  restoreDom();
+  if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
+  else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
+});
+const render = async (files: GitFile[]) => {
+  await act(async () =>
+    root.render(
+      <LocaleProvider language="en-US">
+        <GitStatusPanel
+          files={files}
+          repositoryCount={2}
+          repoPath="C:/workspace/A"
+          collapsedFolders={new Set()}
+          onCollapsedFoldersChange={() => {}}
+          collapsedSections={new Set()}
+          onCollapsedSectionsChange={() => {}}
+          onStagingRefresh={async () => {}}
+        />
+      </LocaleProvider>,
+    ),
+  );
+};
+const file = (repository: string, name = "hello.ts"): GitFile => ({
+  path: `${repository}/src/${name}`,
+  repositoryPath: `C:/workspace/${repository}`,
+  repositoryRelativePath: `src/${name}`,
+  status: "modified",
+  staged: false,
+  canToggleStaging: true,
+});
+
+test("file checkboxes stage in their owner repository, independently of the active root", async () => {
+  await render([file("A", "a.ts"), file("B", "b.ts")]);
+  expect(container.textContent).toContain("C:/workspace/A");
+  expect(container.textContent).toContain("C:/workspace/B");
+  const checkbox = container.querySelector<HTMLElement>('[aria-label="Include b.ts in commit"]');
+  expect(checkbox).not.toBeNull();
+  await act(async () => checkbox!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/B", ["src/b.ts"], true);
+});
+
+test("keeps the repository header with one changed root and excludes dirty-only submodule pointers", async () => {
+  await render([file("B"), { ...file("B", "child"), canToggleStaging: false }]);
+  expect(container.textContent).toContain("C:/workspace/B");
+  const dirty = container.querySelector<HTMLElement>('[aria-label="Include child in commit"]');
+  expect(dirty?.hasAttribute("disabled") || dirty?.getAttribute("aria-disabled") === "true").toBe(
+    true,
+  );
+  const headerCheckbox = container.querySelector<HTMLElement>(
+    '[aria-label="Include folder C:/workspace/B in commit"]',
+  );
+  expect(headerCheckbox).not.toBeNull();
+  await act(async () => headerCheckbox!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/B", ["src/hello.ts"], true);
+});

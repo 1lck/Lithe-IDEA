@@ -139,11 +139,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const openDiffOnClick = useSettingsStore((state) => state.settings.openDiffOnClick);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [activeTab, setActiveTab] = useState<GitSidebarTab>("changes");
+  const [isStaging, setIsStaging] = useState(false);
   const [commitFocusRequest, setCommitFocusRequest] = useState(0);
-  const commitSelectedPaths = useMemo(
-    () => new Set(sourceControlSession?.commitSelectedPaths ?? []),
-    [sourceControlSession],
-  );
+  const repositoryPaths = useRepositoryStore((state) => state.availableRepoPaths);
   const collapsedStatusFolders = useMemo(
     () => new Set(sourceControlSession?.collapsedFolders ?? []),
     [sourceControlSession],
@@ -159,13 +157,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
     },
     [actions, activeRepoPath],
   );
-  const handleCommitSelectedPathsChange = useCallback(
-    (paths: Set<string>) => {
-      updateSourceControlSession({ commitSelectedPaths: [...paths].sort() });
-    },
-    [updateSourceControlSession],
-  );
-
   const [showCommitDiffList, setShowCommitDiffList] = useState(false);
   const [commitDiffSearchQuery, setCommitDiffSearchQuery] = useState("");
   const [showBranchDiffList, setShowBranchDiffList] = useState(false);
@@ -205,24 +196,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const commitByHash = useMemo(() => {
     return new Map(commits.map((commit) => [commit.hash, commit] as const));
   }, [commits]);
-  useEffect(() => {
-    if (!gitStatus) return;
-    const currentPaths = new Set(gitStatus.files.map((file) => file.path));
-    const selectedPaths = sourceControlSession?.commitSelectedPaths ?? [];
-    const nextPaths = selectedPaths.filter((path) => currentPaths.has(path));
-    if (nextPaths.length !== selectedPaths.length) {
-      updateSourceControlSession({ commitSelectedPaths: nextPaths });
-    }
-  }, [gitStatus, sourceControlSession?.commitSelectedPaths, updateSourceControlSession]);
   const commitSelectedFiles = useMemo(
-    () =>
-      [...commitSelectedPaths]
-        .sort((left, right) => left.localeCompare(right))
-        .flatMap((path) => {
-          const file = gitFileByPath.get(path);
-          return file ? [file] : [];
-        }),
-    [commitSelectedPaths, gitFileByPath],
+    () => (gitStatus?.files ?? []).filter((file) => file.staged),
+    [gitStatus?.files],
   );
   const handleBranchDiffOpened = useCallback(() => {
     setShowBranchDiffList(false);
@@ -640,7 +616,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
             {renderActionsButton()}
           </SidebarTitleBar>
           {repoPath ? (
-            <GitRepositoryEmptyState root={repoPath} context="changes" onRefresh={handleManualRefresh} />
+            <GitRepositoryEmptyState
+              root={repoPath}
+              context="changes"
+              onRefresh={handleManualRefresh}
+            />
           ) : (
             <Empty className="h-full">
               <EmptyHeader>
@@ -676,9 +656,17 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
 
   const showLoadError = hasLoadError || (activeTab === "history" && hasHistoryLoadError);
   const loadError = (
-    <div role="alert" className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive">
+    <div
+      role="alert"
+      className="flex items-center justify-between gap-2 p-3 ui-text-sm text-destructive"
+    >
       <span>{t(hasLoadError ? "git.statusLoadFailed" : "git.historyLoadFailed")}</span>
-      <Button size="xs" variant="ghost" disabled={isRefreshing} onClick={() => void handleManualRefresh()}>
+      <Button
+        size="xs"
+        variant="ghost"
+        disabled={isRefreshing}
+        onClick={() => void handleManualRefresh()}
+      >
         {t("git.log.retry")}
       </Button>
     </div>
@@ -691,7 +679,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
           <SidebarTitleBar title={t("workbench.sourceControl")}>
             {renderActionsButton()}
           </SidebarTitleBar>
-          <GitRepositoryEmptyState root={activeRepoPath} context="changes" onRefresh={handleManualRefresh} />
+          <GitRepositoryEmptyState
+            root={activeRepoPath}
+            context="changes"
+            onRefresh={handleManualRefresh}
+          />
         </SidebarPanel>
         {renderGitActionsMenu({ hasGitRepo: false, onRefresh: handleManualRefresh })}
       </>
@@ -721,8 +713,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                       <GitOperationBanner repoPath={activeRepoPath} />
                       <GitStatusPanel
                         files={visibleGitFiles}
-                        commitSelectedPaths={commitSelectedPaths}
-                        onCommitSelectedPathsChange={handleCommitSelectedPathsChange}
+                        repositoryCount={repositoryPaths.length}
                         collapsedFolders={collapsedStatusFolders}
                         onCollapsedFoldersChange={(folders) =>
                           updateSourceControlSession({ collapsedFolders: [...folders].sort() })
@@ -745,6 +736,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                           setStashSearchQuery("");
                         }}
                         onStagingRefresh={refreshWorkingTree}
+                        onStagingPendingChange={setIsStaging}
                         onRefresh={refreshAfterAction}
                         repoPath={activeRepoPath}
                       />
@@ -768,6 +760,11 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
             <SidebarFooter>
               <GitCommitPanel
                 selectedFiles={commitSelectedFiles}
+                isStaging={isStaging}
+                workspacePath={repoPath ?? activeRepoPath ?? ""}
+                repositoryPaths={
+                  repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : []
+                }
                 commitMessage={sourceControlSession?.commitMessage ?? ""}
                 onCommitMessageChange={(commitMessage) =>
                   updateSourceControlSession({ commitMessage })
@@ -777,7 +774,6 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                 ahead={gitStatus.ahead}
                 behind={gitStatus.behind}
                 onCommitSuccess={() => {
-                  updateSourceControlSession({ commitSelectedPaths: [], commitMessage: "" });
                   void refreshAfterAction();
                 }}
                 onPull={handlePull}

@@ -553,7 +553,7 @@
       "id": "git-multi-repository-change-groups",
       "area": "版本控制",
       "group": "Git",
-      "capability": "多仓库变更折叠分组（macOS 侧边栏）",
+      "capability": "多仓库变更折叠分组",
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
@@ -565,15 +565,22 @@
         "verificationStatus": "pending"
       },
       "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
         "evidence": [
-          "windows/tauri/src/features/git"
-        ],
-        "implementationStatus": "missing",
-        "verificationStatus": "not-applicable"
+          "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+          "windows/tauri/src/features/git/components/git-commit-panel.tsx",
+          "windows/tauri/src/features/git/components/git-workspace-commit-review.tsx",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
+          "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
+          "windows/tauri/src-tauri/src/platform.rs",
+          "shared/fixtures/git/workspace-commit-workflow-v1.json"
+        ]
       },
       "owner": "Git",
       "verification": "在同一工作区打开多个 Git 仓库，确认变更按仓库折叠分组；只剩一个仓库有变更时仍显示仓库名。仓库级和文件级勾选与 Git 暂存区同步；子模块只有未提交文件时显示提示，不能勾选未变化的引用。",
-      "notes": "macOS 本次接入；Windows 暂未接入对应的工作区聚合提交流程。"
+      "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
     },
     {
       "id": "git-branches-remotes",
@@ -2379,15 +2386,22 @@
         ]
       },
       "windows": {
-        "implementationStatus": "missing",
-        "verificationStatus": "not-applicable",
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
         "evidence": [
-          "windows/tauri/src/features/git"
+          "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+          "windows/tauri/src/features/git/components/git-commit-panel.tsx",
+          "windows/tauri/src/features/git/components/git-workspace-commit-review.tsx",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
+          "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
+          "windows/tauri/src-tauri/src/platform.rs",
+          "shared/fixtures/git/workspace-commit-workflow-v1.json"
         ]
       },
       "owner": "Git",
       "verification": "勾选两个独立仓库文件，一次提交并推送，验证各自 HEAD 和远程；停止一个操作后其余独立仓库继续，已成功仓库不会回滚。",
-      "notes": "计划、依赖排序、执行与重试均在共享 Rust Core；macOS 已接入，Windows 仍需产品界面及暂存接线。Linux 验证共享 Core，原生界面实测待平台验收。"
+      "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
     },
     {
       "id": "git-submodule-commit-plan",
@@ -2409,15 +2423,22 @@
         ]
       },
       "windows": {
-        "implementationStatus": "missing",
-        "verificationStatus": "not-applicable",
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
         "evidence": [
-          "windows/tauri/src/features/git"
+          "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+          "windows/tauri/src/features/git/components/git-commit-panel.tsx",
+          "windows/tauri/src/features/git/components/git-workspace-commit-review.tsx",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
+          "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
+          "windows/tauri/src-tauri/src/platform.rs",
+          "shared/fixtures/git/workspace-commit-workflow-v1.json"
         ]
       },
       "owner": "Git",
       "verification": "只勾选孙仓库文件，确认计划自动列出父祖仓库的引用更新且可关闭；确认期间改变暂存内容或分支，必须显示新计划再次确认。父仓库未暂存文件不能被带入；只勾选父引用时先推送子仓库现有提交，Git 发布检查应拒绝未发布的子引用。子仓库元数据被外部删除后必须拒绝读取和写入，不能向上回退父仓库。",
-      "notes": "计划、依赖排序、执行与重试均在共享 Rust Core；macOS 已接入，Windows 仍需产品界面及暂存接线。Linux 验证共享 Core，原生界面实测待平台验收。"
+      "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
     },
     {
       "id": "git-workspace-commit-retry",
@@ -2439,15 +2460,22 @@
         ]
       },
       "windows": {
-        "implementationStatus": "missing",
-        "verificationStatus": "not-applicable",
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
         "evidence": [
-          "windows/tauri/src/features/git"
+          "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+          "windows/tauri/src/features/git/components/git-commit-panel.tsx",
+          "windows/tauri/src/features/git/components/git-workspace-commit-review.tsx",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts",
+          "windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts",
+          "windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx",
+          "windows/tauri/src-tauri/src/platform.rs",
+          "shared/fixtures/git/workspace-commit-workflow-v1.json"
         ]
       },
       "owner": "Git",
       "verification": "让子仓库推送失败，确认父仓库被阻塞、独立仓库成功；重试计划应显示子仓库只推送，验证子仓库提交数不增加，随后才提交和推送父仓库。",
-      "notes": "计划、依赖排序、执行与重试均在共享 Rust Core；macOS 已接入，Windows 仍需产品界面及暂存接线。Linux 验证共享 Core，原生界面实测待平台验收。"
+      "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
     }
   ]
 }
