@@ -162,7 +162,7 @@ struct SettingsView: View {
             .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
             .contentShape(Rectangle())
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
     }
 
@@ -366,7 +366,7 @@ struct SettingsView: View {
                         Button("Remove") {
                             model.workbenchBackgroundFeature.clear()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -385,7 +385,7 @@ struct SettingsView: View {
                     Button("Retry") {
                         model.workbenchBackgroundFeature.retry()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
@@ -524,7 +524,7 @@ struct SettingsView: View {
                             .font(.system(size: 16, weight: .regular))
                             .frame(width: 26, height: 26)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .contentShape(Rectangle())
                     .lithePointer()
@@ -552,7 +552,7 @@ struct SettingsView: View {
                         } label: {
                             Text("Restore Default")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -1083,7 +1083,7 @@ struct SettingsView: View {
                         border: viewState.isFormatPickerPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .popover(isPresented: $viewState.isFormatPickerPresented, arrowEdge: .bottom) {
                     formatPickerPopover
@@ -1192,7 +1192,7 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .litheRowHover(
             isActive: isSelected,
             cornerRadius: 5,

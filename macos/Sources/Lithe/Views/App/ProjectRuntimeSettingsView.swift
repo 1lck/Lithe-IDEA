@@ -129,7 +129,7 @@ struct ProjectRuntimeSettingsView: View {
             .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
             .contentShape(Rectangle())
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
         .padding(.leading, subproject.parentID == nil ? 0 : 12)
     }

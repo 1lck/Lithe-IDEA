@@ -133,7 +133,7 @@ struct KeyboardShortcutSettingsView: View {
             .accessibilityLabel("Search actions or shortcuts")
         }
         .font(.system(size: 12))
-        .buttonStyle(.borderless)
+        .buttonStyle(.litheNoPress)
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 16)
         .frame(height: 36)
@@ -164,7 +164,7 @@ struct KeyboardShortcutSettingsView: View {
                 .frame(height: 24)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .disabled(!query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
             if isExpanded(section.group) {
@@ -193,7 +193,7 @@ struct KeyboardShortcutSettingsView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
 
                 shortcutControls(for: command)
             }
@@ -247,7 +247,7 @@ struct KeyboardShortcutSettingsView: View {
         return HStack(spacing: 6) {
             if bindings.isEmpty {
                 Button("Not Assigned") { beginEditing(commandID: command.id, bindingIndex: nil) }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 12))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lithePointer()
@@ -277,7 +277,7 @@ struct KeyboardShortcutSettingsView: View {
                 }
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help("Edit Shortcut")
         .accessibilityLabel(binding.displayText)

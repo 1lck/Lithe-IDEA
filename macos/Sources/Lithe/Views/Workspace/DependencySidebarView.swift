@@ -162,7 +162,7 @@ private struct DependencyServiceSection: View {
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             Button {
@@ -173,7 +173,7 @@ private struct DependencyServiceSection: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 28, height: 28)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .help("Configure dependency search paths")
             .accessibilityIdentifier("dependency-path-settings-\(service.id)")
@@ -214,7 +214,7 @@ private struct DependencyServiceSection: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(3)
                 Button("Retry") { loadDependencies() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
             }
@@ -334,7 +334,7 @@ private struct DependencyTreeNodeView: View {
                     .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
 
                 if isExpanded {
@@ -366,7 +366,7 @@ private struct DependencyTreeNodeView: View {
         Group {
             if case .virtualDocument(let uri) = node.source {
                 Button { onOpenVirtual(uri) } label: { pathRowContent }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
             } else {
                 pathRowContent
@@ -535,7 +535,7 @@ private struct DependencyPathConfigurationEditor: View {
                                     } label: {
                                         LitheSystemIcon(systemImage: "arrow.uturn.backward")
                                     }
-                                    .buttonStyle(.borderless)
+                                    .buttonStyle(.litheNoPress)
                                     .help("Restore path")
                                 }
                             }
@@ -609,7 +609,7 @@ private struct DependencyPathConfigurationEditor: View {
                         } label: {
                             LitheSystemIcon(systemImage: "minus.circle")
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.litheNoPress)
                         .help("Remove path")
                     }
                 }
@@ -763,14 +763,14 @@ private struct DependencyFolderBrowser: View {
                     LitheSystemIcon(systemImage: "arrow.up")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .disabled(folderURL.path == "/")
                 .help("Parent folder")
                 Button { folderURL = workspaceURL.standardizedFileURL } label: {
                     LitheSystemIcon(systemImage: "house")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .help("Workspace folder")
                 Text(folderURL.path)
                     .font(.system(size: 10.5, design: .monospaced))
@@ -878,7 +878,7 @@ private struct DependencyFolderBrowser: View {
                     LitheSystemIcon(systemImage: "chevron.right")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .help("Open folder")
             }
         }

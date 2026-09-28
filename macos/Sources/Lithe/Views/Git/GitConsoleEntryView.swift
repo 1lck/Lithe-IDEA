@@ -39,7 +39,7 @@ struct GitConsoleEntryView: View {
                                 if fragment.matches > 0 { Text(" · \(fragment.matches) matches") }
                             }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.secondaryText)
                         .accessibilityValue(isExpanded(fragment) ? Text("Expanded") : Text("Collapsed"))
                     }

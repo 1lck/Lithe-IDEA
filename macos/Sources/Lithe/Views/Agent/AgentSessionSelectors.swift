@@ -70,7 +70,7 @@ struct AgentSessionSelectors: View {
                         Text(AgentSessionSelectorPresentation.currentTitle(mode))
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(AgentSessionSelectorPresentation.localized(mode.name))
                 .accessibilityLabel(Text("Approval mode"))
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode))
@@ -86,7 +86,7 @@ struct AgentSessionSelectors: View {
                         Text(modelSummary(model))
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(model.currentLabel)
                 .accessibilityLabel(Text("Model"))
                 .accessibilityValue(model.currentLabel)
@@ -253,7 +253,7 @@ private struct AgentModelSettingRow: View {
             .contentShape(Rectangle())
             .litheRowHover()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 }
@@ -313,7 +313,7 @@ private struct AgentSelectorRow<Content: View>: View {
             .background(isSelected ? AgentPanelStyle.selected : (isHovering ? AgentPanelStyle.context : .clear))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .onHover { isHovering = $0 }
         .accessibilityAddTraits(isSelected ? .isSelected : [])

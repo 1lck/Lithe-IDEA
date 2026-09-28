@@ -539,11 +539,15 @@ struct LitheIconButtonStyle: ButtonStyle {
     }
 }
 
-/// Keeps file-tree rows visually stable while they are being activated.
-struct LitheTreeRowButtonStyle: ButtonStyle {
+/// Keeps borderless button labels at full opacity while pressed.
+struct LitheNoPressButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
     }
+}
+
+extension ButtonStyle where Self == LitheNoPressButtonStyle {
+    static var litheNoPress: LitheNoPressButtonStyle { .init() }
 }
 
 private struct LitheRowHoverModifier: ViewModifier {

@@ -55,7 +55,7 @@ struct MarkdownPreviewView: View {
                     Button("Retry") {
                         scheduleRender(immediate: true)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 12))
                 }
                 .padding(16)

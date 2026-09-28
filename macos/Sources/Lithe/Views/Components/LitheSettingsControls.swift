@@ -62,7 +62,7 @@ struct LitheSettingsSearchField: View {
                         .font(.system(size: 11))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Clear search")
             }
@@ -137,7 +137,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             .background(LitheSettingsSelectAnchorView(reference: popupAnchor))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
         .onChange(of: options) { _ in
@@ -321,7 +321,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     )
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .onHover { hovering in
                     if hovering { state.highlightedIndex = index }
                 }
@@ -490,7 +490,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                             activeBackground: LitheTheme.settingsSelection
                         )
                 }
-                .buttonStyle(LitheTreeRowButtonStyle())
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .accessibilityValue(selection == option ? Text("Selected") : Text("Not selected"))
             }
@@ -544,7 +544,7 @@ struct LitheSettingsCheckbox: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityRepresentation {
             Toggle(accessibilityLabel, isOn: $isOn)
@@ -617,7 +617,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
                 .contentShape(Rectangle())
                 .litheRowHover(cornerRadius: 0)
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .disabled(isDisabled)
         .lithePointer()
     }

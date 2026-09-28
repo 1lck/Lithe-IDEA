@@ -68,7 +68,7 @@ private struct RunConfigurationSettingsContent: View {
                             .padding(10)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .disabled(feature.configurationStatus != .ready || feature.isLoadingProject || isGenerating)
                     }
                 }

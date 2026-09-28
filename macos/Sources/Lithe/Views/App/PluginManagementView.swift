@@ -101,7 +101,7 @@ struct PluginManagementView: View {
                     .font(.system(size: 13, weight: .medium))
                 Spacer()
                 Button(LocalizedStringKey("Install")) { model.installPluginPackage() }
-                    .buttonStyle(.borderless).foregroundStyle(LitheTheme.accent)
+                    .buttonStyle(.litheNoPress).foregroundStyle(LitheTheme.accent)
             }
             .padding(.horizontal, 14).frame(height: 38).background(LitheTheme.raised)
             ScrollView {
@@ -160,7 +160,7 @@ struct PluginManagementView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .accessibilityValue(showsLanguageExtensions ? Text("Expanded") : Text("Collapsed"))
         .lithePointer()
     }

@@ -100,7 +100,7 @@ struct ProjectSwitcherPopover: View {
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -118,7 +118,7 @@ struct ProjectSwitcherPopover: View {
                 isCurrent: isCurrent
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheRowHover(
             isActive: isCurrent,
@@ -141,7 +141,7 @@ struct ProjectSwitcherPopover: View {
                 isCurrent: false
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(!exists)
         .lithePointer()
         .litheRowHover(cornerRadius: 5)

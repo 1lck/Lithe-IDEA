@@ -68,7 +68,7 @@ struct WelcomeView: View {
                 .frame(height: 34)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .litheRowHover()
             .padding(.horizontal, 14)
@@ -184,7 +184,7 @@ struct WelcomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .disabled(!exists)
 
