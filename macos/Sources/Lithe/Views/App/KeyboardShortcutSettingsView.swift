@@ -69,6 +69,7 @@ struct KeyboardShortcutSettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .tint(LitheTheme.secondaryText)
             .frame(width: 26)
             .accessibilityLabel("Restore All Defaults")
