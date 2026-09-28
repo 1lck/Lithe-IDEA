@@ -61,7 +61,9 @@
         "evidence": [
           "macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift",
           "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
-          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift"
+          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift",
+          "macos/Resources/IDEAIcons/toolwindows/toolWindowAgent.svg",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift"
         ]
       },
       "windows": {
@@ -72,7 +74,7 @@
         ]
       },
       "owner": "Agent",
-      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。"
+      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。 Agent 侧栏入口使用对话气泡加星光的专用线性图标；在深浅主题、选中与未选中状态下检查可辨识性。"
     },
     {
       "id": "agent-conversation-history",
@@ -134,7 +136,8 @@
         "evidence": [
           "macos/Sources/LitheAgentConversationModule",
           "macos/Sources/Lithe/Views/Agent",
-          "rust/lithe-agent-host"
+          "rust/lithe-agent-host",
+          "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -147,7 +150,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
     },
     {
       "id": "agent-file-references",
