@@ -1557,7 +1557,10 @@ impl WorkbenchView {
             return;
         }
         self.lsp_starting.insert(provider_id.clone());
-        let cache_directory = format!("{root}/.lithe/lsp/{provider_id}");
+        let cache_directory = lsp::cache_root()
+            .join(&provider_id)
+            .to_string_lossy()
+            .into_owned();
         let payload = lsp::start_payload(provider, &executable, &root, &cache_directory);
         self.spawn_lsp_start(provider_id, payload, cx);
     }
@@ -1581,7 +1584,10 @@ impl WorkbenchView {
         self.sync_diagnostics_panel(cx);
         let client = self.client.clone();
         let generation = self.lsp_workspace_generation;
-        let cache_directory = format!("{root}/.lithe/lsp/java");
+        let cache_directory = lsp::cache_root()
+            .join(lsp::JAVA_PROVIDER_ID)
+            .to_string_lossy()
+            .into_owned();
         let fingerprint_request = lsp::workspace_fingerprint_request(&root, &launch.jdtls_version);
         let maven_context = lsp::maven_context_for_workspace(&root);
         cx.spawn(async move |this, cx| {

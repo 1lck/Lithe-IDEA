@@ -576,6 +576,31 @@ fn path_string(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
+/// 语言服务器缓存根，对齐 Tauri `app_cache_dir()/language-servers` 与
+/// macOS `cacheDirectoryURL` 的平台缓存布局。
+///
+/// JDT LS 的 Eclipse `-data` workspace 会落在 `<cache_root>/<provider>` 下。
+/// 它必须放在平台缓存而不是工程 `.lithe` 内：Eclipse 拒绝导入位置与自身
+/// workspace 重叠的项目（"overlaps the workspace location"），放在工程内
+/// 会让 Maven 导入整体失败、Java 项目准备停在 failed。目录随 provider
+/// 隔离，指纹哈希目录由 Core 生成。
+///
+/// 优先 `XDG_CACHE_HOME`，回退 `$HOME/.cache`，最后回退系统临时目录
+/// （与 Core `cacheDirectory` 缺省行为一致），不含硬编码用户路径。
+pub fn cache_root() -> PathBuf {
+    std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|home| PathBuf::from(home).join(".cache"))
+                .filter(|path| !path.as_os_str().is_empty())
+        })
+        .unwrap_or_else(|| std::env::temp_dir().join("lithe-lsp"))
+        .join("lithe")
+        .join("language-servers")
+}
+
 /// 生成带 JDT LS 资源和 Core 所需上下文的 `lsp.startServer` 载荷。
 pub fn java_start_payload(
     launch: &JavaLspLaunch,
