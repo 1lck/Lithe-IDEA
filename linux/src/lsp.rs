@@ -280,11 +280,42 @@ fn installed_runtime_root(name: &str) -> Option<PathBuf> {
     .find(|candidate| candidate.is_dir())
 }
 
+/// 开发仓库布局解析：从可执行文件位置向上查找仓库根的
+/// `.artifacts/<name>`（开发构建产物形如 `<repo>/target/debug/lithe-linux`，
+/// 捆绑资源由 prepare-jdtls-linux.sh 等脚本落在 `<repo>/.artifacts/`）。
+///
+/// 打开外部工程（无自身 `.artifacts`）时，让开发构建也能复用构建仓库的
+/// 捆绑资源；不引入任何硬编码路径，发行包安装不受影响（发行布局由
+/// [`installed_runtime_root`] 先行命中）。
+fn dev_checkout_runtime_root(name: &str) -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    exe.ancestors()
+        .skip(1)
+        .map(|dir| dir.join(".artifacts").join(name))
+        .find(|candidate| candidate.is_dir())
+}
+
+/// 非环境变量覆盖时的运行时根候选：发行布局 → 工作区 `.artifacts` →
+/// 构建仓库 `.artifacts`。全部缺失时返回 `None`，调用方沿用工作区路径
+/// 生成缺失提示。
+fn runtime_root_candidates(name: &str, workspace: &Path) -> Option<PathBuf> {
+    // `installed_runtime_root` 以目录名 jdtls/jdk 定位 `share/LanguageServers`。
+    let installed = installed_runtime_root(name.strip_suffix("-linux").unwrap_or(name));
+    installed.or_else(|| {
+        let workspace_root = workspace.join(".artifacts").join(name);
+        if workspace_root.is_dir() {
+            return Some(workspace_root);
+        }
+        dev_checkout_runtime_root(name)
+    })
+}
+
 /// 解析 Linux Java 语言服务器资源。
 ///
 /// 查找顺序与其他端对齐：环境变量覆盖 → 安装目录 `share/LanguageServers`
 /// （发行包布局，见 `scripts/package-linux.sh`）→ 工作区 `.artifacts`
-/// （开发路径）。只有全部候选都不存在时，才允许回退到外部 `jdtls`
+/// （开发路径）→ 构建仓库 `.artifacts`（开发构建打开外部工程时的回退）。
+/// 只有全部候选都不存在时，才允许回退到外部 `jdtls`
 /// wrapper。正式目录存在但资源不完整时直接返回错误，避免悄悄退回另一套
 /// JDT 安装。
 pub fn resolve_java_lsp_launch(root: &str) -> Result<JavaLspLaunch, String> {
@@ -293,14 +324,14 @@ pub fn resolve_java_lsp_launch(root: &str) -> Result<JavaLspLaunch, String> {
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty());
     let jdtls_root = explicit_jdtls_root.clone().unwrap_or_else(|| {
-        installed_runtime_root("jdtls")
+        runtime_root_candidates("jdtls-linux", workspace)
             .unwrap_or_else(|| workspace.join(".artifacts").join("jdtls-linux"))
     });
     let explicit_jdk_root = std::env::var_os("LITHE_JDK_ROOT")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty());
     let jdk_root = explicit_jdk_root.clone().unwrap_or_else(|| {
-        installed_runtime_root("jdk")
+        runtime_root_candidates("jdk-linux", workspace)
             .unwrap_or_else(|| workspace.join(".artifacts").join("jdk-linux"))
     });
 
@@ -1264,6 +1295,19 @@ fn severity_name(severity: Option<i64>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn runtime_root_candidates_prefer_workspace_artifacts() {
+        // 工作区自带 .artifacts 时优先于构建仓库回退，保证工程级覆盖语义。
+        let workspace =
+            std::env::temp_dir().join(format!("lithe-lsp-test-workspace-{}", std::process::id()));
+        let name = "jdtls-linux";
+        let workspace_root = workspace.join(".artifacts").join(name);
+        std::fs::create_dir_all(&workspace_root).unwrap();
+        let resolved = runtime_root_candidates(name, &workspace);
+        std::fs::remove_dir_all(&workspace).unwrap();
+        assert_eq!(resolved.as_deref(), Some(workspace_root.as_path()));
+    }
 
     #[test]
     fn encodes_and_decodes_file_uris() {
