@@ -22,6 +22,20 @@ struct KeyboardShortcutTests {
     }
 
     @Test
+    func presetsContainAssignableConflictFreeBindings() {
+        for preset in KeyboardShortcutPreset.allCases {
+            var owners: [KeyboardShortcutBinding: String] = [:]
+            for command in LitheCommandCatalog.commands {
+                for binding in preset.bindings(for: command) {
+                    #expect(binding.isAssignable, "Invalid \(preset.title) binding for \(command.id)")
+                    #expect(owners[binding] == nil, "\(preset.title): \(command.id) conflicts with \(owners[binding] ?? "")")
+                    owners[binding] = command.id
+                }
+            }
+        }
+    }
+
+    @Test
     func toggleBreakpointUsesTheIDEADefaultShortcut() throws {
         let command = try #require(LitheCommandCatalog.command(id: "toggle-breakpoint"))
 
@@ -122,6 +136,55 @@ struct KeyboardShortcutTests {
     }
 
     @Test
+    func switchingPresetsKeepsOverridesSeparateAndPersistsSelection() throws {
+        let store = KeyboardShortcutTestStore()
+        let settings = AppSettings(store: store)
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let macBinding = KeyboardShortcutBinding.keyPress(key: "k", modifiers: [.command, .option])
+        let classicBinding = KeyboardShortcutBinding.keyPress(key: "p", modifiers: [.control, .option])
+
+        try feature.replaceBindings(for: "run", with: [macBinding])
+        feature.selectPreset(.ideaClassic)
+        #expect(feature.effectiveBindings(for: "run") == [.keyPress(key: "f10", modifiers: [.shift])])
+        try feature.replaceBindings(for: "run", with: [classicBinding])
+        feature.selectPreset(.macOS)
+        #expect(feature.effectiveBindings(for: "run") == [macBinding])
+        feature.selectPreset(.eclipse)
+        #expect(feature.effectiveBindings(for: "run") == [.keyPress(key: "f11", modifiers: [.command, .shift])])
+
+        let reloaded = KeyboardShortcutFeatureModel(settings: AppSettings(store: store))
+        #expect(reloaded.selectedPreset == .eclipse)
+        reloaded.selectPreset(.ideaClassic)
+        #expect(reloaded.effectiveBindings(for: "run") == [classicBinding])
+        reloaded.selectPreset(.macOS)
+        #expect(reloaded.effectiveBindings(for: "run") == [macBinding])
+    }
+
+    @Test
+    func legacyOverridesMigrateToTheMacOSPreset() throws {
+        struct LegacyPayload: Encodable {
+            let version = 1
+            let commands: [String: [KeyboardShortcutBinding]]
+        }
+        let store = KeyboardShortcutTestStore()
+        let binding = KeyboardShortcutBinding.keyPress(key: "k", modifiers: [.command, .option])
+        store.set(
+            try JSONEncoder().encode(LegacyPayload(commands: ["run": [binding]])),
+            forKey: "settings.keyboardShortcutOverrides"
+        )
+
+        let feature = KeyboardShortcutFeatureModel(settings: AppSettings(store: store))
+        #expect(feature.selectedPreset == .macOS)
+        #expect(feature.effectiveBindings(for: "run") == [binding])
+        feature.selectPreset(.eclipse)
+        #expect(feature.effectiveBindings(for: "run") != [binding])
+        feature.selectPreset(.macOS)
+        #expect(feature.effectiveBindings(for: "run") == [binding])
+        try feature.replaceBindings(for: "run", with: [binding])
+        #expect(store.data(forKey: "settings.keyboardShortcutOverrides") == nil)
+    }
+
+    @Test
     func conflictReportsTheOwningCommandAndDoesNotPersist() throws {
         let settings = AppSettings(store: KeyboardShortcutTestStore())
         let feature = KeyboardShortcutFeatureModel(settings: settings)
@@ -207,6 +270,23 @@ struct KeyboardShortcutTests {
                 == LitheCommandCatalog.command(id: "run")?.defaultBindings
         )
     }
+
+    @Test
+    func applicationRestoreDefaultsClearsEveryPreset() throws {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let binding = KeyboardShortcutBinding.keyPress(key: "k", modifiers: [.command, .option])
+        try feature.replaceBindings(for: "run", with: [binding])
+        feature.selectPreset(.ideaClassic)
+        try feature.replaceBindings(for: "run", with: [binding])
+
+        settings.restoreDefaults()
+
+        #expect(feature.selectedPreset == .macOS)
+        #expect(settings.keyboardShortcutOverrides.isEmpty)
+        feature.selectPreset(.ideaClassic)
+        #expect(feature.effectiveBindings(for: "run") == [.keyPress(key: "f10", modifiers: [.shift])])
+    }
 }
 
 @Suite("Shortcut session coordination")
@@ -235,6 +315,26 @@ struct ShortcutSessionCoordinatorTests {
         #expect(factory.detector.isSuspended)
         feature.endRecording()
         #expect(!factory.detector.isSuspended)
+    }
+
+    @Test
+    func presetSwitchUpdatesTheActiveDetectorImmediately() {
+        let settings = AppSettings(store: KeyboardShortcutTestStore())
+        let feature = KeyboardShortcutFeatureModel(settings: settings)
+        let factory = RecordingShortcutDetectorFactory()
+        var publications = 0
+        let coordinator = ShortcutSessionCoordinator(
+            settings: settings, feature: feature, factory: factory,
+            onRegistrationsChanged: { publications += 1 }, onCommand: { _ in }
+        )
+        defer { coordinator.shutdown() }
+
+        feature.selectPreset(.ideaClassic)
+
+        #expect(feature.selectedPreset == .ideaClassic)
+        #expect(factory.detector.registrations.first { $0.commandID == "run" }?.bindings
+                == [.keyPress(key: "f10", modifiers: [.shift])])
+        #expect(publications == 2)
     }
 
     @Test

@@ -37,6 +37,8 @@ final class AppSettings: ObservableObject {
         static let agentArguments = "settings.agentArguments"
         static let agentConfigurations = "settings.agentConfigurations"
         static let keyboardShortcutOverrides = "settings.keyboardShortcutOverrides"
+        static let keyboardShortcutPreset = "settings.keyboardShortcutPreset"
+        static let keyboardShortcutPresets = "settings.keyboardShortcutPresets"
         static let customLogDirectory = "settings.customLogDirectory"
         static let workbenchBackground = "settings.workbenchBackground"
         static let javaBuildFailurePolicies = "settings.javaBuildFailurePolicies"
@@ -47,6 +49,13 @@ final class AppSettings: ObservableObject {
 
         let version: Int
         let commands: [String: [KeyboardShortcutBinding]]
+    }
+
+    private struct KeyboardShortcutPresetsPayload: Codable {
+        static let currentVersion = 1
+
+        let version: Int
+        let presets: [String: [String: [KeyboardShortcutBinding]]]
     }
 
     private let defaults: any KeyValueStore
@@ -138,6 +147,8 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published private(set) var keyboardShortcutOverrides: [String: [KeyboardShortcutBinding]]
+    @Published private(set) var keyboardShortcutPreset: KeyboardShortcutPreset
+    private var keyboardShortcutOverridesByPreset: [String: [String: [KeyboardShortcutBinding]]]
     @Published private(set) var customLogDirectory: URL?
     @Published private(set) var workbenchBackground: WorkbenchBackgroundConfiguration
     @Published var workbenchBackgroundOpacity: Double {
@@ -199,7 +210,13 @@ final class AppSettings: ObservableObject {
         projectOpenBehavior = ProjectOpenBehavior(
             rawValue: defaults.string(forKey: Key.projectOpenBehavior) ?? ""
         ) ?? .ask
-        keyboardShortcutOverrides = Self.loadKeyboardShortcutOverrides(from: defaults)
+        let selectedPreset = KeyboardShortcutPreset(
+            rawValue: defaults.string(forKey: Key.keyboardShortcutPreset) ?? ""
+        ) ?? .macOS
+        let presetOverrides = Self.loadKeyboardShortcutPresets(from: defaults)
+        keyboardShortcutPreset = selectedPreset
+        keyboardShortcutOverridesByPreset = presetOverrides
+        keyboardShortcutOverrides = presetOverrides[selectedPreset.rawValue] ?? [:]
         customLogDirectory = defaults.string(forKey: Key.customLogDirectory).flatMap { path in
             guard !path.isEmpty else { return nil }
             return URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
@@ -355,14 +372,25 @@ final class AppSettings: ObservableObject {
         setCustomLogDirectory(nil)
         clearWorkbenchBackground()
         workbenchBackgroundOpacity = 0.22
+        keyboardShortcutOverridesByPreset = [:]
+        keyboardShortcutPreset = .macOS
+        defaults.set(KeyboardShortcutPreset.macOS.rawValue, forKey: Key.keyboardShortcutPreset)
         setKeyboardShortcutOverrides([:])
         javaBuildFailurePolicies = [:]
         defaults.set(nil, forKey: Key.javaBuildFailurePolicies)
     }
 
     func setKeyboardShortcutOverrides(_ value: [String: [KeyboardShortcutBinding]]) {
+        keyboardShortcutOverridesByPreset[keyboardShortcutPreset.rawValue] = value
         keyboardShortcutOverrides = value
-        saveKeyboardShortcutOverrides()
+        saveKeyboardShortcutPresets()
+    }
+
+    func selectKeyboardShortcutPreset(_ preset: KeyboardShortcutPreset) {
+        guard keyboardShortcutPreset != preset else { return }
+        keyboardShortcutPreset = preset
+        defaults.set(preset.rawValue, forKey: Key.keyboardShortcutPreset)
+        keyboardShortcutOverrides = keyboardShortcutOverridesByPreset[preset.rawValue] ?? [:]
     }
 
     /// Providers an agent speaking `apiProtocol` can use.
@@ -511,13 +539,29 @@ final class AppSettings: ObservableObject {
         defaults.set(data, forKey: Key.commitMessageAI)
     }
 
-    private func saveKeyboardShortcutOverrides() {
-        let payload = KeyboardShortcutOverridesPayload(
-            version: KeyboardShortcutOverridesPayload.currentVersion,
-            commands: keyboardShortcutOverrides
+    private func saveKeyboardShortcutPresets() {
+        let payload = KeyboardShortcutPresetsPayload(
+            version: KeyboardShortcutPresetsPayload.currentVersion,
+            presets: keyboardShortcutOverridesByPreset
         )
         guard let data = try? JSONEncoder().encode(payload) else { return }
-        defaults.set(data, forKey: Key.keyboardShortcutOverrides)
+        defaults.set(data, forKey: Key.keyboardShortcutPresets)
+        defaults.set(nil, forKey: Key.keyboardShortcutOverrides)
+    }
+
+    private static func loadKeyboardShortcutPresets(
+        from defaults: any KeyValueStore
+    ) -> [String: [String: [KeyboardShortcutBinding]]] {
+        guard let data = defaults.data(forKey: Key.keyboardShortcutPresets) else {
+            return [KeyboardShortcutPreset.macOS.rawValue: loadKeyboardShortcutOverrides(from: defaults)]
+        }
+        guard let payload = try? JSONDecoder().decode(KeyboardShortcutPresetsPayload.self, from: data),
+              payload.version == KeyboardShortcutPresetsPayload.currentVersion else {
+            return [:]
+        }
+        return payload.presets
+            .filter { KeyboardShortcutPreset(rawValue: $0.key) != nil }
+            .mapValues(validatedKeyboardShortcutOverrides)
     }
 
     private static func loadKeyboardShortcutOverrides(
@@ -529,8 +573,14 @@ final class AppSettings: ObservableObject {
             return [:]
         }
 
+        return validatedKeyboardShortcutOverrides(payload.commands)
+    }
+
+    private static func validatedKeyboardShortcutOverrides(
+        _ commands: [String: [KeyboardShortcutBinding]]
+    ) -> [String: [KeyboardShortcutBinding]] {
         let knownCommandIDs = Set(LitheCommandCatalog.commands.map(\.id))
-        return payload.commands.filter { commandID, bindings in
+        return commands.filter { commandID, bindings in
             knownCommandIDs.contains(commandID)
                 && bindings.allSatisfy(\.isAssignable)
                 && Set(bindings).count == bindings.count

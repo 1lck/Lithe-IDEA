@@ -1786,7 +1786,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "从设置 → 快捷键打开编辑器，按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。",
+      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等对应操作在界面和实际监听器中的绑定；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认。Windows 保持现有快捷键编辑、导出和导入验证。",
       "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
