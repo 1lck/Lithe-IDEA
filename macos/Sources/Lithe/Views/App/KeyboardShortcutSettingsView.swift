@@ -65,8 +65,7 @@ struct KeyboardShortcutSettingsView: View {
                     feature.resetAll()
                 }
             } label: {
-                Image(systemName: "gearshape")
-                    .font(.system(size: 13))
+                LitheSystemIcon(systemImage: "gearshape", size: 16)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .menuStyle(.borderlessButton)
@@ -86,7 +85,7 @@ struct KeyboardShortcutSettingsView: View {
             Button {
                 expandedGroups = Set(LitheActionGroup.allCases)
             } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/expandAll.svg", size: 16, fallbackSystemImage: "arrow.down.right.and.arrow.up.left")
+                LitheIDEAIcon(resourcePath: "expui/general/expandAll.svg", size: 16, fallbackSystemImage: "arrow.down.right.and.arrow.up.left", preservesOriginalColors: true)
             }
             .help("Expand All")
 
@@ -94,7 +93,7 @@ struct KeyboardShortcutSettingsView: View {
                 expandedGroups = []
                 cancelEditing()
             } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, fallbackSystemImage: "arrow.up.left.and.arrow.down.right")
+                LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, fallbackSystemImage: "arrow.up.left.and.arrow.down.right", preservesOriginalColors: true)
             }
             .help("Collapse All")
 
@@ -118,7 +117,7 @@ struct KeyboardShortcutSettingsView: View {
                     }
                 }
             } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil")
+                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil", preservesOriginalColors: true)
             }
             .menuStyle(.borderlessButton)
             .tint(LitheTheme.secondaryText)
@@ -153,12 +152,9 @@ struct KeyboardShortcutSettingsView: View {
                 }
             } label: {
                 HStack(spacing: 7) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .medium))
+                    LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16, fallbackSystemImage: "chevron.right", preservesOriginalColors: true)
                         .rotationEffect(.degrees(isExpanded(section.group) ? 90 : 0))
-                        .frame(width: 12)
-                    Image(systemName: "folder")
-                        .font(.system(size: 12))
+                    LitheIcon(kind: .folder, size: 16)
                     Text(LocalizedStringKey(section.group.rawValue))
                         .font(.system(size: 12.5))
                     Spacer()

@@ -48,8 +48,7 @@ struct LitheSettingsSearchField: View {
 
     var body: some View {
         HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: "magnifyingglass", size: 14)
-                .foregroundStyle(LitheTheme.tertiaryText)
+            LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16, fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
