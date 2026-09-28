@@ -24,7 +24,7 @@ use crate::workbench::run::{
     create_launch_plan_request, default_generated_configuration_id, list_java_sources,
     maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
     sequence_is_current, toolchain_candidates, write_generated_documents, LaunchPlan, ProcessEvent,
-    ProcessManager, RunConfigItem,
+    ProcessManager, RunConfigGroup, RunConfigItem,
 };
 use crate::workbench::terminal::TerminalView;
 use crate::workbench::view::WorkbenchView;
@@ -246,6 +246,10 @@ pub struct BottomPanelView {
     pub(crate) run_exit_code: Option<i32>,
     /// 输出跟随末尾（对齐 Tauri `scrollOutputToEnd`，默认开，落盘持久化）。
     pub(crate) run_follow_end: bool,
+    /// 基础设施区块是否折叠（对齐 Tauri `infrastructureCollapsed`，默认折叠）。
+    run_infrastructure_collapsed: bool,
+    /// 其他运行配置区块是否折叠（对齐 Tauri `otherConfigurationsCollapsed`）。
+    run_other_collapsed: bool,
     /// Run 控制台视口是否停在底部（观察者镜像，变化才 notify）。
     /// 跟随末尾开启时也只在底部才拉底（对齐 macOS 智能滚动：上翻查阅
     /// 历史时不被新输出拉走），离开底部时显示"跳到最新"浮层按钮。
@@ -639,6 +643,8 @@ impl BottomPanelView {
             run_running: false,
             run_exit_code: None,
             run_follow_end: crate::settings::get(cx).run_scroll_to_end,
+            run_infrastructure_collapsed: true,
+            run_other_collapsed: true,
             run_at_bottom: true,
             maven_at_bottom: true,
             java_prep_expanded: false,
@@ -2510,10 +2516,32 @@ impl BottomPanelView {
         )
     }
 
-    /// 配置详情区块（对齐 Tauri 配置详情）：类型与主类，随选中配置变化。
+    /// 配置详情区块（对齐 Tauri 配置详情）：类型与主类，随选中配置变化；
+    /// 未选中时显示占位文案（Tauri `run.selectConfiguration`）。
     fn render_run_config_details(&self, cx: &Context<Self>) -> AnyElement {
         let Some(item) = self.selected_run_item() else {
-            return div().into_any_element();
+            return v_flex()
+                .flex_shrink_0()
+                .w_full()
+                .border_b_1()
+                .border_color(ThemeColors::border())
+                .px_2()
+                .py_1p5()
+                .gap_1()
+                .child(
+                    div()
+                        .text_xs()
+                        .font_weight(FontWeight::MEDIUM)
+                        .text_color(ThemeColors::text_primary())
+                        .child(crate::i18n::menu_text(cx, "run.details").to_string()),
+                )
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(ThemeColors::text_muted())
+                        .child(crate::i18n::menu_text(cx, "run.selectConfiguration").to_string()),
+                )
+                .into_any_element();
         };
         // 类型展示与 Tauri 配置详情一致：优先 provider 语义，退回 kind。
         let type_label = if item.provider.contains("spring-boot") {
@@ -2659,15 +2687,133 @@ impl BottomPanelView {
                     .into_any_element()
             })
             .collect();
-        let rows: Vec<AnyElement> = self
-            .run_configs
+
+        // 列表分组（对齐 Tauri RunPane：服务 / 基础设施 / 其他运行配置→应用+任务）。
+        let mut services: Vec<RunConfigItem> = Vec::new();
+        let mut infrastructure: Vec<RunConfigItem> = Vec::new();
+        let mut applications: Vec<RunConfigItem> = Vec::new();
+        let mut tasks: Vec<RunConfigItem> = Vec::new();
+        for item in &self.run_configs {
+            match item.normalized_group() {
+                Some(RunConfigGroup::Service) => services.push(item.clone()),
+                Some(RunConfigGroup::Infrastructure) => infrastructure.push(item.clone()),
+                Some(RunConfigGroup::Application) => applications.push(item.clone()),
+                Some(RunConfigGroup::Task) => tasks.push(item.clone()),
+                None => {}
+            }
+        }
+        for group in [
+            &mut services,
+            &mut infrastructure,
+            &mut applications,
+            &mut tasks,
+        ] {
+            RunConfigItem::sort_by_name(group);
+        }
+
+        let mut sidebar = v_flex().py_1().gap_0p5().child(
+            div()
+                .px_2()
+                .py_1()
+                .text_xs()
+                .font_weight(FontWeight::MEDIUM)
+                .text_color(ThemeColors::text_muted())
+                .child(crate::i18n::menu_text(cx, "run.configurations").to_string()),
+        );
+        sidebar = sidebar.children(self.render_run_config_rows(&services, "services", cx));
+        if !infrastructure.is_empty() {
+            sidebar = sidebar.child(self.render_run_group_toggle(
+                "run.infrastructure",
+                "infrastructure-toggle",
+                self.run_infrastructure_collapsed,
+                cx,
+            ));
+            if !self.run_infrastructure_collapsed {
+                sidebar =
+                    sidebar.children(self.render_run_config_rows(&infrastructure, "infra", cx));
+            }
+        }
+        let other: Vec<&RunConfigItem> = applications.iter().chain(tasks.iter()).collect();
+        if !other.is_empty() {
+            sidebar = sidebar.child(self.render_run_group_toggle(
+                "run.otherConfigurations",
+                "other-toggle",
+                self.run_other_collapsed,
+                cx,
+            ));
+            if !self.run_other_collapsed {
+                sidebar = sidebar
+                    .child(
+                        div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(crate::i18n::menu_text(cx, "run.applications").to_string()),
+                    )
+                    .children(self.render_run_config_rows(&applications, "apps", cx))
+                    .child(
+                        div()
+                            .px_2()
+                            .py_1()
+                            .text_xs()
+                            .text_color(ThemeColors::text_muted())
+                            .child(crate::i18n::menu_text(cx, "run.tasks").to_string()),
+                    )
+                    .children(self.render_run_config_rows(&tasks, "tasks", cx));
+            }
+        }
+
+        v_flex()
+            .size_full()
+            .child(
+                h_flex()
+                    .flex_1()
+                    .w_full()
+                    .min_h_0()
+                    .child(
+                        div()
+                            .flex_shrink_0()
+                            .w(px(220.0))
+                            .h_full()
+                            .overflow_y_scrollbar()
+                            .border_r_1()
+                            .border_color(ThemeColors::border())
+                            .child(sidebar)
+                            .children(diagnostic_rows),
+                    )
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .h_full()
+                            .min_h_0()
+                            .child(self.render_run_config_details(cx))
+                            .child(self.render_run_output(cx)),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// 左侧列表的配置行（对齐 Tauri `ConfigurationSection`）：单行名称 +
+    /// 悬停显示的编辑入口 + 常驻运行按钮；无分组的配置不渲染。
+    fn render_run_config_rows(
+        &self,
+        items: &[RunConfigItem],
+        section_id: &str,
+        cx: &mut Context<Self>,
+    ) -> Vec<AnyElement> {
+        items
             .iter()
-            .map(|item| {
+            .enumerate()
+            .map(|(index, item)| {
                 let id = item.id.clone();
                 let run_id = item.id.clone();
                 let selected = self.selected_run_config.as_deref() == Some(item.id.as_str());
+                // 每行独立 hover group，避免兄弟行共享 group 名互相影响。
+                let group_name = format!("run-row-{section_id}-{index}");
                 h_flex()
-                    .id(format!("run-config-{}", item.id))
+                    .id(format!("run-config-{section_id}-{index}-{}", item.id))
+                    .group(group_name.clone())
                     .w_full()
                     .items_center()
                     .gap_1p5()
@@ -2687,19 +2833,31 @@ impl BottomPanelView {
                         })
                     })
                     .child(
-                        v_flex()
-                            .flex_1()
-                            .min_w_0()
-                            .child(div().truncate().child(item.name.clone()))
+                        Icon::new(IconName::Code)
+                            .size(px(12.0))
+                            .flex_shrink_0()
+                            .text_color(ThemeColors::text_muted()),
+                    )
+                    .child(div().flex_1().min_w_0().truncate().child(item.name.clone()))
+                    .child(
+                        div()
+                            .opacity(0.0)
+                            .group_hover(group_name, |style| style.opacity(1.0))
                             .child(
-                                div()
-                                    .truncate()
-                                    .font_family(crate::fonts::mono_family(cx))
-                                    .child(format!("{} {}", item.kind, item.detail)),
+                                Button::new(format!("run-edit-{section_id}-{index}"))
+                                    .small()
+                                    .ghost()
+                                    .icon(IconName::Cog)
+                                    .tooltip(crate::i18n::menu_text(cx, "run.editService"))
+                                    .on_click(cx.listener(move |this, _event, _window, cx| {
+                                        cx.emit(BottomPanelEvent::OpenSettings { category: "run" });
+                                        this.java_prep_expanded = false;
+                                        cx.notify();
+                                    })),
                             ),
                     )
                     .child(
-                        Button::new(format!("run-start-{}", item.id))
+                        Button::new(format!("run-start-{section_id}-{index}"))
                             .small()
                             .ghost()
                             .icon(IconName::Play)
@@ -2714,75 +2872,93 @@ impl BottomPanelView {
                     }))
                     .into_any_element()
             })
-            .collect();
+            .collect()
+    }
 
-        v_flex()
-            .size_full()
+    /// 折叠分组标题行（对齐 Tauri 基础设施/其他运行配置的 ▸/▾ 按钮）。
+    fn render_run_group_toggle(
+        &self,
+        title_key: &'static str,
+        toggle_id: &'static str,
+        collapsed: bool,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        h_flex()
+            .id(toggle_id)
+            .mt_1()
+            .w_full()
+            .items_center()
+            .justify_between()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .cursor_pointer()
+            .text_xs()
+            .font_weight(FontWeight::MEDIUM)
+            .text_color(ThemeColors::text_muted())
+            .hover(|h| h.text_color(ThemeColors::text_primary()))
+            .on_click(cx.listener(move |this, _event, _window, cx| {
+                if toggle_id == "infrastructure-toggle" {
+                    this.run_infrastructure_collapsed = !this.run_infrastructure_collapsed;
+                } else {
+                    this.run_other_collapsed = !this.run_other_collapsed;
+                }
+                cx.notify();
+            }))
+            .child(crate::i18n::menu_text(cx, title_key).to_string())
             .child(
-                h_flex()
-                    .flex_1()
-                    .w_full()
-                    .min_h_0()
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .w(px(220.0))
-                            .h_full()
-                            .overflow_y_scrollbar()
-                            .border_r_1()
-                            .border_color(ThemeColors::border())
-                            .py_1()
-                            .children(rows)
-                            .children(diagnostic_rows),
-                    )
-                    .child(
-                        v_flex()
-                            .flex_1()
-                            .h_full()
-                            .min_h_0()
-                            .child(self.render_run_config_details(cx))
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .relative()
-                                    .flex()
-                                    .flex_col()
-                                    .child(
-                                        div()
-                                            .flex_shrink_0()
-                                            .px_2()
-                                            .py_1()
-                                            .text_xs()
-                                            .font_weight(FontWeight::MEDIUM)
-                                            .text_color(ThemeColors::text_primary())
-                                            .child(
-                                                crate::i18n::menu_text(cx, "run.processOutput")
-                                                    .to_string(),
-                                            ),
-                                    )
-                                    .on_mouse_up(
-                                        MouseButton::Left,
-                                        cx.listener(|this, _event, _window, cx| {
-                                            this.run_console.copy_selection(cx);
-                                        }),
-                                    )
-                                    .child(
-                                        div()
-                                            .flex_1()
-                                            .min_h_0()
-                                            .child(self.run_console.view.clone()),
-                                    )
-                                    .when(!self.run_at_bottom, |panel| {
-                                        panel.child(Self::jump_to_latest_button(
-                                            "run-jump-latest",
-                                            false,
-                                            cx,
-                                        ))
-                                    }),
-                            ),
-                    ),
+                Icon::new(if collapsed {
+                    IconName::ChevronRight
+                } else {
+                    IconName::ChevronDown
+                })
+                .size(px(12.0))
+                .text_color(ThemeColors::text_muted()),
             )
+            .into_any_element()
+    }
+
+    /// 右侧进程输出区：空态显示占位文案，有输出时渲染控制台
+    /// （对齐 Tauri `RunOutputText` 的 emptyLabel 语义）。
+    fn render_run_output(&self, cx: &mut Context<Self>) -> AnyElement {
+        if self.run_console.is_empty() {
+            return v_flex()
+                .flex_1()
+                .min_h_0()
+                .items_center()
+                .justify_center()
+                .px_2()
+                .text_xs()
+                .text_color(ThemeColors::text_muted())
+                .child(div().child(crate::i18n::menu_text(cx, "run.processOutput").to_string()))
+                .child(
+                    div()
+                        .mt_1()
+                        .child(crate::i18n::menu_text(cx, "run.emptyOutput").to_string()),
+                )
+                .into_any_element();
+        }
+        h_flex()
+            .flex_1()
+            .min_h_0()
+            .relative()
+            .flex()
+            .flex_col()
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _event, _window, cx| {
+                    this.run_console.copy_selection(cx);
+                }),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .child(self.run_console.view.clone()),
+            )
+            .when(!self.run_at_bottom, |panel| {
+                panel.child(Self::jump_to_latest_button("run-jump-latest", false, cx))
+            })
             .into_any_element()
     }
 

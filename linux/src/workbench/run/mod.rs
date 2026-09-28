@@ -10,6 +10,6 @@ pub use config::{
     create_launch_plan_request, default_generated_configuration_id, list_java_sources,
     maven_context_for_configuration, parse_resolved_configurations, read_toolchain_paths,
     sequence_is_current, toolchain_candidates, write_generated_documents, write_toolchain_paths,
-    LaunchPlan, RunConfigItem, ToolchainPaths,
+    LaunchPlan, RunConfigGroup, RunConfigItem, ToolchainPaths,
 };
 pub use process::{ProcessEvent, ProcessManager};

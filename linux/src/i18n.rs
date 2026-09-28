@@ -182,6 +182,17 @@ pub fn menu_text(cx: &App, key: &str) -> &'static str {
         "run.detailType" => ("类型", "Type"),
         "run.detailMainClass" => ("主类", "Main class"),
         "run.processOutput" => ("进程输出", "Process output"),
+        "run.configurations" => ("运行配置", "Run configurations"),
+        "run.services" => ("服务", "Services"),
+        "run.infrastructure" => ("Docker 服务", "Docker services"),
+        "run.otherConfigurations" => ("其他运行配置", "Other run configurations"),
+        "run.applications" => ("应用", "Applications"),
+        "run.tasks" => ("任务", "Tasks"),
+        "run.editService" => ("编辑配置", "Edit configuration"),
+        "run.selectConfiguration" => (
+            "选择运行配置以查看详情。",
+            "Select a run configuration to see its details.",
+        ),
         // ---- Java 语言服务准备状态（对齐 Tauri `preparation.*`）----
         "preparation.starting" => ("正在启动 Java 服务", "Starting Java service"),
         "preparation.importing" => ("正在导入 Java 项目与依赖", "Importing Java project and dependencies"),

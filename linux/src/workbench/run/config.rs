@@ -186,6 +186,65 @@ pub fn sequence_is_current(current: u64, expected: u64) -> bool {
     current == expected
 }
 
+/// Core 为"当前文件"生成的内置配置 id；它由工具栏/编辑器入口触发，
+/// 不出现在运行面板的配置列表中（对齐 Tauri `runnableConfigurations`）。
+pub const CURRENT_FILE_CONFIG_ID: &str = "current-file";
+
+/// 运行面板左侧列表的分组（对齐 Tauri RunPane 的四个区块）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunConfigGroup {
+    /// 常驻服务（Spring Boot 等 framework service）。
+    Service,
+    /// Compose 数据库/缓存等外部基础设施，独立折叠区块。
+    Infrastructure,
+    /// 一次性应用入口。
+    Application,
+    /// Maven 模块任务等任务型配置。
+    Task,
+}
+
+impl RunConfigItem {
+    /// 归一化执行分组（对齐 Tauri `normalizeExecution`）：Core 显式给出的
+    /// execution 优先；缺省时按 provider 推断，framework Maven 目标视为服务，
+    /// `maven.module` 视为任务，其余视为应用。`group` 只用于组合运行，不进列表。
+    pub fn normalized_group(&self) -> Option<RunConfigGroup> {
+        if self.id == CURRENT_FILE_CONFIG_ID {
+            return None;
+        }
+        let execution = self.execution.as_str();
+        let execution = if matches!(execution, "service" | "application" | "task") {
+            execution
+        } else if self.provider == "maven.module" {
+            "task"
+        } else if self.provider.ends_with(".maven") {
+            "service"
+        } else {
+            "application"
+        };
+        let group = match execution {
+            "service" => RunConfigGroup::Service,
+            "task" => RunConfigGroup::Task,
+            _ => RunConfigGroup::Application,
+        };
+        // 基础设施配置（Compose 数据库/缓存）独立成组，不挤占项目服务列表。
+        Some(if self.category == "infrastructure" {
+            RunConfigGroup::Infrastructure
+        } else {
+            group
+        })
+    }
+
+    /// 展示名排序（对齐 Tauri `sortedByName` 的大小写不敏感比较）。
+    pub fn sort_by_name(items: &mut [Self]) {
+        items.sort_by(|left, right| {
+            left.name
+                .to_lowercase()
+                .cmp(&right.name.to_lowercase())
+                .then_with(|| left.name.cmp(&right.name))
+        });
+    }
+}
+
 /// Core resolve 返回的项目快照。
 #[derive(Debug, Clone)]
 pub struct ResolvedRunProject {
@@ -1027,6 +1086,63 @@ mod tests {
     fn stale_sequence_rejects_previous_reload_and_execution() {
         assert!(sequence_is_current(7, 7));
         assert!(!sequence_is_current(6, 7));
+    }
+
+    fn group_item(id: &str, provider: &str, execution: &str, category: &str) -> RunConfigItem {
+        RunConfigItem::from_value(&json!({
+            "id": id,
+            "name": id,
+            "provider": provider,
+            "execution": execution,
+            "category": category
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn group_assignment_matches_tauri_split_semantics() {
+        // 显式 execution 优先。
+        assert_eq!(
+            group_item("s", "npm.script", "service", "project").normalized_group(),
+            Some(RunConfigGroup::Service)
+        );
+        // framework Maven 目标缺省视为服务，maven.module 视为任务。
+        assert_eq!(
+            group_item("boot", "spring-boot.maven", "", "project").normalized_group(),
+            Some(RunConfigGroup::Service)
+        );
+        assert_eq!(
+            group_item("mod", "maven.module", "", "project").normalized_group(),
+            Some(RunConfigGroup::Task)
+        );
+        assert_eq!(
+            group_item("app", "java.main", "", "project").normalized_group(),
+            Some(RunConfigGroup::Application)
+        );
+        // 基础设施独立成组；current-file 不进列表。
+        assert_eq!(
+            group_item("db", "docker.compose", "service", "infrastructure").normalized_group(),
+            Some(RunConfigGroup::Infrastructure)
+        );
+        assert_eq!(
+            group_item("current-file", "java.current-file", "", "project").normalized_group(),
+            None
+        );
+    }
+
+    #[test]
+    fn sort_by_name_is_case_insensitive_and_stable() {
+        let mut items = vec![
+            group_item("b", "java.main", "", "project"),
+            group_item("A", "java.main", "", "project"),
+            group_item("a", "java.main", "", "project"),
+        ];
+        items[1].name = "beta".to_string();
+        items[2].name = "Alpha".to_string();
+        RunConfigItem::sort_by_name(&mut items);
+        assert_eq!(items[0].name, "Alpha");
+        assert_eq!(items[1].name, "b");
+        assert_eq!(items[2].name, "beta");
     }
 
     #[test]
