@@ -364,7 +364,8 @@ impl Render for PluginActivityRailView {
 
 /// macOS 活动栏同款 IDEA 图标（`assets/icons/idea/` 为 `macos/Resources/IDEAIcons`
 /// 的副本）。GPUI 的 svg 元素以 text_color 着色，原文件的硬编码颜色不影响显示。
-const IDEA_ICON_VCS: &[u8] = include_bytes!("../../assets/icons/idea/toolwindows/toolWindowVcs.svg");
+const IDEA_ICON_VCS: &[u8] =
+    include_bytes!("../../assets/icons/idea/toolwindows/toolWindowVcs.svg");
 const IDEA_ICON_PROBLEMS: &[u8] =
     include_bytes!("../../assets/icons/idea/toolwindows/toolWindowProblems.svg");
 const IDEA_ICON_RUN: &[u8] =

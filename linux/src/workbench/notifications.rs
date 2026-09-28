@@ -446,10 +446,7 @@ impl Render for NotificationsView {
                                     Button::new("notifications-clear-all")
                                         .small()
                                         .ghost()
-                                        .label(crate::i18n::menu_text(
-                                            cx,
-                                            "notifications.clearAll",
-                                        ))
+                                        .label(crate::i18n::menu_text(cx, "notifications.clearAll"))
                                         .disabled(is_empty)
                                         .on_click(cx.listener(|this, _event, _window, cx| {
                                             this.clear_all(cx);

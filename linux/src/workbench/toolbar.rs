@@ -924,13 +924,13 @@ impl Render for ToolbarView {
                                     let view = view.clone();
                                     let id = id.clone();
                                     let name = name.clone();
-                                    menu = menu.item(
-                                        PopupMenuItem::label(name).on_click(move |_event, _window, cx| {
+                                    menu = menu.item(PopupMenuItem::label(name).on_click(
+                                        move |_event, _window, cx| {
                                             view.update(cx, |_tb, cx| {
                                                 cx.emit(ToolbarEvent::SelectRunConfig(id.clone()));
                                             });
-                                        }),
-                                    );
+                                        },
+                                    ));
                                 }
                                 menu
                             })
