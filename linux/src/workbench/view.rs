@@ -39,9 +39,7 @@ use crate::workbench::go_to_line::{GoToLineEvent, GoToLineModal};
 use crate::workbench::maven::{MavenEvent, MavenView};
 use crate::workbench::notifications::{NotificationsEvent, NotificationsView};
 use crate::workbench::panes::{PaneId, PaneNode, PaneTree, SplitDir};
-use crate::workbench::process_memory::{
-    Procfs, ProcessMemoryUsage, JDTLS_PROCESS_SIGNATURE,
-};
+use crate::workbench::process_memory::{ProcessMemoryUsage, Procfs, JDTLS_PROCESS_SIGNATURE};
 use crate::workbench::project_dialog::{ProjectDialog, ProjectDialogEvent, ProjectDialogMode};
 use crate::workbench::quick_open::{QuickOpenEvent, QuickOpenModal};
 use crate::workbench::search_everywhere::{SearchEverywhereEvent, SearchEverywhereModal};
@@ -863,6 +861,9 @@ impl WorkbenchView {
                     cx.notify();
                 }
                 SettingsEvent::Changed => {
+                    // 显示语言可能已切换：状态栏文案（如内存项）跟随语言，
+                    // 这里主动刷新一次，避免等到下一次采样才更新。
+                    let _ = this.status_bar.update(cx, |_sb, cx| cx.notify());
                     cx.notify();
                 }
                 SettingsEvent::RunConfigurationChanged => {

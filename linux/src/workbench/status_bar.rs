@@ -99,7 +99,8 @@ impl StatusBarView {
     #[allow(dead_code)]
     pub fn set_memory(&mut self, usage: ProcessMemoryUsage, cx: &mut Context<Self>) {
         // 与 Tauri 一致：仅在渲染文本真正变化时通知，避免高频采样唤醒状态栏。
-        if self.memory.map(display_text) == Some(display_text(usage)) {
+        let zh = crate::i18n::is_zh(cx);
+        if self.memory.map(|current| display_text(current, zh)) == Some(display_text(usage, zh)) {
             self.memory = Some(usage);
             return;
         }
@@ -108,14 +109,26 @@ impl StatusBarView {
     }
 }
 
-/// 内存项的展示文本，与 Tauri `footer.memoryUsage` 的格式对齐：
-/// `Total {total} · Lithe {used}`，两者均按 MB 保留一位小数。
-fn display_text(usage: ProcessMemoryUsage) -> String {
-    format!(
-        "Total {} · Lithe {}",
-        format_memory_megabytes(usage.total_bytes()),
-        format_memory_megabytes(usage.lithe_bytes)
-    )
+/// 内存项的展示文本，与 Tauri `footer.memoryUsage` 的格式对齐，跟随显示语言切换：
+///
+/// - 中文（默认）：`总计 {total} · Lithe {used}`
+/// - 英文：`Total {total} · Lithe {used}`
+///
+/// 两者均按 MB 保留一位小数。
+fn display_text(usage: ProcessMemoryUsage, zh: bool) -> String {
+    if zh {
+        format!(
+            "总计 {} · Lithe {}",
+            format_memory_megabytes(usage.total_bytes()),
+            format_memory_megabytes(usage.lithe_bytes)
+        )
+    } else {
+        format!(
+            "Total {} · Lithe {}",
+            format_memory_megabytes(usage.total_bytes()),
+            format_memory_megabytes(usage.lithe_bytes)
+        )
+    }
 }
 
 /// 字节 → `123.4 MB`，与 Tauri `formatMemoryMegabytes` 同一口径。
@@ -198,9 +211,10 @@ impl StatusBarView {
             )),
             // 采样尚未成功时整项不渲染，对齐 Tauri（memoryUsage 为 null）。
             "memory" => self.memory.map(|usage| {
+                let zh = crate::i18n::is_zh(cx);
                 labeled(
                     IconName::MemoryStick,
-                    display_text(usage),
+                    display_text(usage, zh),
                     ThemeColors::subtle_foreground(),
                 )
             }),
@@ -284,4 +298,34 @@ fn join_items(items: impl Iterator<Item = AnyElement>) -> Vec<AnyElement> {
         out.push(item);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn memory_display_text_follows_display_language() {
+        let usage = ProcessMemoryUsage {
+            lithe_bytes: 128 * 1024 * 1024,
+            language_server_bytes: 64 * 1024 * 1024,
+        };
+
+        assert_eq!(display_text(usage, true), "总计 192.0 MB · Lithe 128.0 MB");
+        assert_eq!(
+            display_text(usage, false),
+            "Total 192.0 MB · Lithe 128.0 MB"
+        );
+    }
+
+    #[test]
+    fn memory_display_text_formats_megabytes_with_one_decimal() {
+        let usage = ProcessMemoryUsage {
+            lithe_bytes: 1_500_000,
+            language_server_bytes: 0,
+        };
+
+        // 1_500_000 / 1048576 ≈ 1.43 → 一位小数。
+        assert_eq!(display_text(usage, false), "Total 1.4 MB · Lithe 1.4 MB");
+    }
 }
