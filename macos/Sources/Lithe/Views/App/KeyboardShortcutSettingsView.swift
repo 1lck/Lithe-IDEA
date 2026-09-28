@@ -98,6 +98,7 @@ struct KeyboardShortcutSettingsView: View {
                 LitheIDEAIcon(resourcePath: "expui/general/expandAll.svg", size: 16, fallbackSystemImage: "arrow.down.right.and.arrow.up.left", preservesOriginalColors: true)
             }
             .help("Expand All")
+            .accessibilityLabel("Expand All")
 
             Button {
                 expandedGroups = []
@@ -106,6 +107,7 @@ struct KeyboardShortcutSettingsView: View {
                 LitheIDEAIcon(resourcePath: "expui/general/collapseAll.svg", size: 16, fallbackSystemImage: "arrow.up.left.and.arrow.down.right", preservesOriginalColors: true)
             }
             .help("Collapse All")
+            .accessibilityLabel("Collapse All")
 
             Menu {
                 if let selectedCommandID,
@@ -133,6 +135,7 @@ struct KeyboardShortcutSettingsView: View {
             .tint(LitheTheme.secondaryText)
             .disabled(selectedCommandID == nil)
             .help("Edit Shortcuts")
+            .accessibilityLabel("Edit Shortcuts")
 
             Spacer(minLength: 12)
             LitheSettingsSearchField("", text: $query) { _ in
