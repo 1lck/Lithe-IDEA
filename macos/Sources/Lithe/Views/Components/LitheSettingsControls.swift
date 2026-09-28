@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 private enum SettingsSelectMetrics {
-    static let fontSize: CGFloat = 12.5
+    static let fontSize: CGFloat = 13
     static let checkmarkWidth: CGFloat = 14
     static let itemSpacing: CGFloat = 8
     static let itemHorizontalPadding: CGFloat = 8
@@ -11,6 +11,8 @@ private enum SettingsSelectMetrics {
 }
 
 struct LitheSettingsSearchField: View {
+    @FocusState private var isFocused: Bool
+    private let externalFocus: FocusState<Bool>.Binding?
     private let placeholder: LocalizedStringKey
     @Binding private var text: String
     private let onTextChanged: ((String) -> Void)?
@@ -18,22 +20,30 @@ struct LitheSettingsSearchField: View {
     init(
         _ placeholder: LocalizedStringKey,
         text: Binding<String>,
+        focus: FocusState<Bool>.Binding? = nil,
         onTextChanged: ((String) -> Void)? = nil
     ) {
         self.placeholder = placeholder
         _text = text
+        externalFocus = focus
         self.onTextChanged = onTextChanged
     }
 
     var body: some View {
         HStack(spacing: 7) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.tertiaryText)
+            HStack(spacing: 1) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .medium))
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 6, weight: .medium))
+            }
+            .foregroundStyle(LitheTheme.tertiaryText)
+            .accessibilityHidden(true)
 
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.settingsFont)
+                .focused(externalFocus ?? $isFocused)
 
             if !text.isEmpty {
                 Button {
@@ -50,11 +60,10 @@ struct LitheSettingsSearchField: View {
         }
         .padding(.horizontal, 9)
         .frame(height: 28)
-        .background(Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+        .litheRoundedControlBackground(LitheTheme.settingsSurface)
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                .strokeBorder((externalFocus?.wrappedValue ?? isFocused) ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
         }
         .onChange(of: text) { value in
             onTextChanged?(value)
@@ -108,7 +117,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         } label: {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title(selection)))
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.settingsFont)
                     .foregroundStyle(isAvailable(selection) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                     .lineLimit(1)
 
@@ -123,11 +132,11 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             .frame(width: width, height: 30, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.settingsControlBackground)
+                    .fill(LitheTheme.settingsSelectBackground)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(isPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder, lineWidth: 1)
+                    .strokeBorder(isPresented ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
             }
             .contentShape(Rectangle())
         }
@@ -153,7 +162,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                                 .opacity(selection == option ? 1 : 0)
 
                             Text(LocalizedStringKey(title(option)))
-                                .font(.system(size: SettingsSelectMetrics.fontSize))
+                                .font(LitheTheme.settingsFont)
                                 .foregroundStyle(isAvailable(option) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                                 .lineLimit(expandsToFitOptions ? nil : 1)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -183,7 +192,8 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
     private var preferredPopupWidth: CGFloat {
         guard expandsToFitOptions else { return width }
-        let font = NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
+        let font = NSFont(name: "Inter-Regular", size: SettingsSelectMetrics.fontSize)
+            ?? NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
             let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
@@ -224,8 +234,8 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                     selection = option
                 } label: {
                     Text(LocalizedStringKey(title(option)))
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(selection == option ? Color.white : LitheTheme.secondaryText)
+                        .font(selection == option ? LitheTheme.settingsStrongFont : LitheTheme.settingsFont)
+                        .foregroundStyle(selection == option ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, minHeight: 26)
                         .contentShape(Rectangle())
                         .litheRowHover(
@@ -246,7 +256,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
         )
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
         }
     }
 }
@@ -277,7 +287,7 @@ struct LitheSettingsCheckbox: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(isOn ? LitheTheme.accent : LitheTheme.inputBackground)
                     RoundedRectangle(cornerRadius: 4)
-                        .stroke(isOn ? LitheTheme.accent : LitheTheme.inputBorder, lineWidth: 1)
+                        .strokeBorder(isOn ? LitheTheme.accent : LitheTheme.inputBorder, lineWidth: 1)
                     Image(systemName: "checkmark")
                         .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(Color.white)
@@ -326,14 +336,14 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     var body: some View {
         HStack(spacing: 0) {
             Text(title(value))
-                .font(.system(size: 12.5))
+                .font(LitheTheme.settingsFont)
                 .foregroundStyle(LitheTheme.primaryText)
                 .monospacedDigit()
                 .frame(maxWidth: .infinity, alignment: .trailing)
                 .padding(.horizontal, 8)
 
             Rectangle()
-                .fill(LitheTheme.inputBorder)
+                .fill(LitheTheme.settingsSearchBorder)
                 .frame(width: 1, height: 20)
 
             stepButton(systemImage: "minus", isDisabled: value <= range.lowerBound) {
@@ -347,11 +357,11 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
         .frame(width: width, height: 30)
         .background(
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .fill(LitheTheme.inputBackground)
+                .fill(LitheTheme.settingsControlBackground)
         )
         .overlay {
             RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                .strokeBorder(LitheTheme.settingsSearchBorder, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
         .accessibilityElement(children: .contain)
@@ -379,27 +389,52 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
 
 private struct LitheSettingsTextFieldModifier: ViewModifier {
     @Environment(\.isEnabled) private var isEnabled
+    @FocusState private var isFocused: Bool
 
     func body(content: Content) -> some View {
         content
             .textFieldStyle(.plain)
-            .font(.system(size: 12.5))
+            .font(LitheTheme.settingsFont)
+            .focused($isFocused)
             .padding(.horizontal, 9)
             .frame(height: 30)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.inputBackground)
+                    .fill(LitheTheme.settingsControlBackground)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(LitheTheme.inputBorder, lineWidth: 1)
+                    .strokeBorder(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
             }
             .opacity(isEnabled ? 1 : 0.55)
+    }
+}
+
+private struct LitheSettingsTextEditorModifier: ViewModifier {
+    @FocusState private var isFocused: Bool
+    let height: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .scrollContentBackground(.hidden)
+            .font(.system(size: 12, design: .monospaced))
+            .focused($isFocused)
+            .frame(height: height)
+            .padding(5)
+            .litheRoundedControlBackground(LitheTheme.settingsControlBackground)
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                    .strokeBorder(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.settingsSearchBorder, lineWidth: 1)
+            }
     }
 }
 
 extension View {
     func litheSettingsTextField() -> some View {
         modifier(LitheSettingsTextFieldModifier())
+    }
+
+    func litheSettingsTextEditor(height: CGFloat) -> some View {
+        modifier(LitheSettingsTextEditorModifier(height: height))
     }
 }

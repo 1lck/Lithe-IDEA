@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import LitheLocalHistoryModule
 import SwiftUI
 
@@ -207,8 +208,18 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
-            .onReceive(session.workbenchFeature.$isSettingsPresented) { isPresented in
-                guard isPresented else { return }
+            .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
+                SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {
+                    ($0.delegate as? LitheWindowCoordinator)?.projectSessions.windowScope == scope
+                }
+                projectSessions.bindSettings(to: session.id)
+                if let settingsWindow = SettingsWindowChrome.settingsWindow {
+                    SettingsWindowChrome.configure(
+                        settingsWindow,
+                        title: settingsWindow.title,
+                        themePreference: session.settings.themePreference
+                    )
+                }
                 openWindow(id: LitheWindowID.settings)
             }
             .sheet(isPresented: Binding(

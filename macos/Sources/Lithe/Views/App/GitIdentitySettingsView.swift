@@ -29,10 +29,14 @@ private struct GitIdentitySettingsPane: View {
             Text("Commit identity").font(.system(size: 15, weight: .semibold))
             Text("Git records this name and email in new commits. These settings do not change existing commits.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
-            Picker("Configuration scope", selection: $scope) {
-                Text("Current repository").tag(GitIdentityScope.local)
-                Text("Global Git configuration").tag(GitIdentityScope.global)
-            }.pickerStyle(.segmented).disabled(editor.isBusy)
+            LitheSettingsSegmentedControl(
+                selection: $scope,
+                options: GitIdentityScope.allCases,
+                width: 340,
+                title: { $0 == .local ? "Current repository" : "Global Git configuration" }
+            )
+            .accessibilityLabel("Configuration scope")
+            .disabled(editor.isBusy)
             Text(scope == .global
                  ? LocalizedStringKey("Global identity applies to other repositories unless they override it.")
                  : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
@@ -69,7 +73,7 @@ private struct GitIdentitySettingsPane: View {
         VStack(alignment: .leading, spacing: 7) {
             Text(title).font(.system(size: 12, weight: .medium))
             HStack {
-                TextField(title, text: draft).textFieldStyle(.roundedBorder)
+                TextField(title, text: draft).litheSettingsTextField()
                 Button("Save") { save(field) }
                     .disabled(draft.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || draft.wrappedValue == configured)
                     .lithePointer()
