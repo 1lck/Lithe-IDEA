@@ -1981,6 +1981,30 @@
       "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
     },
     {
+      "id": "window-controls",
+      "area": "工作台",
+      "group": "窗口管理",
+      "capability": "标题栏控制窗口最小化、最大化/还原与关闭；命令面板可最小化、最大化及切换全屏",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/LitheApp.swift",
+          "macos/Sources/Lithe/Views/App/RootView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/window-controls.tsx",
+          "windows/tauri/src/features/command-palette/constants/window-actions.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。"
+    },
+    {
       "id": "workbench-panes",
       "area": "工作台",
       "group": "命令与布局",

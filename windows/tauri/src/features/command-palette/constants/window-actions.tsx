@@ -1,4 +1,8 @@
-import { ArrowsOutIcon as Maximize, ArrowsInIcon as Minimize } from "@/ui/icons";
+import {
+  ArrowsOutIcon as FullScreen,
+  MinusIcon as Minimize,
+  SquareIcon as Maximize,
+} from "@/ui/icons";
 import type { Action } from "../types/action.types";
 
 interface WindowActionsParams {
@@ -35,7 +39,7 @@ export const createWindowActions = (params: WindowActionsParams): Action[] => {
       id: "window-fullscreen",
       label: "Window: Toggle Fullscreen",
       description: "Enter or exit fullscreen mode",
-      icon: <Maximize />,
+      icon: <FullScreen />,
       category: "Window",
       commandId: "window.toggleFullscreen",
       action: () => {
