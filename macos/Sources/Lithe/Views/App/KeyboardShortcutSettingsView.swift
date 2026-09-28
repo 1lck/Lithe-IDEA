@@ -35,7 +35,7 @@ struct KeyboardShortcutSettingsView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 6)
+                .padding(.vertical, 4)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
         }
@@ -67,8 +67,10 @@ struct KeyboardShortcutSettingsView: View {
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 13))
+                    .foregroundStyle(LitheTheme.secondaryText)
             }
             .menuStyle(.borderlessButton)
+            .tint(LitheTheme.secondaryText)
             .frame(width: 26)
             .accessibilityLabel("Restore All Defaults")
             .lithePointer()
@@ -80,11 +82,11 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 14) {
             Button {
                 expandedGroups = Set(LitheActionGroup.allCases)
             } label: {
-                Image(systemName: "arrow.down.right.and.arrow.up.left")
+                expansionIcon(expand: true)
             }
             .help("Expand All")
 
@@ -92,21 +94,36 @@ struct KeyboardShortcutSettingsView: View {
                 expandedGroups = []
                 cancelEditing()
             } label: {
-                Image(systemName: "arrow.up.left.and.arrow.down.right")
+                expansionIcon(expand: false)
             }
             .help("Collapse All")
 
-            Button {
+            Menu {
                 if let selectedCommandID,
                    let command = LitheCommandCatalog.command(id: selectedCommandID) {
-                    expandedGroups.insert(command.group)
-                    beginEditing(commandID: selectedCommandID, bindingIndex: nil)
+                    Button("Add Shortcut") {
+                        expandedGroups.insert(command.group)
+                        beginEditing(commandID: selectedCommandID, bindingIndex: nil)
+                    }
+                    ForEach(Array(feature.effectiveBindings(for: selectedCommandID).enumerated()), id: \.offset) { index, binding in
+                        Button("Remove \(binding.displayText)") {
+                            removeBinding(commandID: selectedCommandID, index: index)
+                        }
+                    }
+                    if feature.isCustomized(selectedCommandID) {
+                        Button("Restore Default") {
+                            cancelEditing()
+                            feature.resetCommand(selectedCommandID)
+                        }
+                    }
                 }
             } label: {
                 Image(systemName: "pencil")
             }
+            .menuStyle(.borderlessButton)
+            .tint(LitheTheme.secondaryText)
             .disabled(selectedCommandID == nil)
-            .help("Add Shortcut")
+            .help("Edit Shortcuts")
 
             Spacer(minLength: 12)
             LitheSettingsSearchField("Search actions or shortcuts", text: $query) { _ in
@@ -119,9 +136,18 @@ struct KeyboardShortcutSettingsView: View {
         .buttonStyle(.borderless)
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 16)
-        .frame(height: 38)
+        .frame(height: 36)
         .background(alignment: .top) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
         .background(alignment: .bottom) { Rectangle().fill(LitheTheme.divider).frame(height: 1) }
+    }
+
+    private func expansionIcon(expand: Bool) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: expand ? "chevron.up" : "chevron.down")
+            Image(systemName: expand ? "chevron.down" : "chevron.up")
+        }
+        .font(.system(size: 7, weight: .medium))
+        .frame(width: 16, height: 20)
     }
 
     private func commandSection(_ section: KeyboardShortcutCommandSection) -> some View {
@@ -147,7 +173,7 @@ struct KeyboardShortcutSettingsView: View {
                 }
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.horizontal, 8)
-                .frame(height: 26)
+                .frame(height: 24)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -171,37 +197,35 @@ struct KeyboardShortcutSettingsView: View {
                 Button {
                     selectedCommandID = command.id
                 } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: "bolt.horizontal")
-                            .font(.system(size: 11))
-                            .frame(width: 12)
+                    HStack(spacing: 0) {
                         Text(LocalizedStringKey(command.title))
                             .font(.system(size: 12.5))
                             .lineLimit(1)
-                        Spacer(minLength: 6)
+                        Spacer(minLength: 8)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
                 shortcutControls(for: command)
-
+            }
+            .foregroundStyle(selectedCommandID == command.id ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+            .padding(.leading, 36)
+            .padding(.trailing, 6)
+            .frame(height: 24)
+            .background(selectedCommandID == command.id ? LitheTheme.settingsSelection : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .contextMenu {
+                Button("Add Shortcut") {
+                    beginEditing(commandID: command.id, bindingIndex: nil)
+                }
                 if feature.isCustomized(command.id) {
-                    Button("Reset") {
+                    Button("Restore Default") {
                         cancelEditing()
                         feature.resetCommand(command.id)
                     }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 11.5))
-                    .lithePointer()
                 }
             }
-            .foregroundStyle(selectedCommandID == command.id ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
-            .padding(.leading, 31)
-            .padding(.trailing, 8)
-            .frame(height: 28)
-            .background(selectedCommandID == command.id ? LitheTheme.settingsSelection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             if editingTarget?.commandID == command.id {
                 KeyboardShortcutRecorderView(
@@ -236,6 +260,7 @@ struct KeyboardShortcutSettingsView: View {
             if bindings.isEmpty {
                 Button("Not Assigned") { beginEditing(commandID: command.id, bindingIndex: nil) }
                     .buttonStyle(.borderless)
+                    .font(.system(size: 12))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lithePointer()
             } else {
@@ -243,16 +268,6 @@ struct KeyboardShortcutSettingsView: View {
                     bindingChip(binding, commandID: command.id, index: index)
                 }
             }
-
-            Button {
-                beginEditing(commandID: command.id, bindingIndex: nil)
-            } label: {
-                Image(systemName: "plus")
-                    .font(.system(size: 10, weight: .semibold))
-            }
-            .buttonStyle(.borderless)
-            .help("Add Shortcut")
-            .lithePointer()
         }
     }
 
@@ -261,27 +276,39 @@ struct KeyboardShortcutSettingsView: View {
         commandID: String,
         index: Int
     ) -> some View {
-        HStack(spacing: 3) {
-            Button(binding.displayText) {
-                beginEditing(commandID: commandID, bindingIndex: index)
+        Button {
+            beginEditing(commandID: commandID, bindingIndex: index)
+        } label: {
+            HStack(spacing: 2) {
+                ForEach(Array(keycapLabels(for: binding).enumerated()), id: \.offset) { _, label in
+                    Text(label)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .frame(minWidth: 14, minHeight: 17)
+                        .padding(.horizontal, 2)
+                        .litheSettingsControlChrome(cornerRadius: 3)
+                }
             }
-            .buttonStyle(.borderless)
-            .font(.system(size: 11.5, weight: .medium, design: .rounded))
-            .lithePointer()
-
-            Button {
-                removeBinding(commandID: commandID, index: index)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .buttonStyle(.borderless)
-            .help("Remove")
-            .lithePointer()
         }
-        .padding(.horizontal, 7)
-        .frame(height: 24)
-        .litheSettingsControlChrome()
+        .buttonStyle(.plain)
+        .lithePointer()
+        .help("Edit Shortcut")
+        .accessibilityLabel(binding.displayText)
+        .contextMenu {
+            Button("Remove Shortcut") {
+                removeBinding(commandID: commandID, index: index)
+            }
+        }
+    }
+
+    private func keycapLabels(for binding: KeyboardShortcutBinding) -> [String] {
+        guard let (_, modifiers) = binding.keyPressValue else { return [binding.displayText] }
+        let symbols = [
+            modifiers.contains(.control) ? "⌃" : nil,
+            modifiers.contains(.option) ? "⌥" : nil,
+            modifiers.contains(.shift) ? "⇧" : nil,
+            modifiers.contains(.command) ? "⌘" : nil
+        ].compactMap { $0 }
+        return symbols + [String(binding.displayText.dropFirst(symbols.count))]
     }
 
     private var emptyState: some View {
