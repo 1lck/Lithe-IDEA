@@ -461,6 +461,28 @@
       "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。"
     },
     {
+      "id": "editor-wallpaper-overview-ruler",
+      "area": "编辑器",
+      "group": "编辑器外观",
+      "capability": "macOS 工作台壁纸模式下，编辑器概览标尺与代码缩略图随编辑器背景透明，不显示黑色竖条；普通主题仍保持实体背景",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "frontend/editor/src/theme.ts",
+          "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+          "macos/Experiments/Monaco/workbench.integration.ts"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable",
+        "evidence": ["windows/tauri/src/features/editor/engines/monaco/theme.ts"]
+      },
+      "owner": "Editor",
+      "verification": "在 macOS 选择工作台背景并打开文本文件，分别关闭和打开右侧 Agent 面板，确认编辑器最右侧概览标尺不出现黑色竖条；关闭背景图后确认普通主题底色保持不变。运行真实 WebKit 工作台主题集成测试。Windows 不使用 macOS 原生工作台壁纸。"
+    },
+    {
       "id": "editor-semantic-highlighting",
       "area": "编辑器",
       "group": "文本编辑",
@@ -986,13 +1008,15 @@
           "windows/tauri/src-tauri/src/maven.rs",
           "windows/tauri/src-tauri/src/maven/settings_xml.rs",
           "windows/tauri/src/features/maven/components/maven-detected-value.test.tsx",
-          "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.test.tsx"
+          "windows/tauri/src/features/settings/components/tabs/maven-settings-panel.test.tsx",
+          "windows/tauri/src/features/run/stores/run.store.ts",
+          "windows/tauri/src/features/run/stores/run-maven-context.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 Windows 自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程。"
+      "verification": "在 macOS 项目设置和 Windows Maven 设置页分别切换两个项目，配置 Maven、JDK、settings.xml 与本地仓库，验证保存重开、自动检测展示及项目间隔离；Windows 还需验证写盘失败后可直接重试。 Windows 自定义 settings.xml 后，仓库留空应显示该文件中的目录；验证 XML 实体和 CDATA、继承的项目 JDK/Maven、切换项目丢弃未保存草稿；冷启动 Wrapper 不应触发下载，版本探测卡住时设置窗口保持响应并在超时后清理探测进程；Run 配置显式选择的 Maven/JDK 优先于项目设置，未设置的字段分别继承 Maven 设置；确认主任务与前置任务使用相同工具链，Maven 设置上下文缺失时仍保留显式覆盖，均未配置时交由平台自动发现。"
     },
     {
       "id": "java-maven-project",

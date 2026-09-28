@@ -464,6 +464,7 @@ jobs:
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
+            --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
             --report .artifacts/test-stability/windows-real-jdt.json
