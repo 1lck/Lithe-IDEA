@@ -59,6 +59,39 @@ describe("git status result adaptation", () => {
   });
 });
 
+test("workspace status keeps index-only additions and Core submodule checkbox eligibility", () => {
+  const submodule = { commitChanged: false, trackedChanges: true, untrackedChanges: false };
+  const result = adaptCoreResult<{ files: Array<Record<string, unknown>> }>(
+    "git_status",
+    { includeIndexOnlyChanges: true },
+    {
+      changes: [
+        {
+          path: "staged-only.ts",
+          status: "AD",
+          staged: true,
+          worktree: true,
+          canToggleStaging: true,
+        },
+        {
+          path: "libs/B",
+          status: " M",
+          staged: false,
+          worktree: true,
+          canToggleStaging: false,
+          submodule,
+        },
+      ],
+    },
+  );
+  expect(result.files[0]).toMatchObject({
+    path: "staged-only.ts",
+    staged: true,
+    canToggleStaging: true,
+  });
+  expect(result.files[1]).toMatchObject({ path: "libs/B", canToggleStaging: false, submodule });
+});
+
 describe("git checkout result adaptation", () => {
   test("maps a successful core checkout to the UI checkout result", () => {
     const result = adaptCoreResult(
@@ -97,13 +130,9 @@ describe("git checkout result adaptation", () => {
 
 describe("git repository discovery result adaptation", () => {
   test("accepts the read-only repository root string", () => {
-    expect(
-      adaptCoreResult<string>(
-        "git_discover_repo",
-        { path: "C:/work/src" },
-        "C:/work\n",
-      ),
-    ).toBe("C:/work");
+    expect(adaptCoreResult<string>("git_discover_repo", { path: "C:/work/src" }, "C:/work\n")).toBe(
+      "C:/work",
+    );
   });
 
   test("keeps compatibility with the legacy command output envelope", () => {

@@ -1230,3 +1230,34 @@
 "Context usage" = "Context usage";
 "Context: %@" = "Context: %@";
 "%@ · %@ / %@ context tokens" = "%@ · %@ / %@ context tokens";
+
+/* Workspace repository commits */
+"Review remaining steps" = "Review remaining steps";
+"Review repository commits" = "Review repository commits";
+"Each repository has its own commit. Completed steps are kept if another repository fails." = "Each repository has its own commit. Completed steps are kept if another repository fails.";
+"Review and Retry Unfinished Steps…" = "Review and Retry Unfinished Steps…";
+"Dismiss Results" = "Dismiss Results";
+"Update parent repository references" = "Update parent repository references";
+"Each submodule is pushed before its parent." = "Each submodule is pushed before its parent.";
+"Uncommitted submodule changes" = "Uncommitted submodule changes";
+"Commit changed files in the submodule first" = "Commit changed files in the submodule first";
+"Amend applies to repositories with selected files." = "Amend applies to repositories with selected files.";
+"Commit message: %@" = "Commit message: %@";
+"Push only" = "Push only";
+"Commit and push" = "Commit and push";
+"Committed; push pending" = "Committed; push pending";
+"Committed and pushed" = "Committed and pushed";
+"Waiting for submodule" = "Waiting for submodule";
+"Update %@/%@ after %@" = "Update %@/%@ after %@";
+"Repository changed; review and retry" = "Repository changed; review and retry";
+"Committed" = "Committed";
+"Collapse repository" = "Collapse repository";
+"Expand repository" = "Expand repository";
+"Unstage all files in repository" = "Unstage all files in repository";
+"Stage all files in repository" = "Stage all files in repository";
+"Pending" = "Pending";
+"Not included in the updated plan" = "Not included in the updated plan";
+"Committed; push failed" = "Committed; push failed";
+"HEAD advanced; review before continuing." = "HEAD advanced; review before continuing.";
+"Could not verify the commit outcome. Review before retrying." = "Could not verify the commit outcome. Review before retrying.";
+"Repository needs attention" = "Repository needs attention";

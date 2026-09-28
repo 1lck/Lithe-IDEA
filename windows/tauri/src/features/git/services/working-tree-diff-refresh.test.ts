@@ -202,7 +202,11 @@ describe("refreshWorkingTreeFileDiff", () => {
 
     const statusFailure = await refreshWorkingTreeFileDiff(
       { bufferId: BUFFER_ID, fileKey: FILE_KEY },
-      { buffers: buffers.port, loadStatus: async () => null, loadDiff: async () => diffWithLines(1) },
+      {
+        buffers: buffers.port,
+        loadStatus: async () => null,
+        loadDiff: async () => diffWithLines(1),
+      },
     );
     const diffFailure = await refreshWorkingTreeFileDiff(
       { bufferId: BUFFER_ID, fileKey: FILE_KEY },
@@ -242,7 +246,11 @@ describe("refreshWorkingTreeFileDiff", () => {
 
   test("does not refresh diffs opened without a working-tree target", async () => {
     const buffers = bufferPort(
-      createSingleFileWorkingTreeDiff({ repoPath: REPO, fileKey: FILE_KEY, diff: diffWithLines(1) }),
+      createSingleFileWorkingTreeDiff({
+        repoPath: REPO,
+        fileKey: FILE_KEY,
+        diff: diffWithLines(1),
+      }),
     );
     let statusLoads = 0;
 
@@ -261,4 +269,22 @@ describe("refreshWorkingTreeFileDiff", () => {
     expect(statusLoads).toBe(0);
     expect(buffers.closed).toEqual([]);
   });
+});
+
+test("staged file review continues to read the index after a working-tree refresh", async () => {
+  const buffers = bufferPort(openedDiff({ ...TARGET, staged: true }));
+  const requests: unknown[][] = [];
+  await refreshWorkingTreeFileDiff(
+    { bufferId: BUFFER_ID, fileKey: FILE_KEY },
+    {
+      buffers: buffers.port,
+      loadStatus: async () => status([statusFile({ staged: true, worktree: true })]),
+      loadDiff: async (...args) => {
+        requests.push(args);
+        return diffWithLines(3);
+      },
+    },
+  );
+  expect(requests).toEqual([[REPO, "src/Main.java", false, undefined, true]]);
+  expect(buffers.current()?.workingTreeTargets?.[FILE_KEY]?.staged).toBe(true);
 });

@@ -1,6 +1,6 @@
 import equal from "fast-deep-equal";
 import { normalizePath } from "@/utils/path-helpers";
-import { getWorkingTreePathDiff } from "../api/git-diff-api";
+import { getFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
 import { getGitStatus } from "../api/git-status-api";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
@@ -28,6 +28,7 @@ export interface WorkingTreeDiffRefreshDependencies {
     filePath: string,
     untracked: boolean,
     originalPath?: string,
+    staged?: boolean,
   ) => Promise<GitDiff | null>;
 }
 
@@ -47,7 +48,7 @@ function hasRenderableDiff(diff: GitDiff): boolean {
 /**
  * Reloads one working-tree file diff after a Git change, matching the macOS
  * contract: the view reloads in place with the same repository, path, and
- * HEAD-to-worktree semantics used to open it, shows an empty state when the
+ * index or HEAD-to-worktree semantics used to open it, shows an empty state when the
  * file has no remaining diff, and closes only when Git status no longer lists
  * the file. Failed reads keep the current content instead of closing.
  */
@@ -62,7 +63,10 @@ export async function refreshWorkingTreeFileDiff(
   {
     buffers,
     loadStatus = getGitStatus,
-    loadDiff = getWorkingTreePathDiff,
+    loadDiff = (root, path, untracked, originalPath, staged) =>
+      staged
+        ? getFileDiff(root, path, true)
+        : getWorkingTreePathDiff(root, path, untracked, originalPath),
   }: WorkingTreeDiffRefreshDependencies,
 ): Promise<WorkingTreeDiffRefreshOutcome> {
   const startingDiff = buffers.read(bufferId);
@@ -88,12 +92,14 @@ export async function refreshWorkingTreeFileDiff(
     filePath: target.filePath,
     ...(originalPath ? { originalPath } : {}),
     untracked: statusFile.status === "untracked",
+    ...(target.staged ? { staged: true } : {}),
   };
   const diff = await loadDiff(
     nextTarget.repoPath,
     nextTarget.filePath,
     nextTarget.untracked,
     nextTarget.originalPath,
+    ...(nextTarget.staged ? [true] : []),
   );
   if (!isCurrent() || !diff) return "skipped";
 

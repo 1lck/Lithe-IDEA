@@ -3,8 +3,12 @@ import LitheGitModule
 import LitheModuleAPI
 
 extension GitFeatureModel: CommitWorkflowGit {
+    var pendingCommitDraft: (message: String, amend: Bool)? {
+        pendingSubmoduleCommitPlan.map { ($0.message, $0.amend) }
+    }
+
     var stagedChangeIDs: Set<String> {
-        Set(activeRepositoryChanges.filter(\.isStaged).map(\.id))
+        Set(gitChanges.filter(\.isStaged).map(\.id))
     }
 }
 
