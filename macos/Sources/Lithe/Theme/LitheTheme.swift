@@ -231,6 +231,7 @@ enum LitheTheme {
     static var activeTheme: AppColorTheme { AppThemeRuntime.shared.activeTheme }
 
     enum ResolvedColorToken {
+        case titlebar
         case editor
         case sidebar
         case toolHeader
@@ -255,6 +256,7 @@ enum LitheTheme {
     ) -> NSColor {
         let palette = Palette.make(theme: theme, isDark: isDark)
         return switch token {
+        case .titlebar: palette.titlebar.nsColor
         case .editor: palette.editor.nsColor
         case .sidebar: palette.sidebar.nsColor
         case .toolHeader: palette.toolHeader.nsColor

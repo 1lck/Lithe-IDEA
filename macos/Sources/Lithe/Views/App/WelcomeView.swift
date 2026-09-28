@@ -2,91 +2,100 @@ import AppKit
 import SwiftUI
 
 struct WelcomeView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var updateChecker: UpdateChecker
     @State private var projectFilter = ""
     @State private var hoveredProjectID: String?
     @State private var hoveredProjectMenuID: String?
+    @State private var showingStableRollback = false
     @FocusState private var searchFocused: Bool
+
+    // JetBrains/intellij-community: platform/platform-resources/src/themes/islands/ManyIslandsDark.theme.json
+    // and platform/platform-resources/src/themes/expUI/expUI_light.theme.json.
+    // Keep these welcome colors local so workspace and settings themes remain independent.
+    private var surface: Color { colorScheme == .dark ? Color(red: 0.098, green: 0.102, blue: 0.110) : .white }
+    private var sidebarSurface: Color { colorScheme == .dark ? Color(red: 0.098, green: 0.102, blue: 0.110) : Color(red: 0.969, green: 0.973, blue: 0.980) }
+    private var textColor: Color { colorScheme == .dark ? Color(red: 0.820, green: 0.827, blue: 0.851) : .black }
+    private var mutedColor: Color { colorScheme == .dark ? Color(red: 0.451, green: 0.463, blue: 0.486) : Color(red: 0.424, green: 0.439, blue: 0.494) }
+    private var separatorColor: Color { colorScheme == .dark ? Color(red: 0.149, green: 0.157, blue: 0.173) : Color(red: 0.875, green: 0.882, blue: 0.898) }
+    private var selectionColor: Color { colorScheme == .dark ? Color(red: 0.165, green: 0.263, blue: 0.443) : Color(red: 0.831, green: 0.886, blue: 1) }
+    private var hoverColor: Color { colorScheme == .dark ? .white.opacity(0.063) : Color(red: 0.922, green: 0.925, blue: 0.941) }
+    private var borderColor: Color { colorScheme == .dark ? Color(red: 0.251, green: 0.263, blue: 0.290) : Color(red: 0.788, green: 0.800, blue: 0.839) }
 
     var body: some View {
         HStack(spacing: 0) {
             welcomeSidebar
-            Rectangle().fill(LitheTheme.divider.opacity(0.55)).frame(width: 1)
+            Rectangle().fill(separatorColor).frame(width: 1)
             projectsContent
         }
-        .background(LitheTheme.editor)
+        .background(surface.ignoresSafeArea(.container, edges: .top))
         .background(WelcomeInitialFocusReset())
+        .sheet(isPresented: $showingStableRollback) {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Return to Stable").font(.headline)
+                StableRollbackControl()
+                Button("Close") { showingStableRollback = false }
+            }
+            .padding(20)
+            .frame(width: 420)
+        }
     }
 
     private var welcomeSidebar: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 11) {
-                LitheIcons.appLogo(size: 42)
-                VStack(alignment: .leading, spacing: 3) {
+                LitheIcons.appLogo(size: 28)
+                VStack(alignment: .leading, spacing: 0) {
                     Text("Lithe")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                    Text("\(updateChecker.versionDescription) · macOS")
-                        .font(LitheTheme.smallFont)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    updatePrompt
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(textColor)
+                    Text(updateChecker.versionDescription)
+                        .font(.system(size: 11))
+                        .foregroundStyle(mutedColor)
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.top, 28)
-            .padding(.bottom, 30)
+            .padding(.top, 26)
+            .padding(.bottom, 38)
 
             HStack(spacing: 9) {
                 LitheIcon(kind: .folder, size: 15)
                 Text("Projects")
                     .font(.system(size: 13, weight: .medium))
             }
-            .foregroundStyle(LitheTheme.primaryText)
+            .foregroundStyle(textColor)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 36)
-            .background(LitheTheme.selection)
-            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+            .frame(height: 32)
+            .background(selectionColor)
+            .clipShape(RoundedRectangle(cornerRadius: 4))
             .padding(.horizontal, 14)
 
             Spacer()
 
             Button {
-                model.showSettings()
+                showSettingsMenu()
             } label: {
-                HStack(spacing: 9) {
-                    LitheSystemIcon(systemImage: "gearshape")
-                        .font(.system(size: 14))
-                    Text("Settings")
-                        .font(.system(size: 12.5))
-                    Spacer()
-                }
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .frame(height: 34)
-                .contentShape(Rectangle())
+                LitheIDEAIcon(resourcePath: "expui/general/settings@20x20.svg", size: 14)
+                    .frame(width: 28, height: 28)
+                    .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: selectionColor)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .litheRowHover()
+            .foregroundStyle(mutedColor)
+            .help("Settings")
+            .accessibilityLabel("Settings")
             .padding(.horizontal, 14)
             .padding(.bottom, 14)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(width: 240)
+        .frame(width: 224)
         .background(
-            LitheTheme.sidebar
+            sidebarSurface
                 .ignoresSafeArea(.container, edges: .top)
         )
-    }
-
-    @ViewBuilder
-    private var updatePrompt: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            UpdateControl()
-            StableRollbackControl(compact: true)
-        }
     }
 
     private var projectsContent: some View {
@@ -95,32 +104,41 @@ struct WelcomeView: View {
                 HStack(spacing: 8) {
                     LitheSystemIcon(systemImage: "magnifyingglass")
                         .font(.system(size: 12.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .foregroundStyle(mutedColor)
                     TextField("Search projects", text: $projectFilter)
                         .textFieldStyle(.plain)
                         .font(.system(size: 13))
                         .focused($searchFocused)
                 }
-                .litheSearchField(isFocused: searchFocused, height: 30)
-                .frame(maxWidth: 300)
+                .foregroundStyle(textColor)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: 220)
 
                 Spacer()
 
-                Button("Clone") {
-                    model.showCloneRepository()
+                Button("New Project") {
+                    model.chooseProject(title: "New Project", prompt: "Choose Folder")
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(.litheNoPress)
+                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
 
                 Button("Open") {
                     model.chooseProject()
                 }
-                .buttonStyle(LithePrimaryButtonStyle())
-            }
-            .padding(.horizontal, 20)
-            .frame(height: 66)
+                .buttonStyle(.litheNoPress)
+                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
 
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                .padding(.horizontal, 18)
+                Button("Clone Repository") {
+                    model.showCloneRepository()
+                }
+                .buttonStyle(.litheNoPress)
+                .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
+            }
+            .padding(.horizontal, 14)
+            .frame(height: 68)
+
+            Rectangle().fill(separatorColor).frame(height: 1)
+                .padding(.horizontal, 12)
 
             if filteredProjects.isEmpty {
                 emptyProjectsState
@@ -132,25 +150,25 @@ struct WelcomeView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 14)
                 }
             }
         }
-        .background(LitheTheme.editor)
+        .background(surface.ignoresSafeArea(.container, edges: .top))
     }
 
     private var emptyProjectsState: some View {
         VStack(spacing: 10) {
             Image(systemName: "folder.badge.plus")
                 .font(.system(size: 32, weight: .light))
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(mutedColor)
             Text(model.recentProjects.isEmpty ? "No recent projects" : "No matching projects")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
+                .foregroundStyle(textColor)
             Text("Open a local folder to start working.")
                 .font(LitheTheme.uiFont)
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(mutedColor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -161,21 +179,21 @@ struct WelcomeView: View {
             Button {
                 if exists { model.openProject(project.url) }
             } label: {
-                HStack(spacing: 12) {
-                    Text(initials(for: project.name))
-                        .font(.system(size: 12, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(exists ? color(for: project.name) : LitheTheme.raised)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                HStack(spacing: 8) {
+                    ProjectAvatarBadge(
+                        name: project.name,
+                        colorIndex: ProjectIdentityAppearance.colorIndex(for: project.url),
+                        size: 20,
+                        isEnabled: exists
+                    )
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(project.name)
                             .font(.system(size: 13.5, weight: .medium))
-                            .foregroundStyle(exists ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                            .foregroundStyle(exists ? textColor : mutedColor)
                         Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                             .font(.system(size: 11.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
+                            .foregroundStyle(mutedColor)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
@@ -202,11 +220,11 @@ struct WelcomeView: View {
                 }
             } label: {
                 ZStack {
-                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                        .fill(hoveredProjectMenuID == project.id ? LitheTheme.hoverBackground : .clear)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(hoveredProjectMenuID == project.id ? hoverColor : .clear)
                     LitheSystemIcon(systemImage: "ellipsis")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .foregroundStyle(mutedColor)
                 }
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
@@ -216,16 +234,15 @@ struct WelcomeView: View {
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
-            .lithePointer()
             .frame(width: 28, height: 28)
             .opacity(hoveredProjectID == project.id ? 1 : 0)
             .allowsHitTesting(hoveredProjectID == project.id)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
-        .frame(height: 52)
-        .background(hoveredProjectID == project.id ? LitheTheme.hoverBackground : .clear)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
+        .frame(height: 68)
+        .background(hoveredProjectID == project.id ? selectionColor : .clear)
+        .clipShape(RoundedRectangle(cornerRadius: 4))
         .onHover { isHovering in
             hoveredProjectID = isHovering ? project.id : nil
         }
@@ -252,26 +269,79 @@ struct WelcomeView: View {
         }
     }
 
-    private func initials(for name: String) -> String {
-        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber })
-        let characters = words.prefix(2).compactMap(\.first)
-        return characters.isEmpty ? "LI" : String(characters).uppercased()
-    }
-
-    private func color(for value: String) -> Color {
-        let palette: [Color] = [
-            Color(red: 0.90, green: 0.43, blue: 0.28),
-            Color(red: 0.12, green: 0.63, blue: 0.68),
-            Color(red: 0.28, green: 0.53, blue: 0.88),
-            Color(red: 0.30, green: 0.66, blue: 0.48),
-            Color(red: 0.70, green: 0.52, blue: 0.12)
+    private func showSettingsMenu() {
+        guard let window = NSApp.keyWindow else { return }
+        let screenPoint = NSApp.currentEvent.flatMap { event in
+            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
+        } ?? NSPoint(x: window.frame.minX + 28, y: window.frame.minY + 28)
+        var items: [LitheContextMenuItem] = [
+            .action("Settings…", action: { model.showSettings() }),
+            .separator
         ]
-        var hash: UInt64 = 1_469_598_103_934_665_603
-        for byte in value.utf8 {
-            hash ^= UInt64(byte)
-            hash &*= 1_099_511_628_211
+        switch updateChecker.status {
+        case .available(let version, _):
+            items.append(.action("Update to \(version)…", action: { updateChecker.presentDetails() }))
+        case .waitingForTermination:
+            items.append(.action("Continue Installation", action: {
+                Task { await updateChecker.retryInstallation() }
+            }))
+        case .checking:
+            items.append(.action("Checking for Updates…", isEnabled: false, action: {}))
+        case .downloading:
+            items.append(.action("Downloading Update…", isEnabled: false, action: {}))
+        case .installing:
+            items.append(.action("Installing Update…", isEnabled: false, action: {}))
+        case .failed where updateChecker.updateInfo != nil:
+            items.append(.action("Retry Update…", action: { updateChecker.presentDetails() }))
+        case .idle, .upToDate, .failed:
+            items.append(.action(
+                "Check for Updates…",
+                isEnabled: !updateChecker.isBusy,
+                action: {
+                    Task { await updateChecker.checkForUpdates(manual: true, presentingDetails: true) }
+                }
+            ))
         }
-        return palette[Int(hash % UInt64(palette.count))]
+        if updateChecker.isPreview {
+            items.append(.action("Return to Stable…", action: { showingStableRollback = true }))
+        }
+        LitheContextMenuPresenter.shared.show(
+            items: items,
+            at: screenPoint,
+            appearance: window.effectiveAppearance,
+            locale: locale,
+            opensUpward: true,
+            settingsStyle: true
+        )
+    }
+}
+
+private struct WelcomeActionStyle: ViewModifier {
+    let foreground: Color
+    let border: Color
+    let hover: Color
+    @State private var isHovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .font(.system(size: 13, weight: .medium))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 13)
+            .frame(height: 28)
+            .background(isHovering ? hover : .clear)
+            .clipShape(RoundedRectangle(cornerRadius: 5))
+            .overlay {
+                RoundedRectangle(cornerRadius: 5)
+                    .strokeBorder(border, lineWidth: 1)
+            }
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+    }
+}
+
+private extension View {
+    func welcomeActionStyle(foreground: Color, border: Color, hover: Color) -> some View {
+        modifier(WelcomeActionStyle(foreground: foreground, border: border, hover: hover))
     }
 }
 

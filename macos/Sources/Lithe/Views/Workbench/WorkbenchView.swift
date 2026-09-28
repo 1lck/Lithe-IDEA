@@ -25,17 +25,37 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneCornerRadius: CGFloat = 10
 }
 
+private enum WorkbenchTopBarMetrics {
+    // IDEA reserves 78pt for macOS window controls, then leaves a small widget gap.
+    static let leadingInset: CGFloat = 83
+    static let projectAvatarSize: CGFloat = 20
+    static let projectAvatarLeadingInset: CGFloat = 6
+    static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
+}
+
 private enum WorkbenchFrameGradient {
     static let coordinateSpace = "workbenchFrame"
-    static let radius: CGFloat = 720
+    static let width: CGFloat = 600
+    static let height: CGFloat = 300
 
-    static func fill(offset: CGPoint = .zero, size: CGFloat = 1) -> RadialGradient {
-        RadialGradient(
-            colors: [Color(red: 0.18, green: 0.25, blue: 0.28), LitheTheme.titlebar],
-            center: UnitPoint(x: -offset.x / size, y: -offset.y / size),
-            startRadius: 0,
-            endRadius: radius
-        )
+    static func color(glow: Color, background: Color, at point: CGPoint) -> Color {
+        let center = WorkbenchTopBarMetrics.projectAvatarCenterX
+        let horizontal = point.x <= center
+            ? max(0, point.x / center)
+            : max(0, 1 - (point.x - center) / width)
+        let vertical = max(0, 1 - point.y / height)
+        return ProjectIdentityAppearance.blend(background, with: glow, fraction: horizontal * vertical)
+    }
+}
+
+private struct WorkbenchToolbarGlowKey: EnvironmentKey {
+    static let defaultValue = LitheTheme.titlebar
+}
+
+private extension EnvironmentValues {
+    var workbenchToolbarGlow: Color {
+        get { self[WorkbenchToolbarGlowKey.self] }
+        set { self[WorkbenchToolbarGlowKey.self] = newValue }
     }
 }
 
@@ -258,6 +278,11 @@ struct WorkbenchView: View {
                 showsIDEAFrameGradient: usesIDEAFrameExperiment
             )
         }
+        .environment(
+            \.workbenchToolbarGlow,
+            ProjectIdentityAppearance(colorIndex: currentProjectColorIndex, isDark: colorScheme == .dark)
+                .toolbarGlow(over: Color(nsColor: LitheTheme.nsColor(.titlebar, isDark: colorScheme == .dark)))
+        )
         .sheet(item: $newBranchReference) { reference in
             TopBarNewBranchDialog(reference: reference) { name, checkout in
                 Task {
@@ -579,6 +604,10 @@ struct WorkbenchView: View {
         settings.colorTheme == .lithe && colorScheme == .dark && !model.workbenchBackgroundFeature.hasImage
     }
 
+    private var currentProjectColorIndex: Int {
+        ProjectIdentityAppearance.colorIndex(for: model.workspaceURL)
+    }
+
     private var frameChromeBackground: Color {
         model.workbenchBackgroundFeature.hasImage || usesIDEAFrameExperiment ? .clear : LitheTheme.titlebar
     }
@@ -712,8 +741,12 @@ struct WorkbenchView: View {
                     branch: false
                 )
             } label: {
-                HStack(spacing: 8) {
-                    LitheLogo(size: 24)
+                HStack(spacing: 6) {
+                    ProjectAvatarBadge(
+                        name: model.projectName,
+                        colorIndex: currentProjectColorIndex,
+                        size: WorkbenchTopBarMetrics.projectAvatarSize
+                    )
 
                     Text(model.projectName)
                         .font(.system(size: 13, weight: .semibold))
@@ -724,8 +757,9 @@ struct WorkbenchView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .padding(.horizontal, 8)
-                .frame(height: 32)
+                .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
+                .padding(.trailing, 10)
+                .frame(height: 30)
                 .litheRowHover(
                     isActive: isProjectSwitcherPresented,
                     cornerRadius: 6,
@@ -791,7 +825,7 @@ struct WorkbenchView: View {
             backgroundPickerButton
 
         }
-        .padding(.leading, 76)
+        .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
@@ -2139,6 +2173,8 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     let surrounding: Color
     let roundsCorners: Bool
     let showsFrameGradient: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -2178,7 +2214,14 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     private func notch(_ corner: WorkbenchPaneCornerGeometry.Corner, offset: CGPoint) -> some View {
         let shape = WorkbenchPaneCornerNotch(corner: corner)
         if showsFrameGradient {
-            shape.fill(WorkbenchFrameGradient.fill(offset: offset, size: WorkbenchWorkspaceMetrics.paneCornerRadius))
+            shape.fill(WorkbenchFrameGradient.color(
+                glow: toolbarGlow,
+                background: Color(nsColor: LitheTheme.nsColor(.titlebar, isDark: colorScheme == .dark)),
+                at: CGPoint(
+                    x: offset.x + WorkbenchWorkspaceMetrics.paneCornerRadius / 2,
+                    y: offset.y + WorkbenchWorkspaceMetrics.paneCornerRadius / 2
+                )
+            ))
                 .frame(width: WorkbenchWorkspaceMetrics.paneCornerRadius, height: WorkbenchWorkspaceMetrics.paneCornerRadius)
         } else {
             shape.fill(surrounding)
@@ -2312,13 +2355,38 @@ private struct WorkbenchBackgroundImageView: View {
     let opacity: Double
     let showsIDEAFrameGradient: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
 
     var body: some View {
         ZStack {
             LitheTheme.window
 
             if showsIDEAFrameGradient {
-                WorkbenchFrameGradient.fill()
+                LitheTheme.titlebar
+                    .overlay(alignment: .topLeading) {
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [LitheTheme.titlebar, toolbarGlow],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: WorkbenchTopBarMetrics.projectAvatarCenterX)
+                            LinearGradient(
+                                colors: [toolbarGlow, LitheTheme.titlebar],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: WorkbenchFrameGradient.width)
+                        }
+                        .frame(height: WorkbenchFrameGradient.height)
+                        .overlay {
+                            LinearGradient(
+                                colors: [.clear, LitheTheme.titlebar],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                    }
             }
 
             if let image {

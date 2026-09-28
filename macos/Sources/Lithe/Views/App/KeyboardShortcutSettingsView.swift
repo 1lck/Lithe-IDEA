@@ -54,11 +54,20 @@ struct KeyboardShortcutSettingsView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text("macOS")
-                .font(.system(size: 12.5, weight: .medium))
-                .frame(width: 190, height: 28, alignment: .leading)
-                .padding(.horizontal, 9)
-                .litheSettingsControlChrome()
+            LitheSettingsSelect(
+                selection: Binding(
+                    get: { feature.selectedPreset },
+                    set: { preset in
+                        cancelEditing()
+                        selectedCommandID = nil
+                        feature.selectPreset(preset)
+                    }
+                ),
+                options: KeyboardShortcutPreset.allCases,
+                width: 200,
+                accessibilityLabel: "Keymap",
+                title: { $0.title }
+            )
             Menu {
                 Button("Restore All Defaults") {
                     cancelEditing()
@@ -322,6 +331,7 @@ struct KeyboardShortcutSettingsView: View {
     }
 
     private func cancelEditing() {
+        feature.endRecording()
         editingTarget = nil
         validationIssue = nil
     }

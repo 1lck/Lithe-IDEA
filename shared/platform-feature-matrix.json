@@ -61,7 +61,9 @@
         "evidence": [
           "macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift",
           "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
-          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift"
+          "macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift",
+          "macos/Resources/IDEAIcons/toolwindows/toolWindowAgent.svg",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift"
         ]
       },
       "windows": {
@@ -72,7 +74,7 @@
         ]
       },
       "owner": "Agent",
-      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。"
+      "verification": "使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。 Agent 侧栏入口使用对话气泡加星光的专用线性图标；在深浅主题、选中与未选中状态下检查可辨识性。"
     },
     {
       "id": "agent-conversation-history",
@@ -134,7 +136,8 @@
         "evidence": [
           "macos/Sources/LitheAgentConversationModule",
           "macos/Sources/Lithe/Views/Agent",
-          "rust/lithe-agent-host"
+          "rust/lithe-agent-host",
+          "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -147,7 +150,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
     },
     {
       "id": "agent-file-references",
@@ -1901,7 +1904,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "macOS 从设置 → 快捷键打开分类树，检查初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽点击编辑，通过工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能能访问这些操作；按命令名称、ID 和按键搜索，修改跳转到实现的快捷键、制造冲突并恢复默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。",
+      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。",
       "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
@@ -1950,7 +1953,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Onboarding",
-      "verification": "清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导。"
+      "verification": "清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导；在 macOS 深色与浅色模式检查欢迎页布局、颜色和交互，确认默认及最小内容尺寸均为 800×650、可向屏幕可用区域放大，左下角齿轮菜单采用设置页下拉框配色并可进入设置与检查更新。"
     },
     {
       "id": "command-palette",
@@ -2004,7 +2007,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。"
     },
     {
       "id": "workbench-activity-tooltips",
@@ -2220,7 +2223,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从菜单或欢迎页手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
     },
     {
       "id": "updates-failure-rollback",
