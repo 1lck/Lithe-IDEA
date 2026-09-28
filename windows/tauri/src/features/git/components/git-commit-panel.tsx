@@ -183,7 +183,7 @@ const GitCommitPanel = ({
 
   const handleRetry = () => {
     const previous = batch.session;
-    if (!previous || isStaging || !isCurrentWorkspace) return;
+    if (!previous?.canRetry || isStaging || !isCurrentWorkspace) return;
     setError(null);
     return workflow.prepare({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
@@ -275,7 +275,7 @@ const GitCommitPanel = ({
             })}
             {!isCommitting && (
               <div className="flex flex-wrap gap-2">
-                {!batch.session.succeeded && (
+                {batch.session.canRetry && (
                   <Button
                     size="xs"
                     onClick={() => void handleRetry()}
