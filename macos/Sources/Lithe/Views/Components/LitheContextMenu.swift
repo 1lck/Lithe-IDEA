@@ -148,7 +148,6 @@ private final class LitheContextMenuSelection: ObservableObject {
 }
 
 private struct LitheContextMenuContent: View {
-    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject var selection: LitheContextMenuSelection
     let width: CGFloat
     let submenuWidth: CGFloat
@@ -209,22 +208,21 @@ private struct LitheContextMenuContent: View {
         .frame(width: width, height: min(LitheContextMenuPresenter.menuHeight(for: items, settingsStyle: settingsStyle), maximumHeight))
         .background {
             RoundedRectangle(cornerRadius: settingsStyle ? 8 : LitheTheme.Metrics.contextMenuCornerRadius)
-                .fill(settingsStyle
-                      ? (colorScheme == .dark ? Color(red: 38 / 255, green: 40 / 255, blue: 44 / 255) : .white)
-                      : LitheTheme.contextMenuBackground)
+                .fill(settingsStyle ? LitheTheme.settingsPopupBackground : LitheTheme.contextMenuBackground)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: settingsStyle ? 8 : LitheTheme.Metrics.contextMenuCornerRadius)
-                .stroke(settingsStyle
-                        ? (colorScheme == .dark ? Color(red: 76 / 255, green: 79 / 255, blue: 86 / 255)
-                           : Color(red: 233 / 255, green: 234 / 255, blue: 238 / 255))
-                        : LitheTheme.panelBorder, lineWidth: 1)
+            if settingsStyle {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(LitheTheme.settingsPopupBorder, lineWidth: 1)
+            } else {
+                RoundedRectangle(cornerRadius: LitheTheme.Metrics.contextMenuCornerRadius)
+                    .stroke(LitheTheme.panelBorder, lineWidth: 1)
+            }
         }
     }
 }
 
 private struct LitheContextMenuRow: View {
-    @Environment(\.colorScheme) private var colorScheme
     let item: LitheContextMenuItem
     let action: (() -> Void)?
     let onSubmenuHover: ((Bool) -> Void)?
@@ -274,7 +272,7 @@ private struct LitheContextMenuRow: View {
                 Text(LocalizedStringKey(item.title))
                     .font(settingsStyle ? .system(size: 12.5) : Font(LitheContextMenuMetrics.itemFont))
                     .foregroundStyle(isHovering
-                                     ? (settingsStyle ? (colorScheme == .dark ? .white : .black) : LitheTheme.toolWindowSelectedText)
+                                     ? (settingsStyle ? LitheTheme.settingsSelectionText : LitheTheme.toolWindowSelectedText)
                                      : LitheTheme.primaryText)
                     .lineLimit(1)
 
@@ -296,10 +294,7 @@ private struct LitheContextMenuRow: View {
             .background {
                 RoundedRectangle(cornerRadius: settingsStyle ? 4 : 5, style: .continuous)
                     .fill(isHovering
-                          ? (settingsStyle
-                             ? (colorScheme == .dark ? Color(red: 42 / 255, green: 67 / 255, blue: 113 / 255)
-                                : Color(red: 208 / 255, green: 223 / 255, blue: 254 / 255))
-                             : LitheTheme.selection)
+                          ? (settingsStyle ? LitheTheme.settingsSelection : LitheTheme.selection)
                           : .clear)
             }
             .padding(.horizontal, settingsStyle ? 6 : 5)

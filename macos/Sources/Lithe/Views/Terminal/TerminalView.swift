@@ -81,32 +81,12 @@ struct TerminalView: View {
                 }
             )
 
-            Menu {
-                if let session = model.activeToolTerminalSession {
-                    Button("Interrupt", action: session.interrupt)
-                    Button("Restart") {
-                        session.restart()
-                        session.focus()
-                    }
-                    .disabled(session.isManagedProcess)
-                    Button("Clear", action: session.clear)
-                    Divider()
-                    Button("Move to Editor") {
-                        model.moveTerminalToEditor(session.id)
-                    }
-                    Button("Close Terminal") {
-                        model.requestCloseTerminalSession(session)
-                    }
-                } else {
-                    Button("No Terminal Sessions") {}
-                        .disabled(true)
-                }
+            Button {
+                showTerminalActionsMenu()
             } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16,
                               fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
             }
-            .menuStyle(.button)
-            .menuIndicator(.hidden)
             .litheToolbarIconButton()
             .padding(.horizontal, 2)
             .help("Terminal actions")
@@ -254,10 +234,6 @@ struct TerminalView: View {
     }
 
     private func showShellMenu() {
-        guard let window = NSApp.keyWindow else { return }
-        let screenPoint = NSApp.currentEvent.flatMap { event in
-            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
-        } ?? NSPoint(x: window.frame.minX + 160, y: window.frame.maxY - 80)
         var items: [LitheContextMenuItem] = [
             .action("New Default Terminal") { _ = model.createTerminalSession() }
         ]
@@ -271,6 +247,32 @@ struct TerminalView: View {
             .separator,
             .action("Detect Installed Shells") { feature.refreshAvailableShells() }
         ]
+        showPopupMenu(items)
+    }
+
+    private func showTerminalActionsMenu() {
+        guard let session = model.activeToolTerminalSession else {
+            showPopupMenu([.action("No Terminal Sessions", isEnabled: false, action: {})])
+            return
+        }
+        showPopupMenu([
+            .action("Interrupt", action: session.interrupt),
+            .action("Restart", isEnabled: !session.isManagedProcess) {
+                session.restart()
+                session.focus()
+            },
+            .action("Clear", action: session.clear),
+            .separator,
+            .action("Move to Editor") { model.moveTerminalToEditor(session.id) },
+            .action("Close Terminal") { model.requestCloseTerminalSession(session) }
+        ])
+    }
+
+    private func showPopupMenu(_ items: [LitheContextMenuItem]) {
+        guard let window = NSApp.keyWindow else { return }
+        let screenPoint = NSApp.currentEvent.flatMap { event in
+            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
+        } ?? NSPoint(x: window.frame.minX + 160, y: window.frame.maxY - 80)
         LitheContextMenuPresenter.shared.show(
             items: items,
             at: screenPoint,
