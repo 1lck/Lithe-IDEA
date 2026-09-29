@@ -30,6 +30,7 @@ private enum ProjectSidebarContent: String, CaseIterable, Identifiable {
 
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @Environment(\.locale) private var locale
     let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
@@ -186,18 +187,8 @@ struct ProjectSidebarView: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(ProjectSidebarContent.allCases) { content in
-                    Button {
-                        selectedContent = content
-                    } label: {
-                        if selectedContent == content {
-                            Label(LocalizedStringKey(content.title), systemImage: "checkmark")
-                        } else {
-                            Text(LocalizedStringKey(content.title))
-                        }
-                    }
-                }
+            Button {
+                showProjectViewMenu()
             } label: {
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(selectedContent.title))
@@ -213,9 +204,7 @@ struct ProjectSidebarView: View {
                 .frame(height: 28)
                 .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .tint(LitheTheme.primaryText)
+            .buttonStyle(.plain)
             .fixedSize()
             .help("Switch project view")
             .accessibilityIdentifier("project-sidebar-view-selector")
@@ -270,11 +259,33 @@ struct ProjectSidebarView: View {
                 .help("Refresh")
             }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, 8)
+        .padding(.trailing, 12)
         .frame(height: 39)
         .contentShape(Rectangle())
         .onHover { isHeaderHovered = $0 }
         .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
+    }
+
+    private func showProjectViewMenu() {
+        guard let window = NSApp.keyWindow else { return }
+        let screenPoint = NSApp.currentEvent.flatMap { event in
+            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
+        } ?? NSPoint(x: window.frame.minX + 28, y: window.frame.maxY - 60)
+        let items = ProjectSidebarContent.allCases.map { content in
+            LitheContextMenuItem.action(
+                content.title,
+                systemImage: selectedContent == content ? "checkmark" : nil,
+                action: { selectedContent = content }
+            )
+        }
+        LitheContextMenuPresenter.shared.show(
+            items: items,
+            at: screenPoint,
+            appearance: window.effectiveAppearance,
+            locale: locale,
+            settingsStyle: true
+        )
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {
