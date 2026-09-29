@@ -734,6 +734,29 @@
       "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。"
     },
     {
+      "id": "git-explorer-context-actions",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "项目文件树右键 Git 操作：比对单文件工作区/暂存区 Diff、添加（暂存）当前文件、提交当前文件；目录右键打开所属仓库的变更面板",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/file-explorer/hooks/use-file-explorer-context-menu.tsx",
+          "windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "verification": "在文件树对修改、未跟踪、已暂存文件右键：Show Diff 打开该文件的工作区或暂存区 Diff；Add 将该文件加入暂存区并更新状态；Commit File… 暂存该文件并聚焦源代码管理提交面板。目录右键 Show Diff 切换到所属仓库的变更面板。无变更的干净文件不显示 Git 子菜单。"
+    },
+    {
       "id": "git-history",
       "area": "版本控制",
       "group": "Git",
