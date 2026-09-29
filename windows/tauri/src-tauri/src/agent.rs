@@ -451,14 +451,59 @@ mod tests {
 
     /// Path of the ACP fixture the process-tree tests spawn. It is a regular
     /// binary, so the suite has it without enabling `test-support`.
+    ///
+    /// `cargo test` emits only a libtest artifact for a `[[bin]]` target, so a
+    /// target directory that was never built with `cargo build` has no
+    /// `fake-acp-adapter.exe` next to `deps/`; spawning it then failed with the
+    /// host's "The system cannot find the file specified". Build the fixture
+    /// once when it is missing, so a full suite, a filtered
+    /// `cargo test -p lithe-windows agent::`, and the timing harness all work
+    /// from a clean checkout.
     #[cfg(windows)]
     fn fixture_path() -> PathBuf {
-        let test_binary = std::env::current_exe().expect("test binary path");
-        test_binary
-            .parent()
-            .and_then(Path::parent)
-            .expect("target directory")
-            .join("fake-acp-adapter.exe")
+        use std::process::Command;
+        use std::sync::OnceLock;
+
+        static FIXTURE: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+        let built = FIXTURE.get_or_init(|| {
+            let test_binary = std::env::current_exe().expect("test binary path");
+            let profile_directory = test_binary
+                .parent()
+                .and_then(Path::parent)
+                .expect("target directory");
+            let fixture = profile_directory.join("fake-acp-adapter.exe");
+            if fixture.exists() {
+                return Ok(fixture);
+            }
+            let mut build = Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
+            build
+                .arg("build")
+                .arg("--manifest-path")
+                .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml"))
+                .arg("--bin")
+                .arg("fake-acp-adapter");
+            // Keep the build in the directory the tests were launched from, which
+            // is not the default one when the caller passes `--target-dir`.
+            if matches!(
+                profile_directory.file_name().and_then(|name| name.to_str()),
+                Some("debug") | Some("release")
+            ) {
+                if let Some(target_directory) = profile_directory.parent() {
+                    build.arg("--target-dir").arg(target_directory);
+                }
+            }
+            let output = build
+                .output()
+                .map_err(|error| format!("the fixture adapter could not be built: {error}"))?;
+            if !output.status.success() {
+                return Err(format!(
+                    "the fixture adapter could not be built: {}",
+                    String::from_utf8_lossy(&output.stderr).trim()
+                ));
+            }
+            Ok(fixture)
+        });
+        built.clone().unwrap_or_else(|message| panic!("{message}"))
     }
 
     /// Where the fixture records the process ids of its wrapper and grandchild.
