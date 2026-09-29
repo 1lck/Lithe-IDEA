@@ -214,6 +214,7 @@ struct ProjectSidebarView: View {
                 .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .tint(LitheTheme.primaryText)
             .fixedSize()
             .help("Switch project view")
