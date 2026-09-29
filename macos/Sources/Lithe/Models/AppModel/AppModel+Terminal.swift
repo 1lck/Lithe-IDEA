@@ -58,7 +58,11 @@ extension AppModel {
             }
             return nil
         }
-        let session = feature.createSession(in: workspaceURL, shellPath: shellPath ?? settings.terminalShellPath)
+        let session = feature.createSession(
+            in: workspaceURL,
+            shellPath: shellPath ?? settings.terminalShellPath,
+            preferredToolTabTitle: shellPath.map { URL(fileURLWithPath: $0).lastPathComponent }
+        )
         configureTerminalSession(session)
         terminalPlacementFeature.registerSession(session.id)
         showToolWindow(.terminal)

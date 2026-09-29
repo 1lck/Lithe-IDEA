@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 import LitheTerminalModule
 
 struct TerminalView: View {
     @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
+    @Environment(\.locale) private var locale
     @State private var terminalToolActive = false
 
     var body: some View {
@@ -58,22 +60,12 @@ struct TerminalView: View {
                     .padding(.horizontal, 2)
                     .help("New terminal session")
 
-                    Menu {
-                        Button("New Default Terminal") { _ = model.createTerminalSession() }
-                        Divider()
-                        ForEach(feature.availableShells, id: \.self) { shell in
-                            Button("New \(shellLabel(for: shell))") {
-                                _ = model.createTerminalSession(shellPath: shell)
-                            }
-                        }
-                        Divider()
-                        Button("Detect Installed Shells") { feature.refreshAvailableShells() }
+                    Button {
+                        showShellMenu()
                     } label: {
                         LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                                       fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                     }
-                    .menuStyle(.button)
-                    .menuIndicator(.hidden)
                     .litheToolbarIconButton()
                     .padding(.horizontal, 2)
                     .help("Detect shells and create a new terminal")
@@ -214,9 +206,7 @@ struct TerminalView: View {
     }
 
     private func terminalTabTitle(for session: TerminalSession) -> String {
-        guard !session.isManagedProcess else { return feature.terminalTitle(for: session) }
-        guard let index = model.toolTerminalSessions.firstIndex(where: { $0.id == session.id }) else { return "Local" }
-        return index == 0 ? "Local" : "Local (\(index + 1))"
+        feature.toolTabTitle(for: session, orderedSessions: model.toolTerminalSessions)
     }
 
     @ViewBuilder
@@ -261,6 +251,33 @@ struct TerminalView: View {
     private func shellLabel(for path: String) -> String {
         let name = URL(fileURLWithPath: path).lastPathComponent
         return path == "/bin/\(name)" ? name : "\(name) (\(path))"
+    }
+
+    private func showShellMenu() {
+        guard let window = NSApp.keyWindow else { return }
+        let screenPoint = NSApp.currentEvent.flatMap { event in
+            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
+        } ?? NSPoint(x: window.frame.minX + 160, y: window.frame.maxY - 80)
+        var items: [LitheContextMenuItem] = [
+            .action("New Default Terminal") { _ = model.createTerminalSession() }
+        ]
+        if !feature.availableShells.isEmpty {
+            items.append(.separator)
+            items += feature.availableShells.map { shell in
+                .action("New \(shellLabel(for: shell))") { _ = model.createTerminalSession(shellPath: shell) }
+            }
+        }
+        items += [
+            .separator,
+            .action("Detect Installed Shells") { feature.refreshAvailableShells() }
+        ]
+        LitheContextMenuPresenter.shared.show(
+            items: items,
+            at: screenPoint,
+            appearance: window.effectiveAppearance,
+            locale: locale,
+            settingsStyle: true
+        )
     }
 }
 

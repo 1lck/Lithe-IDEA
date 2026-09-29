@@ -1518,7 +1518,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效，以及环境变量、工作目录和不可用 Shell 的提示。"
+      "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效；macOS 新建终端下拉框复用 Project 下拉框的共享菜单样式，菜单操作与原有 Shell 选择、重新检测功能一致；验证环境变量、工作目录和不可用 Shell 的提示。"
     },
     {
       "id": "terminal-sessions",
@@ -1540,7 +1540,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；macOS 默认标签依次显示 Local、Local (2)、Local (3)，终端与 Git Log 标签悬停有反馈，点击各自区域时选中标签背景显示活动色、点击外部时显示非活动色，文字始终保持相同颜色与常规字重；macOS 关闭终端会话直接停止进程，最后一个底部终端关闭后收起面板，编辑区的其他终端会话继续运行；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；macOS 默认标签依次显示 Local、Local (2)、Local (3)，从下拉框选择 zsh 后依次显示 zsh、zsh (2)，不同 Shell 分别编号；终端与 Git Log 标签悬停有反馈，点击各自区域时选中标签背景显示活动色、点击外部时显示非活动色，文字始终保持相同颜色与常规字重；macOS 关闭终端会话直接停止进程，最后一个底部终端关闭后收起面板，编辑区的其他终端会话继续运行；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
     },
     {
       "id": "terminal-interaction",
