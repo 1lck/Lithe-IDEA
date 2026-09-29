@@ -66,3 +66,20 @@ struct LitheToolWindowTabCloseButton: View {
         .accessibilityLabel("Close tab")
     }
 }
+
+/// Shared Islands header separator; retain Lithe's requested 1pt side inset.
+struct LitheToolWindowHeaderDivider: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        Rectangle().fill(borderColor).frame(height: 1)
+            .padding(.horizontal, 1)
+    }
+
+    private var borderColor: Color {
+        guard LitheTheme.activeTheme == .lithe else { return LitheTheme.divider }
+        // Islands Dark/Light: ToolWindow.Header.borderColor -> tool-window-border.
+        return colorScheme == .dark ? Color(red: 38/255, green: 40/255, blue: 44/255)
+                                    : Color(red: 233/255, green: 234/255, blue: 238/255)
+    }
+}

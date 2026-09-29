@@ -70,7 +70,7 @@ struct GitLogView: View {
     /// only hashes and timestamps use a monospaced face. Keeping these values
     /// together makes the Git surface read as one coherent tool window.
     private enum GitVisual {
-        static let title = Font.system(size: 13.5, weight: .semibold)
+        static let title = Font.system(size: 13, weight: .bold)
         static let toolbar = Font.system(size: 12.5, weight: .regular)
         static let section = Font.system(size: 13, weight: .medium)
         static let body = Font.system(size: 13, weight: .regular)
@@ -392,28 +392,18 @@ struct GitLogView: View {
     }
 
     private var toolWindowHeader: some View {
-        HStack(spacing: 4) {
-            LitheIDEAIcon(
-                resourcePath: "toolwindows/toolWindowVcs.svg",
-                size: 14,
-                fallbackSystemImage: "point.3.connected.trianglepath.dotted"
-            )
-            .foregroundStyle(LitheTheme.secondaryText)
-
+        HStack(spacing: 0) {
             Text("Git")
                 .font(GitVisual.title)
                 .foregroundStyle(LitheTheme.primaryText)
-                .padding(.trailing, 4)
+                .padding(.trailing, 16)
 
-            gitToolTabButton(
-                .log,
-                title: "Log: \(feature.isShowingAllGitReferences ? Text("All References") : Text(verbatim: feature.selectedGitReference?.shortName ?? feature.currentBranch))"
-            )
-            gitToolTabButton(
-                .worktrees,
-                title: "Worktrees",
-                detail: feature.gitRepositoryRoot?.path
-            )
+            gitToolTabButton(.log, title: "Log")
+                .help(feature.isShowingAllGitReferences
+                    ? Text("All References")
+                    : Text(verbatim: feature.selectedGitReference?.shortName ?? feature.currentBranch))
+            gitToolTabButton(.worktrees, title: "Worktrees")
+                .help(Text(verbatim: feature.gitRepositoryRoot?.path ?? ""))
             gitToolTabButton(.console, title: "Console")
 
             if selectedGitToolTab == .log, !feature.isShowingAllGitReferences {
@@ -421,11 +411,14 @@ struct GitLogView: View {
                     selectedGitToolTab = .log
                     Task { await feature.showAllGitReferences() }
                 } label: {
-                    Image(systemName: "plus")
+                    LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16, fallbackSystemImage: "plus", preservesOriginalColors: true)
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
+                .padding(.horizontal, 2)
                 .help("Show all references")
             }
+
+            Spacer(minLength: 12)
 
             Menu {
                 Button("Fetch All Remotes") {
@@ -446,38 +439,35 @@ struct GitLogView: View {
                     workbench.selectedSidebar = .changes
                 }
             } label: {
-                LitheIDEAIcon(resourcePath: "actions/more.svg", size: 15, fallbackSystemImage: "ellipsis")
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
+                LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16, fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
             }
-            .menuStyle(.borderlessButton)
-            .lithePointer()
-            .frame(width: 28, height: 28)
+            .menuStyle(.button)
+            .menuIndicator(.hidden)
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Git tool window actions")
-
-            Spacer(minLength: 12)
 
             Button {
                 workbench.setVisibility(.gitLog, isVisible: false)
             } label: {
-                Image(systemName: "minus")
+                LitheIDEAIcon(resourcePath: "expui/general/hide.svg", size: 16, fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Hide Git tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: 32)
+        .padding(.trailing, 8)
+        .frame(height: 41)
         .background(background.hasImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            LitheToolWindowHeaderDivider()
         }
     }
 
     private func gitToolTabButton(
         _ tab: GitToolTab,
-        title: LocalizedStringKey,
-        detail: String? = nil
+        title: LocalizedStringKey
     ) -> some View {
         let isSelected = selectedGitToolTab == tab
         let showsCloseButton = isSelected && tab == .console
@@ -493,23 +483,14 @@ struct GitLogView: View {
                     Task { await feature.loadGitConsoleIfNeeded() }
                 }
             } label: {
-                HStack(spacing: 5) {
-                    Text(title)
-                    if let detail, !detail.isEmpty {
-                        Text("·")
-                            .foregroundStyle(LitheTheme.tertiaryText)
-                        Text(detail)
-                            .foregroundStyle(LitheTheme.secondaryText)
-                            .truncationMode(.middle)
-                    }
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-                .lineLimit(1)
-                .padding(.leading, 8)
-                .padding(.trailing, showsCloseButton ? 3 : 8)
-                .frame(height: 28)
-                .contentShape(Rectangle())
+                Text(title)
+                    .font(.system(size: 13))
+                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .lineLimit(1)
+                    .padding(.leading, 8)
+                    .padding(.trailing, showsCloseButton ? 3 : 8)
+                    .frame(height: 28)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -526,6 +507,7 @@ struct GitLogView: View {
             isActive: controlActiveState == .key
                 && (gitToolFocused || gitLogSearchFocused || gitLogCommitListFocused)
         ))
+        .padding(.horizontal, 4)
     }
 
     private var gitConsolePane: some View {
