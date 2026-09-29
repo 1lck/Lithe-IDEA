@@ -1,6 +1,8 @@
 use serde_json::{json, Map, Value};
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use tauri::ipc::Channel;
 use tauri::Manager;
 
 static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
@@ -11,12 +13,16 @@ pub async fn platform_invoke(
     command: String,
     args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
+    agent_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
     if command.starts_with("ai_commit_") {
         return crate::ai_commit::dispatch(webview.app_handle().clone(), &command, args).await;
     }
-    let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview));
+    let git_events = git_events.map(|id| id.channel_on::<_, Value>(webview.clone()));
+    // An adapter install reports its npm transfer on its own channel, so the
+    // panel can show progress for as long as the download runs.
+    let agent_events = agent_events.map(|id| id.channel_on::<_, Value>(webview));
     let preserve_history_rewrite = is_reviewed_history_rewrite(&command, &args);
     let preserve_stash_restore = command == "git_pull"
         && args
@@ -42,35 +48,29 @@ pub async fn platform_invoke(
     if git_execution.is_object() {
         git_execution["interactive"] = json!(interactive_git && git_events.is_some());
     }
-    let request = json!({
+    let mut request = json!({
         "id": operation_id,
         "operationId": operation_id,
-        "timeoutMilliseconds": if interactive_git { 900_000 } else { 30_000 },
         "gitExecution": git_execution,
         "command": core_command,
         "payload": payload
-    })
-    .to_string();
+    });
+    if let Some(timeout) = envelope_timeout_milliseconds(&core_command, interactive_git) {
+        request["timeoutMilliseconds"] = json!(timeout);
+    }
+    let request = request.to_string();
+    let events = shared_event_sink(
+        if observe_git { git_events } else { None },
+        if observes_agent_install(&core_command) {
+            agent_events
+        } else {
+            None
+        },
+    );
 
     let response = tauri::async_runtime::spawn_blocking(move || {
-        if observe_git {
-            if let Some(channel) = git_events {
-                let receiver_closed = std::sync::atomic::AtomicBool::new(false);
-                return lithe_core::execute_json_with_events(
-                    &request,
-                    std::sync::Arc::new(move |event| match serde_json::from_str::<Value>(event) {
-                        Ok(event) => {
-                            if !receiver_closed.load(Ordering::Relaxed) {
-                                if let Err(error) = channel.send(event) {
-                                    receiver_closed.store(true, Ordering::Relaxed);
-                                    eprintln!("Git console receiver closed: {error}");
-                                }
-                            }
-                        }
-                        Err(error) => eprintln!("Invalid Git execution event: {error}"),
-                    }),
-                );
-            }
+        if let Some(events) = events {
+            return lithe_core::execute_json_with_events(&request, events);
         }
         lithe_core::execute_json(&request)
     })
@@ -109,6 +109,68 @@ fn observes_git_execution(command: &str) -> bool {
     command.starts_with("git.")
         && command != "git.authRespond"
         && command != "git.consolePresentation"
+}
+
+/// Kind the shared Core uses for npm transfer progress. `agent.install` and
+/// `agent.installCli` are the only commands that publish it.
+const AGENT_INSTALL_PROGRESS_KIND: &str = "agentInstallProgress";
+
+fn observes_agent_install(command: &str) -> bool {
+    matches!(command, "agent.install" | "agent.installCli")
+}
+
+/// Envelope deadline for one shared request.
+///
+/// Git operations are expected to answer quickly. An adapter install runs the
+/// user's npm for as long as the download takes and no interface can cancel it,
+/// so it carries no deadline here, exactly as macOS runs `agent.*`; the shared
+/// host bounds the install itself.
+fn envelope_timeout_milliseconds(core_command: &str, interactive_git: bool) -> Option<u64> {
+    if observes_agent_install(core_command) {
+        return None;
+    }
+    Some(if interactive_git { 900_000 } else { 30_000 })
+}
+
+/// Destinations for the shared events one request can publish.
+///
+/// Git execution events and Agent install progress come from different commands
+/// and never share a request, so the event kind selects the channel. A request
+/// without a channel keeps the plain path and observes nothing.
+fn shared_event_sink(
+    git_events: Option<Channel<Value>>,
+    agent_events: Option<Channel<Value>>,
+) -> Option<Arc<dyn Fn(&str) + Send + Sync>> {
+    if git_events.is_none() && agent_events.is_none() {
+        return None;
+    }
+    // A closed receiver must not make every later event report a failure.
+    let git_closed = AtomicBool::new(false);
+    let agent_closed = AtomicBool::new(false);
+    Some(Arc::new(move |event: &str| {
+        let parsed: Value = match serde_json::from_str(event) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                eprintln!("Invalid shared execution event: {error}");
+                return;
+            }
+        };
+        let is_agent_progress =
+            parsed.get("kind").and_then(Value::as_str) == Some(AGENT_INSTALL_PROGRESS_KIND);
+        let (closed, channel) = if is_agent_progress {
+            (&agent_closed, &agent_events)
+        } else {
+            (&git_closed, &git_events)
+        };
+        if closed.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some(channel) = channel else { return };
+        if let Err(error) = channel.send(parsed) {
+            closed.store(true, Ordering::Relaxed);
+            eprintln!("Shared execution event receiver closed: {error}");
+        }
+    }))
 }
 
 fn core_response(
@@ -765,6 +827,84 @@ mod tests {
         assert!(!super::observes_git_execution("git.authRespond"));
         assert!(!super::observes_git_execution("git.consolePresentation"));
         assert!(!super::observes_git_execution("workspace.scan"));
+    }
+
+    #[test]
+    fn only_adapter_installs_publish_install_progress() {
+        assert!(super::observes_agent_install("agent.install"));
+        assert!(super::observes_agent_install("agent.installCli"));
+        assert!(!super::observes_agent_install("agent.uninstall"));
+        assert!(!super::observes_agent_install("agent.status"));
+        assert!(!super::observes_agent_install("git.status"));
+    }
+
+    #[test]
+    fn an_adapter_install_is_not_cut_off_by_the_default_envelope_deadline() {
+        // npm transfers take minutes and the shared host bounds the install
+        // itself, so a 30-second envelope deadline would cancel the download
+        // half way through.
+        assert_eq!(
+            super::envelope_timeout_milliseconds("agent.install", false),
+            None
+        );
+        assert_eq!(
+            super::envelope_timeout_milliseconds("agent.installCli", false),
+            None
+        );
+        assert_eq!(
+            super::envelope_timeout_milliseconds("agent.status", false),
+            Some(30_000)
+        );
+        assert_eq!(
+            super::envelope_timeout_milliseconds("git.status", false),
+            Some(30_000)
+        );
+        assert_eq!(
+            super::envelope_timeout_milliseconds("git.command", true),
+            Some(900_000)
+        );
+    }
+
+    #[test]
+    fn shared_events_reach_the_channel_that_asked_for_them() {
+        use serde_json::Value;
+        use std::sync::{Arc, Mutex};
+        use tauri::ipc::{Channel, InvokeResponseBody};
+
+        fn recorder() -> (Channel<Value>, Arc<Mutex<Vec<Value>>>) {
+            let captured = Arc::new(Mutex::new(Vec::new()));
+            let sink = Arc::clone(&captured);
+            let channel = Channel::<Value>::new(move |body| {
+                let InvokeResponseBody::Json(text) = body else {
+                    panic!("shared events are serialized as JSON");
+                };
+                let event = serde_json::from_str(&text).expect("a serialized shared event");
+                sink.lock().expect("recorder").push(event);
+                Ok(())
+            });
+            (channel, captured)
+        }
+
+        let (git_channel, git_events) = recorder();
+        let (agent_channel, agent_events) = recorder();
+        let sink = super::shared_event_sink(Some(git_channel), Some(agent_channel))
+            .expect("two channels produce a sink");
+        sink(r#"{"kind":"gitExecution","phase":"started"}"#);
+        sink(r#"{"kind":"agentInstallProgress","progress":{"stage":"downloading"}}"#);
+        assert_eq!(git_events.lock().unwrap()[0]["kind"], "gitExecution");
+        assert_eq!(
+            agent_events.lock().unwrap()[0]["progress"]["stage"],
+            "downloading"
+        );
+        assert_eq!(git_events.lock().unwrap().len(), 1);
+        assert_eq!(agent_events.lock().unwrap().len(), 1);
+
+        // A request only ever carries the channel its command publishes to.
+        let (agent_channel, agent_events) = recorder();
+        let sink = super::shared_event_sink(None, Some(agent_channel)).expect("one channel");
+        sink(r#"{"kind":"gitExecution","phase":"started"}"#);
+        assert!(agent_events.lock().unwrap().is_empty());
+        assert!(super::shared_event_sink(None, None).is_none());
     }
 
     #[test]
