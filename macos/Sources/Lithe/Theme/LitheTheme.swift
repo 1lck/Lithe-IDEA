@@ -360,6 +360,21 @@ enum LitheTheme {
     static var inputBackground: Color { adaptive(\.inputBackground) }
     static var inputBorder: Color { adaptive(\.inputBorder) }
     static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
+    static var searchFieldBackground: Color {
+        activeTheme == .lithe ? settingsControlBackground : inputBackground
+    }
+    static var searchFieldBorder: Color {
+        activeTheme == .lithe ? settingsSearchBorder : inputBorder
+    }
+    static var searchFieldPlaceholder: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            if activeTheme == .lithe {
+                return RGBA(isDark ? 0x6F737A : 0x818594).nsColor
+            }
+            return Palette.make(theme: activeTheme, isDark: isDark).secondaryText.nsColor
+        })
+    }
 
     // MARK: - 浮层
     static var popupBackground: Color { adaptive(\.popupBackground) }
@@ -669,22 +684,25 @@ private final class LithePointerCursor {
 
 // MARK: - 输入框样式
 
-/// 统一的搜索/文本输入外观：暗底 + 1pt 边框，聚焦时边框转 accent。
+/// IDEA New UI search fields use a 28pt height, 4pt corner radius, and a 2pt focus border.
 struct LitheSearchFieldStyle: ViewModifier {
     var isFocused: Bool
     var height: CGFloat = 28
 
     func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 4)
         content
-            .padding(.horizontal, 8)
+            .padding(.leading, 12)
+            .padding(.trailing, 9)
             .frame(height: height)
             .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .fill(LitheTheme.inputBackground)
+                shape.fill(LitheTheme.searchFieldBackground)
             )
             .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(isFocused ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder, lineWidth: 1)
+                shape.strokeBorder(
+                    isFocused ? LitheTheme.inputFocusBorder : LitheTheme.searchFieldBorder,
+                    lineWidth: isFocused ? 2 : 1
+                )
             }
     }
 }

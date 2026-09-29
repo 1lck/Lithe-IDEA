@@ -34,9 +34,14 @@ struct SearchSidebarView: View {
                     fallbackSystemImage: "magnifyingglass",
                     preservesOriginalColors: true
                 )
-                TextField("Search files and contents", text: $session.query)
+                TextField(
+                    "Search files and contents",
+                    text: $session.query,
+                    prompt: Text("Search files and contents")
+                        .foregroundColor(LitheTheme.searchFieldPlaceholder)
+                )
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13))
                     .focused($searchFocused)
                     .lineLimit(1)
                 if !session.query.isEmpty {
@@ -49,8 +54,10 @@ struct SearchSidebarView: View {
                             fallbackSystemImage: "xmark",
                             preservesOriginalColors: true
                         )
+                        .frame(width: 18, height: 22)
+                        .contentShape(Rectangle())
                     }
-                    .litheToolbarIconButton()
+                    .buttonStyle(.plain)
                     .help("Clear search")
                 }
                 Button {
@@ -174,9 +181,14 @@ struct SearchSidebarView: View {
                 .foregroundStyle(
                     searchOptions.fileMask.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent
                 )
-            TextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
+            TextField(
+                "File mask, e.g. *.java, *.kt",
+                text: $searchOptions.fileMask,
+                prompt: Text("File mask, e.g. *.java, *.kt")
+                    .foregroundColor(LitheTheme.searchFieldPlaceholder)
+            )
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(.system(size: 13))
                 .focused($fileMaskFocused)
                 .help("Comma-separated glob patterns. Empty searches every file.")
             if !searchOptions.fileMask.isEmpty {
@@ -189,8 +201,10 @@ struct SearchSidebarView: View {
                         fallbackSystemImage: "xmark",
                         preservesOriginalColors: true
                     )
+                    .frame(width: 18, height: 22)
+                    .contentShape(Rectangle())
                 }
-                .litheToolbarIconButton()
+                .buttonStyle(.plain)
                 .help("Clear file mask")
             }
         }
@@ -218,6 +232,8 @@ struct SearchSidebarView: View {
                 .litheRowHover()
         }
         .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .help("Search options")
     }
 }
