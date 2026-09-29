@@ -1303,3 +1303,6 @@
 "Waiting for subscription quota…" = "Waiting for subscription quota…";
 
 "ChatGPT sign-in was cancelled." = "ChatGPT sign-in was cancelled.";
+
+"Could not open HTML in browser" = "Could not open HTML in browser";
+"Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";

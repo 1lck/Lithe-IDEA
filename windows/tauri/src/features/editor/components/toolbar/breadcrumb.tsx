@@ -106,10 +106,12 @@ export default function Breadcrumb({
     if (!sourcePath || !canOpenHtmlInBrowser) return;
 
     try {
-      await invoke("open_file_external", { path: sourcePath });
+      await invoke("open_html_in_browser", { path: sourcePath });
     } catch (error) {
       console.error("Failed to open HTML in browser:", error);
-      toast.error(t("editor.openHtmlInBrowserFailed"));
+      toast.error(t("editor.openHtmlInBrowserFailed"), {
+        description: error instanceof Error ? error.message : String(error),
+      });
     }
   };
 

@@ -2097,7 +2097,7 @@ const catalogs = {
     "settings.general.cliUninstallFailed": "Failed to uninstall CLI: {error}",
     "settings.general.installCommandCopied": "Install command copied to clipboard",
     "settings.general.copyCommandFailed": "Failed to copy command: {error}",
-    "settings.general.latestVersion": "You're on the latest version",
+    "settings.general.latestVersion": "Lithe is up to date. Language extensions are updated separately.",
     "settings.general.reportTemplateCopied": "Report template copied",
     "settings.general.prepareReportFailed": "Failed to prepare bug report",
     "settings.general.bugReportTemplate":
@@ -6531,7 +6531,7 @@ const catalogs = {
     "settings.general.cliUninstallFailed": "卸载 CLI 失败：{error}",
     "settings.general.installCommandCopied": "安装命令已复制到剪贴板",
     "settings.general.copyCommandFailed": "复制命令失败：{error}",
-    "settings.general.latestVersion": "您使用的是最新版本",
+    "settings.general.latestVersion": "Lithe 主程序已是最新版本，语言扩展需单独更新。",
     "settings.general.reportTemplateCopied": "报告模板已复制",
     "settings.general.prepareReportFailed": "准备问题报告失败",
     "settings.general.bugReportTemplate":
