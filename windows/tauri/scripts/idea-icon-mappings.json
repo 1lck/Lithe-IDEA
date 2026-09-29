@@ -16,10 +16,6 @@
       "note": "no confident IntelliJ platform asset; lucide fallback"
     },
     {
-      "icon": "ArrowClockwiseIcon",
-      "source": "expui/general/redo.svg"
-    },
-    {
       "icon": "ArrowCounterClockwiseIcon",
       "source": "expui/general/undo.svg"
     },

@@ -15,7 +15,11 @@ function renderIcon(IconComponent: ElementType) {
 
 describe("application icon mappings", () => {
   test("exports the complete icon inventory", () => {
-    expect(iconEntries).toHaveLength(204);
+    expect(iconEntries).toHaveLength(205);
+  });
+
+  test("uses the shared refresh icon for clockwise refresh controls", () => {
+    expect(renderIcon(AppIcons.ArrowClockwiseIcon)).toBe(renderIcon(AppIcons.RefreshIcon));
   });
 
   test("avoids unintended help fallbacks", () => {

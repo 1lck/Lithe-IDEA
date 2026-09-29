@@ -1,10 +1,9 @@
+import { RotateCcw, RotateCw } from "lucide-react";
 import {
   CaretDownIcon as ChevronDown,
   FlipHorizontalIcon as FlipHorizontal,
   FlipVerticalIcon as FlipVertical,
   ImageIcon as Image,
-  ArrowCounterClockwiseIcon as RotateCcw,
-  ArrowClockwiseIcon as RotateCw,
   FloppyDiskIcon as Save,
   ArrowCounterClockwiseIcon as Undo2,
 } from "@/ui/icons";
