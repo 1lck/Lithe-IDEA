@@ -1996,7 +1996,8 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/window/components/title-bar/window-controls.tsx",
-          "windows/tauri/src/features/command-palette/constants/window-actions.tsx"
+          "windows/tauri/src/features/command-palette/constants/window-actions.tsx",
+          "windows/tauri/src/features/window/utils/window-actions.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
