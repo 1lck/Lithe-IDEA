@@ -488,15 +488,15 @@ struct GitLogView: View {
                 }
             } label: {
                 Text(title)
-                    .font(.system(size: 13))
-                    .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .padding(.leading, 8)
                     .padding(.trailing, showsCloseButton ? 3 : 8)
                     .frame(height: 28)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(LitheToolWindowTabButtonStyle())
 
             if showsCloseButton {
                 LitheToolWindowTabCloseButton {

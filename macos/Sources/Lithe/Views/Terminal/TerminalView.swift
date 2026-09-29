@@ -149,7 +149,7 @@ struct TerminalView: View {
                     fallbackTitle: title
                 )
             }
-            .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .foregroundStyle(LitheTheme.primaryText)
             .padding(.leading, 8)
             .padding(.trailing, 3)
             .frame(height: 28)

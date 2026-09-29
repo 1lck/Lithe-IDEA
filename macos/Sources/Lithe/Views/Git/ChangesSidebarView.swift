@@ -19,6 +19,7 @@ struct ChangesSidebarView: View {
     let copyPath: (URL, Bool) -> Void
     let showSettings: (SettingsCategory) -> Void
     @State private var selectedTab = CommitTab.commit
+    @State private var commitToolActive = false
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
     @State private var repositoryExpanded: [String: Bool] = [:]
@@ -72,6 +73,7 @@ struct ChangesSidebarView: View {
             }
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
+        .background(LitheToolWindowActivityTracker(isActive: $commitToolActive))
         .onAppear {
             selectRequestedStashIfNeeded()
             if let id = feature.selectedChange?.id {
@@ -150,12 +152,13 @@ struct ChangesSidebarView: View {
                     selectedTab = tab
                 } label: {
                     Text(LocalizedStringKey(tab.title))
-                        .font(.system(size: LitheTheme.Commit.toolbarFontSize, weight: tab == selectedTab ? .semibold : .regular))
+                        .font(.system(size: LitheTheme.Commit.toolbarFontSize, weight: .regular))
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
-                        .padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)
+                        .frame(height: 28)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LitheToolWindowTabButtonStyle())
+                .modifier(LitheToolWindowTabStyle(isSelected: tab == selectedTab, isActive: commitToolActive))
             }
             Spacer()
             GitPatchToolbar(feature: feature)
