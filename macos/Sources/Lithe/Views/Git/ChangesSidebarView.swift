@@ -36,7 +36,7 @@ struct ChangesSidebarView: View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
         VStack(spacing: 0) {
             tabHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            Rectangle().fill(LitheTheme.divider.opacity(0.62)).frame(height: 1)
 
             GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
@@ -156,9 +156,7 @@ struct ChangesSidebarView: View {
                         .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
                         .padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)
                         .litheRowHover(
-                            isActive: tab == selectedTab,
                             cornerRadius: LitheTheme.Metrics.cornerRadius,
-                            activeBackground: LitheTheme.subtleSelection,
                             hoverBackground: LitheTheme.hoverBackground
                         )
                 }
@@ -167,8 +165,8 @@ struct ChangesSidebarView: View {
             Spacer()
             GitPatchToolbar(feature: feature)
         }
-        .padding(.horizontal, 10)
-        .frame(height: 40)
+        .padding(.trailing, 10)
+        .frame(height: 39)
         .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
     }
 
@@ -188,7 +186,6 @@ struct ChangesSidebarView: View {
 
             VStack(spacing: 0) {
                 commitToolbar
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
                 LitheSplitPaneView(
                     axis: .vertical,

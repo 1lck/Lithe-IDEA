@@ -458,7 +458,7 @@ enum LitheTheme {
         static let areaMinimumHeight: CGFloat = 124
         static let panelPadding: CGFloat = 10
         static let toolbarFontSize: CGFloat = 12.5
-        static let tabItemHorizontalPadding: CGFloat = 7
+        static let tabItemHorizontalPadding: CGFloat = 12
         static let tabItemVerticalPadding: CGFloat = 6
         static let metadataFontSize: CGFloat = 12
         static let amendFontSize: CGFloat = 12.5
