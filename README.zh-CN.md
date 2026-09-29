@@ -110,20 +110,26 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 
 <p align="center">
   <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="双击 Shift 全局搜索">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Git 双栏 Diff 审查">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="使用 AI 自动生成 Commit Message">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="项目自动识别和一键运行配置">
+</p>
+
+<details>
+<summary>更多截图</summary>
+<br>
+
+<p align="center">
   <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F 全局搜索和替换">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Git 双栏 Diff 审查">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
   <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="自定义 AI Commit Message 格式">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="使用 AI 自动生成 Commit Message">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="从本机 AI 工具导入 API 配置">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
 </p>
 
 <p align="center">
@@ -137,18 +143,15 @@ Lithe 是一款主要面向 Java 和 Spring Boot 开发者的轻量级 IDEA 替�
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="项目自动识别和一键运行配置">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="按语言配置语言服务">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="多行编辑器标签">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="数据库连接工作台">
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="数据库 SQL 操作和表结构">
 </p>
+
+</details>
 
 ## 下载与安装
 
