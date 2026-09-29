@@ -468,7 +468,7 @@ enum LitheTheme {
 
     /// Commit tool-window values shared by the Changes sidebar and editor.
     enum Commit {
-        static let toolbarHeight: CGFloat = 32
+        static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
         static let areaMinimumHeight: CGFloat = 124
         static let panelPadding: CGFloat = 10

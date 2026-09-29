@@ -154,10 +154,6 @@ struct ChangesSidebarView: View {
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
                         .padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)
-                        .litheRowHover(
-                            cornerRadius: LitheTheme.Metrics.cornerRadius,
-                            hoverBackground: LitheTheme.hoverBackground
-                        )
                 }
                 .buttonStyle(.plain)
             }
@@ -562,7 +558,6 @@ struct ChangesSidebarView: View {
                     )
                 }
                 .padding(.horizontal, 8)
-                .padding(.top, 7)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
@@ -581,7 +576,7 @@ struct ChangesSidebarView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
