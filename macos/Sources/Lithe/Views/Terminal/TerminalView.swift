@@ -4,7 +4,7 @@ import LitheTerminalModule
 struct TerminalView: View {
     @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
-    @State private var terminalHasFocus = false
+    @State private var terminalToolActive = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,12 +22,14 @@ struct TerminalView: View {
             }
         )
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onAppear { refreshTerminalFocus() }
-        .onChange(of: model.activeToolTerminalSession?.id) { _ in refreshTerminalFocus() }
+        .background(LitheToolWindowActivityTracker(isActive: $terminalToolActive))
+        .onAppear {
+            terminalToolActive = (model.activeToolTerminalSession?.nativeView as? LitheTerminalView)?.hasFocus == true
+        }
         .onReceive(NotificationCenter.default.publisher(for: LitheTerminalView.focusDidChange)) { notification in
             guard let view = notification.object as? LitheTerminalView,
                   view === model.activeToolTerminalSession?.nativeView else { return }
-            terminalHasFocus = notification.userInfo?["focused"] as? Bool ?? false
+            if notification.userInfo?["focused"] as? Bool == true { terminalToolActive = true }
         }
     }
 
@@ -138,12 +140,13 @@ struct TerminalView: View {
 
     private func terminalTab(_ session: TerminalSession) -> some View {
         let isSelected = model.activeToolTerminalSession?.id == session.id
+        let title = terminalTabTitle(for: session)
 
         return HStack(spacing: 0) {
             HStack(spacing: 6) {
                 TerminalToolTabTitle(
                     session: session,
-                    fallbackTitle: feature.terminalTitle(for: session)
+                    fallbackTitle: title
                 )
             }
             .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
@@ -165,8 +168,9 @@ struct TerminalView: View {
                 terminalTabDragPreview(session)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(feature.terminalTitle(for: session))
+            .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
+            .help(title)
             .accessibilityAction {
                 model.selectTerminalSession(session)
             }
@@ -174,9 +178,9 @@ struct TerminalView: View {
             LitheToolWindowTabCloseButton {
                 model.requestCloseTerminalSession(session)
             }
-            .help("Close \(feature.terminalTitle(for: session))")
+            .help("Close \(title)")
         }
-        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: terminalHasFocus))
+        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: terminalToolActive))
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -209,8 +213,10 @@ struct TerminalView: View {
         }
     }
 
-    private func refreshTerminalFocus() {
-        terminalHasFocus = (model.activeToolTerminalSession?.nativeView as? LitheTerminalView)?.hasFocus == true
+    private func terminalTabTitle(for session: TerminalSession) -> String {
+        guard !session.isManagedProcess else { return feature.terminalTitle(for: session) }
+        guard let index = model.toolTerminalSessions.firstIndex(where: { $0.id == session.id }) else { return "Local" }
+        return index == 0 ? "Local" : "Local (\(index + 1))"
     }
 
     @ViewBuilder
@@ -240,7 +246,7 @@ struct TerminalView: View {
             Image(systemName: "terminal")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
-            Text(feature.terminalTitle(for: session))
+            Text(terminalTabTitle(for: session))
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
@@ -263,7 +269,7 @@ private struct TerminalToolTabTitle: View {
     let fallbackTitle: String
 
     var body: some View {
-        Text(session.isManagedProcess ? fallbackTitle : "Local")
+        Text(session.isManagedProcess ? session.processTitle ?? fallbackTitle : fallbackTitle)
             .font(.system(size: 13, weight: .regular))
             .lineLimit(1)
     }

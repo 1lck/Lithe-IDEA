@@ -1,46 +1,106 @@
+import AppKit
 import SwiftUI
 
 /// IDEA Islands tool-window tabs share colors and geometry across tool windows.
 struct LitheToolWindowTabStyle: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.controlActiveState) private var controlActiveState
+    @State private var isHovered = false
     let isSelected: Bool
     let isActive: Bool
 
     func body(content: Content) -> some View {
         content
             .frame(height: 28)
-            .background(isSelected ? selectedTabBackground : .clear)
+            .background(isSelected ? (isHovered && !tabIsActive ? hoverBackground : selectedTabBackground)
+                                   : isHovered ? hoverBackground : .clear)
             .overlay {
                 RoundedRectangle(cornerRadius: 6)
                     .strokeBorder(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
             }
             .clipShape(RoundedRectangle(cornerRadius: 6))
+            .onHover { isHovered = $0 }
     }
 
     private var selectedTabBackground: Color {
         guard LitheTheme.activeTheme == .lithe else {
-            return isActive ? LitheTheme.activeTabBackground : LitheTheme.subtleSelection
+            return tabIsActive ? LitheTheme.activeTabBackground : LitheTheme.subtleSelection
         }
         if colorScheme == .dark {
-            return isActive ? Color(red: 35/255, green: 53/255, blue: 88/255)
+            return tabIsActive ? Color(red: 35/255, green: 53/255, blue: 88/255)
                                     : Color(red: 38/255, green: 40/255, blue: 44/255)
         }
-        return isActive ? Color(red: 227/255, green: 235/255, blue: 254/255)
+        return tabIsActive ? Color(red: 227/255, green: 235/255, blue: 254/255)
                                 : Color(red: 233/255, green: 234/255, blue: 238/255)
     }
 
     private var selectedTabBorder: Color {
         guard LitheTheme.activeTheme == .lithe else {
-            return isActive ? LitheTheme.accent.opacity(0.45) : LitheTheme.divider
+            return tabIsActive ? LitheTheme.accent.opacity(0.45) : LitheTheme.divider
         }
         if colorScheme == .dark {
-            return isActive ? Color(red: 46/255, green: 77/255, blue: 137/255)
+            return tabIsActive ? Color(red: 46/255, green: 77/255, blue: 137/255)
                                     : Color(red: 64/255, green: 67/255, blue: 74/255)
         }
-        return isActive ? Color(red: 167/255, green: 197/255, blue: 255/255)
+        return tabIsActive ? Color(red: 167/255, green: 197/255, blue: 255/255)
                                 : Color(red: 209/255, green: 211/255, blue: 217/255)
     }
 
+    private var tabIsActive: Bool { isActive && controlActiveState == .key }
+
+    private var hoverBackground: Color {
+        guard LitheTheme.activeTheme == .lithe else { return LitheTheme.subtleSelection }
+        // IDEA Islands tab-bg-hovered: #FFFFFF17 dark, #00000012 light.
+        return colorScheme == .dark ? .white.opacity(23.0/255) : .black.opacity(18.0/255)
+    }
+
+}
+
+/// Tracks clicks across the whole tool window, including embedded AppKit content.
+struct LitheToolWindowActivityTracker: NSViewRepresentable {
+    @Binding var isActive: Bool
+
+    func makeNSView(context: Context) -> NSView {
+        let view = TrackingView()
+        context.coordinator.view = view
+        context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
+            guard let view = context.coordinator.view, let window = view.window,
+                  event.window === window else { return event }
+            let clickedInside = view.bounds.contains(view.convert(event.locationInWindow, from: nil))
+            if context.coordinator.isActive != clickedInside {
+                DispatchQueue.main.async {
+                    guard context.coordinator.view != nil else { return }
+                    context.coordinator.isActive = clickedInside
+                }
+            }
+            return event
+        }
+        return view
+    }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.isActive = isActive
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(isActive: $isActive) }
+
+    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
+        if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
+        coordinator.monitor = nil
+        coordinator.view = nil
+    }
+
+    final class Coordinator {
+        @Binding var isActive: Bool
+        weak var view: NSView?
+        var monitor: Any?
+
+        init(isActive: Binding<Bool>) { _isActive = isActive }
+    }
+
+    private final class TrackingView: NSView {
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    }
 }
 
 /// The circular hover background is part of IDEA's CloseHovered SVG.

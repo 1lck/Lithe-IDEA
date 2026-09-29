@@ -58,7 +58,7 @@ struct GitLogView: View {
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
     @FocusState private var gitToolFocused: Bool
-    @Environment(\.controlActiveState) private var controlActiveState
+    @State private var gitToolActive = false
 
     private struct ConsoleTailState: Equatable {
         let id: UUID?
@@ -98,10 +98,14 @@ struct GitLogView: View {
             primaryContent
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
+        .background(LitheToolWindowActivityTracker(isActive: $gitToolActive))
         .focusable()
         .focused($gitToolFocused)
         .gitLogFocusEffectHidden()
         .onAppear { gitLogCommitListFocused = true }
+        .onChange(of: gitToolFocused) { focused in if focused { gitToolActive = true } }
+        .onChange(of: gitLogSearchFocused) { focused in if focused { gitToolActive = true } }
+        .onChange(of: gitLogCommitListFocused) { focused in if focused { gitToolActive = true } }
         .task(id: graphProjectionIdentity) {
             let identity = graphProjectionIdentity
             let commits = feature.gitCommits
@@ -504,8 +508,7 @@ struct GitLogView: View {
         }
         .modifier(LitheToolWindowTabStyle(
             isSelected: isSelected,
-            isActive: controlActiveState == .key
-                && (gitToolFocused || gitLogSearchFocused || gitLogCommitListFocused)
+            isActive: gitToolActive
         ))
         .padding(.horizontal, 4)
     }
