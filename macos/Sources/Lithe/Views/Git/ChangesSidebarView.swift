@@ -36,7 +36,6 @@ struct ChangesSidebarView: View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
         VStack(spacing: 0) {
             tabHeader
-            Rectangle().fill(LitheTheme.divider.opacity(0.62)).frame(height: 1)
 
             GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
@@ -166,8 +165,11 @@ struct ChangesSidebarView: View {
             GitPatchToolbar(feature: feature)
         }
         .padding(.trailing, 10)
-        .frame(height: 39)
+        .frame(height: 41)
         .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) {
+            LitheToolWindowHeaderDivider()
+        }
     }
 
     private var commitContent: some View {
@@ -560,7 +562,8 @@ struct ChangesSidebarView: View {
                     )
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.top, 7)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }

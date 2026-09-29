@@ -656,13 +656,14 @@
       "id": "git-commit-sidebar-toolbar-icons",
       "area": "版本控制",
       "group": "Git",
-      "capability": "macOS Commit/Shelf 标签采用 IDEA New UI 的 12pt 水平内边距与标题分隔线，Commit 工具栏四个现有操作使用 IDEA 明暗 SVG 和共享按钮样式，工具栏下不绘制横线",
+      "capability": "macOS Commit/Shelf 标签采用 IDEA New UI 的 12pt 水平内边距、41pt 顶栏和共享主题分隔线，Commit 工具栏四个现有操作使用 IDEA 明暗 SVG 和共享按钮样式，工具栏下不绘制横线，Changes 列表紧贴工具栏",
       "macos": {
         "implementationStatus": "implemented",
         "verificationStatus": "pending",
         "evidence": [
           "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
           "macos/Sources/Lithe/Theme/LitheTheme.swift",
+          "macos/Sources/Lithe/Views/Components/LitheToolWindowTabStyle.swift",
           "macos/Resources/IDEAIcons/expui/general/refresh.svg",
           "macos/Resources/IDEAIcons/expui/vcs/revert.svg",
           "macos/Resources/IDEAIcons/expui/general/download.svg",
@@ -677,7 +678,7 @@
         ]
       },
       "owner": "Git",
-      "verification": "在 macOS 深浅主题下核对 Commit/Shelf 标签文字距左侧 12pt、选中标签无背景块、标题下保留分隔线、四个操作按钮下方无横线；核对工具栏图标、尺寸、悬停块与默认箭头光标；没有所选改动或没有变更时，确认对应按钮弱化、无悬停高亮且不能触发动作；有可操作内容时确认动作正常。"
+      "verification": "在 macOS 深浅主题下核对 Commit/Shelf 标签文字距左侧 12pt、选中标签无背景块、标题栏 41pt 且下沿使用带左右 1pt 留白的共享分隔线、32pt 操作按钮行和 Changes 列表顶部 7pt 留白、四个操作按钮下方无横线；核对工具栏图标、尺寸、悬停块与默认箭头光标；没有所选改动或没有变更时，确认对应按钮弱化、无悬停高亮且不能触发动作；有可操作内容时确认动作正常。"
     },
     {
       "id": "git-multi-repository-change-groups",
