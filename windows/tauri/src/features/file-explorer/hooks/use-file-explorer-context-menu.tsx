@@ -46,7 +46,11 @@ import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java
 import { buildGitRepositoryContextMenuItems } from "@/features/file-explorer/lib/file-context-menu-git-items";
 import {
   buildGitFileContextMenuItems,
+  buildGitFileDiffBuffer,
+  findGitStatusFileForPath,
   getExplorerGitFileMenuCapabilities,
+  hasGitDiffContent,
+  isVirtualWorkspacePath,
   type ExplorerGitFileMenuState,
 } from "@/features/file-explorer/lib/file-context-menu-git-file-items";
 import { createAndCheckoutBranch } from "@/features/git/api/git-branches-api";
@@ -62,7 +66,6 @@ import { emitGitChanged } from "@/features/git/events/git-events";
 import { showGitPushDialog } from "@/features/git/services/git-push-dialog-service";
 import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
-import type { GitDiff } from "@/features/git/types/git.types";
 import { isGitRepositoryRoot } from "@/features/git/utils/git-repository-root";
 import { toggleSourceControlSidebar } from "@/features/keymaps/commands/view-command-actions";
 import { useUIState } from "@/features/window/stores/ui-state.store";
@@ -118,20 +121,6 @@ interface ExplorerGitFileContext extends ExplorerGitFileMenuState {
 }
 
 const menuIconSpacer = <span aria-hidden="true" />;
-
-const VIRTUAL_PATH_PREFIXES = ["remote://", "wsl://", "diff://"];
-
-function isVirtualWorkspacePath(path: string): boolean {
-  return VIRTUAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
-}
-
-function toForwardSlashes(path: string): string {
-  return path.replace(/\\/g, "/");
-}
-
-function hasDiffContent(diff: GitDiff | null): diff is GitDiff {
-  return Boolean(diff && (diff.lines.length > 0 || diff.is_image || diff.is_binary));
-}
 
 function formatFileSize(sizeHeader: string | null, unknownLabel: string): string {
   const bytes = Number(sizeHeader);
@@ -305,21 +294,15 @@ export function useFileExplorerContextMenu({
         const status = await getGitStatus(resolved.repoPath);
         if (!status || cancelled) return;
 
-        const targetPath = toForwardSlashes(resolved.filePath);
-        const file = status.files.find(
-          (candidate) =>
-            toForwardSlashes(candidate.repositoryRelativePath ?? candidate.path) === targetPath,
-        );
-        if (file && !cancelled) {
+        const match = findGitStatusFileForPath(status.files, resolved.filePath);
+        if (match && !cancelled) {
           setGitFileContext({
             repoPath: resolved.repoPath,
-            repositoryRelativePath: toForwardSlashes(
-              file.repositoryRelativePath ?? file.path,
-            ),
-            originalPath: file.originalPath,
+            repositoryRelativePath: match.repositoryRelativePath,
+            originalPath: match.file.originalPath,
             absolutePath: contextMenu.path,
-            status: file.status,
-            staged: file.staged,
+            status: match.file.status,
+            staged: match.file.staged,
           });
         }
       } catch {
@@ -350,36 +333,41 @@ export function useFileExplorerContextMenu({
                   context.originalPath,
                 )
               : await getFileDiff(context.repoPath, context.repositoryRelativePath, false);
-          if (!hasDiffContent(diff)) {
+          if (!hasGitDiffContent(diff)) {
             const stagedDiff = await getFileDiff(
               context.repoPath,
               context.repositoryRelativePath,
               true,
             );
-            if (hasDiffContent(stagedDiff)) {
+            if (hasGitDiffContent(stagedDiff)) {
               diff = stagedDiff;
               staged = true;
             }
           }
 
-          if (!hasDiffContent(diff)) {
+          if (!hasGitDiffContent(diff)) {
             toast.error(t("git.contextMenu.noChanges"));
             return;
           }
 
-          const fileName = getBaseName(context.absolutePath, "");
-          const viewType = staged ? "staged" : "unstaged";
-          activateMainEditorPane();
-          useBufferStore.getState().actions.openBuffer(
-            `diff://${viewType}/${encodeURIComponent(context.repositoryRelativePath)}`,
-            `${fileName} (${viewType})`,
-            "",
-            false,
-            undefined,
-            true,
-            true,
-            diff,
+          const buffer = buildGitFileDiffBuffer(
+            staged,
+            context.repositoryRelativePath,
+            getBaseName(context.absolutePath, ""),
           );
+          activateMainEditorPane();
+          useBufferStore
+            .getState()
+            .actions.openBuffer(
+              buffer.virtualPath,
+              buffer.displayName,
+              "",
+              false,
+              undefined,
+              true,
+              true,
+              diff,
+            );
         } catch (error) {
           toast.error(t("git.contextMenu.diffFailed"), {
             description: error instanceof Error ? error.message : undefined,

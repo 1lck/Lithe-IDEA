@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type { GitDiff, GitFile } from "@/features/git/types/git.types";
 import {
   buildGitFileContextMenuItems,
+  buildGitFileDiffBuffer,
+  findGitStatusFileForPath,
   getExplorerGitFileMenuCapabilities,
+  hasGitDiffContent,
+  isVirtualWorkspacePath,
   type ExplorerGitFileMenuCapabilities,
 } from "./file-context-menu-git-file-items";
 
@@ -22,6 +27,26 @@ function buildItems(capabilities: ExplorerGitFileMenuCapabilities) {
     },
     capabilities,
   });
+}
+
+function makeDiff(overrides: Partial<GitDiff> = {}): GitDiff {
+  return {
+    file_path: "src/App.java",
+    is_new: false,
+    is_deleted: false,
+    is_renamed: false,
+    lines: [],
+    ...overrides,
+  };
+}
+
+function makeGitFile(overrides: Partial<GitFile> = {}): GitFile {
+  return {
+    path: "src/App.java",
+    status: "modified",
+    staged: false,
+    ...overrides,
+  };
 }
 
 describe("getExplorerGitFileMenuCapabilities", () => {
@@ -90,5 +115,89 @@ describe("buildGitFileContextMenuItems", () => {
 
   test("returns no submenu when no capability applies", () => {
     expect(buildItems({ showDiff: false, add: false, commitFile: false })).toEqual([]);
+  });
+});
+
+describe("hasGitDiffContent", () => {
+  test("null and empty text diffs have no content", () => {
+    expect(hasGitDiffContent(null)).toBe(false);
+    expect(hasGitDiffContent(makeDiff())).toBe(false);
+  });
+
+  test("diffs with rows, image or binary payloads have content", () => {
+    expect(hasGitDiffContent(makeDiff({ lines: [{} as GitDiff["lines"][number]] }))).toBe(true);
+    expect(hasGitDiffContent(makeDiff({ is_image: true }))).toBe(true);
+    expect(hasGitDiffContent(makeDiff({ is_binary: true }))).toBe(true);
+  });
+});
+
+describe("buildGitFileDiffBuffer", () => {
+  test("unstaged view matches the diff buffer path convention", () => {
+    expect(buildGitFileDiffBuffer(false, "src/main/java/App.java", "App.java")).toEqual({
+      virtualPath: "diff://unstaged/src%2Fmain%2Fjava%2FApp.java",
+      displayName: "App.java (unstaged)",
+    });
+  });
+
+  test("staged view switches the namespace and label", () => {
+    expect(buildGitFileDiffBuffer(true, "src/App.java", "App.java")).toEqual({
+      virtualPath: "diff://staged/src%2FApp.java",
+      displayName: "App.java (staged)",
+    });
+  });
+
+  test("encodes special characters so the path stays a single URI segment", () => {
+    const { virtualPath } = buildGitFileDiffBuffer(false, "docs/新建 文件.md", "新建 文件.md");
+    const encoded = virtualPath.slice("diff://unstaged/".length);
+
+    expect(encoded).not.toContain(" ");
+    expect(decodeURIComponent(encoded)).toBe("docs/新建 文件.md");
+  });
+});
+
+describe("findGitStatusFileForPath", () => {
+  test("prefers repositoryRelativePath over the workspace-decorated path", () => {
+    const file = makeGitFile({
+      path: "repo-a :: src/App.java",
+      repositoryPath: "C:/work/repo-a",
+      repositoryRelativePath: "src/App.java",
+    });
+
+    const match = findGitStatusFileForPath([file], "src/App.java");
+
+    expect(match?.file).toBe(file);
+    expect(match?.repositoryRelativePath).toBe("src/App.java");
+  });
+
+  test("falls back to the plain path when no repository decoration exists", () => {
+    const match = findGitStatusFileForPath([makeGitFile()], "src/App.java");
+
+    expect(match?.file.path).toBe("src/App.java");
+  });
+
+  test("normalizes Windows separators on both sides", () => {
+    const file = makeGitFile({ path: "src\\nested\\App.java" });
+
+    expect(findGitStatusFileForPath([file], "src/nested/App.java")?.repositoryRelativePath).toBe(
+      "src/nested/App.java",
+    );
+  });
+
+  test("returns null when the file has no change entry", () => {
+    expect(findGitStatusFileForPath([makeGitFile()], "src/Other.java")).toBeNull();
+    expect(findGitStatusFileForPath([], "src/App.java")).toBeNull();
+  });
+});
+
+describe("isVirtualWorkspacePath", () => {
+  test("recognizes virtual buffer namespaces", () => {
+    expect(isVirtualWorkspacePath("remote://host/workspace")).toBe(true);
+    expect(isVirtualWorkspacePath("wsl://Ubuntu/home/dev")).toBe(true);
+    expect(isVirtualWorkspacePath("diff://unstaged/src%2FApp.java")).toBe(true);
+  });
+
+  test("accepts real workspace paths", () => {
+    expect(isVirtualWorkspacePath("C:/work/project/pom.xml")).toBe(false);
+    expect(isVirtualWorkspacePath("/home/dev/project/pom.xml")).toBe(false);
   });
 });

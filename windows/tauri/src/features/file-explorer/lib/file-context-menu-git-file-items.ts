@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { GitDiff, GitFile } from "@/features/git/types/git.types";
 import type { MenuItem } from "@/ui/dropdown";
 
 /** Git status slice the per-file context menu decisions depend on. */
@@ -39,6 +40,69 @@ export interface GitFileContextMenuOptions {
   icons?: GitFileContextMenuIcons;
   capabilities: ExplorerGitFileMenuCapabilities;
   disabled?: boolean;
+}
+
+const VIRTUAL_PATH_PREFIXES = ["remote://", "wsl://", "diff://"];
+
+/** Paths that live in virtual buffer namespaces and never map to a Git work tree. */
+export function isVirtualWorkspacePath(path: string): boolean {
+  return VIRTUAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+function toForwardSlashes(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+/** A diff is worth opening when it has rows, or is an image/binary payload. */
+export function hasGitDiffContent(diff: GitDiff | null): diff is GitDiff {
+  return Boolean(diff && (diff.lines.length > 0 || diff.is_image || diff.is_binary));
+}
+
+export interface GitFileDiffBuffer {
+  virtualPath: string;
+  displayName: string;
+}
+
+/**
+ * Builds the single-file diff buffer coordinates for `use-git-diff-data.ts`,
+ * whose regexes recognize exactly `diff://<staged|unstaged>/<encoded path>`.
+ * Changing either side silently breaks stage/unstage inside the diff view.
+ */
+export function buildGitFileDiffBuffer(
+  staged: boolean,
+  repositoryRelativePath: string,
+  fileName: string,
+): GitFileDiffBuffer {
+  const viewType = staged ? "staged" : "unstaged";
+  return {
+    virtualPath: `diff://${viewType}/${encodeURIComponent(repositoryRelativePath)}`,
+    displayName: `${fileName} (${viewType})`,
+  };
+}
+
+export interface ResolvedGitStatusFile {
+  file: GitFile;
+  /** Repository-relative path with forward slashes, ready for Git commands. */
+  repositoryRelativePath: string;
+}
+
+/**
+ * Finds the status entry for a repository-relative path, preferring the
+ * explicit `repositoryRelativePath` over the possibly workspace-decorated
+ * `path`, and normalizing Windows separators on both sides.
+ */
+export function findGitStatusFileForPath(
+  files: readonly GitFile[],
+  targetPath: string,
+): ResolvedGitStatusFile | null {
+  const normalizedTarget = toForwardSlashes(targetPath);
+  for (const file of files) {
+    const repositoryRelativePath = toForwardSlashes(file.repositoryRelativePath ?? file.path);
+    if (repositoryRelativePath === normalizedTarget) {
+      return { file, repositoryRelativePath };
+    }
+  }
+  return null;
 }
 
 /**
