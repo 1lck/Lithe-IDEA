@@ -176,6 +176,9 @@ pub enum CoreCommand {
     LspStopServer,
     /// Retries Maven profile application for an existing Java session.
     LspRetryMavenProfiles,
+    /// Sends a changed Maven configuration to a running Java session
+    /// (`lsp.updateMavenConfiguration`).
+    LspUpdateMavenConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -400,6 +403,7 @@ impl CoreCommand {
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
+            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -488,6 +492,7 @@ mod tests {
             "lsp.startServer",
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
+            "lsp.updateMavenConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",

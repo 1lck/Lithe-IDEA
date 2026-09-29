@@ -29,6 +29,13 @@
   ],
   "excludedResources": [
     {
+      "id": "jdt-maven-settings",
+      "reusable": false,
+      "locations": ["<platform-cache>/jdtls/<workspace-state>/.lithe/maven/"],
+      "identity": "Workspace-owned Maven settings snapshots; content hashes identify documents, not a reusable version/platform/architecture/toolchain build stamp",
+      "reason": "Mutable JDT session state may contain credentials and must remain readable until workspace cache eviction or index rebuilding. Never copy or share it across worktrees at any stage."
+    },
+    {
       "id": "agent-cli-runtime",
       "reusable": false,
       "locations": ["npm global prefix and cache", "Homebrew Cellar, Caskroom and download cache", "user home .local/share/claude/versions"],

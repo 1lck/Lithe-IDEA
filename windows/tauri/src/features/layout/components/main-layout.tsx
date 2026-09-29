@@ -8,6 +8,7 @@ import { useGitStore } from "@/features/git/stores/git.store";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
@@ -82,6 +83,7 @@ const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
 export function MainLayout() {
   const { t } = useTranslation();
   useAutoUpdate();
+  useMavenResolutionNotifications();
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
   usePaneKeyboard();

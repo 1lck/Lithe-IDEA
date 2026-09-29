@@ -2534,3 +2534,6 @@
 "Waiting for subscription quota…" = "正在等待订阅额度…";
 
 "ChatGPT sign-in was cancelled." = "已取消 ChatGPT 登录。";
+"Maven could not resolve this project (%lld problems): %@" = "Maven 无法解析此项目（%lld 个问题）：%@";
+"Maven could not resolve this project (%lld problems)" = "Maven 无法解析此项目（%lld 个问题）";
+"The Java language server did not take the Maven configuration: %@" = "Java 语言服务器未能应用 Maven 配置：%@";

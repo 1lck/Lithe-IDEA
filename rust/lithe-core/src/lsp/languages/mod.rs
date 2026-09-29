@@ -10,6 +10,7 @@ mod java_workspace;
 pub(crate) mod jdt;
 pub(crate) mod jdt_build;
 mod jdt_configuration;
+pub(crate) mod jdt_maven_settings;
 pub(crate) mod jdt_navigation;
 pub(crate) mod jdt_progress;
 mod jdt_project_metadata;

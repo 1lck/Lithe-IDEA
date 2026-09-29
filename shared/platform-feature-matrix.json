@@ -477,7 +477,9 @@
       "windows": {
         "implementationStatus": "platform-specific",
         "verificationStatus": "not-applicable",
-        "evidence": ["windows/tauri/src/features/editor/engines/monaco/theme.ts"]
+        "evidence": [
+          "windows/tauri/src/features/editor/engines/monaco/theme.ts"
+        ]
       },
       "owner": "Editor",
       "verification": "在 macOS 选择工作台背景并打开文本文件，分别关闭和打开右侧 Agent 面板，确认编辑器最右侧概览标尺不出现黑色竖条；关闭背景图后确认普通主题底色保持不变。运行真实 WebKit 工作台主题集成测试。Windows 不使用 macOS 原生工作台壁纸。"
@@ -1068,7 +1070,38 @@
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。"
+      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。 Windows 在 Maven 面板展开「依赖项」应直接加载依赖树，失败时显示宿主返回的真实原因，而不是通用的“无法加载 Maven 依赖”（#970）。"
+    },
+    {
+      "id": "java-maven-settings-reach-jdt",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Maven 设置与重新加载实时作用于 Java 语言服务，并展示依赖解析问题",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
+          "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+          "macos/Sources/Lithe/Models/Java/MavenResolutionProblems.swift",
+          "macos/Sources/Lithe/Views/Run/MavenView.swift",
+          "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven/services/java-maven-configuration.ts",
+          "windows/tauri/src/features/maven/services/reload-maven-workspace.ts",
+          "windows/tauri/src/features/maven/hooks/use-maven-resolution-problems.ts",
+          "windows/tauri/src/platform/lsp-core-adapter.ts",
+          "windows/tauri/src/platform/tauri-core.ts",
+          "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "打开一个依赖尚未下载的 Maven 项目，在 Java 语言服务导入过程中修改 settings.xml、本地仓库或镜像并保存，不点重新加载，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后点「重新加载」，确认 Java 语言服务不重启而依赖重新解析；故意写错一个依赖版本，确认 Maven 工具窗口列出 pom.xml 问题、通知可跳转到对应行，修正后问题消失；初始化期间设置不变时点击重新加载，确认导入就绪后仍执行一次强制更新；旧 profile 任务失败或超时期间切换 profile，确认旧请求结束后应用最新选择；保存设置与重新加载交错执行时，已发送的 settings 副本保持可读。"
     },
     {
       "id": "java-maven-toolbar-tooltips",
