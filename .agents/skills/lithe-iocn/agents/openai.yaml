@@ -1,0 +1,4 @@
+interface:
+  display_name: "litheIOCN"
+  short_description: "对照 IDEA Community 源码统一 Lithe 图标与悬停光标"
+  default_prompt: "使用 $lithe-iocn 核对并修改我指定的 Lithe 图标样式。"

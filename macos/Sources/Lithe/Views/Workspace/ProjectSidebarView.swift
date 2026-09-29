@@ -36,6 +36,7 @@ struct ProjectSidebarView: View {
     @State private var contextMenuPath: String?
     @State private var selectedContent: ProjectSidebarContent = .project
     @State private var dependencyRefreshRevision = 0
+    @State private var isHeaderHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -228,7 +229,10 @@ struct ProjectSidebarView: View {
                         preservesOriginalColors: true
                     )
                 }
-                .litheIconButton()
+                .buttonStyle(LitheIconButtonStyle())
+                .opacity(isHeaderHovered ? 1 : 0)
+                .allowsHitTesting(isHeaderHovered)
+                .accessibilityHidden(!isHeaderHovered)
                 .help("Reveal Active File in Project Tree")
             }
             if selectedContent == .dependencies {
@@ -255,12 +259,18 @@ struct ProjectSidebarView: View {
                         preservesOriginalColors: true
                     )
                 }
-                .litheIconButton()
+                .buttonStyle(LitheIconButtonStyle())
+                .opacity(isHeaderHovered ? 1 : 0)
+                .allowsHitTesting(isHeaderHovered)
+                .accessibilityHidden(!isHeaderHovered)
                 .help("Refresh")
             }
         }
         .padding(.horizontal, 12)
         .frame(height: 39)
+        .contentShape(Rectangle())
+        .onHover { isHeaderHovered = $0 }
+        .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {

@@ -2069,7 +2069,7 @@
         ]
       },
       "owner": "Workbench",
-      "verification": "macOS 深浅主题下打开项目并核对两个按钮的 16pt 图标与 IDEA SVG；点击定位当前文件和刷新，确认原操作正常。"
+      "verification": "macOS 深浅主题下打开项目并核对两个按钮的 16pt 图标与 IDEA SVG；鼠标进入项目栏标题行时两个图标渐显、离开时隐藏，悬停图标保持箭头光标；点击定位当前文件和刷新，确认原操作正常。"
     },
     {
       "id": "workbench-activity-tooltips",
