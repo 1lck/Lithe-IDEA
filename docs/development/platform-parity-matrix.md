@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：105
-- macOS：实现：✅ 91 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 94 待验证，— 11 不适用
-- Windows：实现：✅ 90 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 100 待验证，— 5 不适用
+- 功能项：106
+- macOS：实现：✅ 92 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 95 待验证，— 11 不适用
+- Windows：实现：✅ 91 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 101 待验证，— 5 不适用
 
 ## 实现状态定义
 
@@ -66,7 +66,7 @@
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 14 个能力点</summary>
+<summary><strong>编辑器</strong> · 15 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -84,6 +84,7 @@
 | 编辑模式 | **Vim 模式与命令状态**<br><sub>vim-mode</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/vim`、`windows/tauri/src/features/editor`</sub> | Editor | Windows 验证 Normal/Insert/Visual 模式、命令执行和设置持久化；macOS 需要确认产品范围。 |  |
 | 文本编辑 | **按指定编码重新打开文本文件**<br><sub>editor-file-encoding-reopen</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/services/document-encoding-workflow.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
 | 文本编辑 | **按指定编码保存文本文件**<br><sub>editor-file-encoding-save</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/stores/editor-app.store.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
+| 文本编辑 | **中文 properties 与未知扩展名文本的一致打开和恢复**<br><sub>editor-unicode-text-classification</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift`、`macos/Tests/LitheTests/TextContentPolicyTests.swift`、`frontend/editor/src/language-contributions.ts`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts`、`windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts`、`frontend/editor/src/language-contributions.ts`</sub> | Editor | 双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。 |  |
 
 </details>
 

@@ -25,6 +25,15 @@ __attribute__((weak)) void lithe_core_free_string(char *value) {
     (void)value;
 }
 
+__attribute__((weak)) int32_t lithe_core_is_plain_text(const uint8_t *bytes, size_t length) {
+    (void)bytes; (void)length;
+    return -1;
+}
+
+int32_t lithe_bridge_is_plain_text(const uint8_t *bytes, size_t length) {
+    return lithe_core_is_plain_text(bytes, length);
+}
+
 const char *lithe_bridge_version(void) {
     return lithe_core_version();
 }

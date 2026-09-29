@@ -403,6 +403,27 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::DocumentClassifyText => {
+            match parsed
+                .payload
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(text) => CoreResponse::success(
+                    id,
+                    serde_json::json!({
+                        "isPlainText": project::is_plain_text(text)
+                    }),
+                ),
+                None => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Decoded document text is required",
+                    ),
+                ),
+            }
+        }
         CoreCommand::DocumentLifecycle => {
             match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
                 .map_err(|error| {

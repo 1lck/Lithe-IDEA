@@ -22,6 +22,16 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 - “以编码重新打开”由单独的应用服务执行，脏文件先选择保存、放弃或取消；读取完成后只允许替换捕获的同一个缓冲区。转换保存复用现有保存生命周期，干净文件会临时进入保存状态，写入成功后再恢复干净状态。
 - 编码目录由稳定 ID、显示名称、别名、读写能力和 BOM 策略组成；新增编码必须同步更新共享契约、macOS 映射、Windows `encoding_rs` 映射、UI 目录和原始字节 fixture，具体步骤见 `docs/development/document-encoding.md`。
 
+### 文本判定与编码转换的边界（#963）
+
+编码转换完成后，macOS 和 Windows 都使用 Rust Core 原有的 Unicode 控制字符规则判定正文；中文和 emoji 的 UTF-8 续字节不再被计作二进制证据。macOS 通过借用 UTF-8 字节的 C 接口调用，避免大文档再复制成 JSON；Windows 通过 `document.classifyText` 调用同一函数。原生编码库仍是字节转换的唯一实现，Core 不重新猜编码。
+
+正确流程是“原生读取和解码 → Core 判定正文 → 选择编辑器 → Monaco 高亮”。不要根据语言 ID 是否存在决定文件能否编辑，也不要因为 `.java` 已知而跳过正文检查。权限、文件大小和解码错误仍按原错误显示，不能伪装成二进制判定。
+
+用户明确选择外部编辑器时，解码和大小限制由该编辑器处理，不先要求 Lithe 原生读取成功。Windows 内置编辑器首次打开与会话恢复复用 `loadFileContent`；点击已经在后台加载的标签必须等待该次读取和判定结束。共享 Monaco 层直接注册随 0.55.1 分发的 INI tokenizer，其上游扩展名包含 `.properties`，无需为这个问题新增 tree-sitter 语法或自写高亮器。原有原生编辑器高亮实现不参与 Monaco 路径。
+
+`WorkspaceTextFilePolicy` 的 Swift 入口转发到 Core，不再维护第二份控制字符算法。因此 macOS 测试也必须链接真实 Core；`scripts/test-macos.sh` 使用现有构建路径完成链接，不能用弱符号的不可用结果来验证正常文本。
+
 ## 考虑过的备选方案
 
 - **所有文件固定按 UTF-8 读取**：不能打开 GBK 文件，也无法满足 Issue #775。
@@ -29,9 +39,14 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 - **只比较解码后的字符串**：不同原始字节可能解码成同一文本，且 BOM、非规范编码和外部等长修改会绕过冲突保护，因此改用字节指纹。
 - **选择编码后立即修改缓冲区编码**：异步读写失败或期间用户切换标签时会污染新状态，因此将编码提交放在成功读写之后，并对异步结果做快照校验。
 
+- **只把 properties 加入文本白名单**：会掩盖当前示例，未知扩展名的中文和已知扩展名下的控制字符仍会走不同规则，因此删除字节比例嗅探，并共享正文判定。
+- **完整照搬 VS Code 文件服务**：其工作台、Node.js 编码服务与本项目原生存储边界不同；复用其职责分离思路与已经分发的 Monaco tokenizer，保留现有原生编解码器。
+
 ## 后果
 
 用户可以在 VS Code 类似的状态栏入口中修复乱码或转换文件编码；GBK/GB18030 的中文文件不会再被静默按 UTF-8 保存。代价是本地文档读写增加一次 SHA-256 计算，并且远程、WSL、虚拟和只读缓冲区不会显示可执行的本地编码转换操作。
+
+统一正文判定增加一次 Windows Core 调用；macOS 单元测试开始依赖 Rust 构建。不会新增下载入口、缓存目录或安装包运行时写入；Monaco 产物仍走现有 editor 构建与完整性验证路径。
 
 ## 验证
 
@@ -41,6 +56,10 @@ macOS 和 Windows 编辑器都在状态栏提供编码入口，并支持“以�
 - `./scripts/verify-windows-boundaries.sh`
 - `./scripts/verify-platform-feature-matrix.sh`
 - macOS 和 Windows 实机仍需按矩阵中的验证步骤运行编码读取、转换保存、脏文件选择和外部修改场景。
+
+- `./scripts/test-macos.sh --filter TextContentPolicyTests`
+- `cargo test --manifest-path rust/Cargo.toml -p lithe-core text_content_tests`
+- `shared/fixtures/editor/text-content-v1.json` 覆盖中文、emoji、NUL、控制字符和旧采样范围之外的内容；Windows 路由测试另外验证首次打开与恢复的共用入口。
 
 ## 适用范围
 

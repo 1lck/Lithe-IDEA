@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { DocumentReadDetails } from "@/platform/document-files";
 import type { SessionRestoreController } from "./workspace-session-restore";
 
 // The controller reads local files through `loadFileContent`, which delegates to
@@ -9,7 +10,21 @@ const readFileContent = mock(async (_path: string): Promise<string> => "");
 
 mock.module("./file-operations", () => ({ readFileContent }));
 
-const { createSessionRestoreController, SESSION_RESTORE_CONCURRENCY } =
+// Routing tests control the Core verdict; the real predicate and ABI consume
+// text-content-v1.json in Rust and Swift contract tests.
+const classifyText = mock(async (_text: string) => ({ isPlainText: true }));
+const readNativeDocument = mock(async (_args: unknown): Promise<DocumentReadDetails | null> => ({
+  content: "greeting=你好世界\n", encoding: "GBK", identity: "fixture-disk-identity",
+}));
+mock.module("@/platform/tauri-core", () => ({
+  invoke: async (command: string, args: unknown) => {
+    if (command === "read_document_file_details") return readNativeDocument(args);
+    if (command === "document.classifyText") return classifyText((args as { text: string }).text);
+    throw new Error(`Unexpected native operation: ${command}`);
+  },
+}));
+
+const { createSessionRestoreController, SESSION_RESTORE_CONCURRENCY, loadFileContent } =
   await import("./workspace-session-restore");
 
 interface Deferred<T> {
@@ -48,6 +63,9 @@ async function flushRestoreWork() {
 }
 
 beforeEach(() => {
+  readNativeDocument.mockClear();
+  classifyText.mockReset();
+  classifyText.mockResolvedValue({ isPlainText: true });
   readFileContent.mockReset();
   readFileContent.mockResolvedValue("");
 });
@@ -131,8 +149,9 @@ describe("createSessionRestoreController", () => {
     expect(maxInFlight).toBe(SESSION_RESTORE_CONCURRENCY);
 
     // Resolving one job lets the next start without exceeding the cap.
+    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
     pending.get("a.ts")!.resolve("content");
-    await flushRestoreWork();
+    await completed;
     expect(maxInFlight).toBe(SESSION_RESTORE_CONCURRENCY);
     expect(readFileContent).toHaveBeenCalledTimes(SESSION_RESTORE_CONCURRENCY + 1);
   });
@@ -170,8 +189,9 @@ describe("createSessionRestoreController", () => {
     h.controller.promote("id_c.ts");
     expect(readOrder).toEqual(["a.ts", "b.ts"]);
 
+    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
     pending.get("a.ts")!.resolve("content");
-    await flushRestoreWork();
+    await completed;
 
     expect(readOrder).toEqual(["a.ts", "b.ts", "c.ts"]);
     expect(h.controller.pendingCount()).toBe(1); // d.ts still queued
@@ -271,8 +291,9 @@ describe("createSessionRestoreController", () => {
     h.validPaths.set("id_1", "a-renamed.ts");
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
+    const completed = h.controller.loadNow({ bufferId: "id_1", path: "a.ts" });
     pending.resolve("old content");
-    await flushRestoreWork();
+    await completed;
 
     expect(h.applyLoaded).not.toHaveBeenCalled();
     expect(h.markUnloaded).toHaveBeenCalledWith("id_1", "a.ts");
@@ -308,8 +329,9 @@ describe("createSessionRestoreController", () => {
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
     h.setCurrent(false); // a newer restore replaced this controller while reading
+    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
     pending.get("a.ts")!.resolve("content");
-    await flushRestoreWork();
+    await completed;
 
     expect(h.applyLoaded).not.toHaveBeenCalled();
     expect(h.markFailed).not.toHaveBeenCalled();
@@ -330,8 +352,9 @@ describe("createSessionRestoreController", () => {
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
     h.validPaths.delete("id_1"); // tab closed while reading
+    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
     pending.get("a.ts")!.resolve("content");
-    await flushRestoreWork();
+    await completed;
 
     expect(h.applyLoaded).not.toHaveBeenCalled();
   });
@@ -369,8 +392,40 @@ describe("createSessionRestoreController", () => {
     expect(h.controller.pendingCount()).toBe(0);
 
     // Completing an already-in-flight read must not surface a result.
+    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
     pending.get("a.ts")!.resolve("content");
-    await flushRestoreWork();
+    await completed;
     expect(h.applyLoaded).not.toHaveBeenCalled();
+  });
+});
+
+describe("shared open and restore content routing", () => {
+  test("Chinese properties and unknown suffixes reach the text editor", async () => {
+    const content = "greeting=你好世界\nfarewell=下次再见\n";
+    readFileContent.mockResolvedValue(content);
+    expect(await loadFileContent("app.properties")).toMatchObject({ kind: "text", content, language: "ini" });
+    expect(await loadFileContent("app.unrecognized")).toMatchObject({ kind: "text", content });
+    expect(classifyText).toHaveBeenLastCalledWith(content);
+  });
+
+  test("local files preserve native encoding and identity through classification", async () => {
+    const loaded = await loadFileContent("C:/workspace/messages.properties", "GBK");
+    expect(readNativeDocument).toHaveBeenCalledWith({ path: "C:/workspace/messages.properties", encoding: "GBK" });
+    expect(loaded).toEqual({ kind: "text", content: "greeting=你好世界\n", language: "ini",
+      encoding: "GBK", diskIdentity: "fixture-disk-identity" });
+    expect(classifyText).toHaveBeenCalledWith("greeting=你好世界\n");
+    expect(readFileContent).not.toHaveBeenCalled();
+  });
+
+  test("Core rejection routes even a known text suffix to the binary viewer", async () => {
+    classifyText.mockResolvedValue({ isPlainText: false });
+    readFileContent.mockResolvedValue("hello\0world");
+    expect(await loadFileContent("app.java")).toEqual({ kind: "binary" });
+  });
+
+  test("read errors are not disguised as binary files", async () => {
+    readFileContent.mockRejectedValue(new Error("permission denied"));
+    await expect(loadFileContent("app.properties")).rejects.toThrow("permission denied");
+    expect(classifyText).not.toHaveBeenCalled();
   });
 });
