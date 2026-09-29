@@ -75,7 +75,8 @@ function Invoke-TimedRustTests {
                 "tests::git_history_rewrite::",
                 "tests::git::git_write_squashes_",
                 "tests::git::git_write_deletes_a_local_commit_",
-                "tests::git::git_write_edits_a_local_commit_message_"
+                "tests::git::git_write_edits_a_local_commit_message_",
+                "tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset"
             )) {
                 $arguments += @("--test-budget", "${prefix}=30000")
             }
