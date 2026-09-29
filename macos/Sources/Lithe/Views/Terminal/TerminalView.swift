@@ -33,15 +33,19 @@ struct TerminalView: View {
     }
 
     private var terminalToolbar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 0) {
             Text("Terminal")
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.primaryText)
+                // ToolWindow.headerLabelLeftRightInsets supplies 16pt after the title.
+                .padding(.trailing, 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
+                HStack(spacing: 0) {
                     ForEach(model.toolTerminalSessions) { terminalSession in
                         terminalTab(terminalSession)
+                            // IslandsTabPainter paints 4pt inside each tab's layout bounds.
+                            .padding(.horizontal, 4)
                     }
                     Button {
                         _ = model.createTerminalSession()
@@ -50,6 +54,7 @@ struct TerminalView: View {
                                       fallbackSystemImage: "plus", preservesOriginalColors: true)
                     }
                     .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
                     .help("New terminal session")
 
                     Menu {
@@ -66,15 +71,13 @@ struct TerminalView: View {
                         LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
                                       fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                     }
-                    .menuStyle(.borderlessButton)
+                    .menuStyle(.button)
                     .menuIndicator(.hidden)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-                    .foregroundStyle(LitheTheme.secondaryText)
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
                     .help("Detect shells and create a new terminal")
                     .accessibilityLabel("New terminal with shell")
                 }
-                .padding(.leading, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -109,11 +112,10 @@ struct TerminalView: View {
                 LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16,
                               fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
             .menuIndicator(.hidden)
-            .frame(width: 22, height: 22)
-            .contentShape(Rectangle())
-            .foregroundStyle(LitheTheme.secondaryText)
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Terminal actions")
 
             Button {
@@ -123,6 +125,7 @@ struct TerminalView: View {
                               fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
             .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Hide Terminal tool window")
         }
         .padding(.leading, 12)
@@ -130,16 +133,15 @@ struct TerminalView: View {
         .frame(height: 41)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
-            // IslandsUICustomization gives the tool-window holder 3pt insets.
             Rectangle().fill(headerBorder).frame(height: 1)
-                .padding(.horizontal, 3)
+                .padding(.horizontal, 1)
         }
     }
 
     private func terminalTab(_ session: TerminalSession) -> some View {
         let isSelected = model.activeToolTerminalSession?.id == session.id
 
-        return HStack(spacing: 1) {
+        return HStack(spacing: 0) {
             HStack(spacing: 6) {
                 TerminalToolTabTitle(
                     session: session,
@@ -147,7 +149,7 @@ struct TerminalView: View {
                 )
             }
             .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
-            .padding(.leading, 12)
+            .padding(.leading, 8)
             .padding(.trailing, 3)
             .frame(height: 28)
             .contentShape(Rectangle())
@@ -185,7 +187,7 @@ struct TerminalView: View {
         .background(isSelected ? selectedTabBackground : .clear)
         .overlay {
             RoundedRectangle(cornerRadius: 6)
-                .stroke(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
+                .strokeBorder(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 6))
         .background {
@@ -225,8 +227,8 @@ struct TerminalView: View {
             return terminalHasFocus ? LitheTheme.activeTabBackground : LitheTheme.subtleSelection
         }
         if colorScheme == .dark {
-            return terminalHasFocus ? Color(red: 43/255, green: 64/255, blue: 90/255)
-                                    : Color(red: 53/255, green: 57/255, blue: 59/255)
+            return terminalHasFocus ? Color(red: 35/255, green: 53/255, blue: 88/255)
+                                    : Color(red: 38/255, green: 40/255, blue: 44/255)
         }
         return terminalHasFocus ? Color(red: 227/255, green: 235/255, blue: 254/255)
                                 : Color(red: 233/255, green: 234/255, blue: 238/255)
@@ -237,8 +239,8 @@ struct TerminalView: View {
             return terminalHasFocus ? LitheTheme.accent.opacity(0.45) : LitheTheme.divider
         }
         if colorScheme == .dark {
-            return terminalHasFocus ? Color(red: 56/255, green: 84/255, blue: 117/255)
-                                    : Color(red: 69/255, green: 74/255, blue: 77/255)
+            return terminalHasFocus ? Color(red: 46/255, green: 77/255, blue: 137/255)
+                                    : Color(red: 64/255, green: 67/255, blue: 74/255)
         }
         return terminalHasFocus ? Color(red: 167/255, green: 197/255, blue: 255/255)
                                 : Color(red: 209/255, green: 211/255, blue: 217/255)
