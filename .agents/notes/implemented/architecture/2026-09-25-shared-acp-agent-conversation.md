@@ -46,6 +46,10 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **下载进度以 npm 的真实传输为准**：安装与 CLI 升级通过现有 Core 事件回调报告已接收软件包字节数、最近采样速度、耗时和等待时间。npm 没有提供整次安装的总量，且会继续发现依赖，所以不显示总体百分比。内嵌的 Node 观察模块只统计 HTTP 响应进入流缓冲区的字节，不添加消费数据的监听器，也不重写下载、代理、重试、校验或缓存行为。模块通过内存中的 data URL 加载，启动后先恢复用户原有 `NODE_OPTIONS`，防止 npm 子脚本继承观察器；不生成辅助文件或新的可复用缓存。正确做法是显示“已下载 25 MB、75 KB/秒、已用时 300 秒”；不要把 npm 静默时的日志时间或整个共享缓存大小当成下载进度。Core 事件只携带数字和阶段，界面按操作标识丢弃迟到事件，完成、失败或取消后清除进度。
   - **Rust Core 命令**：`agent.status`、`agent.install`、`agent.uninstall`、`agent.installCli`，复用现有信封的取消和超时。
   - **Windows 连接桥**：`windows/tauri/src-tauri/src/agent.rs` 直接依赖 `lithe-agent-host`，用 `agent_open`、`agent_send`、`agent_close` 三个 Tauri 命令转发 fixture 里的同一套 JSON，协议、会话和取消语义仍只有共享 crate 一份。连接 ID 由界面自己生成：界面先订阅 `agent_event` 再开连接，因此不存在“事件先于连接标识到达”的竞态；重复或为空的 ID 直接拒绝，不会顶掉在用的连接。事件只发给打开它的那个窗口，不广播给其他项目；`agent_send` 和 `agent_close` 同样注入 Webview，并在同一个注册表临界区内比对连接归属窗口，所以其他窗口即使拿到 ID 也不能驱动或关闭别人的连接。连接按窗口标签登记：项目窗口销毁时把连接移出注册表并交给阻塞池关闭，移出与“正在关闭”计数在同一个临界区完成，因此随后的应用退出既看不到这条连接、也不会漏等它；退出先在同一次加锁里停止接受新连接并取走剩余连接，同步关闭它们，再以 15 秒上限等待仍在阻塞池里的关闭，而 `AgentHandle::close` 自带停止窗口并强杀进程树，这个上限只兜底“任务还没被调度”的情况。Windows 桌面外壳是 GUI 进程、没有控制台，所以共享 host 在 Windows 上以 `CREATE_NO_WINDOW` 启动适配器，避免每开一次 Agent 都弹出一个控制台窗口。
+  - **Windows 面板放在编辑器右栏**：Windows 界面在 `windows/tauri/src/features/agent/` 另写 React 面板，落点是编辑器右侧的右栏工具窗，与 macOS 的 `AgentConversationEntryPolicy.rightSidebar` 对齐；不复用也不扩写 `windows/tauri/src/features/ai/` 那套编辑器标签页实现（#440 已判定它不作为参考，#957 负责清理）。入口加在活动栏（`plugin-activity-rail.tsx`），命令是 `workbench.showAgent`。关闭面板只是隐藏：只有功能开关（`settings.agentPanel.enabled`）关掉或项目切换时才停止 Agent，所以隐藏面板不会打断正在运行的一轮。连接和设置按窗口一份，`stores/agent-connection-service.ts` 是模块级单例，面板与供应商设置存在 `settings.agentPanel` 并由 `normalizeAgentPanelSettings` 归一化，服务商 Key 进系统安全存储（键名 `agent-provider-api-key/<agentId>`），不写设置文件。
+  - **Windows 启动配置对齐 macOS**：`services/agent-launch.ts` 复刻 `AppModel.agentLaunchConfiguration(agentID:)` 的规则——订阅模式不携带供应商，且只有 `codex-acp` 能用订阅；API Key 模式需要 endpoint 和 Key，缺哪一项就报对应原因；自定义 Agent 必须有可执行文件。失败原因用 `AgentLaunchFailure` 枚举返回，由界面按当前语言翻译，Rust 或 Tauri 的原始错误不会直接给用户看。自定义参数按 macOS 的“一行一个”解析（`agentArguments`），不要按空格切分：带空格的参数会被拆成两个。
+  - **Windows 的能力门禁**：`config/backend-capabilities.ts` 的 `agent` 改成 `true`，因为 Windows 已经有 Agent 后端。同样被判成 agent 的老命令（`acp_*`、`codex_*`、`ai_provider`、`_chat`、`get_available_agents`）改判给新增的 `aiChat` 能力并保持 `false`：它们在 Windows 上没有后端，直接翻 `agent` 只会把“待开发”提示变成运行期报错。#957 删掉 `features/ai` 后 `aiChat` 可以一起删。
+  - **Windows 的安装进度与超时**：`windows/tauri/src-tauri/src/platform.rs` 的 `platform_invoke` 同时接受 `gitEvents` 和 `agentEvents` 两个通道，并按事件的 `kind` 分派：Git 执行事件走前者，`agentInstallProgress` 走后者。适配器安装用用户本机 npm，可能下载几分钟，所以这类请求不写 `timeoutMilliseconds`：信封默认的 30 秒会在下载中途取消它，而共享 host 自己已有 15 分钟的安装上限，macOS 同样不给 `agent.*` 设信封超时。
   - **Key 和模型的传法**：API Key 模式的适配器通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置放在面板里，只有 Agent 管理一页**：Agent 的开关、预检清单（Node、npm、CLI、适配器、本机配置）、适配器和 CLI 的一键安装都在 Agent 面板右上角的设置视图里，不进全局设置窗口。布局仿照 Codeg 和 CC GUI：左侧图标栏，右侧标题加分段切换各个 Agent。
    - **本机配置保留 CLI 所有权**：每个 Agent 通过本机配置行读取用户自己 CLI 的地址、模型和密钥（Codex 读 `~/.codex/config.toml` 和 `auth.json`，Claude 读 `~/.claude/settings.json` 和 `~/.claude.json`），生成的服务商配置绑定到该 Agent。本机模式的密钥不复制进 Lithe，启动时从用户文件现读；要改本机地址或密钥时编辑自己的文件再刷新。需要独立配置时使用上面的自定义供应商编辑器，不改写 CLI 文件，也不改变提交信息使用的服务商选择。
@@ -107,11 +111,11 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 后果
 
-两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。Windows 的连接桥只多一层连接登记、事件转发和进程回收，不会成为第二份协议实现。
+两端共享同一套协议和清理逻辑。功能关闭或没打开面板时，不会有 Agent 进程。一个项目的每种 Agent 只建立一个对话连接，会话再多也一样。订阅额度额外使用有界的短时官方查询进程，不新增常驻服务。Windows 的连接桥只多一层连接登记、事件转发和进程回收，不会成为第二份协议实现；Windows 面板复用同一条连接，不新写协议。
 
 代价：
 
-- Windows 面板 UI、供应商切换和额度展示仍需另做；共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
+- Windows 面板已覆盖会话、消息流、工具证据与权限确认、供应商与订阅切换、上下文用量和额度；历史页目前只支持列出、刷新与打开，搜索、复制会话 ID、收藏、重命名、批量移除和 Markdown 导出仍未实现。共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在面板内安装。
 - codex-acp 丢失取消时，最多等待十秒后需要用户重连；同一进程的其他会话也会断开。上游未持久化的最后片段可能无法完整回放，界面保留旧记录用于诊断，不能保证 Agent 保存了未完成轮次。
@@ -120,7 +124,9 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
-- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
+- 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 面板已接入连接、供应商与订阅切换、上下文用量和额度，仍需在 Windows 上用真实适配器做一次端到端验收（本机 Node/npm 探测、`.cmd` shim 启动、进程树回收与完整对话）。
+- `bun test src/features/agent/`（Windows 面板的纯函数：用量与额度解析、会话配置、转录归约、权限队列、文件引用、安装进度事件，以及 `agent.*` 响应解析）与 `bun test src/platform`（`agent_open`/`agent_send`/`agent_close` 的原生命令路由）。
+- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml platform::`（信封期限与事件通道分派：`agent.install`/`agent.installCli` 不带 30 秒期限，`agentInstallProgress` 只发给 agent 通道，Git 执行事件只发给 git 通道）
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接、跨窗口 send/close 被拒且连接仍在、关闭计数在移出连接时即生效、出口等待在有关闭时挂起并在最后一个关闭结束时返回、超时后放弃等待、退出 drain 后拒绝新连接；不需要真实 Agent 或网络。进程树回收用 `fake_acp_adapter` 假适配器覆盖两条路径——关闭连接、销毁窗口——断言外层进程和继承 stdout 的孙进程都已退出）
@@ -141,4 +147,4 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`、`windows/tauri/src-tauri/src/platform.rs`、`windows/tauri/src/features/agent/`、`windows/tauri/src/config/backend-capabilities.ts`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
