@@ -130,7 +130,9 @@ struct TerminalView: View {
         .frame(height: 41)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
+            // IslandsUICustomization gives the tool-window holder 3pt insets.
             Rectangle().fill(headerBorder).frame(height: 1)
+                .padding(.horizontal, 3)
         }
     }
 
