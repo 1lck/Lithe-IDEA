@@ -16,11 +16,25 @@ import {
   type MavenReloadSnapshot,
   type MavenStoreDependencies,
 } from "./maven.store";
+import type { JavaMavenConfigurationUpdate } from "../services/java-maven-configuration";
 
 type Deferred<T> = {
   promise: Promise<T>;
   resolve: (value: T) => void;
 };
+
+/**
+ * Drains promise continuations until `condition` holds. The store's Java sync
+ * chain only awaits mocked promises, so a bounded number of microtask turns is
+ * a deterministic upper bound; exceeding it means the chain stalled.
+ */
+async function waitFor(condition: () => boolean, turns = 200): Promise<void> {
+  for (let turn = 0; turn < turns; turn += 1) {
+    if (condition()) return;
+    await Promise.resolve();
+  }
+  throw new Error(`condition did not hold after ${turns} microtask turns`);
+}
 
 function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
@@ -164,6 +178,13 @@ const resolveEffectiveMavenExecutable = mock(
 );
 
 const resolveJavaTestClass = mock(async (_root: string, _file: string, className: string): Promise<string | null> => className);
+const updateJavaMavenConfiguration = mock(
+  async (
+    _root: string,
+    _context: unknown,
+    _reloadProjects: boolean,
+  ): Promise<JavaMavenConfigurationUpdate> => ({ kind: "noSession" }),
+);
 
 const dependencies = {
   createMavenPomWatchOperations,
@@ -184,10 +205,13 @@ const dependencies = {
   startMavenProcess,
   stopMavenProcess,
   trace,
+  updateJavaMavenConfiguration,
   writeMavenConfiguration,
 } satisfies MavenStoreDependencies;
 
 beforeEach(() => {
+  updateJavaMavenConfiguration.mockReset();
+  updateJavaMavenConfiguration.mockResolvedValue({ kind: "noSession" });
   resolveJavaTestClass.mockReset();
   resolveJavaTestClass.mockImplementation(async (_root, _file, className) => className);
   scanMavenProject.mockReset();
@@ -870,15 +894,22 @@ describe("Maven workspace state", () => {
     expect(store.getState().projectError).toBeNull();
   });
 
-  test("keeps configuration-only reloads Java-only and preserves a failed write", async () => {
+  test("sends configuration-only changes to the running Java session and preserves a failed write", async () => {
     const store = createMavenStore("workspace", dependencies);
     await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
     writeMavenConfiguration.mockRejectedValueOnce(new Error("Unable to save settings"));
 
     store.getState().actions.setSkipTests(true);
+    await waitFor(() => updateJavaMavenConfiguration.mock.calls.length === 1);
 
-    expect(store.getState().reloadRequired).toBe(true);
+    // #970: JDT LS takes the change in place, so no reload prompt appears.
+    expect(store.getState().reloadRequired).toBe(false);
     expect(store.getState().projectReloadRequired).toBe(false);
+    expect(updateJavaMavenConfiguration).toHaveBeenCalledWith(
+      "D:/work",
+      expect.objectContaining({ reactorPath: "reactor", skipTests: true }),
+      false,
+    );
     await store
       .getState()
       .actions.loadProject("D:/work", [...store.getState().visiblePaths]);
@@ -887,6 +918,71 @@ describe("Maven workspace state", () => {
 
     store.getState().actions.markPomReloadRequired("module/pom.xml");
     expect(store.getState().projectReloadRequired).toBe(true);
+  });
+
+  test("sends the latest Maven settings after a burst of edits", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    const first = deferred<JavaMavenConfigurationUpdate>();
+    updateJavaMavenConfiguration.mockImplementationOnce(() => first.promise);
+
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "D:/maven/conf/settings.xml",
+      localRepositoryPath: "",
+      mavenExecutablePath: "D:/maven/bin/mvn.cmd",
+      javaHomePath: "",
+    });
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "D:/maven/conf/settings.xml",
+      localRepositoryPath: "D:/dev/.m2/repository",
+      mavenExecutablePath: "D:/maven/bin/mvn.cmd",
+      javaHomePath: "",
+    });
+    await waitFor(() => updateJavaMavenConfiguration.mock.calls.length === 1);
+    first.resolve({ kind: "noSession" });
+    await waitFor(() => updateJavaMavenConfiguration.mock.calls.length === 2);
+
+    const last = updateJavaMavenConfiguration.mock.calls[1]![1] as Record<string, unknown>;
+    expect(last.settingsPath).toBe("D:/maven/conf/settings.xml");
+    expect(last.localRepositoryPath).toBe("D:/dev/.m2/repository");
+    expect(last.mavenExecutablePath).toBe("D:/maven/bin/mvn.cmd");
+  });
+
+  test("resolves automatic Maven selection before sending settings to Java", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "",
+      localRepositoryPath: "",
+      mavenExecutablePath: "D:/maven/bin/mvn.cmd",
+      javaHomePath: "",
+    });
+    await waitFor(() => updateJavaMavenConfiguration.mock.calls.length === 1);
+    resolveEffectiveMavenExecutable.mockResolvedValueOnce("D:/detected/bin/mvn.cmd");
+
+    store.getState().actions.updateLocalConfiguration({
+      settingsPath: "",
+      localRepositoryPath: "",
+      mavenExecutablePath: "",
+      javaHomePath: "",
+    });
+    await waitFor(() => updateJavaMavenConfiguration.mock.calls.length === 2);
+
+    const context = updateJavaMavenConfiguration.mock.calls[1]![1] as Record<string, unknown>;
+    expect(context.mavenExecutablePath).toBe("D:/detected/bin/mvn.cmd");
+  });
+
+  test("offers a reload when the Java session cannot take a Maven change", async () => {
+    const store = createMavenStore("workspace", dependencies);
+    await store.getState().actions.loadProject("D:/work", ["reactor/pom.xml"]);
+    updateJavaMavenConfiguration.mockRejectedValueOnce(
+      new Error("The Java language session is no longer running."),
+    );
+
+    store.getState().actions.setSkipTests(true);
+    await waitFor(() => store.getState().reloadRequired);
+
+    expect(store.getState().projectReloadRequired).toBe(false);
   });
 
   test("includes a newly observed nested POM in the next Maven scan", async () => {

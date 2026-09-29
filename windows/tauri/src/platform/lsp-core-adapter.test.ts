@@ -385,6 +385,14 @@ const executeCore = mock(
         data: { operationId },
       };
     }
+    if (request.command === "lsp.updateMavenConfiguration") {
+      requestPayload = request.payload;
+      return {
+        id: request.id,
+        ok: true as const,
+        data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
+      };
+    }
     return { id: request.id, ok: true as const, data: null };
   },
 );
@@ -628,6 +636,39 @@ describe("Rust Core LSP adapter failures", () => {
       getLspWorkspaceSessionSnapshot({ workspacePath: "C:/work", languageId: "java" }),
     ).toBeNull();
     expect(ownsLspSession("java-session")).toBe(false);
+  });
+
+  test("sends Maven configuration changes to the running Java session of the workspace", async () => {
+    scenario = "capabilities";
+    const mavenContext = { version: 1, reactorPath: ".", settingsPath: "C:/maven/settings.xml" };
+
+    const beforeStart = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:/work",
+      mavenContext,
+      reloadProjects: true,
+    });
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    const running = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:\\work",
+      mavenContext,
+      reloadProjects: true,
+    });
+
+    // Without a session the next start reads the current context; Core is not asked.
+    expect(beforeStart).toEqual({ kind: "noSession" });
+    expect(running).toEqual({
+      kind: "updated",
+      settingsChanged: true,
+      projectsReloaded: false,
+      profilesUpdating: false,
+    });
+    expect(requestPayload).toEqual({ sessionId: "java-session", mavenContext, reloadProjects: true });
+    expect(commands.filter((command) => command === "lsp.updateMavenConfiguration")).toHaveLength(1);
   });
 
   test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
@@ -1497,6 +1538,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_stop_for_file",
       "lsp_workspace_files_changed",
       "lsp_retry_maven_profiles",
+      "lsp_update_maven_configuration",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),

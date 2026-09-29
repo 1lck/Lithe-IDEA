@@ -347,6 +347,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
@@ -1386,13 +1387,37 @@ initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
 `maven.launchPlan`. Core validates its reactor and recursively declared modules,
-publishes `settingsPath` through
-`java.configuration.maven.userSettings`, and, after `ServiceReady`, sends one
+publishes the user-level settings through
+`java.configuration.maven.userSettings` and the selected installation's
+`conf/settings.xml` through `java.configuration.maven.globalSettings`, and,
+after `ServiceReady`, sends one
 `java.project.updateSettings` command per Maven project with
 `org.eclipse.m2e.core.selectedProfiles`. Maven Java, test, and generated source
 roots are normalized to workspace-relative `java.project.sourcePaths` during
 the same configuration flow, so JDT LS receives the selected reactor's source
-model without platform-specific POM parsing. Maven profile application is a
+model without platform-specific POM parsing. Both settings documents are passed as content-addressed copies inside the
+session's JDT LS state directory (`<data>/.lithe/maven/`). The user-level copy
+comes from `settingsPath`, else Maven's default `~/.m2/settings.xml`, else an
+empty document when only `localRepositoryPath` is set, and carries that local
+repository override. JDT LS detects settings changes by comparing paths, so a
+content change must always produce a new path. An unreadable document is passed
+by its original path with a session warning instead of failing startup.
+
+`lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
+reloadProjects? }` for a running Java session started with a `mavenContext`,
+and returns `{ settingsChanged, projectsReloaded, profilesUpdating }`. When the
+settings copies differ from the ones JDT LS holds, Core sends
+`workspace/didChangeConfiguration` and JDT LS force-updates every Maven project
+itself. When they are unchanged and `reloadProjects` is `true`, Core sends
+`java/projectConfigurationsUpdate` for the reactor's project URIs, which
+re-resolves dependencies even though no `pom.xml` changed. Changed profiles
+restart the profile task once the session is ready. Before the `initialized`
+handshake, the new configuration replaces the one the pending settings
+notification sends. A stopped or failed session returns `invalidRequest`.
+Resolution problems are not part of the response; JDT LS reports them as
+`pom.xml` diagnostics.
+
+Maven profile application is a
 bounded background task: at most eight project commands are in flight, remaining
 projects are queued, and each project reports `running`, `succeeded`, or
 `failed` with optional error details. Project results use a redacted stable

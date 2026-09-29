@@ -21,6 +21,13 @@ struct MavenView: View {
             if let error = feature.configurationSaveError {
                 configurationErrorBanner(error)
             }
+            if let error = feature.javaConfigurationError {
+                configurationErrorBanner(String(
+                    format: String(localized: "The Java language server did not take the Maven configuration: %@"),
+                    error
+                ))
+            }
+            MavenResolutionProblemsSection(diagnosticsStore: model.editorDiagnosticsStore)
             if let error = feature.reloadError {
                 configurationErrorBanner(error)
             }
@@ -884,4 +891,60 @@ private enum MavenToolbarAction: Hashable {
     case skipTests
     case collapse
     case settings
+}
+
+/// Lists the Maven problems JDT LS reports on workspace `pom.xml` files.
+/// Observes the diagnostics store directly so publish storms do not rebuild
+/// the whole Maven tool window.
+private struct MavenResolutionProblemsSection: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var diagnosticsStore: EditorDiagnosticsStore
+
+    var body: some View {
+        let problems = MavenResolutionProblems.problems(
+            workspaceURL: model.workspaceURL,
+            diagnosticsByURL: diagnosticsStore.diagnosticsByURL
+        )
+        if !problems.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(
+                    String(
+                        format: String(localized: "Maven could not resolve this project (%lld problems)"),
+                        problems.count
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(LitheTheme.error)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(problems) { problem in
+                            Button {
+                                model.openDiagnostic(problem)
+                            } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(problem.locationTitle)
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    Text(problem.message)
+                                        .foregroundStyle(LitheTheme.primaryText)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.system(size: 11))
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(problem.message)
+                        }
+                    }
+                }
+                .frame(maxHeight: 120)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LitheTheme.error.opacity(0.06))
+        }
+    }
 }

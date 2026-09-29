@@ -1213,6 +1213,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspUpdateMavenConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateMavenConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Maven configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_maven_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Maven configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
