@@ -170,6 +170,21 @@ final class LitheTerminalView: LocalProcessTerminalView {
         selectedTextBackgroundColor = isDark
             ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.48, alpha: 1)
             : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
+        // Preserve SwiftTerm's other ANSI colors; use IDEA's BLOCK_TERMINAL_BLUE
+        // and BLOCK_TERMINAL_BLUE_BRIGHT from DefaultColorSchemesManager.xml.
+        let ansiColors: [UInt32] = [
+            0x000000, 0x990001, 0x00A603, 0x999900,
+            isDark ? 0x5594FA : 0x225CD6, 0xB200B2, 0x00A5B2, 0xBFBFBF,
+            0x8A898A, 0xE50001, 0x00D800, 0xE5E500,
+            isDark ? 0x3399FF : 0x009DFF, 0xE500E5, 0x00E5E5, 0xE5E5E5
+        ]
+        installColors(ansiColors.map {
+            SwiftTerm.Color(
+                red: UInt16(($0 >> 16) & 0xff) * 257,
+                green: UInt16(($0 >> 8) & 0xff) * 257,
+                blue: UInt16($0 & 0xff) * 257
+            )
+        })
         needsDisplay = true
     }
 
