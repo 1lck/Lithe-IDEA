@@ -11,6 +11,7 @@ import "monaco-editor/esm/vs/basic-languages/graphql/graphql.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/hcl/hcl.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/html/html.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/java/java.contribution.js";
+import "monaco-editor/esm/vs/basic-languages/ini/ini.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/javascript/javascript.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/kotlin/kotlin.contribution.js";
 import "monaco-editor/esm/vs/basic-languages/less/less.contribution.js";
@@ -53,6 +54,7 @@ const monarchLanguageLoaders: Record<string, () => Promise<MonarchLanguageModule
   graphql: () => import("monaco-editor/esm/vs/basic-languages/graphql/graphql.js"),
   hcl: () => import("monaco-editor/esm/vs/basic-languages/hcl/hcl.js"),
   html: () => import("monaco-editor/esm/vs/basic-languages/html/html.js"),
+  ini: () => import("monaco-editor/esm/vs/basic-languages/ini/ini.js"),
   java: () => import("monaco-editor/esm/vs/basic-languages/java/java.js"),
   javascript: () => import("monaco-editor/esm/vs/basic-languages/javascript/javascript.js"),
   kotlin: () => import("monaco-editor/esm/vs/basic-languages/kotlin/kotlin.js"),

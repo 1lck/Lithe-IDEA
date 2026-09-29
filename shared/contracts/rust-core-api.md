@@ -2233,3 +2233,24 @@ and real staging checkboxes. The native products must not duplicate planning or 
 See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
 `shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
 and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.
+
+### Decoded document text classification
+
+`document.classifyText` accepts `{ text }` and returns `{ isPlainText }`.
+The input is already decoded Unicode, independent of the filename, language ID,
+or tokenizer availability. Core uses the same control-character policy as
+`file.read`: reject U+0000–U+0008, U+000E–U+001F, and U+007F; allow other scalars,
+including tabs, line breaks, form feed, Chinese, and emoji. The entire decoded
+text is inspected, not an arbitrary byte prefix. A missing or non-string `text`
+returns `invalid_request`. Hosts retain responsibility for size limits, I/O,
+encoding selection, and decode failures; a permission or decode error must not
+be relabeled as binary content.
+
+The synchronous C ABI `lithe_core_is_plain_text(const uint8_t *, size_t)` borrows
+UTF-8 bytes for the call, including embedded NUL, without allocating a JSON
+copy. It returns `1` for plain text, `0` for binary control characters, and `-1`
+for invalid UTF-8 or an invalid pointer/length combination. A zero-length input
+is plain text and may use a null pointer. Nonzero input must point to at least
+`length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
+bridge exposes the same lifetime and result contract. Fixtures live in
+`shared/fixtures/editor/text-content-v1.json` and exercise both entry points.

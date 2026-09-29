@@ -84,8 +84,8 @@ python3 scripts/test-git-execution.py --application "$BINARY"
 node --input-type=module -e 'import { writeTestReportArtifacts } from "./.agents/skills/write-stable-tests/scripts/generate-test-report.mjs"; writeTestReportArtifacts(".artifacts/test-stability/git-execution-integration.json");'
 
 # Exercise the macOS journal through a real non-Git-feature entry point, and
-# the Maven dependency-tree file through the linked bridge. The ordinary Swift
-# unit lane does not link Core, so these integrations are explicit.
+# the Maven dependency-tree file through the linked bridge. These integrations
+# remain explicit even though the ordinary Swift lane also links Core.
 LITHE_RUN_GIT_EXECUTION_INTEGRATION=1 \
     ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
     --suite-timeout-seconds 900 \
