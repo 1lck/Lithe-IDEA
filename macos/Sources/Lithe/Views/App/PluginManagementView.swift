@@ -10,6 +10,8 @@ struct PluginManagementView: View {
     @State private var searchText = ""
     @State private var selectedPluginID: PluginID?
     @State private var hoveredPluginID: PluginID?
+    @State private var isManagingPackage = false
+    @State private var confirmingPHPUninstall = false
     @AppStorage("lithe.settings.pluginListWidth") private var pluginListWidth = 320.0
 
     private var pendingEnabledStates: [PluginID: Bool] { settingsState.pendingPluginEnabledStates }
@@ -68,6 +70,18 @@ struct PluginManagementView: View {
         .background(LitheTheme.settingsSurface)
         .onAppear {
             selectedPluginID = installedPlugins.first?.id
+        }
+        .confirmationDialog(
+            LocalizedStringKey("Uninstall PHP Support?"),
+            isPresented: $confirmingPHPUninstall,
+            titleVisibility: .visible
+        ) {
+            Button(LocalizedStringKey("Uninstall"), role: .destructive) {
+                performPackageAction { await model.uninstallPHPPlugin() }
+            }
+            Button(LocalizedStringKey("Cancel"), role: .cancel) {}
+        } message: {
+            Text(LocalizedStringKey("PHP language support will be removed after restarting Lithe."))
         }
     }
 
@@ -205,7 +219,25 @@ struct PluginManagementView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(LitheTheme.accent)
-                    .disabled(isApplyingChanges || plugin.isRequired)
+                    .disabled(isApplyingChanges || isManagingPackage || plugin.isRequired)
+                    if plugin.id == OfficialPluginCatalog.phpPluginID {
+                        Button {
+                            performPackageAction { await model.reinstallPHPPlugin() }
+                        } label: {
+                            if isManagingPackage {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Text(LocalizedStringKey("Reinstall"))
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isApplyingChanges || isManagingPackage)
+                        Button(LocalizedStringKey("Uninstall")) {
+                            confirmingPHPUninstall = true
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isApplyingChanges || isManagingPackage || plugin.isRequired)
+                    }
                 }.padding(24)
                 Text(LocalizedStringKey("Overview")).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 24)
                 VStack(alignment: .leading, spacing: 12) {
@@ -227,13 +259,27 @@ struct PluginManagementView: View {
             VStack(alignment: .leading, spacing: 16) {
                 Text(LocalizedStringKey(manifest.displayName))
                     .font(.system(size: 22, weight: .bold))
-                Text(LocalizedStringKey("Install PHP Support from a signed plugin package."))
+                Text(LocalizedStringKey("Download PHP Support from the official plugin release."))
                     .foregroundStyle(LitheTheme.secondaryText)
-                Button(LocalizedStringKey("Install Plugin from Disk…")) {
-                    model.installPHPPluginPackage()
+                HStack(spacing: 10) {
+                    Button {
+                        performPackageAction { await model.downloadPHPPlugin() }
+                    } label: {
+                        if isManagingPackage {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Text(LocalizedStringKey("Download and Install"))
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(LitheTheme.accent)
+                    .disabled(isApplyingChanges || isManagingPackage)
+                    Button(LocalizedStringKey("Install Plugin from Disk…")) {
+                        model.installPHPPluginPackage()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isApplyingChanges || isManagingPackage)
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(isApplyingChanges)
                 Spacer()
             }
             .padding(24)
@@ -292,6 +338,15 @@ struct PluginManagementView: View {
             settingsState.pendingPluginEnabledStates.removeValue(forKey: plugin.id)
         } else {
             settingsState.pendingPluginEnabledStates[plugin.id] = enabled
+        }
+    }
+
+    private func performPackageAction(_ action: @escaping @MainActor () async -> Void) {
+        guard !isManagingPackage else { return }
+        isManagingPackage = true
+        Task { @MainActor in
+            await action()
+            isManagingPackage = false
         }
     }
 

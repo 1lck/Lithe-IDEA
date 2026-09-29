@@ -170,6 +170,9 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   清单校验。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
+- `.artifacts/php-language-server-downloads/`：按
+  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
+  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
 以下目录不应直接复制或跨工作树共享：
 
@@ -192,7 +195,8 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。应用缓存下 `language-tools/<language>/<tool>` 是插件拥有的可变运行时资源，随插件卸载清理，不是构建缓存。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

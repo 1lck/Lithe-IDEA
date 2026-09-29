@@ -47,7 +47,10 @@ for bundle_name in Lithe_Lithe.bundle SwiftTerm_SwiftTerm.bundle; do
 done
 cp -R "$JDTLS_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdtls"
 cp -R "$JDK_ROOT" "$APP_DIR/Contents/Resources/LanguageServers/jdk"
-plugin_root=$(scripts/build-official-plugins.sh --configuration debug --triple "$TRIPLE")
+plugin_root=$(scripts/build-official-plugins.sh \
+    --bundled-only \
+    --configuration debug \
+    --triple "$TRIPLE")
 for plugin_package in "$plugin_root"/*(/N); do
     cp -R "$plugin_package" "$APP_DIR/Contents/Resources/OfficialPlugins/${plugin_package:t}"
 done

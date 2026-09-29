@@ -87,6 +87,16 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
   });
+  await test("PHP downloads and native plugin packages stay isolated in each worktree", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    for (const id of ["php-language-server-downloads", "official-plugin-packages"]) {
+      assert.ok(!listed.stdout.includes(id));
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
+    }
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(
