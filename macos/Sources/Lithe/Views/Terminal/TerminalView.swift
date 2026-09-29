@@ -244,8 +244,9 @@ struct TerminalView: View {
 
     private var headerBorder: Color {
         guard LitheTheme.activeTheme == .lithe else { return LitheTheme.divider }
-        return colorScheme == .dark ? Color(red: 53/255, green: 57/255, blue: 59/255)
-                                    : Color(red: 232/255, green: 233/255, blue: 237/255)
+        // Islands Dark/Light: ToolWindow.Header.borderColor -> tool-window-border.
+        return colorScheme == .dark ? Color(red: 38/255, green: 40/255, blue: 44/255)
+                                    : Color(red: 233/255, green: 234/255, blue: 238/255)
     }
 
     private func refreshTerminalFocus() {
