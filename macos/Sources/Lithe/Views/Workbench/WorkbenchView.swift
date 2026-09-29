@@ -23,6 +23,8 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
+    // IDEA's shared ThreeComponentsSplitter: ide.mainSplitter.min.size=30.
+    static let minimumPaneHeight: CGFloat = 30
 }
 
 private enum WorkbenchTopBarMetrics {
@@ -2013,14 +2015,12 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumSidebarWidth
             )
 
-            let minimumTopPaneHeight: CGFloat = 220
-            let minimumGitPaneHeight: CGFloat = 260
-            let maximumTopPaneHeight = max(
-                minimumTopPaneHeight,
-                geometry.size.height
-                    - WorkbenchWorkspaceMetrics.paneSpacing
-                    - minimumGitPaneHeight
+            let availablePaneHeight = max(0, geometry.size.height - WorkbenchWorkspaceMetrics.paneSpacing)
+            let minimumTopPaneHeight = min(
+                WorkbenchWorkspaceMetrics.minimumPaneHeight,
+                availablePaneHeight / 2
             )
+            let maximumTopPaneHeight = availablePaneHeight - minimumTopPaneHeight
             let resolvedTopPaneHeight = constrained(
                 liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
                 minimum: minimumTopPaneHeight,
@@ -2068,6 +2068,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         defaultSize: resolvedTopPaneHeight,
                         minimum: minimumTopPaneHeight,
                         maximum: maximumTopPaneHeight,
+                        flexibleMinimum: 0,
+                        clipsSizedPane: true,
                         trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                         showsIdleDivider: false,
                         onCommit: actions.onTopPaneHeightCommitted,
@@ -2078,7 +2080,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         },
                         flexible: {
                             bottomTool
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                                .clipped()
                                 .workbenchPaneChrome(
                                     background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                     surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
