@@ -339,3 +339,88 @@ describe("Agent connection lifecycle", () => {
     expect(model.hasActiveConnection).toBe(false);
   });
 });
+
+describe("Agent transcript export", () => {
+  let transport: ScriptedTransport;
+  let scheduler: ReturnType<typeof manualScheduler>;
+  let model: AgentConnectionModel;
+
+  beforeEach(() => {
+    transport = new ScriptedTransport();
+    scheduler = manualScheduler();
+    model = new AgentConnectionModel(transport, scheduler);
+  });
+
+  async function connectReady(): Promise<void> {
+    await model.connect(launch());
+    transport.emit(fixture.events.ready);
+  }
+
+  function loadCommands(): Record<string, unknown>[] {
+    return transport.commands.filter((command) => command.kind === "loadSession");
+  }
+
+  test("an export load replays the transcript without opening a tab", async () => {
+    await connectReady();
+    const pending = model.historyTranscript("session-2");
+    const token = transport.command("loadSession")?.token as string;
+    transport.emit({ ...fixture.events.userMessageChunk, sessionId: "session-2" });
+    transport.emit({ ...fixture.events.agentMessageChunk, sessionId: "session-2" });
+    transport.emit({ kind: "sessionLoaded", token, sessionId: "session-2" });
+
+    expect((await pending)?.map((message) => message.text)).toEqual([
+      "Explain this project",
+      "This project **builds** an IDE.",
+    ]);
+    expect(model.getSnapshot().openSessionIDs).toEqual([]);
+    expect(model.getSnapshot().selectedSessionID).toBeNull();
+  });
+
+  test("a failed export load resolves with null instead of hanging", async () => {
+    await connectReady();
+    const pending = model.historyTranscript("session-2");
+    const token = transport.command("loadSession")?.token as string;
+    transport.emit({ kind: "requestFailed", token, sessionId: "session-2", message: "load failed" });
+    expect(await pending).toBeNull();
+    expect(model.getSnapshot().openSessionIDs).toEqual([]);
+  });
+
+  test("a connection dropped mid-load resolves null rather than never finishing", async () => {
+    await connectReady();
+    const pending = model.historyTranscript("session-2");
+    transport.emit({ kind: "stopped", message: "gone" });
+    expect(await pending).toBeNull();
+  });
+
+  test("an already replayed session is reused instead of loaded twice", async () => {
+    await connectReady();
+    const first = model.historyTranscript("session-2");
+    const token = transport.command("loadSession")?.token as string;
+    transport.emit({ kind: "sessionLoaded", token, sessionId: "session-2" });
+    await first;
+    await model.historyTranscript("session-2");
+    expect(loadCommands()).toHaveLength(1);
+  });
+
+  test("two export loads stay sequential on the shared connection", async () => {
+    await connectReady();
+    const first = model.historyTranscript("session-1");
+    const second = model.historyTranscript("session-2");
+    expect(loadCommands()).toHaveLength(1);
+
+    transport.emit({ kind: "sessionLoaded", token: loadCommands()[0].token, sessionId: "session-1" });
+    await first;
+    for (let attempt = 0; attempt < 5 && loadCommands().length < 2; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(loadCommands()).toHaveLength(2);
+
+    transport.emit({ kind: "sessionLoaded", token: loadCommands()[1].token, sessionId: "session-2" });
+    expect(await second).toEqual([]);
+  });
+
+  test("a session the connection cannot replay is refused instead of guessed", async () => {
+    expect(model.canExportTranscript("session-1")).toBe(false);
+    expect(await model.historyTranscript("session-1")).toBeNull();
+  });
+});

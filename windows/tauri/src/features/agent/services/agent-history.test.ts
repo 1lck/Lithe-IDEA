@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { createConversation, appendMessage, type AgentSessionSummary } from "../types/agent.types";
+import {
+  appendMessage,
+  createConversation,
+  emptyToolDetails,
+  type AgentSessionSummary,
+} from "../types/agent.types";
 import type { AgentHistoryMetadataMap } from "../types/agent-history.types";
 import {
   agentHistoryKey,
@@ -8,6 +13,7 @@ import {
   renameAgentHistoryEntry,
 } from "./agent-history-annotations";
 import { agentHistoryRows, historyDate, historyMessageCount } from "./agent-history-view";
+import { historyMarkdown } from "./agent-history-export";
 
 function session(id: string, title: string | null, updatedAt: string | null): AgentSessionSummary {
   return { id, title, updatedAt };
@@ -163,5 +169,66 @@ describe("History message count", () => {
     expect(historyMessageCount(null)).toBeNull();
     expect(historyMessageCount({ ...createConversation(), isLoading: true })).toBeNull();
     expect(historyMessageCount(createConversation())).toBeNull();
+  });
+});
+
+describe("History markdown", () => {
+  const labels = { untitled: "Untitled conversation", you: "You", tool: "Tool" };
+
+  test("renders a heading, the session id, and one block per message", () => {
+    const markdown = historyMarkdown(
+      [
+        {
+          id: "session-one",
+          title: "Rename the parser",
+          messages: [
+            { id: "a", role: "user", text: "do it", toolStatus: null, toolDetails: emptyToolDetails() },
+            { id: "b", role: "agent", text: "done", toolStatus: null, toolDetails: emptyToolDetails() },
+          ],
+        },
+      ],
+      labels,
+    );
+    expect(markdown).toBe(
+      "# Rename the parser\n\nSession ID: session-one\n\n## You\n\ndo it\n\n## Agent\n\ndone\n",
+    );
+  });
+
+  test("tool evidence keeps its status, input, output and content blocks", () => {
+    const markdown = historyMarkdown(
+      [
+        {
+          id: "session-two",
+          title: null,
+          messages: [
+            {
+              id: "a",
+              role: "tool",
+              text: "read",
+              toolStatus: "completed",
+              toolDetails: {
+                kind: "read",
+                input: "{\"path\":\"a.ts\"}",
+                output: "file contents",
+                locations: [],
+                content: [{ title: "a.ts", text: "line one" }],
+              },
+            },
+          ],
+        },
+      ],
+      labels,
+    );
+    expect(markdown).toBe(
+      "# Untitled conversation\n\nSession ID: session-two\n\n## Tool\n\nread\n\n" +
+        "Status: completed\n\n{\"path\":\"a.ts\"}\n\nfile contents\n\nline one\n",
+    );
+  });
+
+  test("several conversations are separated and a newline in a title cannot split the heading", () => {
+    const doc = { id: "id", title: "first\nsecond", messages: [] };
+    expect(historyMarkdown([doc, doc], labels)).toBe(
+      "# first second\n\nSession ID: id\n\n---\n\n# first second\n\nSession ID: id\n",
+    );
   });
 });
