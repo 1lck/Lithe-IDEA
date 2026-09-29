@@ -4,6 +4,8 @@ import LitheTerminalModule
 struct TerminalView: View {
     @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var terminalHasFocus = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,25 +23,33 @@ struct TerminalView: View {
             }
         )
         .litheWorkbenchSurface(LitheTheme.editor)
+        .onAppear { refreshTerminalFocus() }
+        .onChange(of: model.activeToolTerminalSession?.id) { _ in refreshTerminalFocus() }
+        .onReceive(NotificationCenter.default.publisher(for: LitheTerminalView.focusDidChange)) { notification in
+            guard let view = notification.object as? LitheTerminalView,
+                  view === model.activeToolTerminalSession?.nativeView else { return }
+            terminalHasFocus = notification.userInfo?["focused"] as? Bool ?? false
+        }
     }
 
     private var terminalToolbar: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             Text("Terminal")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.primaryText)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 2) {
                     ForEach(model.toolTerminalSessions) { terminalSession in
                         terminalTab(terminalSession)
                     }
                     Button {
                         _ = model.createTerminalSession()
                     } label: {
-                        Image(systemName: "plus")
+                        LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16,
+                                      fallbackSystemImage: "plus", preservesOriginalColors: true)
                     }
-                    .litheIconButton()
+                    .litheToolbarIconButton()
                     .help("New terminal session")
 
                     Menu {
@@ -53,11 +63,12 @@ struct TerminalView: View {
                         Divider()
                         Button("Detect Installed Shells") { feature.refreshAvailableShells() }
                     } label: {
-                        Image(systemName: "chevron.down")
+                        LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
+                                      fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                     }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
-                    .frame(width: 26, height: 28)
+                    .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
                     .foregroundStyle(LitheTheme.secondaryText)
                     .help("Detect shells and create a new terminal")
@@ -95,12 +106,12 @@ struct TerminalView: View {
                         .disabled(true)
                 }
             } label: {
-                LitheSystemIcon(systemImage: "ellipsis.vertical")
+                LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16,
+                              fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
             }
             .menuStyle(.borderlessButton)
-            .lithePointer()
             .menuIndicator(.hidden)
-            .frame(width: 28, height: 28)
+            .frame(width: 22, height: 22)
             .contentShape(Rectangle())
             .foregroundStyle(LitheTheme.secondaryText)
             .help("Terminal actions")
@@ -108,35 +119,35 @@ struct TerminalView: View {
             Button {
                 model.workbenchFeature.setVisibility(.terminal, isVisible: false)
             } label: {
-                Image(systemName: "minus")
+                LitheIDEAIcon(resourcePath: "expui/general/hide.svg", size: 16,
+                              fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .help("Hide Terminal tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
+        .padding(.trailing, 8)
+        .frame(height: 41)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            Rectangle().fill(headerBorder).frame(height: 1)
         }
     }
 
     private func terminalTab(_ session: TerminalSession) -> some View {
-        let isActive = model.activeToolTerminalSession?.id == session.id
+        let isSelected = model.activeToolTerminalSession?.id == session.id
 
         return HStack(spacing: 1) {
             HStack(spacing: 6) {
                 TerminalToolTabTitle(
                     session: session,
-                    fallbackTitle: feature.terminalTitle(for: session),
-                    isActive: isActive
+                    fallbackTitle: feature.terminalTitle(for: session)
                 )
             }
-            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
-            .padding(.leading, 8)
-            .padding(.trailing, 5)
-            .frame(height: 24)
+            .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
+            .padding(.leading, 12)
+            .padding(.trailing, 3)
+            .frame(height: 28)
             .contentShape(Rectangle())
             .contentShape(
                 .dragPreview,
@@ -161,21 +172,20 @@ struct TerminalView: View {
             Button {
                 model.requestCloseTerminalSession(session)
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                              fallbackSystemImage: "xmark", preservesOriginalColors: true)
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Close \(feature.terminalTitle(for: session))")
         }
-        .background(isActive ? LitheTheme.selection.opacity(0.25) : .clear)
+        .background(isSelected ? selectedTabBackground : .clear)
         .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(isActive ? LitheTheme.selection.opacity(0.55) : .clear, lineWidth: 1)
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -206,7 +216,40 @@ struct TerminalView: View {
                 })
             ]
         }
-        .lithePointer()
+    }
+
+    private var selectedTabBackground: Color {
+        guard LitheTheme.activeTheme == .lithe else {
+            return terminalHasFocus ? LitheTheme.activeTabBackground : LitheTheme.subtleSelection
+        }
+        if colorScheme == .dark {
+            return terminalHasFocus ? Color(red: 43/255, green: 64/255, blue: 90/255)
+                                    : Color(red: 53/255, green: 57/255, blue: 59/255)
+        }
+        return terminalHasFocus ? Color(red: 227/255, green: 235/255, blue: 254/255)
+                                : Color(red: 233/255, green: 234/255, blue: 238/255)
+    }
+
+    private var selectedTabBorder: Color {
+        guard LitheTheme.activeTheme == .lithe else {
+            return terminalHasFocus ? LitheTheme.accent.opacity(0.45) : LitheTheme.divider
+        }
+        if colorScheme == .dark {
+            return terminalHasFocus ? Color(red: 56/255, green: 84/255, blue: 117/255)
+                                    : Color(red: 69/255, green: 74/255, blue: 77/255)
+        }
+        return terminalHasFocus ? Color(red: 167/255, green: 197/255, blue: 255/255)
+                                : Color(red: 209/255, green: 211/255, blue: 217/255)
+    }
+
+    private var headerBorder: Color {
+        guard LitheTheme.activeTheme == .lithe else { return LitheTheme.divider }
+        return colorScheme == .dark ? Color(red: 53/255, green: 57/255, blue: 59/255)
+                                    : Color(red: 232/255, green: 233/255, blue: 237/255)
+    }
+
+    private func refreshTerminalFocus() {
+        terminalHasFocus = (model.activeToolTerminalSession?.nativeView as? LitheTerminalView)?.hasFocus == true
     }
 
     @ViewBuilder
@@ -257,11 +300,10 @@ struct TerminalView: View {
 private struct TerminalToolTabTitle: View {
     @ObservedObject var session: TerminalSession
     let fallbackTitle: String
-    let isActive: Bool
 
     var body: some View {
         Text(session.isManagedProcess ? fallbackTitle : "Local")
-            .font(.system(size: 11.5, weight: isActive ? .semibold : .medium))
+            .font(.system(size: 13, weight: .regular))
             .lineLimit(1)
     }
 }

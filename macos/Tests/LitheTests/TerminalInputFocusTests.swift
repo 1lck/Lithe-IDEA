@@ -1,5 +1,6 @@
 import AppKit
 import MetalKit
+import os
 import SwiftTerm
 import Testing
 @testable import Lithe
@@ -7,6 +8,40 @@ import Testing
 @Suite("Terminal input focus")
 @MainActor
 struct TerminalInputFocusTests {
+    @Test
+    func terminalTabFocusNotificationTracksResponderAndWindow() throws {
+        let window = CursorFocusTestWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let content = try #require(window.contentView)
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        let editor = TerminalOtherResponderView(frame: NSRect(x: 0, y: 200, width: 400, height: 50))
+        content.addSubview(terminal)
+        content.addSubview(editor)
+
+        let focusStates = OSAllocatedUnfairLock(initialState: [Bool]())
+        let observer = NotificationCenter.default.addObserver(
+            forName: LitheTerminalView.focusDidChange, object: terminal, queue: nil
+        ) { notification in
+            let focused = notification.userInfo?["focused"] as? Bool ?? false
+            focusStates.withLock { $0.append(focused) }
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        #expect(window.makeFirstResponder(terminal))
+        #expect(focusStates.withLock { $0.last } == true)
+        #expect(window.makeFirstResponder(editor))
+        #expect(focusStates.withLock { $0.last } == false)
+        #expect(window.makeFirstResponder(terminal))
+        #expect(focusStates.withLock { $0.last } == true)
+        window.reportsKeyWindow = false
+        NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+        #expect(focusStates.withLock { $0.last } == false)
+    }
+
     @Test
     func coreGraphicsCaretIsRemovedOutsideKeyboardOwner() throws {
         let window = CursorFocusTestWindow(

@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
+    static let focusDidChange = Notification.Name("LitheTerminalView.focusDidChange")
     var onOpenLink: ((String, [String: String]) -> Void)?
     var onProcessOutput: ((Data) -> Void)?
     private var showsWorkbenchBackground = false
@@ -85,6 +86,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
             super.hasFocus = newValue
             setNativeCursorVisible(newValue && window?.isKeyWindow == true && shellShowsCursor)
             invalidateCursorSurface()
+            notifyFocusChange(newValue && window?.isKeyWindow == true)
         }
     }
 
@@ -96,6 +98,15 @@ final class LitheTerminalView: LocalProcessTerminalView {
     @objc private func windowFocusDidChange() {
         setNativeCursorVisible(hasFocus && shellShowsCursor)
         invalidateCursorSurface()
+        notifyFocusChange(hasFocus)
+    }
+
+    private func notifyFocusChange(_ focused: Bool) {
+        NotificationCenter.default.post(
+            name: Self.focusDidChange,
+            object: self,
+            userInfo: ["focused": focused]
+        )
     }
 
     override func showCursor(source: Terminal) {
