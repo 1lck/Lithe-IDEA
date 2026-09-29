@@ -329,7 +329,8 @@ describe("createSessionRestoreController", () => {
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
     h.setCurrent(false); // a newer restore replaced this controller while reading
-    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
+    const completed = h.controller.loadNow({ bufferId: "id_1", path: "a.ts" });
+    expect(readFileContent).toHaveBeenCalledTimes(1);
     pending.get("a.ts")!.resolve("content");
     await completed;
 
@@ -352,7 +353,8 @@ describe("createSessionRestoreController", () => {
     h.controller.enqueue([{ bufferId: "id_1", path: "a.ts" }]);
 
     h.validPaths.delete("id_1"); // tab closed while reading
-    const completed = h.controller.loadNow({ bufferId: "id_a.ts", path: "a.ts" });
+    const completed = h.controller.loadNow({ bufferId: "id_1", path: "a.ts" });
+    expect(readFileContent).toHaveBeenCalledTimes(1);
     pending.get("a.ts")!.resolve("content");
     await completed;
 
