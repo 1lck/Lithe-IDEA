@@ -21,7 +21,7 @@ const legacyIconCompatibility: Record<string, ComponentType<any>> = {
   ArrowDoorIn: lucideIcons.LogIn,
   ArrowDoorOut3: lucideIcons.LogOut,
   ArrowRotateAnticlockwise: lucideIcons.RotateCcw,
-  ArrowRotateClockwise: lucideIcons.RefreshCw,
+  ArrowRotateClockwise: lucideIcons.RotateCw,
   ArrowsExpandDiagonal: lucideIcons.Expand,
   ArrowsOppositeDirectionX: lucideIcons.ArrowLeftRight,
   ArrowsReduceDiagonal: lucideIcons.Shrink,
@@ -224,12 +224,14 @@ export const Icon = createIconComponent(Nucleo.IconCircleQuestionOutline18, "Ico
 export const AiLoadingIcon = createIconComponent(Nucleo.IconAiLoadingOutline18, "AiLoadingIcon");
 export const LoaderCircleIcon = createIconComponent(lucideIcons.LoaderCircle, "LoaderCircleIcon");
 export const ArchiveIcon = createIconComponent(Nucleo.IconArchiveOutline18, "ArchiveIcon");
-export const RefreshIcon = createIconComponent(Nucleo.IconRefresh2Outline18, "RefreshIcon");
 export const ArrowBendDownLeftIcon = createIconComponent(
   Nucleo.IconArrowCornerBottomLeftOutline18,
   "ArrowBendDownLeftIcon",
 );
-export const ArrowClockwiseIcon = RefreshIcon;
+export const ArrowClockwiseIcon = createIconComponent(
+  Nucleo.IconArrowRotateClockwiseOutline18,
+  "ArrowClockwiseIcon",
+);
 export const ArrowCounterClockwiseIcon = createIconComponent(
   Nucleo.IconArrowRotateAnticlockwiseOutline18,
   "ArrowCounterClockwiseIcon",
@@ -621,6 +623,7 @@ export const OpenExternalIcon = createIconComponent(
   "OpenExternalIcon",
 );
 export const PenIcon = createIconComponent(Nucleo.IconPen3Outline18, "PenIcon");
+export const RefreshIcon = createIconComponent(Nucleo.IconRefresh2Outline18, "RefreshIcon");
 export const RemoteIcon = createIconComponent(Nucleo.IconComputerOutline18, "RemoteIcon");
 export const SignOutIcon = createIconComponent(Nucleo.IconArrowDoorOut3Outline18, "SignOutIcon");
 export const WindowExpandIcon = createIconComponent(

@@ -1,4 +1,3 @@
-import { RotateCcw, RotateCw } from "lucide-react";
 import {
   CopyIcon as Copy,
   FileTextIcon as FileText,
@@ -6,6 +5,8 @@ import {
   FlipVerticalIcon as FlipVertical,
   FolderOpenIcon as FolderOpen,
   ImageIcon as Image,
+  ArrowCounterClockwiseIcon as RotateCcw,
+  ArrowClockwiseIcon as RotateCw,
   FloppyDiskIcon as Save,
   ArrowCounterClockwiseIcon as Undo2,
 } from "@/ui/icons";

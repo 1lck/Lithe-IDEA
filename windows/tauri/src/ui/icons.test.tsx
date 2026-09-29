@@ -18,10 +18,6 @@ describe("application icon mappings", () => {
     expect(iconEntries).toHaveLength(205);
   });
 
-  test("uses the shared refresh icon for clockwise refresh controls", () => {
-    expect(renderIcon(AppIcons.ArrowClockwiseIcon)).toBe(renderIcon(AppIcons.RefreshIcon));
-  });
-
   test("avoids unintended help fallbacks", () => {
     const unintendedFallbacks = iconEntries
       .filter(([exportName]) => !intentionalHelpIcons.has(exportName))

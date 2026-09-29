@@ -5,6 +5,8 @@
 
 import archiveLight from "./idea/expui/fileTypes/archive.svg?url";
 import archiveDark from "./idea/expui/fileTypes/archive_dark.svg?url";
+import arrowClockwiseLight from "./idea/expui/general/redo.svg?url";
+import arrowClockwiseDark from "./idea/expui/general/redo_dark.svg?url";
 import arrowCounterClockwiseLight from "./idea/expui/general/undo.svg?url";
 import arrowCounterClockwiseDark from "./idea/expui/general/undo_dark.svg?url";
 import arrowDownLight from "./idea/expui/general/down.svg?url";
@@ -197,6 +199,7 @@ export interface IdeaIconAsset {
 
 export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   ArchiveIcon: { light: archiveLight, dark: archiveDark },
+  ArrowClockwiseIcon: { light: arrowClockwiseLight, dark: arrowClockwiseDark },
   ArrowCounterClockwiseIcon: { light: arrowCounterClockwiseLight, dark: arrowCounterClockwiseDark },
   ArrowDownIcon: { light: arrowDownLight, dark: arrowDownDark },
   ArrowLeftIcon: { light: arrowLeftLight, dark: arrowLeftDark },
