@@ -385,6 +385,8 @@ pub fn shutdown() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc;
     use std::time::{Duration, Instant};
 
@@ -399,9 +401,10 @@ mod tests {
 
     impl AgentEventSink for RecordingSink {
         fn emit_event(&self, connection_id: &str, event: Value) {
-            self.events
-                .send((connection_id.to_string(), event))
-                .expect("recording sink receiver should remain active");
+            // A test that has already finished no longer reads events, and its
+            // connection worker can still report one; dropping it is not a
+            // failure. A test that is waiting asserts on its own `recv_timeout`.
+            let _ = self.events.send((connection_id.to_string(), event));
         }
     }
 
@@ -444,6 +447,152 @@ mod tests {
                 .into_iter()
                 .next(),
         )
+    }
+
+    /// Path of the ACP fixture the process-tree tests spawn. It is a regular
+    /// binary, so the suite has it without enabling `test-support`.
+    #[cfg(windows)]
+    fn fixture_path() -> PathBuf {
+        let test_binary = std::env::current_exe().expect("test binary path");
+        test_binary
+            .parent()
+            .and_then(Path::parent)
+            .expect("target directory")
+            .join("fake-acp-adapter.exe")
+    }
+
+    /// Where the fixture records the process ids of its wrapper and grandchild.
+    #[cfg(windows)]
+    fn fixture_pid_file(label: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("lithe-fake-acp-{label}-{}.txt", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        path
+    }
+
+    /// Starts the fixture adapter: a live ACP connection whose wrapper owns a
+    /// grandchild that inherits stdout, like a real adapter's app-server.
+    #[cfg(windows)]
+    fn fixture_request(connection_id: &str, pid_file: &Path) -> AgentOpenRequest {
+        AgentOpenRequest {
+            connection_id: connection_id.to_string(),
+            workspace_path: std::env::temp_dir().to_string_lossy().into_owned(),
+            launch: json!({
+                "command": fixture_path().to_string_lossy(),
+                "args": ["serve", pid_file.to_string_lossy()],
+                "cwd": std::env::temp_dir(),
+                "authentication": "apiKey",
+                "provider": {
+                    "protocol": "responses",
+                    "baseUrl": "https://gateway.example.com/v1",
+                    "apiKey": "test-key",
+                },
+            }),
+        }
+    }
+
+    /// Waits for one event, failing with the host's message when the connection
+    /// stops first: a fixture that cannot complete the handshake must not look
+    /// like a lifecycle failure.
+    #[cfg(windows)]
+    fn wait_for_event(receiver: &mpsc::Receiver<(String, Value)>, connection_id: &str, kind: &str) {
+        let deadline = Instant::now() + EVENT_WAIT;
+        loop {
+            let remaining = deadline
+                .checked_duration_since(Instant::now())
+                .unwrap_or_else(|| {
+                    panic!("no `{kind}` event for {connection_id} before the deadline")
+                });
+            let (event_connection, event) = receiver
+                .recv_timeout(remaining)
+                .expect("an Agent event before the deadline");
+            assert_eq!(event_connection, connection_id);
+            if event["kind"] == kind {
+                return;
+            }
+            assert_ne!(
+                event["kind"], "stopped",
+                "the fixture adapter stopped before `{kind}`: {}",
+                event["message"]
+            );
+        }
+    }
+
+    /// Waits for the wrapper and grandchild process ids the fixture recorded.
+    #[cfg(windows)]
+    fn wait_for_fixture_tree(pid_file: &Path) -> (u32, u32) {
+        let deadline = Instant::now() + EVENT_WAIT;
+        loop {
+            if let Some(tree) = read_fixture_tree(pid_file) {
+                return tree;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the fixture must record its process tree before the deadline: {}",
+                pid_file.display()
+            );
+            // test-stability: allow(rust-real-sleep) reason: the pid file is written by a separate fixture process, so bounded polling of that file is the only readiness signal; the deadline above already bounds the loop.
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    #[cfg(windows)]
+    fn read_fixture_tree(pid_file: &Path) -> Option<(u32, u32)> {
+        let contents = std::fs::read_to_string(pid_file).ok()?;
+        let mut adapter = None;
+        let mut grandchild = None;
+        for line in contents.lines() {
+            let mut fields = line.split_whitespace();
+            match (fields.next(), fields.next()) {
+                (Some("adapter"), Some(pid)) => adapter = pid.parse().ok(),
+                (Some("grandchild"), Some(pid)) => grandchild = pid.parse().ok(),
+                _ => {}
+            }
+        }
+        Some((adapter?, grandchild?))
+    }
+
+    /// Whether the process is still running. A killed process is only observable
+    /// through the operating system, so liveness is polled against a deadline.
+    #[cfg(windows)]
+    fn process_alive(pid: u32) -> bool {
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        system.process(sysinfo::Pid::from_u32(pid)).is_some()
+    }
+
+    /// Asserts the host reclaimed the whole tree, and kills whatever survived so
+    /// a failure cannot leak fixture processes into the rest of the suite.
+    #[cfg(windows)]
+    fn assert_fixture_tree_reclaimed(tree: (u32, u32)) {
+        let (adapter, grandchild) = tree;
+        let deadline = Instant::now() + EVENT_WAIT;
+        loop {
+            let adapter_alive = process_alive(adapter);
+            let grandchild_alive = process_alive(grandchild);
+            if !adapter_alive && !grandchild_alive {
+                return;
+            }
+            if Instant::now() >= deadline {
+                kill_fixture_survivors(tree);
+                panic!(
+                    "the whole adapter tree must be reclaimed; adapter {adapter} alive: {adapter_alive}, grandchild {grandchild} alive: {grandchild_alive}"
+                );
+            }
+            // test-stability: allow(rust-real-sleep) reason: an externally killed process has no callback, so bounded operating-system liveness polling is the only way to verify the cleanup; the deadline above bounds the loop.
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    }
+
+    #[cfg(windows)]
+    fn kill_fixture_survivors(tree: (u32, u32)) {
+        let mut system = sysinfo::System::new();
+        system.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        for pid in [tree.1, tree.0] {
+            if let Some(process) = system.process(sysinfo::Pid::from_u32(pid)) {
+                process.kill();
+            }
+        }
     }
 
     fn wait_for_stopped(receiver: &mpsc::Receiver<(String, Value)>, connection_id: &str) {
@@ -736,5 +885,59 @@ mod tests {
         assert!(kept.contains("Invalid Agent command"), "{kept}");
 
         close("test-window-owner", "test-owned-connection");
+    }
+
+    /// Closing a live connection reclaims the whole Agent process tree, not just
+    /// the wrapper the host started: the fixture's grandchild inherits stdout,
+    /// so a host that only waited for the direct child would leave it running
+    /// and holding the connection's output pipe.
+    #[cfg(windows)]
+    #[test]
+    fn closing_a_live_connection_reclaims_the_whole_agent_tree() {
+        let (sink, receiver) = recording();
+        let pid_file = fixture_pid_file("close");
+        open_connection(
+            "test-window-tree-close",
+            fixture_request("test-tree-close", &pid_file),
+            sink,
+        )
+        .expect("open a live fixture adapter");
+
+        wait_for_event(&receiver, "test-tree-close", "ready");
+        let tree = wait_for_fixture_tree(&pid_file);
+
+        close("test-window-tree-close", "test-tree-close");
+
+        assert_fixture_tree_reclaimed(tree);
+        assert!(take_connection("test-tree-close")
+            .expect("registry")
+            .is_none());
+        let _ = std::fs::remove_file(&pid_file);
+    }
+
+    /// Destroying a project window releases the connection it opened and its
+    /// whole process tree, so a closed project cannot leave an Agent running.
+    #[cfg(windows)]
+    #[test]
+    fn destroying_a_window_reclaims_the_agent_tree_it_opened() {
+        let (sink, receiver) = recording();
+        let pid_file = fixture_pid_file("window");
+        open_connection(
+            "test-window-tree-owner",
+            fixture_request("test-tree-window", &pid_file),
+            sink,
+        )
+        .expect("open a live fixture adapter");
+
+        wait_for_event(&receiver, "test-tree-window", "ready");
+        let tree = wait_for_fixture_tree(&pid_file);
+
+        close_window_connections("test-window-tree-owner");
+
+        assert!(take_connection("test-tree-window")
+            .expect("registry")
+            .is_none());
+        assert_fixture_tree_reclaimed(tree);
+        let _ = std::fs::remove_file(&pid_file);
     }
 }

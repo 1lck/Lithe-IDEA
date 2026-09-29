@@ -111,7 +111,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 代价：
 
-- Windows 面板 UI、供应商切换和额度展示仍需另做；共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。退出等待由注册表计数与可控 gate 测试覆盖，但没有用存活的真实 Agent 验证整棵进程树在“窗口销毁→退出”竞争下已被回收。
+- Windows 面板 UI、供应商切换和额度展示仍需另做；共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在面板内安装。
 - codex-acp 丢失取消时，最多等待十秒后需要用户重连；同一进程的其他会话也会断开。上游未持久化的最后片段可能无法完整回放，界面保留旧记录用于诊断，不能保证 Agent 保存了未完成轮次。
@@ -123,7 +123,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
-- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接、跨窗口 send/close 被拒且连接仍在、关闭计数在移出连接时即生效、出口等待在有关闭时挂起并在最后一个关闭结束时返回、超时后放弃等待、退出 drain 后拒绝新连接；不需要真实 Agent 或网络）
+- `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml agent::`（Windows 连接桥：非法启动配置、空或重复连接 ID、启动失败上报、未知连接与非法命令、按窗口释放连接、跨窗口 send/close 被拒且连接仍在、关闭计数在移出连接时即生效、出口等待在有关闭时挂起并在最后一个关闭结束时返回、超时后放弃等待、退出 drain 后拒绝新连接；不需要真实 Agent 或网络。进程树回收用 `fake_acp_adapter` 假适配器覆盖两条路径——关闭连接、销毁窗口——断言外层进程和继承 stdout 的孙进程都已退出）
 - `cargo test -p lithe-core agent`（`agent.*` 命令与 `shared/fixtures/agent/agent-management-v1.json`）
 - 真实 Agent 端到端测试默认忽略，需要设置 `LITHE_ACP_E2E_*` 环境变量后运行：`cargo test -p lithe-agent-host --test real_agent -- --ignored`。设置 `LITHE_ACP_E2E_DATA_DIR` 时，会先用 npm 安装适配器，再从 Lithe 数据目录启动。
 - `shared/fixtures/agent/acp-events-v1.json` 同时由 Rust 序列化测试和 Swift 功能模型测试读取。
@@ -141,4 +141,4 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 适用范围
 
-`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
+`rust/lithe-agent-host/`、`rust/lithe-core/src/agent/`、`rust/lithe-core/src/runtime/ffi.rs`、`macos/Sources/Lithe/Views/Agent/`、`macos/Sources/LitheAgentConversationModule/`、`macos/Sources/Lithe/Platform/MacOS/Agent/`、`windows/tauri/src-tauri/src/agent.rs`、`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`、`shared/contracts/rust-core-api.md`、`shared/contracts/application-boundary.md`。
