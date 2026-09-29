@@ -178,7 +178,7 @@ struct TerminalView: View {
                     .frame(width: 22, height: 22)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Close \(feature.terminalTitle(for: session))")
         }
         .background(isActive ? LitheTheme.subtleSelection : .clear)

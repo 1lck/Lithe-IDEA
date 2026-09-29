@@ -1020,6 +1020,33 @@ fn git_history_rewrite_rejects_a_dirty_working_tree() {
 }
 
 #[test]
+fn git_write_unstages_paths_in_an_unborn_repository() {
+    let root = git_write_repository("git-write-unstage-unborn");
+    let run = |arguments: &[&str]| history_git(&root, arguments);
+    fs::write(root.join("pom.xml"), "<project/>\n").expect("test file should be writable");
+    assert_eq!(
+        git_write_request(&root, "stage", serde_json::json!({"paths": ["pom.xml"]}),)["ok"],
+        true
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+        "A  pom.xml\n"
+    );
+
+    let response = git_write_request(&root, "unstage", serde_json::json!({"paths": ["pom.xml"]}));
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(
+        String::from_utf8_lossy(&run(&["status", "--porcelain"]).stdout),
+        "?? pom.xml\n"
+    );
+    assert_eq!(
+        fs::read_to_string(root.join("pom.xml")).expect("test file should remain"),
+        "<project/>\n"
+    );
+    fs::remove_dir_all(root).expect("temporary repository should be removable");
+}
+
+#[test]
 fn git_write_executes_stage_and_discard_mutations() {
     let root = git_write_repository("git-write-stage-discard");
     let run = |arguments: &[&str]| history_git(&root, arguments);
@@ -3385,6 +3412,36 @@ fn git_history_returns_bounded_recent_checkout_order_and_stable_fallback() {
         recent_names(&switched),
         ["gamma", "zeta", "epsilon", "delta", "alpha"]
     );
+}
+
+#[test]
+fn git_history_page_treats_unborn_head_as_empty_history() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-history-unborn-head");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    assert!(history_git(&root, &["init", "-q"]).status.success());
+
+    let request = serde_json::json!({
+        "id": "history-unborn-head",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "limit": 10}
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("history request should encode"),
+    ))
+    .expect("history response should be JSON");
+
+    assert_eq!(response["ok"], true, "{response:?}");
+    assert_eq!(response["data"]["commits"], serde_json::json!([]));
+    assert_eq!(response["data"]["hasMore"], false);
 }
 
 #[test]

@@ -152,7 +152,7 @@ struct GitCommitDiffReviewView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             Text("Read-only")

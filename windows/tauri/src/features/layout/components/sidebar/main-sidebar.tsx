@@ -18,6 +18,7 @@ import GlobalSearchBuffer from "@/features/global-search/components/global-searc
 import { SidebarPaneSelector } from "@/features/layout/components/sidebar/sidebar-pane-selector";
 import { SidebarProjectDots } from "@/features/layout/components/sidebar/sidebar-projects";
 import { useSidebarPaneController } from "@/features/layout/hooks/use-sidebar-pane-controller";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import {
   getAdjacentProjectIndex,
   getProjectCarouselDirection,
@@ -91,7 +92,6 @@ interface SidebarActivityRailProps {
   expanded?: boolean;
 }
 
-export const COLLAPSED_ACTIVITY_RAIL_WIDTH = 38;
 const DEFAULT_ACTIVITY_RAIL_WIDTH = 160;
 const MIN_ACTIVITY_RAIL_WIDTH = 140;
 const MAX_ACTIVITY_RAIL_WIDTH = 320;

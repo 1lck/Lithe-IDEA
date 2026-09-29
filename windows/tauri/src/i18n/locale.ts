@@ -1,3 +1,4 @@
+import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
 
@@ -6,6 +7,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 const catalogs = {
   "en-US": {
     ...aiCommitEnglish,
+    ...workspaceCommitEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -1676,6 +1678,8 @@ const catalogs = {
     "maven.collapseAll": "Collapse all",
     "maven.clearOutput": "Clear build output",
     "maven.configurationChanged": "Maven configuration changed",
+    "maven.javaConfigurationFailed": "The Java language server did not take the Maven configuration: {error}",
+    "maven.resolutionProblems": "Maven could not resolve this project ({count} problems)",
     "maven.reloadJdt": "Reload JDT LS",
     "maven.reloadFailed": "Unable to reload the Java language server.",
     "maven.loadFailed": "Unable to load Maven project",
@@ -2093,7 +2097,7 @@ const catalogs = {
     "settings.general.cliUninstallFailed": "Failed to uninstall CLI: {error}",
     "settings.general.installCommandCopied": "Install command copied to clipboard",
     "settings.general.copyCommandFailed": "Failed to copy command: {error}",
-    "settings.general.latestVersion": "You're on the latest version",
+    "settings.general.latestVersion": "Lithe is up to date. Language extensions are updated separately.",
     "settings.general.reportTemplateCopied": "Report template copied",
     "settings.general.prepareReportFailed": "Failed to prepare bug report",
     "settings.general.bugReportTemplate":
@@ -3854,7 +3858,9 @@ const catalogs = {
     "commandPalette.actions.open-url.label": "View: Open URL...",
     "commandPalette.actions.window-minimize.label": "Window: Minimize",
     "commandPalette.actions.window-maximize.label": "Window: Maximize",
-    "commandPalette.actions.window-fullscreen.label": "Window: Toggle Fullscreen",
+    "commandPalette.actions.window-restore.label": "Window: Restore",
+    "commandPalette.actions.window-enter-fullscreen.label": "Window: Enter Fullscreen",
+    "commandPalette.actions.window-exit-fullscreen.label": "Window: Exit Fullscreen",
     "commandPalette.actions.tab-close.label": "Tab: Close Tab",
     "commandPalette.actions.tab-next.label": "Tab: Next Tab",
     "commandPalette.actions.tab-previous.label": "Tab: Previous Tab",
@@ -4507,6 +4513,7 @@ const catalogs = {
   },
   "zh-CN": {
     ...aiCommitChinese,
+    ...workspaceCommitChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
@@ -6132,6 +6139,8 @@ const catalogs = {
     "maven.collapseAll": "全部折叠",
     "maven.clearOutput": "清除构建输出",
     "maven.configurationChanged": "Maven 配置已更改",
+    "maven.javaConfigurationFailed": "Java 语言服务器未能应用 Maven 配置：{error}",
+    "maven.resolutionProblems": "Maven 无法解析此项目（{count} 个问题）",
     "maven.reloadJdt": "重新加载 JDT LS",
     "maven.reloadFailed": "无法重新加载 Java 语言服务器。",
     "maven.loadFailed": "无法加载 Maven 项目",
@@ -6522,7 +6531,7 @@ const catalogs = {
     "settings.general.cliUninstallFailed": "卸载 CLI 失败：{error}",
     "settings.general.installCommandCopied": "安装命令已复制到剪贴板",
     "settings.general.copyCommandFailed": "复制命令失败：{error}",
-    "settings.general.latestVersion": "您使用的是最新版本",
+    "settings.general.latestVersion": "Lithe 主程序已是最新版本，语言扩展需单独更新。",
     "settings.general.reportTemplateCopied": "报告模板已复制",
     "settings.general.prepareReportFailed": "准备问题报告失败",
     "settings.general.bugReportTemplate":
@@ -8195,7 +8204,9 @@ const catalogs = {
     "commandPalette.actions.open-url.label": "视图：打开 URL...",
     "commandPalette.actions.window-minimize.label": "窗口：最小化",
     "commandPalette.actions.window-maximize.label": "窗口：最大化",
-    "commandPalette.actions.window-fullscreen.label": "窗口：切换全屏",
+    "commandPalette.actions.window-restore.label": "窗口：还原",
+    "commandPalette.actions.window-enter-fullscreen.label": "窗口：进入全屏",
+    "commandPalette.actions.window-exit-fullscreen.label": "窗口：退出全屏",
     "commandPalette.actions.tab-close.label": "标签页：关闭标签页",
     "commandPalette.actions.tab-next.label": "标签页：下一个标签页",
     "commandPalette.actions.tab-previous.label": "标签页：上一个标签页",

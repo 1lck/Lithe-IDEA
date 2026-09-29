@@ -18,6 +18,10 @@ struct AgentComposerView: View {
     var isConfiguring = false
     var isCancelling = false
     var contextUsage: AgentContextUsage?
+    var showsSubscriptionQuota = false
+    var subscriptionQuota: AgentSubscriptionQuota?
+    var subscriptionAccount: String?
+    var quotaFailure: String?
     var onSetConfig: (String, String) -> Void = { _, _ in }
     @State private var draft = ""
     @State private var files: [AgentFileReference] = []
@@ -83,9 +87,12 @@ struct AgentComposerView: View {
             Button { showsFilePicker = true } label: {
                 Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Drag files here or click to choose files")
             Spacer(minLength: 0)
+            if showsSubscriptionQuota {
+                AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
+            }
         }
         .font(.system(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
@@ -129,7 +136,7 @@ struct AgentComposerView: View {
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isConfiguring)))
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))

@@ -671,16 +671,13 @@ struct LitheApp: App {
         .windowStyle(.hiddenTitleBar)
 
         Window(settingsWindowTitle(for: settings.language), id: LitheWindowID.settings) {
-            SettingsWindow(
-                model: model,
-                settings: settings
-            )
+            SettingsWindowHost(projectSessions: projectSessions, settings: settings)
             .tint(LitheTheme.accent)
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
         }
-        .defaultSize(width: 1040, height: 720)
+        .defaultSize(width: 900, height: 668)
         .windowResizability(.contentMinSize)
         .windowStyle(.hiddenTitleBar)
 
@@ -733,15 +730,46 @@ private struct ProjectWindowMissingSessionView: View {
     }
 }
 
+private struct SettingsWindowHost: View {
+    @ObservedObject var projectSessions: ProjectSessionManager
+    @ObservedObject var settings: AppSettings
+
+    var body: some View {
+        if let model = projectSessions.settingsModel {
+            SettingsWindow(
+                model: model,
+                settings: settings,
+                projectSessions: projectSessions,
+                bindingID: projectSessions.settingsBindingID
+            ) {
+                projectSessions.releaseSettings(for: model.id)
+            }
+            .id(model.id)
+        }
+    }
+}
+
 private struct SettingsWindow: View {
     @ObservedObject var model: AppModel
     @ObservedObject var settings: AppSettings
+    let projectSessions: ProjectSessionManager
+    let bindingID: UUID
     @StateObject private var windowReference = SettingsWindowReference()
     @StateObject private var viewState: SettingsViewState
+    let onDisappear: () -> Void
 
-    init(model: AppModel, settings: AppSettings) {
+    init(
+        model: AppModel,
+        settings: AppSettings,
+        projectSessions: ProjectSessionManager,
+        bindingID: UUID,
+        onDisappear: @escaping () -> Void
+    ) {
         self.model = model
         self.settings = settings
+        self.projectSessions = projectSessions
+        self.bindingID = bindingID
+        self.onDisappear = onDisappear
         _viewState = StateObject(wrappedValue: SettingsViewState(
             initialCategory: model.requestedSettingsCategory
         ))
@@ -758,21 +786,29 @@ private struct SettingsWindow: View {
             )
             .environmentObject(model)
         }
+        .environment(\.lithePointingHandCursorEnabled, false)
         .background(
             SettingsWindowAccessor(
                 reference: windowReference,
                 title: settingsWindowTitle(for: settings.language),
-                themePreference: settings.themePreference
+                themePreference: settings.themePreference,
+                closeEnabled: !viewState.isApplyingPluginChanges
             )
         )
         .onDisappear {
+            viewState.pendingPluginEnabledStates.removeAll()
             model.isSettingsPresented = false
+            onDisappear()
         }
     }
 
     private func close() {
-        model.isSettingsPresented = false
-        windowReference.window?.performClose(nil)
+        guard !viewState.isApplyingPluginChanges else { return }
+        projectSessions.closeSettingsIfCurrent(for: model.id, bindingID: bindingID) {
+            model.isSettingsPresented = false
+            windowReference.window?.standardWindowButton(.closeButton)?.isEnabled = true
+            windowReference.window?.performClose(nil)
+        }
     }
 }
 
@@ -816,6 +852,7 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
     let reference: SettingsWindowReference
     let title: String
     let themePreference: AppThemePreference
+    let closeEnabled: Bool
 
     func makeNSView(context: Context) -> SettingsWindowProbe {
         let view = SettingsWindowProbe(frame: .zero)
@@ -840,15 +877,34 @@ private struct SettingsWindowAccessor: NSViewRepresentable {
         DispatchQueue.main.async {
             guard let window = view.window else { return }
             reference.window = window
-            SettingsWindowChrome.configure(window, title: title, themePreference: themePreference)
+            SettingsWindowChrome.configure(
+                window,
+                title: title,
+                themePreference: themePreference,
+                closeEnabled: closeEnabled
+            )
         }
     }
 }
 
+@MainActor
 enum SettingsWindowChrome {
-    static func configure(_ window: NSWindow, title: String, themePreference: AppThemePreference) {
+    static weak var ownerWindow: NSWindow?
+    static weak var settingsWindow: NSWindow?
+
+    static func configure(
+        _ window: NSWindow,
+        title: String,
+        themePreference: AppThemePreference,
+        closeEnabled: Bool? = nil
+    ) {
+        settingsWindow = window
         window.title = title
         window.level = .normal
+        if let ownerWindow, ownerWindow !== window, window.parent !== ownerWindow {
+            window.parent?.removeChildWindow(window)
+            ownerWindow.addChildWindow(window, ordered: .above)
+        }
         let windowAppearance = themePreference.windowAppearance
         if window.appearance?.name != windowAppearance?.name {
             window.appearance = windowAppearance
@@ -866,6 +922,9 @@ enum SettingsWindowChrome {
         applySettingsSurface(toTitlebarOf: window, color: settingsSurface)
         window.standardWindowButton(.miniaturizeButton)?.isEnabled = false
         window.standardWindowButton(.zoomButton)?.isEnabled = true
+        if let closeEnabled {
+            window.standardWindowButton(.closeButton)?.isEnabled = closeEnabled
+        }
     }
 
     private static func applySettingsSurface(toTitlebarOf window: NSWindow, color: NSColor) {

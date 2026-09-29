@@ -179,7 +179,7 @@ struct DatabaseTableView: View {
                 Button { model.databaseFeature.workspaceSection = .structure } label: {
                     toolbarActionLabel("Table Properties", systemImage: "tablecells")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
 
                 toolbarDivider
@@ -242,7 +242,7 @@ struct DatabaseTableView: View {
             Spacer()
             if !appliedFilters.isEmpty || !appliedSort.isEmpty {
                 Button("Clear query") { clearQuery() }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 10, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
@@ -257,7 +257,7 @@ struct DatabaseTableView: View {
         HStack(spacing: 7) {
             Group {
                 Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
-                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                 Menu {
                     ForEach(model.databaseFeature.columns, id: \.self) { column in
                         Button(column) { jumpTargetColumn = column }
@@ -280,13 +280,13 @@ struct DatabaseTableView: View {
                 .accessibilityLabel("Row details")
                 .disabled(selectedRows.count != 1)
                 Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
-                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                     .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
                 Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
-                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                     .disabled(!hasChanges || model.databaseFeature.isLoading || model.databaseFeature.selectedProfile?.readOnly == true)
                 Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
-                    .buttonStyle(.plain).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                     .disabled(!hasChanges)
             }
             if !selectedRows.isEmpty {
@@ -300,13 +300,13 @@ struct DatabaseTableView: View {
                 Button { showsBatchUpdateSheet = true } label: {
                     Label("Batch Edit", systemImage: "square.and.pencil")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5, weight: .medium))
                 .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
                 Button { showsBatchDeleteConfirmation = true } label: {
                     Label("Delete Selected", systemImage: "trash")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
                 .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
@@ -337,7 +337,7 @@ struct DatabaseTableView: View {
                 Button { filterConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
                     Label("Add Condition", systemImage: "plus")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             ForEach($filterConditions) { $condition in
                 HStack(spacing: 8) {
@@ -345,7 +345,7 @@ struct DatabaseTableView: View {
                         Image(systemName: condition.isEnabled ? "checkmark.circle.fill" : "circle")
                             .foregroundStyle(condition.isEnabled ? LitheTheme.accent : LitheTheme.tertiaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .help(condition.isEnabled ? "Disable condition" : "Enable condition")
                     Picker("Column", selection: $condition.column) {
                         ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
@@ -362,7 +362,7 @@ struct DatabaseTableView: View {
                     Button(role: .destructive) { filterConditions.removeAll { $0.id == condition.id } } label: {
                         Image(systemName: "trash")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                 }
             }
             HStack {
@@ -385,7 +385,7 @@ struct DatabaseTableView: View {
                 Button { sortConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
                     Label("Add Sort", systemImage: "plus")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             if sortConditions.isEmpty {
                 Text("No sorting")
@@ -406,11 +406,11 @@ struct DatabaseTableView: View {
                     }
                     .frame(width: 120)
                     Button { moveSort(from: index, by: -1) } label: { Image(systemName: "arrow.up") }
-                        .buttonStyle(.plain).help("Move up").disabled(index == 0)
+                        .buttonStyle(.litheNoPress).help("Move up").disabled(index == 0)
                     Button { moveSort(from: index, by: 1) } label: { Image(systemName: "arrow.down") }
-                        .buttonStyle(.plain).help("Move down").disabled(index == sortConditions.count - 1)
+                        .buttonStyle(.litheNoPress).help("Move down").disabled(index == sortConditions.count - 1)
                     Button(role: .destructive) { sortConditions.remove(at: index) } label: { Image(systemName: "trash") }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                 }
             }
             HStack {
@@ -464,7 +464,7 @@ struct DatabaseTableView: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
     }
 
     private func toolbarActionLabel(
@@ -536,7 +536,7 @@ struct DatabaseTableView: View {
                 .frame(width: selectionColumnWidth, height: 32)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help(allRowsSelected ? "Deselect all rows on this page" : "Select all rows on this page")
             ForEach(model.databaseFeature.columns, id: \.self) { column in
                 HStack(spacing: 4) {
@@ -596,7 +596,7 @@ struct DatabaseTableView: View {
                 .frame(width: selectionColumnWidth, height: 29)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .background(LitheTheme.toolHeader)
             .disabled(deletedRows.contains(index))
             .litheContextMenu { rowContextMenu(index: index) }
@@ -981,7 +981,7 @@ struct DatabaseOpenTableTabsView: View {
                         Button(table) {
                             Task { await model.databaseFeature.openTable(table) }
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .font(.system(size: 11, weight: .medium))
                         Button {
                             let wasSelected = model.databaseFeature.selectedTable == table
@@ -992,7 +992,7 @@ struct DatabaseOpenTableTabsView: View {
                             Image(systemName: "xmark")
                                 .font(.system(size: 8.5, weight: .semibold))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .help("Close table")
                     }
                     .padding(.horizontal, 9)

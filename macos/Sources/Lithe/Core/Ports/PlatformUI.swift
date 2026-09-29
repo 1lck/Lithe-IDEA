@@ -9,6 +9,7 @@ protocol PlatformUI: AnyObject {
     func chooseFile(title: String, prompt: String) -> URL?
     func revealInFileBrowser(_ url: URL)
     func open(_ url: URL)
+    func openHTMLInBrowser(_ url: URL) async throws
     func copyToClipboard(_ value: String)
     func markdownImageFromClipboard() -> MarkdownImageSource?
     func startAccessingProject(_ url: URL) -> Bool
@@ -16,6 +17,10 @@ protocol PlatformUI: AnyObject {
 }
 
 extension PlatformUI {
+    func openHTMLInBrowser(_ url: URL) async throws {
+        throw CocoaError(.featureUnsupported)
+    }
+
     func activateApplication() {}
     func startAccessingProject(_ url: URL) -> Bool { false }
     func stopAccessingProject(_ url: URL) {}

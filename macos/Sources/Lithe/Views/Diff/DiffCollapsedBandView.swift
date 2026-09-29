@@ -24,7 +24,7 @@ struct DiffCollapsedBandView: View {
             .background(LitheTheme.window)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help("Expand these lines")
     }

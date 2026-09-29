@@ -1480,6 +1480,30 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
     await core("lsp.retryMavenProfiles", { sessionId: session.id }, crypto.randomUUID());
     return undefined as T;
   }
+  if (command === "lsp_update_maven_configuration") {
+    // A running Java session takes Maven changes through JDT LS's own update
+    // path. Without one there is nothing to update: the next start reads the
+    // workspace's current Maven context.
+    const session = [...sessions.values()].find(
+      (candidate) =>
+        candidate.languageId === "java" &&
+        !isSessionTerminal(candidate.lifecycle) &&
+        candidate.lifecycle.phase !== "stopping" &&
+        candidate.lifecycle.phase !== "recovering" &&
+        normalizedPathKey(candidate.workspacePath) === normalizedPathKey(args.workspacePath),
+    );
+    if (!session) return { kind: "noSession" } as T;
+    const result = await core<JsonRecord>(
+      "lsp.updateMavenConfiguration",
+      {
+        sessionId: session.id,
+        mavenContext: args.mavenContext,
+        reloadProjects: args.reloadProjects === true,
+      },
+      crypto.randomUUID(),
+    );
+    return { kind: "updated", ...result } as T;
+  }
   if (command === "lsp_stop_for_file") {
     const operation = new LspOperationLog("fileDetach", crypto.randomUUID(), {
       filePath: args.filePath,

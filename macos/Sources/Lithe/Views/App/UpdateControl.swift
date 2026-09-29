@@ -76,7 +76,7 @@ struct UpdateControl: View {
                 } label: {
                     Label(compact ? "Update failed" : "Retry update", systemImage: "exclamationmark.triangle")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.warning)
                 .help(message)
             case .idle, .upToDate:
@@ -85,7 +85,7 @@ struct UpdateControl: View {
                 } label: {
                     Label("Check for Updates", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.secondaryText)
             }
         }

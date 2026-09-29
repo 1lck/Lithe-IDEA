@@ -65,7 +65,7 @@ struct BranchSwitcherPopover: View {
                             .font(.system(size: 12))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
                     .help("Clear search")
                 }
@@ -243,7 +243,7 @@ struct BranchSwitcherPopover: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -329,7 +329,7 @@ struct BranchSwitcherPopover: View {
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 5, hoverBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -363,7 +363,7 @@ struct BranchSwitcherPopover: View {
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 5, hoverBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 

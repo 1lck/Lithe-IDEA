@@ -797,3 +797,11 @@ pub fn open_file_external(app: AppHandle, path: String) -> Result<(), String> {
         .open_path(path, None::<&str>)
         .map_err(|error| error.to_string())
 }
+
+/// Open saved HTML with the default HTTP browser, independent of file associations.
+#[tauri::command]
+pub async fn open_html_in_browser(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::html_browser::open(&path))
+        .await
+        .map_err(|_| "The browser launch task failed.".to_string())?
+}

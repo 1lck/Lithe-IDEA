@@ -134,7 +134,7 @@ struct ProjectLocalHistoryView: View {
                                 )
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .lithePointer()
                         }
                     }

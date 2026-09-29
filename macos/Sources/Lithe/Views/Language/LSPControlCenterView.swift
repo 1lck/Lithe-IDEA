@@ -8,7 +8,6 @@ struct LSPControlCenterView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     projectSummary
@@ -23,24 +22,13 @@ struct LSPControlCenterView: View {
                         degradedCatalogNotice
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
             .background(LitheTheme.settingsSurface)
         }
-        .background(LitheTheme.settingsSurface)
-    }
-
-    private var header: some View {
-        HStack {
-            Text(usesChinese ? "语言支持" : "Language Support")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 42)
         .background(LitheTheme.settingsSurface)
     }
 

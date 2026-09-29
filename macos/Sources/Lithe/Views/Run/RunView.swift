@@ -279,7 +279,7 @@ struct RunView: View {
                 Button(action: runCheckedConfigurations) {
                     Label("Run selected", systemImage: "play.fill")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.success)
                 .help("Run checked configurations without restarting running services")
                 .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
@@ -541,7 +541,7 @@ struct RunView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
         }
         .font(.system(size: 11.5))
@@ -611,7 +611,7 @@ struct RunView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .help(isCollapsed ? "Expand" : "Collapse")
             .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
@@ -630,7 +630,7 @@ struct RunView: View {
                 .frame(width: 18, height: 24)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .disabled(entries.isEmpty || feature.isLoadingProject)
         .help("Select configurations for batch actions")
@@ -796,7 +796,7 @@ struct RunView: View {
                     if contentTab == tab { Rectangle().fill(LitheTheme.accent).frame(height: 2) }
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityAddTraits(contentTab == tab ? .isSelected : [])
     }
@@ -1058,7 +1058,7 @@ struct RunView: View {
                                 Text("localhost:" + portText)
                                     .underline()
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .foregroundStyle(LitheTheme.accent)
                             .help("Open \(serviceURL.absoluteString) in browser")
                             .accessibilityLabel("Open service on port " + portText)
@@ -1073,7 +1073,7 @@ struct RunView: View {
                     Button(action: onPin) {
                         Image(systemName: isPinned ? "pin.fill" : "pin")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .frame(width: 20, height: 24)
                     .contentShape(Rectangle())
                     .lithePointer()

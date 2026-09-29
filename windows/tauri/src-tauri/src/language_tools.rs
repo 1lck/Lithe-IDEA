@@ -210,15 +210,15 @@ pub fn get_tool_path(
             std::env::var_os("USERPROFILE").as_deref(),
         ),
         ToolRuntime::System => find_system_tool(path_env.as_deref(), config.executable_name()),
-        // Runtimes without a Windows implementation stay unresolved here; the
-        // install command reports the explicit failure for diagnostics.
+        // Automatic installation is separate from discovery: a user-provided
+        // language server remains usable even without a managed installer.
         ToolRuntime::Node
         | ToolRuntime::Python
         | ToolRuntime::Go
         | ToolRuntime::Rust
         | ToolRuntime::Ruby
         | ToolRuntime::R
-        | ToolRuntime::Binary => None,
+        | ToolRuntime::Binary => find_system_tool(path_env.as_deref(), config.executable_name()),
     };
     Ok(resolved.map(|path| normalize_path(&path)))
 }
@@ -300,34 +300,72 @@ fn requested_tool_config(
         .map_err(|error| format!("The {tool_type} tool configuration is invalid: {error}"))
 }
 
-fn install_language_tool(
+/// Read-only prerequisite check used before replacing an installed extension.
+/// It neither downloads tools nor changes the active language-server process.
+#[tauri::command]
+pub async fn check_language_tool_requirements(
+    app: AppHandle,
+    language_id: String,
+    tools: Value,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path_env = std::env::var_os("PATH");
+        let user_home = std::env::var_os("USERPROFILE");
+        let tools_root = managed_tools_root(&app);
+        for tool_type in TOOL_TYPES {
+            if let Some(config) = requested_tool_config(&tools, tool_type)? {
+                resolve_install_runtime(
+                    &language_id,
+                    &config,
+                    &tools_root,
+                    path_env.as_deref(),
+                    user_home.as_deref(),
+                )?;
+            }
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|_| "Language tool prerequisite check failed.".to_string())?
+}
+
+/// None means the tool is already available. Some is the Bun installer to run.
+fn resolve_install_runtime(
     language_id: &str,
     config: &LanguageToolConfig,
     tools_root: &Path,
     path_env: Option<&OsStr>,
     user_home: Option<&OsStr>,
-    cancelled: &AtomicBool,
-) -> Result<(), String> {
-    match config.runtime {
-        ToolRuntime::Bun => install_bun_tool(language_id, config, tools_root, path_env, user_home, cancelled),
-        ToolRuntime::System => find_system_tool(path_env, config.executable_name())
-            .map(|_| ())
-            .ok_or_else(|| {
-                format!(
-                    "{} was not found in PATH. Install it and make sure it is on the PATH environment variable.",
-                    config.executable_name()
-                )
-            }),
-        ToolRuntime::Node | ToolRuntime::Python | ToolRuntime::Go | ToolRuntime::Rust
-        | ToolRuntime::Ruby | ToolRuntime::R | ToolRuntime::Binary => Err(format!(
-            "The {:?} runtime for {} is not supported by this Lithe Windows build yet.",
-            config.runtime,
-            config.executable_name()
-        )),
+) -> Result<Option<PathBuf>, String> {
+    for required in &config.required_executables {
+        if find_system_tool(path_env, required).is_none() {
+            return Err(format!(
+                "{} requires {} on PATH. Install it, restart Lithe, then retry plugin installation.",
+                config.name, required
+            ));
+        }
     }
+    if config.runtime != ToolRuntime::Bun {
+        return find_system_tool(path_env, config.executable_name()).map(|_| None).ok_or_else(|| format!(
+            "Automatic installation of {} ({:?}) is not supported on Windows yet. Install the language server, add its executable to PATH, restart Lithe, then retry.",
+            config.executable_name(), config.runtime
+        ));
+    }
+    if resolve_bun_tool_path(language_id, config, tools_root, path_env, user_home).is_some() {
+        return Ok(None);
+    }
+    if config.npm_packages().is_empty() {
+        return Err(format!(
+            "No npm package is configured for the {} language tool.",
+            config.executable_name()
+        ));
+    }
+    find_bun_executable(path_env, user_home).map(Some).ok_or_else(|| {
+        "Bun is required to install this language extension. Install Bun from https://bun.sh, restart Lithe, then retry. Lithe application updates do not install language tools.".to_string()
+    })
 }
 
-fn install_bun_tool(
+fn install_language_tool(
     language_id: &str,
     config: &LanguageToolConfig,
     tools_root: &Path,
@@ -338,28 +376,11 @@ fn install_bun_tool(
     if cancelled.load(Ordering::Acquire) {
         return Err("Language tool installation cancelled".into());
     }
-    for required in &config.required_executables {
-        if find_system_tool(path_env, required).is_none() {
-            return Err(format!(
-                "{} requires {} on PATH. Install it, then retry plugin installation.",
-                config.name, required
-            ));
-        }
-    }
-    if resolve_bun_tool_path(language_id, config, tools_root, path_env, user_home).is_some() {
+    let Some(bun) = resolve_install_runtime(language_id, config, tools_root, path_env, user_home)?
+    else {
         return Ok(());
-    }
+    };
     let packages = config.npm_packages();
-    if packages.is_empty() {
-        return Err(format!(
-            "No npm package is configured for the {} language tool.",
-            config.executable_name()
-        ));
-    }
-    let bun = find_bun_executable(path_env, user_home).ok_or_else(|| {
-        "bun was not found. Install bun (https://bun.sh) and make sure it is on the PATH environment variable."
-            .to_string()
-    })?;
     let tool_directory = managed_tool_directory(tools_root, language_id, &config.name);
     std::fs::create_dir_all(&tool_directory).map_err(|error| {
         format!(
@@ -803,6 +824,50 @@ mod tests {
             config.npm_packages(),
             vec!["typescript", "typescript-language-server"]
         );
+    }
+
+    #[test]
+    fn prerequisite_check_does_not_install_or_create_a_tool_directory() {
+        let directory = temp_dir("prerequisites");
+        let config = tool_config(ToolRuntime::Bun, "example-server", "example-server");
+        let tools = directory.join("managed-tools");
+        let missing = resolve_install_runtime("example", &config, &tools, None, None);
+        fs::write(directory.join("bun.exe"), []).expect("fixture installer");
+        let ready = resolve_install_runtime(
+            "example",
+            &config,
+            &tools,
+            Some(directory.as_os_str()),
+            None,
+        );
+        let created_tools = tools.exists();
+        fs::remove_dir_all(&directory).expect("fixture cleanup");
+        assert!(missing
+            .expect_err("missing Bun")
+            .contains("Bun is required"));
+        assert_eq!(
+            ready.expect("installer available"),
+            Some(directory.join("bun.exe"))
+        );
+        assert!(!created_tools, "preflight must remain read-only");
+    }
+
+    #[test]
+    fn manually_installed_binary_is_usable_without_a_managed_installer() {
+        let directory = temp_dir("manual-marksman");
+        fs::create_dir_all(&directory).expect("fixture directory");
+        fs::write(directory.join("marksman.exe"), []).expect("fixture tool");
+        let config = tool_config(ToolRuntime::Binary, "marksman", "");
+        let result = install_language_tool(
+            "markdown",
+            &config,
+            &directory,
+            Some(directory.as_os_str()),
+            None,
+            &AtomicBool::new(false),
+        );
+        fs::remove_dir_all(&directory).expect("fixture cleanup");
+        assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]

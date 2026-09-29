@@ -77,6 +77,11 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-history-metadata.*lithe\.agent-history\.v1.*cannot be reused/);
   });
+  await test("JDT Maven settings snapshots cannot be copied between worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "jdt-maven-settings"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
+  });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });
   await fs.writeFile(

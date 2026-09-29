@@ -211,6 +211,7 @@ public enum BuiltInPluginCatalog {
 public enum OfficialPluginCatalog {
     private static let goLanguageID = "go"
     private static let phpLanguageID = "php"
+    public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
 
     public static let manifests: [PluginManifest] = [
         PluginManifest(
@@ -268,7 +269,7 @@ public enum OfficialPluginCatalog {
             )]
         ),
         PluginManifest(
-            id: PluginID("dev.lithe.plugin.php-support"),
+            id: phpPluginID,
             displayName: "PHP Support",
             version: BuiltInPluginCatalog.hostVersion,
             hostCompatibility: PluginHostCompatibility(

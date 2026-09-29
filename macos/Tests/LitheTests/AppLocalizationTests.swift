@@ -203,16 +203,11 @@ struct AppLocalizationTests {
     }
 
     @Test
-    func simplifiedChineseResourcesCoverPluginLanguageGrouping() throws {
+    func simplifiedChineseResourcesCoverPHPPluginManagement() throws {
         let translations = try simplifiedChineseTranslations()
 
-        #expect(translations["More Language Support"] == "扩展更多语言")
-        #expect(
-            translations["%lld languages · %lld enabled"]
-                == "%lld 种语言 · 已启用 %lld 个"
-        )
-        #expect(translations["Expanded"] == "已展开")
-        #expect(translations["Collapsed"] == "已收起")
+        #expect(translations["PHP Support"] == "PHP 支持")
+        #expect(translations["Installed (%lld of %lld enabled)"] == "已安装（%lld / %lld 个已启用）")
     }
 
     @Test
@@ -315,7 +310,37 @@ struct GitLocalizationTests {
             "Show worktree repositories", "Hide worktree repositories",
             "Copy Branch Name", "Tracking Branch", "Stop Tracking Branch", "No Remote Branches",
             "Soft Reset (Keep Changes Staged)", "Mixed Reset (Keep Changes Unstaged)",
-            "Hard Reset (Discard Changes)"
+            "Hard Reset (Discard Changes)",
+            "Review remaining steps",
+            "Review repository commits",
+            "Each repository has its own commit. Completed steps are kept if another repository fails.",
+            "Review and Retry Unfinished Steps…",
+            "Dismiss Results",
+            "Update parent repository references",
+            "Each submodule is pushed before its parent.",
+            "Uncommitted submodule changes",
+            "Commit changed files in the submodule first",
+            "Amend applies to repositories with selected files.",
+            "Commit message: %@",
+            "Push only",
+            "Commit and push",
+            "Committed; push pending",
+            "Committed and pushed",
+            "Waiting for submodule",
+            "Pending",
+            "Not included in the updated plan",
+            "Committed; push failed",
+            "HEAD advanced; review before continuing.",
+            "Could not verify the commit outcome. Review before retrying.",
+            "Repository needs attention",
+
+            "Update %@/%@ after %@",
+            "Repository changed; review and retry",
+            "Committed",
+            "Collapse repository",
+            "Expand repository",
+            "Unstage all files in repository",
+            "Stage all files in repository"
         ]
         let pattern = try NSRegularExpression(pattern: #"%(?:\d+\$)?(?:lld|ld|d|@)"#)
         for key in keys {

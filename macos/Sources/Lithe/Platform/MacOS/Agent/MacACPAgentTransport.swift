@@ -12,7 +12,10 @@ final class MacACPAgentTransport: AgentConversationTransport {
             "args": configuration.arguments,
             "cwd": configuration.workspaceURL.path,
             "dataDirectory": configuration.dataDirectory.path,
-            "provider": [
+            "authentication": configuration.authentication.rawValue
+        ]
+        if configuration.authentication == .apiKey {
+            configurationJSON["provider"] = [
                 "protocol": configuration.providerProtocol,
                 "baseUrl": configuration.providerEndpoint,
                 "apiKey": configuration.apiKey,
@@ -20,7 +23,7 @@ final class MacACPAgentTransport: AgentConversationTransport {
                 "model": configuration.model,
                 "allowInsecureHttp": configuration.allowsInsecureHTTP
             ]
-        ]
+        }
         if let agentID = configuration.agentID {
             configurationJSON["agentId"] = agentID
         } else {

@@ -123,6 +123,11 @@ private struct AgentConnectionView: View {
     @State private var searchText = ""
     @State private var showsTabs = false
     @State private var showsHistory = false
+    @Environment(\.scenePhase) private var scenePhase
+
+    private var shouldPollQuota: Bool {
+        feature.usesSubscription && feature.connectionState == .ready && scenePhase == .active && !showsHistory
+    }
 
     private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
 
@@ -137,6 +142,14 @@ private struct AgentConnectionView: View {
                                  onBack: { showsHistory = false }, onCopySessionID: onCopySessionID,
                                  onSelect: { feature.selectSession($0); showsHistory = false },
                                  onReconnect: onConnect)
+            }
+        }
+        .task(id: shouldPollQuota) {
+            guard shouldPollQuota else { return }
+            while !Task.isCancelled {
+                feature.refreshQuota()
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { return }
             }
         }
         .onAppear { feature.prepareConversation() }
@@ -208,6 +221,10 @@ private struct AgentConnectionView: View {
                     isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                     isCancelling: feature.selectedConversation?.isCancelling == true,
                     contextUsage: feature.selectedConversation?.contextUsage,
+                    showsSubscriptionQuota: feature.usesSubscription,
+                    subscriptionQuota: feature.subscriptionQuota,
+                    subscriptionAccount: feature.subscriptionEmail,
+                    quotaFailure: feature.quotaFailure,
                     onSetConfig: { feature.setConfigOption($0, value: $1) }
                 )
             }
@@ -247,6 +264,15 @@ private struct AgentConnectionView: View {
             .onAppear {
                 if feature.connectionState == .idle { onConnect() }
             }
+        case .authenticationRequired:
+            AgentEmptyStateView(systemImage: "person.crop.circle", title: "Sign in to Codex",
+                message: String(localized: "Use your local ChatGPT account. No API key or URL is needed."),
+                actionTitle: "Sign in with ChatGPT", action: { feature.authenticate() },
+                secondaryActionTitle: "Agent Settings", secondaryAction: onOpenSettings)
+        case .authenticating:
+            AgentEmptyStateView(systemImage: "person.crop.circle", title: "Waiting for ChatGPT sign-in…",
+                message: String(localized: "Complete sign-in in your browser. Your credentials are managed by Codex."),
+                actionTitle: "Cancel", action: { Task { await feature.cancelAuthentication() } }, isBusy: true)
         case .failed(let message):
             if feature.selectedConversation?.messages.isEmpty == false {
                 AgentTranscriptView(
@@ -375,7 +401,7 @@ private struct AgentSessionTab: View {
                         .font(.system(size: 9, weight: .bold))
                         .frame(width: 14, height: 14)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .help("Close conversation")

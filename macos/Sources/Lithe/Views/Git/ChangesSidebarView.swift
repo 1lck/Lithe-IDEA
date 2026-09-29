@@ -21,6 +21,7 @@ struct ChangesSidebarView: View {
     @State private var selectedTab = CommitTab.commit
     @State private var trackedExpanded = true
     @State private var untrackedExpanded = true
+    @State private var repositoryExpanded: [String: Bool] = [:]
     @State private var stashMessage = "WIP"
     @State private var includeUntracked = true
     @State private var selectedStash: GitStash?
@@ -161,7 +162,7 @@ struct ChangesSidebarView: View {
                             hoverBackground: LitheTheme.hoverBackground
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             Spacer()
             GitPatchToolbar(feature: feature)
@@ -344,7 +345,7 @@ struct ChangesSidebarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             [
@@ -402,7 +403,7 @@ struct ChangesSidebarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             [
@@ -461,7 +462,7 @@ struct ChangesSidebarView: View {
                 } label: {
                     Label("Clear conflict filter", systemImage: "line.3.horizontal.decrease.circle")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
                 .lithePointer()
@@ -510,39 +511,154 @@ struct ChangesSidebarView: View {
                         .foregroundStyle(LitheTheme.warning)
                     Text("No files match the conflict filter")
                     Button("Show all changes") { feature.clearGitConflictFilter() }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.litheNoPress)
                         .lithePointer()
                 }
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if feature.availableRepositoryRoots.count > 1 {
+                multiRepositoryChangeList
             } else {
-                GeometryReader { geometry in
-                    ScrollView(.vertical) {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            changeSection(
-                                "Changes",
-                                changes: trackedChanges,
-                                expanded: $trackedExpanded,
-                                showsParentPaths: geometry.size.width >= 300,
-                                joinsNextHeader: !trackedExpanded && !addedChanges.isEmpty
-                            )
-                            changeSection(
-                                "Unversioned Files",
-                                changes: addedChanges,
-                                expanded: $untrackedExpanded,
-                                showsParentPaths: geometry.size.width >= 300,
-                                joinsPreviousHeader: !trackedExpanded && !trackedChanges.isEmpty
-                            )
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-                    }
-                }
+                singleRepositoryChangeList
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    private var singleRepositoryChangeList: some View {
+        GeometryReader { geometry in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    changeSection(
+                        "Changes",
+                        changes: trackedChanges,
+                        expanded: $trackedExpanded,
+                        showsParentPaths: geometry.size.width >= 300,
+                        joinsNextHeader: !trackedExpanded && !addedChanges.isEmpty
+                    )
+                    changeSection(
+                        "Unversioned Files",
+                        changes: addedChanges,
+                        expanded: $untrackedExpanded,
+                        showsParentPaths: geometry.size.width >= 300,
+                        joinsPreviousHeader: !trackedExpanded && !trackedChanges.isEmpty
+                    )
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private var multiRepositoryChangeList: some View {
+        GeometryReader { geometry in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(changeSections.repositories) { repository in
+                        repositoryChangeSection(
+                            repository,
+                            showsParentPaths: geometry.size.width >= 300
+                        )
+                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private func repositoryChangeSection(
+        _ repository: GitChangeSectionsCache.RepositorySection,
+        showsParentPaths: Bool
+    ) -> some View {
+        let repositoryID = repository.id
+        let isExpanded = repositoryExpanded[repositoryID] ?? true
+
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 7) {
+                Button {
+                    repositoryExpanded[repositoryID] = !isExpanded
+                } label: {
+                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .frame(width: 10, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .help(LocalizedStringKey(isExpanded ? "Collapse repository" : "Expand repository"))
+
+                Button {
+                    setStaging(repository.changes, !allChangesStaged(repository.changes))
+                } label: {
+                    Image(systemName: stagingSymbol(for: repository.changes))
+                        .font(.system(size: 16))
+                        .foregroundStyle(
+                            repository.changes.contains(where: isEffectivelyStaged)
+                                ? LitheTheme.accent
+                                : LitheTheme.secondaryText
+                        )
+                        .frame(width: 18, height: 26)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .disabled(feature.isCommitting || !repository.changes.contains(where: \.canToggleStaging))
+                .help(LocalizedStringKey(
+                    allChangesStaged(repository.changes)
+                        ? "Unstage all files in repository"
+                        : "Stage all files in repository"
+                ))
+
+                Button {
+                    repositoryExpanded[repositoryID] = !isExpanded
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "folder.fill")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(GitRepositoryColor.color(
+                                for: repository.root,
+                                in: feature.availableRepositoryRoots
+                            ))
+                        Text(repositoryDisplayName(repository.root))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                            .lineLimit(1)
+                        Text("\(repository.changes.count)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(LitheTheme.secondaryText)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .help(repository.root.path)
+            }
+            .padding(.horizontal, 7)
+            .frame(maxWidth: .infinity)
+            .background(LitheTheme.subtleSelection.opacity(0.45))
+
+            if isExpanded {
+                ForEach(Array(repository.changes.enumerated()), id: \.element.id) { index, change in
+                    changeRow(
+                        change,
+                        showsParentPath: showsParentPaths,
+                        includesRepositoryRootInParentPath: false,
+                        leadingInset: 12,
+                        joinsPrevious: index > 0 && selection.ids.contains(repository.changes[index - 1].id),
+                        joinsNext: index + 1 < repository.changes.count
+                            && selection.ids.contains(repository.changes[index + 1].id)
+                    )
+                }
+            }
+        }
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(LitheTheme.divider.opacity(0.72))
+                .frame(height: 1)
+        }
     }
 
     @ViewBuilder
@@ -551,6 +667,7 @@ struct ChangesSidebarView: View {
         changes: [GitChange],
         expanded: Binding<Bool>,
         showsParentPaths: Bool,
+        leadingInset: CGFloat = 0,
         joinsPreviousHeader: Bool = false,
         joinsNextHeader: Bool = false
     ) -> some View {
@@ -564,7 +681,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 10, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(LocalizedStringKey(expanded.wrappedValue ? "Collapse section" : "Expand section"))
 
                 Button {
@@ -576,7 +693,8 @@ struct ChangesSidebarView: View {
                         .frame(width: 18, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
+                .disabled(feature.isCommitting || !changes.contains(where: \.canToggleStaging))
                 .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
 
                 Button {
@@ -594,9 +712,10 @@ struct ChangesSidebarView: View {
                     .frame(maxWidth: .infinity, minHeight: 24)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             .padding(.horizontal, 7)
+            .padding(.leading, leadingInset)
             .frame(maxWidth: .infinity)
             .frame(height: changeRowHeight)
             .background {
@@ -617,6 +736,7 @@ struct ChangesSidebarView: View {
                     changeRow(
                         change,
                         showsParentPath: showsParentPaths,
+                        leadingInset: leadingInset,
                         joinsPrevious: index > 0 && selection.ids.contains(changes[index - 1].id),
                         joinsNext: index + 1 < changes.count && selection.ids.contains(changes[index + 1].id)
                     )
@@ -628,6 +748,8 @@ struct ChangesSidebarView: View {
     private func changeRow(
         _ change: GitChange,
         showsParentPath: Bool,
+        includesRepositoryRootInParentPath: Bool = true,
+        leadingInset: CGFloat = 0,
         joinsPrevious: Bool,
         joinsNext: Bool
     ) -> some View {
@@ -642,8 +764,11 @@ struct ChangesSidebarView: View {
                     .frame(width: 28, height: changeRowHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
-            .help(LocalizedStringKey(isEffectivelyStaged(change) ? "Unstage file" : "Stage file"))
+            .buttonStyle(.litheNoPress)
+            .disabled(feature.isCommitting || !change.canToggleStaging)
+            .help(LocalizedStringKey(change.canToggleStaging
+                ? (isEffectivelyStaged(change) ? "Unstage file" : "Stage file")
+                : "Commit changed files in the submodule first"))
 
             Button {
                 selectRow(change)
@@ -662,7 +787,14 @@ struct ChangesSidebarView: View {
                         .strikethrough(change.kind == .deleted, color: statusColor(change))
                         .lineLimit(1)
                         .layoutPriority(1)
-                    let parent = parentPathText(change)
+                    if !change.canToggleStaging {
+                        Text("Uncommitted submodule changes")
+                            .font(.caption).foregroundStyle(LitheTheme.secondaryText)
+                    }
+                    let parent = parentPathText(
+                        change,
+                        includesRepositoryRoot: includesRepositoryRootInParentPath
+                    )
                     if showsParentPath, !parent.isEmpty {
                         Text(parent)
                             .font(.system(size: 10.5))
@@ -675,9 +807,9 @@ struct ChangesSidebarView: View {
                 .frame(height: changeRowHeight)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
         }
-        .padding(.leading, 30)
+        .padding(.leading, 30 + leadingInset)
         .padding(.trailing, 6)
         .frame(maxWidth: .infinity)
         .frame(height: changeRowHeight)
@@ -702,12 +834,24 @@ struct ChangesSidebarView: View {
         }
     }
 
+    private func repositoryDisplayName(_ root: URL) -> String {
+        let name = root.lastPathComponent
+        return name.isEmpty ? root.path : name
+    }
+
     private var selectedChanges: [GitChange] {
         selection.actionTargets(in: displayedChanges)
     }
 
     private var visibleChangeIDs: [String] {
-        ((trackedExpanded ? trackedChanges : []) + (untrackedExpanded ? addedChanges : [])).map(\.id)
+        guard feature.availableRepositoryRoots.count > 1 else {
+            return ((trackedExpanded ? trackedChanges : []) + (untrackedExpanded ? addedChanges : [])).map(\.id)
+        }
+
+        return changeSections.repositories.flatMap { repository in
+            guard repositoryExpanded[repository.id] ?? true else { return [String]() }
+            return repository.changes.map(\.id)
+        }
     }
 
     private func selectRow(_ change: GitChange) {
@@ -811,7 +955,8 @@ struct ChangesSidebarView: View {
     }
 
     private func allChangesStaged(_ changes: [GitChange]) -> Bool {
-        changes.allSatisfy(isEffectivelyStaged)
+        let selectable = changes.filter(\.canToggleStaging)
+        return !selectable.isEmpty && selectable.allSatisfy(isEffectivelyStaged)
     }
 
     private func stagingSymbol(for changes: [GitChange]) -> String {
@@ -854,9 +999,12 @@ struct ChangesSidebarView: View {
         return "\(oldName) → \(change.url.lastPathComponent)"
     }
 
-    private func parentPathText(_ change: GitChange) -> String {
+    private func parentPathText(
+        _ change: GitChange,
+        includesRepositoryRoot: Bool = true
+    ) -> String {
         let parent = (change.path as NSString).deletingLastPathComponent
-        let prefix = feature.availableRepositoryRoots.count > 1
+        let prefix = includesRepositoryRoot && feature.availableRepositoryRoots.count > 1
             ? change.repositoryRoot.path + "/" : ""
         guard let originalPath = change.originalPath else { return prefix + parent }
         let originalParent = (originalPath as NSString).deletingLastPathComponent

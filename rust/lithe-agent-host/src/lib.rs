@@ -12,6 +12,7 @@ pub mod environment;
 pub mod install;
 mod prompt;
 mod session_defaults;
+mod subscription;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
 pub use prompt::PromptFile;
@@ -51,8 +52,7 @@ const MAX_SESSION_LIST_PAGES: usize = 50;
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
 /// Auth method id and `_meta` key of the ACP custom model gateway extension.
-/// Lithe authenticates only with user-supplied API keys through this method and
-/// never triggers an agent's own account login.
+/// API-key mode uses this method and never falls back to account login.
 const GATEWAY_AUTH_METHOD: &str = "gateway";
 
 /// Launch configuration supplied by the owning desktop product.
@@ -74,7 +74,18 @@ pub struct AgentLaunch {
     /// Directory holding Lithe-managed adapter installs; required with `agentId`.
     #[serde(default)]
     pub data_directory: Option<PathBuf>,
-    pub provider: ProviderCredentials,
+    #[serde(default)]
+    pub authentication: AgentAuthentication,
+    pub provider: Option<ProviderCredentials>,
+}
+
+/// Subscription access is explicit and limited to the installed Codex adapter.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentAuthentication {
+    #[default]
+    ApiKey,
+    CodexSubscription,
 }
 
 /// User-supplied AI provider endpoint and API key.
@@ -158,6 +169,8 @@ struct ResolvedLaunch {
     gateway: Option<GatewaySignIn>,
     /// Key to redact from diagnostics.
     secret: String,
+    /// The already detected Codex executable; never a separately downloaded runtime.
+    subscription_cli: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -182,7 +195,10 @@ fn resolve_with(
     launch: AgentLaunch,
     find_cli: &dyn Fn(&str) -> Option<environment::DetectedTool>,
 ) -> Result<ResolvedLaunch, String> {
-    let provider = launch.provider;
+    if launch.authentication == AgentAuthentication::CodexSubscription {
+        return subscription::resolve(launch, find_cli);
+    }
+    let provider = launch.provider.ok_or("An API provider is required")?;
     if provider.api_key.trim().is_empty() {
         return Err("An API key is required".into());
     }
@@ -226,6 +242,7 @@ fn resolve_with(
             env: Vec::new(),
             gateway: Some(gateway(&provider)?),
             secret: provider.api_key,
+            subscription_cli: None,
         });
     };
     let agent = catalog::find(&agent_id).ok_or_else(|| format!("Unknown agent `{agent_id}`"))?;
@@ -284,6 +301,7 @@ fn resolve_with(
         env,
         gateway,
         secret: provider.api_key,
+        subscription_cli: None,
     })
 }
 
@@ -298,6 +316,10 @@ fn resolve_with(
     rename_all_fields = "camelCase"
 )]
 pub enum AgentCommand {
+    /// Explicit user action; this may open the upstream browser login.
+    Authenticate,
+    /// Read-only snapshot, only supported on an authenticated subscription connection.
+    RefreshQuota,
     NewSession {
         token: String,
     },
@@ -349,7 +371,20 @@ pub struct AgentSessionSummary {
     rename_all_fields = "camelCase"
 )]
 pub enum AgentEvent {
-    /// Initialization and API-key authentication succeeded.
+    /// No local ChatGPT login is available. Opening a panel never starts browser login.
+    AuthenticationRequired,
+    Authenticating,
+    /// Whitelisted upstream account identity; never contains credentials.
+    Account {
+        account: subscription::Account,
+    },
+    Quota {
+        snapshot: subscription::QuotaSnapshot,
+    },
+    QuotaFailed {
+        code: String,
+    },
+    /// Initialization and the selected authentication succeeded.
     Ready {
         agent_name: Option<String>,
         agent_version: Option<String>,
@@ -644,6 +679,9 @@ async fn run_agent(
         return Err("Agent launch was cancelled".into());
     }
     let mut command = std::process::Command::new(&launch.command);
+    if launch.subscription_cli.is_some() {
+        subscription::isolate_environment(&mut command);
+    }
     command
         .args(&launch.args)
         .current_dir(&launch.cwd)
@@ -692,12 +730,14 @@ async fn run_agent(
             }
         }
     });
+    let subscription = launch.subscription_cli.is_some();
     let secret = launch.secret.clone();
     let transport = ByteStreams::new(stdin.compat_write(), stdout.compat());
     let result = run_connection(
         transport,
         launch.cwd,
         launch.gateway,
+        launch.subscription_cli,
         controls,
         permissions,
         emit,
@@ -710,6 +750,11 @@ async fn run_agent(
     let _ = tokio::time::timeout(STOP_TIMEOUT, stderr_task).await;
     result.map_err(|message| {
         let message = redact(&message, &secret);
+        // Subscription credentials belong to Codex, so Lithe has no secret to
+        // redact. Do not surface arbitrary upstream stderr for this mode.
+        if subscription {
+            return message;
+        }
         match tail.lock().ok().and_then(|tail| tail.summary(&secret)) {
             Some(stderr) => format!("{message}\n\nAgent output:\n{stderr}"),
             None => message,
@@ -772,6 +817,7 @@ async fn run_connection<OB, IB>(
     transport: ByteStreams<OB, IB>,
     cwd: PathBuf,
     gateway: Option<GatewaySignIn>,
+    subscription_cli: Option<PathBuf>,
     mut controls: async_mpsc::UnboundedReceiver<Control>,
     permissions: PendingPermissions,
     emit: Emit,
@@ -780,6 +826,7 @@ where
     OB: futures::io::AsyncWrite + Send + 'static,
     IB: futures::io::AsyncRead + Send + 'static,
 {
+    let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
     let updates = emit.clone();
     let requests = emit.clone();
@@ -789,6 +836,13 @@ where
     let stopped = stop_requested.clone();
     let result = Client
         .builder()
+        .on_receive_notification(
+            async move |notification: subscription::AuthNotification, _| {
+                auth_tx.send_replace(Some(notification.auth_status));
+                Ok(())
+            },
+            agent_client_protocol::on_receive_notification!(),
+        )
         .on_receive_notification(
             async move |notification: SessionNotification, _| {
                 if let Ok(update) = serde_json::to_value(notification.update) {
@@ -887,8 +941,7 @@ where
             )
             .await
             .map_err(|_| internal("The Agent did not finish initialization in time"))??;
-            // Only agents that take the key over ACP sign in here; the others
-            // received it in their environment. Account logins are never used.
+            // API-key routing is explicit and never falls back to account login.
             if let Some(gateway) = &gateway {
                 if !initialized
                     .auth_methods
@@ -908,6 +961,17 @@ where
                 .await
                 .map_err(|_| internal("The Agent did not finish API key sign-in in time"))??;
             }
+            let account = if subscription_cli.is_some() {
+                if !initialized.auth_methods.iter().any(|method| method.id().0.as_ref() == "chat-gpt") {
+                    return Err(internal("This Codex adapter does not support ChatGPT sign-in"));
+                }
+                let Some(account) = subscription::authenticate(&connection, &mut auth_rx, &mut controls, &emit).await? else {
+                    stopped.store(true, Ordering::SeqCst);
+                    return Ok(());
+                };
+                emit(AgentEvent::Account { account: account.clone() });
+                Some(account)
+            } else { None };
             let agent = initialized.agent_info.as_ref();
             emit(AgentEvent::Ready {
                 agent_name: agent.map(|info| info.name.clone()),
@@ -920,6 +984,8 @@ where
                     .is_some(),
             });
 
+            let quota_running = Arc::new(AtomicBool::new(false));
+            let mut last_quota = None::<tokio::time::Instant>;
             let generations = AtomicU64::new(0);
             let mut tasks = JoinSet::new();
             let (cancel_deadline_tx, mut cancel_deadlines) = async_mpsc::unbounded_channel();
@@ -929,6 +995,15 @@ where
                         Some(control) => control,
                         None => break,
                     },
+                    changed = auth_rx.changed(), if account.is_some() => {
+                        if changed.is_err() { return Err(internal("Codex account reporting stopped")); }
+                        let status = auth_rx.borrow_and_update().clone();
+                        if status.as_ref().is_none_or(|status| status.kind != "account" ||
+                            status.account.as_ref().and_then(|a| a.email.as_ref()) != account.as_ref().and_then(|a| a.email.as_ref())) {
+                            return Err(internal("The local Codex account changed. Reconnect to use the current account."));
+                        }
+                        continue;
+                    }
                     deadline = cancel_deadlines.recv() => {
                         let Some((session_id, generation)) = deadline else { continue };
                         if turns.lock().is_ok_and(|turns| turns.get(&session_id).is_some_and(
@@ -948,6 +1023,22 @@ where
                     Control::Command(command) => command,
                 };
                 match command {
+                    AgentCommand::Authenticate => {}
+                    AgentCommand::RefreshQuota => {
+                        let (Some(cli), Some(account)) = (&subscription_cli, &account) else { continue; };
+                        if quota_running.load(Ordering::SeqCst) || last_quota.is_some_and(|time| time.elapsed() < subscription::QUOTA_INTERVAL) { continue; }
+                        quota_running.store(true, Ordering::SeqCst);
+                        last_quota = Some(tokio::time::Instant::now());
+                        let (cli, cwd, account, emit, running) = (cli.clone(), cwd.clone(), account.clone(), emit.clone(), quota_running.clone());
+                        tasks.spawn(async move {
+                            let result = subscription::read_quota(&cli, &cwd, &account).await;
+                            emit(match result {
+                                Ok(snapshot) => AgentEvent::Quota { snapshot },
+                                Err(code) => AgentEvent::QuotaFailed { code: code.into() },
+                            });
+                            running.store(false, Ordering::SeqCst);
+                        });
+                    }
                     AgentCommand::NewSession { token } => {
                         let connection = connection.clone();
                         let emit = emit.clone();
@@ -1106,6 +1197,7 @@ where
                 let _ = connection.send_notification(CancelNotification::new(session_id));
             }
             tasks.abort_all();
+            while tasks.join_next().await.is_some() {}
             Ok(())
         })
         .await

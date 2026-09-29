@@ -12,6 +12,7 @@ import { CancellationTokenSource, CancellationToken } from "monaco-editor/esm/vs
 import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
+import { mouseInputCases } from "./mouse-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -31,6 +32,7 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  for (const test of mouseInputCases) await check(test.name, async () => test.run());
   await check("diff projections preserve sparse source lines and release read-only models", async () => {
     const before = monacoEditor.getModels().length;
     const container = document.createElement("div");
@@ -391,6 +393,14 @@ async function verify() {
     });
     const surface = editor.getDomNode()!;
     const backgroundColor = () => getComputedStyle(surface).backgroundColor.replace(/ /g, "");
+    const overviewRulerBackground = () => getComputedStyle(surface)
+      .getPropertyValue("--vscode-editorOverviewRuler-background").trim().replace(/ /g, "");
+    const overviewRulerPixel = () => {
+      editor.render();
+      const canvas = surface.querySelector<HTMLCanvasElement>(".decorationsOverviewRuler")!;
+      assert(canvas.width > 0 && canvas.height > 0, "overview ruler has no render surface");
+      return [...canvas.getContext("2d")!.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1).data];
+    };
     try {
       window.lithe.configure({
         fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
@@ -401,6 +411,9 @@ async function verify() {
       const solid = backgroundColor();
       assert(["rgb(242,243,244)", "rgba(242,243,244,1)"].includes(solid),
         `host light theme did not replace Monaco's initial dark surface: ${solid}`);
+      assert(overviewRulerBackground() === "#f2f3f4",
+        `opaque overview ruler background did not match the editor surface: ${overviewRulerBackground()}`);
+      assert(overviewRulerPixel().join() === "242,243,244,255", "solid overview ruler rendered with a different background");
       window.lithe.configure({
         fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true,
         theme: { id: "probe-light-wallpaper", dark: false, colors: {
@@ -410,6 +423,9 @@ async function verify() {
       const transparent = backgroundColor();
       assert(transparent === "rgba(0,0,0,0)",
         `transparent Monaco surface still covered the native wallpaper: ${transparent}`);
+      assert(overviewRulerBackground() === "rgba(0,0,0,0)",
+        `overview ruler still covered the native wallpaper: ${overviewRulerBackground()}`);
+      assert(overviewRulerPixel().join() === "0,0,0,0", "transparent overview ruler rendered an opaque strip");
     } finally {
       window.lithe.configure({ dark: false, fontFamily: "monospace", fontSize: 13, wrap: false, minimap: true });
       await window.lithe.retain([]);

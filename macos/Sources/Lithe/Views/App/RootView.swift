@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import LitheLocalHistoryModule
 import SwiftUI
 
@@ -207,8 +208,18 @@ private struct ActiveSessionChrome: View {
                     title: windowTitle
                 )
             )
-            .onReceive(session.workbenchFeature.$isSettingsPresented) { isPresented in
-                guard isPresented else { return }
+            .onReceive(session.workbenchFeature.$settingsCategoryRequest.dropFirst()) { _ in
+                SettingsWindowChrome.ownerWindow = NSApp.orderedWindows.first {
+                    ($0.delegate as? LitheWindowCoordinator)?.projectSessions.windowScope == scope
+                }
+                projectSessions.bindSettings(to: session.id)
+                if let settingsWindow = SettingsWindowChrome.settingsWindow {
+                    SettingsWindowChrome.configure(
+                        settingsWindow,
+                        title: settingsWindow.title,
+                        themePreference: session.settings.themePreference
+                    )
+                }
                 openWindow(id: LitheWindowID.settings)
             }
             .sheet(isPresented: Binding(
@@ -336,7 +347,7 @@ enum LitheWindowLayout: Equatable {
     case workspace
     case standalone
 
-    static let welcomeContentSize = NSSize(width: 900, height: 620)
+    static let welcomeContentSize = NSSize(width: 800, height: 650)
     static let workspaceContentSize = NSSize(width: 1440, height: 900)
     static let standaloneContentSize = NSSize(width: 1200, height: 760)
     static let standaloneMinimumContentSize = NSSize(width: 760, height: 480)
@@ -353,7 +364,7 @@ enum LitheWindowLayout: Equatable {
 
     var minimumContentSize: NSSize {
         switch self {
-        case .welcome: NSSize(width: 820, height: 560)
+        case .welcome: Self.welcomeContentSize
         case .workspace: NSSize(width: 980, height: 640)
         case .standalone: Self.standaloneMinimumContentSize
         }
@@ -479,6 +490,16 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
         projectSessions.noteWindowBecameKey()
     }
 
+    func windowDidResize(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    func windowDidExitFullScreen(_ notification: Notification) {
+        guard let window, notification.object as? NSWindow === window, let layout else { return }
+        alignWindowButtons(in: window, for: layout)
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         if case .projectCleanupCompleted? = pendingNativeWindowCloseIntent {
             pendingNativeWindowCloseIntent = nil
@@ -594,7 +615,10 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             window.title = ""
             window.titleVisibility = .hidden
         }
-        guard self.layout != layout else { return }
+        guard self.layout != layout else {
+            alignWindowButtons(in: window, for: layout)
+            return
+        }
 
         let shouldAnimate = self.layout != nil && window.isVisible
         self.layout = layout
@@ -618,6 +642,20 @@ final class LitheWindowCoordinator: NSObject, NSWindowDelegate {
             targetFrame = LitheWindowLayout.frame(targetFrame, fitting: visibleFrame)
         }
         window.setFrame(targetFrame, display: true, animate: shouldAnimate)
+        alignWindowButtons(in: window, for: layout)
+    }
+
+    private func alignWindowButtons(in window: NSWindow, for layout: LitheWindowLayout) {
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        // AppKit centers these buttons in its native titlebar; the workspace
+        // draws a taller toolbar underneath them.
+        for type in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window.standardWindowButton(type), let host = button.superview else { continue }
+            let headerHeight = layout == .workspace ? LitheTheme.Metrics.toolbarHeight : host.bounds.height
+            let centeredY = host.bounds.maxY - headerHeight / 2 - button.frame.height / 2
+            guard abs(button.frame.minY - centeredY) > 0.5 else { continue }
+            button.setFrameOrigin(NSPoint(x: button.frame.minX, y: centeredY))
+        }
     }
 
     private func defaultWorkspaceFrame(for window: NSWindow, fitting visibleFrame: NSRect) -> NSRect {

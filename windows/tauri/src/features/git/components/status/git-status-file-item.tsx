@@ -5,6 +5,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Checkbox } from "@/ui/checkbox";
 import { Button } from "@/ui/button";
 import { MinusIcon as Minus, PlusIcon as Plus } from "@/ui/icons";
+import { Spinner } from "@/ui/spinner";
 import { SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
 import { cn } from "@/utils/cn";
@@ -75,11 +76,7 @@ export function GitFileStageAction({
       onContextMenu={(event) => event.stopPropagation()}
     >
       {pending ? (
-        <span
-          role="status"
-          aria-label={label}
-          className="size-3 animate-spin rounded-full border-2 border-current border-r-transparent"
-        />
+        <Spinner label={label} compact />
       ) : staged ? (
         <Minus />
       ) : (
@@ -110,7 +107,7 @@ export const GitFileItem = ({
   stagePending = false,
 }: GitFileItemProps) => {
   const { t } = useTranslation();
-  const pathParts = file.path.split("/");
+  const pathParts = getGitFileRepositoryRelativePath(file).split("/");
   const fileName = pathParts.pop() || file.path;
   const directory = pathParts.join("/");
   const dragRepoPath = getGitFileRepositoryPath(file, repoPath);
@@ -177,7 +174,7 @@ export const GitFileItem = ({
           name: fileName,
         });
       }}
-      title={file.path}
+      title={file.canToggleStaging === false ? t("git.workspaceCommit.dirtySubmodule") : file.path}
     />
   );
 };

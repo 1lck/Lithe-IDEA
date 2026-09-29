@@ -647,7 +647,7 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -867,7 +867,7 @@ struct GitLogBranchFilterPopover: View {
             .clipShape(RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 

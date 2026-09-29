@@ -13,6 +13,7 @@ struct AgentProviderConfigurationView: View {
     @State private var errorMessage: String?
     @State private var actionTask: Task<Void, Never>?
 
+    private var usesSubscription: Bool { settings.agentConfigurations[agentID]?.authentication == .codexSubscription }
     private var selected: AIProviderProfile? { settings.agentProvider(for: agentID) }
     private var sources: [AIConfigurationSourceKind] { source.map { [$0] } ?? AIConfigurationSourceKind.allCases }
     private var providers: [AIProviderProfile] {
@@ -41,6 +42,7 @@ struct AgentProviderConfigurationView: View {
                     } label: { Label("Add", systemImage: "plus") }
                 }
             }
+            if agentID == "codex-acp" { subscriptionRow }
             ForEach(sources) { kind in
                 localRow(kind)
             }
@@ -54,7 +56,7 @@ struct AgentProviderConfigurationView: View {
                 Text(String(format: String(localized: "Current provider: %@"), selected.name))
                     .font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             }
-            if self.selected != nil {
+            if self.selected != nil || usesSubscription {
                 Button("Unlink") {
                     perform { try await model.useAgentProvider(nil, agentID: agentID, name: name) }
                 }
@@ -81,6 +83,27 @@ struct AgentProviderConfigurationView: View {
             Text("Delete this provider and its saved API key? Agents using it will be unlinked. It is also removed from AI Providers in Settings.")
         }
         .onDisappear { actionTask?.cancel() }
+    }
+
+    private var subscriptionRow: some View {
+        HStack(spacing: 8) {
+            Image(systemName: usesSubscription ? "checkmark.circle.fill" : "person.crop.circle")
+                .foregroundStyle(usesSubscription ? LitheTheme.accent : LitheTheme.secondaryText)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Codex subscription").font(.system(size: 12, weight: .medium))
+                Text("Use your local ChatGPT account. No API key or URL is needed.")
+                    .font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+            }
+            Spacer(minLength: 8)
+            Button(usesSubscription ? "Enabled" : "Enable") {
+                perform { try await model.useCodexSubscription() }
+            }
+            .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
+            .disabled(usesSubscription)
+        }
+        .padding(10)
+        .background(LitheTheme.inputBackground, in: RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).stroke(usesSubscription ? LitheTheme.accent : LitheTheme.panelBorder, lineWidth: 1))
     }
 
     private func localRow(_ kind: AIConfigurationSourceKind) -> some View {

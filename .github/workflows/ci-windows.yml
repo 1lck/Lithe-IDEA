@@ -276,6 +276,15 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-execution-journal.json -- src/features/git/services/git-execution-journal.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test workspace Git commit adapters and staging
+        shell: pwsh
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Test terminal discovery, default shell, profiles, and tab layout
         shell: pwsh
         run: ./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/terminal/stores/shells.store.test.ts,src/features/terminal/utils/terminal-profiles.test.ts,src/features/terminal/utils/terminal-keyboard.test.ts,src/features/settings/lib/default-shell-options.test.ts,src/features/terminal/components/terminal-tab-strip.test.tsx
@@ -451,9 +460,11 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `
+            --test-budget tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_before_selecting_a_small_subset=30000 `
             --build-timeout-ms 600000 `
             --suite-timeout-ms 1200000 `
             --report .artifacts/test-stability/windows-real-jdt.json

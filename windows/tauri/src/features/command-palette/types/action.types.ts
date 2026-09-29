@@ -8,5 +8,5 @@ export interface Action {
   category: string;
   /** Registered command id to look up the current binding from the keymap registry. */
   commandId?: string;
-  action: () => void;
+  action: () => void | Promise<void>;
 }

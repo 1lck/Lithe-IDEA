@@ -25,17 +25,37 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneCornerRadius: CGFloat = 10
 }
 
+private enum WorkbenchTopBarMetrics {
+    // IDEA reserves 78pt for macOS window controls, then leaves a small widget gap.
+    static let leadingInset: CGFloat = 83
+    static let projectAvatarSize: CGFloat = 20
+    static let projectAvatarLeadingInset: CGFloat = 6
+    static let projectAvatarCenterX = leadingInset + projectAvatarLeadingInset + projectAvatarSize / 2
+}
+
 private enum WorkbenchFrameGradient {
     static let coordinateSpace = "workbenchFrame"
-    static let radius: CGFloat = 720
+    static let width: CGFloat = 600
+    static let height: CGFloat = 300
 
-    static func fill(offset: CGPoint = .zero, size: CGFloat = 1) -> RadialGradient {
-        RadialGradient(
-            colors: [Color(red: 0.18, green: 0.25, blue: 0.28), LitheTheme.titlebar],
-            center: UnitPoint(x: -offset.x / size, y: -offset.y / size),
-            startRadius: 0,
-            endRadius: radius
-        )
+    static func color(glow: Color, background: Color, at point: CGPoint) -> Color {
+        let center = WorkbenchTopBarMetrics.projectAvatarCenterX
+        let horizontal = point.x <= center
+            ? max(0, point.x / center)
+            : max(0, 1 - (point.x - center) / width)
+        let vertical = max(0, 1 - point.y / height)
+        return ProjectIdentityAppearance.blend(background, with: glow, fraction: horizontal * vertical)
+    }
+}
+
+private struct WorkbenchToolbarGlowKey: EnvironmentKey {
+    static let defaultValue = LitheTheme.titlebar
+}
+
+private extension EnvironmentValues {
+    var workbenchToolbarGlow: Color {
+        get { self[WorkbenchToolbarGlowKey.self] }
+        set { self[WorkbenchToolbarGlowKey.self] = newValue }
     }
 }
 
@@ -217,7 +237,6 @@ struct WorkbenchView: View {
     @State private var pendingTopBarPushReference: GitReference?
     @State private var pendingTopBarDeleteReference: GitReference?
     @State private var isProjectSwitcherPresented = false
-    @State private var isPluginPanelPresented = false
     @State private var isNotificationCenterPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
@@ -258,6 +277,11 @@ struct WorkbenchView: View {
                 showsIDEAFrameGradient: usesIDEAFrameExperiment
             )
         }
+        .environment(
+            \.workbenchToolbarGlow,
+            ProjectIdentityAppearance(colorIndex: currentProjectColorIndex, isDark: colorScheme == .dark)
+                .toolbarGlow(over: Color(nsColor: LitheTheme.nsColor(.titlebar, isDark: colorScheme == .dark)))
+        )
         .sheet(item: $newBranchReference) { reference in
             TopBarNewBranchDialog(reference: reference) { name, checkout in
                 Task {
@@ -510,7 +534,7 @@ struct WorkbenchView: View {
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .frame(width: 16, height: 16)
                             .contentShape(Rectangle())
                             .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
@@ -577,6 +601,10 @@ struct WorkbenchView: View {
 
     private var usesIDEAFrameExperiment: Bool {
         settings.colorTheme == .lithe && colorScheme == .dark && !model.workbenchBackgroundFeature.hasImage
+    }
+
+    private var currentProjectColorIndex: Int {
+        ProjectIdentityAppearance.colorIndex(for: model.workspaceURL)
     }
 
     private var frameChromeBackground: Color {
@@ -656,7 +684,7 @@ struct WorkbenchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-tab-\(projectModel.id.uuidString)")
 
@@ -712,8 +740,12 @@ struct WorkbenchView: View {
                     branch: false
                 )
             } label: {
-                HStack(spacing: 8) {
-                    LitheLogo(size: 24)
+                HStack(spacing: 6) {
+                    ProjectAvatarBadge(
+                        name: model.projectName,
+                        colorIndex: currentProjectColorIndex,
+                        size: WorkbenchTopBarMetrics.projectAvatarSize
+                    )
 
                     Text(model.projectName)
                         .font(.system(size: 13, weight: .semibold))
@@ -724,15 +756,16 @@ struct WorkbenchView: View {
                         .font(.system(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .padding(.horizontal, 8)
-                .frame(height: 32)
+                .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
+                .padding(.trailing, 10)
+                .frame(height: 30)
                 .litheRowHover(
                     isActive: isProjectSwitcherPresented,
                     cornerRadius: 6,
                     activeBackground: LitheTheme.subtleSelection
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
             .anchorPreference(
@@ -769,7 +802,7 @@ struct WorkbenchView: View {
                     activeBackground: LitheTheme.subtleSelection
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .anchorPreference(
                 key: BranchSwitcherButtonBoundsPreferenceKey.self,
@@ -791,7 +824,7 @@ struct WorkbenchView: View {
             backgroundPickerButton
 
         }
-        .padding(.leading, 76)
+        .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .padding(.trailing, 10)
         .frame(height: LitheTheme.Metrics.toolbarHeight)
         .background {
@@ -1046,7 +1079,7 @@ struct WorkbenchView: View {
                 .frame(width: 28, height: 28)
                 .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
@@ -1068,7 +1101,7 @@ struct WorkbenchView: View {
             .frame(width: 28, height: 28)
             .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
@@ -1092,7 +1125,7 @@ struct WorkbenchView: View {
                 .frame(width: 28, height: 28)
                 .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help("Stop active execution")
         .accessibilityLabel("Stop active execution")
@@ -1131,7 +1164,7 @@ struct WorkbenchView: View {
             .frame(height: 30)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
         .frame(height: 30)
         .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
@@ -1186,7 +1219,7 @@ struct WorkbenchView: View {
                             .contentShape(Rectangle())
                             .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .help(configuration.name)
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
@@ -1212,7 +1245,7 @@ struct WorkbenchView: View {
                     activeBackground: LitheTheme.subtleSelection
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .foregroundStyle(LitheTheme.secondaryText)
         .help("Change workbench background")
@@ -1255,7 +1288,7 @@ struct WorkbenchView: View {
                                 .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .disabled(!destination.isAvailable)
                         .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
                         .workbenchHoverHelp(
@@ -1343,7 +1376,7 @@ struct WorkbenchView: View {
                 .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .foregroundStyle(
                 isNotificationCenterPresented ? LitheTheme.toolWindowSelectedText
                     : unreadNotificationCount > 0 ? LitheTheme.primaryText
@@ -1360,8 +1393,9 @@ struct WorkbenchView: View {
                 ideaAssetPath: "expui/nodes/plugin.svg",
                 help: "Plugins",
                 tooltipPlacement: .leading,
-                isSelected: isPluginPanelPresented,
-                action: { isPluginPanelPresented.toggle() }
+                isSelected: model.workbenchFeature.isSettingsPresented
+                    && model.requestedSettingsCategory == .plugins,
+                action: { model.showSettings(category: .plugins) }
             )
 
             ForEach(model.rightSidebarContributions) { contribution in
@@ -1460,7 +1494,7 @@ struct WorkbenchView: View {
             .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
@@ -1514,10 +1548,7 @@ struct WorkbenchView: View {
             },
             editor: {
                 Group {
-                    if isPluginPanelPresented {
-                        PluginManagementView()
-                            .environmentObject(model)
-                    } else if model.workbenchFeature.selectedSidebar == .pullRequests {
+                    if model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1695,7 +1726,7 @@ struct WorkbenchView: View {
             }
             .foregroundStyle(isEmphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(LocalizedStringKey(title))
     }
@@ -1839,7 +1870,7 @@ private struct WorkbenchNotificationCenterView: View {
                 Button("Clear All") {
                     model.clearNotifications()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(
                     model.notifications.isEmpty
@@ -2139,6 +2170,8 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     let surrounding: Color
     let roundsCorners: Bool
     let showsFrameGradient: Bool
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
 
     @ViewBuilder
     func body(content: Content) -> some View {
@@ -2178,7 +2211,14 @@ private struct WorkbenchPaneChromeModifier: ViewModifier {
     private func notch(_ corner: WorkbenchPaneCornerGeometry.Corner, offset: CGPoint) -> some View {
         let shape = WorkbenchPaneCornerNotch(corner: corner)
         if showsFrameGradient {
-            shape.fill(WorkbenchFrameGradient.fill(offset: offset, size: WorkbenchWorkspaceMetrics.paneCornerRadius))
+            shape.fill(WorkbenchFrameGradient.color(
+                glow: toolbarGlow,
+                background: Color(nsColor: LitheTheme.nsColor(.titlebar, isDark: colorScheme == .dark)),
+                at: CGPoint(
+                    x: offset.x + WorkbenchWorkspaceMetrics.paneCornerRadius / 2,
+                    y: offset.y + WorkbenchWorkspaceMetrics.paneCornerRadius / 2
+                )
+            ))
                 .frame(width: WorkbenchWorkspaceMetrics.paneCornerRadius, height: WorkbenchWorkspaceMetrics.paneCornerRadius)
         } else {
             shape.fill(surrounding)
@@ -2312,13 +2352,38 @@ private struct WorkbenchBackgroundImageView: View {
     let opacity: Double
     let showsIDEAFrameGradient: Bool
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.workbenchToolbarGlow) private var toolbarGlow
 
     var body: some View {
         ZStack {
             LitheTheme.window
 
             if showsIDEAFrameGradient {
-                WorkbenchFrameGradient.fill()
+                LitheTheme.titlebar
+                    .overlay(alignment: .topLeading) {
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [LitheTheme.titlebar, toolbarGlow],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: WorkbenchTopBarMetrics.projectAvatarCenterX)
+                            LinearGradient(
+                                colors: [toolbarGlow, LitheTheme.titlebar],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: WorkbenchFrameGradient.width)
+                        }
+                        .frame(height: WorkbenchFrameGradient.height)
+                        .overlay {
+                            LinearGradient(
+                                colors: [.clear, LitheTheme.titlebar],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        }
+                    }
             }
 
             if let image {
@@ -2398,7 +2463,7 @@ struct WorkbenchBackgroundPicker: View {
                     Button("Remove") {
                         model.workbenchBackgroundFeature.clear()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
@@ -2455,7 +2520,7 @@ struct WorkbenchBackgroundPicker: View {
             }
             .frame(width: 100)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(preset.title)))
     }

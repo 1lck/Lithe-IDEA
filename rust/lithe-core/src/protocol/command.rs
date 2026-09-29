@@ -176,6 +176,9 @@ pub enum CoreCommand {
     LspStopServer,
     /// Retries Maven profile application for an existing Java session.
     LspRetryMavenProfiles,
+    /// Sends a changed Maven configuration to a running Java session
+    /// (`lsp.updateMavenConfiguration`).
+    LspUpdateMavenConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -226,6 +229,12 @@ pub enum CoreCommand {
     MybatisIndex,
     /// Reads normalized repository and working-tree state (`git.status`).
     GitStatus,
+    /// Reads HEAD and index preconditions for workspace commits (`git.commitState`).
+    GitCommitState,
+    /// Builds a reviewed multi-repository plan (`git.workspaceCommitPrepare`).
+    GitWorkspaceCommitPrepare,
+    /// Executes one guarded workspace commit/push (`git.workspaceCommitStep`).
+    GitWorkspaceCommitStep,
     /// Resolves paths a Git-aware watcher must observe (`git.watchContext`).
     GitWatchContext,
     /// Lists worktrees registered for the repository (`git.worktrees`).
@@ -394,6 +403,7 @@ impl CoreCommand {
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
+            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -419,6 +429,9 @@ impl CoreCommand {
             "spring.index" => Some(Self::SpringIndex),
             "mybatis.index" => Some(Self::MybatisIndex),
             "git.status" => Some(Self::GitStatus),
+            "git.commitState" => Some(Self::GitCommitState),
+            "git.workspaceCommitPrepare" => Some(Self::GitWorkspaceCommitPrepare),
+            "git.workspaceCommitStep" => Some(Self::GitWorkspaceCommitStep),
             "git.watchContext" => Some(Self::GitWatchContext),
             "git.worktrees" => Some(Self::GitWorktrees),
             "git.pullRequestContext" => Some(Self::GitPullRequestContext),
@@ -479,6 +492,7 @@ mod tests {
             "lsp.startServer",
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
+            "lsp.updateMavenConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",

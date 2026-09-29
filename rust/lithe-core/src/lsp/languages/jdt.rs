@@ -20,6 +20,8 @@ const JDT_URI_SCHEME: &str = "jdt";
 const JDTLS_DATA_DIRECTORY: &str = "jdtls";
 const JAVA_DECOMPILE_COMMAND: &str = "java.decompile";
 const DID_CHANGE_CONFIGURATION_METHOD: &str = "workspace/didChangeConfiguration";
+/// JDT LS extension that force-updates the listed projects' build configuration.
+const PROJECT_CONFIGURATIONS_UPDATE_METHOD: &str = "java/projectConfigurationsUpdate";
 const LANGUAGE_STATUS_METHOD: &str = "language/status";
 const WORK_DONE_PROGRESS_METHOD: &str = "$/progress";
 const SERVICE_READY_STATUS: &str = "ServiceReady";
@@ -460,11 +462,43 @@ pub(crate) fn initialized_notification(
     provider_id: &str,
     settings: JdtSettings<'_>,
 ) -> Option<ProviderNotification> {
-    is_java_provider(provider_id).then(|| ProviderNotification {
+    is_java_provider(provider_id).then(|| settings_notification(settings))
+}
+
+/// `workspace/didChangeConfiguration` carrying every Java setting Lithe owns.
+///
+/// When the Maven settings paths differ from the ones JDT LS holds, JDT LS
+/// reloads them and force-updates every Maven project itself
+/// (`StandardPreferenceManager.update`), including an import still in progress.
+pub(crate) fn settings_notification(settings: JdtSettings<'_>) -> ProviderNotification {
+    ProviderNotification {
         method: DID_CHANGE_CONFIGURATION_METHOD.to_string(),
         params: json!({
             "settings": java_settings(settings)
         }),
+    }
+}
+
+/// Forces JDT LS to re-resolve the given Maven projects even though neither
+/// their `pom.xml` nor the Maven settings changed.
+///
+/// A JDT LS restart does not do this: its importer skips projects whose build
+/// file is older than the saved workspace state, so dependencies that failed to
+/// resolve stay missing. `java/projectConfigurationsUpdate` is the upstream
+/// "update project" action and ignores that check.
+pub(crate) fn project_update_notification(
+    configuration: &JdtMavenConfiguration,
+) -> Option<ProviderNotification> {
+    let mut seen = std::collections::BTreeSet::new();
+    let identifiers = configuration
+        .project_uris
+        .iter()
+        .filter(|uri| seen.insert(uri.as_str()))
+        .map(|uri| json!({ "uri": uri }))
+        .collect::<Vec<_>>();
+    (!identifiers.is_empty()).then(|| ProviderNotification {
+        method: PROJECT_CONFIGURATIONS_UPDATE_METHOD.to_string(),
+        params: json!({ "identifiers": identifiers }),
     })
 }
 
