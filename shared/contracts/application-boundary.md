@@ -52,6 +52,14 @@ accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed
 those bytes.
 
+### External HTML preview
+
+Both products open an existing local `.html` / `.htm` document in the system's
+configured web browser, independently of the file type's default editor. The
+browser reads the saved file; this action does not save buffers or start a web
+server. File URLs preserve Unicode and reserved characters. Browser discovery
+and launch belong to platform adapters, and launch failures are shown to the user.
+
 ## Module Lifecycle Contract
 
 The macOS reference product implements the built-in manifest in
@@ -506,3 +514,19 @@ Only a user click launches a validated plan through the host Run service after s
 the workspace. Workers never own the native process handles; the host tracks both
 extension ID and workspace ID, stops pending and active runs on disable/close, and
 rejects stale discovery results. Remote/WSL projects do not use these local plans.
+
+## Text content and language selection
+
+Native adapters decode document bytes using the existing encoding catalog.
+Decoded content is classified by Core's `document.classifyText` policy, also
+available through its borrowed UTF-8 C ABI. File extensions and installed
+language contributions must not exempt text from control-character validation
+or cause Unicode text to be classified as binary. Windows opening and session
+restoration share one content loader; read failures remain actionable errors.
+Explicit image, database, PDF, and binary-format viewers retain their host routing.
+
+Both Monaco hosts use the bundled INI tokenizer for `.properties`. Tokenization
+is presentation only: no grammar or language server is required to open plain
+text. Register bundled contributions in `frontend/editor`, not in a separate
+platform-specific tokenizer. Text fixtures are shared under
+`shared/fixtures/editor/text-content-v1.json`.

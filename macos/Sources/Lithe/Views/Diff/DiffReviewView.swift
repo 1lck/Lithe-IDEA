@@ -159,7 +159,7 @@ struct DiffReviewView: View {
                         systemImage: highlightsWords ? "checkmark.square.fill" : "square"
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help(highlightsWords ? "Disable word-level highlights" : "Enable word-level highlights")
 
@@ -172,7 +172,7 @@ struct DiffReviewView: View {
                         systemImage: collapsesUnchangedRegions ? "checkmark.square.fill" : "square"
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help(
                     collapsesUnchangedRegions

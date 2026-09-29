@@ -93,10 +93,12 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
+          cargo: "true"
 
+      # The suite deadline includes cold Rust Core and Swift compilation.
       - name: Run plugin-focused Swift tests
-        timeout-minutes: 12
-        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 660 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
+        timeout-minutes: 17
+        run: ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --report .artifacts/test-stability/macos-plugins.json --suite-timeout-seconds 960 -- --filter '([Pp]lugin|LitheGoSupportModuleTests|LithePhpSupportModuleTests|LinuxDo)'
 
       - name: Build and verify official plugin packages
         timeout-minutes: 10

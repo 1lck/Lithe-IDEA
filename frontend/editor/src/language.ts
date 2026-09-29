@@ -18,6 +18,8 @@ export const MONACO_LANGUAGE_BY_LITHE_ID: Record<string, string> = {
   graphql: "graphql",
   html: "html",
   java: "java",
+  ini: "ini",
+  properties: "ini",
   javascript: "javascript",
   json: "json",
   jsonc: "json",

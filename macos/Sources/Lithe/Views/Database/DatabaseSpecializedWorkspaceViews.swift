@@ -162,7 +162,7 @@ struct RedisWorkspaceView: View {
                                 }
                                 .padding(.horizontal, 8).frame(height: 40).frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .buttonStyle(.plain).lithePointer()
+                            .buttonStyle(.litheNoPress).lithePointer()
                             .litheRowHover(isActive: feature.redisSelectedKey?.key == key.key, activeBackground: LitheTheme.subtleSelection)
                         }
                     }
@@ -177,7 +177,7 @@ struct RedisWorkspaceView: View {
                             .font(.system(size: 10.5, weight: .medium))
                             .frame(maxWidth: .infinity).padding(.vertical, 9)
                     }
-                    .buttonStyle(.plain).lithePointer()
+                    .buttonStyle(.litheNoPress).lithePointer()
                     .foregroundStyle(LitheTheme.accent)
                     .disabled(feature.isLoading)
                 }
@@ -468,7 +468,7 @@ struct NacosWorkspaceView: View {
                                 }
                                 .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .buttonStyle(.plain).lithePointer()
+                            .buttonStyle(.litheNoPress).lithePointer()
                             .litheRowHover(isActive: feature.nacosSelectedConfig?.dataId == config.dataId && feature.nacosSelectedConfig?.group == config.group, activeBackground: LitheTheme.subtleSelection)
                         }
                     }.padding(.vertical, 6)
@@ -532,7 +532,7 @@ struct NacosWorkspaceView: View {
                                 }
                                 .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .buttonStyle(.plain).lithePointer()
+                            .buttonStyle(.litheNoPress).lithePointer()
                             .litheRowHover(isActive: false, activeBackground: LitheTheme.subtleSelection)
                         }
                     }.padding(.vertical, 6)

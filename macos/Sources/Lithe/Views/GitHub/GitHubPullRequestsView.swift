@@ -293,7 +293,7 @@ struct GitHubPullRequestsSidebarView: View {
                     Button { searchQuery = "" } label: {
                         Image(systemName: "xmark.circle.fill")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.tertiaryText)
                 }
             }
@@ -555,7 +555,7 @@ struct GitHubPullRequestDetailView: View {
                     .background(selectedSection == section ? LitheTheme.subtleSelection : .clear)
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             Spacer()
@@ -859,7 +859,7 @@ private struct GitHubPullRequestRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheRowHover(
             isActive: isSelected,
@@ -1028,7 +1028,7 @@ private struct GitHubFileRow: View {
                 .frame(height: 38)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             if isExpanded, let patch = file.patch {
@@ -1081,7 +1081,7 @@ private struct GitHubCommentRow: View {
                             Image(systemName: "arrow.up.right")
                                 .font(.system(size: 8, weight: .bold))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.tertiaryText)
                     }
                 }
@@ -1905,7 +1905,7 @@ private struct GitHubBranchPicker: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .accessibilityLabel(label)
         .accessibilityValue(selection.isEmpty ? Text("Select branch") : Text(selection))
         .popover(isPresented: $isPresented, arrowEdge: .bottom) {
@@ -1993,7 +1993,7 @@ private struct GitHubBranchPicker: View {
             .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
     }
 
     private var filteredBranches: [GitHubBranch] {

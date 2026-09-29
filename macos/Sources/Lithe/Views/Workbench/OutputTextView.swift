@@ -328,7 +328,7 @@ struct OutputTextView: View {
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .foregroundStyle(LitheTheme.primaryText)
         .disabled(output.isEmpty)
@@ -349,7 +349,7 @@ struct OutputTextView: View {
                 .clipShape(Capsule())
                 .overlay(Capsule().stroke(LitheTheme.panelBorder, lineWidth: 1))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .foregroundStyle(LitheTheme.primaryText)
     }

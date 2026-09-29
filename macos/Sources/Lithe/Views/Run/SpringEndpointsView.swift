@@ -55,7 +55,7 @@ struct SpringEndpointsView: View {
                                 .frame(maxWidth: .infinity, minHeight: 30)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .lithePointer()
                         }
                     }

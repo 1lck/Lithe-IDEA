@@ -82,7 +82,8 @@ struct WelcomeView: View {
                     .frame(width: 28, height: 28)
                     .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: selectionColor)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
             .foregroundStyle(mutedColor)
             .help("Settings")
             .accessibilityLabel("Settings")
@@ -118,19 +119,19 @@ struct WelcomeView: View {
                 Button("New Project") {
                     model.chooseProject(title: "New Project", prompt: "Choose Folder")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
 
                 Button("Open") {
                     model.chooseProject()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
 
                 Button("Clone Repository") {
                     model.showCloneRepository()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .welcomeActionStyle(foreground: textColor, border: borderColor, hover: hoverColor)
             }
             .padding(.horizontal, 14)
@@ -201,7 +202,8 @@ struct WelcomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
             .disabled(!exists)
 
             Spacer(minLength: 0)

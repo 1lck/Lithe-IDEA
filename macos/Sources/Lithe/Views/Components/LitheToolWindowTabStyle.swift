@@ -56,11 +56,6 @@ struct LitheToolWindowTabStyle: ViewModifier {
 
 }
 
-/// Tool-window tabs keep their text appearance while pressed; selection is painted by the shared tab style.
-struct LitheToolWindowTabButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View { configuration.label }
-}
-
 /// Tracks clicks across the whole tool window, including embedded AppKit content.
 struct LitheToolWindowActivityTracker: NSViewRepresentable {
     @Binding var isActive: Bool
@@ -126,7 +121,7 @@ struct LitheToolWindowTabCloseButton: View {
             .frame(width: 22, height: 22)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .onHover { isHovered = $0 }
         .accessibilityLabel("Close tab")
     }

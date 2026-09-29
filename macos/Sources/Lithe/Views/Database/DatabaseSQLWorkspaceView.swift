@@ -179,7 +179,7 @@ private struct DatabaseDashboardView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .frame(height: 36)
                                     }
-                                    .buttonStyle(.plain)
+                                    .buttonStyle(.litheNoPress)
                                     .disabled(profiles.first(where: { $0.id == entry.profileID })?.kind.isSQLDatabase != true)
                                     .litheRowHover(cornerRadius: 0)
                                 }
@@ -222,7 +222,7 @@ private struct DatabaseDashboardView: View {
                                 .stroke(LitheTheme.panelBorder, lineWidth: 1)
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             .frame(maxWidth: .infinity)
@@ -251,7 +251,7 @@ private struct DatabaseDashboardView: View {
                 .frame(height: 48)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheRowHover(cornerRadius: 0)
     }
@@ -278,7 +278,7 @@ private struct DatabaseDashboardView: View {
                 .frame(height: 48)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
 
             if profile.kind.isSQLDatabase {
                 Button { onNewQuery(profile) } label: {
@@ -288,7 +288,7 @@ private struct DatabaseDashboardView: View {
                         .frame(width: 40, height: 40)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("New Query")
                 .accessibilityLabel("New Query")
@@ -360,7 +360,7 @@ private struct DatabaseDashboardView: View {
                 .frame(height: 48)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.42)
         .background(LitheTheme.raised)
@@ -448,7 +448,7 @@ private struct DatabaseHistoryView: View {
                         }
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                 }
                 .listStyle(.inset)
             }
@@ -540,7 +540,7 @@ struct DatabaseSQLWorkspaceView: View {
                                 .padding(.leading, 10)
                                 .frame(height: 31)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
 
                             Button { model.databaseFeature.closeSQLTab(tab.id) } label: {
                                 Image(systemName: "xmark")

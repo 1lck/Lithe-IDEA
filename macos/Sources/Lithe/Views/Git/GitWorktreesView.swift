@@ -371,7 +371,7 @@ struct GitWorktreesView: View {
                     Image(systemName: "arrow.clockwise")
                         .frame(width: 24, height: 24)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .disabled(feature.isPerformingWorktreeOperation)
                 .help("Refresh worktrees")
@@ -461,7 +461,7 @@ struct GitWorktreesView: View {
                     Image(systemName: "doc.on.doc")
                         .font(.system(size: 12))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Copy worktree path")
                 Spacer()
@@ -496,7 +496,7 @@ struct GitWorktreesView: View {
                         .frame(height: 2)
                 }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -547,7 +547,7 @@ struct GitWorktreesView: View {
                     } label: {
                         Image(systemName: "doc.on.doc")
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
                 }
             }
@@ -867,7 +867,7 @@ struct GitWorktreesView: View {
                         Label("Copy worktree path", systemImage: "arrow.right")
                             .font(Visual.bodyMedium)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.link)
                     .lithePointer()
                 }

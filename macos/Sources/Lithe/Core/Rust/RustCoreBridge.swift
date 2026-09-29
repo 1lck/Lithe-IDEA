@@ -1816,6 +1816,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let sessionId: String
     }
 
+    private struct LspUpdateMavenConfigurationRequest: Encodable {
+        let sessionId: String
+        let mavenContext: MavenLaunchContext
+        let reloadProjects: Bool
+    }
+
     private struct LspSyncDocumentRequest: Encodable {
         struct Change: Encodable {
             let range: Range
@@ -3488,6 +3494,23 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         executeVoid(
             command: "lsp.retryMavenProfiles",
             payload: LspSessionIdentifierRequest(sessionId: sessionID)
+        )
+    }
+
+    /// Sends a changed Maven context to a running JDTLS session. JDT LS
+    /// re-resolves in place instead of restarting on its unchanged workspace state.
+    func lspUpdateMavenConfiguration(
+        sessionID: String,
+        context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, CoreCallError> {
+        executeResult(
+            command: "lsp.updateMavenConfiguration",
+            payload: LspUpdateMavenConfigurationRequest(
+                sessionId: sessionID,
+                mavenContext: context,
+                reloadProjects: reloadProjects
+            )
         )
     }
 

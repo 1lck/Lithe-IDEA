@@ -34,6 +34,11 @@ package final class MavenFeatureModel: ObservableObject {
     package var mavenExecutablePath: String? { service.mavenExecutablePath }
     package var javaHomePath: String? { service.javaHomePath }
     package var configurationSaveError: String? { service.configurationSaveError }
+    package var javaConfigurationError: String? { service.javaConfigurationError }
+    /// Connects Maven configuration changes to the running Java language session.
+    package func configureJavaConfigurationSync(_ apply: @escaping @MainActor (URL) throws -> Bool) {
+        service.applyConfigurationToJava = apply
+    }
     package var isReloadRequired: Bool { service.isReloadRequired }
     package var isProjectReloadRequired: Bool { service.isProjectReloadRequired }
     package var isReloading: Bool { service.isReloading }

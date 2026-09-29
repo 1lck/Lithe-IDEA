@@ -6,9 +6,9 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import {
-  ArrowClockwiseIcon,
   CodeBlockIcon,
   DatabaseIcon,
+  DownloadIcon,
   GearIcon,
   GearSixIcon,
   KeyboardIcon,
@@ -46,7 +46,7 @@ const categories: CategoryItem[] = [
   { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
   { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
-  { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
+  { id: "updates", labelKey: "settings.tabs.updates", icon: DownloadIcon },
 ];
 
 function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {

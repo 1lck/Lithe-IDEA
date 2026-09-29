@@ -1,6 +1,6 @@
 import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { WrapText } from "lucide-react";
+import { RefreshCw, WrapText } from "lucide-react";
 import { isBackendCapabilityAvailable } from "@/config/backend-capabilities";
 import { getBufferById } from "@/features/editor/utils/buffer-index";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
@@ -9,7 +9,6 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
-  ArrowClockwiseIcon,
   ArrowFatLineDownIcon,
   GearIcon,
   MinusIcon,
@@ -229,7 +228,7 @@ export default function RunPane() {
             onClick={() => rootFolderPath && void actions.generate(rootFolderPath)}
             aria-label={t("run.rescan")}
           >
-            <ArrowClockwiseIcon />
+            <RefreshCw className="size-3.5" />
           </Button>
         </Tooltip>
         <Tooltip content={t("run.scrollToEnd")} side="bottom">

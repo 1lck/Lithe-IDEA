@@ -24,14 +24,14 @@ struct GitPatchToolbar: View {
                 guard let root = feature.gitRepositoryRoot else { return }
                 feature.patchExchange.beginExport(at: root)
             } label: { Image(systemName: "doc.badge.arrow.up") }
-                .buttonStyle(.plain).help("Create Patch…").lithePointer()
+                .buttonStyle(.litheNoPress).help("Create Patch…").lithePointer()
                 .accessibilityLabel("Create Patch")
                 .disabled(feature.gitRepositoryRoot == nil)
             Button {
                 guard let root = feature.gitRepositoryRoot else { return }
                 feature.patchExchange.beginImport(at: root, surface: .changes)
             } label: { Image(systemName: "doc.badge.arrow.down") }
-                .buttonStyle(.plain).help("Apply Patch…").lithePointer()
+                .buttonStyle(.litheNoPress).help("Apply Patch…").lithePointer()
                 .accessibilityLabel("Apply Patch")
                 .disabled(feature.gitRepositoryRoot == nil)
         }

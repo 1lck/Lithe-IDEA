@@ -45,6 +45,9 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var mavenExecutablePath: String?
     @Published package private(set) var javaHomePath: String?
     @Published package private(set) var configurationSaveError: String?
+    /// Why the running Java language session did not take the latest Maven
+    /// configuration. The reload action restarts that session.
+    @Published package private(set) var javaConfigurationError: String?
     @Published package private(set) var isReloadRequired = false
     @Published package private(set) var isProjectReloadRequired = false
     @Published package private(set) var isReloading = false
@@ -52,6 +55,10 @@ package final class MavenService: ObservableObject {
     private var reloadRevision = 0
     private var reloadTask: Task<Void, Never>?
     package var onProjectReloaded: (@MainActor (URL, MavenProject) -> Void)?
+    /// Hands the current configuration to the workspace's running Java language
+    /// session. Returns whether a running session took it and throws when one
+    /// could not. JDT LS re-resolves in place, so no reload is needed (#970).
+    package var applyConfigurationToJava: (@MainActor (URL) throws -> Bool)?
     @Published package private(set) var dependencyStates: [String: MavenDependencyLoadState] = [:]
 
     package var isLoadingProject: Bool {
@@ -385,6 +392,7 @@ package final class MavenService: ObservableObject {
     package func acknowledgeReload() {
         guard !isProjectReloadRequired else { return }
         isReloadRequired = false
+        javaConfigurationError = nil
         refreshConfigurationFingerprint(establishBaseline: true)
     }
 
@@ -451,6 +459,7 @@ package final class MavenService: ObservableObject {
                 self.invalidateDependencies()
                 self.isProjectReloadRequired = false
                 self.isReloadRequired = false
+                self.javaConfigurationError = nil
                 self.projectState = .ready
                 self.onProjectReloaded?(root, candidate.0)
             } catch {
@@ -934,10 +943,24 @@ package final class MavenService: ObservableObject {
     private func configurationDidChange() {
         reloadRevision += 1
         invalidateDependencies()
-        isReloadRequired = isProjectReloadRequired || configurationFingerprint != nil
         configurationSaveError = nil
         persistConfiguration()
-        refreshConfigurationFingerprint()
+        guard let workspaceURL, let applyConfigurationToJava else {
+            isReloadRequired = isProjectReloadRequired || configurationFingerprint != nil
+            refreshConfigurationFingerprint()
+            return
+        }
+        do {
+            // A running session took the change, or the next start reads it;
+            // either way JDT LS holds this configuration from now on.
+            _ = try applyConfigurationToJava(workspaceURL)
+            javaConfigurationError = nil
+            isReloadRequired = isProjectReloadRequired
+            refreshConfigurationFingerprint(establishBaseline: true)
+        } catch {
+            javaConfigurationError = error.localizedDescription
+            isReloadRequired = true
+        }
     }
 
     private func refreshConfigurationFingerprint(establishBaseline: Bool = false) {

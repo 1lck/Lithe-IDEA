@@ -21,6 +21,13 @@ struct MavenView: View {
             if let error = feature.configurationSaveError {
                 configurationErrorBanner(error)
             }
+            if let error = feature.javaConfigurationError {
+                configurationErrorBanner(String(
+                    format: String(localized: "The Java language server did not take the Maven configuration: %@"),
+                    error
+                ))
+            }
+            MavenResolutionProblemsSection(diagnosticsStore: model.editorDiagnosticsStore)
             if let error = feature.reloadError {
                 configurationErrorBanner(error)
             }
@@ -185,7 +192,7 @@ struct MavenView: View {
             Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
                 Task { await model.reloadMavenProject(rescan: feature.isProjectReloadRequired) }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.litheNoPress)
             .disabled(feature.isReloading)
         }
         .padding(.horizontal, 10)
@@ -363,7 +370,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Cancel")) {
                         feature.cancelDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -380,7 +387,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .padding(.horizontal, 4)
                 .padding(.vertical, 3)
@@ -394,7 +401,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.warning)
@@ -479,7 +486,7 @@ struct MavenView: View {
             .frame(minHeight: 28)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.leading, 16)
         .help(dependencyLocalization.text("Open module pom.xml"))
@@ -550,7 +557,7 @@ struct MavenView: View {
                 Image(systemName: "plus")
                     .frame(width: 18, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Add profile")
             .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -575,7 +582,7 @@ struct MavenView: View {
                 Image(systemName: "arrow.uturn.backward")
                     .frame(width: 18, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Restore default profiles")
             Spacer(minLength: 0)
         }
@@ -615,7 +622,7 @@ struct MavenView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             guard !model.isMavenOperationBusy else { return }
@@ -655,7 +662,7 @@ struct MavenView: View {
                         .frame(width: 14, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
 
                 Button(action: onLabelAction) {
@@ -685,7 +692,7 @@ struct MavenView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             .litheContextMenu(items: {
@@ -884,4 +891,60 @@ private enum MavenToolbarAction: Hashable {
     case skipTests
     case collapse
     case settings
+}
+
+/// Lists the Maven problems JDT LS reports on workspace `pom.xml` files.
+/// Observes the diagnostics store directly so publish storms do not rebuild
+/// the whole Maven tool window.
+private struct MavenResolutionProblemsSection: View {
+    @EnvironmentObject private var model: AppModel
+    @ObservedObject var diagnosticsStore: EditorDiagnosticsStore
+
+    var body: some View {
+        let problems = MavenResolutionProblems.problems(
+            workspaceURL: model.workspaceURL,
+            diagnosticsByURL: diagnosticsStore.diagnosticsByURL
+        )
+        if !problems.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                Label(
+                    String(
+                        format: String(localized: "Maven could not resolve this project (%lld problems)"),
+                        problems.count
+                    ),
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.system(size: 11.5, weight: .medium))
+                .foregroundStyle(LitheTheme.error)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(problems) { problem in
+                            Button {
+                                model.openDiagnostic(problem)
+                            } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                                    Text(problem.locationTitle)
+                                        .foregroundStyle(LitheTheme.secondaryText)
+                                    Text(problem.message)
+                                        .foregroundStyle(LitheTheme.primaryText)
+                                        .lineLimit(2)
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.system(size: 11))
+                                .padding(.vertical, 2)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .help(problem.message)
+                        }
+                    }
+                }
+                .frame(maxHeight: 120)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(LitheTheme.error.opacity(0.06))
+        }
+    }
 }

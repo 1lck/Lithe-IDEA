@@ -54,7 +54,7 @@ test("a user-initiated check shows a skipped version that a scheduled check hide
     const { actions } = useUpdateStore.getState();
 
     expect(await actions.checkForUpdates()).toBe("suppressed");
-    expect(useUpdateStore.getState().detailsOpen).toBe(false);
+    expect(useUpdateStore.getState()).toMatchObject({ status: "idle", detailsOpen: false });
 
     expect(await actions.checkForUpdates({ userInitiated: true })).toBe("available");
     expect(useUpdateStore.getState().detailsOpen).toBe(true);
@@ -72,4 +72,11 @@ test("details cannot open without an update and close when a new check starts", 
   check.mockImplementationOnce(async () => null);
   expect(await actions.checkForUpdates()).toBe("up-to-date");
   expect(useUpdateStore.getState()).toMatchObject({ status: "upToDate", detailsOpen: false });
+});
+
+// A failed request must never produce the reassuring app-version notification.
+test("a failed check remains failed rather than up to date", async () => {
+  check.mockImplementationOnce(async () => { throw new Error("connection failed"); });
+  expect(await useUpdateStore.getState().actions.checkForUpdates({ userInitiated: true })).toBe("failed");
+  expect(useUpdateStore.getState()).toMatchObject({ status: "failed", error: "connection failed" });
 });

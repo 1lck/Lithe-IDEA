@@ -37,6 +37,10 @@ import { cn } from "@/utils/cn";
 import { joinPath } from "@/utils/path-helpers";
 import { openMavenRunPane } from "../actions/maven-tool-window-actions";
 import { ensureMavenProcessListeners } from "../hooks/use-maven-process-events";
+import {
+  useMavenResolutionProblems,
+  useOpenMavenResolutionProblem,
+} from "../hooks/use-maven-resolution-problems";
 import { availableMavenProfiles, useMavenStore } from "../stores/maven.store";
 import {
   reloadJavaForMavenWorkspace,
@@ -151,6 +155,9 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
   const customProfiles = useMavenStore((state) => state.customProfiles);
   const skipTests = useMavenStore((state) => state.skipTests);
   const configurationSaveError = useMavenStore((state) => state.configurationSaveError);
+  const javaConfigurationError = useMavenStore((state) => state.javaConfigurationError);
+  const resolutionProblems = useMavenResolutionProblems();
+  const openResolutionProblem = useOpenMavenResolutionProblem();
   const reloadRequired = useMavenStore((state) => state.reloadRequired);
   const projectReloadRequired = useMavenStore((state) => state.projectReloadRequired);
   const taskStatus = useMavenStore((state) => state.taskStatus);
@@ -712,6 +719,9 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
           <WarningIcon className="size-3.5 text-warning" />
           <span className="min-w-0 flex-1 truncate ui-text-sm">
             {configurationSaveError ??
+              (javaConfigurationError
+                ? t("maven.javaConfigurationFailed", { error: javaConfigurationError })
+                : null) ??
               moduleOperationError ??
               reloadError ??
               projectError ??
@@ -726,6 +736,35 @@ export default function MavenPane({ onClose }: MavenPaneProps) {
               {t(projectReloadRequired ? "maven.reloadProjects" : "maven.reloadJdt")}
             </Button>
           ) : null}
+        </div>
+      ) : null}
+
+      {project && resolutionProblems.length > 0 ? (
+        <div
+          className="max-h-40 shrink-0 overflow-y-auto border-border/70 border-b bg-destructive/5 px-3 py-1.5"
+          role="alert"
+        >
+          <div className="flex items-center gap-2 py-0.5 font-medium ui-text-sm">
+            <WarningIcon className="size-3.5 shrink-0 text-destructive" />
+            <span className="min-w-0 flex-1 truncate">
+              {t("maven.resolutionProblems", { count: resolutionProblems.length })}
+            </span>
+          </div>
+          {resolutionProblems.map((problem) => (
+            <button
+              key={`${problem.pomPath}:${problem.line}:${problem.column}:${problem.message}`}
+              type="button"
+              className="flex w-full min-w-0 items-baseline gap-2 rounded px-1 py-0.5 text-left ui-text-sm hover:bg-hover"
+              title={problem.message}
+              onClick={() => openResolutionProblem(problem)}
+            >
+              <span className="shrink-0 text-subtle-foreground">
+                {problem.modulePath === "." ? "pom.xml" : `${problem.modulePath}/pom.xml`}:
+                {problem.line + 1}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{problem.message}</span>
+            </button>
+          ))}
         </div>
       ) : null}
 

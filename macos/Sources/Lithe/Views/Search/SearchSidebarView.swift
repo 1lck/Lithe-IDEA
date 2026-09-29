@@ -139,10 +139,11 @@ struct SearchSidebarView: View {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .litheRowHover(
                                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
                             )
+                            .lithePointer()
                             .litheContextMenu {
                                 [
                                     .action("Open", systemImage: "doc.text", action: {

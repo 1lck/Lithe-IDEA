@@ -110,7 +110,7 @@ struct MavenBuildOutputView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
                 }
             }
