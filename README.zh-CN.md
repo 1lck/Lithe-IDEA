@@ -31,6 +31,8 @@
   </p>
 </div>
 
+https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
+
 ## 欢迎加入群聊
 
 欢迎加入 Lithe 社区，分享使用体验、交流问题，并获取项目最新动态。
