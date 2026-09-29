@@ -16,7 +16,8 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 
 - `scripts/official-plugin-distribution.mjs` 显式列出随主程序分发的官方插件。PHP 不在其中；`build-official-plugins.sh --plugin-id dev.lithe.plugin.php-support` 仍能独立构建插件包，用户通过已有插件管理的 Install 入口安装签名与宿主一致的包。
 - macOS 的 PHP 语言服务和执行模块均默认禁用、按需激活。安装后的包提供 `.php`、`.phtml` 和 `composer.json` 声明；没有包时不注册它的进程能力。共享的轻量语法识别不需要下载或启动外部进程。
-- macOS 使用用户指定或 PATH 中的 Intelephense 和 PHP，设置页提供工具配置和官方下载入口。Lithe 不安装或删除这部分用户工具。
+- macOS 的 PHP 插件包携带由 `language-server.json` 固定版本和 SHA-256 的 Intelephense 包。插件管理页下载并校验插件包，运行时把 Intelephense 保存在同一个用户级插件版本目录中；重装、回滚和卸载都处理同一份目录。Node.js 仍是 Intelephense 的外部运行时，PHP、Composer 和项目 PHPUnit 仍由用户自行提供；本地目录导入只用于离线或故障恢复。
+- macOS 下载地址使用宿主 App 的 `CFBundleShortVersionString` 组成 Release tag 和 zip 文件名；`BuiltInPluginCatalog.hostVersion` 只用于插件 API 兼容性校验，不能用来定位发布资产。
 - Windows 的配置、Composer/PHPUnit 解析和入口位于 `Plugins/win/Official/PhpSupport`，通过独立 `.lithe-extension` 包分发。宿主不能静态或动态 import 这份实现；只有轻量的语言到包 ID 对应表保留在宿主。插件管理的“导入插件包”入口安装后默认禁用，用户再选择启用。
 - Windows 显式安装 PHP 扩展时才下载解析器，并使用用户的 Bun 安装 Intelephense；同时检查 Node.js，因为安装包管理器与语言服务器运行时不是同一概念。缺失时给出安装引导，不后台下载运行时。
 - Windows 启动时发现 PHP 工具缺失只报告状态，不自动重装。卸载删除插件自己的解析器和 `<app-cache>/language-tools/php`，不会删除 PATH、全局 npm/Bun 或项目 `vendor`。
@@ -24,6 +25,7 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 ### 能力与生命周期
 
 - PHP 的 LSP 使用现有 Rust Core 会话，以 `intelephense --stdio` 启动。符号、类型和诊断仍由上游服务拥有；主机不实现第二套 PHP 语义分析。
+- macOS 插件管理页是 PHP 包和 Intelephense 的生命周期唯一入口：构建阶段按 `language-server.json` 下载并校验 npm tarball，把 launcher 和运行包放入插件 bundle；下载器再下载完整插件 zip，`MacPluginPackageStore` 同时验证插件 manifest、签名和语言服务器 launcher。安装、重装、回滚和卸载都针对同一个插件版本目录执行，因此不会留下脱离插件的 LSP。LSP 控制中心只显示当前项目的 PHP 语言服务器开关和运行状态，发现未安装、未启用或待重启时引导回插件管理页，不提供包操作按钮。
 - macOS 运行和测试使用插件模块持有的执行 session。相对文件名不做 trim，以 `-` 开头时加 `./`，避免把文件名当作命令选项。
 - Windows 只有已安装且启用 PHP 扩展时才读取 Composer/PHPUnit 清单、展示运行入口；执行前再次检查开关。Composer 的字符串和字符串数组均交给 `composer run -- <name>` 执行，不在主机模拟脚本语义。
 - Windows PHP 运行复用 Run 的输出面板和 native 进程启动能力，通用宿主服务在首个 await 之前按插件 ID 和工作区登记会话。禁用或关闭工作区时等待在途启动，再停止其拥有的 execution ID；自然结束释放所有权。不得通过普通终端事件绕过这个流程。
@@ -55,7 +57,7 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 
 ## 后果
 
-不使用 PHP 的用户不承担语言服务器下载、索引和进程成本。代价是首次使用需要显式安装插件及本机工具；macOS 插件分发需要与宿主一致的签名。Windows 目前提供 Composer 脚本及整套 PHPUnit，未声明支持 macOS 已有的单方法测试发现。Windows 本地包暂不提供在线分发、自动更新或签名身份验证，替换版本需先卸载再导入；包格式仅用于小型 Worker 语言插件。目标平台运行验证未完成前，功能矩阵保持 pending。
+不使用 PHP 的用户不承担语言服务器下载、索引和进程成本。代价是首次使用需要显式安装插件和 Node.js；macOS 在线包必须使用与宿主一致的签名，未配置 Developer ID 的调试或预览构建仍只能使用本地导入进行测试。Windows 目前提供 Composer 脚本及整套 PHPUnit，未声明支持 macOS 已有的单方法测试发现。Windows 本地包暂不提供在线分发、自动更新或签名身份验证，替换版本需先卸载再导入；包格式仅用于小型 Worker 语言插件。目标平台运行验证未完成前，功能矩阵保持 pending。
 
 插件构建产物、PHPUnit 的 vendor 和应用语言工具缓存没有可靠的跨工作树身份标记，均在 `scripts/worktree-resources.json` 的 excludedResources 中排除。不得把它们共享为可变缓存。
 
@@ -67,13 +69,22 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 - `node scripts/test-official-plugin-distribution.mjs`：默认分发名单不含 PHP，未知插件不会意外打入主程序。
 - `./scripts/verify-macos-package.sh`：实际组装产物不得含 PHP 插件。
 - `./scripts/verify-official-plugins.sh`：独立包兼容性与签名验证。
+- `MacPluginPackageDownloaderTests`：验证 stable/preview 发行资产 URL 按 App 发布版本和架构确定性生成。
+- `MacRuntimeToolDiscoveryTests`：验证启用的 PHP 插件版本目录优先提供 Intelephense launcher。
+- `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
+- `prepare-php-language-server.sh`：按 JSON 清单下载、校验并组装 Intelephense 运行包；插件版本目录删除时一并删除 launcher 和缓存文件。
+- `.github/workflows/release-macos.yml`：Developer ID 构建额外发布架构对应的 PHP 插件 zip；未配置 Developer ID 时不发布可在线安装的独立包。
 - `./scripts/test-macos.sh --filter LithePhpSupportModuleTests`：模块、路径与禁用清理测试。
-- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并配置 Intelephense 路径。
+- `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
 - Windows 前端测试包含禁用时不扫描、Composer 数组、下载取消、在途启动后禁用及跨工作区进程隔离。Windows native 测试与实际应用启动必须在 Windows 环境执行；Linux 交叉编译不等于运行验收。
 
 ## 适用范围
 
 - `Plugins/mac/Official/PhpSupport/`
+- `Plugins/mac/Official/PhpSupport/language-server.json`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerPackageValidator.swift`
+- `macos/Sources/Lithe/Platform/MacOS/Runtime/MacRuntimeToolDiscovery.swift`
+- `scripts/prepare-php-language-server.sh`
 - `Plugins/win/Official/PhpSupport/`
 - `scripts/build-official-plugins.sh`
 - `scripts/package-app.sh`

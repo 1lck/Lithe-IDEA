@@ -179,6 +179,11 @@ final class MacPluginPackageStore {
                 }
                 _ = try ValidatedPluginCatalog(manifests: [manifest], hostVersion: hostVersion)
                 try verifier.verify(packageAt: packageURL, manifest: manifest)
+                try MacPluginLanguageServerPackageValidator.validate(
+                    packageAt: packageURL,
+                    pluginManifest: manifest,
+                    fileManager: fileManager
+                )
                 let candidate = InstalledPluginPackage(
                     manifest: manifest,
                     installation: record,
@@ -235,6 +240,11 @@ final class MacPluginPackageStore {
                     hostVersion: hostVersion
                 )
                 try verifier.verify(packageAt: packageURL, manifest: manifest)
+                try MacPluginLanguageServerPackageValidator.validate(
+                    packageAt: packageURL,
+                    pluginManifest: manifest,
+                    fileManager: fileManager
+                )
                 installed.append(InstalledPluginPackage(
                     manifest: manifest,
                     installation: PluginInstallationRecord(
@@ -265,7 +275,8 @@ final class MacPluginPackageStore {
     @discardableResult
     func installPackage(
         from sourceURL: URL,
-        deferActivationUntilRestart: Bool = false
+        deferActivationUntilRestart: Bool = false,
+        replaceExisting: Bool = false
     ) throws -> InstalledPluginPackage {
         let sourceManifest = try loadManifest(at: sourceURL)
         guard !Self.retiredPluginIDs.contains(sourceManifest.id) else {
@@ -286,6 +297,18 @@ final class MacPluginPackageStore {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
         try verifier.verify(packageAt: stagedURL, manifest: manifest)
+        do {
+            try MacPluginLanguageServerPackageValidator.validate(
+                packageAt: stagedURL,
+                pluginManifest: manifest,
+                fileManager: fileManager
+            )
+        } catch {
+            throw PluginPackageStoreError.invalidInstalledPlugin(
+                manifest.id,
+                error.localizedDescription
+            )
+        }
 
         let pluginDirectory = rootURL.appendingPathComponent(manifest.id.rawValue, isDirectory: true)
         let versionsDirectory = pluginDirectory.appendingPathComponent("versions", isDirectory: true)
@@ -294,22 +317,41 @@ final class MacPluginPackageStore {
             pluginDirectory: pluginDirectory,
             version: manifest.version
         )
-        guard !fileManager.fileExists(atPath: destination.path) else {
+        let destinationExists = fileManager.fileExists(atPath: destination.path)
+        guard !destinationExists || replaceExisting else {
             throw PluginPackageStoreError.versionAlreadyInstalled(manifest.version)
         }
 
         let existingRecord = try? installationRecord(at: pluginDirectory)
-        try fileManager.moveItem(at: stagedURL, to: destination)
-        shouldRemoveStaging = false
+        let backupURL = destinationExists
+            ? stagingRoot.appendingPathComponent("backup-\(UUID().uuidString)", isDirectory: true)
+            : nil
+        if let backupURL {
+            try fileManager.moveItem(at: destination, to: backupURL)
+        }
+        do {
+            try fileManager.moveItem(at: stagedURL, to: destination)
+            shouldRemoveStaging = false
+        } catch {
+            if let backupURL {
+                try? fileManager.moveItem(at: backupURL, to: destination)
+            }
+            throw error
+        }
         do {
             let record = PluginInstallationRecord(
                 pluginID: manifest.id,
                 activeVersion: manifest.version,
-                previousVersion: existingRecord?.activeVersion,
+                previousVersion: existingRecord?.activeVersion == manifest.version
+                    ? existingRecord?.previousVersion
+                    : existingRecord?.activeVersion,
                 origin: .marketplace,
                 status: deferActivationUntilRestart ? .updateStaged : .installed
             )
             try write(record, to: pluginDirectory.appendingPathComponent("installation.json"))
+            if let backupURL {
+                try? fileManager.removeItem(at: backupURL)
+            }
             return InstalledPluginPackage(
                 manifest: manifest,
                 installation: record,
@@ -317,6 +359,9 @@ final class MacPluginPackageStore {
             )
         } catch {
             try? fileManager.removeItem(at: destination)
+            if let backupURL {
+                try? fileManager.moveItem(at: backupURL, to: destination)
+            }
             throw error
         }
     }
@@ -340,6 +385,12 @@ final class MacPluginPackageStore {
         guard manifest.id == pluginID, manifest.version == previousVersion else {
             throw PluginPackageStoreError.manifestDoesNotMatchInstallation
         }
+        try verifier.verify(packageAt: previousPackageURL, manifest: manifest)
+        try MacPluginLanguageServerPackageValidator.validate(
+            packageAt: previousPackageURL,
+            pluginManifest: manifest,
+            fileManager: fileManager
+        )
         let restored = PluginInstallationRecord(
             pluginID: pluginID,
             activeVersion: previousVersion,
