@@ -1,4 +1,5 @@
 import { runExtensionAction } from "@/extensions/run/extension-run-actions";
+import { RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   BACKEND_UNAVAILABLE_TOOLTIP,
@@ -18,7 +19,7 @@ import { Button } from "@/ui/button";
 import { showConfirmDialog } from "@/ui/dialog";
 import { Dropdown } from "@/ui/dropdown";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/ui/empty";
-import { ArrowClockwiseIcon as RefreshIcon, PlayIcon, PlusIcon } from "@/ui/icons";
+import { PlayIcon, PlusIcon } from "@/ui/icons";
 import { SearchField } from "@/ui/search";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
@@ -324,7 +325,7 @@ export default function RunActionsButton() {
                 disabled={isDiscovering || !workspacePath}
                 aria-label={t("run.rescanProjectActions")}
               >
-                {isDiscovering ? <Spinner label={t("run.scanning")} compact /> : <RefreshIcon />}
+                {isDiscovering ? <Spinner label={t("run.scanning")} compact /> : <RefreshCw />}
               </Button>
             </Tooltip>
           </div>

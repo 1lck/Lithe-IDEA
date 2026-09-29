@@ -87,7 +87,7 @@ struct AgentComposerView: View {
             Button { showsFilePicker = true } label: {
                 Label(isDropTargeted ? "Drop files here" : "Attach files", systemImage: "paperclip")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Drag files here or click to choose files")
             Spacer(minLength: 0)
             if showsSubscriptionQuota {
@@ -136,7 +136,7 @@ struct AgentComposerView: View {
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isConfiguring)))
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))

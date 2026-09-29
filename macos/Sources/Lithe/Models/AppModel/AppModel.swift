@@ -335,6 +335,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.diagnosticsByURL
     }
     var languageSessionChromeSignature: LanguageSessionChromeSignature?
+    /// Last Maven problem set announced for the workspace, so one failure is
+    /// reported once rather than on every diagnostics refresh.
+    var announcedMavenResolutionProblems = ""
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }

@@ -403,6 +403,27 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::DocumentClassifyText => {
+            match parsed
+                .payload
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(text) => CoreResponse::success(
+                    id,
+                    serde_json::json!({
+                        "isPlainText": project::is_plain_text(text)
+                    }),
+                ),
+                None => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Decoded document text is required",
+                    ),
+                ),
+            }
+        }
         CoreCommand::DocumentLifecycle => {
             match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1209,6 +1230,27 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).unwrap_or(serde_json::Value::Null),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::LspUpdateMavenConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateMavenConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Maven configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_maven_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Maven configuration update response should encode"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

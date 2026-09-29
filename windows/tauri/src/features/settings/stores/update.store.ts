@@ -178,7 +178,7 @@ const useUpdateStore = create<UpdateStore>()((set, get) => ({
             updateRef = null;
             updateInfoRef = null;
             set({
-              status: "upToDate",
+              status: "idle",
               error: null,
               errorCode: null,
               updateInfo: null,

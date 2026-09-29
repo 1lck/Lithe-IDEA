@@ -111,6 +111,13 @@ LITHE_RUN_GIT_COMPOSITOR_TESTS=1 \
 没有可用显示或没有收到显示链接回调时，用例输出未采样原因，不能将其计为真实
 帧率验证。不要在普通开发验证或无人值守 CI 中默认设置该环境变量。
 
+Swift 文本文件策略直接调用 Rust Core，因此 `scripts/test-macos.sh` 会先构建并链接
+当前工作树的 Core 静态库。它复用现有 `rust/target/macos` 构建路径；这是可变编译状态，
+不允许跨工作树复制或共享，也没有新增可复用资源目录。依赖下载仍按下文清单复用。
+Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包含冷构建的套件总时限
+为 960 秒，外层步骤为 17 分钟，给超时清理与报告留出一分钟。单测试预算和无输出
+看门狗仍由原计时工具控制。
+
 ### 独立工作树的本地编译
 
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录。如果从一个
@@ -172,6 +179,10 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；
 - LSP workspace `-data`、运行时数据库、测试报告和其他会被进程修改的状态。
+- 平台缓存中 JDT `-data/.lithe/maven/` 的 settings 副本：按工作区隔离，可能含凭据，
+  在缓存过期或重建索引时清理；文件内容哈希不是版本、平台、架构或工具链构建
+  identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
+  复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
 PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。应用缓存下 `language-tools/<language>/<tool>` 是插件拥有的可变运行时资源，随插件卸载清理，不是构建缓存。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 

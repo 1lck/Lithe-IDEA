@@ -39,7 +39,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
                 Spacer(minLength: 0)
                 if !session.isActive {
                     Button { editor.dismissSession() } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).help("Dismiss rebase result").accessibilityLabel("Dismiss rebase result").lithePointer()
+                        .buttonStyle(.litheNoPress).help("Dismiss rebase result").accessibilityLabel("Dismiss rebase result").lithePointer()
                 }
             }
             Text("\(session.branch) · \(session.completedSteps) of \(session.steps.count) steps processed")

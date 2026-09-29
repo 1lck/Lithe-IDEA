@@ -27,6 +27,26 @@ pub extern "C" fn lithe_core_version() -> *const c_char {
     VERSION.as_ptr().cast()
 }
 
+/// Classifies a borrowed UTF-8 document without copying it into a JSON envelope.
+/// Returns 1 for plain text, 0 for binary control characters, and -1 for invalid input.
+/// An empty slice is plain text; embedded NUL is inspected rather than terminating the input.
+///
+/// # Safety
+/// `bytes` must point to `length` readable bytes for this call, or be null when length is zero.
+#[no_mangle]
+pub unsafe extern "C" fn lithe_core_is_plain_text(bytes: *const u8, length: usize) -> i32 {
+    if length == 0 {
+        return 1;
+    }
+    if bytes.is_null() || length > isize::MAX as usize {
+        return -1;
+    }
+    match std::str::from_utf8(std::slice::from_raw_parts(bytes, length)) {
+        Ok(text) => i32::from(crate::project::is_plain_text(text)),
+        Err(_) => -1,
+    }
+}
+
 /// Executes one JSON request through the stable C ABI.
 ///
 /// The returned string is owned by the caller and must be released exactly
@@ -244,4 +264,51 @@ pub unsafe extern "C" fn lithe_agent_close(handle: *mut std::ffi::c_void) {
         callback.take();
     }
     handle.handle.close();
+}
+
+#[cfg(test)]
+mod text_content_tests {
+    use super::lithe_core_is_plain_text;
+
+    #[test]
+    fn decoded_text_contract_matches_c_abi_and_json() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../shared/fixtures/editor/text-content-v1.json"
+        ))
+        .unwrap();
+        for case in fixture["cases"].as_array().unwrap() {
+            let text = case["text"].as_str().unwrap();
+            let expected = case["isPlainText"].as_bool().unwrap();
+            assert_eq!(
+                unsafe { lithe_core_is_plain_text(text.as_ptr(), text.len()) },
+                i32::from(expected),
+                "{}",
+                case["name"]
+            );
+            let request = serde_json::json!({ "command": "document.classifyText", "payload": { "text": text } });
+            let response: serde_json::Value =
+                serde_json::from_str(&crate::execute_json(&request.to_string())).unwrap();
+            assert_eq!(
+                response["data"]["isPlainText"], expected,
+                "{}",
+                case["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn invalid_utf8_is_not_silently_replaced() {
+        let bytes = [0xff, 0xfe];
+        assert_eq!(
+            unsafe { lithe_core_is_plain_text(bytes.as_ptr(), bytes.len()) },
+            -1
+        );
+        assert_eq!(unsafe { lithe_core_is_plain_text(std::ptr::null(), 1) }, -1);
+        assert_eq!(unsafe { lithe_core_is_plain_text(std::ptr::null(), 0) }, 1);
+        let response: serde_json::Value = serde_json::from_str(&crate::execute_json(
+            r#"{"command":"document.classifyText","payload":{"text":1}}"#,
+        ))
+        .unwrap();
+        assert_eq!(response["error"]["code"], "invalid_request");
+    }
 }

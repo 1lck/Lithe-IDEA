@@ -31,6 +31,8 @@
   </p>
 </div>
 
+https://github.com/user-attachments/assets/17e2325b-afed-4bbb-9926-a962f777269b
+
 ## Join the community
 
 Welcome to join the Lithe community, share your experience, ask questions, and follow the latest updates.
@@ -110,20 +112,26 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 
 <p align="center">
   <img src="./docs/assets/screenshots/search-everywhere.png" width="49%" alt="Double-Shift Search Everywhere">
+  <img src="./docs/assets/screenshots/git-diff-review.png" width="49%" alt="Side-by-side Git diff review">
+</p>
+
+<p align="center">
+  <img src="./docs/assets/screenshots/ai-commit-message.png" width="49%" alt="Generate commit messages with AI">
+  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="49%" alt="Automatic project detection and one-click run configuration">
+</p>
+
+<details>
+<summary>More screenshots</summary>
+<br>
+
+<p align="center">
   <img src="./docs/assets/screenshots/global-search.png" width="49%" alt="Command Shift F project-wide search and replace">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/git-diff-review.png" width="96%" alt="Side-by-side Git diff review">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
   <img src="./docs/assets/screenshots/ai-commit-format.png" width="49%" alt="Customize AI commit message formats">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/ai-commit-message.png" width="96%" alt="Generate commit messages with AI">
+  <img src="./docs/assets/screenshots/ai-provider-import.png" width="49%" alt="Import AI provider settings from local tools">
+  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
 </p>
 
 <p align="center">
@@ -137,18 +145,15 @@ Only use these steps for an app whose source you trust. Homebrew installations u
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/project-auto-detection-run.png" width="96%" alt="Automatic project detection and one-click run configuration">
-</p>
-
-<p align="center">
-  <img src="./docs/assets/screenshots/language-services-settings.png" width="49%" alt="Per-language service settings">
   <img src="./docs/assets/screenshots/multi-line-editor-tabs.png" width="49%" alt="Multi-line editor tabs">
+  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
 </p>
 
 <p align="center">
-  <img src="./docs/assets/screenshots/database-workspace-overview.png" width="49%" alt="Database connection workspace">
   <img src="./docs/assets/screenshots/database-sql-operation.png" width="49%" alt="Database SQL operation and table structure">
 </p>
+
+</details>
 
 ## Download and install
 

@@ -9,6 +9,18 @@
 "Plugins" = "Plugins";
 "Marketplace" = "Marketplace";
 "Installed" = "Installed";
+"Installed (%lld of %lld enabled)" = "Installed (%lld of %lld enabled)";
+"Install Plugin from Disk…" = "Install Plugin from Disk…";
+"Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
+"Install PHP Support Plugin" = "Install PHP Support Plugin";
+"Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
+"Plugin marketplace is not available" = "Plugin marketplace is not available";
+"Plugin settings" = "Plugin settings";
+"Appearance & Behavior" = "Appearance & Behavior";
+"Version Control" = "Version Control";
+"Build, Execution, Deployment" = "Build, Execution, Deployment";
+"Languages & Frameworks" = "Languages & Frameworks";
+"Tools" = "Tools";
 "Type / to see options" = "Type / to see options";
 "Downloaded (%lld of %lld enabled)" = "Downloaded (%lld of %lld enabled)";
 "Install" = "Install";
@@ -1291,3 +1303,6 @@
 "Waiting for subscription quota…" = "Waiting for subscription quota…";
 
 "ChatGPT sign-in was cancelled." = "ChatGPT sign-in was cancelled.";
+
+"Could not open HTML in browser" = "Could not open HTML in browser";
+"Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";

@@ -2,12 +2,15 @@
 #define LITHE_BRIDGE_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 const char *lithe_bridge_version(void);
+/* Borrowed UTF-8 slice: 1 text, 0 binary controls, -1 invalid input. */
+int32_t lithe_bridge_is_plain_text(const uint8_t *bytes, size_t length);
 int32_t lithe_bridge_git_askpass(const char *prompt);
 char *lithe_bridge_execute_json(const char *request);
 char *lithe_bridge_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context);

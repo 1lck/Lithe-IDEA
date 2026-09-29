@@ -6,6 +6,11 @@
 "Try a different search term." = "请尝试其他搜索词。";
 "Project" = "项目";
 "General" = "通用";
+"Appearance & Behavior" = "外观与行为";
+"Build, Execution, Deployment" = "构建、执行、部署";
+"Languages & Frameworks" = "语言与框架";
+"Version Control" = "版本控制";
+"Tools" = "工具";
 "Appearance" = "外观";
 "Theme" = "主题";
 "Color theme" = "配色主题";
@@ -32,6 +37,8 @@
 "Keymap" = "快捷键";
 "Customize shortcuts for Lithe actions. Changes apply immediately." = "自定义 Lithe 操作的快捷键，修改后立即生效。";
 "Search actions or shortcuts" = "搜索操作或快捷键";
+"Expand All" = "全部展开";
+"Collapse All" = "全部折叠";
 "Restore All Defaults" = "全部恢复默认";
 "Not Assigned" = "未分配";
 "Press shortcut…" = "请按下快捷键…";
@@ -1330,6 +1337,18 @@
 "Plugins" = "插件";
 "Marketplace" = "插件市场";
 "Installed" = "已安装";
+"Installed (%lld of %lld enabled)" = "已安装（%lld / %lld 个已启用）";
+"Install Plugin from Disk…" = "从磁盘安装插件…";
+"Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
+"Install PHP Support Plugin" = "安装 PHP Support 插件";
+"Select a PHP Support plugin package." = "请选择 PHP Support 插件包。";
+"Plugin marketplace is not available" = "插件市场暂不可用";
+"Plugin settings" = "插件设置";
+"Appearance & Behavior" = "外观与行为";
+"Version Control" = "版本控制";
+"Build, Execution, Deployment" = "构建、执行、部署";
+"Languages & Frameworks" = "语言与框架";
+"Tools" = "工具";
 "Type / to see options" = "输入 / 查看选项";
 "Downloaded (%lld of %lld enabled)" = "已下载（%lld 个，%lld 个已启用）";
 "Install" = "安装";
@@ -1341,10 +1360,6 @@
 "Uninstall" = "卸载";
 "Overview" = "概览";
 "No Plugins" = "暂无插件";
-"More Language Support" = "扩展更多语言";
-"%lld languages · %lld enabled" = "%lld 种语言 · 已启用 %lld 个";
-"Expanded" = "已展开";
-"Collapsed" = "已收起";
 "Database" = "数据库连接";
 "Enabled" = "已启用";
 "Disabled" = "已禁用";
@@ -2519,3 +2534,9 @@
 "Waiting for subscription quota…" = "正在等待订阅额度…";
 
 "ChatGPT sign-in was cancelled." = "已取消 ChatGPT 登录。";
+"Maven could not resolve this project (%lld problems): %@" = "Maven 无法解析此项目（%lld 个问题）：%@";
+"Maven could not resolve this project (%lld problems)" = "Maven 无法解析此项目（%lld 个问题）";
+"The Java language server did not take the Maven configuration: %@" = "Java 语言服务器未能应用 Maven 配置：%@";
+
+"Could not open HTML in browser" = "无法在浏览器中打开 HTML";
+"Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";

@@ -1,4 +1,5 @@
 import { appDataDir } from "@tauri-apps/api/path";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ClockCounterClockwiseIcon as History } from "@/ui/icons";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { IconThemeSelectorContent } from "@/features/command-palette/components/icon-theme-selector";
@@ -56,6 +57,10 @@ import type { CommandPaletteViewId } from "../types/view.types";
 import { useActionsStore } from "../stores/action-history.store";
 import { useCommandPaletteViews } from "../services/command-palette-view-registry";
 import { localizeCommandPaletteAction } from "../utils/action-localization";
+import {
+  readWindowPresentationState,
+  type WindowPresentationState,
+} from "@/features/window/utils/window-actions";
 
 interface CommandPaletteContentProps {
   commandPaletteInitialView: CommandPaletteViewId;
@@ -84,6 +89,8 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   };
 
   const [query, setQuery] = useState("");
+  const [windowPresentationState, setWindowPresentationState] =
+    useState<WindowPresentationState | null>(null);
   const [viewStack, setViewStack] = useState<CommandPaletteViewId[]>(["root"]);
   const [activeInitialView, setActiveInitialView] = useState<CommandPaletteViewId>("root");
   const resultsRef = useRef<HTMLDivElement>(null);
@@ -94,6 +101,52 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
   const renderedViewStack =
     activeInitialView !== commandPaletteInitialView ? initialViewStack : viewStack;
   const currentView = renderedViewStack[renderedViewStack.length - 1] || "root";
+
+  useEffect(() => {
+    const window = getCurrentWindow();
+    let disposed = false;
+    let stateRequest = 0;
+    const unlisten: Array<() => void> = [];
+
+    const syncWindowState = async () => {
+      const request = ++stateRequest;
+      try {
+        const state = await readWindowPresentationState(window);
+        if (!disposed && request === stateRequest) {
+          setWindowPresentationState(state);
+        }
+      } catch (error) {
+        if (!disposed && request === stateRequest) {
+          console.error("Error checking window state for command palette:", error);
+        }
+      }
+    };
+
+    const subscribe = async (register: () => Promise<() => void>): Promise<void> => {
+      try {
+        const dispose = await register();
+        if (disposed) {
+          dispose();
+        } else {
+          unlisten.push(dispose);
+        }
+      } catch (error) {
+        if (!disposed) {
+          console.error("Error subscribing to window state for command palette:", error);
+        }
+      }
+    };
+
+    void Promise.all([
+      subscribe(() => window.onResized(() => void syncWindowState())),
+      subscribe(() => window.onFocusChanged(() => void syncWindowState())),
+    ]).then(syncWindowState);
+
+    return () => {
+      disposed = true;
+      unlisten.forEach((dispose) => dispose());
+    };
+  }, []);
 
   const pushView = (view: CommandPaletteViewId) => {
     setQuery("");
@@ -303,9 +356,9 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
       },
       onClose,
     }),
-    ...createWindowActions({
-      onClose,
-    }),
+    ...(windowPresentationState
+      ? createWindowActions({ onClose, ...windowPresentationState })
+      : []),
     ...createGitActions({
       rootFolderPath,
       activeRepoPath,
@@ -361,7 +414,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
     (index: number) => {
       const action = prioritizedActions[index];
       if (!action) return;
-      action.action();
+      void action.action();
       pushAction(action.id);
     },
     [prioritizedActions, pushAction],
@@ -469,7 +522,7 @@ const CommandPaletteContent = ({ commandPaletteInitialView }: CommandPaletteCont
                   <CommandItemRow
                     key={action.id}
                     onClick={() => {
-                      action.action();
+                      void action.action();
                       pushAction(action.id);
                     }}
                     onMouseEnter={() => setSelectedIndex(index)}

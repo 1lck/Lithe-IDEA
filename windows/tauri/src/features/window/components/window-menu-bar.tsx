@@ -9,7 +9,6 @@ import {
   isBackendCapabilityAvailable,
 } from "@/config/backend-capabilities";
 import { useRegisteredThemes } from "@/extensions/themes/use-registered-themes";
-import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import {
@@ -29,20 +28,20 @@ import { IS_LINUX, IS_WINDOWS } from "@/utils/platform";
 interface Props {
   activeMenu: string | null;
   setActiveMenu: React.Dispatch<React.SetStateAction<string | null>>;
-  compactFloating?: boolean;
+  compactExpanded?: boolean;
   onCompactClose?: () => void;
 }
 
 const WindowMenuBar = ({
   activeMenu,
   setActiveMenu,
-  compactFloating = false,
+  compactExpanded = false,
   onCompactClose,
 }: Props) => {
   const { t } = useTranslation();
-  const compactMenuBar = useSettingsStore((state) => state.settings.compactMenuBar);
   const themes = useRegisteredThemes();
   const menuWindowRaiseRef = useRef<{ restoreTo: boolean } | null>(null);
+  const firstMenuTriggerRef = useRef<HTMLButtonElement>(null);
   const shouldRaiseWindowForMenu = (IS_WINDOWS || IS_LINUX) && Boolean(activeMenu);
   const closeMenu = useCallback(() => {
     setActiveMenu(null);
@@ -101,6 +100,10 @@ const WindowMenuBar = ({
       void restoreWindowLevel();
     };
   }, [shouldRaiseWindowForMenu]);
+
+  useEffect(() => {
+    if (compactExpanded) firstMenuTriggerRef.current?.focus();
+  }, [compactExpanded]);
 
   const handleClickEmit = useCallback(
     (event: string, payload?: unknown) => {
@@ -535,26 +538,23 @@ const WindowMenuBar = ({
   return (
     <div
       className={cn(
-        "z-100000 flex flex-col",
-        compactMenuBar && compactFloating && "absolute top-full left-0 mt-1 w-max",
-        compactMenuBar && !compactFloating && "absolute inset-0",
+        "z-100000 flex min-w-0",
+        compactExpanded &&
+          "h-full max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       )}
     >
       <Menubar
         value={activeMenu ?? ""}
         onValueChange={(value) => setActiveMenu(value || null)}
         className={cn(
-          compactMenuBar &&
-            compactFloating &&
-            "h-auto w-max flex-nowrap rounded-2xl border border-border bg-background/95 px-1 py-1 shadow-(--shadow-popover) backdrop-blur-sm",
-          compactMenuBar &&
-            !compactFloating &&
-            "h-full rounded-none border-none bg-transparent px-2 py-0",
+          compactExpanded &&
+            "h-full w-max flex-nowrap rounded-none border-none bg-transparent px-0 py-0",
         )}
       >
         {Object.entries(menus).map(([menuName, menuContent]) => (
           <MenubarMenu key={menuName} value={menuName}>
             <MenubarTrigger
+              ref={compactExpanded && menuName === "File" ? firstMenuTriggerRef : undefined}
               disabled={
                 (menuName === "Terminal" && !isBackendCapabilityAvailable("terminal")) ||
                 (menuName === "Run" && !isBackendCapabilityAvailable("debugger"))

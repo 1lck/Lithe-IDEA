@@ -35,11 +35,19 @@ export interface LoadedFileContent {
   diskIdentity?: string;
 }
 
+async function classifyLoadedText(value: LoadedFileContent): Promise<LoadedFileContent> {
+  // Core owns the same policy on macOS and Windows. Decoding failures remain
+  // read errors; a missing tokenizer never makes content binary.
+  const result = await invoke<{ isPlainText: boolean }>("document.classifyText", {
+    text: value.content ?? "",
+  });
+  return result.isPlainText ? value : { kind: "binary" };
+}
+
 /**
- * Read a file's content and type in a store-independent way, shared by the
- * session-restore path. This intentionally does not consult the global
- * `latestFileOpenRequestId` used by `handleFileSelect`, so concurrent restores
- * are never misclassified as stale.
+ * Shared content loading for initial opens and session restoration. File I/O
+ * and codecs belong to native adapters; Core classifies decoded Unicode.
+ * Cancellation/stale-result checks belong to the caller that owns the tab.
  */
 export async function loadFileContent(path: string, encoding?: FileEncoding): Promise<LoadedFileContent> {
   if (getDatabaseTypeFromPath(path)) return { kind: "database" };
@@ -56,7 +64,7 @@ export async function loadFileContent(path: string, encoding?: FileEncoding): Pr
       connectionId: match[1],
       filePath: match[2] || "/",
     });
-    return { kind: "text", content, language };
+    return classifyLoadedText({ kind: "text", content, language });
   }
 
   const wslInfo = parseWslPath(path);
@@ -65,22 +73,22 @@ export async function loadFileContent(path: string, encoding?: FileEncoding): Pr
       distro: wslInfo.distro,
       filePath: wslInfo.linuxPath,
     });
-    return { kind: "text", content, language };
+    return classifyLoadedText({ kind: "text", content, language });
   }
 
   if (encoding || isLocalDocumentPath(path)) {
     const details = await readDocumentFileDetails(path, encoding);
     if (!details || details.content === null) throw new Error("File no longer exists");
-    return {
+    return classifyLoadedText({
       kind: "text",
       content: details.content,
       language,
       encoding: details.encoding,
       diskIdentity: details.identity,
-    };
+    });
   }
   const content = await readFileContent(path);
-  return { kind: "text", content, language, encoding: "UTF-8" };
+  return classifyLoadedText({ kind: "text", content, language, encoding: "UTF-8" });
 }
 
 export interface RestoreJob {
@@ -226,8 +234,9 @@ export function createSessionRestoreController(
 
     loadNow(job) {
       if (disposed) return Promise.resolve();
-      const activeCompletion = completionByBufferId.get(job.bufferId);
-      if (activeByBufferId.has(job.bufferId)) return activeCompletion?.promise ?? Promise.resolve();
+      // Joining a background read must await decoding and classification even
+      // when no caller previously requested a completion promise.
+      if (activeByBufferId.has(job.bufferId)) return completionFor(job.bufferId).promise;
 
       if (completedByBufferId.get(job.bufferId) === job.path) return Promise.resolve();
       completedByBufferId.delete(job.bufferId);

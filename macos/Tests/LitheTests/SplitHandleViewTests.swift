@@ -5,6 +5,16 @@ import SwiftUI
 
 @Suite("Split handle updates")
 struct SplitHandleViewTests {
+    @MainActor
+    @Test
+    func settingsPluginDividersHaveUsableTravelAtMinimumWindowWidth() {
+        let availableTravel = 900 - SettingsView.categoryMinimumWidth
+            - SplitHandleView.thickness - SettingsView.contentMinimumWidth
+        #expect(availableTravel >= 150)
+        #expect(SettingsView.contentMinimumWidth >= PluginManagementView.minimumWidth)
+        #expect(PluginManagementView.listMinimumWidth < 320)
+    }
+
     @Test
     func pendingDragUpdatesCoalesceToNewestTranslation() {
         var buffer = FrameCoalescedDragUpdateBuffer()

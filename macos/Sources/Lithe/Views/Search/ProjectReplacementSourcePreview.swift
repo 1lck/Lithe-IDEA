@@ -80,7 +80,7 @@ private struct ProjectReplacementDocumentEditor: View {
                         }
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .disabled(saveTask != nil || !document.isDirty || document.isReadOnly)
             }
             .font(.system(size: 12))

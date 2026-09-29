@@ -237,7 +237,6 @@ struct WorkbenchView: View {
     @State private var pendingTopBarPushReference: GitReference?
     @State private var pendingTopBarDeleteReference: GitReference?
     @State private var isProjectSwitcherPresented = false
-    @State private var isPluginPanelPresented = false
     @State private var isNotificationCenterPresented = false
     @State private var didRestoreLayout = false
     @State private var hoveredProjectTabID: UUID?
@@ -535,7 +534,7 @@ struct WorkbenchView: View {
                                     .font(.system(size: 10, weight: .semibold))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .frame(width: 16, height: 16)
                             .contentShape(Rectangle())
                             .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
@@ -685,7 +684,7 @@ struct WorkbenchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-tab-\(projectModel.id.uuidString)")
 
@@ -766,7 +765,8 @@ struct WorkbenchView: View {
                     activeBackground: LitheTheme.subtleSelection
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
             .anchorPreference(
                 key: ProjectSwitcherButtonBoundsPreferenceKey.self,
@@ -802,7 +802,8 @@ struct WorkbenchView: View {
                     activeBackground: LitheTheme.subtleSelection
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
+            .lithePointer()
             .anchorPreference(
                 key: BranchSwitcherButtonBoundsPreferenceKey.self,
                 value: .bounds
@@ -1078,7 +1079,7 @@ struct WorkbenchView: View {
                 .frame(width: 28, height: 28)
                 .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
@@ -1100,7 +1101,7 @@ struct WorkbenchView: View {
             .frame(width: 28, height: 28)
             .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
@@ -1124,7 +1125,7 @@ struct WorkbenchView: View {
                 .frame(width: 28, height: 28)
                 .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help("Stop active execution")
         .accessibilityLabel("Stop active execution")
@@ -1163,7 +1164,7 @@ struct WorkbenchView: View {
             .frame(height: 30)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
         .frame(height: 30)
         .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
@@ -1218,7 +1219,7 @@ struct WorkbenchView: View {
                             .contentShape(Rectangle())
                             .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .help(configuration.name)
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
@@ -1244,7 +1245,7 @@ struct WorkbenchView: View {
                     activeBackground: LitheTheme.subtleSelection
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .foregroundStyle(LitheTheme.secondaryText)
         .help("Change workbench background")
@@ -1287,7 +1288,7 @@ struct WorkbenchView: View {
                                 .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
                                 .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .disabled(!destination.isAvailable)
                         .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
                         .workbenchHoverHelp(
@@ -1375,7 +1376,7 @@ struct WorkbenchView: View {
                 .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .foregroundStyle(
                 isNotificationCenterPresented ? LitheTheme.toolWindowSelectedText
                     : unreadNotificationCount > 0 ? LitheTheme.primaryText
@@ -1392,8 +1393,9 @@ struct WorkbenchView: View {
                 ideaAssetPath: "expui/nodes/plugin.svg",
                 help: "Plugins",
                 tooltipPlacement: .leading,
-                isSelected: isPluginPanelPresented,
-                action: { isPluginPanelPresented.toggle() }
+                isSelected: model.workbenchFeature.isSettingsPresented
+                    && model.requestedSettingsCategory == .plugins,
+                action: { model.showSettings(category: .plugins) }
             )
 
             ForEach(model.rightSidebarContributions) { contribution in
@@ -1492,7 +1494,7 @@ struct WorkbenchView: View {
             .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
@@ -1546,10 +1548,7 @@ struct WorkbenchView: View {
             },
             editor: {
                 Group {
-                    if isPluginPanelPresented {
-                        PluginManagementView()
-                            .environmentObject(model)
-                    } else if model.workbenchFeature.selectedSidebar == .pullRequests {
+                    if model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1727,7 +1726,7 @@ struct WorkbenchView: View {
             }
             .foregroundStyle(isEmphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(LocalizedStringKey(title))
     }
@@ -1871,7 +1870,7 @@ private struct WorkbenchNotificationCenterView: View {
                 Button("Clear All") {
                     model.clearNotifications()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(
                     model.notifications.isEmpty
@@ -2464,7 +2463,7 @@ struct WorkbenchBackgroundPicker: View {
                     Button("Remove") {
                         model.workbenchBackgroundFeature.clear()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
@@ -2521,7 +2520,7 @@ struct WorkbenchBackgroundPicker: View {
             }
             .frame(width: 100)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(preset.title)))
     }

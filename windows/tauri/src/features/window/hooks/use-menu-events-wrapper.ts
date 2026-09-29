@@ -338,9 +338,9 @@ export function useMenuEventsWrapper() {
       // An available update opens the shared details dialog from the store.
       const result = await checkForUpdates({ userInitiated: true });
       if (result === "up-to-date") {
-        showToast({ message: "You're on the latest version", type: "success" });
+        showToast({ message: t("settings.general.latestVersion"), type: "success" });
       } else if (result === "failed") {
-        showToast({ message: "Failed to check for updates", type: "error" });
+        showToast({ message: t("settings.mac.updateFailed"), type: "error" });
       }
     },
     onOpenSettings: () => {

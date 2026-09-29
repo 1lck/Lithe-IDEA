@@ -148,12 +148,11 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
           />
         }
       >
-        <span
-          aria-hidden="true"
-          className="grid size-5 shrink-0 place-items-center overflow-hidden rounded-md"
-        >
-          <img src="/logo.png" alt="" className="size-5 scale-[1.19] object-contain" />
-        </span>
+        <ProjectBadge
+          name={projectLabel}
+          iconPath={activeProject?.customIcon}
+          className="size-5"
+        />
         <span className="min-w-0 truncate">{projectLabel}</span>
         <ChevronDownIcon
           className={cn(

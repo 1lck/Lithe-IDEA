@@ -366,6 +366,45 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenSettingsGoStraightToTheRunningJavaSession() async throws {
+        // #970: a settings change only marked a reload, and the reload restarted
+        // JDT LS on unchanged workspace state. The running session now takes it.
+        let (service, root) = await makeReloadService()
+        defer { service.reset() }
+        var appliedRoots: [URL] = []
+        service.applyConfigurationToJava = { workspace in
+            appliedRoots.append(workspace)
+            return true
+        }
+
+        service.updateLocalConfiguration(
+            settingsPath: "/maven/conf/settings.xml",
+            localRepositoryPath: "/repository",
+            mavenExecutablePath: nil,
+            javaHomePath: nil
+        )
+
+        #expect(appliedRoots.map(\.standardizedFileURL.path) == [root.standardizedFileURL.path])
+        #expect(!service.isReloadRequired)
+        #expect(service.javaConfigurationError == nil)
+        #expect(service.launchContext?.localRepositoryPath == "/repository")
+    }
+
+    @Test
+    func aJavaSessionThatRejectsMavenSettingsOffersTheReload() async throws {
+        let (service, _) = await makeReloadService()
+        defer { service.reset() }
+        service.applyConfigurationToJava = { _ in throw ReloadTestError.failed }
+
+        service.setSkipTests(true)
+
+        #expect(service.isReloadRequired)
+        #expect(service.javaConfigurationError != nil)
+        service.acknowledgeReload()
+        #expect(service.javaConfigurationError == nil)
+    }
+
+    @Test
     func mavenConfigurationOnlyReloadDoesNotScanPom() async throws {
         let (service, root) = await makeReloadService()
         defer { service.reset() }
