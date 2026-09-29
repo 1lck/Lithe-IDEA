@@ -460,6 +460,7 @@ jobs:
             --max-ms 15000 `
             --test-budget lsp::interface::engine::real_jdt_tests::real_jdtls_discovers_builds_and_launches_java_25_entrypoints=600000 `
             --test-budget tests::git_history_rewrite::=30000 `
+            --test-budget tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote=30000 `
             --test-budget tests::git::git_write_squashes_=30000 `
             --test-budget tests::git::git_write_deletes_a_local_commit_=30000 `
             --test-budget tests::git::git_write_edits_a_local_commit_message_=30000 `

@@ -38,7 +38,7 @@ struct AgentTranscriptView: View {
                                 .frame(height: 26)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .litheRowHover()
                         }
                     }
@@ -115,7 +115,7 @@ struct AgentHeroView: View {
                 AgentBrandIcon(name: agentName, size: 60)
                     .foregroundStyle(isHovering ? AgentPanelStyle.secondary : AgentPanelStyle.logo)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityLabel("Switch Agent")
             .onHover { isHovering = $0 }
@@ -271,7 +271,7 @@ private struct AgentToolCallRow: View {
             Button { expanded.toggle() } label: {
                 header
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help(expanded ? "Hide tool details" : "Show tool details")
             if expanded && !message.toolDetails.isEmpty {
                 AgentToolEvidenceView(details: message.toolDetails, onOpenFile: onOpenFile)
@@ -337,7 +337,7 @@ private struct AgentToolEvidenceView: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                 }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 11, design: .monospaced))
                     .help(location.path)
             }
@@ -452,7 +452,7 @@ private struct AgentCodeBlock: View {
                     Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 10.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .foregroundStyle(didCopy ? LitheTheme.success : LitheTheme.tertiaryText)
                 .help("Copy code")

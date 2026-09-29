@@ -212,7 +212,7 @@ struct SettingsView: View {
                 .frame(height: 24)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .foregroundStyle(LitheTheme.primaryText)
             if expanded {
                 ForEach(visible) { category in
@@ -243,7 +243,7 @@ struct SettingsView: View {
                 .background(isSelected ? LitheTheme.settingsSelection : .clear)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
             .foregroundStyle(LitheTheme.primaryText)
         }
     }
@@ -310,8 +310,51 @@ struct SettingsView: View {
         )
     }
 
-    @ViewBuilder
     private var content: some View {
+        VStack(spacing: 0) {
+            if viewState.selection != .plugins {
+                HStack(spacing: 8) {
+                    ForEach(Array(settingsBreadcrumb.enumerated()), id: \.offset) { index, title in
+                        if index > 0 {
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
+                        Text(LocalizedStringKey(title))
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(LitheTheme.primaryText)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
+                .frame(height: 48)
+            }
+
+            settingsContent
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var settingsBreadcrumb: [String] {
+        switch viewState.selection {
+        case .general: ["Appearance & Behavior", "General"]
+        case .editor: ["Editor"]
+        case .keymap: ["Keymap"]
+        case .project: ["Build, Execution, Deployment", "Project · JDK & Maven"]
+        case .run: ["Build, Execution, Deployment", "Run configurations"]
+        case .terminal: ["Tools", "Terminal"]
+        case .lsp: ["Languages & Frameworks", "LSP"]
+        case .ai: ["Tools", "AI & Commit"]
+        case .providers: ["Tools", "AI Providers"]
+        case .git: ["Version Control", "Git"]
+        case .updates: ["Appearance & Behavior", "Updates"]
+        case .diagnostics: ["Tools", "Diagnostics"]
+        case .plugins: ["Plugins"]
+        }
+    }
+
+    @ViewBuilder
+    private var settingsContent: some View {
         if filteredCategories.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
@@ -343,12 +386,7 @@ struct SettingsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(LocalizedStringKey(viewState.selection.title))
-                        .font(.system(size: 22, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .padding(.bottom, 8)
-
+                VStack(alignment: .leading, spacing: 12) {
                     switch viewState.selection {
                     case .general: generalSettings
                     case .editor: editorSettings
@@ -371,8 +409,8 @@ struct SettingsView: View {
                     case .plugins: EmptyView()
                     }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 22)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
@@ -386,7 +424,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.colorTheme,
                         options: AppColorTheme.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Color theme",
                         title: \AppColorTheme.title
                     )
@@ -430,7 +468,7 @@ struct SettingsView: View {
                         Button("Remove") {
                             model.workbenchBackgroundFeature.clear()
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -449,7 +487,7 @@ struct SettingsView: View {
                     Button("Retry") {
                         model.workbenchBackgroundFeature.retry()
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.accent)
                     .lithePointer()
                 }
@@ -470,7 +508,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.language,
                         options: AppLanguage.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Language",
                         title: \AppLanguage.title
                     )
@@ -486,7 +524,7 @@ struct SettingsView: View {
                     LitheSettingsSelect(
                         selection: $settings.projectOpenBehavior,
                         options: ProjectOpenBehavior.allCases,
-                        width: 180,
+                        width: 190,
                         accessibilityLabel: "Open projects in",
                         title: \ProjectOpenBehavior.title
                     )
@@ -582,7 +620,7 @@ struct SettingsView: View {
                             .font(.system(size: 16, weight: .regular))
                             .frame(width: 26, height: 26)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .contentShape(Rectangle())
                     .lithePointer()
@@ -590,12 +628,7 @@ struct SettingsView: View {
                 }
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46)
-                .background(LitheTheme.inputBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
-                }
+                .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
 
                 HStack(spacing: 6) {
                     Text("Default directory")
@@ -615,7 +648,7 @@ struct SettingsView: View {
                         } label: {
                             Text("Restore Default")
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.accent)
                         .lithePointer()
                     }
@@ -1053,13 +1086,15 @@ struct SettingsView: View {
             }
 
             group("Pull request description generation") {
-                LitheSettingsSelect(
-                    selection: $settings.commitMessageAI.pullRequestFormat,
-                    options: PullRequestDescriptionFormat.allCases,
-                    width: 260,
-                    accessibilityLabel: "Description format",
-                    title: \.title
-                )
+                row("Description format") {
+                    LitheSettingsSelect(
+                        selection: $settings.commitMessageAI.pullRequestFormat,
+                        options: PullRequestDescriptionFormat.allCases,
+                        width: 220,
+                        accessibilityLabel: "Description format",
+                        title: \PullRequestDescriptionFormat.title
+                    )
+                }
 
                 if settings.commitMessageAI.pullRequestFormat == .custom {
                     HStack {
@@ -1133,17 +1168,12 @@ struct SettingsView: View {
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-                    .background(viewState.isFormatPickerPresented ? LitheTheme.inputBackground.opacity(0.9) : LitheTheme.inputBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .strokeBorder(
-                                viewState.isFormatPickerPresented ? LitheTheme.inputFocusBorder : LitheTheme.inputBorder,
-                                lineWidth: 1
-                            )
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
+                    .litheSettingsControlChrome(
+                        background: LitheTheme.settingsTextFieldBackground,
+                        border: viewState.isFormatPickerPresented ? LitheTheme.settingsControlAccent : LitheTheme.settingsControlBorder
+                    )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .popover(isPresented: $viewState.isFormatPickerPresented, arrowEdge: .bottom) {
                     formatPickerPopover
@@ -1252,7 +1282,7 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .litheRowHover(
             isActive: isSelected,
             cornerRadius: 5,
@@ -1278,12 +1308,7 @@ struct SettingsView: View {
                     .padding(.horizontal, 9)
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(LitheTheme.inputBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                            .strokeBorder(LitheTheme.inputBorder, lineWidth: 1)
-                    }
+                    .litheSettingsControlChrome(background: LitheTheme.settingsTextFieldBackground)
                     .id(settings.commitMessageAI.format)
                     .transition(.opacity.combined(with: .move(edge: .top)))
                     .animation(formatPickerAnimation, value: settings.commitMessageAI.format)
@@ -1463,26 +1488,28 @@ struct SettingsView: View {
     }
 
     private func group<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(LitheTheme.secondaryText)
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(LocalizedStringKey(title))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LitheTheme.secondaryText)
+                    .fixedSize()
+                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            }
             content()
         }
         .font(.system(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
-        .padding(.vertical, 16)
+        .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
-        }
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-            Spacer()
+                .fixedSize(horizontal: true, vertical: false)
             content()
+            Spacer(minLength: 0)
         }
         .frame(minHeight: 28)
     }

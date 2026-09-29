@@ -15,7 +15,7 @@ struct AgentFileReferenceList: View {
                         Button { onRemove(file.id) } label: {
                             Image(systemName: "xmark").font(.system(size: 9))
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .accessibilityLabel(String(format: String(localized: "Remove file %@"), file.name))
                     }
                     .font(.system(size: 11))

@@ -107,7 +107,7 @@ struct GitHistoryRewriteOutcomeView: View {
                 }
                 Spacer(minLength: 0)
                 Button { editor.outcome = nil } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).help("Dismiss history operation result").lithePointer()
+                    .buttonStyle(.litheNoPress).help("Dismiss history operation result").lithePointer()
             }
             .padding(10)
             .background(LitheTheme.toolHeader)

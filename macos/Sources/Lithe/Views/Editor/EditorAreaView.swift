@@ -471,7 +471,7 @@ struct EditorAreaView: View {
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(isActive || hoveredTabItem == tabItem ? 1 : 0)
@@ -563,7 +563,7 @@ struct EditorAreaView: View {
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(isActive || hoveredTabItem == tabItem ? 1 : 0)
@@ -676,7 +676,7 @@ struct EditorAreaView: View {
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .foregroundStyle(LitheTheme.secondaryText)
             .opacity(isActive || hoveredTabItem == .document(document.id) ? 1 : 0)
@@ -1073,7 +1073,7 @@ struct EditorAreaView: View {
                         .opacity(isSelected || isHovered ? 1 : 0.72)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help(mode.title)
                 .accessibilityLabel(mode.title)
@@ -1133,7 +1133,7 @@ struct EditorAreaView: View {
                     HStack {
                         Spacer()
                         Text(splitDocument.displayName).font(.system(size: 11))
-                        Button("Close split") { self.splitDocumentID = nil }.buttonStyle(.borderless)
+                        Button("Close split") { self.splitDocumentID = nil }.buttonStyle(.litheNoPress)
                     }
                     .padding(.horizontal, 10).frame(height: 30)
                     MonacoWorkbenchEditor(document: model.activeDocument ?? splitDocument, secondaryDocument: splitDocument)

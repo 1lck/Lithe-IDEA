@@ -500,7 +500,7 @@ struct GitLogView: View {
                 .frame(height: 27)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             if showsCloseButton {
@@ -513,7 +513,7 @@ struct GitLogView: View {
                         .frame(width: 20, height: 27)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Close Git console")
             }
@@ -795,7 +795,7 @@ struct GitLogView: View {
                 .contentShape(Rectangle())
                 .litheRowHover(cornerRadius: 4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             if !isCollapsed {
@@ -868,7 +868,7 @@ struct GitLogView: View {
                 .contentShape(Rectangle())
                 .litheRowHover(cornerRadius: 4)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             if expanded.wrappedValue {
@@ -1037,7 +1037,7 @@ struct GitLogView: View {
                 activeBackground: LitheTheme.subtleSelection
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
@@ -1253,7 +1253,7 @@ struct GitLogView: View {
                                     .frame(height: 32)
                                     .contentShape(Rectangle())
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.litheNoPress)
                                 .lithePointer()
                             }
                         }
@@ -1611,7 +1611,7 @@ struct GitLogView: View {
                         selection: feature.selectedGitReference?.shortName
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogBranchFilterPopover) {
@@ -1647,7 +1647,7 @@ struct GitLogView: View {
                 } label: {
                     gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName, localizeSelection: selectedGitLogAuthor == .currentUser)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogAuthorFilterPopover) {
@@ -1714,7 +1714,7 @@ struct GitLogView: View {
                         selection: gitLogPathFilter.isEmpty ? nil : gitLogPathFilter
                     )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogPathPopover) {
@@ -1800,7 +1800,7 @@ struct GitLogView: View {
                 .frame(width: 14, height: 22)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(LocalizedStringKey(help))
     }
@@ -2497,7 +2497,7 @@ private struct GitConflictPathRow: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Show Diff")
 
@@ -2508,7 +2508,7 @@ private struct GitConflictPathRow: View {
                     Image(systemName: "arrow.uturn.backward")
                         .font(.system(size: 10, weight: .semibold))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.warning)
                 .lithePointer()
                 .help("Discard this file and retry")
@@ -2696,7 +2696,7 @@ struct GitPullStrategyDialog: View {
             }
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 }
@@ -3018,7 +3018,7 @@ private struct GitReferenceRowView: View, Equatable {
             .contentShape(Rectangle())
             .litheRowHover(cornerRadius: 4)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -3059,7 +3059,7 @@ private struct GitReferenceRowView: View, Equatable {
                 activeBackground: LitheTheme.subtleSelection
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             referenceMenuItems(for: reference)

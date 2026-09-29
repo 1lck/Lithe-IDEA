@@ -59,7 +59,7 @@ struct LanguageReferencesView: View {
                         .frame(height: 30)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .lithePointer()
                 }
             }
@@ -124,7 +124,7 @@ struct LanguageImplementationChooserView: View {
                             .frame(height: 30)
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .lithePointer()
                     }
                 }

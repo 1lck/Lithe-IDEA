@@ -14,7 +14,7 @@ struct EditorCaretPositionLabel: View {
             Text(chrome.caret.map { "\($0.line + 1):\($0.utf16Column + 1)" } ?? "1:1")
                 .monospacedDigit()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help("Go to Line…")
     }
@@ -39,7 +39,7 @@ struct MemoryUsageStatusView: View {
                 Image(systemName: "memorychip")
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .help(
             Text(

@@ -162,7 +162,7 @@ struct ChangesSidebarView: View {
                             hoverBackground: LitheTheme.hoverBackground
                         )
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             Spacer()
             GitPatchToolbar(feature: feature)
@@ -345,7 +345,7 @@ struct ChangesSidebarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             [
@@ -403,7 +403,7 @@ struct ChangesSidebarView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .litheContextMenu {
             [
@@ -462,7 +462,7 @@ struct ChangesSidebarView: View {
                 } label: {
                     Label("Clear conflict filter", systemImage: "line.3.horizontal.decrease.circle")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
                 .lithePointer()
@@ -511,7 +511,7 @@ struct ChangesSidebarView: View {
                         .foregroundStyle(LitheTheme.warning)
                     Text("No files match the conflict filter")
                     Button("Show all changes") { feature.clearGitConflictFilter() }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.litheNoPress)
                         .lithePointer()
                 }
                 .font(LitheTheme.uiFont)
@@ -587,7 +587,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 10, height: 26)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(LocalizedStringKey(isExpanded ? "Collapse repository" : "Expand repository"))
 
                 Button {
@@ -603,7 +603,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 18, height: 26)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .disabled(feature.isCommitting || !repository.changes.contains(where: \.canToggleStaging))
                 .help(LocalizedStringKey(
                     allChangesStaged(repository.changes)
@@ -633,7 +633,7 @@ struct ChangesSidebarView: View {
                     .frame(maxWidth: .infinity, minHeight: 26, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(repository.root.path)
             }
             .padding(.horizontal, 7)
@@ -681,7 +681,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 10, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help(LocalizedStringKey(expanded.wrappedValue ? "Collapse section" : "Expand section"))
 
                 Button {
@@ -693,7 +693,7 @@ struct ChangesSidebarView: View {
                         .frame(width: 18, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .disabled(feature.isCommitting || !changes.contains(where: \.canToggleStaging))
                 .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
 
@@ -712,7 +712,7 @@ struct ChangesSidebarView: View {
                     .frame(maxWidth: .infinity, minHeight: 24)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
             }
             .padding(.horizontal, 7)
             .padding(.leading, leadingInset)
@@ -764,7 +764,7 @@ struct ChangesSidebarView: View {
                     .frame(width: 28, height: changeRowHeight)
                     .contentShape(Rectangle())
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
             .disabled(feature.isCommitting || !change.canToggleStaging)
             .help(LocalizedStringKey(change.canToggleStaging
                 ? (isEffectivelyStaged(change) ? "Unstage file" : "Stage file")
@@ -807,7 +807,7 @@ struct ChangesSidebarView: View {
                 .frame(height: changeRowHeight)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(LitheTreeRowButtonStyle())
+            .buttonStyle(.litheNoPress)
         }
         .padding(.leading, 30 + leadingInset)
         .padding(.trailing, 6)
