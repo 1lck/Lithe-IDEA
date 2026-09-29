@@ -542,7 +542,13 @@ export async function updateExtensionLifecycle(params: {
 
   // Check dependencies without downloads before touching the old parser or state.
   if (languageIds.length > 0 && extension.manifest.lsp) {
+    const checkedExtension = extensionRegistry.getExtension(extensionId);
     await checkLanguageToolRequirements(languageIds[0], extension.manifest);
+    // Disable, uninstall, or another update replaces this registry entry. A
+    // stale preflight must not restore the previous enabled/installed state.
+    if (extensionRegistry.getExtension(extensionId) !== checkedExtension) {
+      throw new Error("Extension changed while checking update requirements. Retry if needed.");
+    }
   }
 
   await disableExtensionLifecycle({ extensionId, extension });

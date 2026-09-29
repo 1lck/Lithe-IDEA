@@ -208,3 +208,40 @@ for (const message of ["Bun is required", "Automatic installation is not support
     }
   });
 }
+
+test("disabling a language extension wins over an update prerequisite check", async () => {
+  const { spyOn } = await import("bun:test");
+  const runtime = await import("./extension-store-runtime");
+  const native = await import("@/platform/tauri-core");
+  const { LspClient } = await import("@/features/editor/lsp/lsp-client");
+  const { disableExtensionLifecycle } = await import("./extension-store-lifecycle");
+  const { default: json } = await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+  const manifest = json as import("../types/extension-manifest").ExtensionManifest;
+  const extension = { manifest, isInstalled: true, isEnabled: true, isInstalling: false };
+  extensionRegistry.registerExtension(manifest, { isEnabled: true, state: "installed" });
+  let release!: () => void;
+  const check = new Promise<void>((resolve) => { release = resolve; });
+  const prerequisites = spyOn(runtime, "checkLanguageToolRequirements").mockImplementation(() => check);
+  const invoke = spyOn(native, "invoke").mockResolvedValue(undefined);
+  const stop = spyOn(LspClient.getInstance(), "stopLanguageServers").mockResolvedValue(undefined);
+  let cleared = false;
+  let reinstalled = false;
+  const updating = updateExtensionLifecycle({
+    extensionId: manifest.id, extension,
+    clearInstalledStateForUpdate: () => { cleared = true; },
+    reinstall: async () => { reinstalled = true; },
+  }).then(() => "updated", () => "cancelled");
+  try {
+    await disableExtensionLifecycle({ extensionId: manifest.id, extension });
+    release();
+    expect(await updating).toBe("cancelled");
+    expect(cleared).toBe(false);
+    expect(reinstalled).toBe(false);
+    expect(extensionRegistry.getExtension(manifest.id)?.isEnabled).toBe(false);
+  } finally {
+    release();
+    await updating;
+    for (const spy of [prerequisites, invoke, stop]) spy.mockRestore();
+    extensionRegistry.unregisterExtension(manifest.id);
+  }
+});

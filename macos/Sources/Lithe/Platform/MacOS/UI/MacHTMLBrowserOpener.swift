@@ -11,10 +11,15 @@ struct MacHTMLBrowserOpener {
         )
     }
 
+    var isRegularFile: @MainActor (URL) throws -> Bool = {
+        try $0.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true
+    }
+
     func open(_ url: URL) async throws {
         guard url.isFileURL, ["html", "htm"].contains(url.pathExtension.lowercased()) else {
             throw CocoaError(.fileReadUnsupportedScheme)
         }
+        guard try isRegularFile(url) else { throw CocoaError(.fileReadNoSuchFile) }
         // This URL is only used to query Launch Services; no request is made.
         guard let probe = URL(string: "https://example.invalid"),
               let browser = applicationForURL(probe) else {
