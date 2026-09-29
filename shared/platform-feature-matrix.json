@@ -656,7 +656,7 @@
       "id": "git-commit-sidebar-toolbar-icons",
       "area": "版本控制",
       "group": "Git",
-      "capability": "macOS Commit 工具栏四个现有操作使用 IDEA Community 明暗 SVG 和共享的 16pt 图标、22pt 按钮样式",
+      "capability": "macOS Commit 工具栏四个现有操作使用 IDEA Community 明暗 SVG 和共享的 16pt 图标、22pt 按钮样式；不可用时弱化且不显示悬停高亮",
       "macos": {
         "implementationStatus": "implemented",
         "verificationStatus": "pending",
@@ -677,7 +677,7 @@
         ]
       },
       "owner": "Git",
-      "verification": "在 macOS 深浅主题下核对 Commit 工具栏刷新、丢弃所选、暂存全部和预览首个改动四个按钮的图标、尺寸、悬停块与默认箭头光标；确认禁用状态及各动作行为不变。"
+      "verification": "在 macOS 深浅主题下核对 Commit 工具栏刷新、丢弃所选、暂存全部和预览首个改动四个按钮的图标、尺寸、悬停块与默认箭头光标；没有所选改动或没有变更时，确认对应按钮弱化、无悬停高亮且不能触发动作；有可操作内容时确认动作正常。"
     },
     {
       "id": "git-multi-repository-change-groups",

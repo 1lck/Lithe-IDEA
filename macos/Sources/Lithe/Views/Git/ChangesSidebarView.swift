@@ -440,8 +440,7 @@ struct ChangesSidebarView: View {
                     preservesOriginalColors: true
                 )
             }
-            .litheToolbarIconButton()
-            .disabled(selectedChanges.isEmpty)
+            .litheToolbarIconButton(isEnabled: !selectedChanges.isEmpty)
             .help("Discard selected change")
 
             Button {
@@ -454,8 +453,7 @@ struct ChangesSidebarView: View {
                     preservesOriginalColors: true
                 )
             }
-            .litheToolbarIconButton()
-            .disabled(feature.gitChanges.isEmpty)
+            .litheToolbarIconButton(isEnabled: !feature.gitChanges.isEmpty)
             .help("Stage all changes")
 
             Button {
@@ -470,8 +468,7 @@ struct ChangesSidebarView: View {
                     preservesOriginalColors: true
                 )
             }
-            .litheToolbarIconButton()
-            .disabled(feature.gitChanges.isEmpty)
+            .litheToolbarIconButton(isEnabled: !feature.gitChanges.isEmpty)
             .help("Preview first change")
 
             Spacer()

@@ -473,8 +473,10 @@ enum LitheTheme {
 }
 
 extension View {
-    func litheToolbarIconButton() -> some View {
+    func litheToolbarIconButton(isEnabled: Bool = true) -> some View {
         buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize))
+            .disabled(!isEnabled)
+            .opacity(isEnabled ? 1 : 0.45)
     }
 
     func litheIconButton() -> some View {
@@ -511,6 +513,7 @@ extension View {
 
 struct LitheIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
+    @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
@@ -520,9 +523,9 @@ struct LitheIconButtonStyle: ButtonStyle {
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
                     .fill(
-                        configuration.isPressed
+                        configuration.isPressed && isEnabled
                             ? LitheTheme.pressedBackground
-                            : (isHovering ? LitheTheme.hoverBackground : .clear)
+                            : (isEnabled && isHovering ? LitheTheme.hoverBackground : .clear)
                     )
             )
             .contentShape(Rectangle())
