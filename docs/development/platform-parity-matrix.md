@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-27
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：104
-- macOS：实现：✅ 91 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 94 待验证，— 10 不适用
-- Windows：实现：✅ 87 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 97 待验证，— 7 不适用
+- 功能项：105
+- macOS：实现：✅ 92 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 95 待验证，— 10 不适用
+- Windows：实现：✅ 87 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 97 待验证，— 8 不适用
 
 ## 实现状态定义
 
@@ -100,11 +100,12 @@
 </details>
 
 <details>
-<summary><strong>版本控制</strong> · 11 个能力点</summary>
+<summary><strong>版本控制</strong> · 12 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | Git | **状态、暂存与提交**<br><sub>git-status-commit</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`shared/contracts/application-boundary.md`、`windows/tauri/src/features/git/api/git-repository-path.ts`、`rust/lithe-core/tests/git_path_roundtrip.rs`、`shared/fixtures/git/windows-paths.json`</sub> | Git | 修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 |  |
+| Git | **macOS Commit 工具栏四个现有操作使用 IDEA Community 明暗 SVG 和共享的 16pt 图标、22pt 按钮样式**<br><sub>git-commit-sidebar-toolbar-icons</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`、`macos/Sources/Lithe/Theme/LitheTheme.swift`、`macos/Resources/IDEAIcons/expui/general/refresh.svg`、`macos/Resources/IDEAIcons/expui/vcs/revert.svg`、`macos/Resources/IDEAIcons/expui/general/download.svg`、`macos/Resources/IDEAIcons/expui/general/show.svg`</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 在 macOS 深浅主题下核对 Commit 工具栏刷新、丢弃所选、暂存全部和预览首个改动四个按钮的图标、尺寸、悬停块与默认箭头光标；确认禁用状态及各动作行为不变。 |  |
 | Git | **多仓库变更折叠分组**<br><sub>git-multi-repository-change-groups</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift`、`macos/Sources/Lithe/Views/Git/GitChangeSectionsCache.swift`、`macos/Sources/LitheGitModule/Models/GitModels.swift`、`rust/lithe-core/src/git/mod.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/components/status/git-status-panel.tsx`、`windows/tauri/src/features/git/components/git-commit-panel.tsx`、`windows/tauri/src/features/git/components/git-workspace-commit-review.tsx`、`windows/tauri/src/features/git/services/git-workspace-commit-workflow.ts`、`windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts`、`windows/tauri/src/features/git/components/status/git-workspace-status-panel.test.tsx`、`windows/tauri/src-tauri/src/platform.rs`、`shared/fixtures/git/workspace-commit-workflow-v1.json`</sub> | Git | 在同一工作区打开多个 Git 仓库，确认变更按仓库折叠分组；只剩一个仓库有变更时仍显示仓库名。仓库级和文件级勾选与 Git 暂存区同步；子模块只有未提交文件时显示提示，不能勾选未变化的引用。 | 两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。 |
 | Git | **分支、标签与远程**<br><sub>git-branches-remotes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`</sub> | Git | 创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。 |  |
 | Git | **Diff 与变更审查**<br><sub>git-diff-review</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Git`、`macos/Sources/Lithe/Views/Diff`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git`、`windows/tauri/src/features/viewer`</sub> | Git | 验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 |  |

@@ -653,6 +653,33 @@
       "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。"
     },
     {
+      "id": "git-commit-sidebar-toolbar-icons",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "macOS Commit 工具栏四个现有操作使用 IDEA Community 明暗 SVG 和共享的 16pt 图标、22pt 按钮样式",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
+          "macos/Sources/Lithe/Theme/LitheTheme.swift",
+          "macos/Resources/IDEAIcons/expui/general/refresh.svg",
+          "macos/Resources/IDEAIcons/expui/vcs/revert.svg",
+          "macos/Resources/IDEAIcons/expui/general/download.svg",
+          "macos/Resources/IDEAIcons/expui/general/show.svg"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "windows/tauri/src/features/git"
+        ]
+      },
+      "owner": "Git",
+      "verification": "在 macOS 深浅主题下核对 Commit 工具栏刷新、丢弃所选、暂存全部和预览首个改动四个按钮的图标、尺寸、悬停块与默认箭头光标；确认禁用状态及各动作行为不变。"
+    },
+    {
       "id": "git-multi-repository-change-groups",
       "area": "版本控制",
       "group": "Git",

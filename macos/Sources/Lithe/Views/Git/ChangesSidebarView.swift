@@ -420,26 +420,41 @@ struct ChangesSidebarView: View {
             Button {
                 Task { await feature.refreshGit() }
             } label: {
-                LitheSystemIcon(systemImage: "arrow.clockwise")
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/refresh.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "arrow.clockwise",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .help("Refresh changes")
 
             Button {
                 pendingDiscardSelection = selectedChanges
             } label: {
-                LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/vcs/revert.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "arrow.uturn.backward",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .disabled(selectedChanges.isEmpty)
             .help("Discard selected change")
 
             Button {
                 Task { await feature.stageAllChanges() }
             } label: {
-                LitheSystemIcon(systemImage: "square.and.arrow.down", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/download.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "square.and.arrow.down",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .disabled(feature.gitChanges.isEmpty)
             .help("Stage all changes")
 
@@ -448,9 +463,14 @@ struct ChangesSidebarView: View {
                     selectChange(first)
                 }
             } label: {
-                LitheSystemIcon(systemImage: "eye", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/show.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "eye",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .disabled(feature.gitChanges.isEmpty)
             .help("Preview first change")
 

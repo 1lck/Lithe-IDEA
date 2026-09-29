@@ -430,6 +430,8 @@ enum LitheTheme {
     /// 统一的尺寸与间距刻度，避免各视图各写一套魔法数字。
     enum Metrics {
         static let rowHeight: CGFloat = 24
+        static let toolbarIconSize: CGFloat = 16
+        static let toolbarIconButtonSize: CGFloat = 22
         static let treeRowHeight: CGFloat = 27
         // IntelliJ IDEA New UI uses contiguous project-tree rows, 4/12 pt
         // tree insets, and an 8 pt selection arc (4 pt corner radius).
@@ -471,6 +473,10 @@ enum LitheTheme {
 }
 
 extension View {
+    func litheToolbarIconButton() -> some View {
+        buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize))
+    }
+
     func litheIconButton() -> some View {
         self
             .buttonStyle(LitheIconButtonStyle())

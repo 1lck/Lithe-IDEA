@@ -217,12 +217,12 @@ struct ProjectSidebarView: View {
                 } label: {
                     LitheIDEAIcon(
                         resourcePath: "expui/general/locate.svg",
-                        size: 16,
+                        size: LitheTheme.Metrics.toolbarIconSize,
                         fallbackSystemImage: "scope",
                         preservesOriginalColors: true
                     )
                 }
-                .buttonStyle(LitheIconButtonStyle(size: 22))
+                .litheToolbarIconButton()
                 .opacity(isHeaderHovered ? 1 : 0)
                 .allowsHitTesting(isHeaderHovered)
                 .accessibilityHidden(!isHeaderHovered)
@@ -247,12 +247,12 @@ struct ProjectSidebarView: View {
                 } label: {
                     LitheIDEAIcon(
                         resourcePath: "expui/general/refresh.svg",
-                        size: 16,
+                        size: LitheTheme.Metrics.toolbarIconSize,
                         fallbackSystemImage: "arrow.clockwise",
                         preservesOriginalColors: true
                     )
                 }
-                .buttonStyle(LitheIconButtonStyle(size: 22))
+                .litheToolbarIconButton()
                 .opacity(isHeaderHovered ? 1 : 0)
                 .allowsHitTesting(isHeaderHovered)
                 .accessibilityHidden(!isHeaderHovered)
