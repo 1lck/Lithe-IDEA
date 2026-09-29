@@ -37,10 +37,10 @@ import Footer from "./footer/footer";
 import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
 import {
-  COLLAPSED_ACTIVITY_RAIL_WIDTH,
   MainSidebar,
   SidebarActivityRail,
 } from "./sidebar/main-sidebar";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
 import { AppUpdateDetailsDialog } from "./app-update-details-dialog";

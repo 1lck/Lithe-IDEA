@@ -2,11 +2,11 @@
 
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
-- 最后复核：2026-09-27
+- 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：102
-- macOS：实现：✅ 89 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 92 待验证，— 10 不适用
-- Windows：实现：✅ 87 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 97 待验证，— 5 不适用
+- 功能项：103
+- macOS：实现：✅ 89 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 92 待验证，— 11 不适用
+- Windows：实现：✅ 88 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 98 待验证，— 5 不适用
 
 ## 实现状态定义
 
@@ -166,7 +166,7 @@
 </details>
 
 <details>
-<summary><strong>工作台</strong> · 10 个能力点</summary>
+<summary><strong>工作台</strong> · 11 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -177,6 +177,7 @@
 | 本地历史 | **快照列表与 Diff**<br><sub>history-snapshots</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 |  |
 | 本地历史 | **恢复、删除与持久化**<br><sub>history-restore</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 验证恢复、删除、应用重启后持久化和失败回滚。 |  |
 | 命令与布局 | **命令面板与全局动作**<br><sub>command-palette</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`、`macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette`</sub> | Workbench | 搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 |  |
+| 命令与布局 | **紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Escape 后收起，不遮挡工作区**<br><sub>workbench-compact-menu-bar</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/window/components/title-bar/title-bar.tsx`、`windows/tauri/src/features/window/components/title-bar/title-project-menu.tsx`、`windows/tauri/src/features/window/components/window-menu-bar.tsx`、`windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.ts`、`windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.test.tsx`</sub> | Workbench | 在 Windows 工作台点击标题栏左端菜单按钮，确认汉堡按钮由“文件”菜单项取代，“文件”项处于选中状态且其下拉菜单立即展开；菜单与标题栏同高，不覆盖编辑区域，项目/分支控件在展开时隐藏。检查常驻品牌标识与下方活动栏图标列对齐且不可选中，并确认项目菜单显示当前项目图标（无自定义图标时显示项目缩写）。点击其他菜单项时菜单条保持展开并执行动作；点击工作区、标题栏空白和右侧控件或按 Escape 后收起；按 Escape 后确认焦点返回菜单入口；窄窗口确认菜单在标题栏内水平滚动且不挤压窗口控件。macOS 保持系统菜单栏行为。 |  |
 | 命令与布局 | **分栏、面板与工具窗布局**<br><sub>workbench-panes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench`、`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`、`macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`、`macos/Sources/Lithe/Views/App/RootView.swift`、`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Theme/LitheTheme.swift`、`macos/Resources/IDEAIcons/expui`、`macos/Resources/IDEAIcons/terminal`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/panes`、`windows/tauri/src/features/layout`</sub> | Workbench | 打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。 |  |
 | 工作台布局 | **活动栏图标的稳定悬停说明**<br><sub>workbench-activity-tooltips</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift`、`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx`、`windows/tauri/src/features/layout/components/footer/footer-tab-control.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`</sub> | Workbench | 逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。 |  |
 | 工作台布局 | **活动栏贴合窗口外沿**<br><sub>workbench-activity-rail-window-edge</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/main-layout.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`、`windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx`</sub> | Workbench | 打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。 |  |
