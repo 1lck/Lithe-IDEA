@@ -15,7 +15,7 @@ struct GitExecutionSettingsView: View {
             GitSettingsRow("Git executable") {
                 HStack(spacing: 8) {
                     TextField("Use Git from PATH", text: $executable)
-                        .textFieldStyle(.roundedBorder)
+                        .litheSettingsTextField()
                         .frame(maxWidth: .infinity)
                     Button("Save") { settings.gitExecutable = executable.trimmingCharacters(in: .whitespacesAndNewlines) }
                         .buttonStyle(LithePrimaryButtonStyle(backgroundColor: LitheTheme.settingsPrimaryAction, restingOpacity: 1))
@@ -112,12 +112,13 @@ private struct GitExecutionConfigurationPane: View {
                 subtitle: "Choose whether this setting belongs to the open repository or to Git everywhere."
             )
             GitSettingsRow("Configuration scope") {
-                Picker("Configuration scope", selection: $scope) {
-                    Text("Current repository").tag("local")
-                    Text("Global Git configuration").tag("global")
-                }
-                .labelsHidden()
-                .pickerStyle(.segmented)
+                LitheSettingsSegmentedControl(
+                    selection: $scope,
+                    options: ["local", "global"],
+                    width: 340,
+                    title: { $0 == "local" ? "Current repository" : "Global Git configuration" }
+                )
+                .accessibilityLabel("Configuration scope")
             }
 
             GitBranchContextView(feature: feature, remoteURL: remoteURL)

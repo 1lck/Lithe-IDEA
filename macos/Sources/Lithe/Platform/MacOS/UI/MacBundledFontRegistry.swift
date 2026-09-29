@@ -7,7 +7,9 @@ enum MacBundledFontRegistry {
         (resource: "JetBrainsMono-Regular", postScriptName: "JetBrainsMono-Regular"),
         (resource: "JetBrainsMono-Italic", postScriptName: "JetBrainsMono-Italic"),
         (resource: "JetBrainsMono-Bold", postScriptName: "JetBrainsMono-Bold"),
-        (resource: "JetBrainsMono-BoldItalic", postScriptName: "JetBrainsMono-BoldItalic")
+        (resource: "JetBrainsMono-BoldItalic", postScriptName: "JetBrainsMono-BoldItalic"),
+        (resource: "Inter-Regular", postScriptName: "Inter-Regular"),
+        (resource: "Inter-SemiBold", postScriptName: "Inter-SemiBold")
     ]
 
     static func registerFonts(bundle: Bundle = .main) {
@@ -23,12 +25,13 @@ enum MacBundledFontRegistry {
         }
 
         for font in fonts where NSFont(name: font.postScriptName, size: 13) == nil {
+            let fileExtension = font.resource.hasPrefix("Inter-") ? "otf" : "ttf"
             guard let url = bundle.url(
                 forResource: font.resource,
-                withExtension: "ttf",
+                withExtension: fileExtension,
                 subdirectory: "Fonts"
             ) else {
-                reporter("Lithe font registration: Missing bundled font: \(font.resource).ttf\n")
+                reporter("Lithe font registration: Missing bundled font: \(font.resource).\(fileExtension)\n")
                 continue
             }
 
@@ -36,7 +39,7 @@ enum MacBundledFontRegistry {
             guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &registrationError) else {
                 let detail = registrationError?.takeRetainedValue().localizedDescription
                     ?? "Unknown CoreText error"
-                reporter("Lithe font registration: Could not register \(font.resource).ttf: \(detail)\n")
+                reporter("Lithe font registration: Could not register \(font.resource).\(fileExtension): \(detail)\n")
                 continue
             }
         }

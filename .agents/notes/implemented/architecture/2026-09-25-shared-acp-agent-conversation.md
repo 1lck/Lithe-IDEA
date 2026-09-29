@@ -17,6 +17,8 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 
 ## 决策
 
+- **侧栏入口图标**：Agent 使用 Lithe 原创的“对话气泡 + 星光”线性 SVG，由工作台 renderer 显式绑定，避免落入通用模块图标而让用户误认成插件管理。图标作为固定源资源随应用打包，复用现有模板着色与选中态；不下载、不生成运行时文件，不影响安装包的只读边界。面板内 Codex/Claude 标志仍表示具体供应商。
+- **安装包图标解析**：Agent 品牌图标从应用的 `Contents/Resources/Lithe_Lithe.bundle` 只读加载；资源包或图标缺失时使用默认标志。不要在已安装的 `.app` 中直接调用 SwiftPM（Swift 包管理器）生成的 `Bundle.module`：它只查应用旁的资源包和编译目录，找不到会直接终止进程，开发机器残留的构建资源还会掩盖问题。开发和测试入口保留 SwiftPM 回退；安装版不使用编译目录，也不通过启动时复制资源来修补发行包，避免改变代码签名和 Sparkle 增量更新基线。
 - **共享实现**：`rust/lithe-agent-host` 使用官方 `agent-client-protocol` SDK。一个 `AgentHandle` 对应一个项目的 Agent 进程和 ACP 连接，负责初始化、网关登录、会话新建/列出/加载、消息、权限、取消和进程树清理。Mac 通过 Rust Core C ABI（`lithe_agent_open_json`、`lithe_agent_send_json`、`lithe_agent_close`）调用；Windows 以后直接依赖同一个 crate。命令和事件的 JSON 形状由 `shared/fixtures/agent/acp-events-v1.json` 固定。
 - **按需启动，跟着项目走**：`LitheAgentConversationModule` 是内置可选模块，默认禁用。每个项目有自己的模块运行时，所以会话天然属于项目。切换标签或窗口不会结束任何会话，后台项目的这一轮会继续跑完；只有关闭项目、关闭功能或退出应用时才停止 Agent。后台项目的会话在等待权限时，项目标签上会显示提醒点。
 - **API Key 模式显式登录**：初始化时声明 `auth._meta.gateway = true`，然后只用 `gateway` 方式登录，把服务商地址和 `Authorization: Bearer <key>` 放进 `authenticate` 请求，经 stdio 传给 Agent。Key 不进命令行参数、环境变量或文件，Lithe 也不设置 `APP_SERVER_LOGS`。Agent 不提供 `gateway` 登录时直接报错，不会退而使用它的账号登录。Codex 使用 Responses，Claude 使用 Anthropic Messages；二者均不静默回退到账户订阅。
@@ -116,6 +118,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 ## 验证
 
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
 - 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 已有共享协议和连接桥，但面板 UI、供应商切换和额度展示待接入，连接桥还需要在 Windows 上做一次真实适配器的端到端验收。
 
