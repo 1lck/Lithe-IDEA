@@ -577,7 +577,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Search",
-      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框焦点、工具按钮与文件类型图标。"
+      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标。"
     },
     {
       "id": "search-global",

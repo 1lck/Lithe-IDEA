@@ -26,6 +26,8 @@ struct SearchSidebarView: View {
             }
             .padding(.horizontal, 12)
             .frame(height: 39)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: dismissSearchFieldFocus)
 
             HStack(spacing: 4) {
                 LitheIDEAIcon(
@@ -94,11 +96,15 @@ struct SearchSidebarView: View {
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: dismissSearchFieldFocus)
             } else if feature.searchResults.isEmpty && !feature.isSearching {
                 Text("No matches")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: dismissSearchFieldFocus)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -158,6 +164,7 @@ struct SearchSidebarView: View {
                         }
                     }
                 }
+                .simultaneousGesture(TapGesture().onEnded { _ in dismissSearchFieldFocus() })
             }
         }
         .task(id: "\(session.query)|\(searchOptions.cacheKey)") {
@@ -235,5 +242,10 @@ struct SearchSidebarView: View {
         .menuIndicator(.hidden)
         .fixedSize()
         .help("Search options")
+    }
+
+    private func dismissSearchFieldFocus() {
+        searchFocused = false
+        fileMaskFocused = false
     }
 }

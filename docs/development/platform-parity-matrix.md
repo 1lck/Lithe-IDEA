@@ -93,7 +93,7 @@
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 搜索与导航 | **快速打开文件与符号**<br><sub>search-quick-open</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Search`、`macos/Sources/Lithe/Views/Workbench`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/quick-open`</sub> | Search | 使用文件名、路径和符号查询，确认排序、键盘导航和打开位置。 |  |
-| 搜索与导航 | **项目范围文本搜索**<br><sub>search-project</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Search`、`macos/Sources/Lithe/Services/Language`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-search`</sub> | Search | 使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框焦点、工具按钮与文件类型图标。 |  |
+| 搜索与导航 | **项目范围文本搜索**<br><sub>search-project</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Search`、`macos/Sources/Lithe/Services/Language`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-search`</sub> | Search | 使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标。 |  |
 | 搜索与导航 | **全局命令与设置搜索**<br><sub>search-global</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Search`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/global-search`、`windows/tauri/src/features/command-palette`</sub> | Search | 使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。 |  |
 | 搜索与导航 | **项目替换与取消**<br><sub>search-replace</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Search`、`macos/Sources/Lithe/Services/Language`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-search`</sub> | Search | 执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。 |  |
 

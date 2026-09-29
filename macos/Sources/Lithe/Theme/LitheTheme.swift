@@ -361,7 +361,7 @@ enum LitheTheme {
     static var inputBorder: Color { adaptive(\.inputBorder) }
     static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
     static var searchFieldBackground: Color {
-        activeTheme == .lithe ? settingsControlBackground : inputBackground
+        activeTheme == .lithe ? contextMenuBackground : inputBackground
     }
     static var searchFieldBorder: Color {
         activeTheme == .lithe ? settingsSearchBorder : inputBorder
