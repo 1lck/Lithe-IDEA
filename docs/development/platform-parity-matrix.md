@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-27
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：102
-- macOS：实现：✅ 89 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 92 待验证，— 10 不适用
-- Windows：实现：✅ 87 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 97 待验证，— 5 不适用
+- 功能项：103
+- macOS：实现：✅ 90 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 3 平台专属；验证：✔️ 0 已验证，🔍 93 待验证，— 10 不适用
+- Windows：实现：✅ 88 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 98 待验证，— 5 不适用
 
 ## 实现状态定义
 
@@ -155,7 +155,7 @@
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
-| 运行配置 | **入口点与运行配置发现**<br><sub>run-discovery</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/run-configuration`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`shared/fixtures/run-configuration`</sub> | Run | 验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因。 |  |
+| 运行配置 | **入口点与运行配置发现**<br><sub>run-discovery</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/run-configuration`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`shared/fixtures/run-configuration`</sub> | Run | 验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因；在 Windows 确认重新扫描服务使用双箭头刷新图标。 |  |
 | 运行配置 | **保存前同步与工具链解析**<br><sub>run-save-toolchain</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`macos/Sources/Lithe/Services/Java`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`windows/tauri/src/features/maven`</sub> | Run | 修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。 |  |
 | 运行配置 | **Java main 与测试运行**<br><sub>run-java-test</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run`、`shared/fixtures/debug`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run`、`shared/fixtures/debug`、`windows/tauri/src/features/run/components/run-pane.tsx`、`windows/tauri/src/features/run/components/run-output-text.tsx`</sub> | Run | 运行 main、单测试和测试类，验证参数、输出、失败状态和终端策略。 Windows Run 运行输出使用 Geist Mono 显示 ====、==>、=>、!=、>=，确认禁用连字后逐字符显示且复制文本与原始输出一致；检查有输出与空态、ANSI 颜色、自动换行切换及横向滚动。 |  |
 | 运行配置 | **超长 Java 类路径自动缩短**<br><sub>run-java-long-classpath</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Platform/MacOS/RunConfiguration/MacJavaLaunchArgumentPreparer.swift`、`macos/Sources/LitheExecutionModule/Services/RunService.swift`、`rust/lithe-core/src/execution/launch_command.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src-tauri/src/run/launch_arguments.rs`、`rust/lithe-core/src/execution/launch_command.rs`</sub> | Run | 使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。 |  |
@@ -166,7 +166,7 @@
 </details>
 
 <details>
-<summary><strong>工作台</strong> · 10 个能力点</summary>
+<summary><strong>工作台</strong> · 11 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -177,6 +177,7 @@
 | 本地历史 | **快照列表与 Diff**<br><sub>history-snapshots</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`、`macos/Sources/Lithe/Services`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。 |  |
 | 本地历史 | **恢复、删除与持久化**<br><sub>history-restore</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/History`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/local-history`</sub> | Local History | 验证恢复、删除、应用重启后持久化和失败回滚。 |  |
 | 命令与布局 | **命令面板与全局动作**<br><sub>command-palette</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Keymap/LitheCommandCatalog.swift`、`macos/Sources/Lithe/Views/Search/SearchEverywhereView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette`</sub> | Workbench | 搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。 |  |
+| 窗口管理 | **标题栏控制窗口最小化、最大化/还原与关闭；命令面板可最小化、最大化及切换全屏**<br><sub>window-controls</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Views/App/RootView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/window/components/title-bar/window-controls.tsx`、`windows/tauri/src/features/command-palette/constants/window-actions.tsx`、`windows/tauri/src/features/window/utils/window-actions.ts`</sub> | Workbench | 在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。 |  |
 | 命令与布局 | **分栏、面板与工具窗布局**<br><sub>workbench-panes</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench`、`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift`、`macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift`、`macos/Sources/Lithe/Views/App/RootView.swift`、`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Theme/LitheTheme.swift`、`macos/Resources/IDEAIcons/expui`、`macos/Resources/IDEAIcons/terminal`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/panes`、`windows/tauri/src/features/layout`</sub> | Workbench | 打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。 |  |
 | 工作台布局 | **活动栏图标的稳定悬停说明**<br><sub>workbench-activity-tooltips</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift`、`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx`、`windows/tauri/src/features/layout/components/footer/footer-tab-control.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`</sub> | Workbench | 逐一悬停左上导航、左下工具入口及右侧通知/插件/Maven，快速切换图标并移出活动栏；确认始终只显示当前图标说明，面板更新和滚动后不残留旧提示，禁用入口可显示说明，短文字自适应且提示不超出窗口边缘。 |  |
 | 工作台布局 | **活动栏贴合窗口外沿**<br><sub>workbench-activity-rail-window-edge</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/layout/components/main-layout.tsx`、`windows/tauri/src/features/layout/components/plugin-activity-rail.tsx`、`windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx`</sub> | Workbench | 打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。 |  |

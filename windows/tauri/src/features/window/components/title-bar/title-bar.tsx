@@ -289,7 +289,10 @@ export const TitleBar = ({
       <ChromeBar
         region="title"
         onMouseDown={handleTitleBarMouseDown}
-        className="lithe-title-bar relative z-50 justify-between select-none"
+        className={cn(
+          "lithe-title-bar relative z-50 justify-between select-none",
+          isWindows && showAppWindowControls && "pr-0",
+        )}
       >
         <ChromeGroup grow />
 
@@ -334,7 +337,10 @@ export const TitleBar = ({
       <ContextMenuTrigger
         onMouseDown={handleTitleBarMouseDown}
         onContextMenu={handleTitleBarContextMenu}
-        className="lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface px-(--lithe-chrome-padding-inline) text-muted-foreground"
+        className={cn(
+          "lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface px-(--lithe-chrome-padding-inline) text-muted-foreground",
+          isWindows && showAppWindowControls && "pr-0",
+        )}
       >
         <ChromeGroup grow className="min-w-0">
           <ChromeGroup className="pointer-events-auto min-w-0">
