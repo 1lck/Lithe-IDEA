@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "lastReviewed": "2026-09-27",
+  "lastReviewed": "2026-09-29",
   "review": {
     "status": "initial-static-inventory",
     "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
@@ -2016,6 +2016,32 @@
       },
       "owner": "Workbench",
       "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
+    },
+    {
+      "id": "workbench-compact-menu-bar",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Escape 后收起，不遮挡工作区",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/LitheApp.swift"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+          "windows/tauri/src/features/window/components/title-bar/title-project-menu.tsx",
+          "windows/tauri/src/features/window/components/window-menu-bar.tsx",
+          "windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.ts",
+          "windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.test.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 Windows 工作台点击标题栏左端菜单按钮，确认汉堡按钮由“文件”菜单项取代，“文件”项处于选中状态且其下拉菜单立即展开；菜单与标题栏同高，不覆盖编辑区域，项目/分支控件在展开时隐藏。检查常驻品牌标识与下方活动栏图标列对齐且不可选中，并确认项目菜单显示当前项目图标（无自定义图标时显示项目缩写）。点击其他菜单项时菜单条保持展开并执行动作；点击工作区、标题栏空白和右侧控件或按 Escape 后收起；按 Escape 后确认焦点返回菜单入口；窄窗口确认菜单在标题栏内水平滚动且不挤压窗口控件。macOS 保持系统菜单栏行为。"
     },
     {
       "id": "window-controls",

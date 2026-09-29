@@ -1,11 +1,12 @@
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BACKEND_UNAVAILABLE_TOOLTIP } from "@/config/backend-capabilities";
 import { useTranslation } from "@/i18n/locale-provider";
 import { openFolder } from "@/features/file-system/controllers/platform";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useFooterGitBranchItem } from "@/features/layout/components/footer/footer-git-branch-item";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { AppUpdateControl } from "@/features/layout/components/app-update-control";
 import SettingsDialog from "@/features/settings/components/settings-dialog";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
@@ -13,6 +14,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import { useNativeWindowChrome } from "@/features/window/hooks/use-native-window-chrome";
+import { useCompactMenuBarDismissal } from "@/features/window/hooks/use-compact-menu-bar-dismissal";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { runTitleBarDrag } from "@/features/window/utils/title-bar-drag";
 import { Button } from "@/ui/button";
@@ -67,6 +69,8 @@ export const TitleBar = ({
 
   const [menuBarActiveMenu, setMenuBarActiveMenu] = useState<string | null>(null);
   const [isCompactMenuVisible, setIsCompactMenuVisible] = useState(false);
+  const compactMenuBarContainerRef = useRef<HTMLDivElement>(null);
+  const compactMenuToggleRef = useRef<HTMLButtonElement>(null);
   const [isMaximized, setIsMaximized] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentWindow, setCurrentWindow] = useState<TauriWindow | null>(null);
@@ -77,6 +81,7 @@ export const TitleBar = ({
   const usesNativeWindowChrome = useNativeWindowChrome();
   const showAppWindowControls = !isMacOS && !usesNativeWindowChrome;
   const shouldUseNativeMenuBar = !isWindows && !isLinux && nativeMenuBar;
+  const showCompactMenuBar = compactMenuBar && isCompactMenuVisible;
 
   useEffect(() => {
     const initWindow = async () => {
@@ -162,15 +167,22 @@ export const TitleBar = ({
     }
   }, [closeProject]);
 
-  const handleCompactMenuToggle = useCallback(() => {
-    setMenuBarActiveMenu(null);
-    setIsCompactMenuVisible((visible) => !visible);
+  const handleCompactMenuOpen = useCallback(() => {
+    setMenuBarActiveMenu("File");
+    setIsCompactMenuVisible(true);
   }, []);
 
   const handleCompactMenuClose = useCallback(() => {
     setMenuBarActiveMenu(null);
     setIsCompactMenuVisible(false);
   }, []);
+
+  useCompactMenuBarDismissal(
+    showCompactMenuBar,
+    compactMenuBarContainerRef,
+    handleCompactMenuClose,
+    compactMenuToggleRef,
+  );
 
   const titleBarContextMenuContent = (
     <ContextMenuContent>
@@ -205,27 +217,31 @@ export const TitleBar = ({
   const menuItem =
     !isMacOS && !shouldUseNativeMenuBar ? (
       compactMenuBar ? (
-        <div className="relative">
-          <Tooltip content={t("window.menu")} side="bottom">
-            <Button
-              onClick={handleCompactMenuToggle}
-              variant="ghost"
-              size="icon-xs"
-              className={isCompactMenuVisible ? "bg-accent/70 text-foreground" : undefined}
-              aria-label={t("window.menu")}
-              aria-expanded={isCompactMenuVisible}
-            >
-              <ListIcon />
-            </Button>
-          </Tooltip>
-          {isCompactMenuVisible ? (
+        <div
+          ref={compactMenuBarContainerRef}
+          className={cn("flex min-w-0 items-center", showCompactMenuBar && "max-w-full")}
+        >
+          {showCompactMenuBar ? (
             <WindowMenuBar
               activeMenu={menuBarActiveMenu}
               setActiveMenu={setMenuBarActiveMenu}
-              compactFloating
+              compactExpanded
               onCompactClose={handleCompactMenuClose}
             />
-          ) : null}
+          ) : (
+            <Tooltip content={t("window.menu")} side="bottom">
+              <Button
+                ref={compactMenuToggleRef}
+                onClick={handleCompactMenuOpen}
+                variant="ghost"
+                size="icon-xs"
+                aria-label={t("window.menu")}
+                aria-expanded={false}
+              >
+                <ListIcon />
+              </Button>
+            </Tooltip>
+          )}
         </div>
       ) : (
         <WindowMenuBar activeMenu={menuBarActiveMenu} setActiveMenu={setMenuBarActiveMenu} />
@@ -238,6 +254,21 @@ export const TitleBar = ({
       {branchItem?.content}
     </ChromeGroup>
   );
+
+  const appBrandMark = !isMacOS ? (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none flex h-full shrink-0 select-none items-center justify-center overflow-hidden rounded-md"
+      style={{ width: COLLAPSED_ACTIVITY_RAIL_WIDTH }}
+    >
+      <img
+        src="/logo.png"
+        alt=""
+        draggable={false}
+        className="size-5 scale-[1.19] object-contain"
+      />
+    </span>
+  ) : null;
 
   const quickOpenAction = (
     <Button
@@ -319,8 +350,9 @@ export const TitleBar = ({
           onMouseDown={handleTitleBarMouseDown}
         >
           <ChromeGroup className="pointer-events-auto h-full">
+            {appBrandMark}
             {menuItem}
-            {projectControls}
+            {!showCompactMenuBar ? projectControls : null}
           </ChromeGroup>
 
           <ChromeGroup className="h-full">
@@ -338,14 +370,15 @@ export const TitleBar = ({
         onMouseDown={handleTitleBarMouseDown}
         onContextMenu={handleTitleBarContextMenu}
         className={cn(
-          "lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface px-(--lithe-chrome-padding-inline) text-muted-foreground",
+          "lithe-title-bar font-sans ui-text-chrome relative z-50 flex h-(--lithe-title-bar-height) items-center justify-between gap-(--lithe-chrome-gap) bg-surface pr-(--lithe-chrome-padding-inline) pl-0 text-muted-foreground",
           isWindows && showAppWindowControls && "pr-0",
         )}
       >
         <ChromeGroup grow className="min-w-0">
-          <ChromeGroup className="pointer-events-auto min-w-0">
+          <ChromeGroup grow={showCompactMenuBar} className="pointer-events-auto min-w-0">
+            {appBrandMark}
             {menuItem}
-            {projectControls}
+            {!showCompactMenuBar ? projectControls : null}
           </ChromeGroup>
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
