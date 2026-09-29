@@ -28,6 +28,7 @@ import {
   upsertToolMessage,
   type AgentConnectionState,
   type AgentConversation,
+  type AgentConversationMessage,
   type AgentPrompt,
   type AgentSessionSummary,
   type AgentSubscriptionQuota,
@@ -142,6 +143,17 @@ export class AgentConnectionModel {
   private pendingText = new Map<string, string>();
   private createToken: string | null = null;
   private loadBackups = new Map<string, AgentConversation>();
+  /** Export loads must not add a tab the user never asked for. */
+  private quietLoadTokens = new Set<string>();
+  /** Export resolvers, keyed by the load token they are waiting for. */
+  private transcriptWaiters = new Map<
+    string,
+    (messages: AgentConversationMessage[] | null) => void
+  >();
+  /** One replay at a time: the host orders loads per connection, not per call. */
+  private transcriptChain: Promise<unknown> = Promise.resolve();
+  /** Replays in flight or queued, so the first one starts immediately. */
+  private transcriptPending = 0;
   /**
    * Sessions prepared locally without a submitted prompt. Codex does not
    * persist their rollout until the first prompt, so they cannot be resumed.
@@ -169,6 +181,7 @@ export class AgentConnectionModel {
     this.canListSessions = false;
     this.queuedPrompts.clear();
     this.loadTokens.clear();
+    this.failTranscripts();
     this.pendingText.clear();
     this.createToken = null;
     this.loadBackups.clear();
@@ -306,6 +319,83 @@ export class AgentConnectionModel {
       this.historyRefreshToken = null;
       this.update({ isRefreshingSessions: false, historyError: this.snapshot.errorMessage });
     }
+  }
+
+  /**
+   * True when this session's transcript can be replayed for an export.
+   *
+   * A session already loaded from this run has a complete snapshot; anything
+   * else needs a live connection that can list and load sessions.
+   */
+  canExportTranscript(sessionID: string): boolean {
+    if (this.snapshot.conversations[sessionID]?.hasCompleteHistory === true) return true;
+    return this.snapshot.canLoadSessions && this.snapshot.connectionState.status === "ready";
+  }
+
+  /**
+   * Replay one session for an export, without changing the active tab.
+   *
+   * Returns `null` when the transcript cannot be trusted: a partially replayed
+   * session, a failed load, or a connection that went away. Loads stay
+   * sequential so two replays cannot interleave on the shared connection.
+   */
+  historyTranscript(sessionID: string): Promise<AgentConversationMessage[] | null> {
+    const loaded = this.snapshot.conversations[sessionID];
+    if (loaded?.hasCompleteHistory === true) return Promise.resolve(loaded.messages);
+    if (!this.canExportTranscript(sessionID) || this.connection === null) {
+      return Promise.resolve(null);
+    }
+    const queued = this.transcriptPending > 0;
+    this.transcriptPending += 1;
+    const run = queued
+      ? this.transcriptChain.then(() => this.loadTranscript(sessionID))
+      : this.loadTranscript(sessionID);
+    this.transcriptChain = run
+      .then(
+        () => undefined,
+        () => undefined,
+      )
+      .then(() => {
+        this.transcriptPending -= 1;
+      });
+    return run;
+  }
+
+  private loadTranscript(sessionID: string): Promise<AgentConversationMessage[] | null> {
+    const loaded = this.snapshot.conversations[sessionID];
+    if (loaded?.hasCompleteHistory === true) return Promise.resolve(loaded.messages);
+    if (this.connection === null) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const token = this.beginLoad(sessionID, true);
+      if (token === null) {
+        resolve(null);
+        return;
+      }
+      this.transcriptWaiters.set(token, resolve);
+    });
+  }
+
+  /** One export load finished; a failed or dropped load resolves with null. */
+  private finishTranscript(token: string, sessionID: string): void {
+    const resolve = this.transcriptWaiters.get(token);
+    if (resolve === undefined) return;
+    this.transcriptWaiters.delete(token);
+    this.quietLoadTokens.delete(token);
+    resolve(this.snapshot.conversations[sessionID]?.messages ?? []);
+  }
+
+  private failTranscript(token: string): void {
+    const resolve = this.transcriptWaiters.get(token);
+    if (resolve === undefined) return;
+    this.transcriptWaiters.delete(token);
+    this.quietLoadTokens.delete(token);
+    resolve(null);
+  }
+
+  /** An export that cannot finish resolves with null rather than hanging. */
+  private failTranscripts(): void {
+    for (const token of this.transcriptWaiters.keys()) this.failTranscript(token);
+    this.quietLoadTokens.clear();
   }
   // MARK: Conversations
 
@@ -570,7 +660,9 @@ export class AgentConnectionModel {
           configOptions: parseSessionConfigOptions(event.configOptions),
         }));
         this.loadBackups.delete(sessionID);
-        this.openTab(sessionID);
+        // An export load collected the transcript without adding a tab.
+        if (!this.quietLoadTokens.delete(token)) this.openTab(sessionID);
+        this.finishTranscript(token, sessionID);
         const prompt = this.queuedPrompts.get(sessionID);
         if (prompt !== undefined) {
           this.queuedPrompts.delete(sessionID);
@@ -698,6 +790,7 @@ export class AgentConnectionModel {
         isLoading: false,
         errorMessage: message,
       }));
+      this.failTranscript(token);
       return;
     }
     if (sessionID !== null && this.snapshot.conversations[sessionID] !== undefined) {
@@ -841,16 +934,24 @@ export class AgentConnectionModel {
     return true;
   }
 
-  private beginLoad(sessionID: string): void {
+  /**
+   * Start loading one session. `quiet` keeps an export load out of the tab bar;
+   * the token is returned so the caller can register its own waiter, or `null`
+   * when the command could not even be queued.
+   */
+  private beginLoad(sessionID: string, quiet = false): string | null {
     const token = this.makeToken();
     this.loadTokens.set(token, sessionID);
+    if (quiet) this.quietLoadTokens.add(token);
     this.loadBackups.set(sessionID, this.snapshot.conversations[sessionID] ?? createConversation());
     this.pendingText.delete(sessionID);
     // The agent replays the whole history, so rebuild it from scratch.
     this.setConversation(sessionID, { ...createConversation(), isLoading: true });
     if (!this.sendCommand({ kind: "loadSession", token, sessionId: sessionID })) {
       this.requestFailed(token, sessionID, this.snapshot.errorMessage ?? "The Agent request failed.");
+      return null;
     }
+    return token;
   }
 
   private openTab(sessionID: string): void {
@@ -887,6 +988,7 @@ export class AgentConnectionModel {
     this.historyRefreshToken = null;
     this.queuedPrompts.clear();
     this.loadTokens.clear();
+    this.failTranscripts();
     const conversations = { ...this.snapshot.conversations };
     for (const [id, backup] of this.loadBackups) conversations[id] = backup;
     this.loadBackups.clear();
