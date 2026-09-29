@@ -102,6 +102,7 @@ import {
   showThemeSelector,
   showWhatsNew,
   toggleActivitySidebar,
+  toggleAgentPane,
   toggleAgentLauncher,
   toggleAIChat,
   toggleFilesSidebar,
@@ -627,6 +628,12 @@ const viewCommands: Command[] = [
     title: "Show Notifications",
     category: "View",
     execute: showNotifications,
+  },
+  {
+    id: "workbench.showAgent",
+    title: "Show Agent",
+    category: "Agent",
+    execute: toggleAgentPane,
   },
   {
     id: "workbench.agentLauncher",

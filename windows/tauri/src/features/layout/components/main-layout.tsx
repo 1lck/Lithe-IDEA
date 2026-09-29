@@ -7,6 +7,7 @@ import { openDroppedWorkspacePaths } from "@/features/file-system/utils/open-dro
 import { useGitStore } from "@/features/git/stores/git.store";
 import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/events/git-events";
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
+import { closeAgentToolWindow } from "@/features/agent/actions/agent-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
@@ -78,6 +79,11 @@ const TerminalHost = lazy(() =>
 );
 const BottomPane = lazy(() => import("./bottom-pane/bottom-pane"));
 const MavenPane = lazy(() => import("@/features/maven/components/maven-pane"));
+const AgentPane = lazy(() =>
+  import("@/features/agent/components/agent-panel").then((module) => ({
+    default: module.AgentPanel,
+  })),
+);
 
 export function MainLayout() {
   const { t } = useTranslation();
@@ -103,7 +109,9 @@ export function MainLayout() {
     isRightSidebarVisible && activeRightSidebarView === "notifications";
   const isMavenSelected = activeRightSidebarView === "maven";
   const isMavenVisible = isRightSidebarVisible && isMavenSelected;
-  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible;
+  const isAgentSelected = activeRightSidebarView === "agent";
+  const isAgentVisible = isRightSidebarVisible && isAgentSelected;
+  const isRightToolWindowVisible = isNotificationsVisible || isMavenVisible || isAgentVisible;
   const vimRelativeLineNumbers = useSettingsStore((state) => state.settings.vimRelativeLineNumbers);
   const relativeLineNumbers = useVimStore.use.relativeLineNumbers();
   const { setRelativeLineNumbers } = useVimStore.use.actions();
@@ -339,6 +347,11 @@ export function MainLayout() {
                 {isMavenSelected ? (
                   <Suspense fallback={null}>
                     <MavenPane onClose={closeMavenToolWindow} />
+                  </Suspense>
+                ) : null}
+                {isAgentSelected ? (
+                  <Suspense fallback={null}>
+                    <AgentPane onClose={closeAgentToolWindow} />
                   </Suspense>
                 ) : null}
               </ResizablePane>

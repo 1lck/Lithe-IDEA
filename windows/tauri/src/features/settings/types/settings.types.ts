@@ -1,5 +1,6 @@
 import type { CoreFeaturesState } from "./feature.types";
 import type { CommitAISettings } from "@/features/git/types/ai-commit";
+import type { AgentPanelSettings } from "@/features/agent/types/agent-settings.types";
 import type { DisplayLanguage } from "@/i18n/locale";
 import type { V0DesignSystemProfile } from "@/features/settings/lib/v0-design-system-profiles";
 import type { AIChatSkill } from "@/features/ai/types/skills.types";
@@ -121,6 +122,8 @@ export interface Settings {
   v0DesignSystems: V0DesignSystemProfile[];
   activeV0DesignSystemId: string;
   ollamaBaseUrl: string;
+  // Agent
+  agentPanel: AgentPanelSettings;
   // Layout
   activityRailExpanded: boolean;
   activityRailWidth: number;

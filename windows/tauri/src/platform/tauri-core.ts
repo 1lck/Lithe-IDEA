@@ -104,8 +104,16 @@ const nativeCommands = new Set([
   "write_patch_file",
 ]);
 
-export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<InvokeOptions> & { gitExecutionSource?: "user" | "background" | "unknown" }): Promise<T> {
-  const { gitExecutionSource = "unknown", ...forwardedOptions } = options ?? {};
+export function invoke<T>(
+  command: string,
+  args?: InvokeArgs,
+  options?: Partial<InvokeOptions> & {
+    gitExecutionSource?: "user" | "background" | "unknown";
+    // Long-running shared commands publish progress as `platform_invoke` events.
+    agentEvents?: Channel<unknown>;
+  },
+): Promise<T> {
+  const { gitExecutionSource = "unknown", agentEvents, ...forwardedOptions } = options ?? {};
   // Execution provenance is local metadata; Tauri requires headers only when native options are supplied.
   const nativeOptions: InvokeOptions | undefined = Object.keys(forwardedOptions).length
     ? { ...forwardedOptions, headers: forwardedOptions.headers ?? {} }
@@ -136,7 +144,13 @@ export function invoke<T>(command: string, args?: InvokeArgs, options?: Partial<
       (error) => { throw error; },
     );
   }
-  return tauriInvoke<unknown>("platform_invoke", { command, args: args ?? {} }, nativeOptions).then(
+  return tauriInvoke<unknown>(
+    "platform_invoke",
+    agentEvents === undefined
+      ? { command, args: args ?? {} }
+      : { command, args: args ?? {}, agentEvents },
+    nativeOptions,
+  ).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
   );
 }
@@ -184,13 +198,24 @@ function capabilityForCommand(command: string): BackendCapability | null {
     return "runActions";
   }
   if (
+    command === "agent.status" ||
+    command === "agent.install" ||
+    command === "agent.uninstall" ||
+    command === "agent.installCli"
+  ) {
+    return "agent";
+  }
+  if (
     command.includes("acp_") ||
     command.includes("codex_") ||
     command.includes("ai_provider") ||
     command.includes("_chat") ||
     command === "get_available_agents"
   ) {
-    return "agent";
+    // The legacy `features/ai` chat has no Windows backend. It keeps its own
+    // gate so those commands still read "待开发" instead of reaching the
+    // dispatcher that answers "not implemented".
+    return "aiChat";
   }
   if (
     command.includes("extension_secret") ||
