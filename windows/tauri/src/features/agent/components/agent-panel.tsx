@@ -8,6 +8,7 @@ import { Spinner } from "@/ui/spinner";
 import { joinPath } from "@/utils/path-helpers";
 import { useAgentManagement } from "../hooks/use-agent-management";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
+import { useAgentHistory } from "../hooks/use-agent-history";
 import {
   agentConnection,
   agentDataDirectory,
@@ -42,6 +43,9 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const settings = useSettingsStore((state) => state.settings.agentPanel);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
+  // Annotations are scoped to the project and the configured Agent, so the
+  // panel reads them even before a connection exists.
+  const history = useAgentHistory(rootFolderPath, settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const management = useAgentManagement(dataDirectory, showSettings || !settings.enabled);
@@ -191,11 +195,16 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
       <AgentHistoryList
         sessions={snapshot.sessions}
+        metadata={history.metadata}
+        conversations={snapshot.conversations}
         isRefreshing={snapshot.isRefreshingSessions}
-        error={snapshot.historyError}
+        error={snapshot.historyError ?? history.error}
         canRefresh={snapshot.canLoadSessions && status === "ready"}
         onRefresh={() => agentConnection().refreshSessions()}
         onSelect={(sessionID) => agentConnection().selectSession(sessionID)}
+        onRename={history.rename}
+        onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
+        onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
       />
 
       <AgentConversationTabs
