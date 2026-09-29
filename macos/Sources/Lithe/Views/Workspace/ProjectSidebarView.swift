@@ -259,7 +259,7 @@ struct ProjectSidebarView: View {
                 .help("Refresh")
             }
         }
-        .padding(.leading, 8)
+        .padding(.leading, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .padding(.trailing, 12)
         .frame(height: 39)
         .contentShape(Rectangle())
