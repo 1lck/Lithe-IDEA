@@ -221,7 +221,12 @@ struct ProjectSidebarView: View {
                 Button {
                     model.revealInProjectTree(activeURL)
                 } label: {
-                    LitheSystemIcon(systemImage: "scope")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/locate.svg",
+                        size: 16,
+                        fallbackSystemImage: "scope",
+                        preservesOriginalColors: true
+                    )
                 }
                 .litheIconButton()
                 .help("Reveal Active File in Project Tree")
@@ -243,7 +248,12 @@ struct ProjectSidebarView: View {
                 Button {
                     Task { await model.refreshWorkspace() }
                 } label: {
-                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/refresh.svg",
+                        size: 16,
+                        fallbackSystemImage: "arrow.clockwise",
+                        preservesOriginalColors: true
+                    )
                 }
                 .litheIconButton()
                 .help("Refresh")
