@@ -9,19 +9,27 @@
 //! Byte flow: React subscribes to `agent_event`, calls `agent_open` with its own
 //! connection id and the shared `AgentLaunch` JSON, then `agent_send` with the
 //! shared `AgentCommand` JSON. Each event reaches the owning window as
-//! `{ connectionId, event }`. `agent_close`, window destruction, and application
-//! exit release the connection and its process tree.
+//! `{ connectionId, event }`, and every command must come from that same window.
+//! `agent_close`, window destruction, and application exit release the connection
+//! and its process tree; exit stops accepting connections and waits a bounded
+//! time for the closes that are already running.
 //! See `.agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md`.
 
 use lithe_agent_host::{AgentCommand, AgentEvent, AgentHandle, AgentLaunch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
 /// Tauri event carrying the Agent events of every connection.
 pub const AGENT_EVENT_NAME: &str = "agent_event";
+
+/// How long application exit waits for closes that are already running before
+/// it abandons them. `AgentHandle::close` bounds its own stop window, so this
+/// only covers a blocking task that never got scheduled.
+const CLOSING_WAIT: Duration = Duration::from_secs(15);
 
 /// Opens one Agent connection owned by the calling window.
 #[tauri::command]
@@ -36,16 +44,21 @@ pub fn agent_open(
     open_connection(webview.label(), request, sink)
 }
 
-/// Queues one shared `AgentCommand` on an open connection.
+/// Queues one shared `AgentCommand` on an open connection owned by the caller.
 #[tauri::command]
-pub fn agent_send(connection_id: String, command: Value) -> Result<(), String> {
-    send_command(&connection_id, command)
+pub fn agent_send(
+    webview: tauri::Webview,
+    connection_id: String,
+    command: Value,
+) -> Result<(), String> {
+    send_command(webview.label(), &connection_id, command)
 }
 
-/// Stops one connection and its process tree. Repeated calls are no-ops.
+/// Stops one connection owned by the caller, and its process tree. Repeated
+/// calls are no-ops.
 #[tauri::command]
-pub async fn agent_close(connection_id: String) -> Result<(), String> {
-    close_connection(&connection_id).await
+pub async fn agent_close(webview: tauri::Webview, connection_id: String) -> Result<(), String> {
+    close_connection(webview.label(), &connection_id).await
 }
 
 /// One `agent_open` request.
@@ -101,12 +114,25 @@ struct Connection {
     handle: AgentHandle,
 }
 
-/// Live connections keyed by the caller's connection id. Process-wide so the
-/// window-destroyed and application-exit hooks reach the same registry without
-/// an `AppHandle`, mirroring `debug.rs`.
-fn connections() -> &'static Mutex<HashMap<String, Connection>> {
-    static CONNECTIONS: OnceLock<Mutex<HashMap<String, Connection>>> = OnceLock::new();
-    CONNECTIONS.get_or_init(|| Mutex::new(HashMap::new()))
+/// Live connections keyed by the caller's connection id, plus whether new ones
+/// are still accepted. Process-wide so the window-destroyed and
+/// application-exit hooks reach the same registry without an `AppHandle`,
+/// mirroring `debug.rs`.
+struct Registry {
+    connections: HashMap<String, Connection>,
+    /// Cleared by application exit in the same critical section that drains the
+    /// connections: one opened after that drain would never be closed.
+    accepting: bool,
+}
+
+fn registry() -> &'static Mutex<Registry> {
+    static REGISTRY: OnceLock<Mutex<Registry>> = OnceLock::new();
+    REGISTRY.get_or_init(|| {
+        Mutex::new(Registry {
+            connections: HashMap::new(),
+            accepting: true,
+        })
+    })
 }
 
 fn open_connection<S: AgentEventSink>(
@@ -114,6 +140,26 @@ fn open_connection<S: AgentEventSink>(
     request: AgentOpenRequest,
     sink: S,
 ) -> Result<AgentConnectionInfo, String> {
+    let mut registry = registry()
+        .lock()
+        .map_err(|_| "Agent connection state is unavailable.".to_string())?;
+    open_in(&mut registry, window, request, sink)
+}
+
+/// Opens one connection in `registry`. Takes the registry instead of locking it
+/// so exit can hold a single critical section for its drain, and so tests can
+/// drive the accepting rules without the process-wide state.
+fn open_in<S: AgentEventSink>(
+    registry: &mut Registry,
+    window: &str,
+    request: AgentOpenRequest,
+    sink: S,
+) -> Result<AgentConnectionInfo, String> {
+    if !registry.accepting {
+        return Err(
+            "The application is shutting down, so no Agent connection can be opened.".into(),
+        );
+    }
     let connection_id = request.connection_id.trim().to_string();
     if connection_id.is_empty() {
         return Err("An Agent connection id is required.".into());
@@ -130,14 +176,11 @@ fn open_connection<S: AgentEventSink>(
         }
     });
 
-    let mut current = connections()
-        .lock()
-        .map_err(|_| "Agent connection state is unavailable.".to_string())?;
-    if current.contains_key(&connection_id) {
+    if registry.connections.contains_key(&connection_id) {
         return Err(format!("Agent connection {connection_id} is already open."));
     }
     let handle = AgentHandle::open(launch, emit)?;
-    current.insert(
+    registry.connections.insert(
         connection_id.clone(),
         Connection {
             window: window.to_owned(),
@@ -150,73 +193,192 @@ fn open_connection<S: AgentEventSink>(
     })
 }
 
-fn send_command(connection_id: &str, command: Value) -> Result<(), String> {
-    let current = connections()
+/// Queues one command on a connection, provided `window` opened it.
+fn send_command(window: &str, connection_id: &str, command: Value) -> Result<(), String> {
+    let registry = registry()
         .lock()
         .map_err(|_| "Agent connection state is unavailable.".to_string())?;
-    let connection = current
+    let connection = registry
+        .connections
         .get(connection_id)
         .ok_or_else(|| format!("Agent connection {connection_id} is not open."))?;
+    verify_owner(window, connection_id, connection)?;
     let command: AgentCommand = serde_json::from_value(command)
         .map_err(|error| format!("Invalid Agent command: {error}"))?;
     connection.handle.send(command)
 }
 
-fn take_connection(connection_id: &str) -> Result<Option<Connection>, String> {
-    let mut current = connections()
-        .lock()
-        .map_err(|_| "Agent connection state is unavailable.".to_string())?;
-    Ok(current.remove(connection_id))
+/// Rejects a command that names a connection another window opened. Events are
+/// already addressed to the owner, so without this check a second window could
+/// drive or close a connection it never opened.
+fn verify_owner(window: &str, connection_id: &str, connection: &Connection) -> Result<(), String> {
+    if connection.window == window {
+        return Ok(());
+    }
+    Err(format!(
+        "Agent connection {connection_id} belongs to another window."
+    ))
 }
 
-async fn close_connection(connection_id: &str) -> Result<(), String> {
-    let Some(connection) = take_connection(connection_id)? else {
-        // Repeated or late closes are no-ops and never touch a newer connection.
+/// Removes every connection `select` accepts from `registry`, counting them in
+/// `state` as closing when a state is given. `select` may reject the whole call
+/// with an error, which leaves the registry untouched.
+///
+/// Accounting inside the same critical section is what makes application exit
+/// safe: an exit that drains the registry can neither miss a connection a close
+/// path has already taken, nor observe the registry empty while a close that
+/// path handed to the blocking pool is still pending.
+fn take_connections(
+    registry: &mut Registry,
+    state: Option<&ClosingState>,
+    select: impl Fn(&str, &Connection) -> Result<bool, String>,
+) -> Result<Vec<Connection>, String> {
+    let mut owned = Vec::new();
+    for (connection_id, connection) in &registry.connections {
+        if select(connection_id, connection)? {
+            owned.push(connection_id.clone());
+        }
+    }
+    let taken: Vec<Connection> = owned
+        .into_iter()
+        .filter_map(|connection_id| registry.connections.remove(&connection_id))
+        .collect();
+    if let Some(state) = state {
+        // The count is raised before the caller can queue the close, so a
+        // concurrent exit can never observe zero while a close is pending.
+        account_closing(state, taken.len());
+    }
+    Ok(taken)
+}
+
+/// Stops the connection `window` opened. Repeated or late closes are no-ops, and
+/// another window's connection is rejected without being touched.
+async fn close_connection(window: &str, connection_id: &str) -> Result<(), String> {
+    let taken = {
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| "Agent connection state is unavailable.".to_string())?;
+        take_connections(&mut registry, Some(closing()), |id, connection| {
+            if id != connection_id {
+                return Ok(false);
+            }
+            verify_owner(window, connection_id, connection)?;
+            Ok(true)
+        })?
+    };
+    let Some(connection) = taken.into_iter().next() else {
+        // Repeated, late, and unknown closes are no-ops that never touch a newer
+        // or another window's connection.
         return Ok(());
     };
     // `AgentHandle::close` waits for the bounded stop window and force-kills the
     // process tree, so it must stay off the async runtime's worker threads.
-    tauri::async_runtime::spawn_blocking(move || connection.handle.close())
+    queue_close(move || connection.handle.close())
         .await
         .map_err(|error| format!("Agent connection cleanup failed: {error}"))
+}
+
+/// Closes already handed to the blocking pool, so application exit can wait for
+/// them. A destroyed window removes its connection from the registry before the
+/// close finishes, and closing the last window quits the application, so
+/// without this counter the exit path would abandon a process tree mid-teardown.
+type ClosingState = Arc<(Mutex<usize>, Condvar)>;
+
+fn closing() -> &'static ClosingState {
+    static CLOSING: OnceLock<ClosingState> = OnceLock::new();
+    CLOSING.get_or_init(|| Arc::new((Mutex::new(0), Condvar::new())))
+}
+
+/// Raises the running-close count for closes that are about to be queued.
+///
+/// Poisoning is ignored on purpose: a waiter that cannot read the count does not
+/// wait at all, so losing the count can only shorten a wait, never hang it.
+fn account_closing(state: &ClosingState, added: usize) {
+    if let Ok(mut count) = state.0.lock() {
+        *count += added;
+    }
+}
+
+/// Marks one queued close as finished and wakes application exit.
+fn finish_closing(state: &ClosingState) {
+    if let Ok(mut count) = state.0.lock() {
+        *count = count.saturating_sub(1);
+        state.1.notify_all();
+    }
+}
+
+/// Runs one already-counted close on the blocking pool, reporting completion to
+/// `finish_closing` so application exit can wait for it.
+fn queue_close<C: FnOnce() + Send + 'static>(close: C) -> tauri::async_runtime::JoinHandle<()> {
+    tauri::async_runtime::spawn_blocking(move || {
+        close();
+        finish_closing(closing());
+    })
+}
+
+/// Waits until no close is running; false means the deadline passed first.
+fn wait_for_closing(state: &ClosingState, deadline: Instant) -> bool {
+    let Ok(mut count) = state.0.lock() else {
+        return true;
+    };
+    while *count > 0 {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            return false;
+        };
+        match state.1.wait_timeout(count, remaining) {
+            Ok((next, _)) => count = next,
+            Err(_) => return true,
+        }
+    }
+    true
 }
 
 /// Releases every connection owned by one window when a project window closes,
 /// so a closed project never leaves an Agent process behind. Cleanup runs on the
 /// blocking pool because the window is already gone and stopping an Agent waits
-/// for its bounded stop window.
+/// for its bounded stop window. Dropping the handle detaches the task.
 pub fn close_window_connections(window: &str) {
-    for connection in take_window_connections(window) {
-        tauri::async_runtime::spawn_blocking(move || connection.handle.close());
+    let taken = {
+        let Ok(mut registry) = registry().lock() else {
+            return;
+        };
+        take_connections(&mut registry, Some(closing()), |_, connection| {
+            Ok(connection.window == window)
+        })
+        .unwrap_or_default()
+    };
+    for connection in taken {
+        drop(queue_close(move || connection.handle.close()));
     }
 }
 
-fn take_window_connections(window: &str) -> Vec<Connection> {
-    let Ok(mut current) = connections().lock() else {
-        return Vec::new();
-    };
-    let owned: Vec<String> = current
-        .iter()
-        .filter(|(_, connection)| connection.window == window)
-        .map(|(connection_id, _)| connection_id.clone())
-        .collect();
-    owned
-        .into_iter()
-        .filter_map(|connection_id| current.remove(&connection_id))
+/// Takes every connection and stops accepting new ones, in one critical section,
+/// so nothing can be opened behind an exit that already drained the registry.
+fn drain_in(registry: &mut Registry) -> Vec<Connection> {
+    registry.accepting = false;
+    registry
+        .connections
+        .drain()
+        .map(|(_, connection)| connection)
         .collect()
 }
 
 /// Closes every live connection during application exit so no Agent process
 /// outlives the shell. Runs synchronously: the process is about to exit, and a
-/// detached cleanup task would be abandoned with it.
+/// detached cleanup task would be abandoned with it. Connections a destroyed
+/// window already handed to the blocking pool are waited for afterwards, up to
+/// `CLOSING_WAIT`.
 pub fn shutdown() {
-    let Ok(mut current) = connections().lock() else {
-        return;
+    // These closes run inline, so they are not counted as pending pool work.
+    let live = match registry().lock() {
+        Ok(mut registry) => drain_in(&mut registry),
+        Err(_) => Vec::new(),
     };
-    let live: Vec<Connection> = current.drain().map(|(_, connection)| connection).collect();
-    drop(current);
     for connection in live {
         connection.handle.close();
+    }
+    if !wait_for_closing(closing(), Instant::now() + CLOSING_WAIT) {
+        eprintln!("Agent shutdown timed out while waiting for an in-flight close.");
     }
 }
 
@@ -267,8 +429,21 @@ mod tests {
         }
     }
 
-    fn close(connection_id: &str) {
-        tauri::async_runtime::block_on(close_connection(connection_id)).expect("close");
+    fn close(window: &str, connection_id: &str) {
+        tauri::async_runtime::block_on(close_connection(window, connection_id)).expect("close");
+    }
+
+    /// Reads the registry without counting a close, for assertions about what is
+    /// still open. Production paths remove and account in one step.
+    fn take_connection(connection_id: &str) -> Result<Option<Connection>, String> {
+        let mut registry = registry()
+            .lock()
+            .map_err(|_| "Agent connection state is unavailable.".to_string())?;
+        Ok(
+            take_connections(&mut registry, None, |id, _| Ok(id == connection_id))?
+                .into_iter()
+                .next(),
+        )
     }
 
     fn wait_for_stopped(receiver: &mpsc::Receiver<(String, Value)>, connection_id: &str) {
@@ -330,10 +505,10 @@ mod tests {
         assert!(error.contains("already open"), "{error}");
 
         // The rejected duplicate must not have replaced the live connection.
-        let still_open = send_command("test-unique-id", json!("not a command"))
+        let still_open = send_command("test-window", "test-unique-id", json!("not a command"))
             .expect_err("the command payload is invalid");
         assert!(still_open.contains("Invalid Agent command"), "{still_open}");
-        close("test-unique-id");
+        close("test-window", "test-unique-id");
     }
 
     #[test]
@@ -345,9 +520,9 @@ mod tests {
 
         wait_for_stopped(&receiver, "test-failed-launch");
 
-        close("test-failed-launch");
+        close("test-window-failure", "test-failed-launch");
         // A late close must stay a no-op instead of touching a newer connection.
-        close("test-failed-launch");
+        close("test-window-failure", "test-failed-launch");
         assert!(take_connection("test-failed-launch")
             .expect("registry")
             .is_none());
@@ -355,8 +530,12 @@ mod tests {
 
     #[test]
     fn unknown_connections_and_malformed_commands_are_rejected() {
-        let error = send_command("test-unknown-connection", json!("not a command"))
-            .expect_err("an unknown connection must be rejected");
+        let error = send_command(
+            "test-window-unknown",
+            "test-unknown-connection",
+            json!("not a command"),
+        )
+        .expect_err("an unknown connection must be rejected");
         assert!(error.contains("is not open"), "{error}");
 
         let (sink, _receiver) = recording();
@@ -367,11 +546,15 @@ mod tests {
         )
         .expect("open should succeed before the launch fails");
 
-        let error = send_command("test-malformed-command", json!("not a command"))
-            .expect_err("a malformed command must be rejected");
+        let error = send_command(
+            "test-window-commands",
+            "test-malformed-command",
+            json!("not a command"),
+        )
+        .expect_err("a malformed command must be rejected");
         assert!(error.contains("Invalid Agent command"), "{error}");
 
-        close("test-malformed-command");
+        close("test-window-commands", "test-malformed-command");
     }
 
     #[test]
@@ -388,16 +571,170 @@ mod tests {
 
         close_window_connections("test-window-a");
 
-        let released = send_command("test-window-a-connection", json!("not a command"))
-            .expect_err("the closed window's connection must be gone");
+        let released = send_command(
+            "test-window-a",
+            "test-window-a-connection",
+            json!("not a command"),
+        )
+        .expect_err("the closed window's connection must be gone");
         assert!(released.contains("is not open"), "{released}");
 
         // The other window keeps its connection: its send fails on the command
         // payload, never on a missing connection.
-        let kept = send_command("test-window-b-connection", json!("not a command"))
-            .expect_err("the command payload is still invalid");
+        let kept = send_command(
+            "test-window-b",
+            "test-window-b-connection",
+            json!("not a command"),
+        )
+        .expect_err("the command payload is still invalid");
         assert!(kept.contains("Invalid Agent command"), "{kept}");
 
         close_window_connections("test-window-b");
+
+        // Both windows' closes must drain to zero, otherwise application exit
+        // would wait the whole bounded window for closes that already finished.
+        assert!(wait_for_closing(closing(), Instant::now() + EVENT_WAIT));
+    }
+
+    #[test]
+    fn exit_wait_returns_at_once_when_no_close_is_running() {
+        let state: ClosingState = Arc::new((Mutex::new(0), Condvar::new()));
+        assert!(wait_for_closing(&state, Instant::now() + EVENT_WAIT));
+    }
+
+    #[test]
+    fn exit_wait_gives_up_at_its_deadline_while_a_close_is_pending() {
+        let state: ClosingState = Arc::new((Mutex::new(1), Condvar::new()));
+        let started = Instant::now();
+
+        assert!(!wait_for_closing(
+            &state,
+            started + Duration::from_millis(100)
+        ));
+
+        assert!(started.elapsed() >= Duration::from_millis(100));
+    }
+
+    #[test]
+    fn exit_wait_returns_once_the_last_close_is_released() {
+        let state: ClosingState = Arc::new((Mutex::new(1), Condvar::new()));
+        let waiter = state.clone();
+        let (result, released) = mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = result.send(wait_for_closing(&waiter, Instant::now() + EVENT_WAIT));
+        });
+
+        finish_closing(&state);
+
+        assert!(
+            released
+                .recv_timeout(EVENT_WAIT)
+                .expect("the wait must return"),
+            "waking a pending close must report that nothing is running"
+        );
+    }
+
+    #[test]
+    fn taking_a_connection_for_a_close_counts_it_before_any_task_runs() {
+        let (sink, _receiver) = recording();
+        let mut registry = Registry {
+            connections: HashMap::new(),
+            accepting: true,
+        };
+        open_in(
+            &mut registry,
+            "test-window-accounting",
+            request("test-accounting-connection"),
+            sink,
+        )
+        .expect("open the window's connection");
+        let state: ClosingState = Arc::new((Mutex::new(0), Condvar::new()));
+
+        let taken = take_connections(&mut registry, Some(&state), |_, connection| {
+            Ok(connection.window == "test-window-accounting")
+        })
+        .expect("registry");
+
+        assert_eq!(taken.len(), 1);
+        // The count is visible before any close is queued, which is what stops
+        // application exit from observing an empty registry and leaving then.
+        assert_eq!(*state.0.lock().expect("count"), 1);
+        assert!(registry.connections.is_empty());
+
+        for connection in taken {
+            connection.handle.close();
+        }
+        finish_closing(&state);
+        assert!(wait_for_closing(&state, Instant::now() + EVENT_WAIT));
+    }
+
+    #[test]
+    fn an_exit_drain_takes_every_connection_and_refuses_new_ones() {
+        let (sink, _receiver) = recording();
+        let mut registry = Registry {
+            connections: HashMap::new(),
+            accepting: true,
+        };
+        open_in(
+            &mut registry,
+            "test-window-exit",
+            request("test-exit-connection"),
+            sink,
+        )
+        .expect("open before exit");
+
+        let taken = drain_in(&mut registry);
+
+        assert_eq!(taken.len(), 1);
+        assert!(!registry.accepting);
+
+        let (later_sink, _later_receiver) = recording();
+        let error = open_in(
+            &mut registry,
+            "test-window-exit",
+            request("test-after-exit"),
+            later_sink,
+        )
+        .expect_err("exit must refuse a connection nothing would close");
+        assert!(error.contains("shutting down"), "{error}");
+        assert!(registry.connections.is_empty());
+
+        for connection in taken {
+            connection.handle.close();
+        }
+    }
+
+    #[test]
+    fn a_window_cannot_drive_or_close_another_windows_connection() {
+        let (sink, _receiver) = recording();
+        open_connection("test-window-owner", request("test-owned-connection"), sink)
+            .expect("open the owner's connection");
+
+        let refused = send_command(
+            "test-window-intruder",
+            "test-owned-connection",
+            json!("not a command"),
+        )
+        .expect_err("another window must not queue commands on the connection");
+        assert!(refused.contains("belongs to another window"), "{refused}");
+
+        let refused = tauri::async_runtime::block_on(close_connection(
+            "test-window-intruder",
+            "test-owned-connection",
+        ))
+        .expect_err("another window must not close the connection");
+        assert!(refused.contains("belongs to another window"), "{refused}");
+
+        // The refused calls left the owner's connection untouched: its send still
+        // fails on the payload, never on a missing connection.
+        let kept = send_command(
+            "test-window-owner",
+            "test-owned-connection",
+            json!("not a command"),
+        )
+        .expect_err("the command payload is still invalid");
+        assert!(kept.contains("Invalid Agent command"), "{kept}");
+
+        close("test-window-owner", "test-owned-connection");
     }
 }
