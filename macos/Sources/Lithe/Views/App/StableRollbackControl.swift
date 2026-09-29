@@ -10,7 +10,7 @@ struct StableRollbackControl: View {
         if compact, updateChecker.isPreview {
             Button("Return to Stable") { showingDetails = true }
                 .font(LitheTheme.smallFont)
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .sheet(isPresented: $showingDetails) {
                     VStack(alignment: .leading, spacing: 16) {
                         Text("Return to Stable").font(.headline)

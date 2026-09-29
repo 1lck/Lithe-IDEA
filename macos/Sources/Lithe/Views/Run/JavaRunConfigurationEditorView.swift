@@ -53,7 +53,7 @@ struct RunConfigurationEditorView: View {
                     options = RunOptions()
                     environmentText = ""
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
@@ -266,7 +266,7 @@ struct RunConfigurationEditorView: View {
                 onClose()
                 model.showSettings(category: .project)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
         }
     }

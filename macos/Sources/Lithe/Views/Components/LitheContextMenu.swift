@@ -304,7 +304,7 @@ private struct LitheContextMenuRow: View {
             }
             .padding(.horizontal, settingsStyle ? 6 : 5)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(!item.isEnabled)
         .opacity(item.isEnabled ? 1 : 0.45)
         .onHover { hovering in

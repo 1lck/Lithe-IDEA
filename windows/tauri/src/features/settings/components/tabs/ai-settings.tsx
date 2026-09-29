@@ -1,3 +1,4 @@
+import { RefreshCw } from "lucide-react";
 import { invoke } from "@/platform/tauri-core";
 import {
   WarningCircleIcon as AlertCircle,
@@ -9,7 +10,6 @@ import {
   LaptopIcon as Laptop,
   PaletteIcon as Palette,
   SparkleIcon as Sparkles,
-  ArrowClockwiseIcon as RefreshCw,
   ArrowCounterClockwiseIcon as RotateCcw,
   TrashIcon as Trash2,
 } from "@/ui/icons";

@@ -222,6 +222,7 @@ function createIconComponent(IconComponent: ComponentType<any>, displayName: str
 
 export const Icon = createIconComponent(Nucleo.IconCircleQuestionOutline18, "Icon");
 export const AiLoadingIcon = createIconComponent(Nucleo.IconAiLoadingOutline18, "AiLoadingIcon");
+export const LoaderCircleIcon = createIconComponent(lucideIcons.LoaderCircle, "LoaderCircleIcon");
 export const ArchiveIcon = createIconComponent(Nucleo.IconArchiveOutline18, "ArchiveIcon");
 export const ArrowBendDownLeftIcon = createIconComponent(
   Nucleo.IconArrowCornerBottomLeftOutline18,

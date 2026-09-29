@@ -499,7 +499,7 @@ private struct FileNodeRow: View {
                 animation: nil
             )
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .litheContextMenu(
@@ -547,7 +547,7 @@ private struct FileNodeRow: View {
                 animation: nil
             )
         }
-        .buttonStyle(LitheTreeRowButtonStyle())
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .litheContextMenu(

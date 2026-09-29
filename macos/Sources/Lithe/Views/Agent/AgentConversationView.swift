@@ -401,7 +401,7 @@ private struct AgentSessionTab: View {
                         .font(.system(size: 9, weight: .bold))
                         .frame(width: 14, height: 14)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .help("Close conversation")

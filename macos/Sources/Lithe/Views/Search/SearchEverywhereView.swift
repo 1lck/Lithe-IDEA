@@ -232,7 +232,7 @@ struct SearchEverywhereView: View {
                             }
                         }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .contentShape(Rectangle())
             }
@@ -406,7 +406,7 @@ struct SearchEverywhereView: View {
                 }
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
 
             Button {
@@ -414,7 +414,7 @@ struct SearchEverywhereView: View {
             } label: {
                 LitheIcon(kind: .folder, size: 13)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .help("Show in Finder")
         }
@@ -490,7 +490,7 @@ struct SearchEverywhereView: View {
             .background(index == selectedIndex ? LitheTheme.selection : .clear)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 

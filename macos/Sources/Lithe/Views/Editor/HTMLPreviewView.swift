@@ -27,7 +27,7 @@ struct HTMLPreviewView: View {
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: 24, height: 24)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .foregroundStyle(LitheTheme.secondaryText)
             .background(LitheTheme.toolHeader.opacity(0.92))
             .clipShape(RoundedRectangle(cornerRadius: 4))

@@ -185,7 +185,7 @@ struct MavenView: View {
             Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
                 Task { await model.reloadMavenProject(rescan: feature.isProjectReloadRequired) }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.litheNoPress)
             .disabled(feature.isReloading)
         }
         .padding(.horizontal, 10)
@@ -363,7 +363,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Cancel")) {
                         feature.cancelDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -380,7 +380,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .padding(.horizontal, 4)
                 .padding(.vertical, 3)
@@ -394,7 +394,7 @@ struct MavenView: View {
                     Button(dependencyLocalization.text("Retry")) {
                         feature.loadDependencies(for: modulePath)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.litheNoPress)
                 }
                 .font(.system(size: 11.5))
                 .foregroundStyle(LitheTheme.warning)
@@ -479,7 +479,7 @@ struct MavenView: View {
             .frame(minHeight: 28)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.leading, 16)
         .help(dependencyLocalization.text("Open module pom.xml"))
@@ -550,7 +550,7 @@ struct MavenView: View {
                 Image(systemName: "plus")
                     .frame(width: 18, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Add profile")
             .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
                 VStack(alignment: .leading, spacing: 10) {
@@ -575,7 +575,7 @@ struct MavenView: View {
                 Image(systemName: "arrow.uturn.backward")
                     .frame(width: 18, height: 20)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Restore default profiles")
             Spacer(minLength: 0)
         }
@@ -615,7 +615,7 @@ struct MavenView: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             guard !model.isMavenOperationBusy else { return }
@@ -655,7 +655,7 @@ struct MavenView: View {
                         .frame(width: 14, height: 24)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
 
                 Button(action: onLabelAction) {
@@ -685,7 +685,7 @@ struct MavenView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 4))
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             .litheContextMenu(items: {

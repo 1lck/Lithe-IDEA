@@ -39,7 +39,7 @@ private struct ProjectPreparationContent: View {
                 }
                 .font(.system(size: 11))
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help(chinese ? "查看项目准备详情" : "View project preparation details")
             .popover(isPresented: $showingDetails, arrowEdge: compact ? .bottom : .top) {
                 VStack(alignment: .leading, spacing: 12) {

@@ -133,7 +133,7 @@ struct DatabaseSidebarView: View {
                                 .font(.system(size: 11))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.litheNoPress)
                         .help("Clear search")
                     }
                 }
@@ -420,7 +420,7 @@ struct DatabaseSidebarView: View {
                     .frame(height: 31)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .lithePointer()
@@ -486,7 +486,7 @@ struct DatabaseSidebarView: View {
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(width: 18, height: 30)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
 
                 Button {
@@ -522,7 +522,7 @@ struct DatabaseSidebarView: View {
                     .frame(height: 30)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
                 .lithePointer()
@@ -572,7 +572,7 @@ struct DatabaseSidebarView: View {
                 .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
             .lithePointer()
@@ -659,7 +659,7 @@ struct DatabaseSidebarView: View {
                         .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
                         .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .lithePointer()
@@ -751,7 +751,7 @@ struct DatabaseSidebarView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .lithePointer()
@@ -1464,7 +1464,7 @@ private struct DatabaseDBXImportSheet: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(candidate.isDuplicate)
         .background(isSelected ? LitheTheme.accent.opacity(0.08) : LitheTheme.inputBackground.opacity(0.35))
         .clipShape(RoundedRectangle(cornerRadius: 6))

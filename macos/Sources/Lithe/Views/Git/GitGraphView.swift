@@ -98,7 +98,7 @@ struct GitGraphView: View {
                             } label: {
                                 Color.clear.frame(width: rect.width, height: rect.height).contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .help(title)
                             .accessibilityLabel(title)
                             .accessibilityIdentifier("git-graph-arrow-\(row.commit.hash)-\(element.id)")
@@ -744,7 +744,7 @@ private struct GitGraphRowView: View, Equatable {
             .background(backgroundColor)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { isHovered = $0 }
         .litheContextMenu { actions.contextMenuItems(for: row.commit) }

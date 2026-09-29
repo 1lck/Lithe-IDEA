@@ -228,7 +228,7 @@ struct LanguageTestsView: View {
                 .frame(height: 25)
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .litheRowHover(isActive: false, cornerRadius: 5, activeBackground: LitheTheme.subtleSelection)
 
             if !isCollapsed {
@@ -263,7 +263,7 @@ struct LanguageTestsView: View {
                 activeBackground: LitheTheme.selection
             )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 
@@ -449,7 +449,7 @@ struct LanguageTestsView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 3)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .disabled(failure.fileURL == nil)
             }
         }
