@@ -1101,7 +1101,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "打开一个依赖尚未下载的 Maven 项目，在 Java 语言服务导入过程中修改 settings.xml、本地仓库或镜像并保存，不点重新加载，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后点「重新加载」，确认 Java 语言服务不重启而依赖重新解析；故意写错一个依赖版本，确认 Maven 工具窗口列出 pom.xml 问题、通知可跳转到对应行，修正后问题消失。"
+      "verification": "打开一个依赖尚未下载的 Maven 项目，在 Java 语言服务导入过程中修改 settings.xml、本地仓库或镜像并保存，不点重新加载，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后点「重新加载」，确认 Java 语言服务不重启而依赖重新解析；故意写错一个依赖版本，确认 Maven 工具窗口列出 pom.xml 问题、通知可跳转到对应行，修正后问题消失；初始化期间设置不变时点击重新加载，确认导入就绪后仍执行一次强制更新；旧 profile 任务失败或超时期间切换 profile，确认旧请求结束后应用最新选择；保存设置与重新加载交错执行时，已发送的 settings 副本保持可读。"
     },
     {
       "id": "java-maven-toolbar-tooltips",

@@ -292,13 +292,17 @@ Lithe 不自己判断“要不要重解析”，而是按 JDT LS 上游（vscode
   持有的 Maven 配置；设置副本路径变了就发 `workspace/didChangeConfiguration`
   （JDT LS 会强制更新所有 Maven 项目，导入中途也会排队执行）；profile 变了就
   重启 profile 任务。握手前到达的更新由 `initialized` 后那次设置通知带上。
+  显式的强制重载单独保留，合并重复请求后在 `ServiceReady`（项目已导入）时执行，
+  不能因为设置没变而丢弃。
   两个平台保存 Maven 设置、切换 profile 时都调用它，不再弹“需要重新加载”。
 - **重新加载改为强制更新。** 会话还在时，“重新加载”发
   `lsp.updateMavenConfiguration` 并带 `reloadProjects`，Core 在设置未变时发
   `java/projectConfigurationsUpdate`。只有会话不存在、或会话拒绝更新时才停止并
   重新启动。
 - **profile 任务期间的变更不丢。** 任务完成时只把它开始时的配置记为“已应用”；
-  如果期间配置被替换，自动再跑一轮。
+  如果期间配置被替换，无论旧任务成功还是失败，都自动再跑一轮。超时后的取消
+  是建议性的，必须等待旧请求全部收到终态响应才启动新配置；同一份失败配置不
+  自动无限重试。
 - **解析失败要让用户看见。** m2e 的解析结果就是 pom.xml 上的错误诊断
   （缺少构件、父 POM 解析失败等）。两个平台都把工作区内 pom.xml 的错误诊断
   列在 Maven 工具窗口，并对每个不同的问题集合发一次可跳转的通知；原来的
@@ -319,14 +323,19 @@ Lithe 不自己判断“要不要重解析”，而是按 JDT LS 上游（vscode
   缓存已加载的 settings，路径不变时不会重新读取，强制更新仍然用旧镜像和旧仓库。
 
 **代价。** JDT 状态目录里多出小的设置副本，其中可能包含用户 settings.xml 里的
-服务器凭据；它们和原文件同属用户私有缓存目录，旧副本在每次生成后清理。强制
+服务器凭据；它们位于平台提供的用户缓存目录，Unix 新文件权限为 `0600`。
+配置生成和发布使用会话专用串行锁，磁盘操作不占用协议锁；临时文件独占创建并带
+进程内唯一编号，避免并发写入覆盖。旧副本保留到 JDT 工作区缓存过期或重建索引时
+一起清理，因为通知写入管道并不代表 JDT LS 已读取文件。不能在下一次生成时删除
+上一份副本；否则导入中的服务可能读到已经不存在的路径。这些副本属于会话可变
+状态，禁止跨工作树复用，见资源清单 `jdt-maven-settings` 排除项。强制
 更新会重新解析所有 Maven 项目，大工程上比“什么都不做”慢，但这正是用户点重新加载
 时要的结果。
 
-**验证。** Rust Core `cargo test --manifest-path rust/lithe-core/Cargo.toml maven`
-覆盖内容寻址（内容变路径变、相同内容复用、旧副本清理、默认用户设置、读不到时降级），
+**验证。** Rust Core `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib`
+覆盖内容寻址（内容变路径变、相同内容复用、旧副本保留、临时文件所有权、默认用户设置、读不到时降级），
 以及 `update_maven_configuration` 的四条路径（设置变化、强制更新、握手前更新、
-profile 变化与任务期间变更）。Windows `bun test src/platform src/features/maven`
+profile 变化、失败或超时期间变更补跑、握手前无设置变化的强制重载）。Windows `bun test src/platform src/features/maven`
 覆盖命令路由、错误包装、实时同步、重新加载先走强制更新、pom 问题提取；macOS
 `LanguageIntelligenceModuleTests`、`ExecutionModuleTests` 覆盖原地更新、回退重启和
 设置实时同步。

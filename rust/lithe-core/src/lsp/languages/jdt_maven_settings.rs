@@ -16,7 +16,9 @@
 use crate::project::MavenJdtConfiguration;
 use crate::protocol::{CoreError, ErrorCode};
 use sha2::{Digest, Sha256};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Directory inside the JDT LS `-data` directory that holds the copies.
 const SETTINGS_DIRECTORY: &[&str] = &[".lithe", "maven"];
@@ -75,7 +77,8 @@ pub(crate) fn default_user_settings_path(
 }
 
 /// Writes the content-addressed settings copies for `configuration` into
-/// `directory` and removes copies no longer referenced.
+/// `directory`. Copies remain valid until the owning JDT workspace is removed:
+/// sending a notification does not acknowledge that JDT LS has read the file.
 ///
 /// The user-level source is the configured settings file, else Maven's default
 /// user settings when they exist, else an empty document when only a local
@@ -87,7 +90,6 @@ pub(crate) fn materialize(
     default_user_settings: Option<&Path>,
 ) -> Result<MaterializedMavenSettings, CoreError> {
     let mut warnings = Vec::new();
-    let mut current = Vec::new();
 
     let user_source = match configuration.settings_path.as_deref() {
         Some(path) => Some(SettingsSource::Configured(path.to_string())),
@@ -112,7 +114,6 @@ pub(crate) fn materialize(
                     None => document,
                 };
                 let path = write_copy(directory, USER_SETTINGS_PREFIX, &document)?;
-                current.push(path.clone());
                 Some(path.to_string_lossy().into_owned())
             }
             Err((path, error)) => {
@@ -129,7 +130,6 @@ pub(crate) fn materialize(
         Some(path) => match std::fs::read_to_string(path) {
             Ok(document) => {
                 let copy = write_copy(directory, GLOBAL_SETTINGS_PREFIX, &document)?;
-                current.push(copy.clone());
                 Some(copy.to_string_lossy().into_owned())
             }
             Err(error) => {
@@ -141,7 +141,6 @@ pub(crate) fn materialize(
         },
     };
 
-    remove_unreferenced_copies(directory, &current);
     Ok(MaterializedMavenSettings {
         user_settings_path,
         global_settings_path,
@@ -187,9 +186,43 @@ fn write_copy(directory: &Path, prefix: &str, document: &str) -> Result<PathBuf,
         )
         .with_details(error.to_string())
     })?;
-    let staging = directory.join(format!(".{prefix}{}.tmp", std::process::id()));
-    std::fs::write(&staging, document)
-        .and_then(|()| std::fs::rename(&staging, &target))
+    static NEXT_COPY: AtomicU64 = AtomicU64::new(0);
+    // Exclusive creation also avoids truncating a stale staging file after PID reuse.
+    let (staging, mut file) = loop {
+        let nonce = NEXT_COPY.fetch_add(1, Ordering::Relaxed);
+        let path = directory.join(format!(".{prefix}{}-{nonce}.tmp", std::process::id()));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        match options.open(&path) {
+            Ok(file) => break (path, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => {
+                return Err(CoreError::new(
+                    ErrorCode::ProcessStartFailed,
+                    "Could not create the generated Maven settings.",
+                )
+                .with_details(error.to_string()))
+            }
+        }
+    };
+    file.write_all(document.as_bytes())
+        .and_then(|()| {
+            drop(file);
+            std::fs::rename(&staging, &target).or_else(|error| {
+                // Windows can reject replacing a copy another writer just published.
+                // Only accept that result when the full content matches.
+                if std::fs::read(&target).is_ok_and(|bytes| bytes == document.as_bytes()) {
+                    std::fs::remove_file(&staging)
+                } else {
+                    Err(error)
+                }
+            })
+        })
         .map_err(|error| {
             let _ = std::fs::remove_file(&staging);
             CoreError::new(
@@ -199,26 +232,6 @@ fn write_copy(directory: &Path, prefix: &str, document: &str) -> Result<PathBuf,
             .with_details(error.to_string())
         })?;
     Ok(target)
-}
-
-/// Removes copies an earlier configuration of this workspace produced.
-///
-/// JDT LS has already loaded the settings it was given, so an older copy is
-/// never read again. Removal is best effort: a leftover file is harmless and
-/// disappears with the workspace state.
-fn remove_unreferenced_copies(directory: &Path, current: &[PathBuf]) {
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let name = entry.file_name().to_string_lossy().into_owned();
-        let generated = name.ends_with(".xml")
-            && (name.starts_with(USER_SETTINGS_PREFIX) || name.starts_with(GLOBAL_SETTINGS_PREFIX));
-        if generated && !current.contains(&path) {
-            let _ = std::fs::remove_file(path);
-        }
-    }
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -459,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn copies_from_an_earlier_configuration_are_removed() {
+    fn copies_remain_readable_until_the_workspace_is_removed() {
         let scratch = Scratch::new("prune");
         let first = materialize(
             &scratch.copies(),
@@ -474,8 +487,24 @@ mod tests {
         )
         .expect("second");
 
-        assert!(!Path::new(first.user_settings_path.as_deref().unwrap()).exists());
+        assert!(read(&first.user_settings_path).contains("/first"));
         assert!(Path::new(second.user_settings_path.as_deref().unwrap()).exists());
+    }
+
+    #[test]
+    fn an_unowned_staging_file_is_never_truncated_or_removed() {
+        let scratch = Scratch::new("staging-owner");
+        let copies = scratch.copies();
+        std::fs::create_dir_all(&copies).unwrap();
+        // The old PID-only name could belong to another update in this process.
+        let other = copies.join(format!(".{USER_SETTINGS_PREFIX}{}.tmp", std::process::id()));
+        std::fs::write(&other, "another writer's settings").unwrap();
+        let result = materialize(&copies, &configuration(None, None, Some("/new")), None).unwrap();
+        assert!(read(&result.user_settings_path).contains("/new"));
+        assert_eq!(
+            std::fs::read_to_string(other).unwrap(),
+            "another writer's settings"
+        );
     }
 
     #[test]

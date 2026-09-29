@@ -1402,6 +1402,8 @@ empty document when only `localRepositoryPath` is set, and carries that local
 repository override. JDT LS detects settings changes by comparing paths, so a
 content change must always produce a new path. An unreadable document is passed
 by its original path with a session warning instead of failing startup.
+Copies remain readable until JDT workspace cache eviction or index rebuilding;
+notification delivery is not an acknowledgement that the server read them.
 
 `lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
 reloadProjects? }` for a running Java session started with a `mavenContext`,
@@ -1413,7 +1415,13 @@ itself. When they are unchanged and `reloadProjects` is `true`, Core sends
 re-resolves dependencies even though no `pom.xml` changed. Changed profiles
 restart the profile task once the session is ready. Before the `initialized`
 handshake, the new configuration replaces the one the pending settings
-notification sends. A stopped or failed session returns `invalidRequest`.
+notification sends. Explicit reloads received before `ServiceReady` are coalesced
+and sent once projects are ready, even when settings are unchanged. Response
+booleans describe actions sent immediately, not queued work. A newer profile
+selection is applied after the preceding batch terminates, including failed
+batches; timed-out requests must all drain before that follow-up can start.
+The same failed selection is not automatically retried.
+A stopped or failed session returns `invalidRequest`.
 Resolution problems are not part of the response; JDT LS reports them as
 `pom.xml` diagnostics.
 

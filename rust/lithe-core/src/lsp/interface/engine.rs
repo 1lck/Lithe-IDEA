@@ -562,6 +562,10 @@ struct SessionState {
     /// configuration replaced while the task runs is applied by a follow-up
     /// task instead of being recorded as applied.
     maven_profile_running_fingerprint: Option<String>,
+    /// A newer profile selection waiting for the previous batch to drain.
+    maven_profile_update_pending: bool,
+    /// Explicit reload retained until JDT LS has imported its projects.
+    maven_project_reload_pending: bool,
     // Request IDs retain their owning task generation until a terminal response
     // arrives, including responses to advisory cancellation after a timeout.
     maven_profile_generation: u64,
@@ -585,6 +589,9 @@ struct RuntimeSession {
     /// Inputs for rebuilding `jdt_maven_configuration`; `None` when the session
     /// started without a Maven context.
     maven_inputs: Option<SessionMavenInputs>,
+    /// Serializes configuration preparation and publication without blocking
+    /// protocol processing on filesystem I/O. Never acquired by protocol workers.
+    maven_update_order: Mutex<()>,
     /// JDKs JDT LS may bind projects to, one per execution environment.
     jdt_java_runtimes: Vec<JdtJavaRuntime>,
     /// Workspace URI the server was initialized with; scopes workspace-wide
@@ -725,8 +732,13 @@ impl RuntimeSession {
                 "Maven configuration updates require a Java language session started for a Maven project.",
             ));
         };
-        // Reading and writing the settings copies happens before any session
-        // lock is taken, so slow storage never blocks protocol handling.
+        let _update_order = self.maven_update_order.lock().map_err(|_| {
+            CoreError::new(
+                ErrorCode::InvalidRequest,
+                "Maven configuration update lock failed.",
+            )
+        })?;
+        // Disk I/O holds only the update serializer, never a protocol/state lock.
         let (next, warnings) = inputs.configuration(context)?;
         let next = Arc::new(next);
 
@@ -767,12 +779,17 @@ impl RuntimeSession {
             .as_ref()
             .is_none_or(|previous| previous.profiles != next.profiles);
 
+        {
+            let mut state = self.lock_state()?;
+            state.maven_profile_update_pending |= profiles_changed;
+            state.maven_project_reload_pending |= reload_projects && !ready;
+        }
         let mut messages = Vec::new();
         let mut projects_reloaded = false;
         if initialized {
             let notification = if settings_changed {
                 Some(settings_notification(self.jdt_settings(Some(&next))))
-            } else if reload_projects {
+            } else if reload_projects && ready {
                 projects_reloaded = true;
                 project_update_notification(&next)
             } else {
@@ -1279,6 +1296,7 @@ impl LspEngine {
             provider_id: request.provider_id,
             jdt_maven_configuration: Mutex::new(jdt_maven_configuration),
             maven_inputs,
+            maven_update_order: Mutex::new(()),
             jdt_java_runtimes,
             root_uri: request.root_uri,
             outbound_order: Mutex::new(()),
@@ -1318,6 +1336,8 @@ impl LspEngine {
                 maven_profile_deadline: None,
                 maven_profile_applied_fingerprint: None,
                 maven_profile_running_fingerprint: None,
+                maven_profile_update_pending: false,
+                maven_project_reload_pending: false,
                 maven_profile_generation: 0,
                 maven_profile_request_generations: BTreeMap::new(),
                 java_builds: JavaBuildCoordinator::default(),
@@ -2738,11 +2758,10 @@ impl RuntimeSession {
                         let task_status = state.maven_profile_status;
                         push_maven_profile_task_event(self, &mut state, task_status);
                         let applied = state.maven_profile_running_fingerprint.take();
+                        // A newer configuration must run even when this batch failed.
+                        apply_maven_context |= applied
+                            != maven_profile_fingerprint(self.maven_configuration().as_deref());
                         if state.maven_profile_status == MavenProfileTaskStatus::Succeeded {
-                            // A configuration update that arrived while this
-                            // task ran is not what it applied; start again.
-                            apply_maven_context |= applied
-                                != maven_profile_fingerprint(self.maven_configuration().as_deref());
                             state.maven_profile_applied_fingerprint = applied;
                         }
                         let profile_log_level =
@@ -3132,6 +3151,27 @@ impl RuntimeSession {
             }
             return Ok(());
         }
+        if service_ready {
+            let reload = {
+                let mut state = self.lock_state()?;
+                std::mem::take(&mut state.maven_project_reload_pending)
+            };
+            if reload {
+                if let Some(notification) = self
+                    .maven_configuration()
+                    .as_deref()
+                    .and_then(project_update_notification)
+                {
+                    outbound.push(
+                        json!({
+                            "jsonrpc": "2.0", "method": notification.method,
+                            "params": notification.params
+                        })
+                        .to_string(),
+                    );
+                }
+            }
+        }
         if apply_maven_context {
             let (profile_requests, profiles_pending) = self.maven_profile_requests()?;
             if profiles_pending {
@@ -3227,13 +3267,15 @@ impl RuntimeSession {
         let maven = self.maven_configuration();
         let fingerprint = maven_profile_fingerprint(maven.as_deref());
         let requests = maven_profile_update_requests(maven.as_deref());
+        let mut state = self.lock_state()?;
         if requests.is_empty() {
+            state.maven_profile_update_pending = false;
             return Ok((Vec::new(), false));
         }
-        let mut state = self.lock_state()?;
         if state.maven_profile_applied_fingerprint.as_ref() == fingerprint.as_ref()
             && state.maven_profile_status == MavenProfileTaskStatus::Succeeded
         {
+            state.maven_profile_update_pending = false;
             return Ok((Vec::new(), false));
         }
         if state
@@ -3250,6 +3292,7 @@ impl RuntimeSession {
         let deadline = now + state.service_ready_absolute_timeout;
         state.maven_profile_deadline = Some(deadline);
         state.maven_profile_running_fingerprint = fingerprint;
+        state.maven_profile_update_pending = false;
         let project_count = requests.len();
         const MAX_IN_FLIGHT: usize = 8;
         let requests = requests;
@@ -3539,12 +3582,40 @@ impl RuntimeSession {
 
     fn pump_outbound_maintenance(&self) {
         if !self.lock_state().is_ok_and(|state| {
-            state.java_builds.has_queued() || !state.deadline_cancellations.is_empty()
+            state.java_builds.has_queued()
+                || !state.deadline_cancellations.is_empty()
+                || (state.maven_profile_update_pending
+                    && state.lifecycle == LspLifecycleState::Ready
+                    && !state
+                        .pending
+                        .values()
+                        .any(|pending| pending.kind == PendingKind::JdtMavenProfiles))
         }) {
             return;
         }
         let Ok(outbound_order) = self.outbound_order.try_lock() else {
             return;
+        };
+        // Timed-out requests retain their slots until terminal replies arrive.
+        // Only then may a newer selection start; never automatically retry the
+        // same failed configuration.
+        let update_profiles = self.lock_state().is_ok_and(|state| {
+            state.maven_profile_update_pending && state.lifecycle == LspLifecycleState::Ready
+        });
+        let profile_messages = if update_profiles {
+            match self.maven_profile_requests() {
+                Ok((messages, _)) => messages,
+                Err(error) => {
+                    self.log(
+                        "warn",
+                        "Could not start the pending Maven profile update",
+                        Some(error.message),
+                    );
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
         };
         let Ok(mut state) = self.lock_state() else {
             return;
@@ -3556,6 +3627,7 @@ impl RuntimeSession {
                     .to_string()
             })
             .collect();
+        messages.extend(profile_messages);
         messages.extend(self.dispatch_java_build_locked(&mut state, Instant::now()));
         if messages.is_empty() {
             return;
@@ -4988,6 +5060,8 @@ fn clear_runtime_state(session: &RuntimeSession, state: &mut SessionState) {
     state.deadline_cancellations.clear();
     state.maintenance_write_deadline = None;
     state.pending_workspace_file_changes.clear();
+    state.maven_profile_update_pending = false;
+    state.maven_project_reload_pending = false;
     state.initialize_deadline = None;
     state.shutdown_deadline = None;
     push_features_event(session, state, Vec::new());
@@ -5869,7 +5943,58 @@ mod tests {
         let document =
             std::fs::read_to_string(user_settings(&sent[0])).expect("the copy should exist");
         assert!(document.contains("<localRepository>/fixture/early</localRepository>"));
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
+    }
+
+    #[test]
+    fn unchanged_settings_reload_before_initialize_waits_for_service_ready() {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-reload-before-ready");
+        let context = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(context.clone());
+        });
+        let session = harness.session();
+        session
+            .update_maven_configuration(context.clone(), true)
+            .unwrap();
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness
+            .server
+            .await_notification("workspace/didChangeConfiguration"));
+        // Reloads coalesce, including another request during project import.
+        session.update_maven_configuration(context, true).unwrap();
         assert!(notifications(&harness, "java/projectConfigurationsUpdate").is_empty());
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc": "2.0", "method": "language/status",
+                    "params": { "type": "ServiceReady" }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        harness.await_state(LspLifecycleState::Ready);
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
+        session
+            .handle_server_message(
+                json!({
+                    "jsonrpc": "2.0", "method": "language/status",
+                    "params": { "type": "ServiceReady" }
+                })
+                .to_string(),
+            )
+            .unwrap();
+        assert_eq!(
+            notifications(&harness, "java/projectConfigurationsUpdate").len(),
+            1
+        );
     }
 
     #[test]
@@ -5966,6 +6091,104 @@ mod tests {
             request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
             "prod"
         );
+    }
+
+    #[test]
+    fn a_new_profile_selection_runs_after_a_failed_batch() {
+        profile_selection_after_unsuccessful_batch(false);
+    }
+
+    #[test]
+    fn a_new_profile_selection_waits_for_timed_out_requests_to_drain() {
+        profile_selection_after_unsuccessful_batch(true);
+    }
+
+    fn profile_selection_after_unsuccessful_batch(timeout: bool) {
+        let workspace = TemporaryMavenWorkspace::recursive("maven-profile-failure-followup");
+        let context = workspace.context_with_settings("<settings/>", None);
+        let mut harness = Harness::start(|request| {
+            workspace.configure(request);
+            request.maven_context = Some(context.clone());
+        });
+        harness
+            .server
+            .complete_java_initialize(ready_capabilities());
+        harness.await_state(LspLifecycleState::Ready);
+        let session = harness.session();
+        let first_batch: Vec<_> = (0..3)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .unwrap()
+            })
+            .collect();
+        let mut next = context;
+        next.profiles = vec!["prod".to_string()];
+        assert!(
+            session
+                .update_maven_configuration(next, false)
+                .unwrap()
+                .profiles_updating
+        );
+        if timeout {
+            // Advance the owned deadlines directly; no wall-clock wait or overlap.
+            {
+                let mut state = session.lock_state().unwrap();
+                for pending in state.pending.values_mut() {
+                    if pending.kind == PendingKind::JdtMavenProfiles {
+                        pending.deadline = Instant::now();
+                    }
+                }
+            }
+            session.expire_deadlines();
+        }
+        for (index, id) in first_batch.into_iter().enumerate() {
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": { "code": -32603, "message": "old profile failed" }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+            session.pump_outbound_maintenance();
+            if index < 2 {
+                assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 3);
+            }
+        }
+        let second_batch: Vec<_> = (3..6)
+            .map(|index| {
+                harness
+                    .server
+                    .await_request_at("workspace/executeCommand", index)
+                    .unwrap()
+            })
+            .collect();
+        for request in notifications(&harness, "workspace/executeCommand")
+            .iter()
+            .skip(3)
+        {
+            assert_eq!(
+                request["params"]["arguments"][1]["org.eclipse.m2e.core.selectedProfiles"],
+                "prod"
+            );
+        }
+        // A failure of the latest selection is terminal, not an infinite retry loop.
+        for id in second_batch {
+            session
+                .handle_server_message(
+                    json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": { "code": -32603, "message": "new profile failed" }
+                    })
+                    .to_string(),
+                )
+                .unwrap();
+        }
+        session.pump_outbound_maintenance();
+        assert_eq!(notifications(&harness, "workspace/executeCommand").len(), 6);
     }
 
     #[test]
