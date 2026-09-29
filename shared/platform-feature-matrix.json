@@ -100,6 +100,8 @@
           "windows/tauri/src/features/agent/components/agent-history-list.tsx",
           "windows/tauri/src/features/agent/hooks/use-agent-history.ts",
           "windows/tauri/src/features/agent/services/agent-history-annotations.ts",
+          "windows/tauri/src/features/agent/services/agent-history-export.ts",
+          "windows/tauri/src/features/agent/services/agent-history-save.ts",
           "windows/tauri/src/features/agent/services/agent-history-store.ts",
           "windows/tauri/src/features/agent/services/agent-history-view.ts",
           "windows/tauri/src/features/agent/services/agent-history.test.ts"
@@ -108,7 +110,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 面板已实现筛选（全部/收藏/已移除）、标题与 ID 搜索、复制会话 ID、收藏、本地重命名、单条与批量移除确认及恢复，标注按项目与 Agent 隔离并存在平台 store（agent-history.json），重复写入前先重读以免多窗口互相覆盖；Markdown 导出与独立历史页仍未实现，消息数量只在会话已加载时显示。"
+      "verification": "macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 面板已实现筛选（全部/收藏/已移除）、标题与 ID 搜索、复制会话 ID、收藏、本地重命名、单条与批量移除确认及恢复，标注按项目与 Agent 隔离并存在平台 store（agent-history.json），重复写入前先重读以免多窗口互相覆盖；Markdown 导出已实现：先按需重放未打开的会话（导出用的加载不打开标签页），全部加载成功后才写文件，取消保存对话框不写文件，超过 32 MiB 直接报错；独立历史页仍未实现，消息数量只在会话已加载时显示。"
     },
     {
       "id": "agent-context-usage",

@@ -10,6 +10,15 @@ import { useAgentManagement } from "../hooks/use-agent-management";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
 import { useAgentHistory } from "../hooks/use-agent-history";
 import {
+  AgentHistoryExportError,
+  saveHistoryMarkdown,
+} from "../services/agent-history-save";
+import {
+  historyMarkdown,
+  type AgentHistoryDocument,
+} from "../services/agent-history-export";
+import { historyTitle } from "../services/agent-history-view";
+import {
   agentConnection,
   agentDataDirectory,
   closeAgentConnection,
@@ -108,6 +117,68 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     agentConnection().answerPermission(optionID);
   }, []);
 
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  /**
+   * Replay every selected transcript, then write one Markdown file.
+   *
+   * Nothing is written until all transcripts are complete, so a session that
+   * cannot be replayed reports an error instead of leaving a partial export.
+   */
+  const exportSessions = useCallback(
+    async (sessionIDs: string[]) => {
+      if (sessionIDs.length === 0 || isExporting) return;
+      const connection = agentConnection();
+      const listed = connection.getSnapshot().sessions;
+      setIsExporting(true);
+      setExportError(null);
+      try {
+        if (!sessionIDs.every((sessionID) => connection.canExportTranscript(sessionID))) {
+          setExportError(t("agent.history.exportUnfinished"));
+          return;
+        }
+        const documents: AgentHistoryDocument[] = [];
+        for (const sessionID of sessionIDs) {
+          const messages = await connection.historyTranscript(sessionID);
+          if (messages === null) {
+            setExportError(t("agent.history.exportUnfinished"));
+            return;
+          }
+          const session = listed.find((entry) => entry.id === sessionID);
+          documents.push({
+            id: sessionID,
+            title:
+              session === undefined ? null : historyTitle(session, history.metadata),
+            messages,
+          });
+        }
+        await saveHistoryMarkdown(
+          historyMarkdown(documents, {
+            untitled: t("agent.tabs.untitled"),
+            you: t("agent.history.you"),
+            tool: t("agent.history.tool"),
+          }),
+          {
+            title: t("agent.history.export"),
+            fileType: t("agent.history.exportFileType"),
+            tooLarge: t("agent.history.exportTooLarge"),
+            failed: t("agent.history.exportFailed"),
+          },
+        );
+      } catch (error) {
+        setExportError(
+          error instanceof AgentHistoryExportError
+            ? error.message
+            : t("agent.history.exportFailed"),
+        );
+      } finally {
+        setIsExporting(false);
+      }
+    },
+    [history.metadata, isExporting, t],
+  );
+
   const canSend =
     status === "ready" &&
     (conversation === null ||
@@ -198,13 +269,16 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
         metadata={history.metadata}
         conversations={snapshot.conversations}
         isRefreshing={snapshot.isRefreshingSessions}
-        error={snapshot.historyError ?? history.error}
+        error={snapshot.historyError ?? history.error ?? exportError}
         canRefresh={snapshot.canLoadSessions && status === "ready"}
         onRefresh={() => agentConnection().refreshSessions()}
         onSelect={(sessionID) => agentConnection().selectSession(sessionID)}
         onRename={history.rename}
         onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
         onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
+        isExporting={isExporting}
+        onExport={(sessionIDs) => void exportSessions(sessionIDs)}
+        canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
       />
 
       <AgentConversationTabs

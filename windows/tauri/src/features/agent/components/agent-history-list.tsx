@@ -8,6 +8,7 @@ import {
   ArrowCounterClockwiseIcon,
   CheckIcon,
   CopyIcon,
+  DownloadSimpleIcon,
   PencilSimpleIcon,
   StarIcon,
   TrashIcon,
@@ -35,6 +36,9 @@ interface AgentHistoryListProps {
   onRename: (sessionID: string, title: string) => Promise<boolean>;
   onSetFavorite: (sessionIDs: string[], favorite: boolean) => void;
   onSetHidden: (sessionIDs: string[], hidden: boolean) => void;
+  isExporting: boolean;
+  onExport: (sessionIDs: string[]) => void;
+  canExportSession: (sessionID: string) => boolean;
 }
 
 /**
@@ -57,6 +61,9 @@ export function AgentHistoryList({
   onRename,
   onSetFavorite,
   onSetHidden,
+  isExporting,
+  onExport,
+  canExportSession,
 }: AgentHistoryListProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -194,6 +201,15 @@ export function AgentHistoryList({
             type="button"
             size="xs"
             variant="ghost"
+            disabled={selected.length === 0 || isExporting}
+            onClick={() => onExport(selected)}
+          >
+            {t("agent.history.export")}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
             disabled={selected.length === 0}
             onClick={() => onSetFavorite(selected, true)}
           >
@@ -320,6 +336,17 @@ export function AgentHistoryList({
                     onClick={() => void rename(sessionID, row.title)}
                   >
                     <PencilSimpleIcon className="size-3" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon-xs"
+                    variant="ghost"
+                    disabled={isExporting || !canExportSession(sessionID)}
+                    tooltip={t("agent.history.export")}
+                    aria-label={t("agent.history.export")}
+                    onClick={() => onExport([sessionID])}
+                  >
+                    <DownloadSimpleIcon className="size-3" />
                   </Button>
                   <Button
                     type="button"

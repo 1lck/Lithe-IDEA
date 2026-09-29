@@ -50,7 +50,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
   - **Windows 启动配置对齐 macOS**：`services/agent-launch.ts` 复刻 `AppModel.agentLaunchConfiguration(agentID:)` 的规则——订阅模式不携带供应商，且只有 `codex-acp` 能用订阅；API Key 模式需要 endpoint 和 Key，缺哪一项就报对应原因；自定义 Agent 必须有可执行文件。失败原因用 `AgentLaunchFailure` 枚举返回，由界面按当前语言翻译，Rust 或 Tauri 的原始错误不会直接给用户看。自定义参数按 macOS 的“一行一个”解析（`agentArguments`），不要按空格切分：带空格的参数会被拆成两个。
   - **Windows 的能力门禁**：`config/backend-capabilities.ts` 的 `agent` 改成 `true`，因为 Windows 已经有 Agent 后端。同样被判成 agent 的老命令（`acp_*`、`codex_*`、`ai_provider`、`_chat`、`get_available_agents`）改判给新增的 `aiChat` 能力并保持 `false`：它们在 Windows 上没有后端，直接翻 `agent` 只会把“待开发”提示变成运行期报错。#957 删掉 `features/ai` 后 `aiChat` 可以一起删。
   - **Windows 的安装进度与超时**：`windows/tauri/src-tauri/src/platform.rs` 的 `platform_invoke` 同时接受 `gitEvents` 和 `agentEvents` 两个通道，并按事件的 `kind` 分派：Git 执行事件走前者，`agentInstallProgress` 走后者。适配器安装用用户本机 npm，可能下载几分钟，所以这类请求不写 `timeoutMilliseconds`：信封默认的 30 秒会在下载中途取消它，而共享 host 自己已有 15 分钟的安装上限，macOS 同样不给 `agent.*` 设信封超时。
-  - **Windows 的历史标注存在平台 store**：收藏、本地标题和“已移除”是 Lithe 自己的标注，写在平台 store（`agent-history.json`），键为“Agent ID + 工作区路径”，绝不写进发行包或 Agent 的会话文件。macOS 用的是偏好存储（`MacAgentHistoryPersistence` 的 `lithe.agent-history.v1.<digest>`），两端都只存标注、不复制转录。每次修改前先重读再合并保存，避免两个窗口互相覆盖对方的标注；筛选、搜索和批量操作只作用于当前可见行。
+  - **Windows 的历史标注存在平台 store**：收藏、本地标题和“已移除”是 Lithe 自己的标注，写在平台 store（`agent-history.json`），键为“Agent ID + 工作区路径”，绝不写进发行包或 Agent 的会话文件。macOS 用的是偏好存储（`MacAgentHistoryPersistence` 的 `lithe.agent-history.v1.<digest>`），两端都只存标注、不复制转录。每次修改前先重读再合并保存，避免两个窗口互相覆盖对方的标注；筛选、搜索和批量操作只作用于当前可见行。导出前先按需重放未打开的会话（这类加载不打开标签页），全部加载成功后才写用户选定的文件：取消保存对话框不写文件，超过 32 MiB 直接报错，任何一步失败都不产出半份记录。
   - **Key 和模型的传法**：API Key 模式的适配器通过 ACP `gateway` 登录，Key 经 stdio 传给 Agent，请求头按协议选择：Responses 协议用 `Authorization: Bearer`，Anthropic 协议用 `x-api-key`。模型按适配器分别传：Codex 用 `CODEX_CONFIG`，Claude 用 `ANTHROPIC_MODEL`。服务商配置里的"模型"必须传给 Agent：实测某个网关禁用了 Codex 的默认模型，不传模型时 Agent 只会回复一条网关报错。
   - **设置放在面板里，只有 Agent 管理一页**：Agent 的开关、预检清单（Node、npm、CLI、适配器、本机配置）、适配器和 CLI 的一键安装都在 Agent 面板右上角的设置视图里，不进全局设置窗口。布局仿照 Codeg 和 CC GUI：左侧图标栏，右侧标题加分段切换各个 Agent。
    - **本机配置保留 CLI 所有权**：每个 Agent 通过本机配置行读取用户自己 CLI 的地址、模型和密钥（Codex 读 `~/.codex/config.toml` 和 `auth.json`，Claude 读 `~/.claude/settings.json` 和 `~/.claude.json`），生成的服务商配置绑定到该 Agent。本机模式的密钥不复制进 Lithe，启动时从用户文件现读；要改本机地址或密钥时编辑自己的文件再刷新。需要独立配置时使用上面的自定义供应商编辑器，不改写 CLI 文件，也不改变提交信息使用的服务商选择。
@@ -116,7 +116,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 
 代价：
 
-- Windows 面板已覆盖会话、消息流、工具证据与权限确认、供应商与订阅切换、上下文用量和额度；历史已支持筛选、搜索、复制会话 ID、收藏、重命名、单条与批量移除及恢复，标注存在平台 store 并按项目与 Agent 隔离；Markdown 导出和独立历史页仍未实现。共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
+- Windows 面板已覆盖会话、消息流、工具证据与权限确认、供应商与订阅切换、上下文用量和额度；历史已支持筛选、搜索、复制会话 ID、收藏、重命名、单条与批量移除及恢复，标注存在平台 store 并按项目与 Agent 隔离，也支持把选中的会话导出成一个 Markdown 文件；独立历史页（独立页面而非面板内列表）仍未实现。共享 host 在 Windows 上的适配器启动和进程树回收还没有真机端到端验收。进程树回收本身已用受控假适配器（`windows/tauri/src-tauri/src/bin/fake_acp_adapter.rs`）验证：它会派生一个继承 stdout 的孙进程，模拟 codex-acp 的 app-server，只杀外层进程会留下它并占住输出管道；普通 Rust 测试由此确认“关闭连接”和“销毁窗口”两条路径都回收了整棵树。退出与窗口销毁并发的时序仍由注册表计数和可控 gate 测试覆盖，不用真实 Agent 复现。
 - Rust C ABI 和 fixture 成为兼容面，两端界面仍要分别维护。
 - 用户需要自行安装 Node.js，适配器可以在面板内安装。
 - codex-acp 丢失取消时，最多等待十秒后需要用户重连；同一进程的其他会话也会断开。上游未持久化的最后片段可能无法完整回放，界面保留旧记录用于诊断，不能保证 Agent 保存了未完成轮次。
@@ -126,7 +126,7 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
 - 真实账号验收：先用 API Key 对话，空闲切换 Codex 订阅，确认请求使用本机账号；未登录时确认打开面板不会启动浏览器，点击登录与取消正确；上下文右侧额度每分钟更新，断网后灰显，换账号后旧值清除，关闭项目不残留探测进程。Claude 不出现订阅入口。Windows 面板已接入连接、供应商与订阅切换、上下文用量和额度，仍需在 Windows 上用真实适配器做一次端到端验收（本机 Node/npm 探测、`.cmd` shim 启动、进程树回收与完整对话）。
-- `bun test src/features/agent/`（Windows 面板的纯函数：用量与额度解析、会话配置、转录归约、权限队列、文件引用、安装进度事件、历史标注与筛选排序，以及 `agent.*` 响应解析）与 `bun test src/platform`（`agent_open`/`agent_send`/`agent_close` 的原生命令路由）。
+- `bun test src/features/agent/`（Windows 面板的纯函数：用量与额度解析、会话配置、转录归约、权限队列、文件引用、安装进度事件、历史标注与筛选排序、导出用的重放与 Markdown 渲染，以及 `agent.*` 响应解析）与 `bun test src/platform`（`agent_open`/`agent_send`/`agent_close` 的原生命令路由）。
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml platform::`（信封期限与事件通道分派：`agent.install`/`agent.installCli` 不带 30 秒期限，`agentInstallProgress` 只发给 agent 通道，Git 执行事件只发给 git 通道）
 
 - `cargo test -p lithe-agent-host --manifest-path rust/Cargo.toml`
