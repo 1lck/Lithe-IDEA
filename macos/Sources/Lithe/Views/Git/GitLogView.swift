@@ -57,6 +57,8 @@ struct GitLogView: View {
     @State private var graphPresentation = GitGraphPresentation.empty
     @FocusState private var gitLogSearchFocused: Bool
     @FocusState private var gitLogCommitListFocused: Bool
+    @FocusState private var gitToolFocused: Bool
+    @Environment(\.controlActiveState) private var controlActiveState
 
     private struct ConsoleTailState: Equatable {
         let id: UUID?
@@ -96,6 +98,10 @@ struct GitLogView: View {
             primaryContent
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
+        .focusable()
+        .focused($gitToolFocused)
+        .gitLogFocusEffectHidden()
+        .onAppear { gitLogCommitListFocused = true }
         .task(id: graphProjectionIdentity) {
             let identity = graphProjectionIdentity
             let commits = feature.gitCommits
@@ -478,6 +484,11 @@ struct GitLogView: View {
         return HStack(spacing: 0) {
             Button {
                 selectedGitToolTab = tab
+                if tab == .log {
+                    gitLogCommitListFocused = true
+                } else {
+                    gitToolFocused = true
+                }
                 if tab == .console {
                     Task { await feature.loadGitConsoleIfNeeded() }
                 }
@@ -492,38 +503,29 @@ struct GitLogView: View {
                             .truncationMode(.middle)
                     }
                 }
-                .font(GitVisual.toolbar)
+                .font(.system(size: 13))
                 .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
                 .lineLimit(1)
-                .padding(.leading, 9)
-                .padding(.trailing, showsCloseButton ? 4 : 9)
-                .frame(height: 27)
+                .padding(.leading, 8)
+                .padding(.trailing, showsCloseButton ? 3 : 8)
+                .frame(height: 28)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .lithePointer()
 
             if showsCloseButton {
-                Button {
+                LitheToolWindowTabCloseButton {
                     selectedGitToolTab = .log
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 8.5, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 20, height: 27)
-                        .contentShape(Rectangle())
+                    gitLogCommitListFocused = true
                 }
-                .buttonStyle(.plain)
-                .lithePointer()
                 .help("Close Git console")
             }
         }
-        .background(isSelected ? LitheTheme.subtleSelection : .clear)
-        .clipShape(RoundedRectangle(cornerRadius: 5))
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(isSelected ? LitheTheme.inputFocusBorder.opacity(0.72) : .clear, lineWidth: 1)
-        }
+        .modifier(LitheToolWindowTabStyle(
+            isSelected: isSelected,
+            isActive: controlActiveState == .key
+                && (gitToolFocused || gitLogSearchFocused || gitLogCommitListFocused)
+        ))
     }
 
     private var gitConsolePane: some View {

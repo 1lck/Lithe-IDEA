@@ -173,23 +173,12 @@ struct TerminalView: View {
                 model.selectTerminalSession(session)
             }
 
-            Button {
+            LitheToolWindowTabCloseButton {
                 model.requestCloseTerminalSession(session)
-            } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
-                              fallbackSystemImage: "xmark", preservesOriginalColors: true)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
             .help("Close \(feature.terminalTitle(for: session))")
         }
-        .background(isSelected ? selectedTabBackground : .clear)
-        .overlay {
-            RoundedRectangle(cornerRadius: 6)
-                .strokeBorder(isSelected ? selectedTabBorder : .clear, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: terminalHasFocus))
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -220,30 +209,6 @@ struct TerminalView: View {
                 })
             ]
         }
-    }
-
-    private var selectedTabBackground: Color {
-        guard LitheTheme.activeTheme == .lithe else {
-            return terminalHasFocus ? LitheTheme.activeTabBackground : LitheTheme.subtleSelection
-        }
-        if colorScheme == .dark {
-            return terminalHasFocus ? Color(red: 35/255, green: 53/255, blue: 88/255)
-                                    : Color(red: 38/255, green: 40/255, blue: 44/255)
-        }
-        return terminalHasFocus ? Color(red: 227/255, green: 235/255, blue: 254/255)
-                                : Color(red: 233/255, green: 234/255, blue: 238/255)
-    }
-
-    private var selectedTabBorder: Color {
-        guard LitheTheme.activeTheme == .lithe else {
-            return terminalHasFocus ? LitheTheme.accent.opacity(0.45) : LitheTheme.divider
-        }
-        if colorScheme == .dark {
-            return terminalHasFocus ? Color(red: 46/255, green: 77/255, blue: 137/255)
-                                    : Color(red: 64/255, green: 67/255, blue: 74/255)
-        }
-        return terminalHasFocus ? Color(red: 167/255, green: 197/255, blue: 255/255)
-                                : Color(red: 209/255, green: 211/255, blue: 217/255)
     }
 
     private var headerBorder: Color {

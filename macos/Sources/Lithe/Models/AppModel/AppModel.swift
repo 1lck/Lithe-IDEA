@@ -98,7 +98,6 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
     var isGeneratingCommitMessage: Bool { commitDraftFeature.isGenerating }
     var pendingGeneratedCommitMessage: String? { commitDraftFeature.pendingGeneratedMessage }
-    @Published var pendingTerminalCloseSessionID: UUID?
     var pendingRunAction: PendingRunAction? { runWorkflowCoordinator.pendingAction }
     @Published var pendingJavaLaunchDecision: PendingJavaLaunchDecision?
     var pendingJavaLaunchDecisionContinuation: CheckedContinuation<JavaLaunchDecisionResolution, Never>?
