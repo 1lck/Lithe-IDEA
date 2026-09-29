@@ -229,7 +229,7 @@ struct ProjectSidebarView: View {
                         preservesOriginalColors: true
                     )
                 }
-                .buttonStyle(LitheIconButtonStyle())
+                .buttonStyle(LitheIconButtonStyle(size: 22))
                 .opacity(isHeaderHovered ? 1 : 0)
                 .allowsHitTesting(isHeaderHovered)
                 .accessibilityHidden(!isHeaderHovered)
@@ -259,7 +259,7 @@ struct ProjectSidebarView: View {
                         preservesOriginalColors: true
                     )
                 }
-                .buttonStyle(LitheIconButtonStyle())
+                .buttonStyle(LitheIconButtonStyle(size: 22))
                 .opacity(isHeaderHovered ? 1 : 0)
                 .allowsHitTesting(isHeaderHovered)
                 .accessibilityHidden(!isHeaderHovered)

@@ -504,12 +504,13 @@ extension View {
 }
 
 struct LitheIconButtonStyle: ButtonStyle {
+    var size: CGFloat = 28
     @State private var isHovering = false
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .foregroundStyle(LitheTheme.toolWindowText)
-            .frame(width: 28, height: 28)
+            .frame(width: size, height: size)
             .background(
                 RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
                     .fill(
