@@ -2051,12 +2051,13 @@
       "id": "project-sidebar-header-icons",
       "area": "工作台",
       "group": "项目侧边栏",
-      "capability": "项目侧边栏定位当前文件与刷新按钮使用 IDEA Community 16pt 明暗 SVG",
+      "capability": "项目侧边栏标题使用 IDEA Community 的下拉箭头，以及 16pt 的定位当前文件与刷新按钮明暗 SVG",
       "macos": {
         "implementationStatus": "implemented",
         "verificationStatus": "pending",
         "evidence": [
           "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+          "macos/Resources/IDEAIcons/expui/general/chevronDown.svg",
           "macos/Resources/IDEAIcons/expui/general/locate.svg",
           "macos/Resources/IDEAIcons/expui/general/refresh.svg"
         ]
@@ -2069,7 +2070,31 @@
         ]
       },
       "owner": "Workbench",
-      "verification": "macOS 深浅主题下打开项目并核对两个按钮的 16pt 图标、22pt 悬停块与 IDEA SVG；鼠标进入项目栏标题行时两个图标渐显、离开时隐藏，悬停图标保持箭头光标；点击定位当前文件和刷新，确认原操作正常。"
+      "verification": "macOS 深浅主题下打开项目并核对标题下拉箭头、两个按钮的 16pt 图标及 22pt 悬停块与 IDEA SVG；鼠标进入项目栏标题行时两个图标渐显、离开时隐藏，悬停图标保持箭头光标；点击切换视图、定位当前文件和刷新，确认原操作正常。"
+    },
+    {
+      "id": "project-sidebar-tree-disclosure-icons",
+      "area": "工作台",
+      "group": "项目侧边栏",
+      "capability": "项目树展开与折叠箭头使用 IDEA Community 明暗 SVG，并保持目录行默认箭头光标",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+          "macos/Resources/IDEAIcons/expui/general/chevronRight.svg",
+          "macos/Resources/IDEAIcons/expui/general/chevronDown.svg"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "windows/tauri/src/features/panes"
+        ]
+      },
+      "owner": "Workbench",
+      "verification": "macOS 深浅主题下检查项目树箭头 SVG 的尺寸、笔画与 IDEA Community 一致；展开和折叠多层目录，确认目录行保持默认箭头光标且操作正常。"
     },
     {
       "id": "workbench-activity-tooltips",

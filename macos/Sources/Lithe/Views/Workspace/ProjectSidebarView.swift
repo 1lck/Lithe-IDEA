@@ -203,9 +203,12 @@ struct ProjectSidebarView: View {
                     Text(LocalizedStringKey(selectedContent.title))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/chevronDown.svg",
+                        size: 14,
+                        fallbackSystemImage: "chevron.down",
+                        preservesOriginalColors: true
+                    )
                 }
                 .frame(height: 28)
                 .contentShape(Rectangle())
@@ -493,10 +496,15 @@ private struct FileNodeRow: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 10)
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(
+                    resourcePath: isExpanded
+                        ? "expui/general/chevronDown.svg"
+                        : "expui/general/chevronRight.svg",
+                    size: 16,
+                    fallbackSystemImage: isExpanded ? "chevron.down" : "chevron.right",
+                    preservesOriginalColors: true
+                )
+                .frame(width: 10)
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
@@ -520,7 +528,6 @@ private struct FileNodeRow: View {
             )
         }
         .buttonStyle(LitheTreeRowButtonStyle())
-        .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .litheContextMenu(
             items: { directoryContextMenuItems },
