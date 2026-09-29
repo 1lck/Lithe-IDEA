@@ -52,6 +52,14 @@ accepts every character. Both products preserve the raw-byte identity of the
 last acknowledged disk snapshot and reject a save when another process changed
 those bytes.
 
+### External HTML preview
+
+Both products open an existing local `.html` / `.htm` document in the system's
+configured web browser, independently of the file type's default editor. The
+browser reads the saved file; this action does not save buffers or start a web
+server. File URLs preserve Unicode and reserved characters. Browser discovery
+and launch belong to platform adapters, and launch failures are shown to the user.
+
 ## Module Lifecycle Contract
 
 The macOS reference product implements the built-in manifest in

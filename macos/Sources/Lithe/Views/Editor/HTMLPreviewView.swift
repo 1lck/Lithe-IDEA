@@ -4,6 +4,8 @@ import SwiftUI
 struct HTMLPreviewView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var document: EditorDocument
+    @State private var browserError: String?
+    @State private var isOpeningBrowser = false
     @StateObject private var content: HTMLPreviewContent
 
     init(document: EditorDocument) {
@@ -21,12 +23,21 @@ struct HTMLPreviewView: View {
             )
 
             Button {
-                model.platformUI.open(document.url)
+                isOpeningBrowser = true
+                Task { @MainActor in
+                    defer { isOpeningBrowser = false }
+                    do {
+                        try await model.platformUI.openHTMLInBrowser(document.url)
+                    } catch {
+                        browserError = error.localizedDescription
+                    }
+                }
             } label: {
                 Image(systemName: "arrow.up.right.square")
                     .font(.system(size: 12, weight: .medium))
                     .frame(width: 24, height: 24)
             }
+            .disabled(isOpeningBrowser)
             .buttonStyle(.litheNoPress)
             .foregroundStyle(LitheTheme.secondaryText)
             .background(LitheTheme.toolHeader.opacity(0.92))
@@ -39,6 +50,14 @@ struct HTMLPreviewView: View {
             .accessibilityLabel("Open HTML in Browser")
             .padding(.top, 8)
             .padding(.trailing, 10)
+        }
+        .alert("Could not open HTML in browser", isPresented: Binding(
+            get: { browserError != nil },
+            set: { if !$0 { browserError = nil } }
+        )) {
+            Button("OK") { browserError = nil }
+        } message: {
+            Text(browserError ?? "")
         }
         .background(LitheTheme.editor)
         .onAppear { content.observe(document) }

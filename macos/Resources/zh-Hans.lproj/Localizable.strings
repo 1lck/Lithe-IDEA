@@ -2537,3 +2537,6 @@
 "Maven could not resolve this project (%lld problems): %@" = "Maven 无法解析此项目（%lld 个问题）：%@";
 "Maven could not resolve this project (%lld problems)" = "Maven 无法解析此项目（%lld 个问题）";
 "The Java language server did not take the Maven configuration: %@" = "Java 语言服务器未能应用 Maven 配置：%@";
+
+"Could not open HTML in browser" = "无法在浏览器中打开 HTML";
+"Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";

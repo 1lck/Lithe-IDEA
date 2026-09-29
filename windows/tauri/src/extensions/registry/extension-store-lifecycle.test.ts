@@ -177,3 +177,34 @@ test("worker activation failure closes the language gate and unloads its provide
     extensionRegistry.unregisterExtension(manifest.id);
   }
 });
+
+for (const message of ["Bun is required", "Automatic installation is not supported"]) {
+  test(`failed update preserves the installed extension: ${message}`, async () => {
+    const { spyOn } = await import("bun:test");
+    const runtime = await import("./extension-store-runtime");
+    const { extensionInstaller } = await import("../installer/extension-installer");
+    const { default: json } = await import("../../../../../Plugins/win/Official/PhpSupport/plugin.json");
+    const manifest = json as import("../types/extension-manifest").ExtensionManifest;
+    const extension = { manifest, isInstalled: true, isEnabled: true, isInstalling: false };
+    extensionRegistry.registerExtension(manifest, { isEnabled: true, state: "installed" });
+    const resolved = spyOn(runtime, "checkLanguageToolRequirements").mockRejectedValue(new Error(message));
+    const uninstall = spyOn(extensionInstaller, "uninstallLanguage").mockResolvedValue(undefined);
+    let cleared = false;
+    let reinstalled = false;
+    try {
+      await expect(updateExtensionLifecycle({
+        extensionId: manifest.id, extension,
+        clearInstalledStateForUpdate: () => { cleared = true; },
+        reinstall: async () => { reinstalled = true; },
+      })).rejects.toThrow(message);
+      expect(cleared).toBe(false);
+      expect(reinstalled).toBe(false);
+      expect(uninstall).not.toHaveBeenCalled();
+      expect(extensionRegistry.getExtension(manifest.id)?.isEnabled).toBe(true);
+    } finally {
+      resolved.mockRestore();
+      uninstall.mockRestore();
+      extensionRegistry.unregisterExtension(manifest.id);
+    }
+  });
+}

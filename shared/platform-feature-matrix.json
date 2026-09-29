@@ -1995,13 +1995,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/extensions",
-          "windows/tauri/src/features/settings"
+          "windows/tauri/src/features/settings",
+          "windows/tauri/src-tauri/src/language_tools.rs",
+          "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Extensions",
-      "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。"
+      "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。"
     },
     {
       "id": "onboarding-welcome",
@@ -2191,20 +2193,24 @@
         "evidence": [
           "macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift",
           "macos/Sources/Lithe/Views/Editor/MediaViewerView.swift",
-          "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift"
+          "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift",
+          "macos/Sources/Lithe/Platform/MacOS/UI/MacHTMLBrowserOpener.swift",
+          "macos/Tests/LitheTests/HTMLBrowserOpenerTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/viewer"
+          "windows/tauri/src/features/viewer",
+          "windows/tauri/src-tauri/src/html_browser.rs",
+          "windows/tauri/src/features/editor/components/html/html-preview.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。"
+      "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。"
     },
     {
       "id": "docker-compose",
@@ -2340,13 +2346,14 @@
           "windows/tauri/src/features/layout/components/app-update-control.tsx",
           "windows/tauri/src/features/layout/components/app-update-details-dialog.tsx",
           "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
-          "windows/tauri/src/features/settings/hooks/use-updater.ts"
+          "windows/tauri/src/features/settings/hooks/use-updater.ts",
+          "windows/tauri/src/features/settings/stores/update.store.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。"
     },
     {
       "id": "updates-failure-rollback",

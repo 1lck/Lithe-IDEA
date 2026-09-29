@@ -23,6 +23,7 @@ import {
 import { extensionRegistry } from "./extension-registry";
 import {
   buildRuntimeManifest,
+  checkLanguageToolRequirements,
   installLanguageExtensionManifest,
   registerLanguageProvider,
   resolveToolPaths,
@@ -538,6 +539,11 @@ export async function updateExtensionLifecycle(params: {
   const languageIds = getManifestLanguageContributions(extension.manifest).map(
     (language) => language.id,
   );
+
+  // Check dependencies without downloads before touching the old parser or state.
+  if (languageIds.length > 0 && extension.manifest.lsp) {
+    await checkLanguageToolRequirements(languageIds[0], extension.manifest);
+  }
 
   await disableExtensionLifecycle({ extensionId, extension });
   if (languageIds.length > 0) {
