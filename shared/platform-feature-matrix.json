@@ -582,7 +582,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Search",
-      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。"
+      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。"
     },
     {
       "id": "search-global",
@@ -792,7 +792,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；macOS Git Log 工具窗口标签悬停有反馈，点击窗口内外时选中标签背景在活动色与非活动色之间切换，标签文字保持相同颜色与常规字重，按下时不变暗；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致；macOS Git Log 不再显示单独的 Fetch/Compare/Checkout/Cherry-pick 横向操作栏，分支树与竖向工具栏分离；检查 Fetch、分支比较、分支右键 Checkout、提交右键 Cherry-pick 和 Fetch 设置仍可用，分支搜索可筛选嵌套路径，并隐藏无匹配项的分组、显示无结果提示；定位按钮滚动到当前所选分支的首个可见提交而不重新加载历史；Git Log 的分支和提交搜索框复用 全局唯一的 LitheSearchFieldStyle，对照 IDEA SearchFieldWithExtension，核对 13pt 常规提示文字、Islands 明暗控件底色与边框色、36pt 外框内的 30pt 可见高度、3pt 外层留白、1pt 常态内描边、向外扩 1pt 的 2pt 聚焦描边及 4pt 圆角；图标与文字间距为 2pt，输入框清除按钮复用已有 16pt IDEA SVG 和 20pt 按钮区域，按上游预留清除图标宽度，移除分支搜索框重复外层水平内边距，提交搜索框按 15 列字体度量和 150pt 最小宽度布局，Search 与 Database 搜索输入框使用相同共享样式；竖栏更新按钮采用 IDEA ExpUI 的明暗 update 图标，按钮与侧边栏图标悬停使用共用工具提示样式，提示的明暗背景、文字色、1pt 内描边、圆角及内边距对齐 IDEA HelpTooltip；隐藏与显示分支使用 IDEA ExpUI 的 chevronLeft/chevronRight 明暗图标；竖栏宽 36pt，展开态按钮为 22pt 且四周保留工具栏内边距，展开态分支树左边框复用与 Commit 标题下边框同源的 1pt 分隔线；收缩态竖栏常态复用展开态侧栏背景，展开与收缩保留提交图谱和详情视图实例、滚动状态及分支宽度，仅切换分支面板与分隔条的占用宽度，按钮占满竖栏，深色 hover 使用 Islands Dark 的 #FFFFFF17，浅色 hover 使用 ExpUI Gray12，不在右侧显示 Show Branches 浮层提示，图标在顶部留 8pt 并使用常规小字号文字；展开后恢复分支树宽度。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；macOS Git Log 工具窗口标签悬停有反馈，点击窗口内外时选中标签背景在活动色与非活动色之间切换，标签文字保持相同颜色与常规字重，按下时不变暗；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致；macOS Git Log 不再显示单独的 Fetch/Compare/Checkout/Cherry-pick 横向操作栏，分支树与竖向工具栏分离；检查 Fetch、分支比较、分支右键 Checkout、提交右键 Cherry-pick 和 Fetch 设置仍可用，分支搜索可筛选嵌套路径，并隐藏无匹配项的分组、显示无结果提示；定位按钮滚动到当前所选分支的首个可见提交而不重新加载历史；Git Log 的分支和提交搜索框复用 全局唯一的 LitheSearchFieldStyle，对照 IDEA SearchFieldWithExtension，核对 13pt 常规提示文字、Islands 明暗控件底色与边框色、36pt 外框内的 30pt 可见高度、3pt 外层留白、1pt 常态内描边、向外扩 1pt 的 2pt 聚焦描边及 4pt 圆角；图标与文字间距为 2pt，输入框清除按钮复用已有 16pt IDEA SVG 和 20pt 按钮区域，按上游预留清除图标宽度，移除分支搜索框重复外层水平内边距，提交搜索框按 15 列字体度量和 150pt 最小宽度布局，Search 与 Database 搜索输入框使用相同共享样式；竖栏更新按钮采用 IDEA ExpUI 的明暗 update 图标，按钮与侧边栏图标悬停使用共用工具提示样式，提示的明暗背景、文字色、1pt 内描边、圆角及内边距对齐 IDEA HelpTooltip；隐藏与显示分支使用 IDEA ExpUI 的 chevronLeft/chevronRight 明暗图标；竖栏宽 36pt，展开态按钮为 22pt 且四周保留工具栏内边距，展开态分支树左边框复用与 Commit 标题下边框同源的 1pt 分隔线；收缩态竖栏常态复用展开态侧栏背景，展开与收缩保留提交图谱和详情视图实例、滚动状态及分支宽度，仅切换分支面板与分隔条的占用宽度，按钮占满竖栏，深色 hover 使用 Islands Dark 的 #FFFFFF17，浅色 hover 使用 ExpUI Gray12，不在右侧显示 Show Branches 浮层提示，图标在顶部留 8pt 并使用常规小字号文字；展开后恢复分支树宽度。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。"
     },
     {
       "id": "git-rebase-stash",
@@ -1766,7 +1766,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Database",
-      "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。"
+      "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。"
     },
     {
       "id": "database-schema",

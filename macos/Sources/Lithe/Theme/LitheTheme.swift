@@ -729,6 +729,33 @@ private final class LithePointerCursor {
 
 // MARK: - 输入框样式
 
+/// Keep native editing, but draw the prompt ourselves: macOS TextField ignores
+/// prompt text attributes and substitutes its own brighter, heavier placeholder.
+struct LitheSearchTextField: View {
+    let title: LocalizedStringKey
+    @Binding var text: String
+
+    init(_ title: LocalizedStringKey, text: Binding<String>) {
+        self.title = title
+        _text = text
+    }
+
+    var body: some View {
+        TextField(title, text: $text, prompt: Text(""))
+            .textFieldStyle(.plain)
+            .overlay(alignment: .leading) {
+                if text.isEmpty {
+                    Text(title)
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundColor(LitheTheme.searchFieldPlaceholder)
+                        .lineLimit(1)
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                }
+            }
+    }
+}
+
 /// Shared search chrome follows IDEA SearchFieldWithExtension + DarculaSearchFieldWithExtensionBorder:
 /// 28pt text, 1pt content insets and 3pt border insets; focus expands outward by 1pt.
 /// Source: IntelliJ Community c7f91397, Component.arc=8 (a 4pt radius), LW=1, BW=2.

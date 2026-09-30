@@ -703,12 +703,7 @@ struct GitLogView: View {
             HStack(spacing: 2) {
                 LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
                               fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
-                TextField(
-                    "Branch or tag",
-                    text: $branchSearchQuery,
-                    prompt: Text("Branch or tag").foregroundColor(LitheTheme.searchFieldPlaceholder)
-                )
-                    .textFieldStyle(.plain)
+                LitheSearchTextField("Branch or tag", text: $branchSearchQuery)
                     .focused($branchSearchFocused)
                 if !branchSearchQuery.isEmpty {
                     Button { branchSearchQuery = "" } label: {
@@ -1243,12 +1238,7 @@ struct GitLogView: View {
                 HStack(spacing: 2) {
                     LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
                                   fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
-                    TextField(
-                        "Text or hash",
-                        text: $feature.gitLogSearchQuery,
-                        prompt: Text("Text or hash").foregroundColor(LitheTheme.searchFieldPlaceholder)
-                    )
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Text or hash", text: $feature.gitLogSearchQuery)
                         .focused($gitLogSearchFocused)
                     if !feature.gitLogSearchQuery.isEmpty {
                         Button {

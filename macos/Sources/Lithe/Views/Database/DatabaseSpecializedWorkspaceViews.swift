@@ -107,9 +107,7 @@ struct RedisWorkspaceView: View {
     private var keyBrowser: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TextField("Key pattern, e.g. user:*", text: $pattern,
-                          prompt: Text("Key pattern, e.g. user:*").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                    .textFieldStyle(.plain)
+                LitheSearchTextField("Key pattern, e.g. user:*", text: $pattern)
                     .focused($patternFocused)
                     .litheSearchField(isFocused: patternFocused)
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
@@ -445,14 +443,10 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Data ID", text: $dataIDSearch,
-                              prompt: Text("Data ID").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Data ID", text: $dataIDSearch)
                         .focused($focusedSearch, equals: .dataID)
                         .litheSearchField(isFocused: focusedSearch == .dataID)
-                    TextField("Group", text: $groupSearch,
-                              prompt: Text("Group").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Group", text: $groupSearch)
                         .focused($focusedSearch, equals: .configGroup)
                         .litheSearchField(isFocused: focusedSearch == .configGroup)
                     Button { Task { await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()
@@ -528,14 +522,10 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Service", text: $serviceSearch,
-                              prompt: Text("Service").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Service", text: $serviceSearch)
                         .focused($focusedSearch, equals: .service)
                         .litheSearchField(isFocused: focusedSearch == .service)
-                    TextField("Group", text: $serviceGroupSearch,
-                              prompt: Text("Group").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Group", text: $serviceGroupSearch)
                         .focused($focusedSearch, equals: .serviceGroup)
                         .litheSearchField(isFocused: focusedSearch == .serviceGroup)
                     Button { Task { await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()

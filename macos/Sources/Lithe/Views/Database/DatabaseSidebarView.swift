@@ -127,9 +127,7 @@ struct DatabaseSidebarView: View {
                 HStack(spacing: 2) {
                     LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
                                   fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
-                    TextField("Search connections", text: $searchText,
-                              prompt: Text("Search connections").foregroundColor(LitheTheme.searchFieldPlaceholder))
-                        .textFieldStyle(.plain)
+                    LitheSearchTextField("Search connections", text: $searchText)
                         .focused($searchFocused)
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {

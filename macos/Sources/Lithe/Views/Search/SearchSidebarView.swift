@@ -40,13 +40,7 @@ struct SearchSidebarView: View {
                     fallbackSystemImage: "magnifyingglass",
                     preservesOriginalColors: true
                 )
-                TextField(
-                    "Search files and contents",
-                    text: $session.query,
-                    prompt: Text("Search files and contents")
-                        .foregroundColor(LitheTheme.searchFieldPlaceholder)
-                )
-                    .textFieldStyle(.plain)
+                LitheSearchTextField("Search files and contents", text: $session.query)
                     .focused($searchFocused)
                     .lineLimit(1)
                 if !session.query.isEmpty {
@@ -197,13 +191,7 @@ struct SearchSidebarView: View {
                 .foregroundStyle(
                     searchOptions.fileMask.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent
                 )
-            TextField(
-                "File mask, e.g. *.java, *.kt",
-                text: $searchOptions.fileMask,
-                prompt: Text("File mask, e.g. *.java, *.kt")
-                    .foregroundColor(LitheTheme.searchFieldPlaceholder)
-            )
-                .textFieldStyle(.plain)
+            LitheSearchTextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
                 .focused($fileMaskFocused)
                 .help("Comma-separated glob patterns. Empty searches every file.")
             if !searchOptions.fileMask.isEmpty {

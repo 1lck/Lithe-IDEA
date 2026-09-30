@@ -6,6 +6,42 @@ import Testing
 @MainActor
 @Suite("Shared search field chrome", .serialized)
 struct LitheSearchFieldStyleTests {
+    @Test(arguments: [ColorScheme.dark, .light], ["", "typed"])
+    func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, value: String) throws {
+        // ImageRenderer cannot cover AppKit-backed text. Capture the native host
+        // so a correct theme token with an ignored prompt style still fails.
+        let host = NSHostingView(rootView: LitheSearchTextField("Branch or tag", text: .constant(value))
+            .litheSearchField()
+            .frame(width: 220)
+            .environment(\.colorScheme, scheme))
+        host.frame = NSRect(x: 0, y: 0, width: 220, height: 36)
+        host.layoutSubtreeIfNeeded()
+        func textField(in view: NSView) -> NSTextField? {
+            if let field = view as? NSTextField { return field }
+            return view.subviews.lazy.compactMap { textField(in: $0) }.first
+        }
+        let field = try #require(textField(in: host))
+        #expect(field.stringValue == value)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let expected: UInt32 = value.isEmpty ? 0x73767C : (scheme == .dark ? 0xD1D3D9 : 0x000000)
+        let scale = bitmap.pixelsWide / 220
+        var matchingGlyphPixels = 0
+        // Ignore the border and anti-aliased edges; fully covered glyph interiors
+        // must carry the source color in both themes, with no native substitution.
+        for y in (8 * scale)..<(28 * scale) {
+            for x in (10 * scale)..<(200 * scale) {
+                let color = try #require(bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB))
+                if abs(color.redComponent - CGFloat((expected >> 16) & 255) / 255) < 0.01,
+                   abs(color.greenComponent - CGFloat((expected >> 8) & 255) / 255) < 0.01,
+                   abs(color.blueComponent - CGFloat(expected & 255) / 255) < 0.01 {
+                    matchingGlyphPixels += 1
+                }
+            }
+        }
+        #expect(matchingGlyphPixels > 10)
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], [false, true])
     func sharedBorderReservesInsetsAndFocusExpandsWithoutResizing(
         scheme: ColorScheme, focused: Bool
