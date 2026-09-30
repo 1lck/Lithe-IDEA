@@ -1139,11 +1139,14 @@
       "id": "java-runtime-discovery",
       "area": "Java",
       "group": "Java/Maven",
-      "capability": "JDK 与 Maven 工具链发现",
+      "capability": "JDK 与 Maven 工具链发现及按项目要求自动选择 JDK",
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Services/Java",
-          "macos/Sources/Lithe/Views/Run"
+          "macos/Sources/Lithe/Views/Run",
+          "macos/Sources/Lithe/Core/Ports/RuntimeLocator.swift",
+          "macos/Tests/LitheTests/MavenRuntimeTests.swift",
+          "rust/lithe-core/src/execution/java_selection.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1151,13 +1154,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/maven",
-          "windows/tauri/src/features/workspace"
+          "windows/tauri/src/features/workspace",
+          "windows/tauri/src-tauri/src/run.rs",
+          "shared/fixtures/run-configuration/automatic-java-selection.json"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"
+      "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。"
     },
     {
       "id": "java-maven-project-settings",
