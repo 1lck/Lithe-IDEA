@@ -320,6 +320,78 @@ struct SplitHandleViewTests {
     }
 
     @MainActor
+    @Test(arguments: [ColorScheme.dark, .light])
+    func sharedBorderKeepsItsColorDuringHoverAndDrag(scheme: ColorScheme) throws {
+        let previousCursor = NSCursor.current
+        defer { previousCursor.set() }
+        var committed: CGFloat?
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: .horizontal, placement: .leading,
+            defaultSize: 100, minimum: 50, maximum: 200,
+            dividerColor: LitheTheme.toolWindowBorder(for: scheme), highlightsOnHover: false,
+            onCommit: { committed = $0 },
+            sized: {
+                VStack(spacing: 0) {
+                    Spacer()
+                    LitheToolWindowHeaderDivider()
+                    Spacer()
+                }.background(.black)
+            }, flexible: { Color.black }
+        ).frame(width: 305, height: 100).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 305, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let handle = try #require(cursorRegion(in: host))
+        func event(_ type: NSEvent.EventType, x: CGFloat = 102) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: x, y: 50), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: 0))
+        }
+        func expectBorderColor() throws {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let x = handle.convert(handle.bounds, to: host).midX
+            let pixelX = Int(x * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+            // The 5pt slot centers a 1pt stroke; AppKit can snap that half-point
+            // origin to either adjacent pixel on a 1x host. Inspect the hit slot.
+            let scale = max(1, bitmap.pixelsWide / 305)
+            let colors = ((pixelX - 3 * scale)...(pixelX + 3 * scale)).compactMap {
+                bitmap.colorAt(x: $0, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB)
+            }
+            let color = try #require(colors.max { $0.redComponent < $1.redComponent })
+            // Compare both components in the same native bitmap so the display
+            // color profile affects the shared header and divider identically.
+            let headerColors = ((bitmap.pixelsHigh / 2 - 3 * scale)...(bitmap.pixelsHigh / 2 + 3 * scale)).compactMap {
+                bitmap.colorAt(x: 50 * scale, y: $0)?.usingColorSpace(.deviceRGB)
+            }
+            let header = try #require(headerColors.max { $0.redComponent < $1.redComponent })
+            #expect(header.redComponent > 0.1)
+            #expect(abs(color.redComponent - header.redComponent) < 0.01)
+            #expect(abs(color.greenComponent - header.greenComponent) < 0.01)
+            #expect(abs(color.blueComponent - header.blueComponent) < 0.01)
+        }
+        let release = try event(.leftMouseUp, x: 122)
+        defer { handle.mouseUp(with: release) }
+        try expectBorderColor()
+        let entered = try #require(NSEvent.enterExitEvent(
+            with: .mouseEntered, location: NSPoint(x: 102, y: 50), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        handle.mouseEntered(with: entered)
+        try expectBorderColor()
+        handle.mouseDown(with: try event(.leftMouseDown))
+        handle.mouseDragged(with: try event(.leftMouseDragged, x: 122))
+        try expectBorderColor()
+        handle.mouseUp(with: release)
+        #expect(committed == 120) // Styling must not disable width adjustment.
+        try expectBorderColor()
+    }
+
+    @MainActor
     private func cursorRegion(in view: NSView) -> SplitHandleInteractionView? {
         if let region = view as? SplitHandleInteractionView { return region }
         return view.subviews.lazy.compactMap { cursorRegion(in: $0) }.first

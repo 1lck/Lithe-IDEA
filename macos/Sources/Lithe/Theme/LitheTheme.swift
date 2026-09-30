@@ -420,6 +420,12 @@ enum LitheTheme {
     // MARK: - 分隔与边框
     static var divider: Color { adaptive(\.divider) }
     static var panelBorder: Color { adaptive(\.panelBorder) }
+    /// Islands tool-window-border, shared by headers and fixed-color pane dividers.
+    static func toolWindowBorder(for colorScheme: ColorScheme) -> Color {
+        guard activeTheme == .lithe else { return divider }
+        return colorScheme == .dark ? Color(red: 38/255, green: 40/255, blue: 44/255)
+                                    : Color(red: 233/255, green: 234/255, blue: 238/255)
+    }
 
     // MARK: - 输入控件
     static var inputBackground: Color { adaptive(\.inputBackground) }

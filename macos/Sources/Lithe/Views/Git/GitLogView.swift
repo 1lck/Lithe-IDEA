@@ -3245,6 +3245,7 @@ private enum GitLogThreePaneMetrics {
 }
 
 private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, DetailPane: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
     let availableWidth: CGFloat
     let branchesCollapsed: Bool
     @State private var referenceWidth: CGFloat = 220
@@ -3305,6 +3306,8 @@ private struct GitLogThreePaneLayout<ReferencePane: View, CommitPane: View, Deta
             flexibleMinimum: GitLogThreePaneMetrics.minimumCommitPaneWidth,
             clipsSizedPane: true,
             isSizedPaneCollapsed: branchesCollapsed,
+            dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+            highlightsOnHover: false,
             onCommit: { referenceWidth = $0 },
             sized: { referencePane },
             flexible: { commitAndDetails }

@@ -25,6 +25,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     /// Hide the tracked pane and divider without unmounting either pane.
     let isSizedPaneCollapsed: Bool
     let trackBackground: Color
+    let dividerColor: Color
     let showsIdleDivider: Bool
     let highlightsOnHover: Bool
     /// Called with the final size when a drag ends. Hosts that persist the size
@@ -48,6 +49,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         clipsSizedPane: Bool = false,
         isSizedPaneCollapsed: Bool = false,
         trackBackground: Color = .clear,
+        dividerColor: Color = LitheTheme.divider,
         showsIdleDivider: Bool = true,
         highlightsOnHover: Bool = true,
         onCommit: ((CGFloat) -> Void)? = nil,
@@ -63,6 +65,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.clipsSizedPane = clipsSizedPane
         self.isSizedPaneCollapsed = isSizedPaneCollapsed
         self.trackBackground = trackBackground
+        self.dividerColor = dividerColor
         self.showsIdleDivider = showsIdleDivider
         self.highlightsOnHover = highlightsOnHover
         self.onCommit = onCommit
@@ -144,6 +147,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         SplitHandleView(
             axis: axis,
             trackBackground: trackBackground,
+            dividerColor: dividerColor,
             showsIdleDivider: showsIdleDivider,
             highlightsOnHover: highlightsOnHover,
             onDragStarted: { dragStart = size },
