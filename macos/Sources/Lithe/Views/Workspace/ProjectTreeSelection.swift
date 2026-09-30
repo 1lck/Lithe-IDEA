@@ -1,0 +1,55 @@
+import Foundation
+import LitheCoreContracts
+
+/// Selection follows the displayed tree order, including only expanded children.
+struct ProjectTreeSelection: Equatable {
+    private(set) var paths: Set<String> = []
+    private(set) var anchorPath: String?
+    private(set) var focusedPath: String?
+
+    mutating func select(_ path: String, visiblePaths: [String], extending: Bool, toggling: Bool) {
+        focusedPath = path
+        if extending, let anchorPath,
+           let start = visiblePaths.firstIndex(of: anchorPath),
+           let end = visiblePaths.firstIndex(of: path) {
+            let range = Set(visiblePaths[min(start, end)...max(start, end)])
+            paths = toggling ? paths.union(range) : range
+        } else if toggling {
+            if !paths.insert(path).inserted { paths.remove(path) }
+            anchorPath = path
+        } else {
+            paths = [path]
+            anchorPath = path
+        }
+    }
+
+    mutating func selectForContextMenu(_ path: String) {
+        focusedPath = path
+        guard !paths.contains(path) else { return }
+        paths = [path]
+        anchorPath = path
+    }
+
+    mutating func retain(visiblePaths: [String]) {
+        let visible = Set(visiblePaths)
+        paths.formIntersection(visible)
+        if let anchorPath, !visible.contains(anchorPath) { self.anchorPath = nil }
+        if let focusedPath, !visible.contains(focusedPath) { self.focusedPath = nil }
+    }
+
+    mutating func selectAll(visiblePaths: [String]) {
+        paths = Set(visiblePaths)
+        anchorPath = visiblePaths.first
+        focusedPath = visiblePaths.last
+    }
+
+    static func visibleNodes(in root: FileNode, expandedPaths: Set<String>) -> [FileNode] {
+        var nodes = [root]
+        if root.isDirectory, expandedPaths.contains(root.url.path) {
+            for child in root.children ?? [] {
+                nodes += visibleNodes(in: child, expandedPaths: expandedPaths)
+            }
+        }
+        return nodes
+    }
+}

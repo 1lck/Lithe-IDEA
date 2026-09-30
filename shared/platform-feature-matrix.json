@@ -336,6 +336,31 @@
       "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"
     },
     {
+      "id": "workspace-tree-batch-files",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "项目树多选、范围选择及批量复制、重复和移到废纸篓",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+          "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
+          "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
+          "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "windows/tauri/src/features/file-system"
+        ]
+      },
+      "owner": "Workspace",
+      "verification": "macOS 项目树中使用 ⌘/Ctrl 点击增减选择、Shift 点击正反向连续选择，右键已选项保持集合；复制并粘贴到目标目录、批量 Duplicate 和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；点击编辑器后 ⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。"
+    },
+    {
       "id": "workspace-document-sync",
       "area": "工作区",
       "group": "工作区生命周期",

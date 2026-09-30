@@ -598,6 +598,68 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if request.kind == .createFile { openFile?(destination) }
     }
 
+    package func pasteProjectItems(_ urls: [URL], in directory: URL) async {
+        guard !isPerformingProjectItemOperation, isWorkspaceURL(directory),
+              fileOperations.isDirectory(at: directory), let operationWorkspaceURL = workspaceURL else { return }
+        let generation = workspaceGeneration
+        guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return }
+        isPerformingProjectItemOperation = true
+        let fileOperations = self.fileOperations
+        let result = await Task.detached(priority: .userInitiated) {
+            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations)
+        }.value
+        isPerformingProjectItemOperation = false
+        guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return }
+        if let error = result.1 { notify?(error) } else { notify?("Copied files") }
+        if result.0 > 0 { await refreshCurrent() }
+    }
+
+    private func validatedCopySources(_ urls: [URL], in directory: URL, workspace: URL) -> [URL]? {
+        let sources = Array(Set(urls.filter { $0.isFileURL }.map { $0.standardizedFileURL }))
+            .sorted { $0.path < $1.path }
+        let topLevelSources = sources.filter { source in
+            !sources.contains { parent in parent != source && source.path.hasPrefix(parent.path + "/") }
+        }
+        guard !topLevelSources.isEmpty else { return nil }
+        // Resolving links prevents a destination alias from copying a directory into itself.
+        let target = directory.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedRoot = workspace.resolvingSymlinksInPath().standardizedFileURL
+        guard target == resolvedRoot || target.path.hasPrefix(resolvedRoot.path + "/") else {
+            notify?("Choose a directory inside the project")
+            return nil
+        }
+        for source in topLevelSources where fileOperations.isDirectory(at: source) {
+            let resolved = source.resolvingSymlinksInPath().standardizedFileURL
+            if target == resolved || target.path.hasPrefix(resolved.path + "/") {
+                notify?("Cannot copy a directory into itself")
+                return nil
+            }
+        }
+        return topLevelSources
+    }
+
+    private nonisolated static func copyProjectItems(
+        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations
+    ) -> (Int, String?) {
+        var copied = 0
+        do {
+            for source in sources {
+                var destination = directory.appendingPathComponent(source.lastPathComponent)
+                var index = 1
+                while fileOperations.fileExists(at: destination) {
+                    let ext = source.pathExtension
+                    let base = ext.isEmpty ? source.lastPathComponent : source.deletingPathExtension().lastPathComponent
+                    let suffix = index == 1 ? " copy" : " copy \(index)"
+                    destination = directory.appendingPathComponent(base + suffix + (ext.isEmpty ? "" : "." + ext))
+                    index += 1
+                }
+                try fileOperations.copyItem(at: source, to: destination)
+                copied += 1
+            }
+            return (copied, nil)
+        } catch { return (copied, error.localizedDescription) }
+    }
+
     package func duplicateProjectItem(at sourceURL: URL) async {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(sourceURL),
@@ -622,6 +684,41 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
+    package func duplicateProjectItems(_ urls: [URL]) async {
+        let generation = workspaceGeneration
+        let sources = topLevelProjectItems(urls)
+        for directory in Set(sources.map { $0.deletingLastPathComponent() }).sorted(by: { $0.path < $1.path }) {
+            guard workspaceGeneration == generation else { return }
+            await pasteProjectItems(sources.filter { $0.deletingLastPathComponent() == directory }, in: directory)
+        }
+    }
+
+    private func topLevelProjectItems(_ urls: [URL]) -> [URL] {
+        let sources = Array(Set(urls.map { $0.standardizedFileURL }))
+            .filter { isWorkspaceURL($0) && $0 != workspaceURL?.standardizedFileURL }
+            .sorted { $0.path < $1.path }
+        return sources.filter { source in
+            !sources.contains { parent in parent != source && source.path.hasPrefix(parent.path + "/") }
+        }
+    }
+
+    package func requestDeleteProjectItems(_ urls: [URL]) {
+        guard !isPerformingProjectItemOperation else { return }
+        let sources = topLevelProjectItems(urls)
+        guard let first = sources.first else { return }
+        guard documentsProvider?().contains(where: { document in
+            document.isDirty && sources.contains { urlContains($0, child: document.url) }
+        }) != true else {
+            notify?("Save or discard unsaved files before deleting this item")
+            return
+        }
+        var request = ProjectItemDeletionRequest(url: first, isDirectory: fileOperations.isDirectory(at: first))
+        request.additionalItems = sources.dropFirst().map {
+            ProjectItemDeletionRequest(url: $0, isDirectory: fileOperations.isDirectory(at: $0))
+        }
+        pendingProjectItemDeletion = request
+    }
+
     package func requestDeleteProjectItem(at url: URL, isDirectory: Bool) {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(url),
@@ -640,6 +737,17 @@ package final class WorkspaceFeatureModel: ObservableObject {
     package func confirmProjectItemDeletion(_ request: ProjectItemDeletionRequest) async {
         if pendingProjectItemDeletion?.id == request.id {
             pendingProjectItemDeletion = nil
+        }
+        if !request.additionalItems.isEmpty {
+            let generation = workspaceGeneration
+            var first = request
+            first.additionalItems = []
+            for item in [first] + request.additionalItems {
+                guard workspaceGeneration == generation else { return }
+                await confirmProjectItemDeletion(item)
+                if fileOperations.fileExists(at: item.url) { return }
+            }
+            return
         }
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(request.url),

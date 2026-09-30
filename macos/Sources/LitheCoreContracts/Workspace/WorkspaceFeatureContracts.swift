@@ -152,6 +152,7 @@ package struct ProjectItemDeletionRequest: Identifiable, Sendable {
     package let id: UUID
     package let url: URL
     package let isDirectory: Bool
+    package var additionalItems: [ProjectItemDeletionRequest] = []
 
     package init(id: UUID = UUID(), url: URL, isDirectory: Bool) {
         self.id = id

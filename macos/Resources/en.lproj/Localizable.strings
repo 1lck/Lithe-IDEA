@@ -1306,3 +1306,7 @@
 
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
+
+"Paste" = "Paste";
+"Copied files" = "Copied files";
+"Move %lld items to Trash?" = "Move %lld items to Trash?";

@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：106
-- macOS：实现：✅ 92 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 95 待验证，— 11 不适用
-- Windows：实现：✅ 91 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 101 待验证，— 5 不适用
+- 功能项：107
+- macOS：实现：✅ 93 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 96 待验证，— 11 不适用
+- Windows：实现：✅ 91 已实现，🟡 10 部分实现，❌ 5 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 101 待验证，— 6 不适用
 
 ## 实现状态定义
 
@@ -51,12 +51,13 @@
 </details>
 
 <details>
-<summary><strong>工作区</strong> · 7 个能力点</summary>
+<summary><strong>工作区</strong> · 8 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 工作区生命周期 | **打开工作区与切换项目**<br><sub>workspace-open-switch</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Services/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/workspace`</sub> | Workspace | 打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。 |  |
 | 工作区生命周期 | **文件树与文件操作**<br><sub>workspace-files</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-system`</sub> | Workspace | 新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。 |  |
+| 工作区生命周期 | **项目树多选、范围选择及批量复制、重复和移到废纸篓**<br><sub>workspace-tree-batch-files</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift`、`macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift`、`macos/Tests/LitheTests/ProjectTreeSelectionTests.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/file-system`</sub> | Workspace | macOS 项目树中使用 ⌘/Ctrl 点击增减选择、Shift 点击正反向连续选择，右键已选项保持集合；复制并粘贴到目标目录、批量 Duplicate 和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；点击编辑器后 ⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。 |  |
 | 工作区生命周期 | **脏状态、保存与外部修改**<br><sub>workspace-document-sync</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/Editor`、`macos/Sources/Lithe/Services/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor`、`windows/tauri/src/features/file-system`</sub> | Workspace | 编辑未保存文件、外部修改文件并重启应用，确认冲突、保存和恢复行为。 |  |
 | 工作区生命周期 | **多项目与多标签**<br><sub>workspace-tabs-projects</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace`、`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/workspace`、`windows/tauri/src/features/tabs`、`windows/tauri/src-tauri/src/project_windows.rs`、`windows/tauri/src-tauri/src/project_window_registry.rs`、`windows/tauri/src/features/window/services/project-window-router.ts`</sub> | Workspace | 同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 Windows 重复打开同一本地目录（含大小写、分隔符和目录链接别名）时，恢复并聚焦已有窗口及项目标签；连续打开只产生一个窗口，关闭或打开失败后可以重试。 |  |
 | 项目浏览 | **项目文件树与资源打开**<br><sub>file-explorer</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Models/Workspace`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-explorer`、`windows/tauri/src/features/sidebar`</sub> | Workspace | 浏览目录、展开/折叠、打开资源并在文件变更后刷新树。 |  |
