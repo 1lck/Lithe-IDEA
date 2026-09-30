@@ -538,3 +538,20 @@ is presentation only: no grammar or language server is required to open plain
 text. Register bundled contributions in `frontend/editor`, not in a separate
 platform-specific tokenizer. Text fixtures are shared under
 `shared/fixtures/editor/text-content-v1.json`.
+
+### Updating a running Java service
+
+Run/Debug presentation owns an explicit update action bound to an execution ID,
+not the latest Run configuration or focused editor. Platform workflows save the
+workspace, reuse the live JDT session to verify the original runtime paths, and
+compile with the existing Core build coordinator. Build failures cannot be
+bypassed for updates. Core owns Java Debug Server response normalization; hosts
+own deadlines, stale-result rejection, UI progress and explicit restart actions.
+
+Run offers compilation for executions whose launch classpath includes Spring
+Boot DevTools. Compilation completion does not establish restart or readiness;
+the UI directs users to service output, and respects a project-configured trigger
+file. Debug uses HotSwap with DevTools automatic restart disabled at JVM launch.
+Remote attach and non-JDT launches have no update action in this first version.
+No installed resources or new runtime caches are written: output remains in
+JDT-owned workspace build paths and the existing platform-owned JDT state.

@@ -1706,7 +1706,7 @@ package final class RunService: ObservableObject {
         )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
-        let session = RunSession(
+        var session = RunSession(
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
@@ -1717,6 +1717,10 @@ package final class RunService: ObservableObject {
             isRunning: true,
             exitCode: nil
         )
+        session.javaUpdateTarget = javaLaunch
+        if let sourcePath = configuration.sourcePath {
+            session.javaUpdateSource = projectURL.appendingPathComponent(sourcePath)
+        }
         moduleSessions.append(session)
 
         let operationID = UUID().uuidString

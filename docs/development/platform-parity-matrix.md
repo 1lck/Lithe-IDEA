@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：113
-- macOS：实现：✅ 99 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 102 待验证，— 11 不适用
-- Windows：实现：✅ 96 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 107 待验证，— 6 不适用
+- 功能项：115
+- macOS：实现：✅ 101 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 104 待验证，— 11 不适用
+- Windows：实现：✅ 98 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 109 待验证，— 6 不适用
 
 ## 实现状态定义
 
@@ -291,6 +291,16 @@
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | IDE API / MCP | **插件调用已授权项目的环境、Maven 与运行 API**<br><sub>ide-api-plugins</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`、`macos/Sources/Lithe/Application/Composition/IdeCapabilityRegistry.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/SDK/ide-capabilities.ts`、`windows/tauri/src/extensions/ui/services/ide-extension-host.ts`、`windows/tauri/src/extensions/ui/services/ide-extension-host.test.ts`</sub> | IDE API | 双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。 | 复用 MCP 的同一应用功能和参数校验，不扩张语言包权限；原生运行验收待完成。 |
+
+</details>
+
+<details>
+<summary><strong>Run/Debug</strong> · 2 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Java 服务更新 | **运行中的 Spring Boot DevTools 服务手动保存并编译更新**<br><sub>java-service-devtools-update</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Run/RunView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/run/components/run-pane.tsx`</sub> | Run/Debug | 在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。 |  |
+| Java 服务更新 | **本地 Java Debug 服务手动编译并热替换代码**<br><sub>java-service-hot-code-replace</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/debugger/components/java-service-update.tsx`</sub> | Run/Debug | 在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。 |  |
 
 </details>
 

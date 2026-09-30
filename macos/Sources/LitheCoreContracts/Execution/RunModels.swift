@@ -9,6 +9,9 @@ package struct RunSession: Identifiable, Hashable, Sendable {
     package var output: String
     package var isRunning: Bool
     package var exitCode: Int32?
+    /// Immutable runtime inputs from this execution, never the current editor selection.
+    package var javaUpdateTarget: JavaDebugLaunchTarget?
+    package var javaUpdateSource: URL?
 
     package init(
         id: String,
