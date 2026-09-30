@@ -2040,8 +2040,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             )
 
             let editorPane = editor
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .workbenchPaneChrome(
+                .workbenchResizablePaneChrome(
                     background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                     surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
                     roundsCorners: !hasWorkbenchBackground,

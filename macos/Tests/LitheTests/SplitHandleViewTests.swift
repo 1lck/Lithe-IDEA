@@ -169,6 +169,67 @@ struct SplitHandleViewTests {
     }
 
     @MainActor
+    @Test(arguments: [false, true])
+    func shortWorkbenchPaneKeepsHeaderAtTopAndBottomCornersVisible(hasRightTool: Bool) throws {
+        let workspace = LitheSplitPaneView(
+            axis: .horizontal, placement: .leading,
+            defaultSize: 100, minimum: 30, maximum: 200,
+            clipsSizedPane: true, showsIdleDivider: false,
+            sized: {
+                VStack(spacing: 0) {
+                    Color.red.frame(height: 40)
+                    Color.green.frame(minHeight: 120)
+                }
+                .workbenchResizablePaneChrome(background: .red, surrounding: .black)
+            },
+            flexible: {
+                Color.blue.frame(minHeight: 90)
+                    .workbenchResizablePaneChrome(background: .blue, surrounding: .black)
+            }
+        )
+        let hosting = NSHostingView(rootView: Group {
+            if hasRightTool {
+                WorkbenchRightToolSplitView(
+                    width: 75, sidebarWidth: 100, isSidebarVisible: true,
+                    hasWorkbenchBackground: false, onCommit: { _ in },
+                    workspace: { workspace },
+                    tool: {
+                        VStack(spacing: 0) {
+                            Color.green.frame(height: 40)
+                            Color.red.frame(minHeight: 120)
+                        }
+                    }
+                )
+            } else {
+                workspace
+            }
+        }.frame(width: 300, height: 30, alignment: .topLeading).clipped().background(Color.black))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 30),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        func color(_ x: Int, _ y: Int) throws -> NSColor {
+            try #require(bitmap.colorAt(
+                x: x * bitmap.pixelsWide / 300, y: y * bitmap.pixelsHigh / 30
+            )?.usingColorSpace(.deviceRGB))
+        }
+        #expect(try color(50, 5).redComponent > 0.9, "The header must remain at the visible top")
+        #expect(try color(98, 28).redComponent < 0.2, "The lower corner must follow the visible height")
+        #expect(try color(hasRightTool ? 218 : 298, 28).blueComponent < 0.2,
+                "The editor corner must follow the visible height")
+        if hasRightTool {
+            #expect(try color(260, 5).greenComponent > 0.5, "The right tool header must remain at the visible top")
+            let corner = try color(298, 28)
+            #expect(corner.greenComponent - corner.redComponent < 0.15,
+                    "The right tool corner must show the surrounding theme rather than green content")
+        }
+    }
+
+    @MainActor
     @Test
     func editorExitDoesNotOverwriteEitherResizeCursor() throws {
         let previousCursor = NSCursor.current

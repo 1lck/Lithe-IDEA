@@ -1323,7 +1323,9 @@ struct EditorAreaView: View {
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .fixedSize()
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+        .clipped()
     }
 
 }

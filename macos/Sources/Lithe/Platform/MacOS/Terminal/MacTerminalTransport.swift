@@ -160,34 +160,33 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let palette = MacTerminalPalette(preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"))
         // The SwiftUI pane supplies the shared editor color or wallpaper.
         // SwiftTerm's Metal canvas must leave its default cells transparent.
         nativeBackgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
             .withAlphaComponent(0)
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.isOpaque = false
-        nativeForegroundColor = isDark
-            ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
-            : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)
+        nativeForegroundColor = palette.textColor ?? LitheTheme.nsColor(.primaryText, isDark: isDark)
         caretColor = isDark
             ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
             : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
         selectedTextBackgroundColor = isDark
             ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.48, alpha: 1)
             : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
-        // Preserve SwiftTerm's other ANSI colors; use IDEA's BLOCK_TERMINAL_BLUE
-        // and BLOCK_TERMINAL_BLUE_BRIGHT from DefaultColorSchemesManager.xml.
+        // Fall back per entry to the existing palette, including IDEA's
+        // BLOCK_TERMINAL_BLUE and BLOCK_TERMINAL_BLUE_BRIGHT.
         let ansiColors: [UInt32] = [
             0x000000, 0x990001, 0x00A603, 0x999900,
             isDark ? 0x5594FA : 0x225CD6, 0xB200B2, 0x00A5B2, 0xBFBFBF,
             0x8A898A, 0xE50001, 0x00D800, 0xE5E500,
             isDark ? 0x3399FF : 0x009DFF, 0xE500E5, 0x00E5E5, 0xE5E5E5
         ]
-        installColors(ansiColors.map {
-            SwiftTerm.Color(
-                red: UInt16(($0 >> 16) & 0xff) * 257,
-                green: UInt16(($0 >> 8) & 0xff) * 257,
-                blue: UInt16($0 & 0xff) * 257
+        installColors(ansiColors.enumerated().map { index, fallback in
+            palette.ansiColors[index] ?? SwiftTerm.Color(
+                red: UInt16((fallback >> 16) & 0xff) * 257,
+                green: UInt16((fallback >> 8) & 0xff) * 257,
+                blue: UInt16(fallback & 0xff) * 257
             )
         })
         needsDisplay = true
@@ -214,6 +213,39 @@ final class LitheTerminalView: LocalProcessTerminalView {
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
+
+/// Read only colors from Terminal.app's default profile. Missing entries leave
+/// Lithe's theme and ANSI defaults intact; shell commands and fonts are ignored.
+struct MacTerminalPalette {
+    let textColor: NSColor?
+    let ansiColors: [SwiftTerm.Color?]
+
+    init(preferences: [String: Any]?) {
+        let name = preferences?["Default Window Settings"] as? String ?? ""
+        let profiles = preferences?["Window Settings"] as? [String: [String: Any]]
+        let profile = profiles?[name] ?? [:]
+        textColor = Self.decodeColor(profile["TextColor"])
+        let names = ["Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"]
+        ansiColors = (names + names.map { "Bright" + $0 }).map { name in
+            guard let color = Self.decodeColor(profile["ANSI\(name)Color"]) else { return nil }
+            return SwiftTerm.Color(
+                red: UInt16((color.redComponent * 65535).rounded()),
+                green: UInt16((color.greenComponent * 65535).rounded()),
+                blue: UInt16((color.blueComponent * 65535).rounded())
+            )
+        }
+    }
+
+    private static func decodeColor(_ value: Any?) -> NSColor? {
+        guard let data = value as? Data,
+              let decoded = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data),
+              let color = decoded.usingColorSpace(.sRGB),
+              [color.redComponent, color.greenComponent, color.blueComponent].allSatisfy({
+                  $0.isFinite && (0...1).contains($0)
+              }) else { return nil }
+        return color
+    }
+}
 
 /// SwiftTerm 1.15's Metal blink timer ignores focus. Draw the inactive cursor
 /// transparently with a steady style, preserving shell state while hiding both

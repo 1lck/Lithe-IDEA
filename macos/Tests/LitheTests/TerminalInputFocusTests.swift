@@ -9,6 +9,34 @@ import Testing
 @MainActor
 struct TerminalInputFocusTests {
     @Test
+    func terminalPaletteUsesDefaultProfileAndKeepsMissingColorsAvailableForFallback() throws {
+        let text = NSColor(srgbRed: 0.8, green: 0.7, blue: 0.6, alpha: 0.5)
+        let red = NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)
+        let blue = NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)
+        func archive(_ color: NSColor) throws -> Data {
+            try NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: true)
+        }
+        let palette = MacTerminalPalette(preferences: [
+            "Default Window Settings": "Selected",
+            "Window Settings": [
+                "Selected": ["TextColor": try archive(text), "ANSIRedColor": try archive(red),
+                             "ANSIBrightBlueColor": try archive(blue), "ANSIGreenColor": "invalid"],
+                "Other": ["TextColor": try archive(red)]
+            ]
+        ])
+        #expect(abs(try #require(palette.textColor).redComponent - 0.8) < 0.001)
+        #expect(palette.textColor?.alphaComponent == 0.5)
+        #expect(palette.ansiColors.count == 16)
+        #expect(palette.ansiColors[1]?.red == 65535)
+        #expect(palette.ansiColors[12]?.blue == 65535)
+        #expect(palette.ansiColors[2] == nil)
+        #expect(palette.ansiColors[4] == nil)
+        let missing = MacTerminalPalette(preferences: nil)
+        #expect(missing.textColor == nil)
+        #expect(missing.ansiColors.allSatisfy { $0 == nil })
+    }
+
+    @Test
     func terminalCanvasLeavesSharedPaneBackgroundVisible() {
         let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
         terminal.applyThemeColors()
