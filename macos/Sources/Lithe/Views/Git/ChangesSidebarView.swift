@@ -9,6 +9,7 @@ struct ChangesSidebarView: View {
     let draft: CommitDraftFeatureModel
     let commitWorkflow: CommitWorkflowCoordinator
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.colorScheme) private var colorScheme
     let workbench: WorkbenchFeatureModel
     let hasBackgroundImage: Bool
     let selectChange: (GitChange) -> Void
@@ -195,6 +196,8 @@ struct ChangesSidebarView: View {
                     defaultSize: Self.defaultCommitAreaHeight,
                     minimum: minimumCommitHeight,
                     maximum: maximumCommitHeight,
+                    dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                    highlightsOnHover: false,
                     sized: {
                         CommitAreaView(feature: feature, draft: draft, commitWorkflow: commitWorkflow,
                                        hasBackgroundImage: hasBackgroundImage, showSettings: showSettings)

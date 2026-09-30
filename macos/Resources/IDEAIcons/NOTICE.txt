@@ -27,6 +27,13 @@ platform/icons/src/expui/general/vcs*.svg and
 platform/dvcs-impl/shared/resources/icons/new/{currentBranchLabel,branchLabel}*.svg.
 PlatformIconMappings maps AllIcons.Vcs.BranchNode to expui/general/vcs.svg.
 
+The Commit composer history light/dark assets were copied from Community
+revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+platform/icons/src/expui/general/history.svg and history_dark.svg.
+Its existing AI generation action uses the Community magic-wand light/dark
+assets from platform/icons/src/expui/diff/magicResolveToolbar*.svg at the same
+revision; this is an open-source generic icon, not a JetBrains AI product logo.
+
 The source project and these resources are distributed under the Apache License
 2.0. Lithe does not include JetBrains product logos or external third-party
 plugin icons. See LICENSE-APACHE-2.0.txt for the license text.

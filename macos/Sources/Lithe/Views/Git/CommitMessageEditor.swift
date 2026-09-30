@@ -23,10 +23,11 @@ struct CommitMessageEditor: NSViewRepresentable {
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let editor = scroll.documentView as? CommitMessageTextView else { return }
-        editor.textColor = NSColor(LitheTheme.primaryText)
-        editor.insertionPointColor = NSColor(LitheTheme.primaryText)
-        editor.placeholderColor = NSColor(LitheTheme.tertiaryText)
+        editor.textColor = NSColor(LitheTheme.searchFieldText)
+        editor.insertionPointColor = NSColor(LitheTheme.searchFieldText)
+        editor.placeholderColor = NSColor(LitheTheme.searchFieldPlaceholder)
         editor.font = LitheTheme.editorFont(size: LitheTheme.Commit.messageFontSize)
+        editor.needsDisplay = true
         // Leave IME composition and the selection untouched during normal typing.
         if editor.string != text && !editor.hasMarkedText() {
             let selection = editor.selectedRange()
@@ -49,7 +50,7 @@ struct CommitMessageEditor: NSViewRepresentable {
 
 final class CommitMessageTextView: NSTextView {
     var onFocus: ((Bool) -> Void)?
-    var placeholderColor = NSColor.placeholderTextColor
+    var placeholderColor = NSColor(LitheTheme.searchFieldPlaceholder)
     nonisolated(unsafe) private var outsideClickMonitor: Any?
 
     init() {

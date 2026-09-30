@@ -10,16 +10,15 @@ struct CommitAreaView: View {
     @State private var commitMessageFocused = false
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Toggle(isOn: $draft.amend) {
                     Text("Amend") + Text(" last commit").foregroundColor(LitheTheme.accent)
                 }
                     .toggleStyle(.checkbox)
-                    .lithePointer()
                     .font(.system(size: LitheTheme.Commit.amendFontSize))
-                LitheSystemIcon(systemImage: "clock", size: LitheTheme.Commit.actionIconSize)
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(resourcePath: "expui/general/history.svg", size: LitheTheme.Commit.actionIconSize,
+                              fallbackSystemImage: "clock", preservesOriginalColors: true)
                 Spacer()
                 Button {
                     Task { await commitWorkflow.generateMessage() }
@@ -28,7 +27,8 @@ struct CommitAreaView: View {
                         if draft.isGenerating {
                             ProgressView().controlSize(.mini)
                         } else {
-                            LitheSystemIcon(systemImage: "wand.and.stars", size: LitheTheme.Commit.actionIconSize)
+                            LitheIDEAIcon(resourcePath: "expui/diff/magicResolveToolbar.svg", size: LitheTheme.Commit.actionIconSize,
+                                          fallbackSystemImage: "wand.and.stars", preservesOriginalColors: true)
                         }
                         Text("AI")
                     }
@@ -50,18 +50,27 @@ struct CommitAreaView: View {
                     .font(.system(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
+            .padding(.horizontal, LitheTheme.Commit.contentInset)
+            .padding(.top, LitheTheme.Commit.messageVerticalGap)
 
             CommitMessageEditor(text: $draft.message, focused: $commitMessageFocused)
             .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
-            .litheRoundedControlBackground(LitheTheme.editor)
+            .background {
+                RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
+                    .fill(LitheTheme.searchFieldBackground)
+                    .padding(1.5)
+            }
             .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
+                RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
                     .strokeBorder(
-                        commitMessageFocused ? LitheTheme.selection : LitheTheme.divider,
+                        commitMessageFocused ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder,
                         lineWidth: commitMessageFocused ? 2 : 1
                     )
+                    .padding(commitMessageFocused ? 0 : 1)
                     .allowsHitTesting(false)
             }
+            .padding(.horizontal, LitheTheme.Commit.messageHorizontalGap)
+            .padding(.vertical, LitheTheme.Commit.messageVerticalGap)
 
             if !feature.workspaceCommitResults.isEmpty {
                 ScrollView {
@@ -82,7 +91,7 @@ struct CommitAreaView: View {
                 }
             }
 
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 Button {
                     Task { await commitWorkflow.commit() }
                 } label: {
@@ -93,26 +102,30 @@ struct CommitAreaView: View {
                         Text("Commit")
                     }
                 }
-                .buttonStyle(LithePrimaryButtonStyle())
+                .buttonStyle(CommitActionButtonStyle(isPrimary: true))
                 .disabled(!canCommit)
 
                 Button("Commit and Push…") {
                     Task { await commitWorkflow.commit(push: true) }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
+                .buttonStyle(CommitActionButtonStyle())
                 .disabled(!canCommit)
 
                 Spacer(minLength: 0)
                 Button {
                     showSettings(.ai)
                 } label: {
-                    LitheSystemIcon(systemImage: "gearshape")
+                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheTheme.Commit.actionIconSize,
+                                  fallbackSystemImage: "gearshape", preservesOriginalColors: true)
                 }
-                .litheIconButton()
-                .help("Open AI & Commit settings")
+                .buttonStyle(LitheIconButtonStyle(size: 22, cornerRadius: 4))
+                .workbenchHoverHelp(Text("Open AI & Commit settings"))
+                .accessibilityLabel("Open AI & Commit settings")
             }
+            .padding(.leading, LitheTheme.Commit.contentInset - LitheTheme.Commit.buttonBorderInset)
+            .padding(.trailing, LitheTheme.Commit.contentInset)
+            .padding(.vertical, LitheTheme.Commit.buttonBorderInset)
         }
-        .padding(LitheTheme.Commit.panelPadding)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .confirmationDialog(
@@ -154,6 +167,29 @@ struct CommitAreaView: View {
             !feature.isCommitting && !feature.isStagingChanges && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
     }
 
+}
+
+/// IDEA DarculaButtonUI/Painter: 28pt visible control, 3pt border insets,
+/// 14pt label padding, 72pt minimum width, and regular UI font on macOS.
+struct CommitActionButtonStyle: ButtonStyle {
+    var isPrimary = false
+    @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
+        configuration.label
+            .font(.system(size: 13, weight: .regular))
+            .foregroundStyle(isEnabled ? (isPrimary ? Color.white : LitheTheme.searchFieldText) : LitheTheme.Commit.disabledText)
+            .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
+            .frame(minWidth: LitheTheme.Commit.buttonMinimumWidth, minHeight: LitheTheme.Commit.buttonHeight)
+            .background(shape.fill(isPrimary && isEnabled ? LitheTheme.searchFieldFocusBorder
+                                                          : isEnabled ? LitheTheme.Commit.buttonBackground(for: colorScheme) : .clear))
+            .overlay(shape.strokeBorder(isEnabled ? (isPrimary ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder)
+                                                  : LitheTheme.Commit.disabledBorder, lineWidth: 1))
+            .padding(LitheTheme.Commit.buttonBorderInset)
+            .contentShape(Rectangle())
+    }
 }
 
 /// Observe the plan directly so a changed selection updates the open sheet.

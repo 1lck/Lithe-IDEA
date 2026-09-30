@@ -548,15 +548,33 @@ enum LitheTheme {
         static let toolbarHeight = Metrics.toolbarHeight
         static let listMinimumHeight: CGFloat = 120
         static let areaMinimumHeight: CGFloat = 124
-        static let panelPadding: CGFloat = 10
+        // NonModalCommitPanel.UISpec (regular density) and CommitInputBorder.
+        static let contentInset: CGFloat = 12
+        static let messageHorizontalGap: CGFloat = 11
+        static let messageVerticalGap: CGFloat = 3
+        static let controlCornerRadius: CGFloat = 4
+        static let buttonBorderInset: CGFloat = 3
+        static let buttonHorizontalPadding: CGFloat = 14
+        static let buttonMinimumWidth: CGFloat = 72
+        static let buttonHeight: CGFloat = 28
+        static func buttonBackground(for colorScheme: ColorScheme) -> Color {
+            activeTheme == .lithe ? (colorScheme == .dark ? .clear : .white) : raised
+        }
+        static var disabledText: Color {
+            activeTheme == .lithe ? controlColor(light: 0x9FA2A8, dark: 0x4C4F56) : secondaryText
+        }
+        static var disabledBorder: Color {
+            activeTheme == .lithe ? controlColor(light: 0xDDDFE4, dark: 0x33353B) : divider
+        }
         static let toolbarFontSize: CGFloat = 12.5
         static let tabItemHorizontalPadding: CGFloat = 12
         static let metadataFontSize: CGFloat = 12
-        static let amendFontSize: CGFloat = 12.5
-        static let actionIconSize: CGFloat = 14
+        static let amendFontSize: CGFloat = 13
+        static let actionIconSize: CGFloat = 16
         static let messageFontSize: CGFloat = 13
-        static let editorHorizontalInset: CGFloat = 8
-        static let editorVerticalInset: CGFloat = 7
+        // 3pt CommitInputBorder + the editor's 6pt emptyLeft border.
+        static let editorHorizontalInset: CGFloat = 9
+        static let editorVerticalInset: CGFloat = 3
         static let compactButtonHeight: CGFloat = 24
         static let compactButtonPadding: CGFloat = 7
         static let compactButtonFontSize: CGFloat = 11

@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Lithe
 
@@ -8,7 +9,7 @@ struct CommitMessageEditorTests {
     @Test func editorUsesOneTextOriginAndWrapsLongMessages() throws {
         let editor = CommitMessageTextView()
         editor.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
-        #expect(editor.textContainerOrigin == NSPoint(x: 8, y: 7))
+        #expect(editor.textContainerOrigin == NSPoint(x: 9, y: 3))
         #expect(editor.textContainer?.lineFragmentPadding == 0)
         #expect(editor.textContainer?.widthTracksTextView == true)
         #expect(!editor.isHorizontallyResizable)
@@ -46,6 +47,38 @@ struct CommitMessageEditorTests {
         editor.releaseFocusForOutsideClick(outside)
         #expect(window.firstResponder !== editor)
         #expect(!focused)
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
+    func nativeEditorUsesRegularEditorFontAndSharedPlaceholderColor(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: CommitMessageEditor(text: .constant(""), focused: .constant(false))
+            .environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.makeFirstResponder(nil); window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        func findEditor(in view: NSView) -> CommitMessageTextView? {
+            if let editor = view as? CommitMessageTextView { return editor }
+            return view.subviews.lazy.compactMap { findEditor(in: $0) }.first
+        }
+        let editor = try #require(findEditor(in: host))
+        let font = try #require(editor.font)
+        #expect(font.pointSize == 13)
+        #expect(!NSFontManager.shared.traits(of: font).contains(.boldFontMask))
+        let appearance = try #require(NSAppearance(named: scheme == .dark ? .darkAqua : .aqua))
+        appearance.performAsCurrentDrawingAppearance {
+            let color = editor.placeholderColor.usingColorSpace(.sRGB)!
+            #expect(abs(color.redComponent - 115.0 / 255) < 0.01)
+            #expect(abs(color.greenComponent - 118.0 / 255) < 0.01)
+            #expect(abs(color.blueComponent - 124.0 / 255) < 0.01)
+            #expect(editor.insertionPointColor.usingColorSpace(.sRGB) == editor.textColor?.usingColorSpace(.sRGB))
+        }
+        // Placeholder remains visible while focused, and is not the document's content.
+        #expect(window.makeFirstResponder(editor))
+        #expect(editor.string.isEmpty)
+        #expect(editor.textContainerOrigin == NSPoint(x: 9, y: 3))
     }
 
 }
