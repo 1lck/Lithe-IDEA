@@ -35,7 +35,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
             HStack {
                 Image(systemName: session.status == .completed ? "checkmark.circle" : "arrow.triangle.branch")
                     .foregroundStyle(session.status == .completed ? LitheTheme.accent : LitheTheme.warning)
-                Text(statusTitle).font(.system(size: 12, weight: .semibold))
+                Text(statusTitle).font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 Spacer(minLength: 0)
                 if !session.isActive {
                     Button { editor.dismissSession() } label: { Image(systemName: "xmark") }
@@ -43,17 +43,17 @@ private struct GitInteractiveRebaseSessionBanner: View {
                 }
             }
             Text("\(session.branch) · \(session.completedSteps) of \(session.steps.count) steps processed")
-                .font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
-            Text(statusDescription).font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+            Text(statusDescription).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
             if let currentCommit = session.currentCommit {
-                Text("Current commit: \(currentCommit.prefix(12))").font(.system(size: 10.5, design: .monospaced))
+                Text("Current commit: \(currentCommit.prefix(12))").font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
             }
             if let error = editor.errorMessage {
-                Text(LocalizedStringKey(error)).font(.system(size: 11)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).lineLimit(6).textSelection(.enabled)
             }
             ForEach(Array(editor.warnings.enumerated()), id: \.offset) { _, warning in
-                Text(LocalizedStringKey(warning.message)).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                Text(LocalizedStringKey(warning.message)).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
             }
             if session.isActive {
                 HStack(spacing: 7) {
@@ -67,10 +67,10 @@ private struct GitInteractiveRebaseSessionBanner: View {
                     }
                     if editor.isExecuting { ProgressView().controlSize(.small) }
                 }
-                .controlSize(.small).font(.system(size: 11))
+                .controlSize(.small).font(LitheTheme.uiFont(size: 11))
                 if session.status == .edit {
                     Button("Amend and Continue…") { amendment = Amendment(session: session) }
-                        .controlSize(.small).font(.system(size: 11))
+                        .controlSize(.small).font(LitheTheme.uiFont(size: 11))
                         .disabled(editor.isBusy || !session.canContinue || session.currentMessage == nil).lithePointer()
                 }
             }
@@ -85,7 +85,7 @@ private struct GitInteractiveRebaseSessionBanner: View {
                     showsRecoveryDialog = true
                 }.disabled(editor.isBusy).lithePointer()
             }
-            .controlSize(.small).font(.system(size: 10.5))
+            .controlSize(.small).font(LitheTheme.uiFont(size: 10.5))
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading).background(LitheTheme.toolHeader)
         .confirmationDialog(LocalizedStringKey(pendingControl == .abort ? "Abort this rebase and restore its original branch?" : "Skip the current commit and its unresolved changes?"), isPresented: Binding(
@@ -131,10 +131,10 @@ private struct GitInteractiveRebaseSessionBanner: View {
 
     private var recoveryDialog: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Create Recovery Branch").font(.system(size: 16, weight: .semibold))
-            Text("Create a branch at the history saved before this rebase. Your current checkout stays in place.").font(.system(size: 12))
+            Text("Create Recovery Branch").font(LitheTheme.uiFont(size: 16, weight: .semibold))
+            Text("Create a branch at the history saved before this rebase. Your current checkout stays in place.").font(LitheTheme.uiFont(size: 12))
             TextField("Branch name", text: $recoveryName).textFieldStyle(.roundedBorder).disabled(isCreatingRecovery)
-            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if isCreatingRecovery { ProgressView().controlSize(.small) }
                 Spacer()
@@ -168,14 +168,14 @@ private struct GitRebaseAmendDialog: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Amend and Continue").font(.system(size: 16, weight: .semibold))
+            Text("Amend and Continue").font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Text("Replace the message of the paused commit and include the currently staged changes, then continue the rebase.")
-                .font(.system(size: 12))
-            TextEditor(text: $message).font(.system(size: 12, design: .monospaced)).frame(height: 210)
+                .font(LitheTheme.uiFont(size: 12))
+            TextEditor(text: $message).font(LitheTheme.uiFont(size: 12, design: .monospaced)).frame(height: 210)
                 .overlay(Rectangle().stroke(LitheTheme.divider, lineWidth: 1)).disabled(editor.isBusy)
                 .accessibilityLabel("Complete commit message")
-            Text("\(message.count) characters").font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
-            if let error = editor.errorMessage { Text(LocalizedStringKey(error)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            Text("\(message.count) characters").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+            if let error = editor.errorMessage { Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if editor.isExecuting { ProgressView().controlSize(.small) }
                 Spacer()

@@ -120,13 +120,13 @@ struct StandaloneEditorView: View {
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
         VStack(spacing: 10) {
             LitheSystemIcon(systemImage: "doc.text.magnifyingglass")
-                .font(.system(size: 26))
+                .font(LitheTheme.uiFont(size: 26))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(failure.title)
-                .font(.system(size: 14, weight: .medium))
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(failure.detail)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -156,7 +156,7 @@ struct StandaloneEditorView: View {
                     size: 14
                 )
                 Text(document.displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 if document.isDirty {
@@ -226,12 +226,12 @@ struct StandaloneEditorView: View {
                     .frame(width: 104)
                 }
                 Text(document.url.path)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lineLimit(1)
             } else {
                 Text(model.standaloneFileURL?.lastPathComponent ?? "Opening file…")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
         }

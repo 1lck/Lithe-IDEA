@@ -38,7 +38,7 @@ struct TerminalView: View {
     private var terminalToolbar: some View {
         HStack(spacing: 0) {
             Text("Terminal")
-                .font(.system(size: 13, weight: .bold))
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.primaryText)
                 // ToolWindow.headerLabelLeftRightInsets supplies 16pt after the title.
                 .padding(.trailing, 16)
@@ -198,7 +198,7 @@ struct TerminalView: View {
                 .padding(8)
         } else {
             Image(systemName: "terminal")
-                .font(.system(size: 34, weight: .ultraLight))
+                .font(LitheTheme.uiFont(size: 34, weight: .ultraLight))
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -214,10 +214,10 @@ struct TerminalView: View {
     private func terminalTabDragPreview(_ session: TerminalSession) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "terminal")
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
             Text(terminalTabTitle(for: session))
-                .font(.system(size: 12, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
         }
@@ -289,7 +289,7 @@ private struct TerminalToolTabTitle: View {
 
     var body: some View {
         Text(session.isManagedProcess ? session.processTitle ?? fallbackTitle : fallbackTitle)
-            .font(.system(size: 13, weight: .regular))
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .lineLimit(1)
     }
 }

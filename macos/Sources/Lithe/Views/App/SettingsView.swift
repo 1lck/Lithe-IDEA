@@ -164,9 +164,9 @@ struct SettingsView: View {
                     if filteredCategories.isEmpty {
                         VStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 18, weight: .light))
+                                .font(LitheTheme.uiFont(size: 18, weight: .light))
                             Text("No settings found")
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                         }
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(maxWidth: .infinity)
@@ -201,7 +201,7 @@ struct SettingsView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
                         .frame(width: 10)
                     Text(LocalizedStringKey(title))
                         .font(LitheTheme.settingsStrongFont)
@@ -317,11 +317,11 @@ struct SettingsView: View {
                     ForEach(Array(settingsBreadcrumb.enumerated()), id: \.offset) { index, title in
                         if index > 0 {
                             Image(systemName: "chevron.right")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         Text(LocalizedStringKey(title))
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                     }
                     Spacer(minLength: 0)
@@ -358,9 +358,9 @@ struct SettingsView: View {
         if filteredCategories.isEmpty {
             VStack(spacing: 10) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 28, weight: .light))
+                    .font(LitheTheme.uiFont(size: 28, weight: .light))
                 Text("No settings found")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 15, weight: .medium))
                 Text("Try a different search term.")
                     .font(LitheTheme.smallFont)
             }
@@ -446,7 +446,7 @@ struct SettingsView: View {
                 Divider().padding(.vertical, 2)
 
                 Text("Workbench background")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 3) {
@@ -576,12 +576,12 @@ struct SettingsView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 Text("Directories")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenDirectoriesDraft)
                     .litheSettingsTextEditor(height: 66)
 
                 Text("File patterns")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 TextEditor(text: $viewState.hiddenFilePatternsDraft)
                     .litheSettingsTextEditor(height: 52)
 
@@ -597,11 +597,11 @@ struct SettingsView: View {
 
             group("Logs") {
                 Text("Log directory")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
 
                 HStack(spacing: 10) {
                     Text(settings.logDirectory.path)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 13, weight: .medium))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
@@ -617,7 +617,7 @@ struct SettingsView: View {
                         settings.setCustomLogDirectory(directory)
                     } label: {
                         Image(systemName: "folder")
-                            .font(.system(size: 16, weight: .regular))
+                            .font(LitheTheme.uiFont(size: 16, weight: .regular))
                             .frame(width: 26, height: 26)
                     }
                     .buttonStyle(.litheNoPress)
@@ -910,9 +910,9 @@ struct SettingsView: View {
                                     .foregroundStyle(LitheTheme.success)
                                 VStack(alignment: .leading, spacing: 3) {
                                     Text(LocalizedStringKey(configuration.source.detectedTitle))
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                     Text("\(configuration.model) · \(configuration.endpoint)")
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .lineLimit(2)
                                     Text(LocalizedStringKey(
@@ -1075,7 +1075,7 @@ struct SettingsView: View {
 
                 if settings.commitMessageAI.format == .custom {
                     Text("Custom instructions")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     TextEditor(text: $settings.commitMessageAI.customInstructions)
                         .litheSettingsTextEditor(height: 92)
                 }
@@ -1099,7 +1099,7 @@ struct SettingsView: View {
                 if settings.commitMessageAI.pullRequestFormat == .custom {
                     HStack {
                         Text("Markdown template")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         Spacer()
                         Button("Restore Default Template") {
                             settings.commitMessageAI.pullRequestCustomTemplate =
@@ -1144,13 +1144,13 @@ struct SettingsView: View {
                 } label: {
                     HStack(spacing: 9) {
                         Image(systemName: settings.commitMessageAI.format.icon)
-                            .font(.system(size: 11, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                             .foregroundStyle(LitheTheme.accent)
                             .frame(width: 18)
 
                         VStack(alignment: .leading, spacing: 2) {
                             Text(LocalizedStringKey(settings.commitMessageAI.format.title))
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
                             Text(LocalizedStringKey(settings.commitMessageAI.format.description))
                                 .font(LitheTheme.smallFont)
@@ -1161,7 +1161,7 @@ struct SettingsView: View {
                         Spacer(minLength: 8)
 
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .rotationEffect(.degrees(viewState.isFormatPickerPresented ? 180 : 0))
                             .animation(formatPickerAnimation, value: viewState.isFormatPickerPresented)
@@ -1190,7 +1190,7 @@ struct SettingsView: View {
             HStack(spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Choose a commit format")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text("Each built-in preset includes a preview of the generated message.")
                         .font(LitheTheme.smallFont)
@@ -1203,7 +1203,7 @@ struct SettingsView: View {
                     viewState.isFormatPickerPresented = false
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 }
                 .litheIconButton()
                 .help("Close")
@@ -1245,19 +1245,19 @@ struct SettingsView: View {
         } label: {
             HStack(alignment: .top, spacing: 9) {
                 Image(systemName: format.icon)
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
                     .frame(width: 18, height: 18)
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(LocalizedStringKey(format.title))
-                            .font(.system(size: 12, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
                             .foregroundStyle(LitheTheme.primaryText)
                         Spacer(minLength: 0)
                         if isSelected {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(LitheTheme.uiFont(size: 10, weight: .bold))
                                 .foregroundStyle(LitheTheme.accent)
                         }
                     }
@@ -1268,7 +1268,7 @@ struct SettingsView: View {
 
                     if format != .custom {
                         Text(LocalizedStringKey(format.example))
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.tertiaryText)
                             .lineLimit(format == .descriptive ? 3 : 2)
                             .fixedSize(horizontal: false, vertical: true)
@@ -1296,11 +1296,11 @@ struct SettingsView: View {
         if settings.commitMessageAI.format != .custom {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Example")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 Text(LocalizedStringKey(settings.commitMessageAI.format.example))
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(settings.commitMessageAI.format == .descriptive ? 4 : 2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1491,14 +1491,14 @@ struct SettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize()
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
             content()
         }
-        .font(.system(size: 12.5))
+        .font(LitheTheme.uiFont(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
         .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)

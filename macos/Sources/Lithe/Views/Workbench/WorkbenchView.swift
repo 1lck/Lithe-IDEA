@@ -521,10 +521,10 @@ struct WorkbenchView: View {
                     ForEach(model.activeNotifications) { notification in
                         HStack(alignment: .center, spacing: 10) {
                             Image(systemName: "info.circle.fill")
-                                .font(.system(size: 14))
+                                .font(LitheTheme.uiFont(size: 14))
                                 .foregroundStyle(LitheTheme.accent)
                             Text(LocalizedStringKey(notification.message))
-                                .font(.system(size: 12, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 4)
@@ -532,7 +532,7 @@ struct WorkbenchView: View {
                                 model.dismissNotification(notification.id)
                             } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
                             .buttonStyle(.litheNoPress)
@@ -665,18 +665,18 @@ struct WorkbenchView: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
 
                     Text(projectModel.projectName)
-                        .font(.system(size: 12.5, weight: isActive ? .semibold : .medium))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: isActive ? .semibold : .medium))
                         .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
 
                     AgentAttentionIndicator(model: projectModel)
 
                     if let documentName = projectModel.activeDocument?.displayName {
                         Text("· \(documentName)")
-                            .font(.system(size: 11.5))
+                            .font(LitheTheme.uiFont(size: 11.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
                 }
@@ -693,7 +693,7 @@ struct WorkbenchView: View {
                 projectSessions.closeProject(projectModel.id)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .buttonStyle(LitheIconButtonStyle())
@@ -749,12 +749,12 @@ struct WorkbenchView: View {
                     )
 
                     Text(model.projectName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
 
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
@@ -788,11 +788,11 @@ struct WorkbenchView: View {
                     )
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(model.currentBranch)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.horizontal, 9)
@@ -1151,12 +1151,12 @@ struct WorkbenchView: View {
                     size: 14
                 )
                 Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .foregroundStyle(LitheTheme.primaryText)
@@ -1183,7 +1183,7 @@ struct WorkbenchView: View {
         let visibleConfigurations = [RunConfiguration.currentFile] + services
         return VStack(alignment: .leading, spacing: 6) {
             Text("Run configurations")
-                .font(.system(size: 11, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 10)
                 .padding(.top, 6)
@@ -1193,7 +1193,7 @@ struct WorkbenchView: View {
                         if configuration.id == services.first?.id {
                             Divider().padding(.vertical, 3)
                             Text("Services")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 10)
@@ -1206,12 +1206,12 @@ struct WorkbenchView: View {
                             HStack(spacing: 10) {
                                 RunConfigurationIcon(kind: configuration.kind, size: 16)
                                 Text(configuration.name)
-                                    .font(.system(size: 12, weight: .medium))
+                                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer(minLength: 12)
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                     .opacity(isSelected ? 1 : 0)
                             }
                             .foregroundStyle(LitheTheme.primaryText)
@@ -1238,7 +1238,7 @@ struct WorkbenchView: View {
             isBackgroundPickerPresented.toggle()
         } label: {
             Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 13, weight: .medium))
+                .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 .frame(width: 30, height: 30)
                 .litheRowHover(
                     isActive: isBackgroundPickerPresented,
@@ -1732,7 +1732,7 @@ struct WorkbenchView: View {
 
     private var breadcrumbSeparator: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 7, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 7, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText.opacity(0.72))
     }
 
@@ -1861,7 +1861,7 @@ private struct WorkbenchNotificationCenterView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Notifications")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
 
                 Spacer()
@@ -1870,7 +1870,7 @@ private struct WorkbenchNotificationCenterView: View {
                     model.clearNotifications()
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(
                     model.notifications.isEmpty
                         ? LitheTheme.tertiaryText
@@ -1888,10 +1888,10 @@ private struct WorkbenchNotificationCenterView: View {
             if model.notifications.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell")
-                        .font(.system(size: 22, weight: .regular))
+                        .font(LitheTheme.uiFont(size: 22, weight: .regular))
                         .foregroundStyle(LitheTheme.tertiaryText)
                     Text("No notifications")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1901,18 +1901,18 @@ private struct WorkbenchNotificationCenterView: View {
                         ForEach(model.notifications) { notification in
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 13))
+                                    .font(LitheTheme.uiFont(size: 13))
                                     .foregroundStyle(LitheTheme.accent)
                                     .padding(.top, 2)
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(LocalizedStringKey(notification.message))
-                                        .font(.system(size: 12))
+                                        .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
 
                                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                        .font(.system(size: 10.5))
+                                        .font(LitheTheme.uiFont(size: 10.5))
                                         .foregroundStyle(LitheTheme.tertiaryText)
                                 }
 
@@ -2459,7 +2459,7 @@ struct WorkbenchBackgroundPicker: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("Workbench background", systemImage: "photo.on.rectangle.angled")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 Spacer()
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
@@ -2470,7 +2470,7 @@ struct WorkbenchBackgroundPicker: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Built-in backgrounds")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 LazyVGrid(
@@ -2503,7 +2503,7 @@ struct WorkbenchBackgroundPicker: View {
                 Spacer(minLength: 0)
 
                 Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                     .frame(maxWidth: 112, alignment: .trailing)
@@ -2513,10 +2513,10 @@ struct WorkbenchBackgroundPicker: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text("Workbench background opacity")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         Spacer()
                         Text("\(Int((settings.workbenchBackgroundOpacity * 100).rounded()))%")
-                            .font(.system(size: 11.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                     Slider(value: $settings.workbenchBackgroundOpacity, in: 0.05...1.0, step: 0.01)
@@ -2547,7 +2547,7 @@ struct WorkbenchBackgroundPicker: View {
                             )
                     }
                 Text(LocalizedStringKey(preset.title))
-                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
             }
             .frame(width: 100)

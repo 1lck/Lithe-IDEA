@@ -61,14 +61,14 @@ struct MemoryUsageStatusView: View {
                 Image(systemName: "memorychip")
                     .foregroundStyle(LitheTheme.accent)
                 Text("Managed Memory")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 8)
                 Button {
                     isMemoryUsagePopoverPresented = false
                 } label: {
                     Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 }
                 .litheIconButton()
                 .help("Close")
@@ -127,7 +127,7 @@ struct MemoryUsageStatusView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer(minLength: 8)
             Text(value)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .monospacedDigit()
         }

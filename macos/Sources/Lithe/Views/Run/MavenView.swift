@@ -186,7 +186,7 @@ struct MavenView: View {
             Text(feature.isProjectReloadRequired
                  ? String(localized: "Maven POM changed")
                  : String(localized: "Maven configuration changed"))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 8)
             Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
@@ -208,7 +208,7 @@ struct MavenView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(LitheTheme.error)
             Text(message)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -372,7 +372,7 @@ struct MavenView: View {
                     }
                     .buttonStyle(.litheNoPress)
                 }
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 28)
@@ -381,7 +381,7 @@ struct MavenView: View {
             return AnyView(
                 VStack(alignment: .leading, spacing: 4) {
                     Label(dependencyLocalization.error(message), systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(2)
                     Button(dependencyLocalization.text("Retry")) {
@@ -403,7 +403,7 @@ struct MavenView: View {
                     }
                     .buttonStyle(.litheNoPress)
                 }
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.warning)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 28)
@@ -412,7 +412,7 @@ struct MavenView: View {
             if dependencies.isEmpty {
                 return AnyView(
                     Text(dependencyLocalization.text("No dependencies"))
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 4)
                         .frame(minHeight: 28)
@@ -464,18 +464,18 @@ struct MavenView: View {
                 Image(systemName: dependency.resolution == .resolved
                     ? "shippingbox"
                     : "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(
                         dependency.resolution == .resolved ? LitheTheme.accent : LitheTheme.warning
                     )
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(dependency.artifactID)
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     Text(dependencySubtitle(dependency))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -511,16 +511,16 @@ struct MavenView: View {
     private func sourceRootRow(_ sourceRoot: MavenSourceRoot) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "folder")
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 16)
             Text(sourceRoot.path)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 0)
             Text(dependencyLocalization.text(sourceRoot.kind.title))
-                .font(.system(size: 10))
+                .font(LitheTheme.uiFont(size: 10))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
         }
@@ -533,7 +533,7 @@ struct MavenView: View {
         Toggle(isOn: profileBinding(for: profile)) {
             HStack(spacing: 0) {
                 Text(profile.id)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -562,7 +562,7 @@ struct MavenView: View {
             .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Add Maven Profile")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     TextField("Profile ID", text: $customProfile)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
@@ -597,7 +597,7 @@ struct MavenView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: phase.systemImage)
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 16)
                 Text(LocalizedStringKey(phase.title))
@@ -605,11 +605,11 @@ struct MavenView: View {
                 Spacer(minLength: 0)
                 if selectedModuleID == module?.id, selectedPhase == phase {
                     LitheSystemIcon(systemImage: "play.fill")
-                        .font(.system(size: 8))
+                        .font(LitheTheme.uiFont(size: 8))
                         .foregroundStyle(LitheTheme.accent)
                 }
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 2)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -657,7 +657,7 @@ struct MavenView: View {
                     }
                 } label: {
                     Image(systemName: isNodeExpanded(id) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 14, height: 24)
                         .contentShape(Rectangle())
@@ -668,17 +668,17 @@ struct MavenView: View {
                 Button(action: onLabelAction) {
                     HStack(spacing: 6) {
                         Image(systemName: systemImage)
-                            .font(.system(size: 12))
+                            .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(LitheTheme.accent)
                             .frame(width: 16)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(LocalizedStringKey(title))
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                                 .foregroundStyle(LitheTheme.primaryText)
                                 .lineLimit(1)
                             if let subtitle, !subtitle.isEmpty {
                                 Text(LocalizedStringKey(subtitle))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
                             }
@@ -749,10 +749,10 @@ struct MavenView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             LitheSystemIcon(systemImage: "shippingbox")
-                .font(.system(size: 30, weight: .light))
+                .font(LitheTheme.uiFont(size: 30, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("No Maven project detected")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text("Open a project containing a pom.xml file.")
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -763,10 +763,10 @@ struct MavenView: View {
     private func failedState(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "xmark.octagon")
-                .font(.system(size: 28, weight: .light))
+                .font(LitheTheme.uiFont(size: 28, weight: .light))
                 .foregroundStyle(LitheTheme.error)
             Text("Unable to load Maven project")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text(message)
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -781,7 +781,7 @@ struct MavenView: View {
     private var goalSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Execute Maven Goal")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
             TextField("Goal", text: $customGoal, prompt: Text("spring-boot:run"))
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(executeCustomGoal)
@@ -914,7 +914,7 @@ private struct MavenResolutionProblemsSection: View {
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -930,7 +930,7 @@ private struct MavenResolutionProblemsSection: View {
                                         .lineLimit(2)
                                     Spacer(minLength: 0)
                                 }
-                                .font(.system(size: 11))
+                                .font(LitheTheme.uiFont(size: 11))
                                 .padding(.vertical, 2)
                                 .contentShape(Rectangle())
                             }

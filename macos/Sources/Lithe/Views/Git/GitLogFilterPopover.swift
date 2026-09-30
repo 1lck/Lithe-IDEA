@@ -586,11 +586,11 @@ struct GitLogFilterSearchBar: View {
     var body: some View {
         HStack(spacing: 8) {
             LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField(placeholder, text: $text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .focused($focused)
                 .onSubmit(onSubmit)
             if !text.isEmpty {
@@ -620,23 +620,23 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: item.rowSystemImage)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(item.rowIsStarred ? LitheTheme.warning : LitheTheme.secondaryText)
                     .frame(width: 17)
                 titleText
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 10)
                 if let detail = item.rowDetail {
                     Text(verbatim: detail)
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
                 if isSelected {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                         .foregroundStyle(LitheTheme.accent)
                 }
             }
@@ -718,13 +718,13 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
     private func sectionHeader(_ title: Text, systemImage: String?) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8, weight: .bold))
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
             }
             title
-                .font(.system(size: 12, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12, weight: .medium))
             Spacer()
         }
         .foregroundStyle(LitheTheme.secondaryText)
@@ -848,16 +848,16 @@ struct GitLogBranchFilterPopover: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: group.systemImage)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 17)
                 groupTitleText(group)
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 10)
                 Image(systemName: "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 10)

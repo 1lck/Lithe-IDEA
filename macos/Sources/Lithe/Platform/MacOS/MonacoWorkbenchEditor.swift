@@ -174,12 +174,28 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
 
 final class MonacoWorkbenchAssets: NSObject, WKURLSchemeHandler {
     let root: URL
-    init(root: URL) { self.root = root.standardizedFileURL.resolvingSymlinksInPath() }
+    let fontsRoot: URL?
+    init(root: URL, fontsRoot: URL? = Bundle.main.resourceURL?.appendingPathComponent("Fonts")) {
+        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.fontsRoot = fontsRoot?.standardizedFileURL.resolvingSymlinksInPath()
+    }
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         do {
             guard let url = task.request.url, url.scheme == "lithe-editor", url.host == "app" else { throw CocoaError(.fileReadNoPermission) }
-            let file = root.appendingPathComponent(url.path).standardizedFileURL.resolvingSymlinksInPath()
-            guard file.path.hasPrefix(root.path + "/") else { throw CocoaError(.fileReadNoPermission) }
+            // WebKit has its own process and cannot rely on CoreText's process-local registration.
+            // Serve the same signed, read-only font files without widening editor asset access.
+            let assetRoot: URL
+            let assetPath: String
+            if url.path.hasPrefix("/fonts/") {
+                guard let fontsRoot, url.pathExtension == "ttf" else { throw CocoaError(.fileReadNoPermission) }
+                assetRoot = fontsRoot
+                assetPath = String(url.path.dropFirst("/fonts/".count))
+            } else {
+                assetRoot = root
+                assetPath = url.path
+            }
+            let file = assetRoot.appendingPathComponent(assetPath).standardizedFileURL.resolvingSymlinksInPath()
+            guard file.path.hasPrefix(assetRoot.path + "/") else { throw CocoaError(.fileReadNoPermission) }
             let data = try Data(contentsOf: file)
             let types = ["html": "text/html", "js": "application/javascript", "css": "text/css", "ttf": "font/ttf"]
             task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": types[file.pathExtension] ?? "application/octet-stream"])!)

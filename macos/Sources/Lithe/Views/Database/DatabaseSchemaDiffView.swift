@@ -72,9 +72,9 @@ struct DatabaseSchemaDiffView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(diff.source.profileName) -> \(diff.target.profileName)")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Text("Changes: \(diff.items.count)")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -101,13 +101,13 @@ struct DatabaseSchemaDiffView: View {
                         HStack(spacing: 6) {
                             Image(systemName: item.isDestructive ? "exclamationmark.triangle.fill" : "arrow.right.circle")
                                 .foregroundStyle(item.isDestructive ? LitheTheme.warning : LitheTheme.accent)
-                            Text(LocalizedStringKey(item.kind.title)).font(.system(size: 11.5, weight: .semibold))
-                            Text(item.table).font(.system(size: 11.5, design: .monospaced))
+                            Text(LocalizedStringKey(item.kind.title)).font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
+                            Text(item.table).font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                             Spacer()
-                            DatabaseLocalization.schemaDiffDetail(item).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                            DatabaseLocalization.schemaDiffDetail(item).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
                         }
                         Text(item.sql)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .textSelection(.enabled)
                             .lineLimit(4)

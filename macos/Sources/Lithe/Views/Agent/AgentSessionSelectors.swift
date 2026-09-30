@@ -122,9 +122,9 @@ struct AgentSessionSelectors: View {
     private func selectorLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 5) {
             content()
-            Image(systemName: "chevron.up").font(.system(size: 8, weight: .semibold))
+            Image(systemName: "chevron.up").font(LitheTheme.uiFont(size: 8, weight: .semibold))
         }
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .lineLimit(1)
         .truncationMode(.middle)
@@ -159,7 +159,7 @@ struct AgentModelPopover: View {
             if let setting = settings.first(where: { $0.id == selectedSettingID }) {
                 VStack(spacing: 0) {
                     Text(AgentSessionSelectorPresentation.title(setting))
-                        .font(.system(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                        .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 12).padding(.vertical, 8)
                     ScrollView {
@@ -187,7 +187,7 @@ struct AgentModelPopover: View {
         VStack(spacing: 0) {
             TextField("Search models", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .focused($searchFocused)
                 .padding(.horizontal, 8)
                 .frame(height: 28)
@@ -197,7 +197,7 @@ struct AgentModelPopover: View {
                 .onSubmit { if let choice = choices.first { onSelect(option.id, choice.id) } }
             if choices.isEmpty {
                 Text("No matching models")
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .frame(maxWidth: .infinity, minHeight: 36)
             } else {
@@ -205,7 +205,7 @@ struct AgentModelPopover: View {
                     LazyVStack(spacing: 0) {
                         ForEach(Array(choices.enumerated()), id: \.element.id) { index, choice in
                             if let group = choice.group, index == 0 || choices[index - 1].group != group {
-                                Text(group).font(.system(size: 10)).foregroundStyle(AgentPanelStyle.secondary)
+                                Text(group).font(LitheTheme.uiFont(size: 10)).foregroundStyle(AgentPanelStyle.secondary)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                     .padding(.horizontal, 12).padding(.vertical, 4)
                             }
@@ -244,9 +244,9 @@ private struct AgentModelSettingRow: View {
                 Text(AgentSessionSelectorPresentation.title(option))
                 Spacer()
                 Text(AgentSessionSelectorPresentation.currentTitle(option)).foregroundStyle(AgentPanelStyle.secondary)
-                Image(systemName: "chevron.right").font(.system(size: 9))
+                Image(systemName: "chevron.right").font(LitheTheme.uiFont(size: 9))
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .padding(.horizontal, 12)
             .frame(height: 28)
             .background(isSelected ? AgentPanelStyle.context : .clear)
@@ -272,7 +272,7 @@ private struct AgentModePopover: View {
                             Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: option)).lineLimit(1)
                             if let description = choice.description, !description.isEmpty {
                                 Text(AgentSessionSelectorPresentation.localized(description))
-                                    .font(.system(size: 11))
+                                    .font(LitheTheme.uiFont(size: 11))
                                     .foregroundStyle(AgentPanelStyle.secondary)
                                     .lineLimit(2)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -301,11 +301,11 @@ private struct AgentSelectorRow<Content: View>: View {
                 content
                 Spacer(minLength: 8)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.success)
                     .opacity(isSelected ? 1 : 0)
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .foregroundStyle(AgentPanelStyle.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)

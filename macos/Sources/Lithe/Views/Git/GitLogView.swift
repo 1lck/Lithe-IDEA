@@ -72,17 +72,15 @@ struct GitLogView: View {
         let succeeded: Bool?
     }
 
-    /// IntelliJ's Git tool window uses the macOS system UI font throughout;
-    /// only hashes and timestamps use a monospaced face. Keeping these values
-    /// together makes the Git surface read as one coherent tool window.
+    /// IDEA control sizes with the application's bundled default font.
     private enum GitVisual {
-        static let title = Font.system(size: 13, weight: .bold)
-        static let toolbar = Font.system(size: 12.5, weight: .regular)
-        static let section = Font.system(size: 13, weight: .medium)
-        static let body = Font.system(size: 13, weight: .regular)
-        static let bodyMedium = Font.system(size: 13, weight: .medium)
-        static let meta = Font.system(size: 12, weight: .regular)
-        static let monoMeta = Font.system(size: 12, weight: .regular, design: .monospaced)
+        static let title = LitheTheme.uiFont(size: 13, weight: .bold)
+        static let toolbar = LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize)
+        static let section = LitheTheme.uiFont(size: 13, weight: .medium)
+        static let body = LitheTheme.uiFont(size: 13, weight: .regular)
+        static let bodyMedium = LitheTheme.uiFont(size: 13, weight: .medium)
+        static let meta = LitheTheme.uiFont(size: 12, weight: .regular)
+        static let monoMeta = LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced)
         static let rowHeight: CGFloat = 38
         static let toolbarHeight: CGFloat = 38
         static let commitFileLoadDelay = Duration.milliseconds(120)
@@ -507,7 +505,7 @@ struct GitLogView: View {
                 }
             } label: {
                 Text(title)
-                    .font(.system(size: 13, weight: .regular))
+                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .padding(.leading, 8)
@@ -545,7 +543,7 @@ struct GitLogView: View {
                         LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: 16,
                                       fallbackSystemImage: "chevron.right", preservesOriginalColors: true)
                         Text("Branches")
-                            .font(.system(size: 11, weight: .regular))
+                            .font(LitheTheme.uiFont(size: 11, weight: .regular))
                             .fixedSize()
                             .rotationEffect(.degrees(-90))
                             .frame(width: 22, height: 58)
@@ -679,7 +677,7 @@ struct GitLogView: View {
             LitheSystemIcon(systemImage: icon, size: 13)
                 .foregroundStyle(LitheTheme.warning)
             Text(message)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -695,7 +693,7 @@ struct GitLogView: View {
                 onDismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .litheIconButton()
@@ -1288,7 +1286,8 @@ struct GitLogView: View {
                                 presentation: graphPresentation,
                                 focusedHash: feature.selectedGitCommit?.hash,
                                 showCommitDecorations: showCommitDecorations,
-                                actions: graphRowActions
+                                actions: graphRowActions,
+                                isFocused: gitLogCommitListFocused
                             )
 
                             if feature.canLoadMoreGitHistory {
@@ -1301,7 +1300,7 @@ struct GitLogView: View {
                                         }
                                         Text(LocalizedStringKey(feature.isLoadingMoreGitHistory ? "Loading commits…" : "Load more commits"))
                                     }
-                                    .font(.system(size: 11.5, weight: .medium))
+                                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                                     .foregroundStyle(LitheTheme.accent)
                                     .frame(maxWidth: .infinity)
                                     .frame(height: 32)
@@ -1438,7 +1437,7 @@ struct GitLogView: View {
             if let commit = feature.selectedGitCommit {
                 VStack(alignment: .leading, spacing: 9) {
                     Text(commit.subject)
-                        .font(.system(size: 13.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13.5, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(2)
                     Text("\(commit.shortHash)  \(commit.authorName) <\(commit.authorEmail)>")
@@ -1645,8 +1644,8 @@ struct GitLogView: View {
     }
 
     private var gitLogFilterBar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 2) {
+        HStack(spacing: 0) {
+            HStack(spacing: 3) {
                 Button {
                     showsGitLogBranchFilterPopover = true
                 } label: {
@@ -1656,7 +1655,6 @@ struct GitLogView: View {
                     )
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogBranchFilterPopover) {
                     GitLogBranchFilterPopover(
@@ -1687,14 +1685,13 @@ struct GitLogView: View {
                 }
             }
 
-            HStack(spacing: 2) {
+            HStack(spacing: 3) {
                 Button {
                     showsGitLogAuthorFilterPopover = true
                 } label: {
                     gitLogFilterLabel(title: "User", selection: selectedGitLogAuthor?.displayName, localizeSelection: selectedGitLogAuthor == .currentUser)
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogAuthorFilterPopover) {
                     GitLogFilterPopover(
@@ -1724,7 +1721,7 @@ struct GitLogView: View {
                 }
             }
 
-            HStack(spacing: 2) {
+            HStack(spacing: 3) {
                 Menu {
                     ForEach(GitLogDatePreset.allCases) { preset in
                         Button {
@@ -1740,8 +1737,8 @@ struct GitLogView: View {
                     gitLogFilterLabel(title: "Date", selection: selectedGitLogDatePreset.filterTitle, localizeSelection: true)
                 }
                 .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
                 .fixedSize()
-                .lithePointer()
 
                 if selectedGitLogDatePreset != .anyTime {
                     gitLogFilterClearButton(help: "Clear date filter") {
@@ -1750,18 +1747,17 @@ struct GitLogView: View {
                 }
             }
 
-            HStack(spacing: 2) {
+            HStack(spacing: 3) {
                 Button {
                     gitLogPathDraft = gitLogPathFilter
                     showsGitLogPathPopover = true
                 } label: {
                     gitLogFilterLabel(
-                        title: "Path",
+                        title: "Paths",
                         selection: gitLogPathFilter.isEmpty ? nil : gitLogPathFilter
                     )
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
                 .overlay {
                     GitLogInstantPopover(isPresented: $showsGitLogPathPopover) {
                         gitLogPathPopover
@@ -1817,38 +1813,16 @@ struct GitLogView: View {
     }
 
     private func gitLogFilterLabel(title: LocalizedStringKey, selection: String?, localizeSelection: Bool = false) -> some View {
-        HStack(spacing: 3) {
-            Group {
-                if let selection {
-                    let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
-                    Text("\(Text(title)): \(value)")
-                } else {
-                    Text(title)
-                }
-            }
-                .font(GitVisual.toolbar)
-                .foregroundStyle(LitheTheme.secondaryText)
-            if selection == nil {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8.5, weight: .semibold))
-                    .foregroundStyle(LitheTheme.tertiaryText)
-            }
-        }
-        .frame(height: 22)
-        .contentShape(Rectangle())
+        GitLogFilterLabel(title: title, selection: selection, localizeSelection: localizeSelection)
     }
 
     private func gitLogFilterClearButton(help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: "xmark")
-                .font(.system(size: 9.5, weight: .medium))
-                .foregroundStyle(LitheTheme.tertiaryText)
-                .frame(width: 14, height: 22)
-                .contentShape(Rectangle())
+            LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                          fallbackSystemImage: "xmark", preservesOriginalColors: true)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .help(LocalizedStringKey(help))
+        .buttonStyle(LitheIconButtonStyle(size: 22, cornerRadius: 4))
+        .workbenchHoverHelp(Text(LocalizedStringKey(help)))
     }
 
     private func gitLogMenuItem(
@@ -2031,12 +2005,28 @@ struct GitLogView: View {
         }
     }
 
+    private func gitToolbarImage(_ systemImage: String) -> some View {
+        let path: String
+        switch systemImage {
+        case "arrow.left.arrow.right": path = "expui/vcs/diff.svg"
+        case "clock": path = "expui/general/history.svg"
+        case "arrow.clockwise": path = "expui/general/refresh.svg"
+        case "eye": path = "expui/general/show.svg"
+        case "eye.slash": path = "expui/general/hide.svg"
+        case "magnifyingglass": path = "expui/general/search.svg"
+        case "arrow.up.and.down": path = "expui/general/chevronUpLarge.svg"
+        case "arrow.down.to.line.compact": path = "expui/general/chevronDownLarge.svg"
+        default: path = "expui/general/show.svg"
+        }
+        return LitheIDEAIcon(resourcePath: path, size: LitheTheme.GitLog.toolbarIconSize,
+                             fallbackSystemImage: systemImage, preservesOriginalColors: true)
+    }
+
     private func gitToolbarIcon(systemImage: String, help: String) -> some View {
-        LitheSystemIcon(systemImage: systemImage, size: 15)
-            .foregroundStyle(LitheTheme.secondaryText)
-            .frame(width: 24, height: 24)
+        gitToolbarImage(systemImage)
+            .frame(width: LitheTheme.GitLog.toolbarButtonSize, height: LitheTheme.GitLog.toolbarButtonSize)
             .contentShape(Rectangle())
-            .help(LocalizedStringKey(help))
+            .workbenchHoverHelp(Text(LocalizedStringKey(help)))
     }
 
     private func gitToolbarButton(
@@ -2044,11 +2034,9 @@ struct GitLogView: View {
         help: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            LitheSystemIcon(systemImage: systemImage, size: 15)
-        }
-        .litheIconButton()
-        .help(LocalizedStringKey(help))
+        Button(action: action) { gitToolbarImage(systemImage) }
+            .buttonStyle(LitheIconButtonStyle(size: LitheTheme.GitLog.toolbarButtonSize, cornerRadius: 4))
+            .workbenchHoverHelp(Text(LocalizedStringKey(help)))
     }
 
     private func constrained(_ value: CGFloat, minimum: CGFloat, maximum: CGFloat) -> CGFloat {
@@ -2345,10 +2333,10 @@ private struct GitBranchNameDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(message)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
@@ -2361,7 +2349,7 @@ private struct GitBranchNameDialog: View {
                 Toggle("Checkout branch after creation", isOn: $checkout)
                     .toggleStyle(.checkbox)
                     .lithePointer()
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
             }
 
             HStack {
@@ -2436,10 +2424,10 @@ private struct GitTagNameDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("New Tag")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text("Create on commit \(request.commit.shortHash). Leave the message empty for a lightweight tag.")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
@@ -2453,13 +2441,13 @@ private struct GitTagNameDialog: View {
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(1...4)
                 Text("A message creates an annotated tag.")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
             if let error = validationError ?? submitError {
                 Text(LocalizedStringKey(error))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2537,7 +2525,7 @@ private struct GitConflictPathRow: View {
                     onShowDiff(path)
                 } label: {
                     Text(path)
-                        .font(.system(size: 11.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .underline()
                         .textSelection(.enabled)
@@ -2552,7 +2540,7 @@ private struct GitConflictPathRow: View {
                     onRollback(path)
                 } label: {
                     Image(systemName: "arrow.uturn.backward")
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 }
                 .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.warning)
@@ -2560,7 +2548,7 @@ private struct GitConflictPathRow: View {
                 .help("Discard this file and retry")
             } else {
                 Text(path)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .foregroundStyle(LitheTheme.primaryText)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2583,10 +2571,10 @@ struct GitIntegrationConflictDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(headline)
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(explanation)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2609,7 +2597,7 @@ struct GitIntegrationConflictDialog: View {
             Text(LocalizedStringKey(savePolicy == .shelve
                 ? "Shelving saves these changes in Lithe, runs the operation, then restores them. If conflicts stop the operation, the shelf stays saved until you finish it."
                 : "Stashing sets these changes aside, runs the operation, then restores them. If conflicts stop the operation, the changes stay stashed until you finish it."))
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -2667,12 +2655,12 @@ struct GitPullStrategyDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("Update Project")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.bottom, 24)
 
             Text("Updating \(request.upstream) (\(request.behind) incoming, \(request.ahead) local)")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -2694,7 +2682,7 @@ struct GitPullStrategyDialog: View {
                     "Rebase requires a clean working tree. Commit or stash local changes before choosing Rebase.",
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 14)
@@ -2733,10 +2721,10 @@ struct GitPullStrategyDialog: View {
         } label: {
             HStack(spacing: 12) {
                 Image(systemName: selectedStrategy == strategy ? "largecircle.fill.circle" : "circle")
-                    .font(.system(size: 22))
+                    .font(LitheTheme.uiFont(size: 22))
                     .foregroundStyle(selectedStrategy == strategy ? LitheTheme.accent : LitheTheme.secondaryText)
                 Text(title)
-                    .font(.system(size: 15))
+                    .font(LitheTheme.uiFont(size: 15))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 0)
             }
@@ -2762,7 +2750,7 @@ struct GitPushDialog: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Push to \(projectName)")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
             }
@@ -2777,16 +2765,16 @@ struct GitPushDialog: View {
                 VStack(alignment: .leading, spacing: 0) {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 13, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 13, weight: .medium))
                             .foregroundStyle(LitheTheme.primaryText)
                         Text(reference.shortName)
-                            .font(.system(size: 13))
+                            .font(LitheTheme.uiFont(size: 13))
                             .foregroundStyle(LitheTheme.primaryText)
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Text(presentation.destination)
-                            .font(.system(size: 13))
+                            .font(LitheTheme.uiFont(size: 13))
                             .foregroundStyle(reference.upstreamShortName == nil ? LitheTheme.secondaryText : LitheTheme.accent)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -2817,7 +2805,7 @@ struct GitPushDialog: View {
                         Image(systemName: "doc.text")
                         Spacer()
                     }
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .padding(.horizontal, 18)
                     .frame(height: 48)
@@ -2828,7 +2816,7 @@ struct GitPushDialog: View {
 
                     Spacer(minLength: 0)
                     Text("No commit selected")
-                        .font(.system(size: 13))
+                        .font(LitheTheme.uiFont(size: 13))
                         .foregroundStyle(LitheTheme.secondaryText)
                     Spacer(minLength: 0)
                 }
@@ -2892,10 +2880,10 @@ struct GitCheckoutConflictDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Local changes would be overwritten")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text("Your changes to these files conflict with '\(request.reference.shortName)':")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 
@@ -2917,7 +2905,7 @@ struct GitCheckoutConflictDialog: View {
             Text(LocalizedStringKey(savePolicy == .shelve
                 ? "Smart Checkout shelves your changes in Lithe, switches branch, then restores them. Force Checkout switches and discards them."
                 : "Smart Checkout stashes your changes, switches branch, then restores them. Force Checkout switches and discards them."))
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -3339,4 +3327,33 @@ func gitLocalizedFormat(_ key: String, _ arguments: CVarArg..., locale: Locale, 
     let format = localizedBundle.localizedString(forKey: key, value: key, table: nil)
     guard !arguments.isEmpty else { return format }
     return String(format: format, locale: locale, arguments: arguments)
+}
+
+/// IDEA FilterComponent: 2pt border + 2pt inner inset; hover changes only the name foreground.
+private struct GitLogFilterLabel: View {
+    let title: LocalizedStringKey
+    let selection: String?
+    let localizeSelection: Bool
+    @State private var isHovered = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            HStack(spacing: 0) {
+                (Text(title) + Text(selection == nil ? "" : ": "))
+                    .foregroundStyle(isHovered ? LitheTheme.searchFieldText : LitheTheme.searchFieldPlaceholder)
+                if let selection {
+                    let value = localizeSelection ? Text(LocalizedStringKey(selection)) : Text(verbatim: selection)
+                    value.foregroundStyle(LitheTheme.searchFieldText)
+                }
+            }
+            if selection == nil {
+                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
+                              fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
+            }
+        }
+        .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
+        .padding(4)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
 }

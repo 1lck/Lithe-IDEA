@@ -3,14 +3,11 @@ import CoreText
 import Foundation
 
 enum MacBundledFontRegistry {
-    private static let fonts = [
-        (resource: "JetBrainsMono-Regular", postScriptName: "JetBrainsMono-Regular"),
-        (resource: "JetBrainsMono-Italic", postScriptName: "JetBrainsMono-Italic"),
-        (resource: "JetBrainsMono-Bold", postScriptName: "JetBrainsMono-Bold"),
-        (resource: "JetBrainsMono-BoldItalic", postScriptName: "JetBrainsMono-BoldItalic"),
-        (resource: "Inter-Regular", postScriptName: "Inter-Regular"),
-        (resource: "Inter-SemiBold", postScriptName: "Inter-SemiBold")
-    ]
+    private static let fonts = ["Thin", "ExtraLight", "Light", "Regular", "Medium", "SemiBold", "Bold", "ExtraBold"]
+        .flatMap { face in
+            let italic = face == "Regular" ? "Italic" : "\(face)Italic"
+            return ["JetBrainsMono-\(face)", "JetBrainsMono-\(italic)"]
+        }
 
     static func registerFonts(bundle: Bundle = .main) {
         registerFonts(bundle: bundle, reporter: report)
@@ -24,22 +21,23 @@ enum MacBundledFontRegistry {
             return
         }
 
-        for font in fonts where NSFont(name: font.postScriptName, size: 13) == nil {
-            let fileExtension = font.resource.hasPrefix("Inter-") ? "otf" : "ttf"
+        for font in fonts {
+            let fileExtension = "ttf"
             guard let url = bundle.url(
-                forResource: font.resource,
+                forResource: font,
                 withExtension: fileExtension,
                 subdirectory: "Fonts"
             ) else {
-                reporter("Lithe font registration: Missing bundled font: \(font.resource).\(fileExtension)\n")
+                reporter("Lithe font registration: Missing bundled font: \(font).\(fileExtension)\n")
                 continue
             }
 
             var registrationError: Unmanaged<CFError>?
             guard CTFontManagerRegisterFontsForURL(url as CFURL, .process, &registrationError) else {
-                let detail = registrationError?.takeRetainedValue().localizedDescription
-                    ?? "Unknown CoreText error"
-                reporter("Lithe font registration: Could not register \(font.resource).\(fileExtension): \(detail)\n")
+                let error = registrationError?.takeRetainedValue()
+                if let error, CFErrorGetCode(error) == CTFontManagerError.alreadyRegistered.rawValue { continue }
+                let detail = error?.localizedDescription ?? "Unknown CoreText error"
+                reporter("Lithe font registration: Could not register \(font).\(fileExtension): \(detail)\n")
                 continue
             }
         }

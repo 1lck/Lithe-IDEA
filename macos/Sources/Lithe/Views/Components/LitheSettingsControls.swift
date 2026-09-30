@@ -64,7 +64,7 @@ struct LitheSettingsSearchField: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 .buttonStyle(.litheNoPress)
@@ -135,7 +135,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                 Spacer(minLength: 8)
 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .rotationEffect(.degrees(isPresented ? 180 : 0))
             }
@@ -209,8 +209,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
     private func preferredPopupWidth(maximumWidth: CGFloat) -> CGFloat {
         guard expandsToFitOptions else { return width }
-        let font = NSFont(name: "Inter-Regular", size: SettingsSelectMetrics.fontSize)
-            ?? NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
+        let font = LitheTheme.uiNSFont(size: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
             let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
@@ -315,7 +314,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                 } label: {
                     HStack {
                         Text(LocalizedStringKey(title(option)))
-                            .font(.system(size: SettingsSelectMetrics.fontSize))
+                            .font(LitheTheme.uiFont(size: SettingsSelectMetrics.fontSize))
                             .foregroundStyle(
                                 isAvailable(option)
                                     ? (state.highlightedIndex == index ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
@@ -516,7 +515,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                     selection = option
                 } label: {
                     Text(LocalizedStringKey(title(option)))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(selection == option ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, minHeight: 24)
                         .contentShape(Rectangle())
@@ -561,7 +560,7 @@ struct LitheSettingsCheckbox: View {
             HStack(spacing: 8) {
                 ZStack {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold))
                         .foregroundStyle(Color.white)
                         .opacity(isOn ? 1 : 0)
                 }
@@ -574,7 +573,7 @@ struct LitheSettingsCheckbox: View {
 
                 if let title {
                     Text(title)
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                 }
             }
@@ -647,7 +646,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 9, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                 .foregroundStyle(isDisabled ? LitheTheme.tertiaryText : LitheTheme.secondaryText)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
@@ -685,7 +684,7 @@ private struct LitheSettingsTextEditorModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .font(.system(size: 12, design: .monospaced))
+            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
             .focused($isFocused)
             .frame(height: height)
             .padding(5)

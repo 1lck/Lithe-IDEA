@@ -89,7 +89,7 @@ struct UpdateControl: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             }
         }
-        .font(.system(size: compact ? 11.5 : 10.5, weight: .medium))
+        .font(LitheTheme.uiFont(size: compact ? 11.5 : 10.5, weight: .medium))
         .lithePointer()
     }
 
@@ -110,7 +110,7 @@ struct UpdateDetailsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(LocalizedStringKey(updateChecker.isPreview ? "Preview Update" : "Software Update"))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     if let updateInfo = updateChecker.updateInfo {
                         if updateInfo.isPreview {
                             Text("Build \(updateInfo.currentBuild ?? "") → \(updateInfo.targetBuild ?? "")")
@@ -147,7 +147,7 @@ struct UpdateDetailsView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("This preview contains changes that have not been officially released and may be unstable.")
-                                .font(.system(size: 12.5))
+                                .font(LitheTheme.uiFont(size: 12.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                             statusContent()
@@ -159,11 +159,11 @@ struct UpdateDetailsView: View {
                     let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Release notes")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                             .foregroundStyle(LitheTheme.secondaryText)
                         if releaseNotes.isEmpty {
                             Text("Release notes are not included with this update.")
-                                .font(.system(size: 12.5))
+                                .font(LitheTheme.uiFont(size: 12.5))
                                 .foregroundStyle(LitheTheme.primaryText)
                         } else {
                             UpdateReleaseNotesView(markdown: releaseNotes)
@@ -277,7 +277,7 @@ private struct UpdateReleaseNotesView: View {
                 ReleaseNotesWebView(html: renderedHTML, isDark: colorScheme == .dark)
             } else if renderingError != nil {
                 Text("Release notes could not be displayed. Open the release page to read them.")
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 ProgressView("Loading release notes…")

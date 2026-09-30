@@ -295,8 +295,8 @@ enum LitheTheme {
     )
     static var settingsPrimaryAction: Color { settingsControlAccent }
     static var settingsListSurface: Color { settingsSurface }
-    static var settingsFont: Font { .custom("Inter-Regular", size: 13) }
-    static var settingsStrongFont: Font { .custom("Inter-SemiBold", size: 13) }
+    static var settingsFont: Font { uiFont(size: 13) }
+    static var settingsStrongFont: Font { uiFont(size: 13, weight: .semibold) }
     static var settingsSearchBorder: Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -499,10 +499,22 @@ enum LitheTheme {
     static let editorBaselineLift: CGFloat = 1.5
 
     static func editorFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        let postScriptName = weight.rawValue >= NSFont.Weight.semibold.rawValue
-            ? "JetBrainsMono-Bold"
-            : "JetBrainsMono-Regular"
-        return NSFont(name: postScriptName, size: size)
+        uiNSFont(size: size, weight: weight)
+    }
+
+    static func uiNSFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let face: String
+        switch weight.rawValue {
+        case ..<NSFont.Weight.thin.rawValue: face = "Thin"
+        case ..<NSFont.Weight.light.rawValue: face = "ExtraLight"
+        case ..<NSFont.Weight.regular.rawValue: face = "Light"
+        case ..<NSFont.Weight.medium.rawValue: face = "Regular"
+        case ..<NSFont.Weight.semibold.rawValue: face = "Medium"
+        case ..<NSFont.Weight.bold.rawValue: face = "SemiBold"
+        case ..<NSFont.Weight.heavy.rawValue: face = "Bold"
+        default: face = "ExtraBold"
+        }
+        return NSFont(name: "JetBrainsMono-\(face)", size: size)
             ?? .monospacedSystemFont(ofSize: size, weight: weight)
     }
 
@@ -512,11 +524,64 @@ enum LitheTheme {
         return style
     }
 
-    private static func uiFont(size: CGFloat) -> Font {
-        if activeTheme != .lithe, NSFont(name: "Inter", size: size) != nil {
-            return Font.custom("Inter", size: size)
+    static func uiFont(size: CGFloat, weight: Font.Weight = .regular, design: Font.Design = .default) -> Font {
+        let face: String
+        switch weight {
+        case .ultraLight: face = "Thin"
+        case .thin: face = "ExtraLight"
+        case .light: face = "Light"
+        case .medium: face = "Medium"
+        case .semibold: face = "SemiBold"
+        case .bold: face = "Bold"
+        case .heavy, .black: face = "ExtraBold"
+        default: face = "Regular"
         }
-        return Font.system(size: size, weight: .regular)
+        return Font.custom("JetBrainsMono-\(face)", size: size).weight(weight)
+    }
+
+    static func uiFont(_ style: Font.TextStyle, design: Font.Design = .default) -> Font {
+        let nativeStyle: NSFont.TextStyle
+        switch style {
+        case .largeTitle: nativeStyle = .largeTitle
+        case .title: nativeStyle = .title1
+        case .title2: nativeStyle = .title2
+        case .title3: nativeStyle = .title3
+        case .headline: nativeStyle = .headline
+        case .subheadline: nativeStyle = .subheadline
+        case .footnote: nativeStyle = .footnote
+        case .caption: nativeStyle = .caption1
+        case .caption2: nativeStyle = .caption2
+        default: nativeStyle = .body
+        }
+        return uiFont(size: NSFont.preferredFont(forTextStyle: nativeStyle).pointSize,
+                      weight: style == .headline ? .bold : .regular)
+    }
+
+    /// VcsLogGraphTable + FilterComponent, IDEA Community c7f91397.
+    enum GitLog {
+        static let fontSize: CGFloat = 13
+        static let toolbarIconSize: CGFloat = 16
+        static let toolbarButtonSize: CGFloat = 22
+        static var referenceText: Color {
+            activeTheme == .lithe ? controlColor(light: 0x6C707E, dark: 0x6F737A) : secondaryText
+        }
+        static var dateColumnWidth: CGFloat {
+            ceil(("2000/12/31 23:59" as NSString).size(withAttributes: [
+                .font: editorFont(size: fontSize)
+            ]).width) + 8
+        }
+        static func rowBackground(selected: Bool, hovered: Bool, focused: Bool = true) -> Color {
+            if selected { return focused ? Tree.focusedSelection : Tree.inactiveSelection }
+            guard hovered else { return .clear }
+            guard activeTheme == .lithe else { return hoverBackground }
+            return Color(nsColor: NSColor(name: nil) { appearance in
+                appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                    // Match ColorUtil.mix in sRGB rather than alpha-compositing a white overlay.
+                    ? Palette.make(theme: activeTheme, isDark: true).editor
+                        .mixed(with: RGBA(0xFFFFFF), amount: 18.0 / 255).nsColor
+                    : RGBA(0xE9EAEC).nsColor
+            })
+        }
     }
 
     /// 统一的尺寸与间距刻度，避免各视图各写一套魔法数字。
@@ -601,7 +666,7 @@ extension View {
     }
 
     func litheTreeRow(isSelected: Bool = false, isFocused: Bool = false) -> some View {
-        font(.system(size: 13, weight: .regular))
+        font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(LitheTheme.Tree.text)
             .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight,
                    maxHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
@@ -696,7 +761,7 @@ struct LithePrimaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
+            .font(LitheTheme.uiFont(size: 13, weight: .medium))
             .foregroundStyle(.white)
             .padding(.horizontal, horizontalPadding)
             .frame(height: height)
@@ -718,7 +783,7 @@ struct LitheSecondaryButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: fontSize, weight: .medium))
+            .font(LitheTheme.uiFont(size: fontSize, weight: .medium))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, horizontalPadding)
             .frame(height: height)
@@ -811,7 +876,7 @@ struct LitheSearchTextField: View {
             .overlay(alignment: .leading) {
                 if text.isEmpty {
                     Text(title)
-                        .font(.system(size: 13, weight: .regular))
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         .foregroundColor(LitheTheme.searchFieldPlaceholder)
                         .lineLimit(1)
                         .allowsHitTesting(false)
@@ -829,14 +894,14 @@ struct LitheSearchFieldStyle: ViewModifier {
 
     // SearchTextField uses 15 columns; its UI measures 'm', adds margins and icon space.
     static let preferredWidth = ceil(("m" as NSString).size(withAttributes: [
-        .font: NSFont.systemFont(ofSize: 13)
+        .font: LitheTheme.uiNSFont(size: 13)
     ]).width) * 15 + 10 + 10 + 16 + 2 + 16 + 3
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4, style: .circular)
         let borderColor = isFocused ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder
         content
-            .font(.system(size: 13, weight: .regular))
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundColor(LitheTheme.searchFieldText)
             // The wrapper removes the inner text border: default margins are
             // 6pt, plus 1pt content padding and the outer 3pt border insets.

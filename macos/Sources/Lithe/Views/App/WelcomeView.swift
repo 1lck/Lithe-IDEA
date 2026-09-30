@@ -34,7 +34,7 @@ struct WelcomeView: View {
         .background(WelcomeInitialFocusReset())
         .sheet(isPresented: $showingStableRollback) {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Return to Stable").font(.headline)
+                Text("Return to Stable").font(LitheTheme.uiFont(.headline))
                 StableRollbackControl()
                 Button("Close") { showingStableRollback = false }
             }
@@ -49,10 +49,10 @@ struct WelcomeView: View {
                 LitheIcons.appLogo(size: 28)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Lithe")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(textColor)
                     Text(updateChecker.versionDescription)
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(mutedColor)
                 }
             }
@@ -63,7 +63,7 @@ struct WelcomeView: View {
             HStack(spacing: 9) {
                 LitheIcon(kind: .folder, size: 15)
                 Text("Projects")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
             }
             .foregroundStyle(textColor)
             .padding(.horizontal, 14)
@@ -103,11 +103,11 @@ struct WelcomeView: View {
             HStack(spacing: 10) {
                 HStack(spacing: 8) {
                     LitheSystemIcon(systemImage: "magnifyingglass")
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(mutedColor)
                     TextField("Search projects", text: $projectFilter)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13))
+                        .font(LitheTheme.uiFont(size: 13))
                         .focused($searchFocused)
                 }
                 .foregroundStyle(textColor)
@@ -161,10 +161,10 @@ struct WelcomeView: View {
     private var emptyProjectsState: some View {
         VStack(spacing: 10) {
             Image(systemName: "folder.badge.plus")
-                .font(.system(size: 32, weight: .light))
+                .font(LitheTheme.uiFont(size: 32, weight: .light))
                 .foregroundStyle(mutedColor)
             Text(model.recentProjects.isEmpty ? "No recent projects" : "No matching projects")
-                .font(.system(size: 14, weight: .medium))
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
                 .foregroundStyle(textColor)
             Text("Open a local folder to start working.")
                 .font(LitheTheme.uiFont)
@@ -189,10 +189,10 @@ struct WelcomeView: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(project.name)
-                            .font(.system(size: 13.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 13.5, weight: .medium))
                             .foregroundStyle(exists ? textColor : mutedColor)
                         Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                            .font(.system(size: 11.5))
+                            .font(LitheTheme.uiFont(size: 11.5))
                             .foregroundStyle(mutedColor)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -223,7 +223,7 @@ struct WelcomeView: View {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(hoveredProjectMenuID == project.id ? hoverColor : .clear)
                     LitheSystemIcon(systemImage: "ellipsis")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         .foregroundStyle(mutedColor)
                 }
                 .frame(width: 28, height: 28)
@@ -324,7 +324,7 @@ private struct WelcomeActionStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(.system(size: 13, weight: .medium))
+            .font(LitheTheme.uiFont(size: 13, weight: .medium))
             .foregroundStyle(foreground)
             .padding(.horizontal, 13)
             .frame(height: 28)

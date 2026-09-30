@@ -85,15 +85,15 @@ struct DatabaseWorkspaceView: View {
                 if let profile = model.databaseFeature.selectedProfile {
                     DatabaseBrandIcon(kind: .mongodb, size: 18)
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("MongoDB Documents").font(.system(size: 12, weight: .semibold))
+                        Text("MongoDB Documents").font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         Text(profile.database.isEmpty ? "admin" : profile.database)
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                 }
                 Spacer()
                 Text("Collection data can be edited directly in the grid.")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 12)
@@ -168,11 +168,11 @@ private struct DatabaseDashboardView: View {
                                             Image(systemName: "terminal")
                                                 .foregroundStyle(LitheTheme.accent)
                                             Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                                .font(.system(size: 10.5, design: .monospaced))
+                                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                                 .lineLimit(1)
                                             Spacer()
                                             Text(entry.executedAt, style: .relative)
-                                                .font(.system(size: 9.5))
+                                                .font(LitheTheme.uiFont(size: 9.5))
                                                 .foregroundStyle(LitheTheme.tertiaryText)
                                         }
                                         .padding(.horizontal, 12)
@@ -207,12 +207,12 @@ private struct DatabaseDashboardView: View {
                     Image(systemName: "cylinder.split.1x2")
                         .foregroundStyle(LitheTheme.tertiaryText)
                     Text("No saved connections yet.")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Button { showsConnectionEditor = true } label: {
                     Label("New Connection", systemImage: "plus")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .padding(.horizontal, 11)
                         .frame(height: 28)
                         .background(LitheTheme.inputBackground)
@@ -244,7 +244,7 @@ private struct DatabaseDashboardView: View {
     private var quickStartAddConnectionRow: some View {
         Button { showsConnectionEditor = true } label: {
             Label("New Connection", systemImage: "plus")
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 13)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -266,9 +266,9 @@ private struct DatabaseDashboardView: View {
                         .frame(width: 3, height: 28)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(profile.name)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                         Text(connectionSubtitle(profile))
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
                     Spacer()
@@ -283,7 +283,7 @@ private struct DatabaseDashboardView: View {
             if profile.kind.isSQLDatabase {
                 Button { onNewQuery(profile) } label: {
                     Image(systemName: "doc.badge.plus")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 40, height: 40)
                         .contentShape(Rectangle())
@@ -312,10 +312,10 @@ private struct DatabaseDashboardView: View {
     private func metricCard(title: LocalizedStringKey, value: Int, symbol: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("\(value)")
-                .font(.system(size: 25, weight: .semibold, design: .rounded))
+                .font(LitheTheme.uiFont(size: 25, weight: .semibold, design: .rounded))
                 .foregroundStyle(LitheTheme.primaryText)
         }
         .padding(15)
@@ -333,7 +333,7 @@ private struct DatabaseDashboardView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .padding(.horizontal, 13)
                 .frame(height: 40)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
@@ -354,7 +354,7 @@ private struct DatabaseDashboardView: View {
     ) -> some View {
         Button(action: action) {
             Label(title, systemImage: symbol)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 13)
                 .frame(height: 48)
@@ -370,7 +370,7 @@ private struct DatabaseDashboardView: View {
 
     private func dashboardEmpty(_ message: LocalizedStringKey) -> some View {
         Text(message)
-            .font(.system(size: 10.5))
+            .font(LitheTheme.uiFont(size: 10.5))
             .foregroundStyle(LitheTheme.tertiaryText)
             .padding(16)
     }
@@ -413,10 +413,10 @@ private struct DatabaseHistoryView: View {
             HStack(spacing: 8) {
                 Image(systemName: "clock.arrow.circlepath")
                     .foregroundStyle(LitheTheme.accent)
-                Text("SQL History").font(.system(size: 12.5, weight: .semibold))
+                Text("SQL History").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Spacer()
                 Text("\(entries.count) statements")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 14)
@@ -436,10 +436,10 @@ private struct DatabaseHistoryView: View {
                             Image(systemName: "terminal").foregroundStyle(LitheTheme.accent)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 11.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                     .lineLimit(2)
                                 Text(entry.executedAt, format: .dateTime.year().month().day().hour().minute().second())
-                                    .font(.system(size: 9.5))
+                                    .font(LitheTheme.uiFont(size: 9.5))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
                             Spacer()
@@ -532,10 +532,10 @@ struct DatabaseSQLWorkspaceView: View {
                             Button { model.databaseFeature.selectedSQLTabID = tab.id } label: {
                                 HStack(spacing: 6) {
                                     Image(systemName: tab.isRunning ? "arrow.triangle.2.circlepath" : "terminal")
-                                        .font(.system(size: 10))
+                                        .font(LitheTheme.uiFont(size: 10))
                                     DatabaseLocalization.queryTabTitle(tab.title).lineLimit(1)
                                 }
-                                .font(.system(size: 11.5))
+                                .font(LitheTheme.uiFont(size: 11.5))
                                 .foregroundStyle(model.databaseFeature.selectedSQLTabID == tab.id ? LitheTheme.primaryText : LitheTheme.secondaryText)
                                 .padding(.leading, 10)
                                 .frame(height: 31)
@@ -544,7 +544,7 @@ struct DatabaseSQLWorkspaceView: View {
 
                             Button { model.databaseFeature.closeSQLTab(tab.id) } label: {
                                 Image(systemName: "xmark")
-                                    .font(.system(size: 8, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                             }
                             .litheIconButton()
                             .foregroundStyle(LitheTheme.secondaryText)
@@ -589,7 +589,7 @@ struct DatabaseSQLWorkspaceView: View {
                 .disabled(!hasSQLSelection)
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
             .menuStyle(.borderlessButton)
             .frame(width: 18)
@@ -621,17 +621,17 @@ struct DatabaseSQLWorkspaceView: View {
 
             if let execution = model.databaseFeature.selectedSQLTab?.execution {
                 executionLabel(execution)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
             if let profile = model.databaseFeature.selectedProfile {
                 Text(profile.database.isEmpty ? (profile.path.isEmpty ? profile.name : profile.path) : profile.database)
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 Text("No connection")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.warning)
             }
         }
@@ -661,7 +661,7 @@ struct DatabaseSQLWorkspaceView: View {
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.error)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
@@ -682,7 +682,7 @@ struct DatabaseSQLWorkspaceView: View {
                 .overlay(alignment: .topTrailing) {
                     if result.truncated {
                         Text("Limited to 10,000 rows")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.warning)
                             .padding(8)
                     }
@@ -763,13 +763,13 @@ private struct DatabaseQueryResultGrid: View {
                         ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
                             HStack(spacing: 0) {
                                 Text("\(index + 1)")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .frame(width: 44, height: 27)
                                     .background(LitheTheme.toolHeader)
                                 ForEach(columns, id: \.self) { column in
                                     Text(display(row[column]))
-                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                         .lineLimit(1)
                                         .truncationMode(.tail)
                                         .padding(.horizontal, 7)
@@ -784,7 +784,7 @@ private struct DatabaseQueryResultGrid: View {
                             Text("#").frame(width: 44, height: 29)
                             ForEach(columns, id: \.self) { column in
                                 Text(column)
-                                    .font(.system(size: 11.5, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                                     .lineLimit(1)
                                     .padding(.horizontal, 7)
                                     .frame(width: 180, height: 29, alignment: .leading)
@@ -815,7 +815,7 @@ private struct DatabaseStructureView: View {
         if let table = model.databaseFeature.selectedTable {
             VStack(spacing: 0) {
                 HStack(spacing: 5) {
-                    Text(table).font(.system(size: 12.5, weight: .semibold))
+                    Text(table).font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Spacer()
                     Button { editor = .column } label: { Image(systemName: "plus") }.litheIconButton().help("Add column")
                     Button { editor = .index } label: { Image(systemName: "plus.square.on.square") }.litheIconButton().help("Add index")
@@ -831,7 +831,7 @@ private struct DatabaseStructureView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(column)
                                     Text(model.databaseFeature.columnTypes[column] ?? "")
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 Spacer()
@@ -947,7 +947,7 @@ private struct DatabaseSchemaEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(LocalizedStringKey(title)).font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
+            Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
             Form {
                 switch kind {
                 case .column:
@@ -1088,20 +1088,20 @@ private struct DatabaseDiagnosticsView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack {
                                         Text("\(event.source.rawValue.uppercased()) · \(event.operation)")
-                                            .font(.system(size: 11, weight: .medium))
+                                            .font(LitheTheme.uiFont(size: 11, weight: .medium))
                                         Spacer()
                                         Text("\(event.durationMilliseconds) ms")
-                                            .font(.system(size: 10, design: .monospaced))
+                                            .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                     if let error = event.errorMessage {
                                         Text(error)
-                                            .font(.system(size: 10))
+                                            .font(LitheTheme.uiFont(size: 10))
                                             .foregroundStyle(LitheTheme.error)
                                             .lineLimit(2)
                                     } else if let rows = event.rowsReturned {
                                         Text("\(rows) rows returned")
-                                            .font(.system(size: 10))
+                                            .font(LitheTheme.uiFont(size: 10))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                 }
@@ -1122,11 +1122,11 @@ private struct DatabaseDiagnosticsView: View {
                                     DatabaseLocalization.statementKind(entry.kind)
                                     Spacer()
                                     Text("\(entry.durationMilliseconds) ms")
-                                        .font(.system(size: 11, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 Text(entry.sql.replacingOccurrences(of: "\n", with: " "))
-                                    .font(.system(size: 10, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
                                     .textSelection(.enabled)
@@ -1142,7 +1142,7 @@ private struct DatabaseDiagnosticsView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 DatabaseLocalization.text(point.reason)
                                 Text("\(point.byteCount) bytes")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                             Spacer()
@@ -1214,7 +1214,7 @@ private struct DatabaseBackupScheduleEditor: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("Backup Schedule").font(.system(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
+            Text("Backup Schedule").font(LitheTheme.uiFont(size: 15, weight: .semibold)).frame(maxWidth: .infinity, alignment: .leading).padding(16)
             Form {
                 LabeledContent("Connection") { Text(profile.name) }
                 Toggle("Enable scheduled backups", isOn: $enabled)
@@ -1265,7 +1265,7 @@ private struct SQLSyntaxEditor: NSViewRepresentable {
         let textView = SQLTextView(frame: NSRect(x: 0, y: 0, width: 900, height: 240))
         textView.delegate = context.coordinator
         textView.string = text
-        textView.font = .monospacedSystemFont(ofSize: 12.5, weight: .regular)
+        textView.font = LitheTheme.uiNSFont(size: 12.5, weight: .regular)
         applyAppearance(to: textView, in: scrollView, isDark: isDark)
         textView.textContainerInset = NSSize(width: 11, height: 9)
         textView.isRichText = false
@@ -1414,7 +1414,7 @@ private enum SQLSyntaxHighlighter {
             : NSColor(srgbRed: 0.16, green: 0.17, blue: 0.19, alpha: 1)
         storage.beginEditing()
         storage.setAttributes([
-            .font: NSFont.monospacedSystemFont(ofSize: 12.5, weight: .regular),
+            .font: LitheTheme.uiNSFont(size: 12.5, weight: .regular),
             .foregroundColor: textColor
         ], range: range)
         apply(pattern: "(?i)\\b(SELECT|FROM|WHERE|INSERT|INTO|VALUES|UPDATE|DELETE|MERGE|REPLACE|CREATE|ALTER|DROP|TRUNCATE|TABLE|VIEW|INDEX|DATABASE|SCHEMA|TRIGGER|PROCEDURE|FUNCTION|JOIN|LEFT|RIGHT|INNER|OUTER|ON|AS|AND|OR|NOT|NULL|IS|IN|EXISTS|BETWEEN|LIKE|DISTINCT|GROUP|BY|ORDER|HAVING|LIMIT|OFFSET|UNION|ALL|WITH|RETURNING|SET|SHOW|DESCRIBE|DESC|EXPLAIN|PRAGMA|BEGIN|COMMIT|ROLLBACK|GRANT|REVOKE)\\b", color: isDark ? NSColor(srgbRed: 0.43, green: 0.67, blue: 0.98, alpha: 1) : NSColor(srgbRed: 0.10, green: 0.39, blue: 0.72, alpha: 1), in: storage)

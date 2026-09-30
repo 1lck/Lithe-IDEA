@@ -32,7 +32,7 @@ struct GitCommitDiffReviewView: View {
                 } else if feature.diffRows.isEmpty {
                     VStack(spacing: 9) {
                         Image(systemName: "doc.richtext")
-                            .font(.system(size: 30, weight: .light))
+                            .font(LitheTheme.uiFont(size: 30, weight: .light))
                         Text("No textual diff available")
                     }
                     .font(LitheTheme.uiFont)
@@ -54,14 +54,14 @@ struct GitCommitDiffReviewView: View {
             LitheSystemIcon(systemImage: "doc.text", size: 14)
                 .foregroundStyle(fileIconColor)
             Text((context.file.path as NSString).lastPathComponent)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
 
             statusBadge
 
             Text("COMMIT DIFF")
-                .font(.system(size: 8.5, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                 .foregroundStyle(LitheTheme.accent)
                 .padding(.horizontal, 6)
                 .frame(height: 18)
@@ -74,7 +74,7 @@ struct GitCommitDiffReviewView: View {
                 feature.closeGitCommitDiff()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
             .litheIconButton()
             .help("Close diff")
@@ -91,9 +91,9 @@ struct GitCommitDiffReviewView: View {
     private var statusBadge: some View {
         HStack(spacing: 4) {
             Image(systemName: context.kind.symbol)
-                .font(.system(size: 8, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8, weight: .bold))
             Text(LocalizedStringKey(context.kind.title.uppercased()))
-                .font(.system(size: 8.5, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
         }
         .foregroundStyle(changeKindColor)
         .padding(.horizontal, 6)
@@ -128,10 +128,10 @@ struct GitCommitDiffReviewView: View {
                 .padding(.horizontal, 4)
 
             Text(context.commit.shortHash)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.accent)
             Text(context.commit.subject)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
 
@@ -144,7 +144,7 @@ struct GitCommitDiffReviewView: View {
                     Image(systemName: highlightsWords ? "checkmark.square.fill" : "square")
                     Text("Highlight words")
                 }
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .padding(.horizontal, 8)
                 .frame(height: 28)
@@ -156,7 +156,7 @@ struct GitCommitDiffReviewView: View {
             .lithePointer()
 
             Text("Read-only")
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 7)
         }
@@ -180,13 +180,13 @@ struct GitCommitDiffReviewView: View {
     private func versionLabel(_ title: String, path: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "doc.text")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(path)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)

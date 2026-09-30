@@ -5,8 +5,8 @@ private enum LitheContextMenuMetrics {
     static let minimumRootWidth: CGFloat = 230
     static let minimumSubmenuWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 360
-    static let itemFont = NSFont.menuFont(ofSize: 12)
-    static let shortcutFont = NSFont.menuFont(ofSize: 11)
+    static let itemFont = LitheTheme.uiNSFont(size: 12)
+    static let shortcutFont = LitheTheme.uiNSFont(size: 11)
     static let rowHeight: CGFloat = 26
     static let separatorHeight: CGFloat = 11
     static let verticalPadding: CGFloat = 12
@@ -260,7 +260,7 @@ private struct LitheContextMenuRow: View {
                             LitheIcon(kind: iconKind, size: 16)
                         } else if let systemImage = item.systemImage {
                             Image(systemName: systemImage)
-                                .font(.system(size: 13, weight: .regular))
+                                .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         } else {
                             Color.clear
                         }
@@ -270,7 +270,7 @@ private struct LitheContextMenuRow: View {
                 }
 
                 Text(LocalizedStringKey(item.title))
-                    .font(settingsStyle ? .system(size: 12.5) : Font(LitheContextMenuMetrics.itemFont))
+                    .font(settingsStyle ? LitheTheme.uiFont(size: 12.5) : Font(LitheContextMenuMetrics.itemFont))
                     .foregroundStyle(isHovering
                                      ? (settingsStyle ? LitheTheme.settingsSelectionText : LitheTheme.toolWindowSelectedText)
                                      : LitheTheme.primaryText)
@@ -280,7 +280,7 @@ private struct LitheContextMenuRow: View {
 
                 if submenuItems != nil {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                         .foregroundStyle(isHovering ? LitheTheme.toolWindowSelectedText : LitheTheme.secondaryText)
                 } else if let shortcut = item.shortcut {
                     Text(shortcut)

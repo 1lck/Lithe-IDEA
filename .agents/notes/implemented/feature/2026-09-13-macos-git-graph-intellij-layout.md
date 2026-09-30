@@ -60,8 +60,15 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
   1,000 行，端点范围 250 行；跨度 ≥ 30 行时端点附近仍有方向箭头。
   "长边收束"只隐藏中间行的边本身，不删除中间行的其他提交，也不做
   IDEA 的"折叠一整段线性提交"功能。
-- **渲染尺寸和合并提交文字层次复刻 IDEA**：22pt 行高、16pt 列距、
-  8pt 节点直径、1.5pt 线宽；两个及以上父节点的合并提交标题使用
+- **渲染尺寸和合并提交文字层次复刻 IDEA**：New UI 普通密度使用
+  `JBUI.CurrentTheme.VersionControl.Log` 的 26pt 行高；`PaintParameters`
+  的 22pt 是缩放基准，16pt 列距、8pt 节点直径、1.5pt 线宽及 2pt
+  图文间距均乘以 `26 / 22`，绘制与箭头命中共用同一份几何数据。
+  提交文字使用 13pt，引用文字按 `LabelPainter` 使用 12pt 且不绘制旧版
+  灰色圆角标签；焦点/失焦选中色复用共享树行主题，选中覆盖 hover。
+  深色 hover 按 `VcsLogGraphTable.getHoveredBackgroundColor` 与
+  `ColorUtil.mix` 将白色和当前背景以 18/255、237/255 混合，不能把
+  `#FFFFFFED` 直接当作高不透明度覆盖层。两个及以上父节点的合并提交标题使用
   `VersionControl.Log.Commit.unmatchedForeground`，以父节点数量而非
   标题是否以 "Merge" 开头判断是否为合并提交。
 

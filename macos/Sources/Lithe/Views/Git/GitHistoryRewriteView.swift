@@ -42,6 +42,7 @@ struct GitHistorySelectionGraphView: View {
     let focusedHash: String?
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
+    var isFocused = true
 
     var body: some View {
         GitGraphView(
@@ -49,7 +50,8 @@ struct GitHistorySelectionGraphView: View {
             selectedHash: focusedHash,
             showCommitDecorations: showCommitDecorations,
             actions: actions,
-            selectedHashes: editor.selection.hashes
+            selectedHashes: editor.selection.hashes,
+            isFocused: isFocused
         )
     }
 }
@@ -68,26 +70,26 @@ struct GitHistoryRewriteOutcomeView: View {
                 Image(systemName: outcome.succeeded ? "checkmark.circle" : "exclamationmark.triangle")
                     .foregroundStyle(outcome.succeeded ? LitheTheme.accent : LitheTheme.warning)
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(LocalizedStringKey(outcome.message)).font(.system(size: 12, weight: .medium))
+                    Text(LocalizedStringKey(outcome.message)).font(LitheTheme.uiFont(size: 12, weight: .medium))
                     ForEach(Array(outcome.warnings.enumerated()), id: \.offset) { _, warning in
-                        Text(LocalizedStringKey(warning.message)).font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                        Text(LocalizedStringKey(warning.message)).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
                     }
                     if let rewrite = outcome.rewrite {
                         if rewrite.mutationApplied && !outcome.succeeded {
                             Text("History changed, but Git reported an incomplete step. Refresh the repository and inspect the recovery reference before retrying.")
-                                .font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
                         }
                         if rewrite.worktreeRefresh == "failed" {
                             Text("The working tree could not be refreshed. Keep your local files and inspect Git status before continuing.")
-                                .font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
                         }
                         if !rewrite.outcomeKnown {
                             Text("Git could not confirm the final state. Refresh history before performing another action.")
-                                .font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                                .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
                         }
                         HStack(spacing: 8) {
                             Text("Recovery reference: \(rewrite.recoveryReference)")
-                                .font(.system(size: 10.5, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                 .textSelection(.enabled)
                             Button("Copy") {
                                 NSPasteboard.general.clearContents()
@@ -102,7 +104,7 @@ struct GitHistoryRewriteOutcomeView: View {
                             .lithePointer()
                         }
                         Text("Original HEAD: \(rewrite.originalHead.prefix(12)). Create a branch from the recovery reference to inspect the original history.")
-                            .font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                            .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
                     }
                 }
                 Spacer(minLength: 0)
@@ -120,12 +122,12 @@ struct GitHistoryRewriteOutcomeView: View {
 
     private var recoveryDialog: some View {
         VStack(alignment: .leading, spacing: 13) {
-            Text("Create Recovery Branch").font(.system(size: 16, weight: .semibold))
+            Text("Create Recovery Branch").font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Text("Create a branch at the original history so you can inspect it in Git Log. Your current checkout stays in place.")
-                .font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+                .font(LitheTheme.uiFont(size: 12)).fixedSize(horizontal: false, vertical: true)
             TextField("Branch name", text: $recoveryBranchName).textFieldStyle(.roundedBorder)
                 .disabled(isCreatingRecoveryBranch)
-            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(.system(size: 12)).foregroundStyle(LitheTheme.error) }
+            if let recoveryError { Text(LocalizedStringKey(recoveryError)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error) }
             HStack {
                 if isCreatingRecoveryBranch { ProgressView().controlSize(.small) }
                 Spacer()
@@ -155,16 +157,16 @@ private struct GitHistoryRewriteDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(LocalizedStringKey(editor.operation.menuTitle.replacingOccurrences(of: "…", with: "")))
-                .font(.system(size: 17, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
             if editor.isLoading {
                 HStack { ProgressView().controlSize(.small); Text("Checking selected commits and repository state…") }
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
             }
             if let preview = editor.preview {
                 previewContent(preview)
             }
             if let error = editor.errorMessage {
-                Text(LocalizedStringKey(error)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(error)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             if editor.operation.editsMessage, editor.preview != nil {
                 messageEditor
@@ -197,26 +199,26 @@ private struct GitHistoryRewriteDialog: View {
     @ViewBuilder
     private func previewContent(_ preview: GitHistoryRewritePreview) -> some View {
         if let branch = preview.branch {
-            Text("Branch: \(branch)").font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+            Text("Branch: \(branch)").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
         }
-        Text(impactDescription(preview)).font(.system(size: 12)).fixedSize(horizontal: false, vertical: true)
+        Text(impactDescription(preview)).font(LitheTheme.uiFont(size: 12)).fixedSize(horizontal: false, vertical: true)
         ForEach(Array(preview.blockers.enumerated()), id: \.offset) { _, blocker in
             Label(LocalizedStringKey(blocker.message), systemImage: "exclamationmark.triangle")
-                .font(.system(size: 12)).foregroundStyle(LitheTheme.warning)
+                .font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.warning)
                 .fixedSize(horizontal: false, vertical: true)
         }
         if !preview.affectedCommits.isEmpty {
-            Text("Affected history · oldest to newest").font(.system(size: 11, weight: .medium))
+            Text("Affected history · oldest to newest").font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             ScrollView {
                 VStack(alignment: .leading, spacing: 7) {
                     ForEach(preview.affectedCommits) { commit in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(String(commit.hash.prefix(9))).font(.system(size: 11, design: .monospaced))
+                            Text(String(commit.hash.prefix(9))).font(LitheTheme.uiFont(size: 11, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
-                            Text(commit.subject).font(.system(size: 12)).lineLimit(2)
+                            Text(commit.subject).font(LitheTheme.uiFont(size: 12)).lineLimit(2)
                             Spacer(minLength: 0)
-                            Text(actionLabel(commit, preview: preview)).font(.system(size: 10.5))
+                            Text(actionLabel(commit, preview: preview)).font(LitheTheme.uiFont(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                     }
@@ -232,21 +234,21 @@ private struct GitHistoryRewriteDialog: View {
     private var messageEditor: some View {
         VStack(alignment: .leading, spacing: 7) {
             HStack {
-                Text("Title").font(.system(size: 12, weight: .medium))
+                Text("Title").font(LitheTheme.uiFont(size: 12, weight: .medium))
                 Spacer()
-                Text("\(editor.title.count) characters").font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                Text("\(editor.title.count) characters").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
             }
             TextField("Commit title", text: $editor.title).textFieldStyle(.roundedBorder)
                 .disabled(editor.isExecuting)
-            Text("Description").font(.system(size: 12, weight: .medium))
+            Text("Description").font(LitheTheme.uiFont(size: 12, weight: .medium))
             TextEditor(text: $editor.body)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .frame(height: 110)
                 .padding(4)
                 .background(LitheTheme.inputBackground)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
                 .disabled(editor.isExecuting)
-            Text("\(editor.message.count) characters total").font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+            Text("\(editor.message.count) characters total").font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
         }
     }
 

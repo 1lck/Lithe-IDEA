@@ -16,7 +16,7 @@ struct CommitAreaView: View {
                     Text("Amend") + Text(" last commit").foregroundColor(LitheTheme.accent)
                 }
                     .toggleStyle(.checkbox)
-                    .font(.system(size: LitheTheme.Commit.amendFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Commit.amendFontSize))
                 LitheIDEAIcon(resourcePath: "expui/general/history.svg", size: LitheTheme.Commit.actionIconSize,
                               fallbackSystemImage: "clock", preservesOriginalColors: true)
                 Spacer()
@@ -47,7 +47,7 @@ struct CommitAreaView: View {
                 )
                 .help("Generate a commit message from staged diffs")
                 Text("\(stagedChanges.count) staged")
-                    .font(.system(size: LitheTheme.Commit.metadataFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Commit.metadataFontSize))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, LitheTheme.Commit.contentInset)
@@ -78,7 +78,7 @@ struct CommitAreaView: View {
                         ForEach(feature.workspaceCommitResults) { result in
                             (Text("\(result.root.lastPathComponent): ") + Text(LocalizedStringKey(result.detail))
                                 + Text(verbatim: result.diagnostic.isEmpty ? "" : ": \(result.diagnostic)"))
-                                .font(.caption).help(result.root.path)
+                                .font(LitheTheme.uiFont(.caption)).help(result.root.path)
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxHeight: 90)
@@ -179,7 +179,7 @@ struct CommitActionButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         let shape = RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
         configuration.label
-            .font(.system(size: 13, weight: .regular))
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(isEnabled ? (isPrimary ? Color.white : LitheTheme.searchFieldText) : LitheTheme.Commit.disabledText)
             .padding(.horizontal, LitheTheme.Commit.buttonHorizontalPadding)
             .frame(minWidth: LitheTheme.Commit.buttonMinimumWidth, minHeight: LitheTheme.Commit.buttonHeight)
@@ -200,10 +200,10 @@ private struct WorkspaceCommitPlanView: View {
     var body: some View {
         if let plan = feature.pendingSubmoduleCommitPlan {
             VStack(alignment: .leading, spacing: 12) {
-                Text(LocalizedStringKey(plan.isRetry ? "Review remaining steps" : "Review repository commits")).font(.headline)
+                Text(LocalizedStringKey(plan.isRetry ? "Review remaining steps" : "Review repository commits")).font(LitheTheme.uiFont(.headline))
                 Text("Each repository has its own commit. Completed steps are kept if another repository fails.")
-                Text("Commit message: \(plan.message)").font(.caption)
-                if plan.amend { Text("Amend applies to repositories with selected files.").font(.caption) }
+                Text("Commit message: \(plan.message)").font(LitheTheme.uiFont(.caption))
+                if plan.amend { Text("Amend applies to repositories with selected files.").font(LitheTheme.uiFont(.caption)) }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 8) {
                         ForEach(Array(plan.orderedRoots.enumerated()), id: \.element) { index, root in
@@ -212,10 +212,10 @@ private struct WorkspaceCommitPlanView: View {
                                 (Text("\(index + 1). ") + Text(LocalizedStringKey(action)) + Text(": \(root.path)"))
                                 if let state = plan.states[root] {
                                     Text("\(state.branch ?? "Detached HEAD") · \(state.head?.prefix(10) ?? "New repository")")
-                                        .font(.caption).foregroundStyle(.secondary)
+                                        .font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
                                     if !plan.committedRoots.contains(root) {
                                         ForEach(state.stagedPaths, id: \.self) { path in
-                                            Text(path).font(.caption)
+                                            Text(path).font(LitheTheme.uiFont(.caption))
                                         }
                                     }
                                 }
@@ -223,7 +223,7 @@ private struct WorkspaceCommitPlanView: View {
                         }
                         ForEach(plan.propagatedRelations, id: \.self) { relation in
                             Text("Update \(relation.parent.lastPathComponent)/\(relation.path) after \(relation.child.lastPathComponent)")
-                                .font(.caption)
+                                .font(LitheTheme.uiFont(.caption))
                         }
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }.frame(maxHeight: 260)
@@ -231,7 +231,7 @@ private struct WorkspaceCommitPlanView: View {
                     get: { plan.includeParentReferences },
                     set: { include in Task { await feature.setCommitPlanParentReferences(include) } }
                 )).disabled(feature.isCommitting)
-                if plan.push { Text("Each submodule is pushed before its parent.").font(.caption) }
+                if plan.push { Text("Each submodule is pushed before its parent.").font(LitheTheme.uiFont(.caption)) }
                 HStack {
                     Spacer()
                     Button("Cancel") { feature.cancelPendingSubmoduleCommit() }

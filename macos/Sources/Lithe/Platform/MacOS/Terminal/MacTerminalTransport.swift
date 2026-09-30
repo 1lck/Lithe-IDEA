@@ -345,22 +345,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     private static func preferredTerminalFont() -> NSFont {
-        let size: CGFloat = 12.5
-        let fontNames = [
-            "MesloLGS Nerd Font Mono",
-            "JetBrainsMono Nerd Font Mono",
-            "Hack Nerd Font Mono",
-            "FiraCode Nerd Font Mono",
-            "IosevkaTerm Nerd Font Mono",
-            "Menlo"
-        ]
-
-        for name in fontNames {
-            if let font = NSFont(name: name, size: size) {
-                return font
-            }
-        }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        LitheTheme.uiNSFont(size: 12.5)
     }
 
     func defaultShellPath() -> String {

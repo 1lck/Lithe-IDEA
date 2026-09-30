@@ -95,7 +95,7 @@ private struct AgentThinkingRow: View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small)
             Text(isCancelling ? "Stopping…" : "Thinking…")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .padding(.leading, 2)
@@ -122,7 +122,7 @@ struct AgentHeroView: View {
             .overlay(alignment: .topLeading) {
                 if let agentVersion, !agentVersion.isEmpty {
                     Text("v\(agentVersion)")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 2)
                         .foregroundStyle(AgentPanelStyle.versionText)
@@ -134,7 +134,7 @@ struct AgentHeroView: View {
             }
             Text(agentName.map { String(format: String(localized: "Send a message to %@"), $0) }
                  ?? String(localized: "Choose an Agent to start"))
-                .font(.system(size: 14))
+                .font(LitheTheme.uiFont(size: 14))
                 .foregroundStyle(AgentPanelStyle.logo)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -165,7 +165,7 @@ struct AgentActivitySummaryBar: View {
             Divider().frame(height: 14).overlay(LitheTheme.divider)
             segment(systemImage: "pencil", title: "Edits", value: edits, tint: nil)
         }
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.muted)
         .frame(height: 32)
         .background(AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
@@ -176,11 +176,11 @@ struct AgentActivitySummaryBar: View {
 
     private func segment(systemImage: String, title: LocalizedStringKey, value: Int, tint: Color?) -> some View {
         HStack(spacing: 5) {
-            Image(systemName: systemImage).font(.system(size: 10))
+            Image(systemName: systemImage).font(LitheTheme.uiFont(size: 10))
             Text(title)
             if value > 0 {
                 Text("\(value)")
-                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(tint ?? LitheTheme.primaryText)
             }
         }
@@ -199,10 +199,10 @@ private struct AgentPermissionCard: View {
                 Image(systemName: "hand.raised.fill")
                     .foregroundStyle(LitheTheme.warning)
                 Text("Permission required")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
             }
             Text(permission.title)
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -246,7 +246,7 @@ private struct AgentMessageRow: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(message.text)
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .textSelection(.enabled)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -295,13 +295,13 @@ private struct AgentToolCallRow: View {
             }
             .frame(width: 14, height: 14)
             Text(message.text)
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(3)
                 .textSelection(.enabled)
             Spacer(minLength: 0)
             Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 10))
+                .font(LitheTheme.uiFont(size: 10))
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
@@ -338,7 +338,7 @@ private struct AgentToolEvidenceView: View {
                         .truncationMode(.middle)
                 }
                     .buttonStyle(.litheNoPress)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .help(location.path)
             }
             if let input = details.input { evidence("Input", text: input) }
@@ -352,10 +352,10 @@ private struct AgentToolEvidenceView: View {
 
     private func evidence(_ title: String, text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.system(size: 11, weight: .medium)).foregroundStyle(LitheTheme.secondaryText)
+            Text(title).font(LitheTheme.uiFont(size: 11, weight: .medium)).foregroundStyle(LitheTheme.secondaryText)
             ScrollView([.horizontal, .vertical]) {
                 Text(text)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -375,7 +375,7 @@ private struct AgentMarkdownMessage: View {
                 switch segment {
                 case .prose(let prose):
                     Text(Self.markdown(prose))
-                        .font(.system(size: 13))
+                        .font(LitheTheme.uiFont(size: 13))
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 case .code(let language, let code):
@@ -440,7 +440,7 @@ private struct AgentCodeBlock: View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(language.isEmpty ? String(localized: "code") : language)
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()
                 Button {
@@ -450,7 +450,7 @@ private struct AgentCodeBlock: View {
                     Task { try? await Task.sleep(for: .seconds(1.5)); didCopy = false }
                 } label: {
                     Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                 }
                 .buttonStyle(.litheNoPress)
                 .lithePointer()

@@ -130,7 +130,7 @@ struct WorkbenchHoverTooltipLabel: View {
     var body: some View {
         let isDark = colorScheme == .dark
         title
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .foregroundStyle(isDark ? Color(red: 240.0 / 255, green: 241.0 / 255, blue: 242.0 / 255) : .white)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)

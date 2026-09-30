@@ -116,14 +116,14 @@ struct GitHubPullRequestsSidebarView: View {
 
             VStack(spacing: 12) {
                 Image(systemName: "arrow.triangle.pull")
-                    .font(.system(size: 29, weight: .light))
+                    .font(LitheTheme.uiFont(size: 29, weight: .light))
                     .foregroundStyle(LitheTheme.accent)
 
                 VStack(spacing: 5) {
                     Text("Sign in to GitHub")
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 17, weight: .semibold))
                     Text("Sign in to view and manage pull requests.")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -138,7 +138,7 @@ struct GitHubPullRequestsSidebarView: View {
 
                 if message != nil {
                     Text("Unable to sign in. Please try again.")
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.error)
                         .multilineTextAlignment(.center)
                 }
@@ -154,20 +154,20 @@ struct GitHubPullRequestsSidebarView: View {
         VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 5) {
                 Text("Authorize in your browser")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 18, weight: .semibold))
                 Text("The verification page is open and the code is already on your clipboard.")
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             VStack(alignment: .leading, spacing: 5) {
                 Text("ONE-TIME CODE")
-                    .font(.system(size: 9, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .bold))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 HStack {
                     Text(authorization.userCode)
-                        .font(.system(size: 24, weight: .semibold, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 24, weight: .semibold, design: .monospaced))
                         .tracking(1.4)
                         .textSelection(.enabled)
                     Spacer()
@@ -190,7 +190,7 @@ struct GitHubPullRequestsSidebarView: View {
             HStack {
                 ProgressView().controlSize(.small)
                 Text("Waiting for GitHub…")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 Spacer()
                 Button("Open again") {
                     if let url = URL(string: authorization.verificationURI) {
@@ -233,10 +233,10 @@ struct GitHubPullRequestsSidebarView: View {
                         Text("No GitHub origin")
                     }
                 }
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .lineLimit(1)
                 Text("Connected as @\(user.login)")
-                    .font(.system(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer(minLength: 4)
@@ -287,11 +287,11 @@ struct GitHubPullRequestsSidebarView: View {
 
             HStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 TextField("Filter by title, author, or label", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                 if !searchQuery.isEmpty {
                     Button { searchQuery = "" } label: {
                         Image(systemName: "xmark.circle.fill")
@@ -476,21 +476,21 @@ struct GitHubPullRequestDetailView: View {
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 7) {
                     Text(request.title)
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                         .lineLimit(1)
                     Text("#\(request.number)")
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 HStack(spacing: 5) {
                     Text(request.headRef)
                     Image(systemName: "arrow.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                     Text(request.baseRef)
                     Text("·")
                     Text("@\(request.author.login)")
                 }
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
             }
@@ -537,21 +537,21 @@ struct GitHubPullRequestDetailView: View {
                         Text(section.title)
                         if section == .files {
                             Text("\(model.githubFeature.files.count)")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(LitheTheme.badgeBackground)
                                 .clipShape(Capsule())
                         } else if section == .conversation {
                             Text("\(model.githubFeature.comments.count)")
-                                .font(.system(size: 9, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                                 .padding(.horizontal, 5)
                                 .padding(.vertical, 1)
                                 .background(LitheTheme.badgeBackground)
                                 .clipShape(Capsule())
                         }
                     }
-                    .font(.system(size: 11.5, weight: selectedSection == section ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: selectedSection == section ? .semibold : .regular))
                     .foregroundStyle(selectedSection == section ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .padding(.horizontal, 10)
                     .frame(height: 30)
@@ -564,7 +564,7 @@ struct GitHubPullRequestDetailView: View {
             Spacer()
             if request.isMergeable == false, request.state == "open" {
                 Label("Conflicts", systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
             }
         }
@@ -707,7 +707,7 @@ struct GitHubPullRequestDetailView: View {
 
                         ZStack(alignment: .topLeading) {
                             TextEditor(text: $composerBody)
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                                 .scrollContentBackground(.hidden)
                                 .padding(5)
                                 .frame(minHeight: 112)
@@ -717,7 +717,7 @@ struct GitHubPullRequestDetailView: View {
                                         ? "Optional approval summary"
                                         : "Write a clear, actionable comment…"
                                 ))
-                                    .font(.system(size: 12))
+                                    .font(LitheTheme.uiFont(size: 12))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                                     .padding(.horizontal, 10)
                                     .padding(.vertical, 12)
@@ -730,7 +730,7 @@ struct GitHubPullRequestDetailView: View {
 
                         HStack {
                             Text("Markdown is supported on GitHub")
-                                .font(.system(size: 9.5))
+                                .font(LitheTheme.uiFont(size: 9.5))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                             Spacer()
                             Button(composerAction.buttonTitle) { submitComposer() }
@@ -800,13 +800,13 @@ struct GitHubFeatureUnavailableView: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "arrow.triangle.pull")
-                .font(.system(size: 30, weight: .light))
+                .font(LitheTheme.uiFont(size: 30, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("Pull Requests integration is under development")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .multilineTextAlignment(.center)
             Text("GitHub sign-in and pull request management are temporarily unavailable.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -830,7 +830,7 @@ private struct GitHubPullRequestRow: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(request.title)
-                        .font(.system(size: 11.5, weight: isSelected ? .semibold : .regular))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
@@ -841,7 +841,7 @@ private struct GitHubPullRequestRow: View {
                         Spacer(minLength: 2)
                         GitHubRelativeDate(value: request.updatedAt)
                     }
-                    .font(.system(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     if !request.labels.isEmpty {
                         HStack(spacing: 4) {
@@ -850,7 +850,7 @@ private struct GitHubPullRequestRow: View {
                             }
                             if request.labels.count > 2 {
                                 Text("+\(request.labels.count - 2)")
-                                    .font(.system(size: 8.5))
+                                    .font(LitheTheme.uiFont(size: 8.5))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
                         }
@@ -877,7 +877,7 @@ private struct GitHubStateMark: View {
 
     var body: some View {
         Image(systemName: symbol)
-            .font(.system(size: compact ? 12 : 16, weight: .semibold))
+            .font(LitheTheme.uiFont(size: compact ? 12 : 16, weight: .semibold))
             .foregroundStyle(color)
             .frame(width: compact ? 15 : 24, height: compact ? 15 : 24)
             .help(Text(LocalizedStringKey(statusText)))
@@ -938,10 +938,10 @@ private struct GitHubMetricsStrip: View {
                     Text(value)
                 }
             }
-            .font(.system(size: 12, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
             .foregroundStyle(color)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 8, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8, weight: .bold))
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .textCase(.uppercase)
         }
@@ -973,10 +973,10 @@ private struct GitHubSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(LocalizedStringKey(title)).font(.system(size: 13, weight: .semibold))
+                Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 if let detail {
                     Text(LocalizedStringKey(detail))
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
@@ -993,7 +993,7 @@ private struct GitHubLabeledField: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 72, alignment: .trailing)
             TextField(LocalizedStringKey(placeholder), text: $text)
@@ -1014,11 +1014,11 @@ private struct GitHubFileRow: View {
             } label: {
                 HStack(spacing: 9) {
                     Image(systemName: file.patch == nil ? "doc" : (isExpanded ? "chevron.down" : "chevron.right"))
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(width: 12)
                     Text(file.path)
-                        .font(.system(size: 11.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     GitHubPill(text: file.status.capitalized, color: statusColor, localizesText: true)
@@ -1026,7 +1026,7 @@ private struct GitHubFileRow: View {
                     Text("+\(file.additions)").foregroundStyle(LitheTheme.success)
                     Text("−\(file.deletions)").foregroundStyle(LitheTheme.error)
                 }
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .padding(.horizontal, 15)
                 .frame(height: 38)
                 .contentShape(Rectangle())
@@ -1037,7 +1037,7 @@ private struct GitHubFileRow: View {
             if isExpanded, let patch = file.patch {
                 ScrollView(.horizontal, showsIndicators: true) {
                     Text(patch)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .textSelection(.enabled)
                         .padding(12)
@@ -1074,22 +1074,22 @@ private struct GitHubCommentRow: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Text("@\(comment.author.login)")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     GitHubRelativeDate(value: comment.updatedAt)
-                        .font(.system(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                     Spacer()
                     if !comment.url.isEmpty {
                         Button(action: onOpen) {
                             Image(systemName: "arrow.up.right")
-                                .font(.system(size: 8, weight: .bold))
+                                .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         }
                         .buttonStyle(.litheNoPress)
                         .foregroundStyle(LitheTheme.tertiaryText)
                     }
                 }
                 Text(comment.body)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .lineSpacing(3)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1105,7 +1105,7 @@ private struct GitHubIdentityMark: View {
 
     var body: some View {
         Text(initials)
-            .font(.system(size: size * 0.34, weight: .bold))
+            .font(LitheTheme.uiFont(size: size * 0.34, weight: .bold))
             .foregroundStyle(LitheTheme.primaryText)
             .frame(width: size, height: size)
             .background(LitheTheme.badgeBackground)
@@ -1132,7 +1132,7 @@ private struct GitHubPill: View {
                 Text(text)
             }
         }
-            .font(.system(size: 8.5, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 8.5, weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
@@ -1175,7 +1175,7 @@ private struct GitHubOperationBanner: View {
                 Image(systemName: icon).foregroundStyle(color)
             }
             Text(LocalizedStringKey(message))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .lineLimit(2)
             Spacer()
             if let dismiss {
@@ -1217,9 +1217,9 @@ private struct GitHubInlineNotice<Actions: View>: View {
         HStack(alignment: .top, spacing: 9) {
             Image(systemName: icon).foregroundStyle(color)
             VStack(alignment: .leading, spacing: 3) {
-                Text(LocalizedStringKey(title)).font(.system(size: 11.5, weight: .semibold))
+                Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 localizedMessage
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 actions()
@@ -1255,7 +1255,7 @@ private struct GitHubAuthorizationStep: View {
             Image(systemName: isComplete ? "checkmark.circle.fill" : "\(number).circle")
                 .foregroundStyle(isComplete ? LitheTheme.success : LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: isComplete ? .medium : .regular))
+                .font(LitheTheme.uiFont(size: 11.5, weight: isComplete ? .medium : .regular))
                 .foregroundStyle(isComplete ? LitheTheme.primaryText : LitheTheme.secondaryText)
         }
     }
@@ -1268,10 +1268,10 @@ private struct GitHubCenteredProgress: View {
     var body: some View {
         VStack(spacing: 10) {
             ProgressView()
-            Text(LocalizedStringKey(title)).font(.system(size: 12, weight: .semibold))
+            Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 12, weight: .semibold))
             if let detail {
                 Text(LocalizedStringKey(detail))
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .multilineTextAlignment(.center)
             }
@@ -1291,11 +1291,11 @@ private struct GitHubEmptyState: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 27, weight: .light))
+                .font(LitheTheme.uiFont(size: 27, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Text(LocalizedStringKey(title)).font(.system(size: 13, weight: .semibold))
+            Text(LocalizedStringKey(title)).font(LitheTheme.uiFont(size: 13, weight: .semibold))
             Text(LocalizedStringKey(message))
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1427,9 +1427,9 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
     private var pageHeading: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Comparing changes")
-                .font(.system(size: 24, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 24, weight: .semibold))
             Text("Choose a base and compare branch, then describe the pull request.")
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -1444,11 +1444,11 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             ViewThatFits(in: .horizontal) {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.triangle.branch")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                     branchPicker(label: "Base", selection: $base)
                     Image(systemName: "arrow.left")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                         .foregroundStyle(LitheTheme.tertiaryText)
                     branchPicker(label: "Compare", selection: $head)
                     Spacer(minLength: 12)
@@ -1463,7 +1463,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             }
 
             Text("Changes from the compare branch will be proposed for the base branch.")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.tertiaryText)
         }
         .padding(16)
@@ -1477,18 +1477,18 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: defaults.isDetached ? "arrow.triangle.branch" : "icloud.and.arrow.up")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(defaults.isDetached ? "Publish this worktree" : "Push this branch to GitHub")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Text(
                         defaults.isDetached
                             ? "This worktree has a detached HEAD. Publish it as a branch before creating a pull request."
                             : "Push the latest commits before comparing or creating a pull request."
                     )
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1498,7 +1498,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             HStack(spacing: 9) {
                 TextField("Branch name", text: $publishBranchName)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .padding(.horizontal, 10)
                     .frame(height: 30)
                     .background(LitheTheme.inputBackground)
@@ -1533,13 +1533,13 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                     "Uncommitted changes stay in this worktree and are not included in the pull request.",
                     systemImage: "exclamationmark.triangle"
                 )
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
             }
 
             if let error = model.githubFeature.branchPublicationError {
                 Label(error, systemImage: "exclamationmark.circle")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.error)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1608,7 +1608,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             Image(systemName: comparisonStatusIcon)
             Text(comparisonStatusTitle)
         }
-        .font(.system(size: 11.5, weight: .semibold))
+        .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
         .foregroundStyle(comparisonStatusColor)
         .fixedSize(horizontal: true, vertical: false)
     }
@@ -1621,9 +1621,9 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Create pull request")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                     Text(model.githubFeature.repository?.fullName ?? "Current GitHub repository")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -1636,7 +1636,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                 workspaceFormField("Title", required: true) {
                     TextField("What does this pull request change?", text: $title)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13))
+                        .font(LitheTheme.uiFont(size: 13))
                         .focused($focusedField, equals: .title)
                         .padding(.horizontal, 11)
                         .frame(height: 36)
@@ -1654,7 +1654,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
 
                 HStack {
                     Toggle("Create as draft", isOn: $draft)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .toggleStyle(.checkbox)
                     Spacer()
                     Button("Cancel") { model.githubFeature.cancelCreatingPullRequest() }
@@ -1686,7 +1686,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 8) {
                 Text("Description")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button {
@@ -1710,13 +1710,13 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
             ZStack(alignment: .topLeading) {
                 TextEditor(text: $descriptionText)
                     .scrollContentBackground(.hidden)
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .focused($focusedField, equals: .description)
                     .padding(7)
                     .frame(minHeight: 210)
                 if descriptionText.isEmpty {
                     Text("Explain the intent, testing, and anything reviewers should know…")
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .padding(13)
                         .allowsHitTesting(false)
@@ -1731,7 +1731,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
 
             if let generationError {
                 Label(generationError, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.error)
             }
         }
@@ -1743,11 +1743,11 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
         switch model.githubFeature.operationState {
         case .failed(let message):
             Label(message, systemImage: "exclamationmark.triangle.fill")
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.error)
         case .running(let message):
             Text(LocalizedStringKey(message))
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
         case .idle, .succeeded:
             EmptyView()
@@ -1764,7 +1764,7 @@ private struct GitHubCreatePullRequestWorkspaceView: View {
                 Text(LocalizedStringKey(label))
                 if required { Text(" *") }
             }
-            .font(.system(size: 11.5, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             content()
         }
@@ -1887,15 +1887,15 @@ private struct GitHubBranchPicker: View {
         } label: {
             HStack(spacing: 6) {
                 Text(label)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Text(selection.isEmpty ? "Select branch" : selection)
-                    .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold, design: .monospaced))
                     .foregroundStyle(selection.isEmpty ? LitheTheme.tertiaryText : LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 8)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.tertiaryText)
             }
             .padding(.horizontal, 10)
@@ -1943,9 +1943,9 @@ private struct GitHubBranchPicker: View {
                 Image(systemName: "exclamationmark.triangle")
                     .foregroundStyle(.orange)
                 Text("Branches unavailable")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 Text(message)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .multilineTextAlignment(.center)
                     .lineLimit(3)
@@ -1958,7 +1958,7 @@ private struct GitHubBranchPicker: View {
             if filteredBranches.isEmpty {
                 Spacer()
                 Text("No branches found")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
             } else {
@@ -1980,15 +1980,15 @@ private struct GitHubBranchPicker: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.triangle.branch")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Text(branch.name)
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
                 if selection == branch.name {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 10, weight: .bold))
                         .foregroundStyle(LitheTheme.accent)
                 }
             }
@@ -2023,9 +2023,9 @@ private struct GitHubPullRequestForm: View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(LocalizedStringKey(heading)).font(.system(size: 17, weight: .semibold))
+                    Text(LocalizedStringKey(heading)).font(LitheTheme.uiFont(size: 17, weight: .semibold))
                     Text(caption)
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -2059,7 +2059,7 @@ private struct GitHubPullRequestForm: View {
                             .frame(height: 170)
                         if descriptionText.isEmpty {
                             Text("Explain the intent, testing, and anything reviewers should know…")
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                                 .padding(10)
                                 .allowsHitTesting(false)
@@ -2071,7 +2071,7 @@ private struct GitHubPullRequestForm: View {
                 }
                 if let draft {
                     Toggle("Create as draft", isOn: draft)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 }
             }
             .padding(18)
@@ -2079,7 +2079,7 @@ private struct GitHubPullRequestForm: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Text("Required fields are marked with *")
-                    .font(.system(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                 Spacer()
                 Button("Cancel", action: cancel)
@@ -2105,7 +2105,7 @@ private struct GitHubPullRequestForm: View {
                 Text(LocalizedStringKey(label))
                 if required { Text(" *") }
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 11, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             content()
         }

@@ -123,12 +123,12 @@ struct PluginManagementView: View {
         let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
             Image(systemName: presentation.systemImage)
-                .font(.system(size: 22)).foregroundStyle(presentation.tint)
+                .font(LitheTheme.uiFont(size: 22)).foregroundStyle(presentation.tint)
                 .frame(width: 42, height: 42)
                 .scaleEffect(isHovered && !isSelected ? 1.06 : 1)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(plugin.manifest.displayName)).lineLimit(1)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 Text(verbatim: "\(plugin.manifest.version)  \(plugin.manifest.vendor.displayName)")
                     .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             }
@@ -163,12 +163,12 @@ struct PluginManagementView: View {
     private func availablePluginRow(_ manifest: PluginManifest) -> some View {
         HStack(spacing: 10) {
             Image(systemName: phpPresentation.systemImage)
-                .font(.system(size: 22))
+                .font(LitheTheme.uiFont(size: 22))
                 .foregroundStyle(phpPresentation.tint)
                 .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(manifest.displayName))
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 Text(LocalizedStringKey("Not installed"))
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -189,10 +189,10 @@ struct PluginManagementView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 14) {
                     Image(systemName: presentation.systemImage)
-                        .font(.system(size: 38)).foregroundStyle(presentation.tint)
+                        .font(LitheTheme.uiFont(size: 38)).foregroundStyle(presentation.tint)
                         .frame(width: 50, height: 50)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(LocalizedStringKey(plugin.manifest.displayName)).font(.system(size: 22, weight: .bold))
+                        Text(LocalizedStringKey(plugin.manifest.displayName)).font(LitheTheme.uiFont(size: 22, weight: .bold))
                         Text("Lithe · \(plugin.manifest.vendor.displayName)").foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer()
@@ -207,7 +207,7 @@ struct PluginManagementView: View {
                     .tint(LitheTheme.accent)
                     .disabled(isApplyingChanges || plugin.isRequired)
                 }.padding(24)
-                Text(LocalizedStringKey("Overview")).font(.system(size: 15, weight: .semibold)).padding(.horizontal, 24)
+                Text(LocalizedStringKey("Overview")).font(LitheTheme.uiFont(size: 15, weight: .semibold)).padding(.horizontal, 24)
                 VStack(alignment: .leading, spacing: 12) {
                     Text(LocalizedStringKey(presentation.summary))
                         .foregroundStyle(LitheTheme.primaryText)
@@ -226,7 +226,7 @@ struct PluginManagementView: View {
         } else if let manifest = availablePHPManifest {
             VStack(alignment: .leading, spacing: 16) {
                 Text(LocalizedStringKey(manifest.displayName))
-                    .font(.system(size: 22, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 22, weight: .bold))
                 Text(LocalizedStringKey("Install PHP Support from a signed plugin package."))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Button(LocalizedStringKey("Install Plugin from Disk…")) {
@@ -241,10 +241,10 @@ struct PluginManagementView: View {
         } else {
             VStack(spacing: 10) {
                 Image(systemName: "puzzlepiece.extension")
-                    .font(.system(size: 30))
+                    .font(LitheTheme.uiFont(size: 30))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Text(LocalizedStringKey("No Plugins"))
-                    .font(.system(size: 15, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 15, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

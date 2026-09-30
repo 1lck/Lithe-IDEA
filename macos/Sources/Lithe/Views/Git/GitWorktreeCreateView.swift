@@ -23,7 +23,7 @@ struct GitWorktreeCreateView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("New Worktree").font(.system(size: 16, weight: .semibold))
+            Text("New Worktree").font(LitheTheme.uiFont(size: 16, weight: .semibold))
             Picker("Checkout", selection: $mode) {
                 Text("New branch").tag(GitWorktreeMode.newBranch)
                 Text("Existing local branch").tag(GitWorktreeMode.existingBranch)
@@ -37,7 +37,7 @@ struct GitWorktreeCreateView: View {
                 .disabled(isSubmitting)
             } else if mode == .existingBranch {
                 Text("No available local branch. Branches already checked out in another worktree cannot be reused.")
-                    .font(.system(size: 11.5)).foregroundStyle(LitheTheme.warning)
+                    .font(LitheTheme.uiFont(size: 11.5)).foregroundStyle(LitheTheme.warning)
             }
             if mode == .newBranch {
                 TextField("New branch name", text: $branchName).textFieldStyle(.roundedBorder)
@@ -49,10 +49,10 @@ struct GitWorktreeCreateView: View {
             }
             if mode == .detached {
                 Text("The worktree will point directly to a commit. Create a branch there before keeping new commits.")
-                    .font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text("Checkout path").font(.system(size: 11.5, weight: .medium))
+                Text("Checkout path").font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 HStack {
                     TextField("Worktree destination", text: Binding(
                         get: { destinationPath },
@@ -68,13 +68,13 @@ struct GitWorktreeCreateView: View {
                 Toggle("Use temporary directory", isOn: $useTemporaryDirectory)
                     .toggleStyle(.checkbox).disabled(isSubmitting || actions.temporaryDirectory == nil)
                 Text("Use a persistent folder for ongoing work. Temporary checkouts may be removed by the system.")
-                    .font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
             }
             Toggle("Create without checking out files", isOn: $noCheckout)
                 .toggleStyle(.checkbox).disabled(isSubmitting)
                 .help("Registers the worktree and prepares its HEAD while leaving its files unchecked out.")
             if let errorMessage {
-                Text(LocalizedStringKey(errorMessage)).font(.system(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
+                Text(LocalizedStringKey(errorMessage)).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.error).textSelection(.enabled)
             }
             HStack {
                 if isSubmitting { ProgressView().controlSize(.small) }

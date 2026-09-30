@@ -321,7 +321,7 @@ struct OutputTextView: View {
             pasteboard.setString(ANSIOutputRenderer.parse(output).cleanText, forType: .string)
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.9))
@@ -342,7 +342,7 @@ struct OutputTextView: View {
             isAtBottom = true
         } label: {
             Label("Jump to latest", systemImage: "arrow.down.to.line")
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
                 .background(LitheTheme.raised.opacity(0.92))
@@ -590,7 +590,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
-                        .font: NSFont(name: "Menlo", size: 11.5) ?? .monospacedSystemFont(ofSize: 11.5, weight: .regular),
+                        .font: LitheTheme.uiNSFont(size: 11.5),
                         .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
                     ]
                 ))
@@ -780,13 +780,7 @@ enum ANSIOutputRenderer {
         for segment in parsed.segments {
             var attributes: [NSAttributedString.Key: Any] = [
                 .foregroundColor: segment.foreground,
-                .font: NSFont(
-                    name: segment.bold ? "Menlo-Bold" : "Menlo",
-                    size: fontSize
-                ) ?? .monospacedSystemFont(
-                    ofSize: fontSize,
-                    weight: segment.bold ? .bold : .regular
-                )
+                .font: LitheTheme.uiNSFont(size: fontSize, weight: segment.bold ? .bold : .regular)
             ]
             if let background = segment.background {
                 attributes[.backgroundColor] = background

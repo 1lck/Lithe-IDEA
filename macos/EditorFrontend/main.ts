@@ -7,11 +7,14 @@ import runAllIcon from "../Resources/IDEAIcons/testState/run_run.svg" with { typ
 import passedIcon from "../Resources/IDEAIcons/testState/green2.svg" with { type: "text" };
 import failedIcon from "../Resources/IDEAIcons/testState/red2.svg" with { type: "text" };
 import { mountWorkbench } from "@lithe/editor/workbench";
-import { KeyCode, KeyMod } from "monaco-editor/esm/vs/editor/editor.api.js";
+import { KeyCode, KeyMod, editor as monacoEditor } from "monaco-editor/esm/vs/editor/editor.api.js";
 import palette from "../Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json";
 import { installWebKitMouseInput } from "./mouse-input";
 
 declare global { interface Window { webkit: any; MonacoEnvironment: any; lithe: any; } }
+
+// CoreText registration is process-local; remeasure after the bundled web fonts load.
+document.fonts.ready.then(() => monacoEditor.remeasureFonts());
 
 const mouseInput = installWebKitMouseInput(document);
 window.addEventListener("beforeunload", () => mouseInput.dispose(), { once: true });

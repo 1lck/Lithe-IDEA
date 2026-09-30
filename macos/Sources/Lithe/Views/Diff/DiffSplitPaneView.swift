@@ -339,9 +339,9 @@ private struct DiffSideRowView: View, Equatable {
         if kind == .information {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
             }
@@ -354,7 +354,7 @@ private struct DiffSideRowView: View, Equatable {
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(lineNumberColor)
                     .frame(width: DiffLayoutMetrics.lineNumberColumnWidth, alignment: .trailing)
                     .padding(.trailing, DiffLayoutMetrics.lineNumberTrailingPadding)
@@ -374,7 +374,7 @@ private struct DiffSideRowView: View, Equatable {
                         highlightsWords: highlightsWords && kind == .changed
                     )
                 )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -508,7 +508,7 @@ private struct DiffTransitionOverlay: View {
 
             ForEach(transitions) { transition in
                 Image(systemName: transitionSymbol(transition))
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                     .foregroundStyle(transitionColor(transition).opacity(0.88))
                     .frame(width: DiffLayoutMetrics.centerGutterWidth, height: 14)
                     .offset(x: paneWidth, y: transitionMarkerY(transition) - 7)

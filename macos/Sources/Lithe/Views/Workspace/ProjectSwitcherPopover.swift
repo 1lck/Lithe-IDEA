@@ -52,7 +52,7 @@ struct ProjectSwitcherPopover: View {
                 sectionTitle("Recent Projects")
                 if recentProjects.isEmpty {
                     Text("No recent projects")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 12)
@@ -77,7 +77,7 @@ struct ProjectSwitcherPopover: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(LocalizedStringKey(title))
-            .font(.system(size: 12, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 10)
             .padding(.bottom, 5)
@@ -87,10 +87,10 @@ struct ProjectSwitcherPopover: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 LitheSystemIcon(systemImage: icon)
-                    .font(.system(size: 16, weight: .regular))
+                    .font(LitheTheme.uiFont(size: 16, weight: .regular))
                     .frame(width: 20)
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LitheTheme.primaryText)
@@ -158,11 +158,11 @@ struct ProjectSwitcherPopover: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(name)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                     .foregroundStyle(model.fileExists(at: URL(fileURLWithPath: path)) ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .lineLimit(1)
                 Text(path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -172,7 +172,7 @@ struct ProjectSwitcherPopover: View {
 
             if isCurrent {
                 Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.accent)
             }
         }

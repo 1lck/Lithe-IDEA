@@ -14,10 +14,10 @@ struct KeyboardShortcutRecorderView: View {
             Text("Press shortcut…")
             Spacer(minLength: 8)
             Text("Esc")
-                .font(.system(size: 10, weight: .medium, design: .rounded))
+                .font(LitheTheme.uiFont(size: 10, weight: .medium, design: .rounded))
                 .foregroundStyle(LitheTheme.tertiaryText)
         }
-        .font(.system(size: 11.5, weight: .medium))
+        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
         .foregroundStyle(LitheTheme.accent)
         .padding(.horizontal, 10)
         .frame(height: 30)

@@ -100,7 +100,7 @@ struct GenericDebugView: View {
                     selectedContent = content
                 } label: {
                     Text(content.title)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(
                         selectedContent == content
                             ? LitheTheme.primaryText
@@ -135,7 +135,7 @@ struct GenericDebugView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Text("Debug")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.toolWindowText)
             if let sessionTitle = debugSessionTitle {
                 debugSessionTab(sessionTitle)
@@ -183,12 +183,12 @@ struct GenericDebugView: View {
                 preservesOriginalColors: true
             )
             Text(title)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .lineLimit(1)
             if feature.isSessionActive {
                 Button(action: stopActiveDebugSession) {
                     Image(systemName: "xmark")
-                        .font(.system(size: 8, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 16, height: 16)
                 }
@@ -221,7 +221,7 @@ struct GenericDebugView: View {
                             VStack(alignment: .leading, spacing: 1) {
                                 Text(sessionLabel(summary))
                                 Text(summary.state.title)
-                                    .font(.system(size: 9))
+                                    .font(LitheTheme.uiFont(size: 9))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                         }
@@ -295,10 +295,10 @@ struct GenericDebugView: View {
                     size: 13
                 )
                 Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .lineLimit(1)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
             }
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 8)
@@ -470,7 +470,7 @@ struct GenericDebugView: View {
                 .fill(debugStatusColor)
                 .frame(width: 6, height: 6)
             Text(debugStatusText)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
             if let frame = feature.selectedFrame,
@@ -483,7 +483,7 @@ struct GenericDebugView: View {
                     )
                 } label: {
                     Text("· \(sourceURL.lastPathComponent):\(frame.line)")
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText.opacity(0.82))
                         .lineLimit(1)
                 }
@@ -567,7 +567,7 @@ struct GenericDebugView: View {
     private var smartStepPicker: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Choose Step Target")
-                .font(.system(size: 11, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                 .padding(.horizontal, 8)
                 .padding(.top, 6)
             if smartStepTargets.isEmpty {
@@ -582,7 +582,7 @@ struct GenericDebugView: View {
                         isSmartStepPickerPresented = false
                     }
                     .buttonStyle(.litheNoPress)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                 }
@@ -656,7 +656,7 @@ struct GenericDebugView: View {
                                         Text(frame.name).lineLimit(1)
                                         if let sourceURL = frame.sourceURL {
                                             Text("\(sourceURL.lastPathComponent):\(frame.line)")
-                                                .font(.system(size: 9.5, design: .monospaced))
+                                                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                                                 .foregroundStyle(LitheTheme.secondaryText)
                                         }
                                     }
@@ -741,7 +741,7 @@ struct GenericDebugView: View {
                     Text(thread.name)
                         .lineLimit(1)
                     Text(feature.state == .paused ? "Paused" : feature.state.title)
-                        .font(.system(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 } else {
                     LitheIDEAIcon(
@@ -754,10 +754,10 @@ struct GenericDebugView: View {
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            .font(.system(size: 10.5, weight: .medium))
+            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 9)
             .frame(height: 28)
@@ -805,7 +805,7 @@ struct GenericDebugView: View {
                             case .variable(let variable):
                                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                                     Image(systemName: variableDisclosureSymbol(variable))
-                                        .font(.system(size: 8, weight: .semibold))
+                                        .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .frame(width: 9)
                                         .opacity(variable.isExpandable ? 1 : 0)
@@ -815,16 +815,16 @@ struct GenericDebugView: View {
                                         fallbackSystemImage: "circle.fill"
                                     )
                                     Text(variable.name)
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     Text("=")
                                         .foregroundStyle(LitheTheme.secondaryText)
                                     Text(variable.value)
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.accent)
                                         .lineLimit(2)
                                     if let type = variable.type, !type.isEmpty {
                                         Text(": \(type)")
-                                            .font(.system(size: 9.5, design: .monospaced))
+                                            .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                             .lineLimit(1)
                                     }
@@ -889,11 +889,11 @@ struct GenericDebugView: View {
                                 )
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(watch.expression)
-                                        .font(.system(size: 10.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                         .lineLimit(1)
                                     if let error = watch.error {
                                         Text(error)
-                                            .font(.system(size: 9.5))
+                                            .font(LitheTheme.uiFont(size: 9.5))
                                             .foregroundStyle(LitheTheme.error)
                                             .lineLimit(2)
                                     } else if let value = watch.value {
@@ -904,11 +904,11 @@ struct GenericDebugView: View {
                                                 Text(type).foregroundStyle(LitheTheme.secondaryText)
                                             }
                                         }
-                                        .font(.system(size: 9.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                                         .lineLimit(2)
                                     } else {
                                         Text(feature.state == .paused ? "Evaluating…" : "Not available")
-                                            .font(.system(size: 9.5))
+                                            .font(LitheTheme.uiFont(size: 9.5))
                                             .foregroundStyle(LitheTheme.secondaryText)
                                     }
                                 }
@@ -940,10 +940,10 @@ struct GenericDebugView: View {
     private var variablesHeader: some View {
         HStack(spacing: 7) {
             Text("Variables")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(String(feature.presentedVariables.count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer(minLength: 0)
             if !feature.scopes.isEmpty {
@@ -965,9 +965,9 @@ struct GenericDebugView: View {
                         Text(selectedScopeName)
                             .lineLimit(1)
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                     }
-                    .font(.system(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .menuStyle(.borderlessButton)
@@ -994,22 +994,22 @@ struct GenericDebugView: View {
         VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 7) {
                 Label("Exception", systemImage: "exclamationmark.octagon.fill")
-                    .font(.system(size: 10.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.error)
                 Spacer(minLength: 8)
                 Text(exceptionBreakModeTitle(info.breakMode))
-                    .font(.system(size: 9.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Text(info.exceptionID)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, weight: .semibold, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
             if let description = info.description,
                !description.isEmpty,
                description != info.exceptionID {
                 Text(description)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(LitheTheme.warning)
                     .textSelection(.enabled)
             }
@@ -1018,21 +1018,21 @@ struct GenericDebugView: View {
                    !message.isEmpty,
                    message != info.description {
                     Text(message)
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .textSelection(.enabled)
                 }
                 ForEach(Array(nestedExceptionDetails(details).enumerated()), id: \.offset) { _, cause in
                     HStack(alignment: .firstTextBaseline, spacing: 5) {
                         Image(systemName: "arrow.turn.down.right")
-                            .font(.system(size: 8))
+                            .font(LitheTheme.uiFont(size: 8))
                             .foregroundStyle(LitheTheme.secondaryText)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(cause.fullTypeName ?? cause.typeName ?? "Nested exception")
-                                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 10, weight: .medium, design: .monospaced))
                             if let message = cause.message, !message.isEmpty {
                                 Text(message)
-                                    .font(.system(size: 9.5))
+                                    .font(LitheTheme.uiFont(size: 9.5))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                         }
@@ -1040,7 +1040,7 @@ struct GenericDebugView: View {
                 }
                 if let stackTrace = details.stackTrace, !stackTrace.isEmpty {
                     Text(stackTrace)
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(12)
                         .textSelection(.enabled)
@@ -1079,7 +1079,7 @@ struct GenericDebugView: View {
             )
             TextField("Evaluate expression", text: $evaluateExpression)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .onSubmit { addWatchExpression() }
             Button { addWatchExpression() } label: {
                 LitheIDEAIcon(
@@ -1110,11 +1110,11 @@ struct GenericDebugView: View {
     private var watchSectionHeader: some View {
         HStack {
             Text("Watches")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Text(String(feature.watches.count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button { feature.refreshWatches() } label: {
                 LitheIDEAIcon(
@@ -1171,12 +1171,12 @@ struct GenericDebugView: View {
         VStack(alignment: .leading, spacing: 8) {
             if let stoppedReason = feature.stoppedReason {
                 Label(stoppedReason, systemImage: "pause.circle.fill")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
             }
             if let errorMessage = feature.errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.error)
 
                 HStack(spacing: 8) {
@@ -1212,7 +1212,7 @@ struct GenericDebugView: View {
     private var consoleInputRow: some View {
         HStack(spacing: 7) {
             Image(systemName: "chevron.right")
-                .font(.system(size: 10, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 .foregroundStyle(LitheTheme.accent)
             Button {
                 if let expression = feature.previousConsoleExpression(current: consoleExpression) {
@@ -1226,7 +1226,7 @@ struct GenericDebugView: View {
             .help("Previous console expression")
             TextField("Evaluate expression while paused", text: $consoleExpression)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .focused($isConsoleInputFocused)
                 .disabled(feature.state != .paused)
                 .onSubmit { evaluateConsoleExpression() }
@@ -1268,11 +1268,11 @@ struct GenericDebugView: View {
     private var programInputRow: some View {
         HStack(spacing: 7) {
             Image(systemName: "arrow.down.to.line")
-                .font(.system(size: 10, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 .foregroundStyle(LitheTheme.warning)
             TextField("Send input to debuggee", text: $programInput)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .disabled(!model.isDebugStandardInputAvailable)
                 .onSubmit { sendProgramInput() }
             Button { sendProgramInput() } label: {
@@ -1308,7 +1308,7 @@ struct GenericDebugView: View {
             )
             .frame(width: 36, height: 36)
             Text(emptyStateTitle)
-                .font(.system(size: 13, weight: .medium))
+                .font(LitheTheme.uiFont(size: 13, weight: .medium))
             Text(emptyStateSubtitle)
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -1352,11 +1352,11 @@ struct GenericDebugView: View {
     private func sectionHeader(_ title: String, count: Int) -> some View {
         HStack {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Text(String(count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .padding(.horizontal, 10)
@@ -1425,7 +1425,7 @@ struct GenericDebugView: View {
                     .font(LitheTheme.smallFont)
                 if let remainingCount, !isLoading {
                     Text("\(remainingCount) remaining")
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer(minLength: 0)
@@ -1462,7 +1462,7 @@ struct GenericDebugView: View {
                 label()
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .foregroundStyle(LitheTheme.primaryText)
             .padding(.horizontal, 10)
             .frame(minHeight: 28)
@@ -1487,7 +1487,7 @@ struct DebugBreakpointManagerDialog: View {
                 )
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Breakpoints")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     Text("Manage project breakpoints without starting a debug session")
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -1646,11 +1646,11 @@ struct DebugBreakpointManagerView: View {
     private var sourceBreakpointHeader: some View {
         HStack {
             Text("Line Breakpoints")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Text(String(feature.breakpoints.count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
             Menu {
                 Button(
@@ -1688,11 +1688,11 @@ struct DebugBreakpointManagerView: View {
     private var functionBreakpointHeader: some View {
         HStack {
             Text("Method Breakpoints")
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Text(String(feature.functionBreakpoints.count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button {
                 functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: nil)
@@ -1715,7 +1715,7 @@ struct DebugBreakpointManagerView: View {
             } label: {
                 if breakpoint.isLogpoint {
                     Image(systemName: breakpointSymbol(breakpoint))
-                        .font(.system(size: 9))
+                        .font(LitheTheme.uiFont(size: 9))
                         .foregroundStyle(breakpointColor(breakpoint))
                 } else {
                     let asset = LitheIcons.debuggerBreakpointAssetPath(
@@ -1744,11 +1744,11 @@ struct DebugBreakpointManagerView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(breakpoint.title)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                         .lineLimit(1)
                     if let detail = breakpointDetail(breakpoint) {
                         Text(detail)
-                            .font(.system(size: 9.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -1801,7 +1801,7 @@ struct DebugBreakpointManagerView: View {
                 )
             } label: {
                 Image(systemName: breakpoint.enabled ? "bolt.circle.fill" : "bolt.circle")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                     .foregroundStyle(breakpoint.enabled ? LitheTheme.error : LitheTheme.secondaryText)
             }
             .buttonStyle(.litheNoPress)
@@ -1811,10 +1811,10 @@ struct DebugBreakpointManagerView: View {
                     : "Enable \(breakpoint.label) exception breakpoint"
             )
             VStack(alignment: .leading, spacing: 1) {
-                Text(breakpoint.label).font(.system(size: 11)).lineLimit(1)
+                Text(breakpoint.label).font(LitheTheme.uiFont(size: 11)).lineLimit(1)
                 if let condition = breakpoint.condition {
                     Text("If: \(condition)")
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -1843,7 +1843,7 @@ struct DebugBreakpointManagerView: View {
                 feature.setFunctionBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
             } label: {
                 Image(systemName: "function")
-                    .font(.system(size: 10, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                     .foregroundStyle(
                         breakpoint.enabled
                             ? (breakpoint.verified ? LitheTheme.error : LitheTheme.warning)
@@ -1861,11 +1861,11 @@ struct DebugBreakpointManagerView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(breakpoint.name)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                         .lineLimit(1)
                     if let detail = functionBreakpointDetail(breakpoint) {
                         Text(detail)
-                            .font(.system(size: 9.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -1918,10 +1918,10 @@ struct DebugBreakpointManagerView: View {
             Button { editingDataBreakpoint = breakpoint } label: {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(breakpoint.label)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                         .lineLimit(1)
                     Text(dataBreakpointDetail(breakpoint))
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -1951,11 +1951,11 @@ struct DebugBreakpointManagerView: View {
     private func sectionHeader(_ title: String, count: Int) -> some View {
         HStack {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Text(String(count))
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .padding(.horizontal, 10)
@@ -2054,7 +2054,7 @@ private struct JavaAttachView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Connect to Running JVM")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 10) {
                 GridRow {
                     Text("Host")
@@ -2122,7 +2122,7 @@ private struct JavaSteppingFiltersView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Java Stepping Filters")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                 Text("Controls where Step Into stops. Changes apply to the next Java debug session.")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
@@ -2143,16 +2143,16 @@ private struct JavaSteppingFiltersView: View {
                 }
             }
             .toggleStyle(.checkbox)
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Additional class patterns")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                 Text("One pattern per line, for example org.mockito.* or com.example.generated.*")
                     .font(LitheTheme.smallFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextEditor(text: $classPatterns)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .padding(6)
                     .background(LitheTheme.sidebar)
@@ -2244,7 +2244,7 @@ private struct FunctionBreakpointEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text(breakpoint == nil ? "Add Method Breakpoint" : "Edit Method Breakpoint")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer()
                 Toggle("Enabled", isOn: $enabled)
                     .toggleStyle(.checkbox)
@@ -2280,11 +2280,11 @@ private struct FunctionBreakpointEditorView: View {
     private func functionEditorRow(_ title: String, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("", text: text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
         }
     }
@@ -2317,10 +2317,10 @@ private struct ExceptionBreakpointEditorView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(breakpoint.label)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     if let description = breakpoint.description {
                         Text(description)
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                 }
@@ -2333,7 +2333,7 @@ private struct ExceptionBreakpointEditorView: View {
                 text: $condition
             )
             .textFieldStyle(.roundedBorder)
-            .font(.system(size: 11, design: .monospaced))
+            .font(LitheTheme.uiFont(size: 11, design: .monospaced))
             Spacer(minLength: 0)
             HStack {
                 Spacer()
@@ -2391,9 +2391,9 @@ struct BreakpointEditorView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Breakpoint")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     Text(breakpoint.title)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -2450,11 +2450,11 @@ struct BreakpointEditorView: View {
     ) -> some View {
         GridRow {
             Text(title)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("", text: text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
                 .disabled(!isSupported)
                 .help(isSupported ? title : help)
@@ -2501,9 +2501,9 @@ private struct DataBreakpointEditorView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Field Breakpoint")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     Text(breakpoint.label)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -2513,7 +2513,7 @@ private struct DataBreakpointEditorView: View {
                 if !breakpoint.accessTypes.isEmpty {
                     GridRow {
                         Text("Access")
-                            .font(.system(size: 11))
+                            .font(LitheTheme.uiFont(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Picker("", selection: $accessType) {
                             ForEach(breakpoint.accessTypes, id: \.self) { Text($0).tag($0) }
@@ -2548,11 +2548,11 @@ private struct DataBreakpointEditorView: View {
     private func dataEditorRow(_ title: String, text: Binding<String>) -> some View {
         GridRow {
             Text(title)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("", text: text)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(minWidth: 300)
         }
     }
@@ -2600,10 +2600,10 @@ private struct WatchEditorView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text(watch == nil ? "Add Watch" : "Edit Watch")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             TextField("Expression", text: $expression)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
@@ -2637,14 +2637,14 @@ private struct VariableValueEditorView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Set Variable Value")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Text(variable.name)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             TextField("Value", text: $value)
                 .textFieldStyle(.roundedBorder)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)

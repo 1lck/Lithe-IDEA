@@ -13,7 +13,7 @@ struct StableRollbackControl: View {
                 .buttonStyle(.litheNoPress)
                 .sheet(isPresented: $showingDetails) {
                     VStack(alignment: .leading, spacing: 16) {
-                        Text("Return to Stable").font(.headline)
+                        Text("Return to Stable").font(LitheTheme.uiFont(.headline))
                         StableRollbackControl().environmentObject(updateChecker)
                         Button("Close") { showingDetails = false }
                     }

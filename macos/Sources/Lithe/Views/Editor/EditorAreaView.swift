@@ -179,7 +179,7 @@ struct EditorAreaView: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
                 Text(LocalizedStringKey(document.externalFileMissing ? "This file was deleted outside Lithe. Your editor content is preserved." : "This file changed outside Lithe while you had unsaved edits."))
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 Spacer()
                 Button(LocalizedStringKey(document.externalFileMissing ? "Allow Recreating File" : "Keep Editor")) { model.keepEditorVersion(of: document) }
                     .buttonStyle(.bordered)
@@ -444,10 +444,10 @@ struct EditorAreaView: View {
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: media.kind == .image ? "photo" : "film")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
                 Text(media.displayName)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
                     .lineLimit(1)
             }
@@ -466,7 +466,7 @@ struct EditorAreaView: View {
                 model.closeMediaDocument(media)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
@@ -518,7 +518,7 @@ struct EditorAreaView: View {
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "terminal")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
                 EditorTerminalTabTitle(
                     session: session,
@@ -540,7 +540,7 @@ struct EditorAreaView: View {
                 TerminalTabDragPayload.provider(for: session.id)
             } preview: {
                 Image(systemName: "terminal")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 20, height: 20)
                     .background(LitheTheme.activeTabBackground)
@@ -558,7 +558,7 @@ struct EditorAreaView: View {
                 model.requestCloseTerminalSession(session)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
@@ -671,7 +671,7 @@ struct EditorAreaView: View {
                 model.requestCloseDocument(document)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .frame(width: 20, height: 20)
                     .contentShape(Rectangle())
                     .litheRowHover(cornerRadius: 10)
@@ -761,13 +761,13 @@ struct EditorAreaView: View {
     private func editorTabTitle(_ document: EditorDocument) -> some View {
         if settings.editorTabLayoutMode == .multipleRows {
             Text(document.displayName)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 240, alignment: .leading)
         } else {
             Text(document.displayName)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
                 .lineLimit(1)
         }
     }
@@ -786,7 +786,7 @@ struct EditorAreaView: View {
                 .foregroundStyle(LitheTheme.accent)
 
             Text(document.displayName)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1059,7 +1059,7 @@ struct EditorAreaView: View {
                     selectDocumentPreviewMode(mode)
                 } label: {
                     Image(systemName: mode.symbolName)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .foregroundStyle(isSelected || isHovered ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .frame(width: 29, height: 20)
                         .background(
@@ -1132,7 +1132,7 @@ struct EditorAreaView: View {
                 VStack(spacing: 0) {
                     HStack {
                         Spacer()
-                        Text(splitDocument.displayName).font(.system(size: 11))
+                        Text(splitDocument.displayName).font(LitheTheme.uiFont(size: 11))
                         Button("Close split") { self.splitDocumentID = nil }.buttonStyle(.litheNoPress)
                     }
                     .padding(.horizontal, 10).frame(height: 30)
@@ -1314,10 +1314,10 @@ struct EditorAreaView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "doc.text.magnifyingglass")
-                .font(.system(size: 44, weight: .ultraLight))
+                .font(LitheTheme.uiFont(size: 44, weight: .ultraLight))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("Select a file to review")
-                .font(.system(size: 15, weight: .medium))
+                .font(LitheTheme.uiFont(size: 15, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Changes from external tools will appear automatically.")
                 .font(LitheTheme.uiFont)
@@ -1622,7 +1622,7 @@ private struct EditorTerminalTabTitle: View {
 
     var body: some View {
         Text(session.processTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle)
-            .font(.system(size: 12.5))
+            .font(LitheTheme.uiFont(size: 12.5))
             .lineLimit(1)
             .truncationMode(.middle)
             .frame(maxWidth: 240, alignment: .leading)

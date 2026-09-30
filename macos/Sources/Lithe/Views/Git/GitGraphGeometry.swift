@@ -3,14 +3,15 @@ import LitheGitModule
 
 /// One geometry definition for drawing, pointer targets and accessible buttons.
 enum GitGraphGeometry {
-    // IntelliJ PaintParameters at its native 22 pt row height. Keep the whole
-    // geometry together: stretched rows with narrow columns exaggerate zigzags.
-    static let rowHeight: CGFloat = 22
-    static let laneSpacing: CGFloat = 16
-    static let leftPadding: CGFloat = 8
-    static let lineWidth: CGFloat = 1.5
-    static let nodeDiameter: CGFloat = 8
-    static let graphTextGap: CGFloat = 2
+    // New UI's VersionControl.Log uses 26pt rows. PaintParameters scales
+    // every graph measurement from its 22pt baseline with the row height.
+    static let rowHeight: CGFloat = 26
+    private static let paintScale = rowHeight / 22
+    static let laneSpacing: CGFloat = 16 * paintScale
+    static let leftPadding: CGFloat = 8 * paintScale
+    static let lineWidth: CGFloat = 1.5 * paintScale
+    static let nodeDiameter: CGFloat = 8 * paintScale
+    static let graphTextGap: CGFloat = 2 * paintScale
 
     static func maximumWidth(laneCount: Int, recommendedLaneCount: Int) -> CGFloat {
         CGFloat(max(1, laneCount, min(6, recommendedLaneCount))) * laneSpacing + graphTextGap

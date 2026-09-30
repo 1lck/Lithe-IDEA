@@ -1,0 +1,8 @@
+JetBrains Mono 2.304 — https://github.com/JetBrains/JetBrainsMono/tree/v2.304
+The JetBrainsMono-*.ttf files are unmodified static fonts from the 2.304 distribution.
+Copyright and redistribution terms: OFL.txt and AUTHORS.txt.
+
+These committed resources are copied into Contents/Resources/Fonts by package-app.sh
+and preview.sh during builds. CoreText registers them at process scope by reading the
+bundle; runtime code never modifies these files. They remain part of the signed app
+and the immutable baseline used for Sparkle differential updates.

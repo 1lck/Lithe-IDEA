@@ -1391,6 +1391,7 @@
 "Commit History (%lld)" = "提交历史（%lld 条）";
 "Basic Information" = "基本信息";
 "Path" = "路径";
+"Paths" = "路径";
 "Branch" = "分支";
 "HEAD" = "HEAD";
 "Role" = "类型";

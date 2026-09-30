@@ -18,7 +18,7 @@ struct SearchSidebarView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Search")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 if feature.isSearching {
@@ -86,7 +86,7 @@ struct SearchSidebarView: View {
             if session.query.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "text.magnifyingglass")
-                        .font(.system(size: 28, weight: .light))
+                        .font(LitheTheme.uiFont(size: 28, weight: .light))
                     Text("Search across the project")
                 }
                 .font(LitheTheme.uiFont)
@@ -115,7 +115,7 @@ struct SearchSidebarView: View {
                                             size: LitheTheme.Metrics.treeIconSize
                                         )
                                         Text(result.url.lastPathComponent)
-                                            .font(.system(size: 12.5, weight: .medium))
+                                            .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                                             .lineLimit(1)
                                             .truncationMode(.middle)
                                         Spacer()
@@ -125,7 +125,7 @@ struct SearchSidebarView: View {
                                         }
                                     }
                                     Text(result.preview)
-                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .lineLimit(2)
                                 }

@@ -37,7 +37,7 @@ struct DependencySidebarView: View {
     private func placeholder(systemImage: String, title: LocalizedStringKey) -> some View {
         VStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 20, weight: .medium))
+                .font(LitheTheme.uiFont(size: 20, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(title)
                 .font(LitheTheme.smallFont)
@@ -76,7 +76,7 @@ private struct RunServiceDependencySidebarContent: View {
         } else if feature.dependencyServices.isEmpty {
             VStack(spacing: 8) {
                 Image(systemName: "shippingbox")
-                    .font(.system(size: 20, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 20, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Text("No language dependency sources registered")
                     .font(LitheTheme.smallFont)
@@ -140,19 +140,19 @@ private struct DependencyServiceSection: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 10)
                     LitheSystemIcon(systemImage: service.systemImage)
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 16)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(service.displayName)
-                            .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                         Text(hasCustomConfiguration ? String(localized: "Configured") : service.providerDisplayName)
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -169,7 +169,7 @@ private struct DependencyServiceSection: View {
                 isConfigurationPresented = true
             } label: {
                 LitheSystemIcon(systemImage: "gearshape")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 28, height: 28)
             }
@@ -199,7 +199,7 @@ private struct DependencyServiceSection: View {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.mini)
                 Text("Resolving service paths...")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.leading, 28)
@@ -207,10 +207,10 @@ private struct DependencyServiceSection: View {
         } else if let resolutionError {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Could not load service dependencies")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(resolutionError)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(3)
                 Button("Retry") { loadDependencies() }
@@ -243,7 +243,7 @@ private struct DependencyServiceSection: View {
             }
         } else {
             Text("No dependencies resolved")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.leading, 28)
                 .frame(minHeight: 28)
@@ -314,15 +314,15 @@ private struct DependencyTreeNodeView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 8, weight: .bold))
+                            .font(LitheTheme.uiFont(size: 8, weight: .bold))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 10)
                         LitheSystemIcon(systemImage: node.title == "Dependencies" ? "shippingbox" : "folder")
-                            .font(.system(size: 11))
+                            .font(LitheTheme.uiFont(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 16)
                         Text(LocalizedStringKey(node.title == "Dependencies" ? "Dependency Paths" : node.title))
-                            .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                            .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
                             .foregroundStyle(LitheTheme.primaryText)
                             .lineLimit(1)
                             .truncationMode(.middle)
@@ -340,7 +340,7 @@ private struct DependencyTreeNodeView: View {
                 if isExpanded {
                     if node.children.isEmpty {
                         Text("No paths")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .padding(.leading, CGFloat(42 + depth * 14))
                             .frame(minHeight: 26)
@@ -377,19 +377,19 @@ private struct DependencyTreeNodeView: View {
     private var pathRowContent: some View {
         HStack(spacing: 6) {
             LitheSystemIcon(systemImage: nodeIcon)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 1) {
                 Text(node.title)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .layoutPriority(1)
                 if let subtitle = compactSubtitle {
                     Text(subtitle)
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -495,7 +495,7 @@ private struct DependencyPathConfigurationEditor: View {
     private var configurationContent: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Search Paths: \(serviceName)")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -505,7 +505,7 @@ private struct DependencyPathConfigurationEditor: View {
                     DisclosureGroup("Edit Paths as Text", isExpanded: $showsTextEditor) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("One path per line. Relative paths are resolved from the workspace.")
-                                .font(.system(size: 10.5))
+                                .font(LitheTheme.uiFont(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                             ForEach(DependencyPathCategory.allCases) { category in
                                 pathEditor(title: category.title, text: pathText(for: category))
@@ -513,7 +513,7 @@ private struct DependencyPathConfigurationEditor: View {
                         }
                         .padding(.top, 6)
                     }
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                 }
             }
             .frame(maxHeight: 340)
@@ -521,13 +521,13 @@ private struct DependencyPathConfigurationEditor: View {
             if !excludedPaths.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Excluded Paths")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     ScrollView {
                         VStack(alignment: .leading, spacing: 3) {
                             ForEach(excludedPaths, id: \.self) { path in
                                 HStack(spacing: 6) {
                                     Text(path)
-                                        .font(.system(size: 10, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                         .lineLimit(1)
                                     Spacer(minLength: 0)
                                     Button {
@@ -547,7 +547,7 @@ private struct DependencyPathConfigurationEditor: View {
 
             if let saveError {
                 Text(saveError)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.error)
                     .lineLimit(2)
             }
@@ -579,7 +579,7 @@ private struct DependencyPathConfigurationEditor: View {
         return VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(category.title)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 0)
                 Button {
@@ -592,13 +592,13 @@ private struct DependencyPathConfigurationEditor: View {
             }
             if paths.isEmpty {
                 Text("No additional paths")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 ForEach(paths, id: \.self) { path in
                     HStack(spacing: 6) {
                         Text(path)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .help(path)
@@ -629,10 +629,10 @@ private struct DependencyPathConfigurationEditor: View {
     private func pathEditor(title: LocalizedStringKey, text: Binding<String>) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             TextEditor(text: text)
-                .font(.system(size: 11, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 .frame(height: 42)
                 .padding(3)
                 .overlay {
@@ -752,7 +752,7 @@ private struct DependencyFolderBrowser: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text(category.title)
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Spacer(minLength: 0)
                 Button("Open Folder...") { openFolder() }
                     .controlSize(.small)
@@ -773,7 +773,7 @@ private struct DependencyFolderBrowser: View {
                 .buttonStyle(.litheNoPress)
                 .help("Workspace folder")
                 Text(folderURL.path)
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .help(folderURL.path)
@@ -787,12 +787,12 @@ private struct DependencyFolderBrowser: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let loadError {
                     Text(loadError)
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.error)
                         .padding(10)
                 } else if entries.isEmpty {
                     Text("No selectable items")
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(10)
                 } else {
@@ -813,7 +813,7 @@ private struct DependencyFolderBrowser: View {
 
             HStack {
                 Text("\(selectedURLs.count) selected")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
                 Button("Cancel", action: onCancel)
@@ -859,12 +859,12 @@ private struct DependencyFolderBrowser: View {
                     LitheSystemIcon(systemImage: isDirectory ? "folder" : "shippingbox")
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(isCurrent ? String(localized: "This Folder") : url.lastPathComponent)
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if isExisting {
                         Text("Added")
-                            .font(.system(size: 10))
+                            .font(LitheTheme.uiFont(size: 10))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                 }

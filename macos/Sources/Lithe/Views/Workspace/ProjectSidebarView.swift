@@ -128,10 +128,10 @@ struct ProjectSidebarView: View {
             } else if let error = model.workspaceLoadErrorMessage {
                 VStack(spacing: 10) {
                     Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 22, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                     Text("Could not load project")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     Text(LocalizedStringKey(error))
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -192,7 +192,7 @@ struct ProjectSidebarView: View {
             } label: {
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(selectedContent.title))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     LitheIDEAIcon(
                         resourcePath: "expui/general/chevronDown.svg",
@@ -523,7 +523,7 @@ private struct FileNodeRow: View {
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -563,7 +563,7 @@ private struct FileNodeRow: View {
                 LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -571,7 +571,7 @@ private struct FileNodeRow: View {
                 Spacer(minLength: 4)
                 if let status = gitStatus.change(for: node.url) {
                     Text(status.displayStatus)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
                         .accessibilityLabel(status.kind.title)
                 }
@@ -942,12 +942,12 @@ private struct ProjectItemNameDialogContent: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
 
             TextField("Name", text: $name)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .padding(.horizontal, 8)
                 .frame(height: 30)
                 .foregroundStyle(LitheTheme.primaryText)
@@ -998,10 +998,10 @@ private struct ProjectItemNameDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(LocalizedStringKey(message))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 

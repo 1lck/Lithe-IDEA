@@ -76,7 +76,7 @@ struct DatabaseBrandIcon: View {
                     .aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: kind.brandIconFallbackSymbol)
-                    .font(.system(size: size, weight: .medium))
+                    .font(LitheTheme.uiFont(size: size, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
             }
         }

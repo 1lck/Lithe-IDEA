@@ -53,17 +53,17 @@ struct DiffReviewView: View {
     private var diffTab: some View {
         HStack(spacing: 7) {
             LitheSystemIcon(systemImage: "doc.text")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(fileIconColor)
             Text(change.url.lastPathComponent)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             HStack(spacing: 4) {
                 Image(systemName: change.kind.symbol)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                 Text(LocalizedStringKey(change.kind.title.uppercased()))
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
             }
             .foregroundStyle(changeKindColor)
             .padding(.horizontal, 6)
@@ -71,7 +71,7 @@ struct DiffReviewView: View {
             .background(changeKindColor.opacity(0.10))
             .clipShape(RoundedRectangle(cornerRadius: 4))
             Text(change.isStaged && !change.hasWorkingTreeChange ? "STAGED" : "WORKING TREE")
-                .font(.system(size: 8.5, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                 .foregroundStyle(change.isStaged ? LitheTheme.success : LitheTheme.warning)
                 .padding(.horizontal, 6)
                 .frame(height: 18)
@@ -82,7 +82,7 @@ struct DiffReviewView: View {
                 feature.selectedChange = nil
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
             .litheIconButton()
             .help("Close diff")
@@ -184,13 +184,13 @@ struct DiffReviewView: View {
                     toolbarDivider
 
                     Text(change.path)
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .frame(maxWidth: 260, alignment: .leading)
 
                     Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.horizontal, 7)
 
@@ -237,9 +237,9 @@ struct DiffReviewView: View {
     private func toolbarLabel(_ title: String, systemImage: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(LitheTheme.primaryText)
@@ -273,14 +273,14 @@ struct DiffReviewView: View {
     private func versionLabel(_ title: String, path: String, systemImage: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: systemImage)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Text(path)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -302,7 +302,7 @@ struct DiffReviewView: View {
     private var emptyState: some View {
         VStack(spacing: 9) {
             Image(systemName: "doc.richtext")
-                .font(.system(size: 30, weight: .light))
+                .font(LitheTheme.uiFont(size: 30, weight: .light))
             Text("No textual diff available")
         }
         .font(LitheTheme.uiFont)
@@ -461,12 +461,12 @@ struct DiffReviewView: View {
     private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
             LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             TextField("Search diff", text: $diffSearchQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .frame(width: 145)
                 .focused($diffSearchFocused)
                 .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
@@ -477,7 +477,7 @@ struct DiffReviewView: View {
                 }
 
             Text(diffSearchLabel)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(minWidth: 34, alignment: .trailing)
                 .monospacedDigit()
@@ -652,7 +652,7 @@ struct DiffReviewView: View {
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             if let kind, kind.isDifference {
                 Image(systemName: centerSymbol(for: kind))
-                    .font(.system(size: 9, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .bold))
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
@@ -699,9 +699,9 @@ struct SingleFileDiffRowView: View {
         if row.kind == .information {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
             }
@@ -714,7 +714,7 @@ struct SingleFileDiffRowView: View {
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(changeColor.opacity(0.82))
                     .frame(
                         width: DiffLayoutMetrics.singlePaneLineNumberColumnWidth,
@@ -737,7 +737,7 @@ struct SingleFileDiffRowView: View {
                         highlightsWords: false
                     )
                 )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DiffLayoutMetrics.singlePaneTextHorizontalPadding)
@@ -812,9 +812,9 @@ struct DiffRowView: View {
         if kind == .information {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
             }
@@ -885,7 +885,7 @@ struct DiffRowView: View {
                 Spacer(minLength: 0)
             } else {
                 Text(number.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(lineNumberColor(side: side))
                     .frame(width: DiffLayoutMetrics.lineNumberColumnWidth, alignment: .trailing)
                     .padding(.trailing, DiffLayoutMetrics.lineNumberTrailingPadding)
@@ -905,7 +905,7 @@ struct DiffRowView: View {
                         highlightsWords: highlightsWords && kind == .changed
                     )
                 )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -931,7 +931,7 @@ struct DiffRowView: View {
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             if kind.isDifference {
                 Image(systemName: centerSymbol)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .bold))
                     .foregroundStyle(isSelectedDifference ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
@@ -1049,7 +1049,7 @@ enum DiffLayoutMetrics {
     /// Advance of one character in the diff's monospaced font. Measured once
     /// because every glyph in a monospaced face shares the same advance.
     static let characterWidth: CGFloat = {
-        let font = NSFont.monospacedSystemFont(ofSize: textFontSize, weight: .regular)
+        let font = LitheTheme.uiNSFont(size: textFontSize, weight: .regular)
         let width = NSAttributedString(string: "0", attributes: [.font: font]).size().width
         return width > 0 ? width : textFontSize * 0.6
     }()

@@ -41,7 +41,7 @@ struct AgentComposerView: View {
             ScrollView {
                 TextField("Message the Agent", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(AgentPanelStyle.text)
                     .lineLimit(1...)
                     .focused($isFocused)
@@ -94,7 +94,7 @@ struct AgentComposerView: View {
                 AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
             }
         }
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .padding(.horizontal, 10)
         .frame(height: 28)
@@ -123,7 +123,7 @@ struct AgentComposerView: View {
                     AgentBrandIcon(name: selectedAgent?.name, size: 12)
                     Text(model).lineLimit(1).truncationMode(.middle)
                 }
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(AgentPanelStyle.secondary)
                 .padding(.horizontal, 4)
                 .help(model)
@@ -131,7 +131,7 @@ struct AgentComposerView: View {
             Spacer(minLength: 0)
             Button(action: isResponding ? onCancel : send) {
                 Image(systemName: isResponding ? "stop.fill" : "paperplane")
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(isResponding ? LitheTheme.error : (hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted))
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))

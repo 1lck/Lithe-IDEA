@@ -109,7 +109,7 @@ struct AgentToolbarButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 14, weight: .regular))
+            .font(LitheTheme.uiFont(size: 14, weight: .regular))
             .foregroundStyle(AgentPanelStyle.secondary)
             .frame(width: 28, height: 28)
             .background(

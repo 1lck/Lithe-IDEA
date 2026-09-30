@@ -38,7 +38,7 @@ struct GitConsoleView: View {
                 if searchOpen { searchBar }
                 if let bundle, bundle.presentation == nil {
                     Text("Compression is unavailable. Showing complete retained output.")
-                        .font(.system(size: 12, weight: .regular, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
                 }
                 contents
             }
@@ -96,7 +96,7 @@ struct GitConsoleView: View {
             Button { moveMatch(1) } label: { Image(systemName: "arrow.down") }.help("Next match")
             Button { searchOpen = false; search = "" } label: { Image(systemName: "xmark") }.help("Close search")
         }
-        .font(.system(size: 12, weight: .regular, design: .monospaced)).padding(6)
+        .font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced)).padding(6)
     }
 
     private func moveMatch(_ delta: Int) {
@@ -113,10 +113,10 @@ struct GitConsoleView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if feature.gitConsoleHistoryTruncated {
                             Text("Earlier Git commands were truncated to limit memory use.")
-                                .font(.system(size: 12, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
+                                .font(LitheTheme.uiFont(size: 12, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
                         }
                         if records.isEmpty {
-                            Text("Git command output will appear here.").font(.system(size: 12, weight: .regular, design: .monospaced))
+                            Text("Git command output will appear here.").font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         rows

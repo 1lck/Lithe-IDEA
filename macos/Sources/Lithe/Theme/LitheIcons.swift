@@ -614,7 +614,7 @@ struct LitheIDEAIcon: View {
             }
         } else if let fallbackSystemImage {
             Image(systemName: fallbackSystemImage)
-                .font(.system(size: size, weight: .medium))
+                .font(LitheTheme.uiFont(size: size, weight: .medium))
                 .frame(width: size, height: size)
         } else {
             Color.clear.frame(width: size, height: size)
@@ -649,7 +649,7 @@ struct LitheSystemIcon: View {
             )
         } else {
             Image(systemName: systemImage)
-                .font(.system(size: size, weight: .medium))
+                .font(LitheTheme.uiFont(size: size, weight: .medium))
                 .frame(width: size, height: size)
         }
     }
@@ -667,7 +667,7 @@ private struct LetterBadgeIcon: View {
             Circle()
                 .strokeBorder(color.opacity(0.85), lineWidth: max(1, size / 14))
             Text(letter)
-                .font(.system(size: size * 0.60, weight: .bold, design: .rounded))
+                .font(LitheTheme.uiFont(size: size * 0.60, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
         }
         .frame(width: size, height: size)
@@ -697,7 +697,7 @@ private struct DocumentIcon: View {
             EmptyView()
         case .letter(let letter):
             Text(letter)
-                .font(.system(size: size * 0.44, weight: .bold, design: .rounded))
+                .font(LitheTheme.uiFont(size: size * 0.44, weight: .bold, design: .rounded))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .lines:
@@ -712,12 +712,12 @@ private struct DocumentIcon: View {
             .offset(y: size * 0.10)
         case .angleBrackets:
             Text("< >")
-                .font(.system(size: size * 0.34, weight: .heavy, design: .monospaced))
+                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .braces:
             Text("{ }")
-                .font(.system(size: size * 0.34, weight: .heavy, design: .monospaced))
+                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .picture:

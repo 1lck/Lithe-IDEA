@@ -51,18 +51,18 @@ struct BranchSwitcherPopover: View {
         HStack(spacing: 8) {
             HStack(spacing: 8) {
                 LitheSystemIcon(systemImage: "magnifyingglass")
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Search for branches and actions", text: $searchQuery)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .focused($searchFocused)
                 if !searchQuery.isEmpty {
                     Button {
                         searchQuery = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
+                            .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                     .buttonStyle(.litheNoPress)
@@ -162,9 +162,9 @@ struct BranchSwitcherPopover: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                 Text(LocalizedStringKey(searchQuery.isEmpty ? "Recent" : "Branches"))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Spacer()
                 if feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
                     ProgressView().controlSize(.mini)
@@ -221,16 +221,16 @@ struct BranchSwitcherPopover: View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: icon)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 18)
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 if let shortcut {
                     Text(shortcut)
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
@@ -290,9 +290,9 @@ struct BranchSwitcherPopover: View {
     private func branchSectionHeader(_ title: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8, weight: .bold))
             Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12, weight: .medium))
         }
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 14)
@@ -309,14 +309,14 @@ struct BranchSwitcherPopover: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: expandedLocalGroups.contains(group.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                     .frame(width: 12)
                 Image(systemName: "folder")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 17)
                 Text(group.title)
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -343,14 +343,14 @@ struct BranchSwitcherPopover: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: expandedRemoteGroups.contains(group.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                     .frame(width: 12)
                 Image(systemName: "cloud")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 17)
                 Text(group.title)
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -381,24 +381,24 @@ struct BranchSwitcherPopover: View {
             label: {
                 HStack(spacing: 8) {
                     Image(systemName: referenceIcon(reference, marksCurrent: presentation == .recent))
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(highlightsCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
                         .frame(width: 17)
                     Text(branchDisplayName(reference, presentation: presentation))
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 10)
                     if let upstream = reference.upstreamShortName {
                         Text(upstream)
-                            .font(.system(size: 11.5))
+                            .font(LitheTheme.uiFont(size: 11.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation))
@@ -717,10 +717,10 @@ struct TopBarNewBranchDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("New Branch")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Create from '\(reference.shortName)'.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("Branch name", text: $branchName)
                 .textFieldStyle(.roundedBorder)
@@ -729,7 +729,7 @@ struct TopBarNewBranchDialog: View {
             Toggle("Checkout branch after creation", isOn: $checkout)
                 .toggleStyle(.checkbox)
                 .lithePointer()
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -770,17 +770,17 @@ struct CheckoutRevisionDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Checkout Tag or Revision")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Enter a tag name, branch name, commit hash, or other Git revision.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("Tag or revision", text: $revision)
                 .textFieldStyle(.roundedBorder)
                 .focused($fieldFocused)
                 .onSubmit(submit)
             Text("The repository will be opened in detached HEAD state.")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
             HStack {
                 Spacer()

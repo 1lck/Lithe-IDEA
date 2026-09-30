@@ -91,7 +91,7 @@ struct ProjectAvatarBadge: View {
     var body: some View {
         let appearance = ProjectIdentityAppearance(colorIndex: colorIndex, isDark: colorScheme == .dark)
         Text(ProjectIdentityAppearance.initials(for: name))
-            .font(.system(size: max(10, size * 0.35), weight: .bold, design: .rounded))
+            .font(LitheTheme.uiFont(size: max(10, size * 0.35), weight: .bold, design: .rounded))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background {

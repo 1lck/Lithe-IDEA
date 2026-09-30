@@ -56,13 +56,13 @@ struct CloneRepositoryView: View {
                 }
 
                 Text("Lithe will clone the repository into (destinationDescription).")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
 
                 if let errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.error)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -91,13 +91,13 @@ struct CloneRepositoryView: View {
                 fallbackSystemImage: "point.3.connected.trianglepath.dotted"
             )
             Text("Clone Repository")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Spacer()
             Button {
                 dismiss()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
             }
             .litheIconButton()
             .disabled(model.isCloningRepository)
@@ -152,10 +152,10 @@ struct CloneRepositoryView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             content()
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
                 .padding(.horizontal, 9)
                 .frame(height: 30)
                 .background(LitheTheme.inputBackground)

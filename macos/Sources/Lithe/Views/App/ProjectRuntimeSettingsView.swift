@@ -47,13 +47,13 @@ struct ProjectRuntimeSettingsView: View {
                 ProgressView()
                     .controlSize(.small)
                 Text("Discovering…")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else if !isPrepared && model.workspaceURL != nil {
                 ProgressView()
                     .controlSize(.small)
                 Text("Loading project environment…")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Button {
@@ -75,7 +75,7 @@ struct ProjectRuntimeSettingsView: View {
     private var emptyWorkspace: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Open a project to configure its JDK and Maven runtime.")
-                .font(.system(size: 13, weight: .medium))
+                .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Application-wide editor and terminal settings remain available in the other categories.")
                 .font(LitheTheme.smallFont)
@@ -107,15 +107,15 @@ struct ProjectRuntimeSettingsView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: icon(for: subproject.kind))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .frame(width: 16)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(subproject.title)
-                        .font(.system(size: 12.5, weight: subproject.kind == .projectDefaults ? .semibold : .regular))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: subproject.kind == .projectDefaults ? .semibold : .regular))
                         .lineLimit(1)
                     if subproject.displaysPath {
                         Text(subproject.relativePath)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(isSelected ? LitheTheme.settingsSelectionText.opacity(0.8) : LitheTheme.tertiaryText)
                             .lineLimit(1)
                     }
@@ -144,7 +144,7 @@ struct ProjectRuntimeSettingsView: View {
             VStack(alignment: .leading, spacing: 8) {
                 if let subproject = selectedSubproject {
                     Text(subproject.title)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.bottom, 4)
                     if subproject.kind == .projectDefaults {
@@ -330,7 +330,7 @@ struct ProjectRuntimeSettingsView: View {
     private func otherSubprojectDetail(_ subproject: ProjectRuntimeSubproject) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("This subproject does not use a JDK.")
-                .font(.system(size: 13, weight: .medium))
+                .font(LitheTheme.uiFont(size: 13, weight: .medium))
             Text("Frontend and other non-Java roots keep the workspace editor and terminal settings. Java and Maven SDKs only apply to the backends listed on the left.")
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -347,10 +347,10 @@ struct ProjectRuntimeSettingsView: View {
     private func labeledValue(_ title: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(value)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .lineLimit(2)
@@ -402,7 +402,7 @@ struct ProjectRuntimeSettingsView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
             HStack(spacing: 6) {
                 TextField(LocalizedStringKey(placeholder), text: value)
                     .litheSettingsTextField()
@@ -439,14 +439,14 @@ struct ProjectRuntimeSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize()
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
             }
             content()
         }
-        .font(.system(size: 12.5))
+        .font(LitheTheme.uiFont(size: 12.5))
         .foregroundStyle(LitheTheme.primaryText)
         .padding(.top, 16)
         .frame(maxWidth: .infinity, alignment: .leading)

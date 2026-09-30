@@ -64,6 +64,14 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("bundled-ui-fonts"));
+    const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "bundled-ui-fonts"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
+  });
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

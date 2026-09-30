@@ -222,7 +222,7 @@ struct SearchEverywhereView: View {
                     scope = item
                 } label: {
                     Text(LocalizedStringKey(item.rawValue))
-                        .font(.system(size: 12, weight: scope == item ? .semibold : .regular))
+                        .font(LitheTheme.uiFont(size: 12, weight: scope == item ? .semibold : .regular))
                         .foregroundStyle(scope == item ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, 11)
                         .frame(height: 38)
@@ -261,11 +261,11 @@ struct SearchEverywhereView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("", text: $query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 15))
+                .font(LitheTheme.uiFont(size: 15))
                 .focused($searchFocused)
             if query.isEmpty {
                 Text("Type / to see commands")
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .allowsHitTesting(false)
             } else {
@@ -335,7 +335,7 @@ struct SearchEverywhereView: View {
 
     private var moreRow: some View {
         Text("… more")
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .foregroundStyle(LitheTheme.tertiaryText)
             .padding(.horizontal, 12)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -374,24 +374,24 @@ struct SearchEverywhereView: View {
 
                     // 对齐 IDEA：名字和路径左侧连排，而不是把路径推到右端。
                     Text(result.symbolName ?? result.url.lastPathComponent)
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
                     if showsLine, let line = result.line {
                         Text(":\(line)")
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .fixedSize(horizontal: true, vertical: false)
                     }
                     Text(containerPath(for: result.url))
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     if result.kind == .content {
                         Text(result.preview)
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                             .lineLimit(1)
                     }
@@ -399,7 +399,7 @@ struct SearchEverywhereView: View {
                     Spacer(minLength: 12)
 
                     Text(moduleLabel(for: result.url))
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .fixedSize(horizontal: true, vertical: false)
@@ -460,26 +460,26 @@ struct SearchEverywhereView: View {
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "bolt.fill")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.warning)
                     .frame(width: 16)
                 Text(LocalizedStringKey(action.title))
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
                 Text(LocalizedStringKey(action.subtitle))
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                 Spacer(minLength: 12)
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(action.group.rawValue))
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                     if let keyEquivalent = action.keyEquivalent {
                         Text(keyEquivalent)
-                            .font(.system(size: 10, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
                 }

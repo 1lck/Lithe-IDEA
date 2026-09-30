@@ -464,11 +464,11 @@ final class GitCommitFileTreeNSView: NSControl {
     }
 
     private struct DrawingStyle {
-        let bodyFont = NSFont.systemFont(ofSize: 13)
-        let mediumFont = NSFont.systemFont(ofSize: 13, weight: .medium)
-        let metadataFont = NSFont.systemFont(ofSize: 12)
-        let disclosureFont = NSFont.systemFont(ofSize: 9, weight: .bold)
-        let statusFont = NSFont.monospacedSystemFont(ofSize: 11, weight: .bold)
+        let bodyFont = LitheTheme.uiNSFont(size: 13)
+        let mediumFont = LitheTheme.uiNSFont(size: 13, weight: .medium)
+        let metadataFont = LitheTheme.uiNSFont(size: 12)
+        let disclosureFont = LitheTheme.uiNSFont(size: 9, weight: .bold)
+        let statusFont = LitheTheme.uiNSFont(size: 11, weight: .bold)
         let background: NSColor
         let primaryText: NSColor
         let secondaryText: NSColor
