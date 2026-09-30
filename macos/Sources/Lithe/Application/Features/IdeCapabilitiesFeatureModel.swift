@@ -293,6 +293,9 @@ final class IdeCapabilitiesFeatureModel: ObservableObject {
         case .found(let url, let source): return ["status": "resolved", "path": url.path, "source": choiceSource(source)]
         case .invalid(let path): return ["status": "invalid", "message": "Invalid toolchain: " + path]
         case .fallback(let path, let next): var result = choice(next); result["invalidOverride"] = path; return result
+        case .warning(let url, let source, let message):
+            return ["status": "resolved", "path": url.path, "source": choiceSource(source), "warning": message]
+        case .unavailable(let message): return ["status": "invalid", "message": message]
         case .notFound: return ["status": "notFound"]
         case nil: return ["status": "loading"]
         }

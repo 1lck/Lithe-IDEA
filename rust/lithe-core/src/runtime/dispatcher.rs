@@ -1438,6 +1438,21 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::RunConfigSelectJava => {
+            match serde_json::from_value::<crate::execution::JavaSelectionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Java selection request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::execution::select_java)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java selection encodes"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::RunConfigInspect => {
             match serde_json::from_value::<crate::execution::InspectRequest>(parsed.payload)
                 .map_err(|error| {
