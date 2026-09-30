@@ -1,26 +1,29 @@
 import SwiftUI
 
 enum WorkbenchRightToolGeometry {
-    static func minimumWorkspaceWidth(isSidebarVisible: Bool) -> CGFloat {
-        CGFloat(WorkbenchLayout.minimumPaneSize) * (isSidebarVisible ? 2 : 1)
-            + (isSidebarVisible ? SplitHandleView.thickness : 0)
+    // IDEA's trailing splitter keeps the first pane at its current width,
+    // then lets the editor shrink to the shared minimum.
+    static func minimumWorkspaceWidth(sidebarWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+        CGFloat(WorkbenchLayout.minimumPaneSize)
+            + (isSidebarVisible ? max(sidebarWidth, CGFloat(WorkbenchLayout.minimumPaneSize))
+                + SplitHandleView.thickness : 0)
     }
 
-    static func maximumWidth(in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
-        max(0, availableWidth - minimumWorkspaceWidth(isSidebarVisible: isSidebarVisible)
+    static func maximumWidth(in availableWidth: CGFloat, sidebarWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+        max(0, availableWidth - minimumWorkspaceWidth(sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible)
             - SplitHandleView.thickness)
     }
 
-    static func minimumWidth(in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+    static func minimumWidth(in availableWidth: CGFloat, sidebarWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
         min(CGFloat(WorkbenchLayout.minimumPaneSize),
-            maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible))
+            maximumWidth(in: availableWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible))
     }
 
-    static func resolvedWidth(_ width: CGFloat, in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+    static func resolvedWidth(_ width: CGFloat, in availableWidth: CGFloat, sidebarWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
         LitheSplitPaneGeometry.clamp(
             width,
-            minimum: minimumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible),
-            maximum: maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible)
+            minimum: minimumWidth(in: availableWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible),
+            maximum: maximumWidth(in: availableWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible)
         )
     }
 
@@ -30,15 +33,16 @@ enum WorkbenchRightToolGeometry {
         _ width: CGFloat,
         preferredWidth: CGFloat,
         in availableWidth: CGFloat,
+        sidebarWidth: CGFloat,
         isSidebarVisible: Bool
     ) -> CGFloat? {
-        let maximum = maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible)
+        let maximum = maximumWidth(in: availableWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible)
         guard maximum > CGFloat(WorkbenchLayout.minimumPaneSize) else {
             return nil
         }
         // A window resize can clamp the displayed width without a user drag.
         if preferredWidth > maximum, width >= maximum { return nil }
-        return resolvedWidth(width, in: availableWidth, isSidebarVisible: isSidebarVisible)
+        return resolvedWidth(width, in: availableWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible)
     }
 }
 
@@ -46,6 +50,7 @@ enum WorkbenchRightToolGeometry {
 /// the committed width, keeping persistence and full-page redraws off the hot path.
 struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     let width: CGFloat
+    let sidebarWidth: CGFloat
     let isSidebarVisible: Bool
     let hasWorkbenchBackground: Bool
     let showsFrameGradient: Bool
@@ -55,6 +60,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
 
     init(
         width: CGFloat,
+        sidebarWidth: CGFloat,
         isSidebarVisible: Bool,
         hasWorkbenchBackground: Bool,
         showsFrameGradient: Bool = false,
@@ -63,6 +69,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
         @ViewBuilder tool: () -> Tool
     ) {
         self.width = width
+        self.sidebarWidth = sidebarWidth
         self.isSidebarVisible = isSidebarVisible
         self.hasWorkbenchBackground = hasWorkbenchBackground
         self.showsFrameGradient = showsFrameGradient
@@ -76,9 +83,9 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
             LitheSplitPaneView(
                 axis: .horizontal,
                 placement: .trailing,
-                defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width, isSidebarVisible: isSidebarVisible),
-                minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width, isSidebarVisible: isSidebarVisible),
-                maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width, isSidebarVisible: isSidebarVisible),
+                defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible),
+                minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible),
+                maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible),
                 clipsSizedPane: true,
                 trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                 showsIdleDivider: false,
@@ -87,6 +94,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
                         width,
                         preferredWidth: self.width,
                         in: geometry.size.width,
+                        sidebarWidth: sidebarWidth,
                         isSidebarVisible: isSidebarVisible
                     ) else { return }
                     onCommit(committedWidth)

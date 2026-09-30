@@ -47,15 +47,15 @@ struct WorkbenchMavenLayoutTests {
 
     @Test(arguments: [0.0, 40.0, 640.0, 760.0, 1024.0, 1440.0])
     func narrowWindowsNeverProduceNegativeOrOverflowingWidths(available: Double) {
-        let maximum = WorkbenchRightToolGeometry.maximumWidth(in: available, isSidebarVisible: true)
-        let minimum = WorkbenchRightToolGeometry.minimumWidth(in: available, isSidebarVisible: true)
-        let resolved = WorkbenchRightToolGeometry.resolvedWidth(520, in: available, isSidebarVisible: true)
+        let maximum = WorkbenchRightToolGeometry.maximumWidth(in: available, sidebarWidth: 320, isSidebarVisible: true)
+        let minimum = WorkbenchRightToolGeometry.minimumWidth(in: available, sidebarWidth: 320, isSidebarVisible: true)
+        let resolved = WorkbenchRightToolGeometry.resolvedWidth(520, in: available, sidebarWidth: 320, isSidebarVisible: true)
         #expect(minimum >= 0)
         #expect(maximum >= minimum)
         #expect(resolved >= minimum)
         #expect(resolved <= maximum)
         #expect(resolved <= available)
-        let reservedWidth = WorkbenchRightToolGeometry.minimumWorkspaceWidth(isSidebarVisible: true)
+        let reservedWidth = WorkbenchRightToolGeometry.minimumWorkspaceWidth(sidebarWidth: 320, isSidebarVisible: true)
         if available >= reservedWidth + SplitHandleView.thickness {
             #expect(available - resolved - SplitHandleView.thickness >= reservedWidth)
         }
@@ -66,11 +66,11 @@ struct WorkbenchMavenLayoutTests {
         let workspace = URL(fileURLWithPath: "/fixture/maven-layout/project")
         store.save(WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil, mavenPaneWidth: 410), for: workspace)
         let preferred = CGFloat(try #require(store.load(for: workspace).mavenPaneWidth))
-        let narrowWidth = WorkbenchRightToolGeometry.resolvedWidth(preferred, in: 400, isSidebarVisible: true)
+        let narrowWidth = WorkbenchRightToolGeometry.resolvedWidth(preferred, in: 400, sidebarWidth: 320, isSidebarVisible: true)
         #expect(narrowWidth < preferred)
 
         if let committedWidth = WorkbenchRightToolGeometry.committedWidth(
-            narrowWidth, preferredWidth: preferred, in: 400, isSidebarVisible: true
+            narrowWidth, preferredWidth: preferred, in: 400, sidebarWidth: 320, isSidebarVisible: true
         ) {
             store.save(
                 WorkbenchLayout(sidebarWidth: 320, topPaneHeight: nil, mavenPaneWidth: Double(committedWidth)),
@@ -80,16 +80,18 @@ struct WorkbenchMavenLayoutTests {
 
         let restored = CGFloat(try #require(store.load(for: workspace).mavenPaneWidth))
         #expect(restored == preferred)
-        #expect(WorkbenchRightToolGeometry.resolvedWidth(restored, in: 1440, isSidebarVisible: true) == preferred)
+        #expect(WorkbenchRightToolGeometry.resolvedWidth(restored, in: 1440, sidebarWidth: 320, isSidebarVisible: true) == preferred)
         #expect(WorkbenchRightToolGeometry.committedWidth(
-            380, preferredWidth: preferred, in: 1440, isSidebarVisible: true
+            380, preferredWidth: preferred, in: 1440, sidebarWidth: 320, isSidebarVisible: true
         ) == 380)
-        #expect(WorkbenchRightToolGeometry.resolvedWidth(10, in: 1440, isSidebarVisible: true) == 30)
-        #expect(WorkbenchRightToolGeometry.resolvedWidth(900, in: 1440, isSidebarVisible: true) == 900)
-        #expect(WorkbenchRightToolGeometry.maximumWidth(in: 1440, isSidebarVisible: true)
-            == 1440 - 30 * 2 - SplitHandleView.thickness * 2)
-        #expect(WorkbenchRightToolGeometry.maximumWidth(in: 1440, isSidebarVisible: false)
+        #expect(WorkbenchRightToolGeometry.resolvedWidth(10, in: 1440, sidebarWidth: 320, isSidebarVisible: true) == 30)
+        #expect(WorkbenchRightToolGeometry.resolvedWidth(900, in: 1440, sidebarWidth: 320, isSidebarVisible: true) == 900)
+        #expect(WorkbenchRightToolGeometry.maximumWidth(in: 1440, sidebarWidth: 320, isSidebarVisible: true)
+            == 1440 - 320 - 30 - SplitHandleView.thickness * 2)
+        #expect(WorkbenchRightToolGeometry.maximumWidth(in: 1440, sidebarWidth: 320, isSidebarVisible: false)
             == 1440 - 30 - SplitHandleView.thickness)
+        #expect(WorkbenchRightToolGeometry.maximumWidth(in: 1440, sidebarWidth: 500, isSidebarVisible: true)
+            == 1440 - 500 - 30 - SplitHandleView.thickness * 2)
     }
 
     @Test func paneWidthsAboveTheOldFixedCapsRemainPersisted() {

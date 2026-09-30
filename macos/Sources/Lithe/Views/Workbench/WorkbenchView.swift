@@ -1509,6 +1509,7 @@ struct WorkbenchView: View {
         if isDockedSidebarVisible {
             WorkbenchRightToolSplitView(
                 width: mavenPaneWidth,
+                sidebarWidth: sidebarWidth,
                 isSidebarVisible: model.workbenchFeature.isSidebarVisible,
                 hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
                 showsFrameGradient: usesIDEAFrameExperiment,
@@ -2042,7 +2043,40 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     roundsCorners: !hasWorkbenchBackground,
                     showsFrameGradient: showsFrameGradient
                 )
-            let topContent: AnyView = isSidebarVisible ? AnyView(
+            let editorColumn: AnyView = isBottomToolVisible ? AnyView(
+                LitheSplitPaneView(
+                    axis: .vertical,
+                    placement: .leading,
+                    defaultSize: resolvedTopPaneHeight,
+                    minimum: minimumTopPaneHeight,
+                    maximum: maximumTopPaneHeight,
+                    flexibleMinimum: 0,
+                    clipsSizedPane: true,
+                    trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
+                    showsIdleDivider: false,
+                    onCommit: { height in
+                        guard (liveTopPaneHeight ?? 0) <= maximumTopPaneHeight
+                                || height < maximumTopPaneHeight else { return }
+                        actions.onTopPaneHeightCommitted(height)
+                    },
+                    sized: {
+                        editorPane.padding(.top, WorkbenchWorkspaceMetrics.paneInset)
+                    },
+                    flexible: {
+                        bottomTool
+                            .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                            .clipped()
+                            .workbenchPaneChrome(
+                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                                roundsCorners: !hasWorkbenchBackground,
+                                showsFrameGradient: showsFrameGradient
+                            )
+                            .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
+                    }
+                )
+            ) : AnyView(editorPane)
+            let workspaceContent: AnyView = isSidebarVisible ? AnyView(
                 LitheSplitPaneView(
                     axis: .horizontal,
                     placement: .leading,
@@ -2065,54 +2099,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                                 showsFrameGradient: showsFrameGradient
                             )
                     },
-                    flexible: {
-                        editorPane
-                    }
+                    flexible: { editorColumn }
                 )
-            ) : AnyView(editorPane)
+            ) : editorColumn
 
-            Group {
-                if isBottomToolVisible {
-                    LitheSplitPaneView(
-                        axis: .vertical,
-                        placement: .leading,
-                        defaultSize: resolvedTopPaneHeight,
-                        minimum: minimumTopPaneHeight,
-                        maximum: maximumTopPaneHeight,
-                        flexibleMinimum: 0,
-                        clipsSizedPane: true,
-                        trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
-                        showsIdleDivider: false,
-                        onCommit: { height in
-                            guard (liveTopPaneHeight ?? 0) <= maximumTopPaneHeight
-                                    || height < maximumTopPaneHeight else { return }
-                            actions.onTopPaneHeightCommitted(height)
-                        },
-                        sized: {
-                            topContent
-                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                                .padding(.top, WorkbenchWorkspaceMetrics.paneInset)
-                        },
-                        flexible: {
-                            bottomTool
-                                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                                .clipped()
-                                .workbenchPaneChrome(
-                                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                    roundsCorners: !hasWorkbenchBackground,
-                                    showsFrameGradient: showsFrameGradient
-                                )
-                                .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                                .padding(.bottom, WorkbenchWorkspaceMetrics.paneInset)
-                        }
-                    )
-                } else {
-                    topContent
-                        .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
-                        .padding(.vertical, WorkbenchWorkspaceMetrics.paneInset)
-                }
-            }
+            workspaceContent
             .frame(
                 width: geometry.size.width,
                 height: geometry.size.height,
