@@ -1,6 +1,6 @@
 {
   "schemaVersion": 3,
-  "lastReviewed": "2026-09-29",
+  "lastReviewed": "2026-10-01",
   "review": {
     "status": "initial-static-inventory",
     "method": "根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。",
@@ -2748,6 +2748,35 @@
       },
       "owner": "PHP Support",
       "verification": "macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。"
+    },
+    {
+      "id": "macos-php-plugin-publisher-signature",
+      "area": "发布与安装",
+      "group": "官方插件",
+      "capability": "独立 PHP 插件包使用 Lithe publisher 签名并可发布到 GitHub Release",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift",
+          "macos/Tools/LithePluginPackageSigner/main.swift",
+          "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+          "scripts/build-official-plugins.sh",
+          ".github/workflows/release-macos.yml",
+          ".github/workflows/release-preview-macos.yml",
+          "Plugins/mac/Official/PhpSupport/plugin.json"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "Plugins/win/Official/PhpSupport/plugin.ts",
+          "windows/tauri/src/extensions/packages/local-extension-package.ts"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Release",
+      "verification": "macOS 构建配置 LITHE_PLUGIN_PACKAGE_PRIVATE_KEY，在 arm64 和 x86_64 生成 PHP zip；解压后验证签名文档覆盖完整文件树，篡改任意文件、manifest、版本或签名后确认插件安装被拒绝，并从 GitHub Release 下载包完成一次安装。Windows 使用独立本地插件包流程，本能力不适用。"
     },
     {
       "id": "git-workspace-staged-commit",

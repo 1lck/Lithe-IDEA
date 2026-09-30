@@ -212,6 +212,11 @@ public enum OfficialPluginCatalog {
     private static let goLanguageID = "go"
     private static let phpLanguageID = "php"
     public static let phpPluginID = PluginID("dev.lithe.plugin.php-support")
+    public static let publisherPackageVendor = PluginVendor(
+        id: BuiltInPluginCatalog.vendor.id,
+        displayName: BuiltInPluginCatalog.vendor.displayName,
+        signatureRequirement: .publisherPackage
+    )
 
     public static let manifests: [PluginManifest] = [
         PluginManifest(
@@ -276,7 +281,7 @@ public enum OfficialPluginCatalog {
                 minimum: BuiltInPluginCatalog.hostVersion,
                 maximumExclusive: PluginVersion(major: 0, minor: 4, patch: 0)
             ),
-            vendor: BuiltInPluginCatalog.vendor,
+            vendor: publisherPackageVendor,
             entrypoint: PluginEntrypoint(
                 kind: .nativeBundle,
                 bundleIdentifier: "dev.lithe.plugin.php-support.bundle",

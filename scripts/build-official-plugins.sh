@@ -31,13 +31,17 @@ case "$TRIPLE" in
     *) print -u2 -- "Unsupported macOS Swift triple: $TRIPLE"; exit 2 ;;
 esac
 
-BUILD_DIR="$ROOT_DIR/.build/$TRIPLE/$CONFIGURATION"
-if [[ -e "$BUILD_DIR/Modules/LitheModuleAPI.swiftmodule" && \
-      -e "$BUILD_DIR/Modules/LitheCoreContracts.swiftmodule" ]]; then
-    MODULE_DIR="$BUILD_DIR/Modules"
+SWIFT_LAYOUT_ARGS=(
+    --triple "$TRIPLE"
+    --configuration "$CONFIGURATION"
+)
+SWIFT_BIN_PATH=$(swift build --show-bin-path "${SWIFT_LAYOUT_ARGS[@]}")
+if [[ -e "$SWIFT_BIN_PATH/Modules/LitheModuleAPI.swiftmodule" && \
+      -e "$SWIFT_BIN_PATH/Modules/LitheCoreContracts.swiftmodule" ]]; then
+    MODULE_DIR="$SWIFT_BIN_PATH/Modules"
 else
     # SwiftPM 6.4 places package modules directly beside the executable.
-    MODULE_DIR="$BUILD_DIR"
+    MODULE_DIR="$SWIFT_BIN_PATH"
 fi
 if [[ ! -e "$MODULE_DIR/LitheModuleAPI.swiftmodule" || ! -e "$MODULE_DIR/LitheCoreContracts.swiftmodule" ]]; then
     print -u2 -- "Build Lithe for $TRIPLE ($CONFIGURATION) before packaging official plugins"
@@ -45,7 +49,7 @@ if [[ ! -e "$MODULE_DIR/LitheModuleAPI.swiftmodule" || ! -e "$MODULE_DIR/LitheCo
 fi
 
 if [[ -z "$OUTPUT_DIR" ]]; then
-    OUTPUT_DIR="$BUILD_DIR/OfficialPlugins"
+    OUTPUT_DIR="$SWIFT_BIN_PATH/OfficialPlugins"
 fi
 SDK_PATH=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
 if ! SWIFT_COMPILER=$(command -v swiftc); then
@@ -59,6 +63,7 @@ for stale_package in "$OUTPUT_DIR"/*(/N); do
     rm -rf "$stale_package"
 done
 matched=0
+signer_binary=""
 for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     manifest="$plugin_source/plugin.json"
     info_plist="$plugin_source/Info.plist"
@@ -80,6 +85,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     fi
     bundle_name=$(/usr/bin/plutil -extract entrypoint.bundlePath raw "$manifest")
     executable_name=$(/usr/bin/plutil -extract CFBundleExecutable raw "$info_plist")
+    signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
     package_dir="$OUTPUT_DIR/$package_id"
     bundle_dir="$package_dir/$bundle_name"
     executable_dir="$bundle_dir/Contents/MacOS"
@@ -117,6 +123,32 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     fi
 
     /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"
+
+    if [[ "$signature_requirement" == "publisherPackage" ]]; then
+        if [[ -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+            if [[ "$CONFIGURATION" == "release" ]]; then
+                print -u2 -- "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY for publisher-signed plugin packages"
+                exit 1
+            fi
+            print -u2 -- "Skipping publisher signature for debug plugin package $package_id"
+            continue
+        fi
+        if [[ -z "$signer_binary" ]]; then
+            swift build \
+                "${SWIFT_LAYOUT_ARGS[@]}" \
+                --product LithePluginPackageSigner
+            signer_bin_dir=$(swift build \
+                "${SWIFT_LAYOUT_ARGS[@]}" \
+                --show-bin-path)
+            signer_binary="$signer_bin_dir/LithePluginPackageSigner"
+            [[ -x "$signer_binary" ]] || {
+                print -u2 -- "Plugin package signer was not built: $signer_binary"
+                exit 1
+            }
+        fi
+        print -rn -- "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" | "$signer_binary" "$package_dir"
+        "$signer_binary" --verify "$package_dir"
+    fi
 done
 
 if (( matched == 0 )); then

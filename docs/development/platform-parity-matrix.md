@@ -2,11 +2,11 @@
 
 > 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。
 
-- 最后复核：2026-09-29
+- 最后复核：2026-10-01
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：115
-- macOS：实现：✅ 101 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 104 待验证，— 11 不适用
-- Windows：实现：✅ 98 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 109 待验证，— 6 不适用
+- 功能项：116
+- macOS：实现：✅ 102 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 105 待验证，— 11 不适用
+- Windows：实现：✅ 98 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 109 待验证，— 7 不适用
 
 ## 实现状态定义
 
@@ -282,6 +282,15 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | PHP | **PHP 按需安装与插件生命周期**<br><sub>php-optional-plugin</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport`、`scripts/official-plugin-distribution.mjs`、`macos/Sources/Lithe/Platform/MacOS/Plugins`、`macos/Sources/Lithe/Views/App/PluginManagementView.swift`、`macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift`、`.github/workflows/release-macos.yml`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport`、`windows/tauri/src/extensions/registry/extension-store-lifecycle.ts`、`windows/tauri/src-tauri/src/language_tools.rs`、`windows/tauri/src/extensions/packages/local-extension-package.ts`、`scripts/verify-windows-plugin-isolation.mjs`</sub> | PHP Support | macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。 |  |
 | PHP | **PHP 插件运行与 PHPUnit 测试**<br><sub>php-run-test</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift`、`macos/Tests/LitheTests/RealPhpIntegrationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport/plugin.ts`、`windows/tauri/src/extensions/run`、`windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts`</sub> | PHP Support | macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。 |  |
+
+</details>
+
+<details>
+<summary><strong>发布与安装</strong> · 1 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 官方插件 | **独立 PHP 插件包使用 Lithe publisher 签名并可发布到 GitHub Release**<br><sub>macos-php-plugin-publisher-signature</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LithePluginPackageSigning/PluginPackageSignature.swift`、`macos/Tools/LithePluginPackageSigner/main.swift`、`macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`、`scripts/build-official-plugins.sh`、`.github/workflows/release-macos.yml`、`.github/workflows/release-preview-macos.yml`、`Plugins/mac/Official/PhpSupport/plugin.json`</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`Plugins/win/Official/PhpSupport/plugin.ts`、`windows/tauri/src/extensions/packages/local-extension-package.ts`</sub> | Release | macOS 构建配置 LITHE_PLUGIN_PACKAGE_PRIVATE_KEY，在 arm64 和 x86_64 生成 PHP zip；解压后验证签名文档覆盖完整文件树，篡改任意文件、manifest、版本或签名后确认插件安装被拒绝，并从 GitHub Release 下载包完成一次安装。Windows 使用独立本地插件包流程，本能力不适用。 |  |
 
 </details>
 
