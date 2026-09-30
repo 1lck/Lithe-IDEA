@@ -1,7 +1,8 @@
+import { loadFileContent } from "../controllers/workspace-session-restore";
 import { invoke } from "@/platform/tauri-core";
 import { LspOperationLog } from "@/platform/lsp-session-lifecycle";
 import { basename, dirname, extname, join } from "@tauri-apps/api/path";
-import { copyFile, readFile } from "@tauri-apps/plugin-fs";
+import { copyFile } from "@tauri-apps/plugin-fs";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import { immer } from "zustand/middleware/immer";
 import type { StoreApi } from "zustand";
@@ -75,7 +76,6 @@ import {
   createNewFile,
   deleteFileOrDirectory,
   readDirectoryContents,
-  readFileContentWithEncoding,
 } from "../controllers/file-operations";
 import {
   chooseProjectOpenDestination,
@@ -93,7 +93,6 @@ import {
 import {
   getDatabaseTypeFromPath,
   getFilenameFromPath,
-  isBinaryContent,
   isBinaryFile,
   isKnownTextFile,
   isImageFile,
@@ -1745,89 +1744,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         } else {
           const wslInfo = parseWslPath(path);
 
-          const resolvedKnownTextPath =
-            resolvedPath === path ? isKnownTextPath : isKnownTextFile(resolvedPath);
-
-          if (!path.startsWith("remote://") && !wslInfo && !resolvedKnownTextPath) {
-            try {
-              const fileData = await readFileOnce(`local-bytes:${resolvedPath}`, () =>
-                readFile(resolvedPath),
-              );
-
-              if (isStaleRequest()) return;
-
-              if (isBinaryContent(fileData)) {
-                openBuffer(
-                  path,
-                  fileName,
-                  "",
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  true,
-                );
-                recordLocalFileAccess(
-                  path,
-                  fileName,
-                  workspaceRootPath,
-                  getWorkspaceFolderPaths(get),
-                );
-                fileOpenBenchmark.finish(path, "binary-sniff-buffer-opened");
-                return;
-              }
-
-            } catch (error) {
-              console.error("Failed to inspect file bytes before opening:", error);
-            }
-          } else if (wslInfo && !resolvedKnownTextPath) {
-            try {
-              const fileData = await readFileOnce(
-                `wsl-bytes:${wslInfo.distro}:${wslInfo.linuxPath}`,
-                () =>
-                  invoke<number[]>("wsl_read_file_bytes", {
-                    distro: wslInfo.distro,
-                    filePath: wslInfo.linuxPath,
-                  }),
-              );
-
-              if (isStaleRequest()) return;
-
-              const bytes = new Uint8Array(fileData);
-              if (isBinaryContent(bytes)) {
-                openBuffer(
-                  path,
-                  fileName,
-                  "",
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  false,
-                  undefined,
-                  false,
-                  false,
-                  true,
-                );
-                fileOpenBenchmark.finish(path, "binary-sniff-buffer-opened");
-                return;
-              }
-
-            } catch (error) {
-              console.error("Failed to inspect WSL file bytes before opening:", error);
-            }
-          }
-
           // Check if external editor is enabled for text files
           const { settings } = useSettingsStore.getState();
           const { openExternalEditorBuffer } = useBufferStore
@@ -1869,39 +1785,42 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             }
           }
 
-          let content: string;
-          let encoding: import("@/platform/document-files").FileEncoding | undefined;
-          let diskIdentity: string | undefined;
-
-          // Check if this is a remote file
-          if (path.startsWith("remote://")) {
-            const match = path.match(/^remote:\/\/([^/]+)(\/.*)?$/);
-            if (!match) return;
-
-            const connectionId = match[1];
-            const remotePath = match[2] || "/";
-
-            content = await readFileOnce(`remote-text:${connectionId}:${remotePath}`, () =>
-              invoke<string>("ssh_read_file", {
-                connectionId,
-                filePath: remotePath,
-              }),
+          // An explicitly selected external editor owns decoding and size limits.
+          // Only the built-in editor needs the shared document classification.
+          const contentPath = wslInfo ? path : resolvedPath;
+          const loaded = await readFileOnce(`document:${contentPath}`, () => loadFileContent(contentPath));
+          if (isStaleRequest()) return;
+          if (loaded.kind === "binary") {
+            openBuffer(
+              path,
+              fileName,
+              "",
+              false,
+              undefined,
+              false,
+              false,
+              undefined,
+              false,
+              false,
+              false,
+              undefined,
+              false,
+              false,
+              true,
             );
-          } else if (wslInfo) {
-            content = await readFileOnce(`wsl-text:${wslInfo.distro}:${wslInfo.linuxPath}`, () =>
-                invoke<string>("wsl_read_file", {
-                  distro: wslInfo.distro,
-                  filePath: wslInfo.linuxPath,
-                }),
-              );
-          } else {
-            const details = await readFileOnce(`local-details:${resolvedPath}`, () =>
-              readFileContentWithEncoding(resolvedPath),
+            recordLocalFileAccess(
+              path,
+              fileName,
+              workspaceRootPath,
+              getWorkspaceFolderPaths(get),
             );
-            content = details.content ?? "";
-            encoding = details.encoding;
-            diskIdentity = details.identity;
+            fileOpenBenchmark.finish(path, "binary-content-buffer-opened");
+            return;
           }
+
+          const content = loaded.content ?? "";
+          const encoding = loaded.encoding;
+          const diskIdentity = loaded.diskIdentity;
           fileOpenBenchmark.mark(path, "file-read", `${content.length} chars`);
 
           if (isStaleRequest()) return;

@@ -80,6 +80,8 @@ pub enum CoreCommand {
     FileWrite,
     /// Reduces one shared document persistence event (`document.lifecycle`).
     DocumentLifecycle,
+    /// Classifies decoded Unicode text independently of its filename (`document.classifyText`).
+    DocumentClassifyText,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -356,6 +358,7 @@ impl CoreCommand {
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
+            "document.classifyText" => Some(Self::DocumentClassifyText),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),

@@ -21,6 +21,7 @@ const EXTENSION_TO_LANGUAGE: Record<string, string> = {
   rs: "rust",
   go: "go",
   java: "java",
+  properties: "ini",
   c: "c",
   h: "c",
   cpp: "cpp",

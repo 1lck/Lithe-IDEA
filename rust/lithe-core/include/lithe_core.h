@@ -2,12 +2,15 @@
 #define LITHE_CORE_PUBLIC_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 const char *lithe_core_version(void);
+/* Borrowed UTF-8 slice: 1 text, 0 binary controls, -1 invalid input. */
+int32_t lithe_core_is_plain_text(const uint8_t *bytes, size_t length);
 int32_t lithe_core_git_askpass(const char *prompt);
 char *lithe_core_execute_json(const char *request);
 char *lithe_core_execute_json_with_events(const char *request, void (*callback)(const char *, void *), void *context);

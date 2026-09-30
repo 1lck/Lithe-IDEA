@@ -514,3 +514,19 @@ Only a user click launches a validated plan through the host Run service after s
 the workspace. Workers never own the native process handles; the host tracks both
 extension ID and workspace ID, stops pending and active runs on disable/close, and
 rejects stale discovery results. Remote/WSL projects do not use these local plans.
+
+## Text content and language selection
+
+Native adapters decode document bytes using the existing encoding catalog.
+Decoded content is classified by Core's `document.classifyText` policy, also
+available through its borrowed UTF-8 C ABI. File extensions and installed
+language contributions must not exempt text from control-character validation
+or cause Unicode text to be classified as binary. Windows opening and session
+restoration share one content loader; read failures remain actionable errors.
+Explicit image, database, PDF, and binary-format viewers retain their host routing.
+
+Both Monaco hosts use the bundled INI tokenizer for `.properties`. Tokenization
+is presentation only: no grammar or language server is required to open plain
+text. Register bundled contributions in `frontend/editor`, not in a separate
+platform-specific tokenizer. Text fixtures are shared under
+`shared/fixtures/editor/text-content-v1.json`.

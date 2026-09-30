@@ -2695,6 +2695,32 @@
       "owner": "Git",
       "verification": "让子仓库推送失败，确认父仓库被阻塞、独立仓库成功；重试计划应显示子仓库只推送，验证子仓库提交数不增加，随后才提交和推送父仓库。",
       "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
+    },
+    {
+      "id": "editor-unicode-text-classification",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "中文 properties 与未知扩展名文本的一致打开和恢复",
+      "owner": "Editor",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
+          "macos/Tests/LitheTests/TextContentPolicyTests.swift",
+          "frontend/editor/src/language-contributions.ts"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts",
+          "windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts",
+          "frontend/editor/src/language-contributions.ts"
+        ]
+      },
+      "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。"
     }
   ]
 }
