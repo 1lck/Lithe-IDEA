@@ -9,6 +9,18 @@ import Testing
 @MainActor
 struct TerminalInputFocusTests {
     @Test
+    func terminalCanvasLeavesSharedPaneBackgroundVisible() {
+        let terminal = LitheTerminalView(frame: NSRect(x: 0, y: 0, width: 400, height: 200))
+        terminal.applyThemeColors()
+        #expect(terminal.nativeBackgroundColor.alphaComponent == 0)
+        #expect(terminal.layer?.isOpaque == false)
+        let renderer = MTKView(frame: terminal.bounds, device: nil)
+        terminal.addSubview(renderer)
+        terminal.hasFocus = false
+        #expect(renderer.layer?.isOpaque == false)
+    }
+
+    @Test
     func terminalTabFocusNotificationTracksResponderAndWindow() throws {
         let window = CursorFocusTestWindow(
             contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),

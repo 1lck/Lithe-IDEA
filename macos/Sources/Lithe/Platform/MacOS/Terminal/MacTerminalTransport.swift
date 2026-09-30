@@ -125,6 +125,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // its paused Metal surface also needs a frame when no output arrives.
         needsDisplay = true
         for case let renderer as MTKView in subviews {
+            renderer.layer?.isOpaque = false
             if !(renderer.delegate is TerminalMetalFocusDelegate), let delegate = renderer.delegate {
                 let focusDelegate = TerminalMetalFocusDelegate(
                     view: renderer, terminalView: self, renderer: delegate
@@ -159,8 +160,12 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        // The SwiftUI pane supplies the shared editor color or wallpaper.
+        // SwiftTerm's Metal canvas must leave its default cells transparent.
         nativeBackgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
-            .withAlphaComponent(showsWorkbenchBackground ? 0 : 1)
+            .withAlphaComponent(0)
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.isOpaque = false
         nativeForegroundColor = isDark
             ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
             : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)

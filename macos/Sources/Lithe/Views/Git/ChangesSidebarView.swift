@@ -3,6 +3,10 @@ import SwiftUI
 import LitheGitModule
 
 struct ChangesSidebarView: View {
+    static let minimumHeight = headerHeight + LitheTheme.Commit.toolbarHeight
+        + LitheTheme.Commit.listMinimumHeight + LitheTheme.Commit.areaMinimumHeight
+        + SplitHandleView.thickness
+    private static let headerHeight: CGFloat = 41
     private let changeRowHeight: CGFloat = 24
 
     @ObservedObject var feature: GitFeatureModel
@@ -165,7 +169,7 @@ struct ChangesSidebarView: View {
             LitheSidebarHideButton(title: "Commit") { workbench.hideSidebar() }
         }
         .padding(.trailing, 10)
-        .frame(height: 41)
+        .frame(height: Self.headerHeight)
         .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
             LitheToolWindowHeaderDivider()
