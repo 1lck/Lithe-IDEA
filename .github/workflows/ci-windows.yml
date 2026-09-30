@@ -216,7 +216,11 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-java-workspace.json -- src/features/editor/lsp/java-workspace-language-server.test.ts src/features/editor/lsp/java-workspace-change-scheduler.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          bun test src/features/debugger/services/debug-adapter-events.test.ts
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-events.json -- src/features/debugger/services/debug-adapter-events.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The event bridge mocks the adapter module; run the real adapter tests in a separate process.
+          node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-debug-service.json -- src/features/debugger/services/debug-adapter-service.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-maven-run-markers.json -- --preload ./src/test-utils/vite-assets.ts src/features/maven/stores/maven.store.test.ts src/features/maven/services/java-test-discovery.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 120000 --report .artifacts/test-stability/windows-run.json -- --preload ./src/test-utils/vite-assets.ts src/features/run

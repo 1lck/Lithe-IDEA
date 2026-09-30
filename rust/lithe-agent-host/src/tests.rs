@@ -246,6 +246,7 @@ fn serialized_events_match_the_shared_fixture() {
             AgentEvent::TurnFinished {
                 session_id: "session-1".into(),
                 stop_reason: "end_turn".into(),
+                usage: None,
             },
         ),
         (
@@ -253,7 +254,16 @@ fn serialized_events_match_the_shared_fixture() {
             AgentEvent::TurnFinished {
                 session_id: "session-1".into(),
                 stop_reason: "cancelled".into(),
+                usage: None,
             },
+        ),
+        (
+            "turnFinishedWithUsage",
+            prompt::finished(
+                "session-1".into(),
+                serde_json::from_value(fixture["upstream"]["promptResponseWithUsage"].clone())
+                    .unwrap(),
+            ),
         ),
         (
             "requestFailed",
@@ -677,7 +687,10 @@ async fn updates_and_turns_are_routed_to_their_own_sessions() {
     }
     harness
         .agent
-        .reply(&prompt_b, json!({ "stopReason": "end_turn" }))
+        .reply(
+            &prompt_b,
+            fixture()["upstream"]["promptResponseWithUsage"].clone(),
+        )
         .await;
     harness
         .agent
@@ -689,7 +702,18 @@ async fn updates_and_turns_are_routed_to_their_own_sessions() {
             AgentEvent::TurnFinished {
                 session_id,
                 stop_reason,
-            } => (session_id, stop_reason),
+                usage,
+            } => {
+                if session_id == "session-b" {
+                    let usage = usage.expect("reported counters survive the prompt response");
+                    assert_eq!(usage.input_tokens, 18000);
+                    assert_eq!(usage.output_tokens, 2000);
+                    assert_eq!(usage.cached_read_tokens, Some(3000));
+                } else {
+                    assert!(usage.is_none(), "usage is not carried between sessions");
+                }
+                (session_id, stop_reason)
+            }
             other => panic!("expected turn end, got {other:?}"),
         })
         .collect();

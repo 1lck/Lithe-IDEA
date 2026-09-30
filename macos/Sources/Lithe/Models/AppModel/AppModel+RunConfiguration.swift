@@ -6,6 +6,22 @@ import LitheModuleAPI
 /// Run configuration entry points and workspace readiness gates.
 @MainActor
 extension AppModel {
+    func updateRunningService(_ session: RunSession) {
+        guard let feature = runFeatureIfActive, let identity = currentWorkspaceIdentity else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await feature.updateService(session) { target, source in
+                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
+                      self.isCurrentWorkspace(identity),
+                      feature.moduleSessions.contains(where: { $0.executionID == session.executionID && $0.isRunning })
+                else { throw CancellationError() }
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                guard self.isCurrentWorkspace(identity) else { throw CancellationError() }
+                try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: identity.url)
+            }
+        }
+    }
+
     func toggleSpringEndpoints() {
         guard toggleToolWindow(.spring) else { return }
     }
@@ -400,7 +416,7 @@ extension AppModel {
     }
 
     /// Completes a run action for the current workspace opening.
-    func performStartRunConfiguration(_ configuration: RunConfiguration) async {
+    func performStartRunConfiguration(_ configuration: RunConfiguration, allowDeferred: Bool = true) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
@@ -408,7 +424,7 @@ extension AppModel {
         case .ready:
             clearPendingRunAction(for: identity)
         case .waitingForSnapshot(let waitingIdentity):
-            deferRunAction(.startConfiguration(configuration), for: waitingIdentity)
+            if allowDeferred { deferRunAction(.startConfiguration(configuration), for: waitingIdentity) }
             return
         case .stale:
             return

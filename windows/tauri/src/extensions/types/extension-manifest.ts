@@ -252,6 +252,8 @@ export interface IntegrationContribution {
 }
 
 export interface ExtensionPermissions {
+  /** Access the IDE API only for projects explicitly enabled in Project Environment. */
+  ide?: boolean;
   network?: string[];
   secrets?: boolean;
   workspace?: "read";

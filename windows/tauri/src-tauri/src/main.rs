@@ -102,6 +102,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                core::close_ide_hosts(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
                     if let Err(error) = watcher.remove_owner(window.label()) {
@@ -123,6 +124,7 @@ fn main() {
             document::set_document_watches,
             core::core_execute,
             core::core_cancel,
+            core::ide_host_paths,
             diagnostics::preview_diagnostic_bundle,
             diagnostics::export_diagnostic_bundle,
             debug::debug_start_session,

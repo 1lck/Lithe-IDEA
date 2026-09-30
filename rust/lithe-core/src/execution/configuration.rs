@@ -1780,6 +1780,9 @@ pub fn create_launch_plan(request: LaunchPlanRequest) -> Result<Value, CoreError
         );
         jvm_arguments.insert(1, json!("-Duser.language=en"));
         jvm_arguments.insert(2, json!("-Duser.country=US"));
+        if is_direct_java_project_launch {
+            jvm_arguments.push(json!(crate::debug::JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART));
+        }
     }
     if is_current {
         let current_file = request.current_file.clone().ok_or_else(|| {

@@ -157,6 +157,23 @@ invalid data and a zero capacity represent unknown usage, not an empty window.
 The macOS indicator clears stale capacity on disconnect or confirmed model
 changes and waits for a new report; it does not infer limits from model names.
 
+`turnFinished` optionally includes the ACP prompt response's `usage` object:
+required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
+`thoughtTokens`, `cachedReadTokens`, `cachedWriteTokens`. The pinned SDK's
+`unstable_end_turn_token_usage` feature preserves these counters; absent, null
+or invalid usage is omitted without preventing completion. Zero is a reported
+value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
+session delta or billing amount, because the adapters' accounting scopes differ.
+They must not derive these counters from context occupancy or subscription quota.
+`acp-events-v1.json` covers completion both with and without usage.
+
+macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
+from user submission (including queued session creation/loading, tools and
+permission waits) until completion, request failure or disconnect. Cancellation
+continues timing until acknowledged. Each observed turn keeps a frozen footer
+before the next user message; tab switches do not reset it. Replayed history
+does not fabricate timing or token measurements absent from the Agent's records.
+
 Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
 the agent. Permission displays combine already received tool details with the
@@ -2254,3 +2271,33 @@ is plain text and may use a null pointer. Nonzero input must point to at least
 `length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
 bridge exposes the same lifetime and result contract. Fixtures live in
 `shared/fixtures/editor/text-content-v1.json` and exercise both entry points.
+
+## Local IDE capability broker
+
+`ideHost.control` accepts `{action, arguments}` and delegates to the native
+`lithe-ide-host` adapter. This local host command is not remotely exposed. See
+[IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
+ownership, authorization, output cursors and shutdown semantics.
+
+### Java service hot replacement
+
+`debug.inspect` accepts the Java-provider extension `kind: "redefineClasses"`
+with a caller-owned `operationId`. Unlike the inspection kinds, this operation
+**mutates the running debuggee**; it requires a running or paused Java session,
+but no selected thread. Platforms save documents and complete a successful JDT
+`vscode.java.buildWorkspace` before submitting it. They must retain the original
+launch target and compare its runtime paths with JDT before compiling; changed
+paths require a restart instead of applying to a different output directory.
+
+The terminal result is `{ kind: "redefineClasses", changedClasses: [...] }`,
+sorted and deduplicated. Empty means no classes were replaced. Java Debug Server's
+`errorMessage` inside a successful DAP response becomes `operationFailed` with
+`adapterRejected`; the debug session remains usable. Malformed replacement
+results also fail only the operation. Replacement does not imply continue.
+The fixture is `shared/fixtures/debug/hot-code-replace-v1.json`.
+
+Java debug launches append `-Dspring.devtools.restart.enabled=false` (also for
+Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloader during
+HotSwap. Attach to independently launched JVMs does not change their options.
+The Windows host maps `redefineClasses` to this operation and `cancelOperation`
+to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.

@@ -86,6 +86,9 @@ if [[ -n "$database_mcp" ]]; then
     mkdir -p "$APP_DIR/Contents/Helpers"
     cp "$database_mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
 fi
+ide_mcp=$(LITHE_ARCH="$ARCH" "$ROOT_DIR/scripts/build-ide-mcp.sh")
+mkdir -p "$APP_DIR/Contents/Helpers"
+cp "$ide_mcp" "$APP_DIR/Contents/Helpers/lithe-mcp"
 if [[ "$ARCH" == "universal" ]]; then
     arm64_binary="$ROOT_DIR/.build/$ARM64_TRIPLE/release/Lithe"
     x86_64_binary="$ROOT_DIR/.build/$X86_64_TRIPLE/release/Lithe"

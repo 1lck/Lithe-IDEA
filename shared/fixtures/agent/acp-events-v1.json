@@ -90,6 +90,7 @@
       }
     },
     "turnFinished": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn" },
+    "turnFinishedWithUsage": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "turnCancelled": { "kind": "turnFinished", "sessionId": "session-1", "stopReason": "cancelled" },
     "requestFailed": {
       "kind": "requestFailed",
@@ -100,6 +101,7 @@
     "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
   },
   "upstream": {
+    "promptResponseWithUsage": { "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "staleModelSession": {
       "sessionId": "session-repaired",
       "models": {

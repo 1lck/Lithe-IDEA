@@ -7,7 +7,10 @@ import {
   startConnectedDebugLaunchSession,
   stopDebugAdapterSession,
 } from "@/features/debugger/services/debug-adapter-service";
-import { registerDebugSessionCleanup } from "@/features/debugger/services/debug-session-resources";
+import {
+  releaseDebugSessionResources,
+  registerDebugSessionCleanup,
+} from "@/features/debugger/services/debug-session-resources";
 import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
 import type {
   DebugAdapterSessionInfo,
@@ -199,6 +202,7 @@ export async function startMavenModuleDebug(
           startedAt: Date.now(),
           status: "running",
           adapterSession: true,
+          javaRun: { workspaceId: scope.workspaceId, ...ownedRunInstance },
         });
       },
     );
@@ -242,4 +246,22 @@ export async function startMavenModuleDebug(
     });
     throw error;
   }
+}
+
+/** Restarts only the selected local Java execution, using the normal save/build/debug workflow. */
+export async function restartJavaServiceDebug(session: DebugSession): Promise<void> {
+  const reference = session.javaRun;
+  if (!reference || useDebuggerStore.getState().activeSession?.id !== session.id) return;
+  const store = useRunStore.getStore(reference.workspaceId);
+  if (store.getState().serviceUpdates[reference.sessionId]?.executionId !== reference.executionId) return;
+  const root = store.getState().root;
+  const configuration = store.getState().configurations.find((item) => item.id === session.configId);
+  if (!root || !configuration?.sourcePath || workspaceRuntimeRegistry.getActiveWorkspaceId() !== reference.workspaceId) {
+    throw new Error("Open the service workspace and restore its Run configuration before restarting.");
+  }
+  if (session.status !== "idle") await stopDebugAdapterSession(session.id);
+  await releaseDebugSessionResources(session.id);
+  if (useDebuggerStore.getState().activeSession?.id !== session.id) return;
+  useDebuggerStore.getState().actions.setSessionStatus("idle");
+  await startMavenModuleDebug({ workspaceId: reference.workspaceId, root }, configuration, `${root}/${configuration.sourcePath}`);
 }

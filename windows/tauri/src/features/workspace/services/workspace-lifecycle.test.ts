@@ -5,6 +5,12 @@ const workspaces = new Map<string, { status: string }>();
 let active = "welcome";
 let redirected = false;
 const released: string[] = [];
+const revokedIdeWorkspaces: string[] = [];
+mock.module("@/features/host-api/mcp-connection", () => ({
+  disableMcp: async (id: string) => {
+    revokedIdeWorkspaces.push(id);
+  },
+}));
 const actions = {
   setActiveProjectTab: (id: string) => {
     active = id;
@@ -66,6 +72,7 @@ beforeEach(() => {
   active = "welcome";
   redirected = false;
   released.length = 0;
+  revokedIdeWorkspaces.length = 0;
 });
 afterEach(() => {
   mock.restore();
@@ -131,13 +138,14 @@ test("concurrent opens share initialization and release ownership on failure bef
   }
 });
 
-test("closing a project releases its ownership after disposal", async () => {
+test("closing a project revokes IDE access before disposal and then releases ownership", async () => {
   await openWorkspaceRuntime({ descriptor, initialize: async () => true });
   const id = createProjectTabId(descriptor.path);
   let disposed = false;
   expect(
     await closeWorkspaceRuntime(id, {
       dispose: async () => {
+        expect(revokedIdeWorkspaces).toEqual([id]);
         expect(released).toEqual([]);
         disposed = true;
       },

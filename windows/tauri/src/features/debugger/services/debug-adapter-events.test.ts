@@ -315,3 +315,24 @@ test("failed states end the session and request native teardown", async () => {
   expect(state.endedSessions).toEqual([]);
   expect(stopDebugAdapterSession).toHaveBeenCalledWith("session-1");
 });
+
+
+test("hot replacement refreshes paused frames without resuming or touching another session", async () => {
+  await initializeDebuggerEventBridge();
+  startSession("session-1");
+  await emitMessage("session-1", { type: "stopped", reason: "breakpoint", threadId: 3 });
+  sendDebugAdapterRequest.mockClear();
+  const completed = {
+    type: "operationCompleted", operationId: "hot-replace",
+    result: { kind: "redefineClasses", changedClasses: ["example.Main"] },
+  };
+  await emitMessage("old-session", completed);
+  expect(sendDebugAdapterRequest).not.toHaveBeenCalled();
+  await emitMessage("session-1", completed);
+  expect(sendDebugAdapterRequest.mock.calls.map((call) => call[1])).toEqual(["stackTrace"]);
+  expect(useDebuggerStore.getState().activeSession?.status).toBe("paused");
+  sendDebugAdapterRequest.mockClear();
+  useDebuggerStore.getState().actions.setSessionStatus("running");
+  await emitMessage("session-1", completed);
+  expect(sendDebugAdapterRequest).not.toHaveBeenCalled();
+});

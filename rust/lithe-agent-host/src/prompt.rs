@@ -1,10 +1,19 @@
-//! Convert user-selected native file references to the upstream ACP content types.
+//! Convert prompt inputs and completion responses at the upstream ACP boundary.
 
-use agent_client_protocol::schema::v1::{ContentBlock, ResourceLink, TextContent};
+use agent_client_protocol::schema::v1::{ContentBlock, PromptResponse, ResourceLink, TextContent};
 use serde::Deserialize;
 
 /// Bound one message's references without reading or allocating file contents.
 const MAXIMUM_FILES: usize = 32;
+
+pub(crate) fn finished(session_id: String, response: PromptResponse) -> crate::AgentEvent {
+    crate::AgentEvent::TurnFinished {
+        session_id,
+        stop_reason: crate::stop_reason_name(&response.stop_reason),
+        // Preserve upstream accounting rather than deriving usage from context occupancy.
+        usage: response.usage,
+    }
+}
 
 #[derive(Debug, Deserialize)]
 pub struct PromptFile {
@@ -46,6 +55,32 @@ pub(crate) fn content(text: String, files: Vec<PromptFile>) -> Result<Vec<Conten
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn optional_usage_never_prevents_a_turn_from_finishing() {
+        for usage in [
+            serde_json::Value::Null,
+            serde_json::json!({ "totalTokens": -1, "inputTokens": 1, "outputTokens": 1 }),
+            serde_json::json!({ "inputTokens": 1 }),
+        ] {
+            let response = serde_json::from_value(serde_json::json!({
+                "stopReason": "cancelled", "usage": usage
+            }))
+            .unwrap();
+            let event = serde_json::to_value(finished("session-1".into(), response)).unwrap();
+            assert_eq!(event["stopReason"], "cancelled");
+            assert!(event.get("usage").is_none());
+        }
+        let response = serde_json::from_value(serde_json::json!({
+            "stopReason": "end_turn",
+            "usage": { "totalTokens": 0, "inputTokens": 0, "outputTokens": 0 }
+        }))
+        .unwrap();
+        assert_eq!(
+            serde_json::to_value(finished("session-1".into(), response)).unwrap()["usage"],
+            serde_json::json!({ "totalTokens": 0, "inputTokens": 0, "outputTokens": 0 })
+        );
+    }
 
     #[test]
     fn accepts_local_file_uris_without_host_platform_assumptions() {

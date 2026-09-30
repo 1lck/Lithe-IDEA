@@ -57,7 +57,17 @@ export interface RunOptions {
   environment: Record<string, string>;
 }
 
+export interface JavaServiceUpdateContext {
+  sourcePath: string;
+  target: JavaLaunchTarget;
+  debugPort?: number;
+}
+
 export interface RunSession {
+  /** Identity of this execution, preserved after exit and replaced on restart. */
+  executionId?: string;
+  /** True while Java preparation is waiting before the native launch. */
+  isPreparing?: boolean;
   id: string;
   configurationId: string;
   title: string;

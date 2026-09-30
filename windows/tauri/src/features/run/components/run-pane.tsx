@@ -1,3 +1,4 @@
+import { supportsDevToolsUpdate } from "../services/java-service-update";
 import { ProjectPreparationStatus } from "./project-preparation-status";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCw, WrapText } from "lucide-react";
@@ -89,6 +90,7 @@ export default function RunPane() {
   const configurations = useRunStore((state) => state.configurations);
   const diagnostics = useRunStore((state) => state.diagnostics);
   const selectedConfigurationId = useRunStore((state) => state.selectedConfigurationId);
+  const serviceUpdates = useRunStore((state) => state.serviceUpdates);
   const selectedSessionId = useRunStore((state) => state.selectedSessionId);
   const sessions = useRunStore((state) => state.sessions);
   const primaryOutput = useRunStore((state) => state.primaryOutput);
@@ -144,6 +146,8 @@ export default function RunPane() {
   const output = selectedSession ? selectedSession.output : primaryOutput;
   const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
   const decisionSessionId = selectedSession?.id ?? PRIMARY_SESSION_ID;
+  const serviceUpdate = serviceUpdates[decisionSessionId];
+  const canUpdateService = isSelectedRunning && supportsDevToolsUpdate(serviceUpdate?.context);
   const javaLaunchDecision =
     javaLaunchDecisions[decisionSessionId] ?? Object.values(javaLaunchDecisions)[0];
   const projectName =
@@ -194,6 +198,11 @@ export default function RunPane() {
     <div className="flex h-full min-h-0 flex-col bg-background">
       <ProjectPreparationStatus />
       <JavaDiscoveryNotice />
+      {isSelectedRunning && serviceUpdate?.message ? (
+        <div role="status" className="px-3 py-2 ui-text-sm">
+          {serviceUpdate.message}
+        </div>
+      ) : null}
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
         <RunIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
@@ -212,6 +221,17 @@ export default function RunPane() {
             {isSelectedRunning ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
           </Button>
         </Tooltip>
+        {canUpdateService ? (
+          <Button
+            variant="ghost"
+            size="xs"
+            disabled={serviceUpdate.pending}
+            tooltip={t("run.updateServiceHelp")}
+            onClick={() => void actions.updateService(decisionSessionId)}
+          >
+            {serviceUpdate.pending ? t("run.updatingService") : t("run.updateService")}
+          </Button>
+        ) : null}
         <RunServicesMenu
           services={services}
           selectedServiceIDs={selectedServiceIDs}

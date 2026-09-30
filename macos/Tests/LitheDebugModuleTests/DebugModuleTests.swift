@@ -8,6 +8,96 @@ import Testing
 @MainActor
 struct DebugModuleTests {
     @Test
+    func explicitHotUpdateRestartReplacesTheOriginalSessionWithNewRuntimePaths() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-restart")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+        let previousID = feature.activeSessionID
+        await feature.restartJavaService { _, _ in
+            JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app", classPaths: ["/workspace/new-output"])
+        }
+        #expect(feature.activeSessionID != previousID)
+        #expect(session.startCount == 2)
+        #expect(session.launchConfigurations.last?.arguments["classPaths"] == .array([.string("/workspace/new-output")]))
+        #expect(feature.canUpdateJavaService)
+    }
+
+    @Test
+    func hotUpdateRestartKeepsOtherDebugSessionsAlive() async throws {
+        let descriptor = DebugProviderDescriptor(id: "java", displayName: "Java", fileExtensions: ["java"])
+        var createdSessions: [DeferredInspectionDebugSession] = []
+        let manager = DebugAdapterSessionManager(providers: [descriptor]) { _, _ in
+            let session = DeferredInspectionDebugSession()
+            createdSessions.append(session)
+            return session
+        }
+        let feature = GenericDebugFeatureModel(sessions: manager)
+        defer { feature.reset() }
+        let root = URL(fileURLWithPath: "/workspace/hot-update-multiple", isDirectory: true)
+        let source = root.appendingPathComponent("src/Main.java")
+        let configuration = DebugLaunchConfiguration(
+            name: "Main", request: .launch, arguments: ["mainClass": .string("example.Main")]
+        )
+        #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
+        let firstID = try #require(feature.activeSessionID)
+        #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main"))
+        await feature.restartJavaService { _, _ in JavaDebugLaunchTarget(mainClass: "example.Main") }
+        #expect(createdSessions.count == 3)
+        #expect(createdSessions[0].isRunning)
+        #expect(!createdSessions[1].isRunning)
+        #expect(feature.sessionSummaries.contains { $0.id == firstID })
+        #expect(feature.sessionSummaries.count == 2)
+    }
+
+    @Test
+    func hotUpdateBuildFailureNeverTouchesRunningClasses() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(
+            mainClass: "example.Main", projectName: "app", classPaths: ["/workspace/hot-update/bin"]
+        ))
+        await feature.applyJavaServiceUpdate { _, _, _ in
+            throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Compilation errors"])
+        }
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateMessage?.contains("Compilation errors") == true)
+        #expect(feature.updatingServiceSessionID == nil)
+    }
+
+    @Test
+    func hotUpdateStopsBeforeApplyingWhenExecutionEndsDuringBuild() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-stop")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+        await feature.applyJavaServiceUpdate { _, _, _ in feature.stop() }
+        #expect(session.redefineCount == 0)
+        #expect(feature.serviceUpdateMessage == nil)
+    }
+
+    @Test
+    func hotUpdateAppliesAfterBuildAndDoesNotResumeExecution() async {
+        let session = DeferredInspectionDebugSession()
+        let feature = makeDeferredFeature(session: session, rootPath: "/workspace/hot-update-success")
+        defer { feature.stop() }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+        var built = false
+        await feature.applyJavaServiceUpdate { target, source, root in
+            #expect(target.mainClass == "example.Main")
+            #expect(source == root.appendingPathComponent("src/Main.java"))
+            #expect(session.redefineCount == 0)
+            built = true
+        }
+        #expect(built)
+        #expect(session.redefineCount == 1)
+        #expect(session.executionCommands.isEmpty)
+        #expect(feature.serviceUpdateMessage == "Code changes applied.")
+    }
+
+    @Test
     func debuggeeOutputIsMirroredIntoConsoleWithoutTerminalControlSequences() {
         let manager = DebugAdapterSessionManager(providers: []) { _, _ in nil }
         let feature = GenericDebugFeatureModel(sessions: manager)
@@ -3037,6 +3127,11 @@ private struct RecordingDebugVariablePageRequest: Equatable {
 
 @MainActor
 private final class DeferredInspectionDebugSession: DebugAdapterControllingSession, DebugAdapterRunInTerminalSession {
+    private(set) var redefineCount = 0
+    func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
+        redefineCount += 1
+        completion(.success(["example.Main"]))
+    }
     let capabilities: DebugAdapterCapabilities
     private(set) var isRunning = false
     private(set) var state: DebugAdapterState = .idle

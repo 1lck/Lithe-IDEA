@@ -7,6 +7,8 @@ import LitheDebugModule
 /// Platform composition roots construct this graph with their own adapters.
 @MainActor
 final class AppServices {
+    var ideCapabilityRegistry: IdeCapabilityRegistry?
+    var ideHostTransport: (any IdeHostTransport)?
     let moduleRuntime: ModuleRuntime
     let pluginManager: any PluginManaging
     let pluginCatalog: ValidatedPluginCatalog
