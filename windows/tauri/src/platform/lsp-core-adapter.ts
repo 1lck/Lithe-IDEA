@@ -1657,6 +1657,56 @@ export async function invokeLsp<T>(command: string, args: JsonRecord = {}): Prom
       String(args.filePath ?? ""),
     )) as T;
   }
+  if (command === "java_build_service_update") {
+    const session = sessionForWorkspace(String(args.workspacePath ?? ""), "java");
+    const target = args.target as {
+      mainClass: string;
+      projectName?: string;
+      modulePaths: string[];
+      classPaths: string[];
+    };
+    const execute = async (
+      command: string,
+      arguments_: unknown[],
+      timeout = LSP_REQUEST_TIMEOUT_MS,
+    ) => {
+      const result = normalizeCoreValue(
+        await requestOperation(
+          session,
+          {
+            sessionId: session.id,
+            operation: "executeCommand",
+            command: { title: "Update Java service", command, arguments: arguments_ },
+          },
+          "lsp.request",
+          timeout,
+        ),
+      ) as JsonRecord;
+      return result?.value;
+    };
+    const paths = await execute("vscode.java.resolveClasspath", [
+      target.mainClass,
+      target.projectName ?? "",
+      "runtime",
+    ]);
+    if (JSON.stringify(paths) !== JSON.stringify([target.modulePaths, target.classPaths])) {
+      throw new Error("Runtime paths changed. Restart the service to use the new dependencies.");
+    }
+    const status = await execute(
+      "vscode.java.buildWorkspace",
+      [
+        JSON.stringify({
+          mainClass: target.mainClass,
+          projectName: target.projectName,
+          filePath: args.sourcePath,
+          isFullBuild: false,
+        }),
+      ],
+      JAVA_BUILD_TIMEOUT_MS,
+    );
+    if (Number(status) !== 1) throw new Error("Java compilation did not complete successfully.");
+    return undefined as T;
+  }
   if (command === "java_prepare_run_launch") {
     const workspacePath = String(args.workspacePath ?? "");
     const sourcePath = String(args.sourcePath ?? "");

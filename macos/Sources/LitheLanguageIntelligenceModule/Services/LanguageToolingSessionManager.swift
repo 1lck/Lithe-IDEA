@@ -503,6 +503,35 @@ package final class LanguageToolingSessionManager: ObservableObject,
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
     }
 
+    /// Rebuilds the original running target without allowing a failed build to proceed.
+    package func buildJavaServiceUpdate(
+        target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
+    ) async throws {
+        let paths = try await executeJavaCommand(
+            "vscode.java.resolveClasspath",
+            arguments: [.string(target.mainClass), .string(target.projectName ?? ""), .string("runtime")],
+            rootURL: rootURL
+        )
+        guard case .array(let groups) = paths, groups.count == 2,
+              Self.stringValues(groups[0]) == target.modulePaths,
+              Self.stringValues(groups[1]) == target.classPaths else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "Runtime paths changed. Restart the service to use the new dependencies."
+            )
+        }
+        let payload = JavaWorkspaceBuildRequest(
+            mainClass: target.mainClass, projectName: target.projectName,
+            filePath: fileURL.path, isFullBuild: false
+        )
+        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+        let result = try await executeJavaCommand(
+            "vscode.java.buildWorkspace", arguments: [.string(json)], rootURL: rootURL
+        )
+        guard result == .integer(1) || result == .string("1") else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java compilation did not complete successfully.")
+        }
+    }
+
     /// JDT's launchable classes for the workspace, starting the Java service
     /// when needed. Lithe never derives entry points from source text.
     ///

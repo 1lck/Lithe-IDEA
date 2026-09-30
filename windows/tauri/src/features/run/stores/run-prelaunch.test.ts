@@ -73,6 +73,52 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
 }
 
 describe("Standalone Java compile-then-run", () => {
+  test("service update keeps its launch target and blocks duplicate updates", async () => {
+    const target = {
+      mainClass: "example.Main",
+      projectName: "app",
+      modulePaths: [],
+      classPaths: ["D:/work/classes", "D:/repo/spring-boot-devtools-3.5.0.jar"],
+    };
+    let release: () => void = () => {};
+    const buildGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const build = mock(async () => { await buildGate; });
+    const { dependencies } = standaloneDependencies({
+      prepareJavaRunLaunch: async () => ({ kind: "ready", target }),
+      buildJavaServiceUpdate: build,
+    });
+    const store = createRunStore("workspace-hcr", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [{ ...configuration, sourcePath: "src/Main.java" }],
+      diagnostics: [],
+    });
+    await store.getState().actions.runConfiguration(configuration.id);
+    const update = store.getState().actions.updateService(configuration.id);
+    try {
+      // save() resolves in one known microtask; compilation then waits on our gate.
+      await Promise.resolve();
+      store.setState({ configurations: [{ ...configuration, sourcePath: "src/Other.java" }] });
+      await store.getState().actions.updateService(configuration.id);
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(build).toHaveBeenCalledWith(
+        "D:/work",
+        expect.objectContaining({ sourcePath: "src/Main.java", target }),
+      );
+      // A stop releases the visible session without waiting for the compiler.
+      await store.getState().actions.stop(configuration.id);
+    } finally {
+      release();
+      await update;
+      await store.getState().actions.stop(configuration.id);
+    }
+    expect(store.getState().serviceUpdates[configuration.id].message).not.toContain(
+      "Compilation finished",
+    );
+    expect(store.getState().serviceUpdates[configuration.id].pending).toBe(false);
+  });
   test("passes JDT launch metadata to Core and joins classpath and module-path", async () => {
     const javaLaunch = {
       mainClass: "example.Main",

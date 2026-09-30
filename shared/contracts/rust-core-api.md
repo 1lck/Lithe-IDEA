@@ -2278,3 +2278,26 @@ bridge exposes the same lifetime and result contract. Fixtures live in
 `lithe-ide-host` adapter. This local host command is not remotely exposed. See
 [IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
 ownership, authorization, output cursors and shutdown semantics.
+
+### Java service hot replacement
+
+`debug.inspect` accepts the Java-provider extension `kind: "redefineClasses"`
+with a caller-owned `operationId`. Unlike the inspection kinds, this operation
+**mutates the running debuggee**; it requires a running or paused Java session,
+but no selected thread. Platforms save documents and complete a successful JDT
+`vscode.java.buildWorkspace` before submitting it. They must retain the original
+launch target and compare its runtime paths with JDT before compiling; changed
+paths require a restart instead of applying to a different output directory.
+
+The terminal result is `{ kind: "redefineClasses", changedClasses: [...] }`,
+sorted and deduplicated. Empty means no classes were replaced. Java Debug Server's
+`errorMessage` inside a successful DAP response becomes `operationFailed` with
+`adapterRejected`; the debug session remains usable. Malformed replacement
+results also fail only the operation. Replacement does not imply continue.
+The fixture is `shared/fixtures/debug/hot-code-replace-v1.json`.
+
+Java debug launches append `-Dspring.devtools.restart.enabled=false` (also for
+Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloader during
+HotSwap. Attach to independently launched JVMs does not change their options.
+The Windows host maps `redefineClasses` to this operation and `cancelOperation`
+to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.

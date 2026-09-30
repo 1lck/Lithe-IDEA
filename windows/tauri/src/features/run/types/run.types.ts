@@ -57,6 +57,12 @@ export interface RunOptions {
   environment: Record<string, string>;
 }
 
+export interface JavaServiceUpdateContext {
+  sourcePath: string;
+  target: JavaLaunchTarget;
+  debugPort?: number;
+}
+
 export interface RunSession {
   /** Identity of this execution, preserved after exit and replaced on restart. */
   executionId?: string;

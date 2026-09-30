@@ -196,6 +196,44 @@ package enum RunConfigurationGenerationIntent: Sendable {
 
 @MainActor
 package final class RunFeatureModel: ObservableObject {
+    @Published package private(set) var updatingServiceExecutionID: String?
+    @Published package private(set) var serviceUpdateMessage: String?
+    @Published package private(set) var serviceUpdateSessionID: String?
+    @Published package private(set) var serviceUpdateExecutionID: String?
+
+    package func canUpdateService(_ session: RunSession) -> Bool {
+        guard session.isRunning, let target = session.javaUpdateTarget,
+              session.javaUpdateSource != nil else { return false }
+        return target.classPaths.contains {
+            URL(fileURLWithPath: $0).lastPathComponent.hasPrefix("spring-boot-devtools-")
+                && $0.hasSuffix(".jar")
+        }
+    }
+
+    package func updateService(
+        _ session: RunSession,
+        build: (JavaDebugLaunchTarget, URL) async throws -> Void
+    ) async {
+        guard updatingServiceExecutionID == nil, canUpdateService(session),
+              let target = session.javaUpdateTarget, let source = session.javaUpdateSource else { return }
+        updatingServiceExecutionID = session.executionID
+        serviceUpdateSessionID = session.id
+        serviceUpdateExecutionID = session.executionID
+        serviceUpdateMessage = "Saving and compiling service changes…"
+        defer { updatingServiceExecutionID = nil }
+        func isCurrent() -> Bool {
+            moduleSessions.contains { $0.executionID == session.executionID && $0.isRunning }
+        }
+        do {
+            try await build(target, source)
+            guard isCurrent() else { serviceUpdateMessage = nil; return }
+            serviceUpdateMessage = "Compilation finished. Check service logs for the DevTools restart. If a trigger file is configured, update it to restart."
+        } catch {
+            guard isCurrent() else { serviceUpdateMessage = nil; return }
+            serviceUpdateMessage = "Could not update service: " + error.localizedDescription
+        }
+    }
+
     private let service: RunService
     private var observation: AnyCancellable?
     @Published package var isGenerationConfirmationPresented = false
