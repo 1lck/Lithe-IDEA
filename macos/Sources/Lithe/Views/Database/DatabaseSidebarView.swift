@@ -21,6 +21,7 @@ struct DatabaseSidebarView: View {
     @State private var editingProfile: DatabaseProfile?
     @State private var connectionEditorPresentationID = UUID()
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     /// Folders start expanded, while this set records the user's explicit
     /// collapsed state. Keeping the negative state avoids refreshes reopening
     /// folders behind the user's back.
@@ -123,28 +124,26 @@ struct DatabaseSidebarView: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             HStack(spacing: 6) {
-                HStack(spacing: 7) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                    TextField("Search connections", text: $searchText)
+                HStack(spacing: 2) {
+                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
+                                  fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
+                    TextField("Search connections", text: $searchText,
+                              prompt: Text("Search connections").foregroundColor(LitheTheme.searchFieldPlaceholder))
                         .textFieldStyle(.plain)
-                        .font(.system(size: 11.5))
+                        .focused($searchFocused)
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(LitheTheme.tertiaryText)
+                            LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                                          fallbackSystemImage: "xmark", preservesOriginalColors: true)
                         }
-                        .buttonStyle(.litheNoPress)
+                        .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                        .padding(.leading, 1)
                         .help("Clear search")
+                        .accessibilityLabel("Clear search")
                     }
                 }
-                .padding(.horizontal, 9)
-                .frame(maxWidth: .infinity, minHeight: 31)
-                .background(LitheTheme.inputBackground.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay { RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder.opacity(0.55), lineWidth: 1) }
+                .litheSearchField(isFocused: searchFocused)
+                .frame(maxWidth: .infinity)
 
                 HStack(spacing: 0) {
                     Menu {

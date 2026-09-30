@@ -700,7 +700,7 @@ struct GitLogView: View {
 
     private var referencePane: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 6) {
+            HStack(spacing: 2) {
                 LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
                               fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
                 TextField(
@@ -712,15 +712,15 @@ struct GitLogView: View {
                     .focused($branchSearchFocused)
                 if !branchSearchQuery.isEmpty {
                     Button { branchSearchQuery = "" } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 10, weight: .semibold))
+                        LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                                      fallbackSystemImage: "xmark", preservesOriginalColors: true)
                     }
-                    .buttonStyle(.litheNoPress)
+                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                    .padding(.leading, 1)
                     .accessibilityLabel("Clear branch search")
                 }
             }
             .litheSearchField(isFocused: branchSearchFocused)
-            .padding(.horizontal, 5)
             .frame(height: GitVisual.toolbarHeight)
             .onChange(of: branchSearchQuery) { query in
                 guard !query.isEmpty else { return }
@@ -1239,8 +1239,8 @@ struct GitLogView: View {
 
     private var commitPane: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                HStack(spacing: 6) {
+            HStack(spacing: 0) {
+                HStack(spacing: 2) {
                     LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
                                   fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
                     TextField(
@@ -1254,15 +1254,17 @@ struct GitLogView: View {
                         Button {
                             feature.gitLogSearchQuery = ""
                         } label: {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 10, weight: .semibold))
+                            LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                                          fallbackSystemImage: "xmark", preservesOriginalColors: true)
                         }
-                        .litheIconButton()
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                        .padding(.leading, 1)
+                        .accessibilityLabel("Clear log search")
                     }
                 }
                 .litheSearchField(isFocused: gitLogSearchFocused)
-                .frame(width: 236, alignment: .leading)
+                .frame(minWidth: 150, idealWidth: LitheSearchFieldStyle.preferredWidth,
+                       maxWidth: LitheSearchFieldStyle.preferredWidth, alignment: .leading)
 
                 gitLogFilterBar
 
@@ -1295,7 +1297,7 @@ struct GitLogView: View {
                     }
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.trailing, 10)
             .frame(height: GitVisual.toolbarHeight)
             .background(background.hasImage ? Color.clear : LitheTheme.toolHeader)
 

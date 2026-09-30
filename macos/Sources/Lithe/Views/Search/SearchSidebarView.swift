@@ -33,7 +33,7 @@ struct SearchSidebarView: View {
             .contentShape(Rectangle())
             .onTapGesture(perform: dismissSearchFieldFocus)
 
-            HStack(spacing: 4) {
+            HStack(spacing: 2) {
                 LitheIDEAIcon(
                     resourcePath: "expui/general/search.svg",
                     size: LitheTheme.Metrics.toolbarIconSize,
@@ -59,10 +59,9 @@ struct SearchSidebarView: View {
                             fallbackSystemImage: "xmark",
                             preservesOriginalColors: true
                         )
-                        .frame(width: 18, height: 22)
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                    .padding(.leading, 1)
                     .help("Clear search")
                 }
                 Button {
@@ -188,7 +187,7 @@ struct SearchSidebarView: View {
     }
 
     private var fileMaskField: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 2) {
             LitheIDEAIcon(
                 resourcePath: "expui/general/filter.svg",
                 size: LitheTheme.Metrics.toolbarIconSize,
@@ -217,10 +216,9 @@ struct SearchSidebarView: View {
                         fallbackSystemImage: "xmark",
                         preservesOriginalColors: true
                     )
-                    .frame(width: 18, height: 22)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                .padding(.leading, 1)
                 .help("Clear file mask")
             }
         }

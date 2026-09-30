@@ -395,23 +395,25 @@ enum LitheTheme {
     static var inputBackground: Color { adaptive(\.inputBackground) }
     static var inputBorder: Color { adaptive(\.inputBorder) }
     static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
+    // Islands' control-bg/control-border/text-secondary/control-brand-border.
     static var searchFieldBackground: Color {
-        guard activeTheme == .lithe else { return inputBackground }
-        return Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            return RGBA(isDark ? 0x2B2D30 : 0xFFFFFF).nsColor
-        })
+        activeTheme == .lithe ? searchFieldColor(light: 0xFFFFFF, dark: 0x191A1C) : inputBackground
     }
     static var searchFieldBorder: Color {
-        activeTheme == .lithe ? settingsSearchBorder : inputBorder
+        activeTheme == .lithe ? searchFieldColor(light: 0xD1D3D9, dark: 0x40434A) : inputBorder
+    }
+    static var searchFieldFocusBorder: Color {
+        activeTheme == .lithe ? searchFieldColor(light: 0x3871E1, dark: 0x3871E1) : inputFocusBorder
     }
     static var searchFieldPlaceholder: Color {
+        activeTheme == .lithe ? searchFieldColor(light: 0x73767C, dark: 0x73767C) : secondaryText
+    }
+    static var searchFieldText: Color {
+        activeTheme == .lithe ? searchFieldColor(light: 0x000000, dark: 0xD1D3D9) : primaryText
+    }
+    private static func searchFieldColor(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            if activeTheme == .lithe {
-                return RGBA(isDark ? 0x6F737A : 0x818594).nsColor
-            }
-            return Palette.make(theme: activeTheme, isDark: isDark).secondaryText.nsColor
+            RGBA(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light).nsColor
         })
     }
 
@@ -727,36 +729,41 @@ private final class LithePointerCursor {
 
 // MARK: - 输入框样式
 
-/// IDEA New UI search fields use a 28pt height, 4pt corner radius, and a 2pt focus border.
+/// Shared search chrome follows IDEA SearchFieldWithExtension + DarculaSearchFieldWithExtensionBorder:
+/// 28pt text, 1pt content insets and 3pt border insets; focus expands outward by 1pt.
+/// Source: IntelliJ Community c7f91397, Component.arc=8 (a 4pt radius), LW=1, BW=2.
 struct LitheSearchFieldStyle: ViewModifier {
     var isFocused: Bool
-    var height: CGFloat = 28
+
+    // SearchTextField uses 15 columns; its UI measures 'm', adds margins and icon space.
+    static let preferredWidth = ceil(("m" as NSString).size(withAttributes: [
+        .font: NSFont.systemFont(ofSize: 13)
+    ]).width) * 15 + 10 + 10 + 16 + 2 + 16 + 3
 
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 4)
-        let borderColor = isFocused
-            ? (LitheTheme.activeTheme == .lithe ? LitheTheme.selection : LitheTheme.inputFocusBorder)
-            : LitheTheme.searchFieldBorder
+        let shape = RoundedRectangle(cornerRadius: 4, style: .circular)
+        let borderColor = isFocused ? LitheTheme.searchFieldFocusBorder : LitheTheme.searchFieldBorder
         content
-            .font(.system(size: 13))
-            .padding(.leading, 12)
-            .padding(.trailing, 9)
-            .frame(height: height)
+            .font(.system(size: 13, weight: .regular))
+            .foregroundColor(LitheTheme.searchFieldText)
+            // The wrapper removes the inner text border: default margins are
+            // 6pt, plus 1pt content padding and the outer 3pt border insets.
+            .padding(.horizontal, 10)
+            .frame(height: 36)
             .background(
                 shape.fill(LitheTheme.searchFieldBackground)
+                    .padding(3.5)
             )
             .overlay {
-                shape.strokeBorder(
-                    borderColor,
-                    lineWidth: isFocused ? 2 : 1
-                )
+                shape.strokeBorder(borderColor, lineWidth: isFocused ? 2 : 1)
+                    .padding(isFocused ? 2 : 3)
             }
     }
 }
 
 extension View {
-    func litheSearchField(isFocused: Bool = false, height: CGFloat = 28) -> some View {
-        modifier(LitheSearchFieldStyle(isFocused: isFocused, height: height))
+    func litheSearchField(isFocused: Bool = false) -> some View {
+        modifier(LitheSearchFieldStyle(isFocused: isFocused))
     }
 
     /// Paints rounded control chrome without clipping AppKit-backed content.

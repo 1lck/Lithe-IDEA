@@ -4,6 +4,7 @@ import LitheDatabaseModule
 struct RedisWorkspaceView: View {
     @EnvironmentObject private var model: AppModel
     @State private var pattern = "*"
+    @FocusState private var patternFocused: Bool
     @State private var stringDraft = ""
     @State private var hashDraft = "{}"
     @State private var ttlDraft = ""
@@ -106,9 +107,11 @@ struct RedisWorkspaceView: View {
     private var keyBrowser: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TextField("Key pattern, e.g. user:*", text: $pattern)
+                TextField("Key pattern, e.g. user:*", text: $pattern,
+                          prompt: Text("Key pattern, e.g. user:*").foregroundColor(LitheTheme.searchFieldPlaceholder))
                     .textFieldStyle(.plain)
-                    .litheSearchField(isFocused: false)
+                    .focused($patternFocused)
+                    .litheSearchField(isFocused: patternFocused)
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
                 Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "magnifyingglass") }
                     .litheIconButton().help("Search keys with SCAN")
@@ -353,6 +356,8 @@ private enum RedisPendingAction {
 
 struct NacosWorkspaceView: View {
     @EnvironmentObject private var model: AppModel
+    private enum SearchField: Hashable { case dataID, configGroup, service, serviceGroup }
+    @FocusState private var focusedSearch: SearchField?
     @State private var section: NacosSection = .configs
     @State private var dataIDSearch = ""
     @State private var groupSearch = ""
@@ -440,8 +445,16 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Data ID", text: $dataIDSearch).textFieldStyle(.roundedBorder)
-                    TextField("Group", text: $groupSearch).textFieldStyle(.roundedBorder)
+                    TextField("Data ID", text: $dataIDSearch,
+                              prompt: Text("Data ID").foregroundColor(LitheTheme.searchFieldPlaceholder))
+                        .textFieldStyle(.plain)
+                        .focused($focusedSearch, equals: .dataID)
+                        .litheSearchField(isFocused: focusedSearch == .dataID)
+                    TextField("Group", text: $groupSearch,
+                              prompt: Text("Group").foregroundColor(LitheTheme.searchFieldPlaceholder))
+                        .textFieldStyle(.plain)
+                        .focused($focusedSearch, equals: .configGroup)
+                        .litheSearchField(isFocused: focusedSearch == .configGroup)
                     Button { Task { await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()
                 }
                 .padding(10)
@@ -515,8 +528,16 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Service", text: $serviceSearch).textFieldStyle(.roundedBorder)
-                    TextField("Group", text: $serviceGroupSearch).textFieldStyle(.roundedBorder)
+                    TextField("Service", text: $serviceSearch,
+                              prompt: Text("Service").foregroundColor(LitheTheme.searchFieldPlaceholder))
+                        .textFieldStyle(.plain)
+                        .focused($focusedSearch, equals: .service)
+                        .litheSearchField(isFocused: focusedSearch == .service)
+                    TextField("Group", text: $serviceGroupSearch,
+                              prompt: Text("Group").foregroundColor(LitheTheme.searchFieldPlaceholder))
+                        .textFieldStyle(.plain)
+                        .focused($focusedSearch, equals: .serviceGroup)
+                        .litheSearchField(isFocused: focusedSearch == .serviceGroup)
                     Button { Task { await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()
                 }.padding(10)
                 Text("\(feature.nacosServiceTotalCount) services")
