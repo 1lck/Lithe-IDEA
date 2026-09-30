@@ -1513,8 +1513,6 @@ struct WorkbenchView: View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
             isSidebarVisible: model.workbenchFeature.isSidebarVisible,
-            sidebarMinimumHeight: model.workbenchFeature.selectedSidebar == .changes
-                ? ChangesSidebarView.minimumHeight : 0,
             rightToolWidth: mavenPaneWidth,
             isRightToolVisible: isDockedSidebarVisible,
             topPaneHeight: topPaneHeight,
@@ -1958,7 +1956,6 @@ private struct WorkbenchWorkspaceSplitActions {
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View, RightTool: View>: View {
     let sidebarWidth: CGFloat
     let isSidebarVisible: Bool
-    let sidebarMinimumHeight: CGFloat
     let rightToolWidth: CGFloat
     let isRightToolVisible: Bool
     let topPaneHeight: CGFloat?
@@ -1978,7 +1975,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     init(
         sidebarWidth: CGFloat,
         isSidebarVisible: Bool,
-        sidebarMinimumHeight: CGFloat,
         rightToolWidth: CGFloat,
         isRightToolVisible: Bool,
         topPaneHeight: CGFloat?,
@@ -1994,7 +1990,6 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     ) {
         self.sidebarWidth = sidebarWidth
         self.isSidebarVisible = isSidebarVisible
-        self.sidebarMinimumHeight = sidebarMinimumHeight
         self.rightToolWidth = rightToolWidth
         self.isRightToolVisible = isRightToolVisible
         self.topPaneHeight = topPaneHeight
@@ -2033,12 +2028,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
             )
 
             let availablePaneHeight = max(0, geometry.size.height - WorkbenchWorkspaceMetrics.paneSpacing)
-            let minimumBottomPaneHeight = min(WorkbenchWorkspaceMetrics.minimumPaneHeight, availablePaneHeight / 2)
-            let maximumTopPaneHeight = availablePaneHeight - minimumBottomPaneHeight
             let minimumTopPaneHeight = min(
-                max(WorkbenchWorkspaceMetrics.minimumPaneHeight, isSidebarVisible ? sidebarMinimumHeight : 0),
-                maximumTopPaneHeight
+                WorkbenchWorkspaceMetrics.minimumPaneHeight,
+                availablePaneHeight / 2
             )
+            let maximumTopPaneHeight = availablePaneHeight - minimumTopPaneHeight
             let resolvedTopPaneHeight = constrained(
                 liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
                 minimum: minimumTopPaneHeight,
