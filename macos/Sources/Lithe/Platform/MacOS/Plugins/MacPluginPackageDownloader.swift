@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import LitheModuleAPI
 
@@ -103,6 +104,8 @@ struct MacPluginDistributionConfiguration: Equatable, Sendable {
 }
 
 final class MacPluginPackageDownloader: MacPluginPackageDownloading {
+    private static let extractionTimeout: TimeInterval = 5 * 60
+    private static let extractionPollInterval: TimeInterval = 0.05
     private let configuration: MacPluginDistributionConfiguration
     private let session: URLSession
     private let fileManager: FileManager
@@ -186,7 +189,26 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
         } catch {
             throw MacPluginPackageDownloadError.extractionFailed(error.localizedDescription)
         }
-        process.waitUntilExit()
+        // `ditto` is an external process, so waiting without a local deadline
+        // would leave a cancelled or wedged download task alive indefinitely.
+        // Poll on a bounded interval and terminate the process before
+        // propagating cancellation or timeout to the caller.
+        let deadline = Date().addingTimeInterval(Self.extractionTimeout)
+        while process.isRunning {
+            do {
+                try Task.checkCancellation()
+            } catch {
+                terminateExtractionProcess(process)
+                throw error
+            }
+            guard Date() < deadline else {
+                terminateExtractionProcess(process)
+                throw MacPluginPackageDownloadError.extractionFailed(
+                    "ditto did not finish within \(Int(Self.extractionTimeout)) seconds"
+                )
+            }
+            Thread.sleep(forTimeInterval: Self.extractionPollInterval)
+        }
         guard process.terminationStatus == 0 else {
             let detail = String(
                 data: errorPipe.fileHandleForReading.readDataToEndOfFile(),
@@ -194,6 +216,22 @@ final class MacPluginPackageDownloader: MacPluginPackageDownloading {
             )?.trimmingCharacters(in: .whitespacesAndNewlines)
             throw MacPluginPackageDownloadError.extractionFailed(detail ?? "ditto exited with status \(process.terminationStatus)")
         }
+    }
+
+    private func terminateExtractionProcess(_ process: Process) {
+        guard process.isRunning else { return }
+        process.terminate()
+        let deadline = Date().addingTimeInterval(1)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: Self.extractionPollInterval)
+        }
+        if process.isRunning {
+            process.interrupt()
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        process.waitUntilExit()
     }
 
     private func findPackage(in root: URL, pluginID: PluginID) throws -> URL {
