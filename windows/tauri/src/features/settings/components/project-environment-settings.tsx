@@ -1,4 +1,3 @@
-import { McpSettings } from "@/features/host-api/mcp-settings";
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -8,6 +7,7 @@ import { useResolvedToolchains } from "@/features/run/hooks/use-resolved-toolcha
 import { toolchainRequirementMessages } from "@/features/run/utils/effective-toolchain";
 import type { RunDiagnostic } from "@/features/run/types/run.types";
 import { MavenDetectedValue } from "@/features/maven/components/maven-detected-value";
+import { McpSettings } from "@/features/host-api/mcp-settings";
 import { mavenLaunchContextForWorkspace, useMavenStore } from "@/features/maven/stores/maven.store";
 import type { MavenSettings } from "@/features/maven/types/maven.types";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -31,7 +31,14 @@ export function ProjectEnvironmentSettings() {
   const { t } = useTranslation();
   if (!root) return <p>{t("settings.project.openProject")}</p>;
   return (
-    <div className="space-y-4"><McpSettings key={workspaceId} workspaceID={workspaceId} root={root} /><ProjectEnvironmentForm key={`${workspaceId}:${root}`} root={root} workspaceId={workspaceId} /></div>
+    <div className="space-y-4">
+      <McpSettings key={workspaceId} workspaceID={workspaceId} root={root} />
+      <ProjectEnvironmentForm
+        key={`${workspaceId}:${root}`}
+        root={root}
+        workspaceId={workspaceId}
+      />
+    </div>
   );
 }
 

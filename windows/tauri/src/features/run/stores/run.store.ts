@@ -554,10 +554,14 @@ export const createRunStore = (
           saveError: null,
           editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
-          ...(sameProject ? {} : {
-            javaLaunchDecisions: {}, primaryExecutionId: null,
-            primaryConfigurationId: null, primaryPreparing: false,
-          }),
+          ...(sameProject
+            ? {}
+            : {
+                javaLaunchDecisions: {},
+                primaryExecutionId: null,
+                primaryConfigurationId: null,
+                primaryPreparing: false,
+              }),
         });
         try {
           // Show validated documents before the potentially expensive content scan.
@@ -801,9 +805,13 @@ export const createRunStore = (
         executions.set(sessionId, executionId);
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
-            primaryExecutionId: executionId, primaryConfigurationId: configuration.id,
-            primaryPreparing: true, primaryRunning: false,
-            primaryOutput: "", primaryExitCode: null, primaryTitle: configuration.name,
+            primaryExecutionId: executionId,
+            primaryConfigurationId: configuration.id,
+            primaryPreparing: true,
+            primaryRunning: false,
+            primaryOutput: "",
+            primaryExitCode: null,
+            primaryTitle: configuration.name,
           });
         }
         const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
@@ -1128,8 +1136,10 @@ export const createRunStore = (
           delete javaLaunchDecisions[sessionId];
           return {
             javaLaunchDecisions,
-            primaryPreparing: sessionId === PRIMARY_SESSION_ID && current.primaryExecutionId === pending.executionId
-              ? false : current.primaryPreparing,
+            primaryPreparing:
+              sessionId === PRIMARY_SESSION_ID && current.primaryExecutionId === pending.executionId
+                ? false
+                : current.primaryPreparing,
             sessions: current.sessions.map((session) =>
               session.id === sessionId && session.executionId === pending.executionId
                 ? { ...session, isPreparing: false }

@@ -264,9 +264,12 @@ export class IdeCapabilities {
       case "lithe_maven_configure": {
         if (!this.maven.project) return fail("NOT_READY", "Load a Maven project first");
         if (args.profiles) {
-          for (const profile of args.profiles as string[])
-            this.maven.actions.addCustomProfile(profile);
-          this.maven.actions.setSelectedProfiles(args.profiles as string[]);
+          const profiles = args.profiles as string[];
+          // Only undeclared profiles become custom entries; POM profiles stay owned by the model.
+          const declared = new Set(this.maven.project.profiles.map((profile) => profile.id));
+          for (const profile of profiles)
+            if (!declared.has(profile)) this.maven.actions.addCustomProfile(profile);
+          this.maven.actions.setSelectedProfiles(profiles);
         }
         if (typeof args.skipTests === "boolean") this.maven.actions.setSkipTests(args.skipTests);
         const m = this.maven;

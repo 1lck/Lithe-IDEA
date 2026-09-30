@@ -1,6 +1,6 @@
-import { closeMcpConnections } from "@/features/host-api/mcp-connection";
 import { useEffect } from "react";
 import { MotionConfig } from "motion/react";
+import { closeMcpConnections } from "@/features/host-api/mcp-connection";
 import { FontStyleInjector } from "@/features/settings/components/font-style-injector";
 import { initializeAppBootstrap } from "@/features/bootstrap/initialize-app-bootstrap";
 import {
@@ -77,7 +77,10 @@ function WorkbenchApp() {
 
   useEffect(() => {
     window.addEventListener("beforeunload", closeMcpConnections);
-    return () => { window.removeEventListener("beforeunload", closeMcpConnections); closeMcpConnections(); };
+    return () => {
+      window.removeEventListener("beforeunload", closeMcpConnections);
+      closeMcpConnections();
+    };
   }, []);
 
   return (

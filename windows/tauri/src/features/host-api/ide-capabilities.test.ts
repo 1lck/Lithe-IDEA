@@ -173,3 +173,29 @@ test("overlapping mutations are busy while inspections can continue, and failed 
   expect(dependencies.reloadMavenWorkspaceProjects).not.toHaveBeenCalled();
   expect(await api.call("lithe_maven_reload", {})).toMatchObject({ outcome: "completed" });
 });
+
+test("Maven profile configuration adds only undeclared profiles as custom entries", async () => {
+  const { api, maven } = fixture();
+  const actions = maven.getState().actions;
+  const addCustomProfile = mock((_profile: string) => true);
+  const setSelectedProfiles = mock((_profiles: string[]) => {});
+  const saveLocalConfiguration = mock(async () => {});
+  maven.setState({
+    project: {
+      relativePath: ".",
+      artifactId: "fixture",
+      packaging: "pom",
+      sourceRoots: [],
+      modules: [],
+      profiles: [{ id: "dev", isActiveByDefault: false }],
+      hasWrapper: false,
+    },
+    actions: { ...actions, addCustomProfile, setSelectedProfiles, saveLocalConfiguration },
+  });
+  expect(await api.call("lithe_maven_configure", { profiles: ["dev", "ci"] })).toMatchObject({
+    saved: true,
+  });
+  expect(addCustomProfile.mock.calls).toEqual([["ci"]]);
+  expect(setSelectedProfiles).toHaveBeenCalledWith(["dev", "ci"]);
+  expect(saveLocalConfiguration).toHaveBeenCalledTimes(1);
+});
