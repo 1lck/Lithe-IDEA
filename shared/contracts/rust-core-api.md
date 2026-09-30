@@ -384,6 +384,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
+| `runConfig.selectJava` | Select a project-compatible automatic JDK from platform-probed candidates |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -1828,6 +1829,27 @@ fixture is `shared/fixtures/maven/dependency-tree-v2.json`.
 the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
+
+`runConfig.selectJava` reads only the existing workspace
+`.lithe/toolchains/requirements.json` document. Its request contains optional
+`root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
+`fallbackId`. IDs are opaque machine-local identities, never persisted or opened
+by this operation. Lower priority wins; equal-priority candidates use descending
+numeric Java versions (including legacy `1.8`), then ascending ID.
+
+When `project-jdk.minimumVersion` exists, selection first filters using the same
+Java version comparison as run-configuration diagnostics. The response is
+`{ id, warning }`: the compatible candidate, or the supplied usable fallback
+with an actionable warning if none qualifies. Missing requirements retain the
+platform's unconstrained choice; malformed/unsupported documents return the
+existing parse/version error. Explicit configured paths bypass automatic
+selection. The operation never generates requirements or probes executables.
+The cross-platform examples are in
+`shared/fixtures/run-configuration/automatic-java-selection.json`.
+
+Windows `run_resolve_toolchains` includes an optional `warning` on resolved
+JDKs, including inherited Maven JDKs. This warning remains visible even when no
+run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
 
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,

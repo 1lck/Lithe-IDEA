@@ -2249,7 +2249,7 @@ fn validate_version(version: u32) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
+pub(super) fn validate_sidecar_version(version: u32) -> Result<(), CoreError> {
     if version != SIDECAR_VERSION {
         return Err(
             CoreError::new(ErrorCode::NotSupported, "Unsupported document version")
@@ -2720,7 +2720,9 @@ fn read_document_value(root: &Path, relative: &str) -> Result<Option<Value>, Cor
     Ok(Some(value))
 }
 
-fn read_requirements(root: &Path) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
+pub(super) fn read_requirements(
+    root: &Path,
+) -> Result<Option<ToolchainRequirementsDocument>, CoreError> {
     let path = root
         .join(".lithe")
         .join("toolchains")
@@ -2950,7 +2952,7 @@ fn append_toolchain_diagnostics(
     }
 }
 
-fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) -> bool {
+pub(super) fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) -> bool {
     let mut actual_parts = version_parts(actual);
     let mut required_parts = version_parts(required);
     if kind == "java" {
@@ -2967,7 +2969,7 @@ fn version_satisfies(kind: &str, actual: &str, required: &str, minimum: bool) ->
     }
 }
 
-fn version_parts(value: &str) -> Vec<u32> {
+pub(super) fn version_parts(value: &str) -> Vec<u32> {
     value
         .split(|character: char| !character.is_ascii_digit())
         .filter(|part| !part.is_empty())
@@ -2977,7 +2979,7 @@ fn version_parts(value: &str) -> Vec<u32> {
 
 /// Drops the legacy `1.` prefix Java 8 and earlier report (`1.8.0_504`), so
 /// those runtimes compare on the same feature-version scale as `8` or `17.0.12`.
-fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
+pub(super) fn java_feature_version_parts(parts: Vec<u32>) -> Vec<u32> {
     if parts.len() > 1 && parts[0] == 1 {
         parts[1..].to_vec()
     } else {
