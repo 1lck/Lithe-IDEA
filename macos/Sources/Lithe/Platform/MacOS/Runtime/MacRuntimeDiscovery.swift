@@ -47,6 +47,19 @@ enum MacRuntimeDiscovery {
             : nil
     }
 
+    static func javaHomeOnPath(environment: [String: String]) -> URL? {
+        for directory in (environment["PATH"] ?? "").split(separator: ":") {
+            let executable = URL(fileURLWithPath: String(directory), isDirectory: true).appendingPathComponent("java")
+            guard FileManager.default.isExecutableFile(atPath: executable.path) else { continue }
+            let resolved = executable.resolvingSymlinksInPath()
+            // Apple's system launcher selects a JDK itself; /usr is not a JDK
+            // home and must never become JAVA_HOME for child processes.
+            guard resolved.path != "/usr/bin/java" else { return nil }
+            return validJavaHome(resolved.deletingLastPathComponent().deletingLastPathComponent().path)
+        }
+        return nil
+    }
+
     private static func discoverJavaHomes(environment: [String: String]) -> [URL] {
         discoverJavaHomes(
             environment: environment,
@@ -73,6 +86,7 @@ enum MacRuntimeDiscovery {
         }
 
         add(environment["JAVA_HOME"])
+        add(javaHomeOnPath(environment: environment)?.path)
         for path in javaHomePaths {
             add(path)
         }

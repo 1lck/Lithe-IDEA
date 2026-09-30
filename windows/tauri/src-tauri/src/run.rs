@@ -398,6 +398,8 @@ pub enum ToolchainResolution {
         version: String,
         vendor: String,
         source: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        warning: Option<String>,
     },
     /// Nothing was configured and nothing usable was detected.
     NotFound { message: Option<String> },
@@ -451,12 +453,14 @@ fn resolve_toolchains_for_display(
                 path,
                 version,
                 vendor,
+                warning,
                 ..
             } => ToolchainResolution::Resolved {
                 path: path.clone(),
                 version: version.clone(),
                 vendor: vendor.clone(),
                 source: "projectJdk",
+                warning: warning.clone(),
             },
             other => other.clone(),
         }
@@ -471,7 +475,19 @@ fn resolve_toolchains_for_display(
 }
 
 fn java_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
-    match resolve_java_home(root, override_path) {
+    let automatic = if override_path.trim().is_empty() {
+        match select_project_java(Some(root), &discover_java_runtimes(Some(root))) {
+            Ok(selection) => Some(selection),
+            Err(message) => return ToolchainResolution::Invalid { message },
+        }
+    } else {
+        None
+    };
+    let resolved = automatic
+        .as_ref()
+        .map(|selection| Ok(selection.id.clone()))
+        .unwrap_or_else(|| resolve_java_home(root, override_path));
+    match resolved {
         Ok(Some(home)) => {
             let home_path = Path::new(&home);
             let source = if override_path.trim().is_empty() {
@@ -488,6 +504,7 @@ fn java_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
                 vendor: runtime.map(|runtime| runtime.vendor).unwrap_or_default(),
                 path: home,
                 source,
+                warning: automatic.and_then(|selection| selection.warning),
             }
         }
         Ok(None) => ToolchainResolution::NotFound { message: None },
@@ -544,6 +561,7 @@ fn maven_resolution(root: &Path, override_path: &str) -> ToolchainResolution {
                 version,
                 vendor: String::new(),
                 source,
+                warning: None,
             }
         }
         Err(message) if override_path.trim().is_empty() => ToolchainResolution::NotFound {
@@ -986,6 +1004,58 @@ pub(crate) fn discover_java_runtimes(project_root: Option<&Path>) -> Vec<JavaRun
     probe_java_homes(java_home_candidates(project_root))
 }
 
+fn java_selection_candidates(
+    root: Option<&Path>,
+    runtimes: &[JavaRuntime],
+) -> Vec<lithe_core::execution::JavaSelectionCandidate> {
+    // Resolve source identities once, not from the sorting comparator. Windows
+    // path identity is case-insensitive and may be reached through a symlink.
+    let key = |path: &Path| normalize_path(path).to_string_lossy().to_lowercase();
+    let environment_home = std::env::var_os("JAVA_HOME").map(|value| key(Path::new(&value)));
+    let path_home = lookup_on_path("java.exe")
+        .or_else(|| lookup_on_path("java"))
+        .and_then(|path| java_home_from_executable(&path))
+        .map(|path| key(&path));
+    let project_home = root.map(|root| key(&root.join(".lithe/toolchains/jdk")));
+    runtimes
+        .iter()
+        .map(|runtime| {
+            let home = key(Path::new(&runtime.home_path));
+            let priority = if Some(&home) == environment_home.as_ref() {
+                0
+            } else if Some(&home) == path_home.as_ref() {
+                1
+            } else if Some(&home) == project_home.as_ref() {
+                3
+            } else {
+                2
+            };
+            lithe_core::execution::JavaSelectionCandidate {
+                id: runtime.home_path.clone(),
+                version: runtime.version.clone(),
+                priority,
+            }
+        })
+        .collect()
+}
+
+fn select_project_java(
+    root: Option<&Path>,
+    runtimes: &[JavaRuntime],
+) -> Result<lithe_core::execution::JavaSelection, String> {
+    let candidates = java_selection_candidates(root, runtimes);
+    let fallback_id = candidates
+        .iter()
+        .min_by(|a, b| lithe_core::execution::compare_java_candidates(a, b))
+        .map(|candidate| candidate.id.clone());
+    lithe_core::execution::select_java(lithe_core::execution::JavaSelectionRequest {
+        root: root.map(Path::to_path_buf),
+        candidates,
+        fallback_id,
+    })
+    .map_err(|error| error.message)
+}
+
 fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
     let mut java = Vec::new();
     let mut seen_homes = std::collections::HashSet::new();
@@ -997,11 +1067,17 @@ fn probe_java_homes(homes: Vec<PathBuf>) -> Vec<JavaRuntime> {
             java.push(runtime);
         }
     }
+    // Preserve source priority, then compare Java versions numerically. Discovery
+    // order from read_dir must never choose the runtime of a project.
+    let candidates = java_selection_candidates(None, &java)
+        .into_iter()
+        .map(|candidate| (candidate.id.clone(), candidate))
+        .collect::<HashMap<_, _>>();
     java.sort_by(|left, right| {
-        right
-            .version
-            .cmp(&left.version)
-            .then(left.home_path.cmp(&right.home_path))
+        lithe_core::execution::compare_java_candidates(
+            &candidates[&left.home_path],
+            &candidates[&right.home_path],
+        )
     });
     java
 }
@@ -1020,7 +1096,19 @@ fn discover_toolchains_with_overrides(
     if let Some(path) = java_home_path.filter(|value| !value.trim().is_empty()) {
         homes.insert(0, PathBuf::from(path));
     }
-    let java = probe_java_homes(homes);
+    let mut java = probe_java_homes(homes);
+    match select_project_java(project_root, &java) {
+        Ok(selection) => {
+            if let Some(index) = java
+                .iter()
+                .position(|runtime| Some(&runtime.home_path) == selection.id.as_ref())
+            {
+                let selected = java.remove(index);
+                java.insert(0, selected);
+            }
+        }
+        Err(error) => eprintln!("Could not select the project JDK: {error}"),
+    }
 
     let maven = discover_maven_candidates(
         maven_executable_candidates(project_root),
@@ -1313,9 +1401,8 @@ pub(crate) fn resolve_java_home(
         ));
     }
     // Resolving a JDK must not also run Maven wrappers or Node probes.
-    Ok(discover_java_runtimes(Some(root))
-        .first()
-        .map(|runtime| runtime.home_path.clone()))
+    select_project_java(Some(root), &discover_java_runtimes(Some(root)))
+        .map(|selection| selection.id)
 }
 
 fn resolve_executable(
@@ -2524,6 +2611,57 @@ mod tests {
         assert_eq!(
             quote_windows_arg(r"D:\my project\mvnw.cmd"),
             r#""D:\my project\mvnw.cmd""#
+        );
+    }
+
+    #[test]
+    fn automatic_java_selection_reads_requirement_changes_without_probing() {
+        let root = temp_project();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                fs::remove_dir_all(&self.0).expect("remove Java fixture");
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let runtimes = vec![
+            JavaRuntime {
+                home_path: root.join("jdk8").to_string_lossy().into_owned(),
+                version: "1.8.0_402".into(),
+                vendor: "fixture".into(),
+            },
+            JavaRuntime {
+                home_path: root.join("jdk21").to_string_lossy().into_owned(),
+                version: "21.0.4".into(),
+                vendor: "fixture".into(),
+            },
+        ];
+        fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+        let requirements = root.join(".lithe/toolchains/requirements.json");
+        fs::write(
+            &requirements,
+            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"17"}}}"#,
+        )
+        .unwrap();
+        let selected = select_project_java(Some(&root), &runtimes).unwrap();
+        assert_eq!(selected.id.as_deref(), Some(runtimes[1].home_path.as_str()));
+        assert!(selected.warning.is_none());
+        fs::write(
+            &requirements,
+            r#"{"version":1,"toolchains":{"project-jdk":{"type":"java","minimumVersion":"25"}}}"#,
+        )
+        .unwrap();
+        let fallback = select_project_java(Some(&root), &runtimes).unwrap();
+        assert_eq!(fallback.id, selected.id);
+        assert!(fallback.warning.unwrap().contains("25"));
+        fs::write(&requirements, "{").unwrap();
+        assert!(select_project_java(Some(&root), &runtimes).is_err());
+        // Explicit paths never pass through requirement-based auto selection.
+        fs::create_dir_all(root.join("jdk8/bin")).unwrap();
+        fs::write(root.join("jdk8/bin/java.exe"), b"fixture").unwrap();
+        assert_eq!(
+            resolve_java_home(&root, "jdk8").unwrap(),
+            Some(runtimes[0].home_path.clone())
         );
     }
 

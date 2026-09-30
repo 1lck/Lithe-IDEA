@@ -40,6 +40,7 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
 
+    private let javaSelector: any JavaRuntimeSelecting
     private let runtimeLocator: any RuntimeLocator
     private let store: any KeyValueStore
     private let toolDiscovery: any RuntimeToolDiscovery
@@ -52,8 +53,10 @@ final class ProjectRuntimeService: ObservableObject {
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
-        toolDiscovery: (any RuntimeToolDiscovery)? = nil
+        toolDiscovery: (any RuntimeToolDiscovery)? = nil,
+        javaSelector: any JavaRuntimeSelecting = RustCoreBridge()
     ) {
+        self.javaSelector = javaSelector
         self.runtimeLocator = runtimeLocator
         self.store = store
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
@@ -142,8 +145,8 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     /// The single JDK selection chain behind launches and Settings: an explicit
-    /// override, then the project JDK, then `JAVA_HOME`, then the first detected
-    /// JDK. An invalid explicit path does not fall back, so a launch fails on it.
+    /// override, then the project JDK, then Core's requirement-aware automatic
+    /// selection. An invalid explicit path does not fall back, so a launch fails on it.
     ///
     /// `detected` supplies discovered runtimes and is only called when the chain
     /// reaches detection; returning `nil` reports that detection is pending.
@@ -163,14 +166,32 @@ final class ProjectRuntimeService: ObservableObject {
             let path = normalizedOverridePath(configuredProjectJDK)
             return runtimeLocator.validJavaHome(path: path).map { RuntimeChoice.found($0, .projectSetting) } ?? .invalid(path)
         }
-        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
-        for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
-            if let home = runtimeLocator.validJavaHome(path: path) { return .found(home, .javaHomeEnvironment) }
-        }
+        // Settings supplies cached probes; pending discovery must not synchronously
+        // launch java -version or temporarily present an incompatible JAVA_HOME.
         guard let runtimes = detected() else { return nil }
-        return runtimes.first
-            .flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
-            .map { RuntimeChoice.found($0, .detected) } ?? .notFound
+        let environmentHome = runtimeLocator.environment()["JAVA_HOME"]
+            .flatMap { runtimeLocator.validJavaHome(path: normalizedPath($0)) }
+        let pathHome = runtimeLocator.javaHomeOnPath(in: runtimes)
+        var candidates = runtimes.compactMap { runtime -> AutomaticJavaCandidate? in
+            guard let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
+            let priority: UInt32 = home.path == environmentHome?.path ? 0 : (home.path == pathHome?.path ? 1 : 2)
+            return AutomaticJavaCandidate(id: home.path, version: runtime.version, priority: priority)
+        }
+        // Preserve the old JAVA_HOME fallback even if its version probe failed.
+        // An unknown version cannot satisfy a requirement in the shared policy.
+        if let home = environmentHome, !candidates.contains(where: { $0.id == home.path }) {
+            candidates.append(AutomaticJavaCandidate(id: home.path, version: "", priority: 0))
+        }
+        let fallback = environmentHome?.path ?? candidates.first?.id
+        switch javaSelector.selectJavaRuntime(at: projectURL, candidates: candidates, fallbackID: fallback) {
+        case .failure(let error): return .unavailable(error.message)
+        case .success(let selection):
+            guard let id = selection.id else { return .notFound }
+            let url = URL(fileURLWithPath: id).standardizedFileURL
+            let source: RuntimeChoiceSource = url.path == environmentHome?.path ? .javaHomeEnvironment : .detected
+            if let warning = selection.warning { return .warning(url, source, warning) }
+            return .found(url, source)
+        }
     }
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
