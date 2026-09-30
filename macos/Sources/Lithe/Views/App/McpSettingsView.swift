@@ -4,7 +4,7 @@ struct McpSettingsView: View {
     @ObservedObject var feature: IdeCapabilitiesFeatureModel
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("AI tool connections (MCP)").font(.headline)
+            Text("MCP Configuration").font(.headline)
             Text("Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.")
                 .font(.caption).foregroundStyle(.secondary)
             Text("Enabled plugins can also use this project grant.").font(.caption).foregroundStyle(.secondary)

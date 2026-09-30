@@ -13,7 +13,6 @@ struct ProjectRuntimeSettingsView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if model.workspaceURL != nil { McpSettingsView(feature: model.ideCapabilities) }
             if model.workspaceURL == nil {
                 emptyWorkspace
             } else {

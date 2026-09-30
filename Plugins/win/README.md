@@ -27,6 +27,6 @@ PHP 插件只能通过 `Plugins/win/SDK/run-actions.ts` 的数据契约贡献运
 Integration Worker 插件声明 `permissions: { "ide": true }` 后，可使用
 `Plugins/win/SDK/ide-capabilities.ts` 定义的 `api.ide`。先调用
 `authorizedWorkspaceIDs()`，再向指定工作区调用 `call(workspaceID, name, args)`。
-项目必须由用户在项目环境设置中开启连接；修改配置和执行仍受该项目的权限限制。
+项目必须由用户在“设置 → MCP 配置”中开启连接；修改配置和执行仍受该项目的权限限制。
 完整工具、参数和错误契约见 `shared/contracts/ide-api/v1.md`。语言包的原有权限限制
 保持不变，插件不得通过导入宿主实现或原生 IPC 绕过授权。

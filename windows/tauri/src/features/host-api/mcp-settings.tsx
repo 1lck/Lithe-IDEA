@@ -14,9 +14,8 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
   const [copyError, setCopyError] = useState<string | null>(null);
   return (
     <section className="space-y-3 rounded-md border border-border p-4">
-      <h3 className="font-medium">{t("settings.project.mcp.title")}</h3>
-      <p className="text-sm text-text-lighter">{t("settings.project.mcp.description")}</p>
-      <p className="text-sm text-text-lighter">{t("settings.project.mcp.plugins")}</p>
+      <p className="text-sm text-text-lighter">{t("settings.mcp.description")}</p>
+      <p className="text-sm text-text-lighter">{t("settings.mcp.plugins")}</p>
       <label className="flex items-center gap-2 text-sm">
         <input
           type="checkbox"
@@ -24,7 +23,7 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
           disabled={!!connection || busy}
           onChange={(e) => setConfigure(e.target.checked)}
         />
-        {t("settings.project.mcp.allowConfigure")}
+        {t("settings.mcp.allowConfigure")}
       </label>
       <label className="flex items-center gap-2 text-sm">
         <input
@@ -33,7 +32,7 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
           disabled={!!connection || busy}
           onChange={(e) => setExecute(e.target.checked)}
         />
-        {t("settings.project.mcp.allowExecute")}
+        {t("settings.mcp.allowExecute")}
       </label>
       <div className="flex gap-2">
         <Button
@@ -48,7 +47,7 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
             }
           }}
         >
-          {connection ? t("settings.project.mcp.disable") : t("settings.project.mcp.enable")}
+          {connection ? t("settings.mcp.disable") : t("settings.mcp.enable")}
         </Button>
         {connection && (
           <Button
@@ -56,7 +55,7 @@ export function McpSettings({ workspaceID, root }: { workspaceID: string; root: 
               void writeText(connection.configuration).catch((e) => setCopyError(String(e)));
             }}
           >
-            {t("settings.project.mcp.copyConfiguration")}
+            {t("settings.mcp.copyConfiguration")}
           </Button>
         )}
       </div>

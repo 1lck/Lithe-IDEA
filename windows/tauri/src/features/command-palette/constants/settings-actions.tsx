@@ -62,6 +62,7 @@ interface SettingsActionsParams {
 
 const settingsTabLabels: Record<SettingsTab, string> = {
   project: "Project JDK & Maven",
+  mcp: "MCP Configuration",
   run: "Run configurations",
   general: "General",
   editor: "Editor",

@@ -1315,3 +1315,6 @@
 "Enable MCP" = "Enable MCP";
 "Copy agent configuration" = "Copy agent configuration";
 "Enabled plugins can also use this project grant." = "Enabled plugins can also use this project grant.";
+
+"MCP Configuration" = "MCP Configuration";
+"Open a project to configure MCP access for agents." = "Open a project to configure MCP access for agents.";
