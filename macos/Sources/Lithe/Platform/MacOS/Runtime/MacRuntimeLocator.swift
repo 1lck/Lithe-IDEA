@@ -44,6 +44,10 @@ struct MacRuntimeLocator: RuntimeLocator {
         MacRuntimeDiscovery.discover(environment: environment())
     }
 
+    func discoverJavaRuntimes() -> [JavaRuntimeCandidate] {
+        MacRuntimeDiscovery.discoverJavaRuntimes(environment: environment())
+    }
+
     func validJavaHome(path: String) -> URL? {
         MacRuntimeDiscovery.validJavaHome(path)
     }

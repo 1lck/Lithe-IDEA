@@ -2,11 +2,7 @@ import Foundation
 
 enum MacRuntimeDiscovery {
     static func discover(environment: [String: String]) -> RuntimeDiscoveryResult {
-        let javaRuntimes = discoverJavaHomes(environment: environment)
-            .compactMap(probeJavaHome)
-            .sorted { lhs, rhs in
-                lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
-            }
+        let javaRuntimes = discoverJavaRuntimes(environment: environment)
         let mavenRuntimes = discoverMavenExecutables(environment: environment)
             .compactMap(probeMaven)
             .sorted { lhs, rhs in
@@ -45,6 +41,12 @@ enum MacRuntimeDiscovery {
         return FileManager.default.isExecutableFile(atPath: url.appendingPathComponent("bin/java").path)
             ? url
             : nil
+    }
+
+    static func discoverJavaRuntimes(environment: [String: String]) -> [JavaRuntimeCandidate] {
+        discoverJavaHomes(environment: environment).compactMap(probeJavaHome).sorted { lhs, rhs in
+            lhs.version.localizedStandardCompare(rhs.version) == .orderedDescending
+        }
     }
 
     static func javaHomeOnPath(environment: [String: String]) -> URL? {
@@ -86,7 +88,6 @@ enum MacRuntimeDiscovery {
         }
 
         add(environment["JAVA_HOME"])
-        add(javaHomeOnPath(environment: environment)?.path)
         for path in javaHomePaths {
             add(path)
         }

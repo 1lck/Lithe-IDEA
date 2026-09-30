@@ -68,6 +68,8 @@ struct DefaultRuntimeToolDiscovery: RuntimeToolDiscovery {
 protocol RuntimeLocator: Sendable {
     func environment() -> [String: String]
     func discover() -> RuntimeDiscoveryResult
+    /// Java-only probing for launch paths; never runs Maven or other tools.
+    func discoverJavaRuntimes() -> [JavaRuntimeCandidate]
     func validJavaHome(path: String) -> URL?
     /// Returns the candidate reached by PATH, resolving platform symlinks.
     func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL?
@@ -83,6 +85,7 @@ protocol RuntimeLocator: Sendable {
 }
 
 extension RuntimeLocator {
+    func discoverJavaRuntimes() -> [JavaRuntimeCandidate] { discover().javaRuntimes }
     func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL? { nil }
     // Default implementation for test stubs and non-macOS locators that do
     // not ship a bundled JDK.

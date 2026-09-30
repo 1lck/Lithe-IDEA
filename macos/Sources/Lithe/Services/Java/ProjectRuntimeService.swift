@@ -39,6 +39,7 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var isDiscovering = false
     @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
+    private var launchJavaRuntimes: [JavaRuntimeCandidate]?
 
     private let javaSelector: any JavaRuntimeSelecting
     private let runtimeLocator: any RuntimeLocator
@@ -74,6 +75,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = loadSettings(for: normalizedURL)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
@@ -88,6 +90,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = ProjectRuntimeSettings()
         javaEnvironmentReport = nil
         isDiscovering = false
@@ -108,6 +111,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func refreshAvailableRuntimes() async {
+        launchJavaRuntimes = nil
         discoveryTask?.cancel()
         discoveryTask = nil
         await performRuntimeRefresh()
@@ -140,8 +144,16 @@ final class ProjectRuntimeService: ObservableObject {
         isDiscovering = false
     }
 
+    private func javaRuntimesForLaunch() -> [JavaRuntimeCandidate] {
+        if hasDiscoveredRuntimes { return javaRuntimes }
+        if let launchJavaRuntimes { return launchJavaRuntimes }
+        let runtimes = runtimeLocator.discoverJavaRuntimes()
+        launchJavaRuntimes = runtimes
+        return runtimes
+    }
+
     func javaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// The single JDK selection chain behind launches and Settings: an explicit
@@ -166,11 +178,23 @@ final class ProjectRuntimeService: ObservableObject {
             let path = normalizedOverridePath(configuredProjectJDK)
             return runtimeLocator.validJavaHome(path: path).map { RuntimeChoice.found($0, .projectSetting) } ?? .invalid(path)
         }
+        let environmentHome = runtimeLocator.environment()["JAVA_HOME"]
+            .flatMap { runtimeLocator.validJavaHome(path: normalizedPath($0)) }
+        if let environmentHome {
+            // With no project requirement, preserve the old no-probe JAVA_HOME
+            // fast path. Unknown versions never satisfy a real minimum, so only
+            // an unconstrained result may bypass discovery here.
+            let candidate = AutomaticJavaCandidate(id: environmentHome.path, version: "", priority: 0)
+            switch javaSelector.selectJavaRuntime(at: projectURL, candidates: [candidate], fallbackID: candidate.id) {
+            case .failure(let error): return .unavailable(error.message)
+            case .success(let selection) where selection.warning == nil:
+                return .found(environmentHome, .javaHomeEnvironment)
+            case .success: break
+            }
+        }
         // Settings supplies cached probes; pending discovery must not synchronously
         // launch java -version or temporarily present an incompatible JAVA_HOME.
         guard let runtimes = detected() else { return nil }
-        let environmentHome = runtimeLocator.environment()["JAVA_HOME"]
-            .flatMap { runtimeLocator.validJavaHome(path: normalizedPath($0)) }
         let pathHome = runtimeLocator.javaHomeOnPath(in: runtimes)
         var candidates = runtimes.compactMap { runtime -> AutomaticJavaCandidate? in
             guard let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
@@ -267,7 +291,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseMavenJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseMavenJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// Maven's JDK: an explicit override, then the configured Maven JDK, then

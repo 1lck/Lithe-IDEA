@@ -14,7 +14,7 @@ struct MavenRuntimeTests {
         let requirements = root.appendingPathComponent(".lithe/toolchains/requirements.json")
         let old = JavaRuntimeCandidate(homePath: "/jdk/env", version: "1.8.0_402", vendor: "fixture")
         let current = JavaRuntimeCandidate(homePath: "/jdk/current", version: "21.0.4", vendor: "fixture")
-        let locator = ChoiceRuntimeLocator(environmentValues: ["JAVA_HOME": old.homePath], validJavaHomes: [old.homePath, current.homePath])
+        let locator = ChoiceRuntimeLocator(environmentValues: ["JAVA_HOME": old.homePath], validJavaHomes: [old.homePath, current.homePath], runtimeCandidates: [old, current])
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
         service.openProject(at: root)
         func require(_ version: String) throws {
@@ -23,6 +23,9 @@ struct MavenRuntimeTests {
         try require("17")
         let choice = service.chooseJavaHome(overridePath: nil) { [old, current] }
         #expect(choice?.url?.path == current.homePath)
+        #expect(service.javaHomeURL()?.path == current.homePath)
+        #expect(service.mavenJavaHomeURL()?.path == current.homePath)
+        #expect(locator.discoverCalls == 1)
         #expect(service.chooseMavenJavaHome(overridePath: nil) { [old, current] }?.url == choice?.url)
         #expect(service.chooseJavaHome(overridePath: old.homePath) { [old, current] }?.url?.path == old.homePath)
         #expect(service.chooseJavaHome(overridePath: "/missing") { [old, current] } == .invalid("/missing"))
@@ -40,7 +43,7 @@ struct MavenRuntimeTests {
         // Project switching cannot retain the previous workspace's requirement.
         service.closeProject()
         #expect(service.chooseJavaHome(overridePath: nil) { [current, old] }?.url?.path == old.homePath)
-        #expect(locator.discoverCalls == 0)
+        #expect(locator.discoverCalls == 1)
     }
 
     @Test
@@ -323,8 +326,9 @@ struct MavenRuntimeTests {
         let service = ProjectRuntimeService(runtimeLocator: locator, store: EmptyKeyValueStore())
         service.openProject(at: URL(fileURLWithPath: "/workspace", isDirectory: true))
 
-        #expect(service.chooseJavaHome(overridePath: nil) { nil } == nil)
-        #expect(describe(service.chooseJavaHome(overridePath: nil) { [] }) == "found /jdk/env javaHomeEnvironment")
+        #expect(describe(service.chooseJavaHome(overridePath: nil) { nil }) == "found /jdk/env javaHomeEnvironment")
+        #expect(service.javaHomeURL()?.path == "/jdk/env")
+        #expect(locator.discoverCalls == 0)
         #expect(describe(service.chooseJavaHome(overridePath: "/missing") { nil }) == "invalid /missing")
         #expect(describe(service.chooseJavaHome(overridePath: "/jdk/detected") { nil }) == "found /jdk/detected configured")
 
@@ -368,6 +372,14 @@ struct MavenRuntimeTests {
         // One discovery in total: the environment report must reuse its result
         // instead of probing every JDK again on the main actor.
         #expect(locator.discoverCalls == 1)
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.mavenJavaHomeURL() == nil)
+        #expect(locator.discoverCalls == 1)
+        service.closeProject()
+        service.openProject(at: URL(fileURLWithPath: "/another-fixture-workspace", isDirectory: true))
+        #expect(service.javaHomeURL() == nil)
+        #expect(service.mavenJavaHomeURL() == nil)
+        #expect(locator.discoverCalls == 2)
     }
 
     @Test
@@ -750,24 +762,27 @@ private final class ChoiceRuntimeLocator: RuntimeLocator, @unchecked Sendable {
     private let validJavaHomes: Set<String>
     private let executables: Set<String>
     private let systemMaven: URL?
+    private let runtimeCandidates: [JavaRuntimeCandidate]
     private(set) var discoverCalls = 0
 
     init(
         environmentValues: [String: String] = [:],
         validJavaHomes: Set<String> = [],
         executables: Set<String> = [],
-        systemMaven: URL? = nil
+        systemMaven: URL? = nil,
+        runtimeCandidates: [JavaRuntimeCandidate] = []
     ) {
         self.environmentValues = environmentValues
         self.validJavaHomes = validJavaHomes
         self.executables = executables
         self.systemMaven = systemMaven
+        self.runtimeCandidates = runtimeCandidates
     }
 
     func environment() -> [String: String] { environmentValues }
     func discover() -> RuntimeDiscoveryResult {
         discoverCalls += 1
-        return RuntimeDiscoveryResult(javaRuntimes: [], mavenRuntimes: [])
+        return RuntimeDiscoveryResult(javaRuntimes: runtimeCandidates, mavenRuntimes: [])
     }
     func validJavaHome(path: String) -> URL? {
         validJavaHomes.contains(path) ? URL(fileURLWithPath: path, isDirectory: true) : nil
