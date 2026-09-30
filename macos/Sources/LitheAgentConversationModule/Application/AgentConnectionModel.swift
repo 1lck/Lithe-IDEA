@@ -43,6 +43,7 @@ public final class AgentConnectionModel: ObservableObject {
     public var onAttentionChanged: ((Bool) -> Void)?
 
     private let transport: any AgentConversationTransport
+    private let now: () -> ContinuousClock.Instant
     private var connection: (any AgentConnection)?
     private var eventTask: Task<Void, Never>?
     private var eventContinuation: AsyncStream<String>.Continuation?
@@ -64,12 +65,16 @@ public final class AgentConnectionModel: ObservableObject {
     private var historyContinuations: [String: CheckedContinuation<[AgentConversationMessage], Error>] = [:]
     private var historyRefreshToken: String?
 
-    public init(transport: any AgentConversationTransport) {
+    public init(transport: any AgentConversationTransport, now: @escaping () -> ContinuousClock.Instant = { .now }) {
         self.transport = transport
+        self.now = now
     }
 
     public var hasActiveConnection: Bool { connection != nil }
     public var isCreatingSession: Bool { createToken != nil }
+    public var pendingNewConversationStartedAt: ContinuousClock.Instant? {
+        createToken.flatMap { queuedPrompts[$0]?.submittedAt }
+    }
     public var hasPendingPermission: Bool { conversations.values.contains { $0.permission != nil } }
     public var selectedConversation: AgentConversation? {
         selectedSessionID.flatMap { conversations[$0] }
@@ -253,7 +258,8 @@ public final class AgentConnectionModel: ObservableObject {
     public func send(_ text: String, files: [AgentFileReference] = []) throws {
         let prompt = AgentPrompt(
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
-            files: try AgentFileReference.adding(files.map(\.url), to: [])
+            files: try AgentFileReference.adding(files.map(\.url), to: []),
+            submittedAt: now()
         )
         guard !prompt.isEmpty else { return }
         guard connection != nil else { throw AgentConversationError.notConnected }
@@ -386,6 +392,7 @@ public final class AgentConnectionModel: ObservableObject {
             refreshQuota()
             guard let sessionID else { return }
             flushPendingText()
+            conversations[sessionID]?.finishTurn(at: now(), usage: AgentTurnUsage.parse(event["usage"]))
             conversations[sessionID]?.isResponding = false
             conversations[sessionID]?.isCancelling = false
             conversations[sessionID]?.interruptPendingTools()
@@ -449,6 +456,7 @@ public final class AgentConnectionModel: ObservableObject {
             errorMessage = message
         } else if let sessionID, conversations[sessionID] != nil {
             flushPendingText()
+            conversations[sessionID]?.finishTurn(at: now())
             conversations[sessionID]?.isResponding = false
             conversations[sessionID]?.isCancelling = false
             conversations[sessionID]?.interruptPendingTools()
@@ -579,7 +587,9 @@ public final class AgentConnectionModel: ObservableObject {
         guard sendCommand(command) else { return false }
         unpromptedSessionIDs.remove(sessionID)
         var conversation = conversations[sessionID] ?? AgentConversation()
-        conversation.messages.append(AgentConversationMessage(role: .user, text: prompt.displayText))
+        let message = AgentConversationMessage(role: .user, text: prompt.displayText)
+        conversation.messages.append(message)
+        conversation.activeTurn = AgentTurnStatistics(id: message.id, startedAt: prompt.submittedAt)
         conversation.isResponding = true
         conversation.errorMessage = nil
         conversations[sessionID] = conversation
@@ -650,6 +660,7 @@ public final class AgentConnectionModel: ObservableObject {
         createToken = nil
         pendingNewConversationPrompt = nil
         for id in conversations.keys {
+            conversations[id]?.finishTurn(at: now())
             conversations[id]?.contextUsage = nil
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()

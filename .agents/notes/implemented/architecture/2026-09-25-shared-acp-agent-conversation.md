@@ -17,6 +17,7 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 
 ## 决策
 
+
 - **侧栏入口图标**：Agent 使用 Lithe 原创的“对话气泡 + 星光”线性 SVG，由工作台 renderer 显式绑定，避免落入通用模块图标而让用户误认成插件管理。图标作为固定源资源随应用打包，复用现有模板着色与选中态；不下载、不生成运行时文件，不影响安装包的只读边界。面板内 Codex/Claude 标志仍表示具体供应商。
 - **安装包图标解析**：Agent 品牌图标从应用的 `Contents/Resources/Lithe_Lithe.bundle` 只读加载；资源包或图标缺失时使用默认标志。不要在已安装的 `.app` 中直接调用 SwiftPM（Swift 包管理器）生成的 `Bundle.module`：它只查应用旁的资源包和编译目录，找不到会直接终止进程，开发机器残留的构建资源还会掩盖问题。开发和测试入口保留 SwiftPM 回退；安装版不使用编译目录，也不通过启动时复制资源来修补发行包，避免改变代码签名和 Sparkle 增量更新基线。
 - **共享实现**：`rust/lithe-agent-host` 使用官方 `agent-client-protocol` SDK。一个 `AgentHandle` 对应一个项目的 Agent 进程和 ACP 连接，负责初始化、网关登录、会话新建/列出/加载、消息、权限、取消和进程树清理。Mac 通过 Rust Core C ABI（`lithe_agent_open_json`、`lithe_agent_send_json`、`lithe_agent_close`）调用；Windows 以后直接依赖同一个 crate。命令和事件的 JSON 形状由 `shared/fixtures/agent/acp-events-v1.json` 固定。
@@ -59,6 +60,16 @@ Agent 对话默认关闭，打开某个项目的 Agent 面板时才启动本机 
 正确做法：新平台的界面通过平台适配器把 fixture 里的命令交给 `lithe-agent-host`，并把工具权限选择交给用户。
 
 不要这样做：在 Windows React 层重新实现 JSON-RPC 协议；在打开 IDE 时就启动 Agent；取消尚未确认就解锁发送；把取消超时伪装成成功而不提示用户重连；把 API Key 通过环境变量或命令行传给 Agent；替用户下载一份他本机已有的 Agent CLI。
+
+### 每轮耗时与上报 token
+
+发送后用单调时钟（不受系统日期调整影响的计时源）开始测量，包含建会话、加载历史、工具执行和权限等待。界面“思考中”的秒数表示本轮已经过的时间，不声称是模型内部推理时间。只让可见等待行每秒重绘，不每秒发布整个会话。正常完成、请求失败和断连固定耗时；取消仍等上游确认才结束。每轮末尾保留统计，标签切换不会重置，失败发送和历史回放不编造记录。
+
+共享 Host 开启官方 SDK 已有的可选 `usage` 解析，并随 `turnFinished` 原样透传。缺失、空值或非法数据不能阻止这一轮结束。输入/输出使用确切上报值，悬停显示总量、推理及缓存明细，没有上报就只显示耗时。
+
+不要用上下文百分比、文字长度或订阅额度推算 token，也不要把不同供应商的报告统一称为单轮累计账单。[固定的 codex-acp 1.13.1](https://github.com/agentclientprotocol/codex-acp/blob/v1.13.1/src/CodexAcpServer.ts) 使用 `lastTokenUsage` 生成完成报告，[ACP 自身也有单轮与会话口径冲突](https://github.com/agentclientprotocol/agent-client-protocol/issues/1860)。正确做法是标注“Agent 上报，统计口径由 Agent 决定”，并保留上游数字；不要跨轮累加或做差来制造总消耗。
+
+统计仅在会话内存中保存，不新增日志、下载或缓存资源。安装目录和 bundle 继续只读，不影响代码签名和 Sparkle delta。成功重新加载上游历史会重建消息，因此不会把旧本地测量绑定到新回放的消息上。
 
 ## 考虑过的备选方案
 
@@ -115,6 +126,8 @@ npm 的进度选项只面向终端，HTTP 日志通常在请求完成后才输�
 - codex-acp 丢失取消时，最多等待十秒后需要用户重连；同一进程的其他会话也会断开。上游未持久化的最后片段可能无法完整回放，界面保留旧记录用于诊断，不能保证 Agent 保存了未完成轮次。
 
 ## 验证
+
+- `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter 'AgentConversationFeatureModelTests|AgentConversationPresentationTests'`：注入可推进的单调时钟验证排队、后台会话、取消确认、失败和断连；共享 fixture 校验用量、零值与缺失值，统计行的分组边界与历史回放不伪造。真实 Agent 的 token 口径和连续计时仍需人工验收，不能以合成数据截图代替供应商运行验证。
 
 - `./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter AgentBrandIconResourceTests`：临时安装包布局覆盖 Codex/Claude 图标加载、资源包和图标缺失时安全回退、缓存隔离，比较读取前后的文件清单与内容，确认不改写发行资源。
 - 订阅新增测试覆盖旧配置兼容、显式登录、已有账号、认证通知顺序、登录取消和超时、账号变更、额度真实窗口/缺失值/多 bucket、仅查询不发送 prompt，以及临时失败保留旧值。Linux 已运行 Agent Host 的逐测试计时套件；macOS Swift 编译、真实账号登录及深浅主题/窄宽布局仍须在目标环境验证，不将代码存在等同于运行验证。
