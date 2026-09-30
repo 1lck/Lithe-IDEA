@@ -57,7 +57,7 @@ struct CommitAreaView: View {
             .frame(maxWidth: .infinity, minHeight: 50, maxHeight: .infinity, alignment: .topLeading)
             .background {
                 RoundedRectangle(cornerRadius: LitheTheme.Commit.controlCornerRadius)
-                    .fill(LitheTheme.searchFieldBackground)
+                    .fill(LitheTheme.editor)
                     .padding(1.5)
             }
             .overlay {
