@@ -36,12 +36,12 @@ struct MacRuntimeToolDiscoveryTests {
     }
 
     @Test
-    func prefersTheConfiguredGoSDKBeforePathCandidates() throws {
+    func prefersTheConfiguredPluginToolchainBeforePathCandidates() throws {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("lithe-go-sdk-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("lithe-plugin-toolchain-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
-        let executable = root.appendingPathComponent("bin/gopls")
+        let executable = root.appendingPathComponent("bin/language-server")
         try FileManager.default.createDirectory(
             at: executable.deletingLastPathComponent(),
             withIntermediateDirectories: true
@@ -52,16 +52,16 @@ struct MacRuntimeToolDiscoveryTests {
             ofItemAtPath: executable.path
         )
 
-        let pathCandidate = URL(fileURLWithPath: "/usr/local/bin/gopls")
+        let pathCandidate = URL(fileURLWithPath: "/usr/local/bin/language-server")
         let discovery = MacRuntimeToolDiscovery(
             resourceDirectoryURL: nil,
-            configuredPluginExecutablesProvider: { ["gopls": [executable]] },
+            configuredPluginExecutablesProvider: { ["language-server": [executable]] },
             isExecutable: { url in
                 url == executable || url == pathCandidate
             }
         )
         let candidates = discovery.candidates(
-            for: "gopls",
+            for: "language-server",
             projectURL: nil,
             environment: ["PATH": "/usr/local/bin"]
         )

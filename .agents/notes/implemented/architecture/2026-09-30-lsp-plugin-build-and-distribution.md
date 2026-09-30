@@ -8,6 +8,8 @@
 
 插件拥有语言服务器的文件、启动入口和生命周期；Lithe 只负责插件包验证、插件启停、运行时发现和现有 LSP 会话编排。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。Go Support 的 Go SDK 安装在 `Application Support/Lithe/Toolchains/<plugin-id>/<toolchain-id>/<version>/<architecture>`，由 `toolchain.json` 驱动官方下载和验证，不属于 app bundle。
 
+工具链设置的语义归插件清单所有。宿主可以提供语言无关的声明解析、存储、下载、进程和设置控件，但不得出现 `GoToolchainFeatureModel`、`gopls` 或其他语言专属的 UI/状态模型；插件目录中的 `toolchain.json` 和插件代码才是语言配置的唯一入口。`macos/Sources/Lithe` 中的工具链模型与视图必须保持可用于任意插件的通用协议和适配逻辑。
+
 ## 问题
 
 语言服务器通常包含可执行入口、第三方归档、许可证和平台相关资源。把这些文件直接放进主程序，或者让主程序在运行时自行下载，会带来几个问题：不使用该语言的用户承担下载和索引成本；插件签名边界不完整；语言服务器可能写入安装目录，破坏 app bundle 的发布基线；插件卸载后还可能留下脱离插件的运行时。

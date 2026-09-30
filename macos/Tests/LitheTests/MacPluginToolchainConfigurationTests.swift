@@ -5,7 +5,7 @@ import Testing
 
 struct MacPluginToolchainConfigurationTests {
     @Test
-    func decodesDeclarativeGoSDKAndGoplsLifecycle() throws {
+    func decodesAPluginDeclaredToolchainAndLanguageServerLifecycle() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-toolchain-manifest-\(UUID().uuidString)", isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
@@ -15,12 +15,12 @@ struct MacPluginToolchainConfigurationTests {
             """
             {
               "schemaVersion": 1,
-              "pluginID": "dev.lithe.plugin.go-support",
+              "pluginID": "dev.lithe.plugin.example-support",
               "toolchains": [{
-                "id": "go-sdk",
+                "id": "example-sdk",
                 "kind": "sdk",
-                "displayName": "Go SDK",
-                "metadataURL": "https://go.dev/dl/?mode=json&include=all",
+                "displayName": "Example SDK",
+                "metadataURL": "https://example.com/releases.json",
                 "indexFields": {
                   "stable": "stable", "files": "files", "filename": "filename",
                   "os": "os", "architecture": "arch", "version": "version",
@@ -29,20 +29,20 @@ struct MacPluginToolchainConfigurationTests {
                 "os": "darwin",
                 "architecture": "host",
                 "archiveFormat": "tar.gz",
-                "archiveRoot": "go",
-                "executable": "bin/go",
-                "downloadURLTemplate": "https://go.dev/dl/{filename}",
+                "archiveRoot": "toolchain",
+                "executable": "bin/toolchain",
+                "downloadURLTemplate": "https://example.com/releases/{filename}",
                 "validationArguments": ["version"]
               }],
               "languageServers": [{
-                "id": "gopls",
-                "kind": "goModule",
-                "module": "golang.org/x/tools/gopls",
-                "executable": "bin/gopls",
-                "installCommand": ["install", "golang.org/x/tools/gopls@{version}"],
+                "id": "example-server",
+                "kind": "languageServer",
+                "module": "example.org/language-server",
+                "executable": "bin/language-server",
+                "installCommand": ["install", "example.org/language-server@{version}"],
                 "validationArguments": ["version"],
-                "environment": {"GOBIN": "{serverBin}"},
-                "runtimeEnvironment": {"GOROOT": "{toolchainRoot}"}
+                "environment": {"TOOL_BIN": "{serverBin}"},
+                "runtimeEnvironment": {"TOOLCHAIN_ROOT": "{toolchainRoot}"}
               }]
             }
             """.utf8
@@ -51,20 +51,20 @@ struct MacPluginToolchainConfigurationTests {
         let configuration = try MacPluginToolchainConfiguration.load(from: manifestURL)
 
         #expect(configuration.schemaVersion == 1)
-        #expect(configuration.pluginID == PluginID("dev.lithe.plugin.go-support"))
-        #expect(configuration.primaryToolchain?.executable == "bin/go")
+        #expect(configuration.pluginID == PluginID("dev.lithe.plugin.example-support"))
+        #expect(configuration.primaryToolchain?.executable == "bin/toolchain")
         #expect(configuration.primaryToolchain?.validationArguments == ["version"])
-        #expect(configuration.primaryLanguageServer?.module == "golang.org/x/tools/gopls")
+        #expect(configuration.primaryLanguageServer?.module == "example.org/language-server")
         #expect(configuration.discovery == nil)
     }
 
     @Test
     func expandsPluginDeclaredUserToolSearchPaths() {
         let paths = MacPluginToolchainManager.discoveryPaths(
-            "{environment:GOPATH}/bin",
-            environment: ["GOPATH": "/tmp/go:/tmp/second"],
+            "{environment:TOOL_PATH}/bin",
+            environment: ["TOOL_PATH": "/tmp/toolchain:/tmp/second"],
             homeDirectory: URL(fileURLWithPath: "/tmp/home", isDirectory: true)
         )
-        #expect(paths.map(\.path) == ["/tmp/go/bin", "/tmp/second/bin"])
+        #expect(paths.map(\.path) == ["/tmp/toolchain/bin", "/tmp/second/bin"])
     }
 }

@@ -1,6 +1,6 @@
 # 语言插件、SDK、LSP 与构建工具需求文档
 
-状态：提案需求基线
+状态：提案需求基线，目标为完整迁移
 日期：2026-09-30
 适用范围：macOS、Windows、Rust Core、官方语言插件和插件管理界面
 
@@ -45,6 +45,7 @@
 ### 3.2 工程目标
 
 - 语言服务器由 Rust Core 统一管理进程、协议、文档同步、请求期限、诊断和崩溃恢复。
+- 最终由 Rust Core 拥有全部跨平台公共契约的可执行语义；Swift 和 TypeScript 不再维护同一契约的第二份手写真源。
 - 插件拥有其声明的语言资源、工具链和功能模块；宿主不维护第二套通用语言服务器目录。
 - 构建、运行、测试和调试能力默认与对应语言插件绑定；Rust 是明确的内置语言特例。
 - 两个平台消费相同的能力语义和稳定错误，不共享平台实现代码。
@@ -123,9 +124,9 @@ Go Support 的唯一源码归属是 `Plugins/mac/Official/GoSupport/`。它包�
 5. 增加依赖扫描，验证宿主产品没有链接该插件实现，插件也没有反向依赖宿主应用实现。
 6. 在 macOS 和 Windows 的功能矩阵中记录插件路径、宿主边界和验证证据。
 
-### 4.3 公共契约可以下沉到 Rust Core，但不搬迁原生插件运行时
+### 4.3 公共契约完整下沉到 Rust Core，原生插件保留薄适配层
 
-可以把语言插件需要的公共契约下沉到 Rust Core，而且这正适合解决“插件放在 `Plugins` 下、同时不依赖旧宿主实现”的问题。但下沉的对象应是**稳定的跨平台协议和数据模型**，不是把 Swift 原生插件运行时整个改写成 Rust。
+本项目的最终目标是把语言插件需要的公共契约完整下沉到 Rust Core。这正是解决“插件放在 `Plugins` 下、同时不依赖旧宿主实现”的长期方案。迁移对象是**所有稳定的跨平台协议、数据模型和状态语义**；平台专属的原生插件运行时保留为薄适配层，不作为第二套契约真源。
 
 适合由 Rust Core 拥有并执行校验的契约包括：
 
@@ -146,12 +147,12 @@ Go Support 的唯一源码归属是 `Plugins/mac/Official/GoSupport/`。它包�
 - `ModuleFactory` 的原生闭包、Swift 对象引用和 AppKit/React UI 状态；
 - 文件选择器、Application Support、AppData、进程句柄和终端对象。
 
-推荐的分层是：
+最终分层是：
 
 ```text
-Rust Core：Serde DTO + schema 校验 + 状态机 + 稳定 JSON/C ABI
+Rust Core：Serde DTO + schema 校验 + 状态机 + 稳定 JSON/C ABI（唯一可执行真源）
        ↓
-生成的 Swift/TypeScript bindings（只做类型和编码映射）
+生成的 Swift/TypeScript bindings（只做类型和编码映射，不定义新语义）
        ↓
 平台 host adapter（路径、进程、Bundle、存储、签名）
        ↓
@@ -160,13 +161,15 @@ Plugins/<platform>/Official/<PluginName>（语言专属能力）
 
 `shared/contracts` 仍然保留为跨平台公开契约、fixture 和文档；Rust Core 负责其中可执行的解析、校验、排序和状态语义。不能把契约只藏在 Rust 私有模块中，否则 Swift、Windows 和插件无法独立验证 wire format。
 
-具体迁移建议分三层：
+具体迁移必须完成以下三层，不能长期停在兼容层：
 
-1. **第一层：数据契约**。在 Rust 中定义带 `serde` 的 ID、版本、manifest、toolchain、LSP launch、能力、错误和结构化任务计划；通过现有 JSON command/C ABI 暴露。Swift/TypeScript 逐步改为使用生成的 bindings，旧的手写 DTO 只保留兼容别名。
-2. **第二层：语言工具运行时**。把 LSP session、文档同步、导航、诊断、取消、构建计划和资源归属继续集中在 Rust；插件只实现语言特有的 descriptor、参数和 host service 调用。
-3. **第三层：模块生命周期协议**。Rust 拥有 manifest graph、模块状态和事件协议；macOS/Windows 保留原生 Bundle/Worker 加载和薄适配层。Rust 不直接加载 Swift Bundle，也不持有 Swift `AnyObject` capability。
+1. **第一层：数据契约**。在 Rust 中定义带 `serde` 的 ID、版本、manifest、toolchain、LSP launch、能力、错误和结构化任务计划；通过现有 JSON command/C ABI 暴露。Swift/TypeScript 改为使用生成的 bindings，旧的手写 DTO 在迁移完成后删除，而不是永久保留为第二真源。
+2. **第二层：语言工具运行时**。把 LSP session、文档同步、导航、诊断、取消、构建计划和资源归属集中在 Rust；插件只实现语言特有的 descriptor、参数和 host service 调用。
+3. **第三层：模块生命周期协议**。Rust 拥有 manifest graph、模块状态、资源关系、operation ID 和事件协议；macOS/Windows 保留原生 Bundle/Worker 加载和薄适配层。Rust 不直接加载 Swift Bundle，也不持有 Swift `AnyObject` capability，但所有平台都必须消费 Rust 发布的生命周期协议。
 
 完成迁移后，GoSupport 可以只依赖生成的公共插件绑定、`LitheModuleAPI` 的兼容薄层或等价 host ABI，以及注入的公共服务；它不能再依赖 `OfficialPluginCatalog` 中的 Go 条目、宿主语言模块、AppModel 或旧工具发现逻辑。宿主只通过 Rust 校验后的插件 descriptor 和 host service 与它交互。
+
+“兼容薄层”只允许作为迁移阶段的临时桥接，必须有删除条件和迁移清单。最终插件不应依赖包含语言业务实现的 `LitheModuleAPI` 或 `LitheCoreContracts` 模块；它应依赖由 Rust 契约生成的插件 ABI/bindings，以及平台注入的 host service 接口。
 
 ### 4.4 LSP Runtime 只有一个真源
 
@@ -505,6 +508,66 @@ LSP 暂不可用时，内置轻量 provider 可以提供当前文件符号、简
 新增用户可见能力时，需要同步更新 `shared/platform-feature-matrix.json` 及生成视图。平台实现存在但未完成实机验证时，保持 `verificationStatus: pending`，不能把代码存在当作已验收。
 
 ## 15. 分阶段交付
+
+### 15.1 完整迁移的实施阶段
+
+下面的阶段是实现顺序，不代表最终只完成部分迁移。每一阶段都要减少旧契约的拥有范围，不能新增依赖让双重真源继续扩大。
+
+#### M0：契约盘点和分类
+
+- 盘点 `LitheModuleAPI`、`LitheCoreContracts`、现有 Rust JSON/C ABI 和 Windows TypeScript 类型；
+- 把类型分为 Rust-owned wire contract、平台 adapter contract 和 UI-only state；
+- 为每个现有类型记录唯一目标、消费者、兼容字段和删除条件；
+- 冻结新的语言专属类型进入宿主模块。
+
+#### M1：Rust 契约真源
+
+- 在 Rust Core 中建立稳定的 contracts/models 模块；
+- 为 ID、版本、manifest、toolchain、LSP launch、能力、生命周期、错误和任务计划增加 `serde` 类型；
+- 为每一类契约补充共享 fixture、确定性排序和版本字段；
+- 通过现有 JSON command/C ABI 暴露读取、校验和事件接口。
+
+#### M2：生成 bindings 和兼容桥
+
+- 从 Rust 契约或共享 schema 生成 Swift/TypeScript bindings；
+- 将现有手写 DTO 改为 bindings 的别名或转换器；
+- 禁止在 Swift/TypeScript 中增加新的字段语义、状态分支或错误分类；
+- 为每个兼容桥记录迁移调用点和删除条件。
+
+#### M3：插件彻底脱离旧宿主实现
+
+- 先完成 GoSupport，再迁移 PHP 和后续官方语言插件；
+- 清除 `OfficialPluginCatalog` 中的语言专属静态 manifest；
+- 让插件从自身 `Plugins/<platform>/Official/<PluginName>/` 的 manifest 获得语言和模块描述；
+- 删除宿主中的语言专属 capability、工具链路径和 fallback；
+- 确认宿主 target 不链接插件实现，插件只依赖生成 bindings 和 host service。
+
+#### M4：Rust 接管运行时语义
+
+- Rust 接管 LSP、文档、导航、诊断、构建计划、取消、资源和模块生命周期的跨平台状态；
+- macOS 和 Windows 只保留路径、进程、Bundle/Worker、存储、签名和 UI 适配；
+- 所有平台消费同一组 Rust events、operation IDs 和稳定错误；
+- 删除 Swift/TypeScript 中重复的生命周期状态机和协议解析。
+
+#### M5：删除旧契约和完成验收
+
+- 删除旧手写 DTO、旧语言 catalog、旧语言 fallback 和仅为兼容保留的实现；
+- 删除没有调用者的兼容桥和临时转换器；
+- 完成 macOS、Windows、Rust Core、插件分发和运行时不可变性验证；
+- 更新平台功能矩阵、共享契约和迁移文档。
+
+### 15.2 完整迁移的完成定义
+
+只有同时满足以下条件，才算完成“公共契约下沉 Rust”的目标：
+
+- Rust Core 是所有跨平台契约的唯一可执行语义真源；
+- Swift 和 TypeScript 只使用生成 bindings、公共 host service 和平台适配器；
+- GoSupport、PHP Support 及后续官方语言插件全部位于平台对应的 `Plugins` 目录；
+- 宿主不包含任何语言专属的第二份 manifest、capability、工具链路径或 fallback；
+- 插件删除后，宿主不会通过旧代码恢复同名语言能力；
+- LSP、构建、测试、调试和导航的状态、错误、取消和结果在两端使用同一 wire contract；
+- 旧 `LitheModuleAPI`/`LitheCoreContracts` 中仅用于语言契约的重复定义已经删除；
+- 运行时 bundle 不可变、插件签名、进程清理和跨平台功能矩阵验证全部通过。
 
 ### P0：工具链和生命周期基础
 
