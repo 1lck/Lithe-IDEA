@@ -21,9 +21,6 @@ enum GitGraphGeometry {
     }
     private static let paintScale = rowHeight / 22
     static let laneSpacing: CGFloat = 16 * paintScale
-    static let leftPadding: CGFloat = 8 * paintScale
-    static let lineWidth: CGFloat = 1.5 * paintScale
-    static let nodeDiameter: CGFloat = 8 * paintScale
     static let graphTextGap: CGFloat = 2 * paintScale
 
     static func maximumWidth(laneCount: Int, recommendedLaneCount: Int) -> CGFloat {
@@ -46,21 +43,77 @@ enum GitGraphGeometry {
         floor(rowWidth(row, recommendedLaneCount: max(6, recommendedLaneCount))) + 2
     }
 
-    static func line(for element: GitGraphPrintElement, rowHeight: CGFloat) -> (start: CGPoint, end: CGPoint) {
-        let start = CGPoint(x: leftPadding + CGFloat(element.position) * laneSpacing, y: rowHeight / 2)
-        let sign: CGFloat = element.direction == .up ? -1 : 1
-        let end = CGPoint(
-            x: leftPadding + CGFloat(element.position + element.adjacentPosition) / 2 * laneSpacing,
-            y: rowHeight / 2 + sign * (rowHeight / 2 - (element.isTerminal ? 3 : 0))
-        )
-        return (start, end)
+    static func line(for element: GitGraphPrintElement, rowHeight: CGFloat, backingScale: CGFloat = 1) -> (start: CGPoint, end: CGPoint) {
+        PaintMetrics(rowHeight: rowHeight, backingScale: backingScale).line(for: element)
     }
 
-    static func arrowHitRect(for element: GitGraphPrintElement, rowHeight: CGFloat) -> CGRect {
-        let segment = line(for: element, rowHeight: rowHeight)
-        let centerX = segment.end.x
-        // Keep up/down targets in their own half of a compact row.
-        return CGRect(x: centerX - 6, y: element.direction == .up ? 0 : rowHeight / 2,
-                      width: 12, height: rowHeight / 2)
+    static func arrowHitRect(for element: GitGraphPrintElement, rowHeight: CGFloat, backingScale: CGFloat = 1) -> CGRect {
+        PaintMetrics(rowHeight: rowHeight, backingScale: backingScale).arrowHitRect(for: element)
+    }
+
+    /// SimpleGraphCellPainter.MyPainter / PaintUtil: floor to odd device pixels.
+    /// Layout keeps its logical grid; drawing and navigation use this aligned grid.
+    struct PaintMetrics {
+        let rowHeight: CGFloat
+        let rowCenter: CGFloat
+        let laneSpacing: CGFloat
+        let laneCenter: CGFloat
+        let lineWidth: CGFloat
+        let nodeDiameter: CGFloat
+        let nodeRadius: CGFloat
+        private let pixel: CGFloat
+
+        init(rowHeight: CGFloat, backingScale: CGFloat) {
+            let scale = backingScale.isFinite && backingScale > 0 ? backingScale : 1
+            func align(_ value: CGFloat, odd: Bool = false) -> CGFloat {
+                var pixels = floor(value * scale)
+                if odd && pixels.truncatingRemainder(dividingBy: 2) == 0 { pixels -= 1 }
+                return pixels / scale
+            }
+            self.rowHeight = rowHeight
+            pixel = 1 / scale
+            rowCenter = align(rowHeight / 2, odd: true)
+            laneSpacing = align(16 * rowHeight / 22, odd: true)
+            laneCenter = align(8 * rowHeight / 22)
+            lineWidth = max(pixel, align(1.5 * rowHeight / 22, odd: true))
+            nodeDiameter = align(8 * rowHeight / 22, odd: true)
+            nodeRadius = align(nodeDiameter / 2)
+        }
+
+        func nodeRect(lane: Int) -> CGRect {
+            CGRect(x: laneCenter + CGFloat(lane) * laneSpacing - nodeRadius,
+                   y: rowCenter - nodeRadius, width: nodeDiameter, height: nodeDiameter)
+        }
+
+        func line(for element: GitGraphPrintElement) -> (start: CGPoint, end: CGPoint) {
+            let start = CGPoint(x: laneCenter + CGFloat(element.position) * laneSpacing, y: rowCenter)
+            let endY: CGFloat
+            if element.position == element.adjacentPosition {
+                let gap = element.isTerminal ? nodeRadius / 2 + 1 : 0
+                endY = element.direction == .up ? gap : rowHeight - gap
+            } else {
+                endY = rowCenter + (element.direction == .up ? -rowHeight : rowHeight) / 2
+            }
+            return (start, CGPoint(x: laneCenter + CGFloat(element.position + element.adjacentPosition) / 2 * laneSpacing, y: endY))
+        }
+
+        func arrowArms(for element: GitGraphPrintElement) -> [CGPoint] {
+            let segment = line(for: element)
+            let length = max(1, hypot(segment.end.x - segment.start.x, segment.end.y - segment.start.y))
+            let vx = (segment.start.x - segment.end.x) / length * rowHeight * 0.3
+            let vy = (segment.start.y - segment.end.y) / length * rowHeight * 0.3
+            return [CGFloat(-1), 1].map { sign in
+                CGPoint(x: segment.end.x + vx * sqrt(0.7) - sign * vy * sqrt(0.3),
+                        y: segment.end.y + sign * vx * sqrt(0.3) + vy * sqrt(0.7))
+            }
+        }
+
+        func arrowHitRect(for element: GitGraphPrintElement) -> CGRect {
+            let tip = line(for: element).end
+            let halfRow = CGRect(x: tip.x - 6, y: element.direction == .up ? 0 : rowHeight / 2,
+                                 width: 12, height: rowHeight / 2)
+            // Include the aligned tip, even when it crosses a logical row boundary.
+            return halfRow.union(CGRect(x: tip.x - 6, y: tip.y - pixel, width: 12, height: 2 * pixel))
+        }
     }
 }

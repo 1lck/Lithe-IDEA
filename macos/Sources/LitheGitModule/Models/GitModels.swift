@@ -797,7 +797,7 @@ package struct GitLogQuery: Equatable, Sendable {
         return calendar.date(from: DateComponents(year: year, month: month, day: day))
     }
 
-    private static func parseCommitDate(_ value: String) -> Date? {
+    package static func parseCommitDate(_ value: String) -> Date? {
         let iso8601 = ISO8601DateFormatter()
         if let date = iso8601.date(from: value) { return date }
 

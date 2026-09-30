@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import SwiftUI
 
 enum LitheTheme {
@@ -568,10 +569,20 @@ enum LitheTheme {
         static var referenceText: Color {
             activeTheme == .lithe ? controlColor(light: 0x6C707E, dark: 0x6F737A) : secondaryText
         }
-        static var dateColumnWidth: CGFloat {
-            ceil(("2000/12/31 23:59" as NSString).size(withAttributes: [
-                .font: uiNSFont(size: fontSize)
-            ]).width) + 8
+        static var dateFont: NSFont {
+            let base = uiNSFont(size: fontSize)
+            let descriptor = base.fontDescriptor.addingAttributes([.featureSettings: [
+                [NSFontDescriptor.FeatureKey.typeIdentifier: kNumberSpacingType,
+                 NSFontDescriptor.FeatureKey.selectorIdentifier: kMonospacedNumbersSelector]
+            ]])
+            return NSFont(descriptor: descriptor, size: fontSize) ?? base
+        }
+        static var meridiemWidth: CGFloat {
+            ceil(["AM", "PM"].map { ($0 as NSString).size(withAttributes: [.font: dateFont]).width }.max() ?? 0)
+        }
+        static func dateColumnWidth(locale: Locale) -> CGFloat {
+            ceil(("2000/12/31 23:59" as NSString).size(withAttributes: [.font: dateFont]).width)
+                + (locale.language.languageCode?.identifier == "en" ? meridiemWidth + 4 : 0) + 8
         }
         static func rowBackground(selected: Bool, hovered: Bool, focused: Bool = true) -> Color {
             if selected { return focused ? Tree.focusedSelection : Tree.inactiveSelection }

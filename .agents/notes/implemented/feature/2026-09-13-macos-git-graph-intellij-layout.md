@@ -79,6 +79,29 @@ Lithe 为标题预留至少六列；更密集的行可以继续扩宽。这是 L
 上游按推荐图宽取最多六列，并不强制所有仓库至少六列。仅扩大文字预留区，
 不改变节点、边、图谱路由或箭头命中位置。
 
+图谱绘制继续按行高缩放，但最终尺寸按 UI 基准提交
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `SimpleGraphCellPainter.MyPainter`
+和 `PaintUtil.alignToInt` 对齐屏幕物理像素（`FLOOR` / `ODD`，向下取奇数像素）。
+此前直接绘制浮点缩放值，导致 Retina 2×、26pt 行高时圆点约 9.45pt、线宽约
+1.77pt；对齐后为 8.5pt 圆点和 1.5pt 连线/箭头描边。尺寸从当前绘制上下文的
+缩放系数计算，不能将 Retina 数值写死，否则 1× 屏幕或切换屏幕时会失配。
+
+`GitGraphGeometry.PaintMetrics` 同时提供绘制和箭头命中坐标。列距、圆心、
+圆点半径及终止箭头留白均使用对齐后的值；箭头两侧仍遵循 0.3 × 行高的长度
+与 `sqrt(0.7)` / `sqrt(0.3)` 的旋转公式。逻辑图宽、标题预留和图谱拓扑保持不变。
+对齐可能让斜向箭头尖端跨过逻辑行边界半个点，因此命中检查覆盖相邻行及尖端
+附近一个物理像素；屏幕 backing scale 变化只重绘，不重新建图。
+
+Git Log 时间列保留 Inter 13 regular，启用字体的等宽数字特性，避免 `11`、`55`
+等数字组合改变文本总宽度。按应用语言而非系统语言选择格式：英文为
+`yyyy/MM/dd hh:mm AM/PM`，中文为 `yyyy/MM/dd HH:mm`。英文 AM/PM 使用固定
+宽度区域，数字块和后缀分别对齐；列表的 SwiftUI/AppKit 两条路径及提交详情
+复用 `GitLogDatePresentation`，既有 `GitLogQuery.parseCommitDate` 负责解析，
+不改变提交时间、时区含义、历史排序和筛选。原生日期显示按原始日期缓存，
+更新行或切换语言时失效，滚动绘制不重复解析可见行。
+AppKit 重绘区域先与视图 bounds 相交再换算行号，避免 SwiftUI 原生截图传入
+无限重绘区域时发生浮点转整数越界；位图检查覆盖此路径。
+
 提交标题、作者和日期使用 Inter 13 Normal；引用标签使用 12pt。文字绘制复用
 CoreText 的单行布局和省略号处理，采用 `SimpleColoredComponent.getTextBaseLine`
 的整数基线公式，并计入 JetBrains Runtime 的 leading。绘制和截断共用同一字型，

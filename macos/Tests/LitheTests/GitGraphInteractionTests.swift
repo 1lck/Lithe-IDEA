@@ -1,6 +1,7 @@
 import AppKit
+import CoreText
 import Foundation
-import LitheGitModule
+@testable import LitheGitModule
 import SwiftUI
 @testable import Lithe
 import Testing
@@ -94,6 +95,145 @@ struct GitGraphInteractionTests {
         }
     }
 
+    @Test("Commit time follows app language, including midnight and noon")
+    func localizedCommitDates() {
+        for (raw, english, chinese) in [
+            ("2026/09/03 00:02", "2026/09/03 12:02 AM", "2026/09/03 00:02"),
+            ("2026/09/03 11:11", "2026/09/03 11:11 AM", "2026/09/03 11:11"),
+            ("2026/09/03 12:02", "2026/09/03 12:02 PM", "2026/09/03 12:02"),
+            ("2026/09/03 17:55", "2026/09/03 05:55 PM", "2026/09/03 17:55")
+        ] {
+            #expect(GitLogDatePresentation.string(raw, locale: Locale(identifier: "en")) == english)
+            #expect(GitLogDatePresentation.string(raw, locale: Locale(identifier: "zh-Hans")) == chinese)
+        }
+        #expect(GitLogDatePresentation.string("unknown date", locale: Locale(identifier: "en")) == "unknown date")
+    }
+
+    @Test("Inter timestamp digits and native locale changes keep columns aligned")
+    func timestampColumnAlignment() throws {
+        let fontURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/Fonts/Inter-Regular.otf")
+        let registered = CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)
+        defer { if registered { CTFontManagerUnregisterFontsForURL(fontURL as CFURL, .process, nil) } }
+        let font = LitheTheme.GitLog.dateFont
+        #expect(font.fontName == "Inter-Regular")
+        let digitWidths = (0...9).map { (String($0) as NSString).size(withAttributes: [.font: font]).width }
+        let reference = try #require(digitWidths.first)
+        #expect(digitWidths.allSatisfy { abs($0 - reference) < 0.001 })
+        let dates = ["2026/09/03 11:11", "2026/09/03 17:55", "2026/09/03 00:02"]
+        let commits = dates.enumerated().map { index, date in
+            GitCommit(hash: String(index), shortHash: String(index), parentHashes: [],
+                      authorName: "", authorEmail: "", date: date, subject: "", decorations: "")
+        }
+        let rows = GitGraphLayoutService.layout(commits: commits).rows
+        let frame = NSRect(x: 0, y: 0, width: 850, height: CGFloat(rows.count) * GitGraphGeometry.rowHeight)
+        let view = GitGraphCommitRowsNSView(frame: frame)
+        view.update(rows: rows, selectedHash: nil, showDecorations: false, graphWidth: 100,
+                    rowHeight: GitGraphGeometry.rowHeight, actions: actions { _ in })
+        let layout = GitGraphLayoutService.layout(commits: commits)
+        let hosting = NSHostingView(rootView: GitGraphView(presentation: presentation(layout), selectedHash: nil,
+            showCommitDecorations: false, actions: actions { _ in }).environment(\.locale, Locale(identifier: "en")))
+        hosting.frame = frame
+        var images: [Data] = []
+        for locale in [Locale(identifier: "en"), Locale(identifier: "zh-Hans")] {
+            // Same rows, new locale: the native date cache and drawing must refresh.
+            view.updateActions(actions { _ in }, locale: locale)
+            hosting.rootView = GitGraphView(presentation: presentation(layout), selectedHash: nil,
+                showCommitDecorations: false, actions: actions { _ in }).environment(\.locale, locale)
+            hosting.layoutSubtreeIfNeeded()
+            for surface: NSView in [view, hosting] {
+                let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: frame))
+                surface.cacheDisplay(in: frame, to: bitmap)
+                images.append(try #require(bitmap.representation(using: .png, properties: [:])))
+                let scale = CGFloat(bitmap.pixelsWide) / frame.width
+                let left = Int((frame.width - LitheTheme.GitLog.dateColumnWidth(locale: locale) - 8) * scale)
+                var starts: [Int] = []
+                for index in rows.indices {
+                    var start = bitmap.pixelsWide
+                    for y in Int(CGFloat(index) * GitGraphGeometry.rowHeight * scale)..<Int(CGFloat(index + 1) * GitGraphGeometry.rowHeight * scale) {
+                        for x in left..<bitmap.pixelsWide where try #require(bitmap.colorAt(x: x, y: y)).alphaComponent > 0.5 {
+                            start = min(start, x)
+                        }
+                    }
+                    starts.append(start)
+                }
+                #expect(starts.allSatisfy { $0 == starts[0] && $0 < bitmap.pixelsWide }, "Timestamp column starts: \(starts)")
+            }
+        }
+        #expect(images[0] != images[2], "Switching app language must repaint unchanged native rows")
+        #expect(images[1] != images[3], "SwiftUI must use the selected app language")
+    }
+
+    @Test("IDEA device-pixel geometry reaches the native raster", arguments: [CGFloat(1), CGFloat(2)])
+    func pixelAlignedGraph(_ scale: CGFloat) throws {
+        let paint = GitGraphGeometry.PaintMetrics(rowHeight: 26, backingScale: scale)
+        // Golden dimensions from SimpleGraphCellPainter's FLOOR / ODD rules.
+        #expect(paint.lineWidth == (scale == 1 ? 1 : 1.5))
+        #expect(paint.nodeDiameter == (scale == 1 ? 9 : 8.5))
+        #expect(paint.laneSpacing == (scale == 1 ? 17 : 18.5))
+        #expect(paint.rowCenter == (scale == 1 ? 13 : 12.5))
+        let edge = GitGraphPrintElement(edgeID: "pixel-fixture", position: 0, adjacentPosition: 0,
+            direction: .up, colorIndex: 1, isDotted: false, hasArrow: false, isTerminal: false, targetHash: nil)
+        let row = GitGraphRoutingRow(rowIndex: 0, nodeLane: 0, incoming: [], routes: [],
+            nodeColorIndex: 1, isMerge: false, printElements: [edge])
+        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 64, height: 26))
+        view.update(snapshot: GitGraphRoutingSnapshot(rows: [row], laneCount: 1), width: 64, rowHeight: 26)
+        let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(64 * scale),
+            pixelsHigh: Int(26 * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+            isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap)?.cgContext)
+        context.clear(CGRect(x: 0, y: 0, width: bitmap.pixelsWide, height: bitmap.pixelsHigh))
+        context.scaleBy(x: scale, y: scale)
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        view.draw(.infinite)
+        var widths: [Int] = []
+        var coverage: [CGFloat] = []
+        for y in 0..<bitmap.pixelsHigh {
+            var width = 0
+            var alpha: CGFloat = 0
+            for x in 0..<bitmap.pixelsWide {
+                let opacity = try #require(bitmap.colorAt(x: x, y: y)).alphaComponent
+                if opacity > 0.5 { width += 1 }
+                alpha += opacity
+            }
+            if width > 0 { widths.append(width) }
+            if alpha > 0 { coverage.append(alpha) }
+        }
+        #expect(widths.max() == (scale == 1 ? 9 : 17), "Native circle pixel widths: \(widths)")
+        // Fractional edge coverage counts toward the stroke; opaque-pixel counts
+        // would incorrectly reject a 1px stroke split over two half-covered pixels.
+        #expect(coverage.suffix(5).allSatisfy { abs($0 - (scale == 1 ? 1 : 3)) < 0.05 },
+                "Native stroke alpha coverage: \(coverage)")
+        if let directory = ProcessInfo.processInfo.environment["LITHE_GIT_GRAPH_CAPTURE_DIR"] {
+            let root = URL(fileURLWithPath: directory, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:]))
+                .write(to: root.appendingPathComponent("graph-pixel-alignment-\(Int(scale))x.png"))
+        }
+    }
+
+    @Test("Aligned diagonal arrow arms retain upstream size and clickable tips", arguments: [CGFloat(1), CGFloat(2)])
+    func alignedArrowGeometry(_ scale: CGFloat) throws {
+        let paint = GitGraphGeometry.PaintMetrics(rowHeight: 26, backingScale: scale)
+        for direction in [GitGraphPrintElement.Direction.up, .down] {
+            let edge = GitGraphPrintElement(edgeID: "diagonal", position: 2, adjacentPosition: 6,
+                direction: direction, colorIndex: 1, isDotted: false, hasArrow: true, isTerminal: false, targetHash: "target")
+            let tip = paint.line(for: edge).end
+            let expectedX: CGFloat = 9 + 4 * (scale == 1 ? 17 : 18.5)
+            #expect(tip.x == expectedX)
+            #expect(tip.y == (direction == .up ? (scale == 1 ? 0 : -0.5) : (scale == 1 ? 26 : 25.5)))
+            #expect(paint.arrowHitRect(for: edge).contains(tip))
+            let arms = paint.arrowArms(for: edge)
+            for arm in arms { #expect(abs(hypot(arm.x - tip.x, arm.y - tip.y) - 7.8) < 0.0001) }
+            let a = CGPoint(x: arms[0].x - tip.x, y: arms[0].y - tip.y)
+            let b = CGPoint(x: arms[1].x - tip.x, y: arms[1].y - tip.y)
+            let cosine = (a.x * b.x + a.y * b.y) / CGFloat(7.8 * 7.8)
+            #expect(abs(cosine - 0.4) < 0.0001)
+        }
+    }
+
     @Test("Both arrow hit regions navigate to their real visible endpoint")
     func arrowHitRegions() throws {
         let layout = GitGraphLayoutService.layout(commits: commits())
@@ -161,7 +301,7 @@ struct GitGraphInteractionTests {
             defer { window.orderOut(nil); window.close() }
             window.makeKeyAndOrderFront(nil)
             hosting.layoutSubtreeIfNeeded()
-            let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight).end
+            let tip = GitGraphGeometry.line(for: edge, rowHeight: GitGraphGeometry.rowHeight, backingScale: window.backingScaleFactor).end
             let point = CGPoint(x: tip.x, y: CGFloat(pair.offset - first) * GitGraphGeometry.rowHeight + tip.y + (direction == .up ? inset : -inset))
             let location = hosting.convert(point, to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
@@ -249,7 +389,7 @@ struct GitGraphInteractionTests {
         for direction in [GitGraphPrintElement.Direction.down, .up] {
             let pair = try #require(layout.rows.enumerated().first { $0.element.printElements.contains { $0.hasArrow && $0.direction == direction } })
             let edge = try #require(pair.element.printElements.first { $0.hasArrow && $0.direction == direction })
-            let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight)
+            let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight, backingScale: window.backingScaleFactor)
             let point = document.convert(CGPoint(x: rect.midX, y: CGFloat(pair.offset) * GitGraphGeometry.rowHeight + rect.midY), to: nil)
             let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: point, modifierFlags: [],
                 timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
@@ -277,7 +417,7 @@ struct GitGraphInteractionTests {
         hosting.layoutSubtreeIfNeeded()
         for (index, row) in layout.rows.enumerated() {
             for edge in row.printElements where edge.hasArrow {
-                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight)
+                let rect = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: GitGraphGeometry.rowHeight, backingScale: window.backingScaleFactor)
                 let point = CGPoint(x: rect.midX, y: CGFloat(index) * GitGraphGeometry.rowHeight + rect.midY)
                 let windowPoint = hosting.convert(point, to: nil)
                 let down = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: windowPoint, modifierFlags: [],
@@ -378,7 +518,7 @@ struct GitGraphInteractionTests {
             let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
             view.cacheDisplay(in: view.bounds, to: bitmap)
             let scale = CGFloat(bitmap.pixelsWide) / frame.width
-            let dateStart = frame.width - LitheTheme.GitLog.dateColumnWidth - 8
+            let dateStart = frame.width - LitheTheme.GitLog.dateColumnWidth(locale: .current) - 8
             let ranges = [
                 GitGraphGeometry.titleOffset(row, recommendedLaneCount: 0)..<CGFloat(280),
                 (dateStart - 112)..<(dateStart - 8), dateStart..<CGFloat(842)

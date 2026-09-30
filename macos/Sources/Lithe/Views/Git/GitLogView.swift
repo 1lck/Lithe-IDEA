@@ -1457,7 +1457,7 @@ struct GitLogView: View {
                             .padding(.bottom, 10)
                         (Text(verbatim: "\(commit.shortHash) \(commit.authorName) ")
                          + Text(verbatim: "<\(commit.authorEmail)>").foregroundColor(LitheTheme.link)
-                         + Text(verbatim: " on \(commit.date)"))
+                         + Text(verbatim: " on \(GitLogDatePresentation.string(commit.date, locale: locale))"))
                             .font(LitheTheme.uiFont(size: 13))
                             .foregroundStyle(LitheTheme.Tree.text)
                             .fixedSize(horizontal: false, vertical: true)
