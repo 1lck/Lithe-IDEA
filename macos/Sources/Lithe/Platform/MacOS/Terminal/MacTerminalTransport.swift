@@ -345,7 +345,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     private static func preferredTerminalFont() -> NSFont {
-        LitheTheme.uiNSFont(size: 12.5)
+        LitheTheme.editorFont(size: 12.5)
     }
 
     func defaultShellPath() -> String {

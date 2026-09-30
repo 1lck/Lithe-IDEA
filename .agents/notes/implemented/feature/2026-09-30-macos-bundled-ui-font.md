@@ -4,14 +4,17 @@
 
 ## 先说结论
 
-用户要求整个 App 默认使用 JetBrains Mono 2.304。macOS 界面的字体统一从
-`LitheTheme.uiFont` 和 `uiNSFont` 获取，保留每个控件的字号和字重。
+截图核对后，用户要求界面字体与 IDEA 对齐。macOS 普通界面使用已有的 Inter，
+编辑器、终端及显式等宽内容继续使用 JetBrains Mono 2.304。普通界面统一从
+`LitheTheme.uiFont` 和 `uiNSFont` 获取，代码与终端使用 `editorFont`；保留控件字重，
+Project 树字号对齐 IDEA 的 13pt。欢迎页应用名、导航、普通项目名和常规操作按钮按 IDEA 使用 Regular，避免局部 Medium/SemiBold 覆盖默认字重。
 字体文件随安装包分发，用户无需自行安装；运行时只读加载。
 
 ## 问题
 
-已有四个 JetBrains Mono 字型已是 2.304，但多数页面显式使用系统字体，
-设置页另用 Inter，输出和终端另有默认字族。只修改根视图的默认字体会被
+此前把所有页面统一为 JetBrains Mono 后，Project 树与 Git 列表相较 IDEA
+显得更宽、更实。IDEA 普通界面使用 Inter，代码编辑器才使用 JetBrains Mono。
+此前仅有 Inter 3.019 Regular/SemiBold，Medium、Bold 请求会匹配到 SemiBold；用户提供 Inter 4.1 完整发行包后，用其静态字型替换旧版，无需新增运行时下载或依赖。只修改根视图的默认字体会被
 这些局部设置覆盖。内嵌编辑器还有独立的网页进程，不能依赖原生注册。
 
 ## 决策
@@ -20,8 +23,10 @@
 语义文字样式先读取原生字号，再使用打包字体。中文等字体不包含的字形由系统
 回退渲染。IDEA SVG 的几何形状和大小保持其资源定义。
 
-`macos/Resources/Fonts` 保存用户提供的 2.304 原始静态字型、OFL 许可和作者
-信息，16 个字型覆盖各字重及斜体。构建脚本在签名前复制到 app 的 `Fonts`
+`macos/Resources/Fonts` 保存用户提供的 Inter 4.1 包中的 18 个原始静态 OTF（9 个字重及斜体，文件内部版本为 4.001）、许可，以及
+JetBrains Mono 2.304 的 16 个原始静态 TTF、OFL 和作者信息。Mono 文件与用户再次提供的归档逐文件核对，16 个文件均字节一致。
+普通 UI 通过明确的字型名称匹配 Regular、Medium、SemiBold、Bold 等真实字重；SwiftUI 不再对已经指定字型的字体重复调用 `.weight`。
+代码和终端继续读取 Mono 字型。构建脚本在签名前复制到 app 的 `Fonts`
 资源目录；CoreText（macOS 的字体管理服务）按 process 范围注册，即只对当前
 进程生效，不安装到用户系统。不能因机器已经装有同名字体而跳过打包资源。
 
@@ -40,14 +45,14 @@ Monaco 网页通过现有只读资源 adapter 加载同一字体目录。资源 
 
 ## 后果
 
-所有 app 自有界面的默认字族一致，字体版本可核对。代价是安装包增加字型，
-等宽文字会改变标签的自然宽度；Git Log 日期列因此按实际字体测量。
+普通界面使用比例字体，代码和终端使用等宽字体，字体来源均可核对。
+Git Log 日期列按实际 UI 字体测量，避免换字体后宽度仍沿用编辑器字体。
 操作系统管理的窗口装饰与系统对话框字体仍由 macOS 决定。Windows 本次不变。
 
 ## 验证
 
-`BundledUIFontTests` 以临时 bundle 验证 16 字型版本、注册来源、重复注册、
-原生字号和字重、SwiftUI 实际字宽，以及注册前后的文件清单和 SHA-256。
+`BundledUIFontTests` 以临时 bundle 验证 34 个字型的注册来源、Inter/Mono 版本、重复注册、
+原生 UI/代码字体分工和 Regular/Medium/SemiBold/Bold/Black 的真实字型匹配、SwiftUI/AppKit 实际字宽，以及注册前后的文件清单和 SHA-256。
 同一测试覆盖网页资源 adapter 的字体请求和目录逃逸拒绝。
 
 ```bash
@@ -58,7 +63,7 @@ node scripts/test-reuse-worktree-resources.mjs
 ```
 
 完整安装包由 `scripts/verify-macos-package.sh` 检查全部字型及许可信息。
-按用户要求未启动预览，实际窗口的字体回退及布局仍须人工确认。
+本次字体注册/字重与明暗弹窗圆角渲染测试通过；按用户要求不启动预览，当前运行界面的视觉验收尚未完成。Windows 原生界面不在本次验证范围内。
 
 ## 适用范围
 

@@ -277,8 +277,7 @@ struct TerminalView: View {
             items: items,
             at: screenPoint,
             appearance: window.effectiveAppearance,
-            locale: locale,
-            settingsStyle: true
+            locale: locale
         )
     }
 }

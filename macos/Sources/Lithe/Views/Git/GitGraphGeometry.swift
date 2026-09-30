@@ -5,7 +5,20 @@ import LitheGitModule
 enum GitGraphGeometry {
     // New UI's VersionControl.Log uses 26pt rows. PaintParameters scales
     // every graph measurement from its 22pt baseline with the row height.
-    static let rowHeight: CGFloat = 26
+    static let rowHeight = rowHeight(for: LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize))
+
+    // GraphCommitCellRenderer: max(New UI minimum, FontMetrics height + vertical padding).
+    static func rowHeight(for font: NSFont) -> CGFloat {
+        max(26, ceil(font.ascender) + ceil(-font.descender) + ceil(font.leading) + 7)
+    }
+
+    // SimpleColoredComponent.getTextBaseLine, including JetBrains Runtime's leading.
+    static func textBaseline(for font: NSFont, height: CGFloat) -> CGFloat {
+        let ascent = ceil(font.ascender)
+        let descent = ceil(-font.descender)
+        let leading = ceil(font.leading)
+        return floor((height - ascent - descent - leading + 1) / 2) + ascent + leading
+    }
     private static let paintScale = rowHeight / 22
     static let laneSpacing: CGFloat = 16 * paintScale
     static let leftPadding: CGFloat = 8 * paintScale
@@ -25,6 +38,12 @@ enum GitGraphGeometry {
         }
         let columns = max(lastPosition + 1, CGFloat(min(6, recommendedLaneCount)))
         return columns * laneSpacing + graphTextGap
+    }
+
+    /// Keep the screenshot's six-column title gutter; dense rows may grow beyond it.
+    /// Use GraphCommitCellUtil's scaled grid and SimpleColoredComponent's 2pt text inset.
+    static func titleOffset(_ row: GitGraphRow, recommendedLaneCount: Int) -> CGFloat {
+        floor(rowWidth(row, recommendedLaneCount: max(6, recommendedLaneCount))) + 2
     }
 
     static func line(for element: GitGraphPrintElement, rowHeight: CGFloat) -> (start: CGPoint, end: CGPoint) {

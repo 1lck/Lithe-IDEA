@@ -6,3 +6,7 @@ These committed resources are copied into Contents/Resources/Fonts by package-ap
 and preview.sh during builds. CoreText registers them at process scope by reading the
 bundle; runtime code never modifies these files. They remain part of the signed app
 and the immutable baseline used for Sparkle differential updates.
+
+Inter 4.1 — https://github.com/rsms/inter/releases/tag/v4.1
+The Inter-*.otf files are unmodified static fonts from extras/otf in Inter-4.1.zip.
+Copyright and redistribution terms: Inter-LICENSE.txt.

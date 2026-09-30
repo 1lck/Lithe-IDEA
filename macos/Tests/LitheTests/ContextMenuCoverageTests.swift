@@ -1,11 +1,86 @@
 import AppKit
 import Testing
+import SwiftUI
 import LitheGitModule
 @testable import Lithe
 
 @Suite("Unified context menus")
 @MainActor
 struct ContextMenuCoverageTests {
+    @Test
+    func filterPopoverAnchorLeavesMouseEventsToItsButton() {
+        let button = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 30))
+        let anchor = GitLogPopoverAnchorView(frame: button.bounds)
+        button.addSubview(anchor)
+        // The overlay is only an anchor; swallowing hit tests broke both the
+        // filter label's hover and the button's click before a popup opened.
+        for point in [NSPoint(x: 1, y: 1), NSPoint(x: 50, y: 15), NSPoint(x: 99, y: 29)] {
+            #expect(anchor.hitTest(point) == nil)
+            #expect(button.hitTest(point) === button)
+        }
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
+    func searchableFilterContentCannotCoverSharedRoundedCorners(scheme: ColorScheme) throws {
+        let menus: [AnyView] = [
+            AnyView(GitLogBranchFilterPopover(
+                menu: GitLogFilterList.branchMenu(references: []),
+                querySections: { GitLogFilterList.branchSections(references: [], query: $0) },
+                isItemSelected: { _ in false }, onSelect: { _ in }
+            )),
+            AnyView(GitLogFilterPopover(
+                sectionsForQuery: { GitLogFilterList.authorSections(authors: [], query: $0) },
+                searchPlaceholder: "Search users", emptyText: "No matching users",
+                isItemSelected: { _ in false }, onSelect: { _ in }
+            ))
+        ]
+        for menu in menus {
+            let renderer = ImageRenderer(content: menu.environment(\.colorScheme, scheme))
+            let image = try #require(renderer.cgImage)
+            let bitmap = NSBitmapImageRep(cgImage: image)
+            // The search strip used to paint an opaque rectangle over the shared corner.
+            for x in [0, bitmap.pixelsWide - 1] {
+                for y in [0, bitmap.pixelsHigh - 1] {
+                    #expect(try #require(bitmap.colorAt(x: x, y: y)).alphaComponent < 0.05)
+                }
+            }
+            #expect(try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 12)).alphaComponent > 0.95)
+        }
+    }
+
+    @Test
+    func searchableDropdownUsesSharedWindowAndDismissal() throws {
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        let screen = try #require(NSScreen.main).visibleFrame
+        let controller = LitheDropdownHostingController(rootView: AnyView(
+            Text("Filter").frame(width: 300, height: 120).litheContextMenuSurface()
+        ))
+        var dismissals = 0
+        presenter.show(contentController: controller,
+                       at: NSPoint(x: screen.midX, y: screen.midY),
+                       appearance: NSAppearance(named: .darkAqua)) { dismissals += 1 }
+        let window = try #require(controller.view.window)
+        #expect(window.styleMask.contains(.borderless))
+        #expect(!window.isOpaque)
+        #expect(window.backgroundColor == .clear)
+        #expect(window.frame.width == 300)
+        #expect(window.frame.height == 120)
+        #expect(screen.contains(window.frame))
+        // Search/group changes must resize the existing host rather than replace it.
+        controller.rootView = AnyView(Text("Flyout").frame(width: 560, height: 200).litheContextMenuSurface())
+        controller.view.layoutSubtreeIfNeeded()
+        presenter.resize(contentController: controller)
+        #expect(controller.view.window === window)
+        #expect(window.frame.width == 560)
+        #expect(window.frame.height == 200)
+        try sendKey(53, to: window)
+        #expect(!window.isVisible)
+        #expect(dismissals == 1)
+        presenter.dismiss()
+        #expect(dismissals == 1)
+    }
+
     @Test
     func worktreeMenuRetainsClickedItemAcrossSelectionRefresh() throws {
         let clicked = worktree("feature")
@@ -126,6 +201,49 @@ struct ContextMenuCoverageTests {
         try sendKey(124, to: window)
         try sendKey(36, to: window)
         #expect(calls == ["open", "folder"])
+    }
+
+    @Test(arguments: [false, true])
+    func projectAndActionDropdownsRenderTheSameChrome(isDark: Bool) throws {
+        // Capture the real panel: sharing tokens alone did not prevent the old
+        // action-menu branch from rendering a different background and border.
+        let menus: [[LitheContextMenuItem]] = [
+            [.action("Project") {}, .action("Dependencies") {}],
+            [.action("Fetch Options…") {},
+             .action("Show Worktree Repositories", systemImage: "checkmark") {}]
+        ]
+        for items in menus {
+            let presenter = LitheContextMenuPresenter()
+            defer { presenter.dismiss() }
+            presenter.show(items: items, at: NSPoint(x: 200, y: 300),
+                           appearance: NSAppearance(named: isDark ? .darkAqua : .aqua),
+                           locale: Locale(identifier: "en"))
+            let window = try #require(NSApp.windows.first {
+                $0.isVisible && String(describing: type(of: $0)).contains("LitheContextMenuPanel")
+            })
+            #expect(window.frame.height == 60)
+            let host = try #require(window.contentView)
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+            let y = bitmap.pixelsHigh / 2
+            let probes: [(Int, UInt32)] = [
+                (Int(3 * scale), isDark ? 0x2B2D30 : 0xFFFFFF),
+                (0, isDark ? 0x4C4F56 : 0xE9EAEE)
+            ]
+            for (x, expected) in probes {
+                let pixel = try #require(bitmap.colorAt(x: x, y: y))
+                // AppKit caches in the display profile, while colorAt returns
+                // generically tagged channels. Restore the bitmap's profile.
+                let color = try #require(NSColor(colorSpace: bitmap.colorSpace,
+                    components: [pixel.redComponent, pixel.greenComponent, pixel.blueComponent, pixel.alphaComponent],
+                    count: 4).usingColorSpace(.sRGB))
+                #expect(abs(color.redComponent - CGFloat((expected >> 16) & 255) / 255) < 0.01)
+                #expect(abs(color.greenComponent - CGFloat((expected >> 8) & 255) / 255) < 0.01)
+                #expect(abs(color.blueComponent - CGFloat(expected & 255) / 255) < 0.01)
+            }
+        }
     }
 
     @Test

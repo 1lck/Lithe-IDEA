@@ -367,7 +367,7 @@ async function main() {
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
       // Runtime snapshots (including credential-bearing IDE MCP connections and JDT Maven settings)
-      // and Git-owned bundled fonts are isolated; never copy them across worktrees.
+      // and Git-owned Inter 4.1/JetBrains Mono 2.304 fonts are isolated; never copy them across worktrees.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.reason}; it cannot be reused across worktrees`);

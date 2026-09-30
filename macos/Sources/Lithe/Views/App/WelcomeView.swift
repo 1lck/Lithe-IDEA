@@ -49,7 +49,7 @@ struct WelcomeView: View {
                 LitheIcons.appLogo(size: 28)
                 VStack(alignment: .leading, spacing: 0) {
                     Text("Lithe")
-                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         .foregroundStyle(textColor)
                     Text(updateChecker.versionDescription)
                         .font(LitheTheme.uiFont(size: 11))
@@ -63,7 +63,7 @@ struct WelcomeView: View {
             HStack(spacing: 9) {
                 LitheIcon(kind: .folder, size: 15)
                 Text("Projects")
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .regular))
             }
             .foregroundStyle(textColor)
             .padding(.horizontal, 14)
@@ -189,7 +189,7 @@ struct WelcomeView: View {
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(project.name)
-                            .font(LitheTheme.uiFont(size: 13.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 13.5, weight: .regular))
                             .foregroundStyle(exists ? textColor : mutedColor)
                         Text(project.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
                             .font(LitheTheme.uiFont(size: 11.5))
@@ -310,8 +310,7 @@ struct WelcomeView: View {
             at: screenPoint,
             appearance: window.effectiveAppearance,
             locale: locale,
-            opensUpward: true,
-            settingsStyle: true
+            opensUpward: true
         )
     }
 }
@@ -324,7 +323,7 @@ private struct WelcomeActionStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .font(LitheTheme.uiFont(size: 13, weight: .medium))
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .foregroundStyle(foreground)
             .padding(.horizontal, 13)
             .frame(height: 28)

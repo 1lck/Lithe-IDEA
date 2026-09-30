@@ -1,4 +1,5 @@
 import AppKit
+import CoreText
 import SwiftUI
 import LitheGitModule
 
@@ -79,7 +80,7 @@ struct GitGraphView: View {
                 ForEach(presentation.rows) { row in
                     GitGraphRowView(
                         row: row,
-                        graphWidth: GitGraphGeometry.rowWidth(row, recommendedLaneCount: presentation.routingSnapshot.recommendedLaneCount),
+                        graphWidth: GitGraphGeometry.titleOffset(row, recommendedLaneCount: presentation.routingSnapshot.recommendedLaneCount),
                         rowHeight: rowHeight,
                         isSelected: selectedHashes?.contains(row.commit.hash) ?? (selectedHash == row.commit.hash),
                         showCommitDecorations: showCommitDecorations,
@@ -553,7 +554,11 @@ final class GitGraphCommitRowsNSView: NSView {
 
         for index in first...last {
             let row = rows[index]
-            let textStart = GitGraphGeometry.rowWidth(row, recommendedLaneCount: recommendedLaneCount)
+            let textStart = GitGraphGeometry.titleOffset(row, recommendedLaneCount: recommendedLaneCount)
+            let foreground = GitGraphColor.commitForeground(
+                parentCount: row.commit.parentHashes.count, isSelected: selectedHash == row.commit.hash,
+                normal: style.primary, isDark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            )
             let rect = CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight)
             if selectedHash == row.commit.hash {
                 style.selection.setFill()
@@ -566,19 +571,19 @@ final class GitGraphCommitRowsNSView: NSView {
                 row.commit.subject,
                 in: CGRect(x: textStart, y: rect.minY, width: max(0, rect.width - textStart - LitheTheme.GitLog.dateColumnWidth - 120), height: rowHeight),
                 font: style.body,
-                color: row.commit.parentHashes.count > 1 && selectedHash != row.commit.hash ? style.merge : style.primary
+                color: foreground
             )
             drawText(
                 row.commit.authorName,
                 in: CGRect(x: max(0, rect.maxX - LitheTheme.GitLog.dateColumnWidth - 112), y: rect.minY, width: 104, height: rowHeight),
                 font: style.meta,
-                color: style.primary
+                color: foreground
             )
             drawText(
                 row.commit.date,
                 in: CGRect(x: max(0, rect.maxX - LitheTheme.GitLog.dateColumnWidth - 8), y: rect.minY, width: LitheTheme.GitLog.dateColumnWidth, height: rowHeight),
                 font: style.monoMeta,
-                color: style.primary,
+                color: foreground,
                 alignment: .right
             )
             if showDecorations, !row.labels.isEmpty {
@@ -627,25 +632,28 @@ final class GitGraphCommitRowsNSView: NSView {
         }
     }
 
-    private static let leftParagraphStyle: NSParagraphStyle = {
-        let style = NSMutableParagraphStyle()
-        style.alignment = .left
-        style.lineBreakMode = .byTruncatingTail
-        return style.copy() as! NSParagraphStyle
-    }()
-
-    private static let rightParagraphStyle: NSParagraphStyle = {
-        let style = NSMutableParagraphStyle()
-        style.alignment = .right
-        style.lineBreakMode = .byTruncatingTail
-        return style.copy() as! NSParagraphStyle
-    }()
-
     private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
-        guard rect.width > 0 else { return }
-        let paragraph = alignment == .right ? Self.rightParagraphStyle : Self.leftParagraphStyle
-        let height = ceil(font.ascender - font.descender)
-        (text as NSString).draw(in: CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        guard rect.width > 0, let context = NSGraphicsContext.current?.cgContext else { return }
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let fullLine = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
+        let line = CTLineGetTypographicBounds(fullLine, nil, nil, nil) > rect.width
+            ? CTLineCreateTruncatedLine(fullLine, Double(rect.width), .end, token) ?? token
+            : fullLine
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let x = alignment == .right ? rect.maxX - width : rect.minX
+        let baseline = rect.minY + GitGraphGeometry.textBaseline(for: font, height: rect.height)
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: rect)
+        // SimpleColoredComponent defaults fractional metrics off; use pixel-aligned glyph origins.
+        context.setShouldSubpixelPositionFonts(false)
+        // Draw at the shared integer baseline rather than centering an AppKit text rectangle.
+        context.translateBy(x: x, y: baseline)
+        context.scaleBy(x: 1, y: -1)
+        context.textMatrix = .identity
+        context.textPosition = .zero
+        CTLineDraw(line, context)
     }
 
     private func resolvedDrawingStyle() -> DrawingStyle? {
@@ -663,13 +671,11 @@ final class GitGraphCommitRowsNSView: NSView {
         let reference = LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize - 1)
         let referenceText = NSColor(LitheTheme.GitLog.referenceText)
         let primary: NSColor
-        let merge: NSColor
         let selection: NSColor
         let hover: NSColor
 
         init(isDark: Bool) {
             primary = NSColor(LitheTheme.searchFieldText)
-            merge = GitGraphColor.mergeForeground(isDark: isDark)
             selection = NSColor(LitheTheme.GitLog.rowBackground(selected: true, hovered: false))
             hover = NSColor(LitheTheme.GitLog.rowBackground(selected: false, hovered: true))
         }
@@ -705,9 +711,7 @@ private struct GitGraphRowView: View, Equatable {
                 HStack(spacing: 0) {
                     Text(row.commit.subject)
                         .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
-                        .foregroundStyle(row.commit.parentHashes.count > 1 && !isSelected
-                            ? Color(nsColor: GitGraphColor.mergeForeground(isDark: colorScheme == .dark))
-                            : LitheTheme.searchFieldText)
+                        .foregroundStyle(foregroundColor)
                         .lineLimit(1)
 
                     if showCommitDecorations, !row.labels.isEmpty {
@@ -725,13 +729,13 @@ private struct GitGraphRowView: View, Equatable {
 
                 Text(row.commit.authorName)
                     .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
-                    .foregroundStyle(LitheTheme.searchFieldText)
+                    .foregroundStyle(foregroundColor)
                     .lineLimit(1)
                     .frame(width: 104, alignment: .leading)
 
                 Text(row.commit.date)
                     .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
-                    .foregroundStyle(LitheTheme.searchFieldText)
+                    .foregroundStyle(foregroundColor)
                     .lineLimit(1)
                     .frame(width: LitheTheme.GitLog.dateColumnWidth, alignment: .trailing)
             }
@@ -745,6 +749,13 @@ private struct GitGraphRowView: View, Equatable {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .onHover { isHovered = $0 }
         .litheContextMenu { actions.contextMenuItems(for: row.commit) }
+    }
+
+    private var foregroundColor: Color {
+        Color(nsColor: GitGraphColor.commitForeground(
+            parentCount: row.commit.parentHashes.count, isSelected: isSelected,
+            normal: NSColor(LitheTheme.searchFieldText), isDark: colorScheme == .dark
+        ))
     }
 
     private var backgroundColor: Color {

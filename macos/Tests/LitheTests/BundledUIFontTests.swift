@@ -3,6 +3,7 @@ import CoreText
 import CryptoKit
 import SwiftUI
 import Testing
+import LitheGitModule
 import WebKit
 @testable import Lithe
 
@@ -17,8 +18,8 @@ struct BundledUIFontTests {
         try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: temporary) }
         let fonts = try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: nil)
-            .filter { $0.lastPathComponent.hasPrefix("JetBrainsMono-") && $0.pathExtension == "ttf" }
-        #expect(fonts.count == 16)
+            .filter { ["ttf", "otf"].contains($0.pathExtension) }
+        #expect(fonts.count == 34)
         var hashes: [String: Data] = [:]
         for font in fonts {
             let destination = resources.appendingPathComponent(font.lastPathComponent)
@@ -43,25 +44,81 @@ struct BundledUIFontTests {
         for font in fonts {
             let name = font.deletingPathExtension().lastPathComponent
             let registered = try #require(NSFont(name: name, size: 13))
-            #expect(registered.familyName == "JetBrains Mono")
-            let version = try #require(CTFontCopyName(registered, kCTFontVersionNameKey) as String?)
-            #expect(version.contains("2.304"))
+            #expect(registered.familyName == (name.hasPrefix("Inter-") ? "Inter" : "JetBrains Mono"))
+            if name.hasPrefix("JetBrainsMono-") {
+                let version = try #require(CTFontCopyName(registered, kCTFontVersionNameKey) as String?)
+                #expect(version.contains("2.304"))
+            } else {
+                // The official Inter 4.1 distribution identifies its static faces as 4.001.
+                let version = try #require(CTFontCopyName(registered, kCTFontVersionNameKey) as String?)
+                #expect(version.contains("4.001"))
+            }
             let location = try #require(CTFontCopyAttribute(registered, kCTFontURLAttribute) as? URL)
             #expect(location.standardizedFileURL == resources.appendingPathComponent(font.lastPathComponent))
             #expect(Data(SHA256.hash(data: try Data(contentsOf: location))) == hashes[font.lastPathComponent])
         }
         for (weight, face) in [(NSFont.Weight.regular, "Regular"), (.medium, "Medium"),
                                (.semibold, "SemiBold"), (.bold, "Bold")] {
-            let font = LitheTheme.uiNSFont(size: 13, weight: weight)
+            let font = LitheTheme.editorFont(size: 13, weight: weight)
             #expect(font.fontName == "JetBrainsMono-\(face)")
             #expect(font.pointSize == 13)
         }
-        // Render SwiftUI's actual shared font as well: equal-width i/M glyphs
-        // catch a system-family fallback even when native registration succeeds.
-        let renderer = ImageRenderer(content: Text("iiiiMMMM").font(LitheTheme.uiFont(size: 13)).fixedSize())
-        let image = try #require(renderer.cgImage)
-        let expectedWidth = ("iiiiMMMM" as NSString).size(withAttributes: [.font: LitheTheme.uiNSFont(size: 13)]).width
-        #expect(abs(CGFloat(image.width) - expectedWidth) <= 1)
+        let uiFont = LitheTheme.uiNSFont(size: 13)
+        #expect(uiFont.fontName == "Inter-Regular")
+        for (weight, native, face) in [(Font.Weight.regular, NSFont.Weight.regular, "Regular"),
+                                      (.medium, .medium, "Medium"), (.semibold, .semibold, "SemiBold"),
+                                      (.bold, .bold, "Bold"), (.black, .black, "Black")] {
+            let expected = try #require(NSFont(name: "Inter-\(face)", size: 13))
+            #expect(LitheTheme.uiNSFont(size: 13, weight: native).fontName == expected.fontName)
+            let renderer = ImageRenderer(content: Text("iiiiMMMM").font(LitheTheme.uiFont(size: 13, weight: weight)).fixedSize())
+            let image = try #require(renderer.cgImage)
+            let width = ("iiiiMMMM" as NSString).size(withAttributes: [.font: expected]).width
+            #expect(abs(CGFloat(image.width) - width) <= 1)
+        }
+        #expect(("iiii" as NSString).size(withAttributes: [.font: uiFont]).width
+                < ("MMMM" as NSString).size(withAttributes: [.font: uiFont]).width)
+        #expect(GitGraphGeometry.rowHeight(for: uiFont) == 26)
+        #expect(GitGraphGeometry.textBaseline(for: uiFont, height: 26) == 18)
+        let largeFont = LitheTheme.uiNSFont(size: 32)
+        let largeHeight = GitGraphGeometry.rowHeight(for: largeFont)
+        #expect(largeHeight > 26)
+        #expect(GitGraphGeometry.textBaseline(for: largeFont, height: largeHeight) + ceil(-largeFont.descender) <= largeHeight)
+        // Capture the actual commit-row renderer while only the test bundle's fonts are registered.
+        if let directory = ProcessInfo.processInfo.environment["LITHE_GIT_GRAPH_CAPTURE_DIR"] {
+            let commits = ["update", "Merge branch 'preview' into codex/frontend2", "chore(issue): expand automatic labels", "fix(ci): restore service helper placement", "修复界面：中文、emoji 👨‍👩‍👧‍👦 和较长标题的省略显示，确认文字超出单元格时不会覆盖右侧作者与日期列"]
+                .enumerated().map { index, subject in
+                    GitCommit(hash: String(index), shortHash: String(index), parentHashes: index == 1 ? ["2", "3"] : [],
+                              authorName: "Author", authorEmail: "author@example.invalid", date: "2026/09/30",
+                              subject: subject, decorations: "")
+                }
+            let rows = GitGraphLayoutService.layout(commits: commits).rows
+            for dark in [false, true] {
+                let view = GitGraphCommitRowsNSView(frame: NSRect(x: 0, y: 0, width: 720, height: CGFloat(rows.count) * 26))
+                view.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+                view.update(rows: rows, selectedHash: "0", showDecorations: false, graphWidth: 30, rowHeight: 26,
+                            actions: GitGraphRowActions(onSelect: { _ in }, onCherryPick: { _ in }, onRevert: { _ in },
+                                                        onReset: { _, _ in }, onCreateTag: { _ in }))
+                let surface = GraphCaptureBackground(frame: view.bounds)
+                surface.appearance = view.appearance
+                surface.addSubview(view)
+                let bitmap = try #require(surface.bitmapImageRepForCachingDisplay(in: surface.bounds))
+                surface.cacheDisplay(in: surface.bounds, to: bitmap)
+                let root = URL(fileURLWithPath: directory, isDirectory: true)
+                try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: root.appendingPathComponent("typography-\(dark ? "dark" : "light").png"))
+            }
+        }
+        // Compare SwiftUI and AppKit metrics so one renderer cannot fall back to Mono.
+        for (font, native) in [
+            (LitheTheme.uiFont(size: 13), uiFont),
+            (LitheTheme.uiFont(size: 13, design: .monospaced), LitheTheme.editorFont(size: 13))
+        ] {
+            let renderer = ImageRenderer(content: Text("iiiiMMMM").font(font).fixedSize())
+            let image = try #require(renderer.cgImage)
+            let expectedWidth = ("iiiiMMMM" as NSString).size(withAttributes: [.font: native]).width
+            #expect(abs(CGFloat(image.width) - expectedWidth) <= 1)
+        }
         #expect(try FileManager.default.contentsOfDirectory(atPath: resources.path).sorted() == fonts.map(\.lastPathComponent).sorted())
     }
 

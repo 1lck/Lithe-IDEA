@@ -4,11 +4,11 @@ import SwiftUI
 private enum SettingsSelectMetrics {
     static let controlHeight: CGFloat = 28
     static let controlCornerRadius: CGFloat = 4
-    static let fontSize: CGFloat = 12.5
-    static let popupCornerRadius: CGFloat = 8
-    static let itemHeight: CGFloat = 24
-    static let itemHorizontalPadding: CGFloat = 8
-    static let popupPadding: CGFloat = 6
+    static let fontSize: CGFloat = LitheDropdownMetrics.fontSize
+    static let popupCornerRadius: CGFloat = LitheTheme.Metrics.contextMenuCornerRadius
+    static let itemHeight: CGFloat = LitheDropdownMetrics.rowHeight
+    static let itemHorizontalPadding: CGFloat = LitheDropdownMetrics.itemHorizontalPadding
+    static let popupPadding: CGFloat = LitheDropdownMetrics.popupPadding
     static let screenMargin: CGFloat = 24
     static let maximumPopupHeight: CGFloat = 10 * itemHeight + 2 * popupPadding
 }
@@ -298,11 +298,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
         }
         .scrollContentBackground(.hidden)
         .frame(width: width, height: state.popupHeight)
-        .litheSettingsControlChrome(
-            background: LitheTheme.settingsPopupBackground,
-            border: LitheTheme.settingsPopupBorder,
-            cornerRadius: SettingsSelectMetrics.popupCornerRadius
-        )
+        .litheContextMenuSurface()
         .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.popupCornerRadius))
     }
 
@@ -443,6 +439,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         self.ownerID = ownerID
         self.onDismiss = onDismiss
         installEventMonitors()
+        panel.setFrame(frame, display: true)
         panel.orderFrontRegardless()
         panel.makeKey()
     }

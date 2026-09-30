@@ -61,16 +61,30 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
   "长边收束"只隐藏中间行的边本身，不删除中间行的其他提交，也不做
   IDEA 的"折叠一整段线性提交"功能。
 - **渲染尺寸和合并提交文字层次复刻 IDEA**：New UI 普通密度使用
-  `JBUI.CurrentTheme.VersionControl.Log` 的 26pt 行高；`PaintParameters`
+  `JBUI.CurrentTheme.VersionControl.Log` 的至少 26pt 行高，并取字体 ascent、descent、leading 的整数度量加 7pt 内边距的较大值；`PaintParameters`
   的 22pt 是缩放基准，16pt 列距、8pt 节点直径、1.5pt 线宽及 2pt
   图文间距均乘以 `26 / 22`，绘制与箭头命中共用同一份几何数据。
   提交文字使用 13pt，引用文字按 `LabelPainter` 使用 12pt 且不绘制旧版
   灰色圆角标签；焦点/失焦选中色复用共享树行主题，选中覆盖 hover。
   深色 hover 按 `VcsLogGraphTable.getHoveredBackgroundColor` 与
   `ColorUtil.mix` 将白色和当前背景以 18/255、237/255 混合，不能把
-  `#FFFFFFED` 直接当作高不透明度覆盖层。两个及以上父节点的合并提交标题使用
-  `VersionControl.Log.Commit.unmatchedForeground`，以父节点数量而非
+  `#FFFFFFED` 直接当作高不透明度覆盖层。两个及以上父节点的合并提交在未选中时，标题、作者和日期统一使用
+  `VersionControl.Log.Commit.unmatchedForeground`（深色 `#6F737A`，浅色 `#818594`）；
+  选中后恢复主文字色，对齐 `MergeCommitsHighlighter`。以父节点数量而非
   标题是否以 "Merge" 开头判断是否为合并提交。
+
+标题起点沿用 `GraphCommitCellUtil` 的缩放列距与图文间距，并计入
+`SimpleColoredComponent` 的 2pt 左内边距。为对齐用户给出的六列参考截图，
+Lithe 为标题预留至少六列；更密集的行可以继续扩宽。这是 Lithe 的显示选择：
+上游按推荐图宽取最多六列，并不强制所有仓库至少六列。仅扩大文字预留区，
+不改变节点、边、图谱路由或箭头命中位置。
+
+提交标题、作者和日期使用 Inter 13 Normal；引用标签使用 12pt。文字绘制复用
+CoreText 的单行布局和省略号处理，采用 `SimpleColoredComponent.getTextBaseLine`
+的整数基线公式，并计入 JetBrains Runtime 的 leading。绘制和截断共用同一字型，
+每个单元格裁剪后绘制，避免长标题覆盖其他列；按 SimpleColoredComponent 默认关闭分数度量的规则，
+仅在 Git Log 的绘制上下文关闭子像素字形定位，不对字形施加缩放或描边来模拟粗细。
+JVM 与 CoreText 的栅格化器不同，因此遵循相同度量规则不代表像素级完全相同。
 
 ## 考虑过的备选方案
 
@@ -110,6 +124,11 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
   算法回归 fixture 为依据，不能重新从零选择对齐目标。
 
 ## 验证
+
+`GitGraphInteractionTests.titleGutter` 检查六列标题预留与复杂图谱扩宽；
+`mergeColumnsRenderTogether` 实际渲染 SwiftUI/AppKit 两条路径，检查合并行
+标题、作者、日期在选中与未选中时的颜色。
+
 
 - `./scripts/build-macos.sh`
 - `./scripts/verify-git-graph.sh`

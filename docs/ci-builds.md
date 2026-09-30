@@ -171,7 +171,7 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
 
-JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
+Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
 `macos/Resources/Fonts`。它们与平台架构和工具链无关，随工作树检出，不从另一个
 工作树的产物或已签名 app 复用；注册表将 `bundled-ui-fonts` 排除，复用脚本拒绝
 复制。打包脚本在签名前复制到 `Contents/Resources/Fonts`，资源门禁检查全部字型；

@@ -40,3 +40,8 @@ plugin icons. See LICENSE-APACHE-2.0.txt for the license text.
 
 Exception: toolwindows/toolWindowAgent.svg is an original Lithe icon, not an
 imported JetBrains asset. It follows the Lithe repository license.
+
+The Git Log commit details preview uses expui/general/previewVertically
+light/dark assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. PlatformIconMappings maps the
+legacy actions/previewDetails.svg to this resource.

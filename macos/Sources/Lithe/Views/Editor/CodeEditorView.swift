@@ -2933,7 +2933,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         for range in collapsedRanges.ranges {
             layoutManager.addTemporaryAttribute(
                 .font,
-                value: LitheTheme.uiNSFont(size: 0.1, weight: .regular),
+                value: LitheTheme.editorFont(size: 0.1, weight: .regular),
                 forCharacterRange: range
             )
             let collapsedParagraph = NSMutableParagraphStyle()
@@ -3013,7 +3013,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
               layoutManager.numberOfGlyphs > 0 else { return }
 
         let source = string as NSString
-        let font = self.font ?? LitheTheme.uiNSFont(size: 12, weight: .regular)
+        let font = self.font ?? LitheTheme.editorFont(size: 12, weight: .regular)
         let spaceWidth = (" " as NSString).size(withAttributes: [.font: font]).width
         let width = max(1, indentationWidth)
         guard spaceWidth > 0 else { return }
@@ -3319,7 +3319,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let sourceLength = string.utf16.count
         let location = min(selectedRange().location, sourceLength)
         let fallbackLineHeight = layoutManager.defaultLineHeight(
-            for: font ?? LitheTheme.uiNSFont(size: 13, weight: .regular)
+            for: font ?? LitheTheme.editorFont(size: 13, weight: .regular)
         )
         let containerRect = EditorCaretGeometry.rect(
             at: location,
@@ -4065,7 +4065,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         textView.isEditable = false
         textView.isSelectable = true
         textView.drawsBackground = false
-        textView.font = LitheTheme.uiNSFont(size: 12, weight: .regular)
+        textView.font = LitheTheme.editorFont(size: 12, weight: .regular)
         textView.textContainerInset = NSSize(width: 10, height: 9)
         let scrollView = NSScrollView(frame: textView.frame)
         scrollView.documentView = textView
@@ -4126,7 +4126,7 @@ final class CodeTextView: NSTextView, NSLayoutManagerDelegate {
         let length = string.utf16.count
         let location = min(selectedRange().location, length)
         let fallbackLineHeight = layoutManager.defaultLineHeight(
-            for: font ?? LitheTheme.uiNSFont(size: 13, weight: .regular)
+            for: font ?? LitheTheme.editorFont(size: 13, weight: .regular)
         )
         var rect = EditorCaretGeometry.rect(
             at: location,
@@ -4704,7 +4704,7 @@ final class LineNumberGutterView: NSView {
         guard layoutManager.numberOfGlyphs > 0 else {
             let lineHeight = max(
                 18,
-                layoutManager.defaultLineHeight(for: textView.font ?? LitheTheme.uiNSFont(size: 13))
+                layoutManager.defaultLineHeight(for: textView.font ?? LitheTheme.editorFont(size: 13))
             )
             drawLineNumber(1, y: textView.textContainerInset.height, height: lineHeight)
             drawEditorDivider(in: dirtyRect)

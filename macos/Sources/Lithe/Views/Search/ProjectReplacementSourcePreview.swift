@@ -125,7 +125,7 @@ enum ProjectReplacementPreviewText {
         let storage = NSTextStorage(string: text)
         if let fileName {
             SyntaxHighlighter.apply(
-                to: storage, font: LitheTheme.uiNSFont(size: 12, weight: .regular),
+                to: storage, font: LitheTheme.editorFont(size: 12, weight: .regular),
                 fileName: fileName, fileExtension: (fileName as NSString).pathExtension, isDark: isDark
             )
         }

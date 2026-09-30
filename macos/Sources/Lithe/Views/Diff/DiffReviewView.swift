@@ -1049,7 +1049,7 @@ enum DiffLayoutMetrics {
     /// Advance of one character in the diff's monospaced font. Measured once
     /// because every glyph in a monospaced face shares the same advance.
     static let characterWidth: CGFloat = {
-        let font = LitheTheme.uiNSFont(size: textFontSize, weight: .regular)
+        let font = LitheTheme.editorFont(size: textFontSize, weight: .regular)
         let width = NSAttributedString(string: "0", attributes: [.font: font]).size().width
         return width > 0 ? width : textFontSize * 0.6
     }()

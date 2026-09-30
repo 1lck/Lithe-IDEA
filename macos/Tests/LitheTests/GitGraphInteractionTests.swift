@@ -339,6 +339,69 @@ struct GitGraphInteractionTests {
         }
     }
 
+    @Test("Titles reserve the reference six-column gutter and expand for dense rows")
+    func titleGutter() {
+        let layout = expandedMergeFixture()
+        let minimum = floor(6 * GitGraphGeometry.laneSpacing + GitGraphGeometry.graphTextGap) + 2
+        for row in layout.rows {
+            let offset = GitGraphGeometry.titleOffset(row, recommendedLaneCount: 0)
+            #expect(offset >= minimum)
+            #expect(offset >= floor(GitGraphGeometry.rowWidth(row, recommendedLaneCount: 0)) + 2)
+        }
+        let compact = GitGraphLayoutService.layout(commits: commits()).rows[20]
+        #expect(GitGraphGeometry.titleOffset(compact, recommendedLaneCount: 0) == minimum)
+    }
+
+    @Test("Merge foreground reaches title, author and date in both renderers", arguments: [false, true])
+    func mergeColumnsRenderTogether(selected: Bool) throws {
+        let commit = GitCommit(hash: "merge", shortHash: "merge", parentHashes: ["left", "right"],
+                               authorName: "MMMMMMMM", authorEmail: "test@example.invalid",
+                               date: "MMMMMMMM", subject: "MMMMMMMM", decorations: "")
+        let layout = GitGraphLayoutService.layout(commits: [commit])
+        let row = try #require(layout.rows.first)
+        let frame = NSRect(x: 0, y: 0, width: 850, height: GitGraphGeometry.rowHeight)
+        let native = GitGraphCommitRowsNSView(frame: frame)
+        native.update(rows: [row], selectedHash: selected ? commit.hash : nil, showDecorations: false,
+                      graphWidth: 100, rowHeight: frame.height, actions: actions { _ in })
+        let swiftUI = NSHostingView(rootView: GitGraphView(
+            presentation: presentation(layout), selectedHash: selected ? commit.hash : nil,
+            showCommitDecorations: false, actions: actions { _ in })
+            .environment(\.colorScheme, .dark))
+        for view: NSView in [native, swiftUI] {
+            let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.contentView = view
+            defer { window.orderOut(nil); window.close() }
+            view.frame = frame
+            view.layoutSubtreeIfNeeded()
+            let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            let scale = CGFloat(bitmap.pixelsWide) / frame.width
+            let dateStart = frame.width - LitheTheme.GitLog.dateColumnWidth - 8
+            let ranges = [
+                GitGraphGeometry.titleOffset(row, recommendedLaneCount: 0)..<CGFloat(280),
+                (dateStart - 112)..<(dateStart - 8), dateStart..<CGFloat(842)
+            ]
+            let expected = CGFloat(selected ? 209 : 111) / 255
+            for range in ranges {
+                var brightestRed: CGFloat = 0
+                for y in 0..<bitmap.pixelsHigh {
+                    for x in Int(range.lowerBound * scale)..<Int(range.upperBound * scale) {
+                        let pixel = try #require(bitmap.colorAt(x: x, y: y))
+                        let color = try #require(NSColor(colorSpace: bitmap.colorSpace,
+                            components: [pixel.redComponent, pixel.greenComponent, pixel.blueComponent, pixel.alphaComponent],
+                            count: 4).usingColorSpace(.sRGB))
+                        if color.alphaComponent > 0.9 {
+                            brightestRed = max(brightestRed, color.redComponent)
+                        }
+                    }
+                }
+                #expect(abs(brightestRed - expected) < 0.03, "\(type(of: view)) column \(range)")
+            }
+        }
+    }
+
     private func commits() -> [GitCommit] {
         (0...40).map { row -> GitCommit in
             let hash = String(row)
@@ -386,7 +449,7 @@ struct GitGraphInteractionTests {
 }
 
 @MainActor
-private final class GraphCaptureBackground: NSView {
+final class GraphCaptureBackground: NSView {
     override var isFlipped: Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {

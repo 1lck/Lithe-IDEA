@@ -19,6 +19,11 @@ enum GitGraphColor {
         return NSColor(deviceHue: hue, saturation: 0.6, brightness: isDark ? 0.6 : 0.7, alpha: 1)
     }
 
+    /// MergeCommitsHighlighter applies to every text column, except selected rows.
+    static func commitForeground(parentCount: Int, isSelected: Bool, normal: NSColor, isDark: Bool) -> NSColor {
+        parentCount >= 2 && !isSelected ? mergeForeground(isDark: isDark) : normal
+    }
+
     /// IDEA MergeCommitsHighlighter uses the theme's unmatched foreground.
     /// Selected rows retain their normal foreground so they remain readable.
     static func mergeForeground(isDark: Bool) -> NSColor {

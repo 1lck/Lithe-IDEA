@@ -364,17 +364,7 @@ enum LitheTheme {
     static var editor: Color { adaptive(\.editor) }
     static var raised: Color { adaptive(\.raised) }
     static var notificationBackground: Color { adaptive(\.notification) }
-    static var contextMenuBackground: Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            if activeTheme == .lithe, isDark {
-                return NSColor(srgbRed: 38.0 / 255.0, green: 39.0 / 255.0, blue: 44.0 / 255.0, alpha: 1)
-            }
-            return Palette.make(theme: activeTheme, isDark: isDark).popupBackground.nsColor
-        })
-    }
 
-    // MARK: - 选中与悬停
     static var selection: Color { adaptive(\.selection) }
     static var subtleSelection: Color { adaptive(\.subtleSelection) }
     static var hoverBackground: Color { adaptive(\.hoverBackground) }
@@ -499,10 +489,6 @@ enum LitheTheme {
     static let editorBaselineLift: CGFloat = 1.5
 
     static func editorFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
-        uiNSFont(size: size, weight: weight)
-    }
-
-    static func uiNSFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
         let face: String
         switch weight.rawValue {
         case ..<NSFont.Weight.thin.rawValue: face = "Thin"
@@ -516,6 +502,22 @@ enum LitheTheme {
         }
         return NSFont(name: "JetBrainsMono-\(face)", size: size)
             ?? .monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
+    static func uiNSFont(size: CGFloat, weight: NSFont.Weight = .regular) -> NSFont {
+        let face: String
+        switch weight.rawValue {
+        case ..<NSFont.Weight.thin.rawValue: face = "Thin"
+        case ..<NSFont.Weight.light.rawValue: face = "ExtraLight"
+        case ..<NSFont.Weight.regular.rawValue: face = "Light"
+        case ..<NSFont.Weight.medium.rawValue: face = "Regular"
+        case ..<NSFont.Weight.semibold.rawValue: face = "Medium"
+        case ..<NSFont.Weight.bold.rawValue: face = "SemiBold"
+        case ..<NSFont.Weight.heavy.rawValue: face = "Bold"
+        case ..<NSFont.Weight.black.rawValue: face = "ExtraBold"
+        default: face = "Black"
+        }
+        return NSFont(name: "Inter-\(face)", size: size) ?? .systemFont(ofSize: size, weight: weight)
     }
 
     static var editorParagraphStyle: NSParagraphStyle {
@@ -533,10 +535,11 @@ enum LitheTheme {
         case .medium: face = "Medium"
         case .semibold: face = "SemiBold"
         case .bold: face = "Bold"
-        case .heavy, .black: face = "ExtraBold"
+        case .heavy: face = "ExtraBold"
+        case .black: face = design == .monospaced ? "ExtraBold" : "Black"
         default: face = "Regular"
         }
-        return Font.custom("JetBrainsMono-\(face)", size: size).weight(weight)
+        return Font.custom("\(design == .monospaced ? "JetBrainsMono" : "Inter")-\(face)", size: size)
     }
 
     static func uiFont(_ style: Font.TextStyle, design: Font.Design = .default) -> Font {
@@ -567,7 +570,7 @@ enum LitheTheme {
         }
         static var dateColumnWidth: CGFloat {
             ceil(("2000/12/31 23:59" as NSString).size(withAttributes: [
-                .font: editorFont(size: fontSize)
+                .font: uiNSFont(size: fontSize)
             ]).width) + 8
         }
         static func rowBackground(selected: Bool, hovered: Bool, focused: Bool = true) -> Color {
@@ -597,14 +600,14 @@ enum LitheTheme {
         static let projectTreeContentHorizontalInset: CGFloat = 12
         static let projectTreeSelectionCornerRadius: CGFloat = 4
         static let treeIconSize: CGFloat = 16
-        static let treeFontSize: CGFloat = 13.5
+        static let treeFontSize: CGFloat = 13
         static let tabHeight: CGFloat = 34
         static let toolbarHeight: CGFloat = 40
         static let toolWindowHeaderHeight: CGFloat = 30
         static let statusBarHeight: CGFloat = 24
         static let cornerRadius: CGFloat = 5
         static let popupCornerRadius: CGFloat = 10
-        static let contextMenuCornerRadius: CGFloat = 9
+        static let contextMenuCornerRadius: CGFloat = 8
         static let controlCornerRadius: CGFloat = 6
     }
 
@@ -944,12 +947,13 @@ extension View {
     ) -> some View {
         self
             .litheRoundedControlBackground(
-                LitheTheme.contextMenuBackground,
+                LitheTheme.settingsPopupBackground,
                 cornerRadius: cornerRadius
             )
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay {
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(LitheTheme.panelBorder, lineWidth: 1)
+                    .strokeBorder(LitheTheme.settingsPopupBorder, lineWidth: 1)
             }
     }
 

@@ -278,7 +278,6 @@ struct ProjectSidebarView: View {
         let items = ProjectSidebarContent.allCases.map { content in
             LitheContextMenuItem.action(
                 content.title,
-                systemImage: selectedContent == content ? "checkmark" : nil,
                 action: { selectedContent = content }
             )
         }
@@ -286,8 +285,7 @@ struct ProjectSidebarView: View {
             items: items,
             at: screenPoint,
             appearance: window.effectiveAppearance,
-            locale: locale,
-            settingsStyle: true
+            locale: locale
         )
     }
 

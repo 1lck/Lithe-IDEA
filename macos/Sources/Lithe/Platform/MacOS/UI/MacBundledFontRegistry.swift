@@ -6,7 +6,11 @@ enum MacBundledFontRegistry {
     private static let fonts = ["Thin", "ExtraLight", "Light", "Regular", "Medium", "SemiBold", "Bold", "ExtraBold"]
         .flatMap { face in
             let italic = face == "Regular" ? "Italic" : "\(face)Italic"
-            return ["JetBrainsMono-\(face)", "JetBrainsMono-\(italic)"]
+            return ["JetBrainsMono-\(face).ttf", "JetBrainsMono-\(italic).ttf"]
+        } + ["Thin", "ExtraLight", "Light", "Regular", "Medium", "SemiBold", "Bold", "ExtraBold", "Black"]
+        .flatMap { face in
+            let italic = face == "Regular" ? "Italic" : "\(face)Italic"
+            return ["Inter-\(face).otf", "Inter-\(italic).otf"]
         }
 
     static func registerFonts(bundle: Bundle = .main) {
@@ -22,13 +26,8 @@ enum MacBundledFontRegistry {
         }
 
         for font in fonts {
-            let fileExtension = "ttf"
-            guard let url = bundle.url(
-                forResource: font,
-                withExtension: fileExtension,
-                subdirectory: "Fonts"
-            ) else {
-                reporter("Lithe font registration: Missing bundled font: \(font).\(fileExtension)\n")
+            guard let url = bundle.url(forResource: font, withExtension: nil, subdirectory: "Fonts") else {
+                reporter("Lithe font registration: Missing bundled font: \(font)\n")
                 continue
             }
 
@@ -37,7 +36,7 @@ enum MacBundledFontRegistry {
                 let error = registrationError?.takeRetainedValue()
                 if let error, CFErrorGetCode(error) == CTFontManagerError.alreadyRegistered.rawValue { continue }
                 let detail = error?.localizedDescription ?? "Unknown CoreText error"
-                reporter("Lithe font registration: Could not register \(font).\(fileExtension): \(detail)\n")
+                reporter("Lithe font registration: Could not register \(font): \(detail)\n")
                 continue
             }
         }

@@ -590,7 +590,7 @@ private struct OutputTextStorageView: NSViewRepresentable {
                 storage.setAttributedString(NSAttributedString(
                     string: emptyMessage,
                     attributes: [
-                        .font: LitheTheme.uiNSFont(size: 11.5),
+                        .font: LitheTheme.editorFont(size: 11.5),
                         .foregroundColor: LitheTheme.nsColor(.primaryText, theme: theme, isDark: isDark)
                     ]
                 ))
@@ -780,7 +780,7 @@ enum ANSIOutputRenderer {
         for segment in parsed.segments {
             var attributes: [NSAttributedString.Key: Any] = [
                 .foregroundColor: segment.foreground,
-                .font: LitheTheme.uiNSFont(size: fontSize, weight: segment.bold ? .bold : .regular)
+                .font: LitheTheme.editorFont(size: fontSize, weight: segment.bold ? .bold : .regular)
             ]
             if let background = segment.background {
                 attributes[.backgroundColor] = background

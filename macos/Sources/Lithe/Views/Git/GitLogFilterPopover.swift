@@ -605,7 +605,7 @@ struct GitLogFilterSearchBar: View {
         }
         .padding(.horizontal, 14)
         .frame(height: 34)
-        .background(LitheTheme.toolHeader)
+        .background(LitheTheme.settingsPopupBackground)
         .onAppear { focused = true }
     }
 }
@@ -624,8 +624,7 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
                     .foregroundStyle(item.rowIsStarred ? LitheTheme.warning : LitheTheme.secondaryText)
                     .frame(width: 17)
                 titleText
-                    .font(LitheTheme.uiFont(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
                     .lineLimit(1)
                 Spacer(minLength: 10)
                 if let detail = item.rowDetail {
@@ -640,15 +639,8 @@ struct GitLogFilterRowView<Row: GitLogFilterRow>: View {
                         .foregroundStyle(LitheTheme.accent)
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 28)
-            .background(isSelected ? LitheTheme.selection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected))
     }
 
     @ViewBuilder
@@ -678,7 +670,7 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
                 .frame(maxWidth: .infinity, minHeight: 72)
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 2) {
+                LazyVStack(alignment: .leading, spacing: 0) {
                     ForEach(Array(sections.enumerated()), id: \.element.id) { index, section in
                         if let title = sectionHeaderTitle(section) {
                             sectionHeader(title, systemImage: section.systemImage)
@@ -699,8 +691,8 @@ struct GitLogFilterListView<Row: GitLogFilterRow>: View {
                         }
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+                .padding(.horizontal, LitheDropdownMetrics.popupPadding)
+                .padding(.bottom, LitheDropdownMetrics.popupPadding)
             }
         }
     }
@@ -758,7 +750,7 @@ struct GitLogBranchFilterPopover: View {
         }
         .frame(width: popoverWidth)
         .frame(maxHeight: 460)
-        .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+        .litheContextMenuSurface()
     }
 
     // The popover opens at the compact width so the first frame has no dead
@@ -806,7 +798,7 @@ struct GitLogBranchFilterPopover: View {
 
     private var levelOneColumn: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 0) {
                 GitLogFilterRowView(
                     item: menu.reset,
                     isSelected: isItemSelected(menu.reset)
@@ -837,7 +829,7 @@ struct GitLogBranchFilterPopover: View {
                         .frame(maxWidth: .infinity, minHeight: 72)
                 }
             }
-            .padding(6)
+            .padding(LitheDropdownMetrics.popupPadding)
         }
     }
 
@@ -852,23 +844,15 @@ struct GitLogBranchFilterPopover: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 17)
                 groupTitleText(group)
-                    .font(LitheTheme.uiFont(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
                     .lineLimit(1)
                 Spacer(minLength: 10)
                 Image(systemName: "chevron.right")
                     .font(LitheTheme.uiFont(size: 8, weight: .bold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 28)
-            .background(isExpanded ? LitheTheme.selection : .clear)
-            .clipShape(RoundedRectangle(cornerRadius: 5))
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheDropdownRowStyle(isSelected: isExpanded))
     }
 
     @ViewBuilder
@@ -882,7 +866,7 @@ struct GitLogBranchFilterPopover: View {
 
     private func flyoutColumn(_ group: GitLogBranchGroup) -> some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(group.children) { child in
                     GitLogFilterRowView(
                         item: child,
@@ -892,7 +876,7 @@ struct GitLogBranchFilterPopover: View {
                     }
                 }
             }
-            .padding(6)
+            .padding(LitheDropdownMetrics.popupPadding)
         }
     }
 
@@ -932,7 +916,7 @@ struct GitLogFilterPopover<Row: GitLogFilterRow>: View {
         }
         .frame(width: 340)
         .frame(maxHeight: 460)
-        .lithePopupChrome(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
+        .litheContextMenuSurface()
     }
 
     private var filteredSections: [GitLogFilterSection<Row>] {
