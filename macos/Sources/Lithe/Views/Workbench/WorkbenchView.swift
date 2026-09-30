@@ -1297,7 +1297,7 @@ struct WorkbenchView: View {
                                 ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
                         .workbenchHoverHelp(
                             Text(destination.isAvailable
-                                 ? LocalizedStringKey(destination.title)
+                                 ? LocalizedStringKey(destination == .changes ? "Commit" : destination.title)
                                  : LocalizedStringKey("Pull Requests integration is under development")),
                             placement: .trailing
                         )

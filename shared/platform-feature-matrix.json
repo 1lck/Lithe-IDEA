@@ -772,7 +772,8 @@
           "macos/Sources/Lithe/Views/Git",
           "macos/Sources/LitheGitModule/Services/GitGraphLayoutService.swift",
           "macos/Sources/LitheGitModule/Services/GitGraphHeadOrdering.swift",
-          "macos/Sources/Lithe/Views/Git/GitGraphColor.swift"
+          "macos/Sources/Lithe/Views/Git/GitGraphColor.swift",
+          "macos/Tests/LitheTests/GitReferenceRowsBuilderTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -788,7 +789,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；macOS Git Log 工具窗口标签悬停有反馈，点击窗口内外时选中标签背景在活动色与非活动色之间切换，标签文字保持相同颜色与常规字重，按下时不变暗；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；macOS Git Log 工具窗口标签悬停有反馈，点击窗口内外时选中标签背景在活动色与非活动色之间切换，标签文字保持相同颜色与常规字重，按下时不变暗；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致；macOS Git Log 不再显示单独的 Fetch/Compare/Checkout/Cherry-pick 横向操作栏，分支树与竖向工具栏分离；检查 Fetch、分支比较、分支右键 Checkout、提交右键 Cherry-pick 和 Fetch 设置仍可用，分支搜索可筛选嵌套路径，并隐藏无匹配项的分组、显示无结果提示；定位按钮滚动到当前所选分支的首个可见提交而不重新加载历史；Git Log 的分支和提交搜索框复用 Search 侧栏的 IDEA 风格输入框样式，核对 13pt 提示文字、明暗背景色、普通 1pt 与聚焦 2pt 边框、28pt 高度及 4pt 圆角；竖栏更新按钮采用 IDEA ExpUI 的明暗 update 图标，按钮与侧边栏图标悬停使用共用工具提示样式，提示的明暗背景、文字色、1pt 内描边、圆角及内边距对齐 IDEA HelpTooltip；隐藏与显示分支使用 IDEA ExpUI 的 chevronLeft/chevronRight 明暗图标；竖栏宽 36pt，展开态按钮为 22pt 且四周保留工具栏内边距，展开态分支树左边框复用与 Commit 标题下边框同源的 1pt 分隔线；收缩态竖栏常态复用展开态侧栏背景，展开与收缩保留提交图谱和详情视图实例、滚动状态及分支宽度，仅切换分支面板与分隔条的占用宽度，按钮占满竖栏，深色 hover 使用 Islands Dark 的 #FFFFFF17，浅色 hover 使用 ExpUI Gray12，不在右侧显示 Show Branches 浮层提示，图标在顶部留 8pt 并使用常规小字号文字；展开后恢复分支树宽度。"
     },
     {
       "id": "git-rebase-stash",
@@ -1569,9 +1570,7 @@
         "verificationStatus": "pending"
       },
       "windows": {
-        "evidence": [
-          "windows/tauri/src/features/terminal"
-        ],
+        "evidence": ["windows/tauri/src/features/terminal"],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
@@ -1612,9 +1611,7 @@
         "verificationStatus": "pending"
       },
       "windows": {
-        "evidence": [
-          "windows/tauri/src/features/terminal"
-        ],
+        "evidence": ["windows/tauri/src/features/terminal"],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },

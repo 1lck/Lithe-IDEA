@@ -396,7 +396,11 @@ enum LitheTheme {
     static var inputBorder: Color { adaptive(\.inputBorder) }
     static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
     static var searchFieldBackground: Color {
-        activeTheme == .lithe ? contextMenuBackground : inputBackground
+        guard activeTheme == .lithe else { return inputBackground }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return RGBA(isDark ? 0x2B2D30 : 0xFFFFFF).nsColor
+        })
     }
     static var searchFieldBorder: Color {
         activeTheme == .lithe ? settingsSearchBorder : inputBorder
@@ -562,6 +566,7 @@ extension View {
 
 struct LitheIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
+    var cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
 
@@ -570,7 +575,7 @@ struct LitheIconButtonStyle: ButtonStyle {
             .foregroundStyle(LitheTheme.toolWindowText)
             .frame(width: size, height: size)
             .background(
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(
                         configuration.isPressed && isEnabled
                             ? LitheTheme.pressedBackground
@@ -729,7 +734,11 @@ struct LitheSearchFieldStyle: ViewModifier {
 
     func body(content: Content) -> some View {
         let shape = RoundedRectangle(cornerRadius: 4)
+        let borderColor = isFocused
+            ? (LitheTheme.activeTheme == .lithe ? LitheTheme.selection : LitheTheme.inputFocusBorder)
+            : LitheTheme.searchFieldBorder
         content
+            .font(.system(size: 13))
             .padding(.leading, 12)
             .padding(.trailing, 9)
             .frame(height: height)
@@ -738,7 +747,7 @@ struct LitheSearchFieldStyle: ViewModifier {
             )
             .overlay {
                 shape.strokeBorder(
-                    isFocused ? LitheTheme.inputFocusBorder : LitheTheme.searchFieldBorder,
+                    borderColor,
                     lineWidth: isFocused ? 2 : 1
                 )
             }

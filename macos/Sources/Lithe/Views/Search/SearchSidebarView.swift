@@ -47,7 +47,6 @@ struct SearchSidebarView: View {
                         .foregroundColor(LitheTheme.searchFieldPlaceholder)
                 )
                     .textFieldStyle(.plain)
-                    .font(.system(size: 13))
                     .focused($searchFocused)
                     .lineLimit(1)
                 if !session.query.isEmpty {
@@ -206,7 +205,6 @@ struct SearchSidebarView: View {
                     .foregroundColor(LitheTheme.searchFieldPlaceholder)
             )
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
                 .focused($fileMaskFocused)
                 .help("Comma-separated glob patterns. Empty searches every file.")
             if !searchOptions.fileMask.isEmpty {

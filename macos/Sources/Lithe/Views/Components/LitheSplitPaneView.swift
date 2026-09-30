@@ -22,6 +22,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     let flexibleMinimum: CGFloat?
     /// Clip a pane with content wider than the dragged size at the split boundary.
     let clipsSizedPane: Bool
+    /// Hide the tracked pane and divider without unmounting either pane.
+    let isSizedPaneCollapsed: Bool
     let trackBackground: Color
     let showsIdleDivider: Bool
     let highlightsOnHover: Bool
@@ -44,6 +46,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         maximum: CGFloat,
         flexibleMinimum: CGFloat? = nil,
         clipsSizedPane: Bool = false,
+        isSizedPaneCollapsed: Bool = false,
         trackBackground: Color = .clear,
         showsIdleDivider: Bool = true,
         highlightsOnHover: Bool = true,
@@ -58,6 +61,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         self.maximum = maximum
         self.flexibleMinimum = flexibleMinimum
         self.clipsSizedPane = clipsSizedPane
+        self.isSizedPaneCollapsed = isSizedPaneCollapsed
         self.trackBackground = trackBackground
         self.showsIdleDivider = showsIdleDivider
         self.highlightsOnHover = highlightsOnHover
@@ -67,7 +71,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     }
 
     private var resolvedSize: CGFloat {
-        LitheSplitPaneGeometry.clamp(
+        if isSizedPaneCollapsed { return 0 }
+        return LitheSplitPaneGeometry.clamp(
             draggedSize ?? defaultSize,
             minimum: minimum,
             maximum: maximum
@@ -88,12 +93,18 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         switch placement {
         case .leading:
             sizedPane(size)
+                .opacity(isSizedPaneCollapsed ? 0 : 1)
+                .allowsHitTesting(!isSizedPaneCollapsed)
+                .accessibilityHidden(isSizedPaneCollapsed)
             handle(size)
             flexiblePane
         case .trailing:
             flexiblePane
             handle(size)
             sizedPane(size)
+                .opacity(isSizedPaneCollapsed ? 0 : 1)
+                .allowsHitTesting(!isSizedPaneCollapsed)
+                .accessibilityHidden(isSizedPaneCollapsed)
         }
     }
 
@@ -151,6 +162,13 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
                 }
             }
         )
+        .frame(
+            width: axis == .horizontal && isSizedPaneCollapsed ? 0 : nil,
+            height: axis == .vertical && isSizedPaneCollapsed ? 0 : nil
+        )
+        .opacity(isSizedPaneCollapsed ? 0 : 1)
+        .allowsHitTesting(!isSizedPaneCollapsed)
+        .accessibilityHidden(isSizedPaneCollapsed)
     }
 
     private func resolved(from translation: CGFloat) -> CGFloat {

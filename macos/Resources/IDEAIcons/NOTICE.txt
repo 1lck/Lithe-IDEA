@@ -12,6 +12,13 @@ the Community icon set.
 The Search sidebar expui/general/search, closeSmall, filter, settings, and
 expui/actions/replace light/dark assets were copied from Community revision
 233ba81d5f6ec3f90ebd3be3159f425ecc3073ff.
+The Git Log branch toolbar's expui/vcs/update light/dark icons come from
+Community's platform/icons/src/expui/vcs resources.
+Its expui/general/delete light/dark icons come from Community's
+platform/icons/src/expui/general resources.
+The Git Log branch stripe's chevronLeft and chevronRight light/dark icons come
+from the same expui/general directory; IDEA maps its legacy ArrowCollapse and
+ArrowExpand action names to these ExpUI resources.
 
 The source project and these resources are distributed under the Apache License
 2.0. Lithe does not include JetBrains product logos or external third-party
