@@ -6,17 +6,20 @@ import Foundation
 struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
     private let homeDirectoryURL: URL
     private let resourceDirectoryURL: URL?
+    private let pluginToolRoots: [URL]
     private let isExecutable: @Sendable (URL) -> Bool
 
     init(
         homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         resourceDirectoryURL: URL? = Bundle.main.resourceURL,
+        pluginToolRoots: [URL] = [],
         isExecutable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     ) {
         self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
         self.resourceDirectoryURL = resourceDirectoryURL?.standardizedFileURL
+        self.pluginToolRoots = pluginToolRoots.map(\.standardizedFileURL)
         self.isExecutable = isExecutable
     }
 
@@ -47,6 +50,16 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 source: .bundled,
                 detail: "Bundled with Lithe"
             )
+        }
+
+        if command == "intelephense" {
+            for root in pluginToolRoots {
+                add(
+                    root.appendingPathComponent("bin/intelephense"),
+                    source: .bundled,
+                    detail: "PHP Support plugin"
+                )
+            }
         }
 
         // Project-local toolchains are preferred because they are reproducible
@@ -172,6 +185,13 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 displayName: "Java Debug Adapter",
                 summary: "A Java DAP adapter was not found.",
                 recovery: "Reinstall Lithe's bundled Java language and Debug Adapter resources."
+            )
+        case "intelephense":
+            return RuntimeToolGuidance(
+                command: command,
+                displayName: "PHP language server",
+                summary: "Intelephense was not found in the PHP Support plugin or configured toolchain.",
+                recovery: "Reinstall PHP Support from Plugin Management, or install Node.js and configure an Intelephense executable."
             )
         default:
             return RuntimeToolGuidance(

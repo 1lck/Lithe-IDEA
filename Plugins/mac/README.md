@@ -15,12 +15,18 @@ LITHE_CODESIGN_IDENTITY="<same signing identity as host>" \
   --triple arm64-apple-macosx --plugin-id dev.lithe.plugin.php-support
 ```
 
-Use `x86_64-apple-macosx` for Intel. Distribute the resulting
-`dev.lithe.plugin.php-support` directory intact; users select that directory in
-Plugin Management → Install, then enable PHP Language Server / PHP Execution.
-Native package verification still requires the host's signing team. Debug/ad-hoc
-CI packages are for testing and are not production distribution artifacts.
+Use `x86_64-apple-macosx` for Intel. Keep the resulting
+`dev.lithe.plugin.php-support` directory intact for offline recovery; normal
+users download, install, reinstall, and uninstall PHP Support from Plugin
+Management. After installation and restart, the LSP settings page only controls
+the current project's PHP language server. Native package verification still
+requires the host's signing team. Debug/ad-hoc CI packages are for local testing
+and are not production distribution artifacts.
 
-Configure a user-installed Intelephense executable in Language Server settings
-(Node.js is required). Install PHP/Composer and project PHPUnit only when using
-run/test. Uninstalling the plugin does not delete user tools or project files.
+The PHP plugin archive carries a pinned Intelephense package described by
+`language-server.json`. Plugin Management downloads and verifies that tool as
+part of the plugin package, stores it under the user-level plugin directory,
+and removes it with the plugin. Node.js is still required at runtime because
+Intelephense is distributed as a Node.js program. Install PHP/Composer and
+project PHPUnit only when using run/test. The plugin never deletes those user
+tools or project files.

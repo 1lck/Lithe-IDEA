@@ -27,5 +27,17 @@ PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
 plugins=("$PLUGIN_ROOT"/*(/N))
 for plugin in "${plugins[@]}"; do
     swift run "${SWIFT_BUILD_ARGS[@]}" --skip-build LitheOfficialPluginVerifier "$plugin"
+    if [[ "$plugin:t" == "dev.lithe.plugin.php-support" ]]; then
+        [[ -f "$plugin/language-server.json" ]] || {
+            print -u2 -- "PHP plugin language-server manifest is missing: $plugin"
+            exit 1
+        }
+        php_launcher="$plugin/PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
+        [[ -x "$php_launcher" ]] || {
+            print -u2 -- "PHP plugin Intelephense launcher is missing: $php_launcher"
+            exit 1
+        }
+        /usr/bin/codesign --verify --deep --strict "$plugin/PhpSupport.bundle"
+    fi
 done
 print "Verified ${#plugins[@]} released official native plugin package(s)"

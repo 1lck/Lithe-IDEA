@@ -12,6 +12,8 @@
 "Installed (%lld of %lld enabled)" = "Installed (%lld of %lld enabled)";
 "Install Plugin from Disk…" = "Install Plugin from Disk…";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
+"Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
+"Download and Install" = "Download and Install";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
@@ -30,8 +32,12 @@
 "Pending confirmation" = "Pending confirmation";
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
+"Reinstall" = "Reinstall";
+"Uninstall PHP Support?" = "Uninstall PHP Support?";
+"PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
 "No Plugins" = "No Plugins";
+"Open Plugin Management" = "Open Plugin Management";
 "Database" = "Database";
 "Enabled" = "Enabled";
 "Disabled" = "Disabled";
