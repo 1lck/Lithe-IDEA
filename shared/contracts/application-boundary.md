@@ -20,6 +20,13 @@ verification scripts are the executable source of boundary checks.
 
 ## Feature Contracts
 
+Agent prompt completion may include Agent-reported token counters; their accounting
+scope belongs to the provider and is separate from context occupancy and subscription
+quota. Platforms may measure locally observed turns with a monotonic clock, including
+tools and permission waits, and freeze elapsed time at completion, failure or disconnect.
+Missing usage and unmeasured replayed history remain unknown. See the
+[Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
+
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |

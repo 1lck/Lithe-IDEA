@@ -2246,6 +2246,12 @@
 "%lld tool calls" = "%lld 次工具调用";
 "%lld running" = "%lld 个运行中";
 "%lld failed" = "%lld 个失败";
+"Tool activity (%lld)" = "工具操作（%lld）";
+"%lld interrupted" = "%lld 个已中断";
+"All completed" = "全部完成";
+"%lld/%lld completed" = "已完成 %lld/%lld";
+"Completed" = "已完成";
+"Interrupted" = "已中断";
 
 /* Agent panel settings */
 "Agent conversation" = "Agent 对话";
@@ -2540,3 +2546,15 @@
 
 "Could not open HTML in browser" = "无法在浏览器中打开 HTML";
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
+"%llds" = "%lld秒";
+"%lldm %llds" = "%lld分 %lld秒";
+"%lldh %lldm %llds" = "%lld小时 %lld分 %lld秒";
+"Elapsed: %@" = "耗时：%@";
+"Input: %@" = "输入：%@";
+"Output: %@" = "输出：%@";
+"Total tokens: %@" = "总 token：%@";
+"Reasoning tokens: %@" = "推理 token：%@";
+"Cache read tokens: %@" = "缓存读取 token：%@";
+"Cache write tokens: %@" = "缓存写入 token：%@";
+"Token counts reported by the Agent. Accounting scope depends on the Agent." = "Agent 上报的 token 数；统计口径由 Agent 决定。";
+"Elapsed since sending, including tools and permission waits." = "从发送开始计时，包含工具执行和等待权限的时间。";

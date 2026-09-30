@@ -153,6 +153,59 @@
       "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
     },
     {
+      "id": "agent-tool-activity-timeline",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "连续 Agent 工具调用（执行命令、列文件、读文件与编辑等）合并为默认折叠的时间线卡片，汇总总数与失败/中断/完成进度，并逐条展开输入、输出与文件位置",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Windows Agent 对话 UI 尚未实现。"
+    },
+    {
+      "id": "agent-turn-statistics",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "发送后实时计时、每轮结束固定耗时、Agent 上报的输入/输出 token 与缓存/推理用量详情",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentTurnStatistics.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "rust/lithe-agent-host/src/prompt.rs",
+          "rust/lithe-agent-host/src/tests.rs",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "Agent",
+      "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；上报 usage 时显示准确输入/输出并悬停查看总量、缓存和推理值，缺失时只显示耗时。历史回放不编造统计，上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage，对话 UI 尚未接入。"
+    },
+    {
       "id": "agent-file-references",
       "area": "AI",
       "group": "Agent 对话",

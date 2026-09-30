@@ -431,6 +431,9 @@ pub enum AgentEvent {
     TurnFinished {
         session_id: String,
         stop_reason: String,
+        /// Optional counters reported by the agent, whose accounting scope is provider-owned.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        usage: Option<agent_client_protocol::schema::v1::Usage>,
     },
     /// A command failed without ending the connection.
     RequestFailed {
@@ -1152,10 +1155,7 @@ where
                             }
                             reject_pending_permissions(&prompt_permissions, Some(&session_id));
                             emit(match result {
-                                Ok(response) => AgentEvent::TurnFinished {
-                                    session_id,
-                                    stop_reason: stop_reason_name(&response.stop_reason),
-                                },
+                                Ok(response) => prompt::finished(session_id, response),
                                 Err(error) => failed(None, Some(session_id), error.to_string()),
                             });
                         });

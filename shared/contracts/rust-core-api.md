@@ -157,6 +157,23 @@ invalid data and a zero capacity represent unknown usage, not an empty window.
 The macOS indicator clears stale capacity on disconnect or confirmed model
 changes and waits for a new report; it does not infer limits from model names.
 
+`turnFinished` optionally includes the ACP prompt response's `usage` object:
+required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
+`thoughtTokens`, `cachedReadTokens`, `cachedWriteTokens`. The pinned SDK's
+`unstable_end_turn_token_usage` feature preserves these counters; absent, null
+or invalid usage is omitted without preventing completion. Zero is a reported
+value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
+session delta or billing amount, because the adapters' accounting scopes differ.
+They must not derive these counters from context occupancy or subscription quota.
+`acp-events-v1.json` covers completion both with and without usage.
+
+macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
+from user submission (including queued session creation/loading, tools and
+permission waits) until completion, request failure or disconnect. Cancellation
+continues timing until acknowledged. Each observed turn keeps a frozen footer
+before the next user message; tab switches do not reset it. Replayed history
+does not fabricate timing or token measurements absent from the Agent's records.
+
 Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
 the agent. Permission displays combine already received tool details with the

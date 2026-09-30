@@ -8,6 +8,122 @@ import Testing
 @Suite("Agent conversation presentation")
 struct AgentConversationPresentationTests {
     @Test
+    func turnFootersRemainAfterTheirToolsAndBeforeTheNextUserMessage() throws {
+        let start = ContinuousClock.Instant.now
+        var first = AgentTurnStatistics(id: "user-1", startedAt: start)
+        first.finish(at: start.advanced(by: .seconds(65)), endingMessageID: "read", usage: nil)
+        var second = AgentTurnStatistics(id: "user-2", startedAt: start)
+        second.finish(at: start.advanced(by: .seconds(2)), endingMessageID: "user-2", usage: nil)
+        let messages = [AgentConversationMessage(id: "user-1", role: .user, text: "Read this"),
+                        AgentConversationMessage(id: "list", role: .tool, text: "List files"),
+                        AgentConversationMessage(id: "read", role: .tool, text: "Read file"),
+                        AgentConversationMessage(id: "user-2", role: .user, text: "Continue")]
+        let items = AgentTranscriptItem.grouped(messages, turns: [first, second])
+        #expect(items.map(\.id) == ["user-1", "tools:list", "turn:user-1", "user-2", "turn:user-2"])
+        #expect(items.filter { $0.matches("Read") }.map(\.id) == ["user-1", "tools:list"])
+        #expect(AgentTranscriptItem.grouped(messages).map(\.id) == ["user-1", "tools:list", "user-2"])
+    }
+
+    @Test
+    func turnPresentationUsesElapsedUnitsAndExactReportedCounts() throws {
+        #expect(AgentTurnStatisticsPresentation.duration(-1) == "0s")
+        #expect(AgentTurnStatisticsPresentation.duration(59.9) == "59s")
+        #expect(AgentTurnStatisticsPresentation.duration(60) == "1m 0s")
+        #expect(AgentTurnStatisticsPresentation.duration(3661) == "1h 1m 1s")
+        let usage = try #require(AgentTurnUsage.parse(["totalTokens": 25000, "inputTokens": 18000,
+                                                     "outputTokens": 2000, "cachedReadTokens": 3000]))
+        let locale = Locale(identifier: "en_US")
+        #expect(AgentTurnStatisticsPresentation.input(usage, locale: locale) == "Input: 18,000")
+        #expect(AgentTurnStatisticsPresentation.output(usage, locale: locale) == "Output: 2,000")
+        let details = AgentTurnStatisticsPresentation.details(usage, locale: locale)
+        #expect(details.contains("Total tokens: 25,000"))
+        #expect(details.contains("Cache read tokens: 3,000"))
+        #expect(!details.contains("Reasoning tokens:"))
+        #expect(!details.contains("Cache write tokens:"))
+    }
+
+    @Test
+    func statisticsFooterFitsNarrowAndWidePanelsInBothAppearances() throws {
+        let start = ContinuousClock.Instant.now
+        var turn = AgentTurnStatistics(id: "sample-turn", startedAt: start)
+        let usage = try #require(AgentTurnUsage.parse(["totalTokens": 25000, "inputTokens": 18000,
+                                                     "outputTokens": 2000, "thoughtTokens": 1000]))
+        turn.finish(at: start.advanced(by: .seconds(3661)), endingMessageID: "sample-reply", usage: usage)
+        for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 280.0), ("light-narrow", .light, 280.0),
+                                      ("dark-wide", .dark, 620.0), ("light-wide", .light, 620.0)] {
+            let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 14) {
+                Text("The requested changes are complete.").font(.system(size: 13))
+                AgentTurnStatisticsView(statistics: turn)
+            }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 140),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = host
+            host.frame.size = NSSize(width: width, height: 140)
+            host.layoutSubtreeIfNeeded()
+            #expect(host.fittingSize.height <= 140, "Footer must fit without clipping its token counts")
+            if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATISTICS_SCREENSHOTS"] {
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("statistics-\(name).png"))
+            }
+        }
+    }
+
+    @Test
+    func adjacentMixedToolsShareOneStableTimelineWithoutHidingNarration() throws {
+        func tool(_ id: String, kind: String) -> AgentConversationMessage {
+            var message = AgentConversationMessage(id: id, role: .tool, text: id, toolStatus: .pending)
+            message.toolDetails.kind = kind
+            return message
+        }
+
+        let messages = [
+            tool("list", kind: "search"),
+            tool("read-1", kind: "read"),
+            tool("read-2", kind: "read"),
+            AgentConversationMessage(id: "reply", role: .agent, text: "I found two files"),
+            tool("command", kind: "execute"),
+            tool("edit", kind: "edit"),
+            AgentConversationMessage(id: "follow-up", role: .user, text: "Continue"),
+            tool("next-command", kind: "execute")
+        ]
+        let grouped = AgentTranscriptItem.grouped(messages)
+        #expect(grouped.map(\.id) == ["tools:list", "reply", "tools:command", "follow-up", "tools:next-command"])
+        if case .toolGroup(let first) = try #require(grouped.first) {
+            #expect(first.map(\.id) == ["list", "read-1", "read-2"])
+        } else {
+            Issue.record("Adjacent file tools were not grouped")
+        }
+
+        var updated = messages
+        updated[0].toolStatus = .failed
+        #expect(AgentTranscriptItem.grouped(updated).map(\.id) == grouped.map(\.id))
+    }
+
+    @Test
+    func toolSearchKeepsTheOriginalGroupWhenEvidenceMatches() throws {
+        var first = AgentConversationMessage(id: "list", role: .tool, text: "List files")
+        first.toolDetails.kind = "search"
+        first.toolDetails.input = "{\"path\":\"sample-project\"}"
+        var second = AgentConversationMessage(id: "read", role: .tool, text: "Read file")
+        second.toolDetails.kind = "read"
+        second.toolDetails.locations = [.init(path: "sample-project/README.md", line: 1)]
+        let group = try #require(AgentTranscriptItem.grouped([first, second]).first)
+        #expect(group.matches("sample-project"))
+        #expect(group.matches("README.md"))
+        #expect(!group.matches("missing file"))
+        if case .toolGroup(let tools) = group {
+            #expect(tools.map(\.id) == ["list", "read"])
+        } else {
+            Issue.record("Search changed the tool group")
+        }
+    }
+
+    @Test
     func subscriptionQuotaPreservesWindowLengthsUnknownUsageAndStaleness() throws {
         let windows: [[String: Any]] = [
             ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 68, "resetsAt": 1800000200],

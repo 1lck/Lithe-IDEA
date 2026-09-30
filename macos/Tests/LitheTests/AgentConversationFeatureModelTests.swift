@@ -8,6 +8,165 @@ import Testing
 @MainActor
 struct AgentConversationFeatureModelTests {
     @Test
+    func turnStatisticsIncludePreparationFreezeAtCompletionAndKeepReportedUsage() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("First turn")
+            let submitted = clock.instant
+            #expect(feature.pendingNewConversationStartedAt == submitted)
+            clock.advance(2)
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            let active = try #require(feature.selectedConversation?.activeTurn)
+            #expect(active.startedAt == submitted)
+            clock.advance(3)
+            #expect(active.elapsed(at: clock.instant) == 5)
+            try feature.receive(event("usageUpdate"))
+            try feature.receive(event("agentMessageChunk"))
+            try feature.receive(event("turnFinishedWithUsage"))
+            let first = try #require(feature.selectedConversation?.completedTurns.first)
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            #expect(first.duration == 5)
+            #expect(first.usage?.inputTokens == 18000)
+            #expect(first.usage?.outputTokens == 2000)
+            #expect(first.usage?.cachedReadTokens == 3000)
+            #expect(first.endingMessageID == feature.selectedConversation?.messages.last?.id)
+            clock.advance(20)
+            #expect(first.elapsed(at: clock.instant) == 5)
+            try feature.send("Second turn")
+            #expect(feature.selectedConversation?.activeTurn?.usage == nil)
+            clock.advance(1)
+            try feature.receive(event("turnFinished"))
+            let turns = try #require(feature.selectedConversation?.completedTurns)
+            #expect(turns.count == 2)
+            #expect(turns[0] == first)
+            #expect(turns[1].duration == 1)
+            #expect(turns[1].usage == nil)
+            // A duplicate completion cannot create a new footer or replace earlier usage.
+            try feature.receive(event("turnFinishedWithUsage"))
+            #expect(feature.selectedConversation?.completedTurns == turns)
+        }
+    }
+
+    @Test
+    func backgroundTurnsHaveIndependentTimersAndUsage() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("First session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            clock.advance(2)
+            feature.startNewConversation()
+            try feature.send("Second session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                       "sessionId": "session-2"]))
+            clock.advance(3)
+            try feature.receive(event("turnFinishedWithUsage"))
+            #expect(feature.selectedSessionID == "session-2")
+            #expect(feature.conversations["session-1"]?.completedTurns.first?.duration == 5)
+            #expect(feature.selectedConversation?.activeTurn?.elapsed(at: clock.instant) == 3)
+            try feature.receive(event("turnFinished", ["sessionId": "session-2"]))
+            #expect(feature.selectedConversation?.completedTurns.first?.duration == 3)
+            #expect(feature.selectedConversation?.completedTurns.first?.usage == nil)
+            feature.selectSession("session-1")
+            #expect(feature.selectedConversation?.completedTurns.first?.usage?.inputTokens == 18000)
+        }
+    }
+
+    @Test
+    func cancellationWaitsForAcknowledgementAndFailuresStopTheirTimers() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("Cancel this")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            clock.advance(2)
+            feature.cancel()
+            #expect(feature.selectedConversation?.activeTurn != nil)
+            clock.advance(3)
+            try feature.receive(event("turnCancelled"))
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 5)
+            try feature.send("Fail this")
+            clock.advance(4)
+            try feature.receive(event("requestFailed"))
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 4)
+            #expect(feature.selectedConversation?.completedTurns.last?.usage == nil)
+            try feature.send("Disconnect this")
+            clock.advance(6)
+            try feature.receive(event("stopped"))
+            await feature.stop()
+            clock.advance(100)
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            #expect(feature.selectedConversation?.completedTurns.map(\.duration) == [5, 4, 6])
+        }
+    }
+
+    @Test
+    func failedSendAndReplayedHistoryDoNotInventStatistics() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            feature.selectSession("session-1")
+            let loadToken = try #require(connection.commands.last?["token"])
+            try feature.receive(event("userMessageChunk"))
+            try feature.receive(event("agentMessageChunk"))
+            clock.advance(30)
+            try feature.receive(event("sessionLoaded", ["token": loadToken]))
+            #expect(feature.selectedConversation?.completedTurns.isEmpty == true)
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            connection.sendFailure = AgentConversationError.notConnected
+            #expect(throws: AgentConversationError.sendFailed(AgentConversationError.notConnected.localizedDescription)) {
+                try feature.send("Cannot send")
+            }
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            #expect(feature.selectedConversation?.messages.count == 2)
+        }
+    }
+
+    @Test
+    func queuedHistoryPromptIncludesLoadTimeWithoutTimingReplayedMessages() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            feature.selectSession("session-1")
+            let token = try #require(connection.commands.last?["token"])
+            try feature.send("Continue after loading")
+            let submitted = clock.instant
+            try feature.receive(event("userMessageChunk"))
+            try feature.receive(event("agentMessageChunk"))
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            clock.advance(10)
+            try feature.receive(event("sessionLoaded", ["token": token]))
+            #expect(feature.selectedConversation?.activeTurn?.startedAt == submitted)
+            clock.advance(2)
+            await feature.stop()
+            #expect(feature.selectedConversation?.completedTurns.count == 1)
+            #expect(feature.selectedConversation?.completedTurns.first?.duration == 12)
+        }
+    }
+
+    @Test
+    func malformedAndMissingTurnUsageIsUnknownWhileReportedZeroIsPreserved() throws {
+        #expect(AgentTurnUsage.parse(nil) == nil)
+        #expect(AgentTurnUsage.parse(NSNull()) == nil)
+        for payload: [String: Any] in [
+            ["inputTokens": 1, "outputTokens": 2],
+            ["totalTokens": 3, "inputTokens": -1, "outputTokens": 2],
+            ["totalTokens": 3, "inputTokens": true, "outputTokens": 2],
+            ["totalTokens": 3, "inputTokens": "1", "outputTokens": 2],
+            ["totalTokens": 3, "inputTokens": 1.5, "outputTokens": 2]
+        ] { #expect(AgentTurnUsage.parse(payload) == nil) }
+        let zero = try #require(AgentTurnUsage.parse(["totalTokens": 0, "inputTokens": 0, "outputTokens": 0]))
+        #expect(zero.inputTokens == 0 && zero.outputTokens == 0)
+        #expect(zero.thoughtTokens == nil && zero.cachedReadTokens == nil)
+    }
+
+    private func withStatisticsFeature(
+        _ operation: (AgentConnectionModel, TestAgentConnection, TestAgentTurnClock) async throws -> Void
+    ) async throws {
+        let clock = TestAgentTurnClock()
+        let transport = TestAgentTransport()
+        let feature = AgentConnectionModel(transport: transport, now: { clock.instant })
+        do {
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            try await operation(feature, try #require(transport.connections.last), clock)
+        } catch { await feature.stop(); throw error }
+        await feature.stop()
+    }
+
+    @Test
     func contextUsageTracksEachSessionAndCompactionWithoutAccumulatingTokens() async throws {
         try await withContextFeature { feature, connection in
             #expect(feature.selectedConversation?.contextUsage == nil)
@@ -720,6 +879,12 @@ struct AgentConversationFeatureModelTests {
         event.merge(overrides) { _, new in new }
         return String(decoding: try JSONSerialization.data(withJSONObject: event), as: UTF8.self)
     }
+}
+
+@MainActor
+private final class TestAgentTurnClock {
+    var instant = ContinuousClock.Instant.now
+    func advance(_ seconds: Int64) { instant = instant.advanced(by: .seconds(seconds)) }
 }
 
 @MainActor
