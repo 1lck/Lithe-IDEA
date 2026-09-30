@@ -101,6 +101,18 @@
       ],
       "identity": "JetBrains Mono 2.304 static TTF source files tracked by Git; independent of platform architecture and build toolchain. Version and read-only file hashes are checked by BundledUIFontTests; packaged presence is checked by verify-macos-package.sh.",
       "reason": "Checkout source files through Git; build packaging copies them before signing. Never copy fonts from another worktree artifact or signed/installed bundle, and never modify them at runtime. No resource reuse copy stage is permitted."
+    },
+    {
+      "id": "ide-mcp",
+      "reusable": false,
+      "locations": [
+        "dist/ide-mcp/",
+        "rust/target/windows-ide-mcp/",
+        "windows/tauri/src-tauri/helpers/",
+        "<platform-app-data>/mcp/"
+      ],
+      "identity": "Helper executable is tied to source, Cargo.lock, target triple and signing; runtime connection descriptors contain ephemeral bearer credentials and workspace ownership locks. No reusable build identity stamp.",
+      "reason": "Build helpers separately before packaging; never copy runtime connection files or locks. Installed helpers remain read-only. There is no permitted worktree copy stage."
     }
   ]
 }

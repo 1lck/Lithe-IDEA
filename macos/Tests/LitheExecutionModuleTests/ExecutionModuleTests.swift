@@ -1624,6 +1624,26 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func mavenAPISaveWaitsForPersistenceAndReportsWriteFailure() async {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let store = RecordingMavenConfigurationStore(
+            configuration: MavenStoredConfiguration(portable: nil, local: nil),
+            saveError: "Fixture configuration is read-only"
+        )
+        let service = MavenService(
+            runtimeService: TestRuntime(), process: TestStreamingProcess(),
+            dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations(),
+            configurationStore: store
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [root.appendingPathComponent("pom.xml")])
+        service.setSkipTests(true)
+        let error = await service.saveConfiguration()
+        #expect(error == "Fixture configuration is read-only")
+        #expect(service.configurationSaveError == error)
+    }
+
+    @Test
     func mavenServiceReportsCancellationWithoutInventingAnExitCode() async throws {
         let workspace = URL(fileURLWithPath: "/workspace", isDirectory: true)
         let project = MavenProject(
@@ -2725,9 +2745,11 @@ private final class FingerprintingMavenOperations: MavenProjectOperations, @unch
 
 private final class RecordingMavenConfigurationStore: MavenConfigurationStoring, @unchecked Sendable {
     private let configuration: MavenStoredConfiguration
+    private let saveError: String?
 
-    init(configuration: MavenStoredConfiguration) {
+    init(configuration: MavenStoredConfiguration, saveError: String? = nil) {
         self.configuration = configuration
+        self.saveError = saveError
     }
 
     func loadMavenConfiguration(
@@ -2741,7 +2763,11 @@ private final class RecordingMavenConfigurationStore: MavenConfigurationStoring,
         _ configuration: MavenStoredConfiguration,
         workspaceURL: URL,
         reactorPath: String
-    ) throws {}
+    ) throws {
+        if let saveError {
+            throw NSError(domain: "MavenConfigurationFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: saveError])
+        }
+    }
 }
 
 @MainActor

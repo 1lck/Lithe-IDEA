@@ -18,6 +18,7 @@ function compactSearchText(value: string) {
 export const SETTINGS_SEARCH_TAB_LABELS: Record<SettingsTab, string> = {
   run: "Run configurations 运行配置 服务 启动参数 环境变量",
   project: "Project JDK Maven 项目环境",
+  mcp: "MCP Configuration Agent MCP 配置 授权 权限",
   general: "General",
   appearance: "Appearance",
   editor: "Editor",

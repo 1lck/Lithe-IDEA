@@ -58,6 +58,10 @@ export interface RunOptions {
 }
 
 export interface RunSession {
+  /** Identity of this execution, preserved after exit and replaced on restart. */
+  executionId?: string;
+  /** True while Java preparation is waiting before the native launch. */
+  isPreparing?: boolean;
   id: string;
   configurationId: string;
   title: string;

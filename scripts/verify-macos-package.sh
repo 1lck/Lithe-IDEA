@@ -131,6 +131,7 @@ required_executables=(
     "$app_path/Contents/Frameworks/Sparkle.framework/Versions/B/Updater.app/Contents/MacOS/Updater"
     "$app_path/Contents/Helpers/lithe-db-sidecar"
     "$app_path/Contents/Helpers/lithe-db-mcp"
+    "$app_path/Contents/Helpers/lithe-mcp"
 )
 for executable in "${required_executables[@]}"; do
     if [[ ! -x "$executable" ]]; then

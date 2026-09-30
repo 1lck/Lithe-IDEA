@@ -120,6 +120,14 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包
 
 ### 独立工作树的本地编译
 
+IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
+`scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
+`rust/Cargo.lock` 构建。`dist/ide-mcp/`、`rust/target/windows-ide-mcp/` 和
+`windows/tauri/src-tauri/helpers/` 没有可靠 identity stamp，不允许跨工作树复用；
+目标架构、Rust 工具链及签名由各自打包流程验证，复制只发生在本次构建的打包阶段。
+`<platform-app-data>/mcp/` 保存项目连接凭据和实例锁，属于运行时私有状态，
+不能进入安装包、缓存复用或版本控制；运行时不修改打包的 helper。
+
 Git worktree 只共享 Git 对象，不共享各自的 `.artifacts` 目录。如果从一个
 工作树单独创建另一个工作树进行编译，优先复用原工作树已经下载或构建完成的
 资源，避免重复等待网络下载和资源准备。

@@ -20,6 +20,7 @@ package final class MavenFeatureModel: ObservableObject {
     package var project: MavenProject? { service.project }
     package var projectState: MavenProjectLoadState { service.projectState }
     package var taskState: MavenTaskState { service.taskState }
+    package var outputOperationID: String? { service.outputOperationID }
     package var isLoadingProject: Bool { service.isLoadingProject }
     package var isRunning: Bool { service.isRunning }
     package var runningTitle: String? { service.runningTitle }
@@ -140,6 +141,10 @@ package final class MavenFeatureModel: ObservableObject {
         service.setSkipTests(enabled)
     }
 
+    package func saveConfiguration() async -> String? {
+        await service.saveConfiguration()
+    }
+
     package func updateLocalConfiguration(
         settingsPath: String?,
         localRepositoryPath: String?,
@@ -236,6 +241,7 @@ package final class RunFeatureModel: ObservableObject {
     package var output: String { service.output }
     package var lastExitCode: Int32? { service.lastExitCode }
     package var mavenProfiles: [MavenProfile] { service.mavenProfiles }
+    package var primaryExecutionID: String? { service.primaryExecutionID }
     package var moduleSessions: [RunSession] { service.moduleSessions }
     package var portConflicts: [RunPortConflict] { service.portConflicts }
     package var configurationStatus: ProjectRunConfigurationStatus { service.configurationStatus }

@@ -16,6 +16,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     case updates = "Updates"
     case diagnostics = "Diagnostics"
     case plugins = "Plugins"
+    case mcp = "MCP Configuration"
 
     var id: String { rawValue }
     var title: String { self == .project ? "Project · JDK & Maven" : rawValue }
@@ -35,6 +36,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .updates: "arrow.down.circle"
         case .diagnostics: "stethoscope"
         case .plugins: "puzzlepiece.extension"
+        case .mcp: "network"
         }
     }
 }

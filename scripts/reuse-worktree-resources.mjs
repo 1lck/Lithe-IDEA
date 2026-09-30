@@ -366,8 +366,8 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Runtime snapshots and Git-owned bundled fonts take this rejection route,
-      // never a content-hash cache validator or a copy from a signed app.
+      // Runtime snapshots (including credential-bearing IDE MCP connections and JDT Maven settings)
+      // and Git-owned bundled fonts are isolated; never copy them across worktrees.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.reason}; it cannot be reused across worktrees`);

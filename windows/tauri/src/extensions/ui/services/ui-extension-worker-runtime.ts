@@ -128,6 +128,11 @@ const api = Object.freeze({
     delete: (key: string) => hostCall("storage.delete", key),
   }),
   workspace: Object.freeze({ getCurrent: () => hostCall("workspace.getCurrent") }),
+  ide: Object.freeze({
+    authorizedWorkspaceIDs: () => hostCall("ide.authorizedWorkspaceIDs"),
+    call: (workspaceID: string, name: string, args: Record<string, unknown>) =>
+      hostCall("ide.call", workspaceID, name, args),
+  }),
   opener: Object.freeze({
     openExternal: (url: string) => hostCall("opener.openExternal", url),
   }),

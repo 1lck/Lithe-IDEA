@@ -22,6 +22,11 @@ node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
     --manifest rust/Cargo.toml --package lithe-agent-host \
     --suite-timeout-ms 120000 \
     --report .artifacts/test-stability/agent-host-rust.json
+node .agents/skills/write-stable-tests/scripts/run-rust-tests-with-timing.mjs \
+    --manifest rust/Cargo.toml --package lithe-ide-host \
+    --report .artifacts/test-stability/ide-host-rust.json
+cargo build --locked --manifest-path rust/Cargo.toml -p lithe-ide-host --features mcp --bin lithe-mcp
+node --test scripts/test-ide-mcp.mjs
 cargo test --manifest-path rust/Cargo.toml -p lithe-core
 
 case "$(uname -m)" in

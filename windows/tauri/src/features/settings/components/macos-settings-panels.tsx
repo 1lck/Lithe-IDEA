@@ -24,6 +24,7 @@ import { LogSettingsPanel } from "./log-settings-panel";
 import { MavenSettingsPanel } from "./tabs/maven-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
 import { KeyboardSettings } from "./tabs/keyboard-settings";
+import { McpConfigurationSettings } from "./mcp-configuration-settings";
 import { ProjectEnvironmentSettings } from "./project-environment-settings";
 
 import { RunConfigurationSettings } from "./run-configuration-settings";
@@ -31,6 +32,7 @@ import { RunConfigurationSettings } from "./run-configuration-settings";
 export type MacSettingsCategory =
   | "run"
   | "project"
+  | "mcp"
   | "git"
   | "general"
   | "editor"
@@ -530,6 +532,8 @@ export function MacSettingsPanel({
   switch (category) {
     case "run":
       return <RunConfigurationSettings />;
+    case "mcp":
+      return <McpConfigurationSettings />;
     case "project":
       return <ProjectEnvironmentSettings />;
     case "git":

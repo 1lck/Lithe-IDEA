@@ -131,6 +131,8 @@ final class MacServiceContainer {
             configurationSources: aiConfigurationSources
         )
         let pluginHostServices = MacPluginHostServiceRegistry()
+        let ideCapabilityRegistry = IdeCapabilityRegistry()
+        pluginHostServices.register(ideCapabilityRegistry, for: .ideCapabilities)
         let languageExecutionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
         pluginHostServices.register(languageExecutionHost, for: .languageExecution)
         let databaseSidecarURL = MacDatabaseSidecarLocator(fileStorage: fileStorage).executableURL()
@@ -647,6 +649,8 @@ final class MacServiceContainer {
             platformUI: platformUI,
             shortcutDetectorFactory: MacShortcutDetectorFactory()
         )
+        services.ideCapabilityRegistry = ideCapabilityRegistry
+        services.ideHostTransport = MacIdeHostTransport(core: rustCore, storage: fileStorage)
         moduleLifecycleCoordinator.start()
         Task { try? await moduleRegistry.startEagerModules() }
     }

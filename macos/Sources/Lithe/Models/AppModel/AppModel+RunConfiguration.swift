@@ -400,7 +400,7 @@ extension AppModel {
     }
 
     /// Completes a run action for the current workspace opening.
-    func performStartRunConfiguration(_ configuration: RunConfiguration) async {
+    func performStartRunConfiguration(_ configuration: RunConfiguration, allowDeferred: Bool = true) async {
         guard let identity = currentWorkspaceIdentity else { return }
         guard let runFeature = await activateExecutionModule()?.runFeature else { return }
         guard isCurrentWorkspace(identity) else { return }
@@ -408,7 +408,7 @@ extension AppModel {
         case .ready:
             clearPendingRunAction(for: identity)
         case .waitingForSnapshot(let waitingIdentity):
-            deferRunAction(.startConfiguration(configuration), for: waitingIdentity)
+            if allowDeferred { deferRunAction(.startConfiguration(configuration), for: waitingIdentity) }
             return
         case .stale:
             return

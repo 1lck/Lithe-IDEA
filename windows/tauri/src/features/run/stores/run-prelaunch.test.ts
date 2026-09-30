@@ -117,6 +117,7 @@ describe("Standalone Java compile-then-run", () => {
     );
     expect(startRunProcess).toHaveBeenCalledWith(
       expect.objectContaining({
+        executionId: store.getState().sessions[0].executionId,
         arguments: [
           "--module-path",
           "D:/work/app/target/modules",
@@ -126,6 +127,7 @@ describe("Standalone Java compile-then-run", () => {
         ],
       }),
     );
+    expect(store.getState().sessions[0].executionId).toEqual(expect.any(String));
   });
 
   test("compiles with javac, then launches by class name with -cp", async () => {
@@ -342,6 +344,9 @@ describe("Java project launch preparation feedback", () => {
 
     await store.getState().actions.runConfiguration(application.id);
 
+    expect(store.getState().primaryExecutionId).toEqual(expect.any(String));
+    expect(store.getState().primaryConfigurationId).toBe(application.id);
+    expect(store.getState().primaryPreparing).toBe(false);
     expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
     expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
     expect(store.getState().primaryOutput).toStartWith("$ java.exe");
@@ -499,6 +504,7 @@ describe("Java project launch preparation feedback", () => {
 
     expect(startRunProcess).not.toHaveBeenCalled();
     expect(store.getState().sessions[0].isRunning).toBe(false);
+    expect(store.getState().sessions[0].isPreparing).toBe(false);
   });
 
   test("rebuild index cancels the pending launch and clears only this workspace", async () => {
