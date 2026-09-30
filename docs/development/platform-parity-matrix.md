@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：106
-- macOS：实现：✅ 92 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 95 待验证，— 11 不适用
-- Windows：实现：✅ 91 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 101 待验证，— 5 不适用
+- 功能项：111
+- macOS：实现：✅ 97 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 100 待验证，— 11 不适用
+- Windows：实现：✅ 96 已实现，🟡 10 部分实现，❌ 4 未实现，🧩 1 平台专属；验证：✔️ 0 已验证，🔍 106 待验证，— 5 不适用
 
 ## 实现状态定义
 
@@ -30,10 +30,14 @@
 > 每一行对应一个可以单独验收的用户能力；区域和功能组只用于导航，不作为状态统计单位。单元格第一行是实现状态，第二行是验证状态。
 
 <details>
-<summary><strong>AI</strong> · 13 个能力点</summary>
+<summary><strong>AI</strong> · 17 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
+| IDE MCP | **插件与 MCP 列举运行配置、启动重启，按执行 ID 读取增量输出和停止**<br><sub>ide-api-run-output</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`、`macos/Sources/Lithe/Views/App/McpSettingsView.swift`、`macos/Tests/LitheTests/IdeCapabilitiesTests.swift`、`rust/lithe-ide-host/src/lib.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/host-api/ide-capabilities.ts`、`windows/tauri/src/features/host-api/mcp-settings.tsx`、`windows/tauri/src/features/host-api/ide-capabilities.test.ts`、`rust/lithe-ide-host/src/lib.rs`</sub> | Agent | 运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 |  |
+| IDE MCP | **插件与 MCP 读取 Maven 模块和 Profile，保存配置、重载并执行既有生命周期和插件目标**<br><sub>ide-api-maven</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`、`macos/Sources/Lithe/Views/App/McpSettingsView.swift`、`macos/Tests/LitheTests/IdeCapabilitiesTests.swift`、`rust/lithe-ide-host/src/lib.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/host-api/ide-capabilities.ts`、`windows/tauri/src/features/host-api/mcp-settings.tsx`、`windows/tauri/src/features/host-api/ide-capabilities.test.ts`、`rust/lithe-ide-host/src/lib.rs`</sub> | Agent | 双端对同一示例项目设置 Profile/skipTests，重载、执行 clean verify，核对按钮与 MCP 的命令、输出、失败和取消。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 |  |
+| IDE MCP | **插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返回实际选择结果**<br><sub>ide-api-environment</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`、`macos/Sources/Lithe/Views/App/McpSettingsView.swift`、`macos/Tests/LitheTests/IdeCapabilitiesTests.swift`、`rust/lithe-ide-host/src/lib.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/host-api/ide-capabilities.ts`、`windows/tauri/src/features/host-api/mcp-settings.tsx`、`windows/tauri/src/features/host-api/ide-capabilities.test.ts`、`rust/lithe-ide-host/src/lib.rs`</sub> | Agent | 读取环境、修改一个默认值，检查其他字段保留；对照设置页与实际启动路径，验证保存失败及项目切换。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 |  |
+| IDE MCP | **按项目开启 MCP，分别授权配置与执行，复制 stdio 客户端配置；关闭项目撤销访问**<br><sub>ide-mcp-connection</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift`、`macos/Sources/Lithe/Views/App/McpSettingsView.swift`、`macos/Tests/LitheTests/IdeCapabilitiesTests.swift`、`rust/lithe-ide-host/src/lib.rs`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/host-api/ide-capabilities.ts`、`windows/tauri/src/features/host-api/mcp-settings.tsx`、`windows/tauri/src/features/host-api/ide-capabilities.test.ts`、`rust/lithe-ide-host/src/lib.rs`</sub> | Agent | 双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。 |  |
 | Agent 对话 | **新安装及模块关闭时仍显示 Agent 侧栏入口，面板立即提示关闭或未配置原因并提供设置入口，启停后入口不重复或消失**<br><sub>agent-entry-discoverability</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Application/Features/AgentConversationEntryPolicy.swift`、`macos/Sources/Lithe/Views/Agent/AgentConversationView.swift`、`macos/Tests/LitheTests/AgentConversationEntryPolicyTests.swift`、`macos/Resources/IDEAIcons/toolwindows/toolWindowAgent.svg`、`macos/Sources/Lithe/Views/Workbench/WorkbenchModuleUIComposition.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features`</sub> | Agent | 使用无本机模块配置的 macOS 测试账户启动并打开项目，确认 Agent 入口可见、默认开关关闭、面板显示设置指引；开启再关闭后入口和面板保留且不重复。确认读取入口不调用模块 factory、关闭状态无 Agent 连接或进程。Windows 尚无 Agent 对话 UI。 Agent 侧栏入口使用对话气泡加星光的专用线性图标；在深浅主题、选中与未选中状态下检查可辨识性。 |  |
 | Agent 对话 | **CC GUI 风格历史页：标题与会话 ID 搜索、更新时间、复制 ID、刷新与恢复、收藏与本地重命名、单条与批量移除确认及恢复、筛选、多选批量管理及 Markdown 导出**<br><sub>agent-conversation-history</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Agent/AgentHistoryView.swift`、`macos/Sources/LitheAgentConversationModule/Application/AgentHistoryFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/Agent/MacAgentHistoryAdapters.swift`、`macos/Tests/LitheTests/AgentHistoryTests.swift`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`</sub> | Agent | macOS：在深浅主题与窄宽面板查看历史页，验证标题/ID 搜索、空结果、返回保留草稿、刷新失败不丢列表、打开历史恢复会话；验证收藏/重命名重启后保留且不同项目/Agent 隔离；筛选和全选只操作可见项，单条与批量移除先确认，取消不修改记录，确认只移除提示时选中的会话，移除后可恢复且不改上游文件；单个与批量 Markdown 导出等待历史回放完成、保持原选中标签，取消/失败不写部分记录；部分回放后失败再导出必须重新加载并等待完成，断连后的未完整回放不可导出，完整快照断连后仍可导出；关闭项目释放导出等待。消息数量只显示已加载的用户与 Agent 消息，未知总数不伪造。Windows 页面待实现。 |  |
 | Agent 对话 | **Agent 上下文用量：输入框圆环百分比、悬停已用/容量 token，未使用时零占位、会话隔离与压缩后更新**<br><sub>agent-context-usage</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheAgentConversationModule/Application/AgentContextUsage.swift`、`macos/Sources/Lithe/Views/Agent/AgentContextUsageView.swift`、`macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift`、`macos/Tests/LitheTests/AgentConversationPresentationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`rust/lithe-agent-host/src/lib.rs`、`shared/fixtures/agent/acp-events-v1.json`</sub> | Agent | macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 共享 host 可转发 usage_update，页面待实现。 |  |
@@ -276,6 +280,15 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | PHP | **PHP 按需安装与插件生命周期**<br><sub>php-optional-plugin</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport`、`scripts/official-plugin-distribution.mjs`、`macos/Sources/Lithe/Platform/MacOS/Plugins`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport`、`windows/tauri/src/extensions/registry/extension-store-lifecycle.ts`、`windows/tauri/src-tauri/src/language_tools.rs`、`windows/tauri/src/extensions/packages/local-extension-package.ts`、`scripts/verify-windows-plugin-isolation.mjs`</sub> | PHP Support | 在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。 Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。 |  |
 | PHP | **PHP 插件运行与 PHPUnit 测试**<br><sub>php-run-test</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule/Capabilities/PhpExecutionCapability.swift`、`macos/Tests/LitheTests/RealPhpIntegrationTests.swift`</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/Official/PhpSupport/plugin.ts`、`windows/tauri/src/extensions/run`、`windows/tauri/src/extensions/ui/services/ui-extension-worker-runtime.test.ts`</sub> | PHP Support | macOS 运行 PHP 文件和单条/整套 PHPUnit；Windows 运行字符串/数组 Composer script 和整套 PHPUnit。禁用后菜单消失、运行进程退出，特殊文件名保持原样。Windows 暂不支持单方法发现。 |  |
+
+</details>
+
+<details>
+<summary><strong>插件与扩展</strong> · 1 个能力点</summary>
+
+| 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
+| --- | --- | --- | --- | --- | --- | --- |
+| IDE API / MCP | **插件调用已授权项目的环境、Maven 与运行 API**<br><sub>ide-api-plugins</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift`、`macos/Sources/Lithe/Application/Composition/IdeCapabilityRegistry.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`Plugins/win/SDK/ide-capabilities.ts`、`windows/tauri/src/extensions/ui/services/ide-extension-host.ts`、`windows/tauri/src/extensions/ui/services/ide-extension-host.test.ts`</sub> | IDE API | 双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。 | 复用 MCP 的同一应用功能和参数校验，不扩张语言包权限；原生运行验收待完成。 |
 
 </details>
 

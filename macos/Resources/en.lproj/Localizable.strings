@@ -1306,3 +1306,12 @@
 
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
+
+"AI tool connections (MCP)" = "AI tool connections (MCP)";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
+"Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";
+"Allow run, build, reload and stop (executes project code)" = "Allow run, build, reload and stop (executes project code)";
+"Disable MCP" = "Disable MCP";
+"Enable MCP" = "Enable MCP";
+"Copy agent configuration" = "Copy agent configuration";
+"Enabled plugins can also use this project grant." = "Enabled plugins can also use this project grant.";

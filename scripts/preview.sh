@@ -63,6 +63,10 @@ MACOSX_DEPLOYMENT_TARGET=13.0 \
     CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
     cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-db-mcp --target "$RUST_TARGET"
 cp "rust/target/macos/$RUST_TARGET/debug/lithe-db-mcp" "$APP_DIR/Contents/Helpers/lithe-db-mcp"
+MACOSX_DEPLOYMENT_TARGET=13.0 \
+    CARGO_TARGET_DIR="$ROOT_DIR/rust/target/macos" \
+    cargo build --manifest-path "$ROOT_DIR/rust/Cargo.toml" -p lithe-ide-host --features mcp --bin lithe-mcp --target "$RUST_TARGET"
+cp "rust/target/macos/$RUST_TARGET/debug/lithe-mcp" "$APP_DIR/Contents/Helpers/lithe-mcp"
 cp macos/Resources/Info.plist "$APP_DIR/Contents/Info.plist"
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 "$ROOT_DIR/scripts/stamp-macos-app-build-info.sh" "$APP_DIR/Contents/Info.plist"

@@ -91,6 +91,18 @@
       ],
       "identity": "Mutable user annotations scoped by standardized workspace identity and configured Agent ID; no build, platform, architecture or toolchain stamp",
       "reason": "Favorites, custom titles and hidden rows are runtime preferences. Never copy them across worktrees or read Agent files to reconstruct them; exports are user documents, not build resources. No copy stage is permitted."
+    },
+    {
+      "id": "ide-mcp",
+      "reusable": false,
+      "locations": [
+        "dist/ide-mcp/",
+        "rust/target/windows-ide-mcp/",
+        "windows/tauri/src-tauri/helpers/",
+        "<platform-app-data>/mcp/"
+      ],
+      "identity": "Helper executable is tied to source, Cargo.lock, target triple and signing; runtime connection descriptors contain ephemeral bearer credentials and workspace ownership locks. No reusable build identity stamp.",
+      "reason": "Build helpers separately before packaging; never copy runtime connection files or locks. Installed helpers remain read-only. There is no permitted worktree copy stage."
     }
   ]
 }

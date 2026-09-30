@@ -20,6 +20,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var isRunning = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
+    package private(set) var primaryExecutionID: String?
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published package private(set) var projectToolchain = ProjectToolchainSelection()
@@ -835,6 +836,7 @@ package final class RunService: ObservableObject {
         stop()
         output = ""
         lastExitCode = nil
+        primaryExecutionID = UUID().uuidString
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
         let mavenContext = mavenContext(for: configuration)
@@ -1100,6 +1102,7 @@ package final class RunService: ObservableObject {
         output = ""
         lastExitCode = nil
         lastRunConfiguration = nil
+        primaryExecutionID = nil
         lastCurrentFileURL = nil
     }
 

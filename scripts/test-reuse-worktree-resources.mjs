@@ -64,6 +64,11 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "ide-mcp"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /ide-mcp.*cannot be reused/);
+  });
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

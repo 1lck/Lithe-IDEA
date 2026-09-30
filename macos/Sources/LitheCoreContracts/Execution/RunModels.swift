@@ -1,6 +1,8 @@
 import Foundation
 
 package struct RunSession: Identifiable, Hashable, Sendable {
+    /// Stable for one execution; replacing the output slot creates a new identity.
+    package let executionID = UUID().uuidString
     package let id: String
     package let configurationID: String
     package let title: String

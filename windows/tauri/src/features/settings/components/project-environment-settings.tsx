@@ -1,3 +1,4 @@
+import { McpSettings } from "@/features/host-api/mcp-settings";
 import { useEffect, useRef, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
@@ -30,7 +31,7 @@ export function ProjectEnvironmentSettings() {
   const { t } = useTranslation();
   if (!root) return <p>{t("settings.project.openProject")}</p>;
   return (
-    <ProjectEnvironmentForm key={`${workspaceId}:${root}`} root={root} workspaceId={workspaceId} />
+    <div className="space-y-4"><McpSettings key={workspaceId} workspaceID={workspaceId} root={root} /><ProjectEnvironmentForm key={`${workspaceId}:${root}`} root={root} workspaceId={workspaceId} /></div>
   );
 }
 
