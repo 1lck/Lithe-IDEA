@@ -60,8 +60,8 @@ let root: Root;
 const actEnvironment = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousActEnvironment: boolean | undefined;
 
-function Probe({ javaHomePath }: { javaHomePath: string }) {
-  const state = useResolvedToolchains("C:/work", javaHomePath, "", "", dependencies);
+function Probe({ javaHomePath, revision = 0 }: { javaHomePath: string; revision?: number }) {
+  const state = useResolvedToolchains("C:/work", javaHomePath, "", "", dependencies, revision);
   return <output>{state.java.status === "resolved" ? state.java.path : state.java.status}</output>;
 }
 
@@ -76,8 +76,11 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root.unmount());
+  // Release every pending fake host response, including when an assertion fails.
+  for (const request of requests) request.result.resolve(resolvedJava("C:/fixture/cleanup"));
+  await Promise.allSettled(requests.map((request) => request.result.promise));
   host.remove();
   actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
   restoreDom();
@@ -114,4 +117,17 @@ test("typing before the pause ends resolves only the final selection", () => {
   expect(scheduled.map((entry) => entry.cancelled)).toEqual([true, false]);
   act(() => scheduled[1].task());
   expect(requests.map((request) => request.javaHomePath)).toEqual(["C:/jdk"]);
+});
+
+
+test("project requirement refresh re-resolves unchanged automatic paths and rejects stale results", async () => {
+  act(() => root.render(<Probe javaHomePath="" revision={1} />));
+  act(() => scheduled[0].task());
+  act(() => root.render(<Probe javaHomePath="" revision={2} />));
+  expect(scheduled[0].cancelled).toBe(true);
+  act(() => scheduled[1].task());
+  expect(requests.map((request) => request.javaHomePath)).toEqual(["", ""]);
+  await act(async () => requests[1].result.resolve(resolvedJava("C:/jdk-21")));
+  await act(async () => requests[0].result.resolve(resolvedJava("C:/jdk-8")));
+  expect(host.textContent).toBe("C:/jdk-21");
 });

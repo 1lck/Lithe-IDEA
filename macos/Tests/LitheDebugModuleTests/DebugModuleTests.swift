@@ -42,8 +42,8 @@ struct DebugModuleTests {
         #expect(feature.start(fileURL: source, rootURL: root, configuration: configuration))
         let firstID = try #require(feature.activeSessionID)
         #expect(feature.startAdditional(fileURL: source, rootURL: root, configuration: configuration))
-        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main"))
-        await feature.restartJavaService { _, _ in JavaDebugLaunchTarget(mainClass: "example.Main") }
+        feature.registerJavaUpdateTarget(JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app"))
+        await feature.restartJavaService { _, _ in JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app") }
         #expect(createdSessions.count == 3)
         #expect(createdSessions[0].isRunning)
         #expect(!createdSessions[1].isRunning)

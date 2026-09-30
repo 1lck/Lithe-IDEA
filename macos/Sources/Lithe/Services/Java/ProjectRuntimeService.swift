@@ -39,7 +39,9 @@ final class ProjectRuntimeService: ObservableObject {
     @Published private(set) var isDiscovering = false
     @Published private(set) var settings = ProjectRuntimeSettings()
     private var activeServiceJavaHomePath = ""
+    private var launchJavaRuntimes: [JavaRuntimeCandidate]?
 
+    private let javaSelector: any JavaRuntimeSelecting
     private let runtimeLocator: any RuntimeLocator
     private let store: any KeyValueStore
     private let toolDiscovery: any RuntimeToolDiscovery
@@ -52,8 +54,10 @@ final class ProjectRuntimeService: ObservableObject {
     init(
         runtimeLocator: any RuntimeLocator,
         store: any KeyValueStore,
-        toolDiscovery: (any RuntimeToolDiscovery)? = nil
+        toolDiscovery: (any RuntimeToolDiscovery)? = nil,
+        javaSelector: any JavaRuntimeSelecting = RustCoreBridge()
     ) {
+        self.javaSelector = javaSelector
         self.runtimeLocator = runtimeLocator
         self.store = store
         self.toolDiscovery = toolDiscovery ?? DefaultRuntimeToolDiscovery()
@@ -71,6 +75,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = loadSettings(for: normalizedURL)
         javaEnvironmentReport = .checking(for: normalizedURL)
         javaLanguageServerRuntimePreparation = .unprepared
@@ -85,6 +90,7 @@ final class ProjectRuntimeService: ObservableObject {
         javaRuntimes = []
         mavenRuntimes = []
         discoveredProjectURL = nil
+        launchJavaRuntimes = nil
         settings = ProjectRuntimeSettings()
         javaEnvironmentReport = nil
         isDiscovering = false
@@ -105,6 +111,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func refreshAvailableRuntimes() async {
+        launchJavaRuntimes = nil
         discoveryTask?.cancel()
         discoveryTask = nil
         await performRuntimeRefresh()
@@ -137,13 +144,21 @@ final class ProjectRuntimeService: ObservableObject {
         isDiscovering = false
     }
 
+    private func javaRuntimesForLaunch() -> [JavaRuntimeCandidate] {
+        if hasDiscoveredRuntimes { return javaRuntimes }
+        if let launchJavaRuntimes { return launchJavaRuntimes }
+        let runtimes = runtimeLocator.discoverJavaRuntimes()
+        launchJavaRuntimes = runtimes
+        return runtimes
+    }
+
     func javaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// The single JDK selection chain behind launches and Settings: an explicit
-    /// override, then the project JDK, then `JAVA_HOME`, then the first detected
-    /// JDK. An invalid explicit path does not fall back, so a launch fails on it.
+    /// override, then the project JDK, then Core's requirement-aware automatic
+    /// selection. An invalid explicit path does not fall back, so a launch fails on it.
     ///
     /// `detected` supplies discovered runtimes and is only called when the chain
     /// reaches detection; returning `nil` reports that detection is pending.
@@ -163,14 +178,44 @@ final class ProjectRuntimeService: ObservableObject {
             let path = normalizedOverridePath(configuredProjectJDK)
             return runtimeLocator.validJavaHome(path: path).map { RuntimeChoice.found($0, .projectSetting) } ?? .invalid(path)
         }
-        let paths = [runtimeLocator.environment()["JAVA_HOME"]]
-        for path in paths.compactMap({ $0 }).map(normalizedPath).filter({ !$0.isEmpty }) {
-            if let home = runtimeLocator.validJavaHome(path: path) { return .found(home, .javaHomeEnvironment) }
+        let environmentHome = runtimeLocator.environment()["JAVA_HOME"]
+            .flatMap { runtimeLocator.validJavaHome(path: normalizedPath($0)) }
+        if let environmentHome {
+            // With no project requirement, preserve the old no-probe JAVA_HOME
+            // fast path. Unknown versions never satisfy a real minimum, so only
+            // an unconstrained result may bypass discovery here.
+            let candidate = AutomaticJavaCandidate(id: environmentHome.path, version: "", priority: 0)
+            switch javaSelector.selectJavaRuntime(at: projectURL, candidates: [candidate], fallbackID: candidate.id) {
+            case .failure(let error): return .unavailable(error.message)
+            case .success(let selection) where selection.warning == nil:
+                return .found(environmentHome, .javaHomeEnvironment)
+            case .success: break
+            }
         }
+        // Settings supplies cached probes; pending discovery must not synchronously
+        // launch java -version or temporarily present an incompatible JAVA_HOME.
         guard let runtimes = detected() else { return nil }
-        return runtimes.first
-            .flatMap { runtimeLocator.validJavaHome(path: $0.homePath) }
-            .map { RuntimeChoice.found($0, .detected) } ?? .notFound
+        let pathHome = runtimeLocator.javaHomeOnPath(in: runtimes)
+        var candidates = runtimes.compactMap { runtime -> AutomaticJavaCandidate? in
+            guard let home = runtimeLocator.validJavaHome(path: runtime.homePath) else { return nil }
+            let priority: UInt32 = home.path == environmentHome?.path ? 0 : (home.path == pathHome?.path ? 1 : 2)
+            return AutomaticJavaCandidate(id: home.path, version: runtime.version, priority: priority)
+        }
+        // Preserve the old JAVA_HOME fallback even if its version probe failed.
+        // An unknown version cannot satisfy a requirement in the shared policy.
+        if let home = environmentHome, !candidates.contains(where: { $0.id == home.path }) {
+            candidates.append(AutomaticJavaCandidate(id: home.path, version: "", priority: 0))
+        }
+        let fallback = environmentHome?.path ?? candidates.first?.id
+        switch javaSelector.selectJavaRuntime(at: projectURL, candidates: candidates, fallbackID: fallback) {
+        case .failure(let error): return .unavailable(error.message)
+        case .success(let selection):
+            guard let id = selection.id else { return .notFound }
+            let url = URL(fileURLWithPath: id).standardizedFileURL
+            let source: RuntimeChoiceSource = url.path == environmentHome?.path ? .javaHomeEnvironment : .detected
+            if let warning = selection.warning { return .warning(url, source, warning) }
+            return .found(url, source)
+        }
     }
 
     func javaExecutableURL(overridePath: String? = nil) -> URL? {
@@ -246,7 +291,7 @@ final class ProjectRuntimeService: ObservableObject {
     }
 
     func mavenJavaHomeURL(overridePath: String? = nil) -> URL? {
-        chooseMavenJavaHome(overridePath: overridePath) { self.runtimeLocator.discover().javaRuntimes }?.url
+        chooseMavenJavaHome(overridePath: overridePath) { self.javaRuntimesForLaunch() }?.url
     }
 
     /// Maven's JDK: an explicit override, then the configured Maven JDK, then
