@@ -63,7 +63,7 @@ struct TerminalView: View {
                     Button {
                         showShellMenu()
                     } label: {
-                        LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16,
+                        LitheIDEAIcon(resourcePath: "expui/general/chevronDownLarge.svg", size: 16,
                                       fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
                     }
                     .litheToolbarIconButton()

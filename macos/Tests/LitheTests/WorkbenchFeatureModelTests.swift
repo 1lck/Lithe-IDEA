@@ -162,6 +162,23 @@ struct WorkbenchFeatureModelTests {
         #expect(selections == [.changes])
         #expect(model.selectedSidebar == .changes)
     }
+
+    @Test
+    func hidingSidebarPreservesSelectionAndSelectingItAgainRestoresThePane() {
+        let model = WorkbenchFeatureModel()
+
+        model.hideSidebar()
+        #expect(!model.isSidebarVisible)
+        #expect(model.selectedSidebar == .project)
+
+        model.setSelectedSidebar(.project)
+        #expect(model.isSidebarVisible)
+
+        model.hideSidebar()
+        model.setSelectedSidebar(.search)
+        #expect(model.isSidebarVisible)
+        #expect(model.selectedSidebar == .search)
+    }
 }
 
 private final class WorkbenchFeatureModelTestStore: KeyValueStore, @unchecked Sendable {

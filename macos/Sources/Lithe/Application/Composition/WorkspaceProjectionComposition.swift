@@ -34,8 +34,7 @@ enum WorkspaceProjectionComposition {
                 workbench?.selectedSidebar = SidebarDestination(rawValue: rawValue) ?? .project
             },
             restoreSession: { [weak workbench, weak editorSession] session, availableFiles in
-                let sidebar = SidebarDestination(rawValue: session.selectedSidebar) ?? .project
-                workbench?.selectedSidebar = sidebar.isAvailable ? sidebar : .project
+                workbench?.selectedSidebar = .project
                 await editorSession?.restoreDocuments(
                     orderedPaths: session.openPaths,
                     activePath: session.activePath,

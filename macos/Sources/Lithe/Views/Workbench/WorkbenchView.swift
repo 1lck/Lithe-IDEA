@@ -23,8 +23,7 @@ private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
-    // IDEA's shared ThreeComponentsSplitter: ide.mainSplitter.min.size=30.
-    static let minimumPaneHeight: CGFloat = 30
+    static let minimumPaneHeight = CGFloat(WorkbenchLayout.minimumPaneSize)
 }
 
 private enum WorkbenchTopBarMetrics {
@@ -1283,7 +1282,8 @@ struct WorkbenchView: View {
                                     height: ActivityBarMetrics.buttonHeight
                                 )
                                 .litheRowHover(
-                                    isActive: model.workbenchFeature.selectedSidebar == destination,
+                                    isActive: model.workbenchFeature.isSidebarVisible
+                                        && model.workbenchFeature.selectedSidebar == destination,
                                     cornerRadius: 6,
                                     activeBackground: LitheTheme.selection
                                 )
@@ -1292,7 +1292,9 @@ struct WorkbenchView: View {
                         }
                         .buttonStyle(.litheNoPress)
                         .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+                        .foregroundStyle(model.workbenchFeature.isSidebarVisible
+                            && model.workbenchFeature.selectedSidebar == destination
+                                ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
                         .workbenchHoverHelp(
                             Text(destination.isAvailable
                                  ? LocalizedStringKey(destination.title)
@@ -1507,6 +1509,7 @@ struct WorkbenchView: View {
         if isDockedSidebarVisible {
             WorkbenchRightToolSplitView(
                 width: mavenPaneWidth,
+                isSidebarVisible: model.workbenchFeature.isSidebarVisible,
                 hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
                 showsFrameGradient: usesIDEAFrameExperiment,
                 onCommit: { width in
@@ -1527,6 +1530,7 @@ struct WorkbenchView: View {
     private var workspaceContent: some View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
+            isSidebarVisible: model.workbenchFeature.isSidebarVisible,
             topPaneHeight: topPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
             actions: WorkbenchWorkspaceSplitActions(
@@ -1550,7 +1554,8 @@ struct WorkbenchView: View {
             },
             editor: {
                 Group {
-                    if model.workbenchFeature.selectedSidebar == .pullRequests {
+                    if model.workbenchFeature.isSidebarVisible,
+                       model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1957,6 +1962,7 @@ private struct WorkbenchWorkspaceSplitActions {
 
 private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
     let sidebarWidth: CGFloat
+    let isSidebarVisible: Bool
     let topPaneHeight: CGFloat?
     let isBottomToolVisible: Bool
     let actions: WorkbenchWorkspaceSplitActions
@@ -1972,6 +1978,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
 
     init(
         sidebarWidth: CGFloat,
+        isSidebarVisible: Bool,
         topPaneHeight: CGFloat?,
         isBottomToolVisible: Bool,
         actions: WorkbenchWorkspaceSplitActions,
@@ -1983,6 +1990,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         @ViewBuilder bottomTool: () -> BottomTool
     ) {
         self.sidebarWidth = sidebarWidth
+        self.isSidebarVisible = isSidebarVisible
         self.topPaneHeight = topPaneHeight
         self.isBottomToolVisible = isBottomToolVisible
         self.actions = actions
@@ -2005,12 +2013,9 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     - (WorkbenchWorkspaceMetrics.paneInset * 2)
                     - WorkbenchWorkspaceMetrics.paneSpacing
             )
-            let minimumSidebarWidth = CGFloat(WorkbenchLayout.minimumSidebarWidth)
-            let minimumEditorWidth: CGFloat = 400
-            let maximumSidebarWidth = max(
-                minimumSidebarWidth,
-                min(520, availableTopWidth - minimumEditorWidth)
-            )
+            let minimumEditorWidth = CGFloat(WorkbenchLayout.minimumPaneSize)
+            let maximumSidebarWidth = max(0, availableTopWidth - minimumEditorWidth)
+            let minimumSidebarWidth = min(CGFloat(WorkbenchLayout.minimumPaneSize), maximumSidebarWidth)
             let resolvedSidebarWidth = constrained(
                 liveSidebarWidth,
                 minimum: minimumSidebarWidth,
@@ -2029,7 +2034,15 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                 maximum: maximumTopPaneHeight
             )
 
-            let topContent: AnyView = AnyView(
+            let editorPane = editor
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .workbenchPaneChrome(
+                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                    roundsCorners: !hasWorkbenchBackground,
+                    showsFrameGradient: showsFrameGradient
+                )
+            let topContent: AnyView = isSidebarVisible ? AnyView(
                 LitheSplitPaneView(
                     axis: .horizontal,
                     placement: .leading,
@@ -2039,7 +2052,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     clipsSizedPane: true,
                     trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                     showsIdleDivider: false,
-                    onCommit: actions.onSidebarWidthCommitted,
+                    onCommit: { width in
+                        guard liveSidebarWidth <= maximumSidebarWidth || width < maximumSidebarWidth else { return }
+                        actions.onSidebarWidthCommitted(width)
+                    },
                     sized: {
                         sidebar
                             .workbenchResizablePaneChrome(
@@ -2050,17 +2066,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             )
                     },
                     flexible: {
-                        editor
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground,
-                                showsFrameGradient: showsFrameGradient
-                            )
+                        editorPane
                     }
                 )
-            )
+            ) : AnyView(editorPane)
 
             Group {
                 if isBottomToolVisible {
@@ -2074,7 +2083,11 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         clipsSizedPane: true,
                         trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                         showsIdleDivider: false,
-                        onCommit: actions.onTopPaneHeightCommitted,
+                        onCommit: { height in
+                            guard (liveTopPaneHeight ?? 0) <= maximumTopPaneHeight
+                                    || height < maximumTopPaneHeight else { return }
+                            actions.onTopPaneHeightCommitted(height)
+                        },
                         sized: {
                             topContent
                                 .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)

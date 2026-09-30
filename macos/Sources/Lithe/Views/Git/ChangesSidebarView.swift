@@ -162,6 +162,7 @@ struct ChangesSidebarView: View {
             }
             Spacer()
             GitPatchToolbar(feature: feature)
+            LitheSidebarHideButton(title: "Commit") { workbench.hideSidebar() }
         }
         .padding(.trailing, 10)
         .frame(height: 41)

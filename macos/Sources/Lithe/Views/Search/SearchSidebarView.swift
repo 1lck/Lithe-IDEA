@@ -2,6 +2,7 @@ import SwiftUI
 import LitheSearchModule
 
 struct SearchSidebarView: View {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: SearchFeatureModel
     @ObservedObject var session: SearchSessionFeatureModel
     let openReplace: (ProjectSearchOptions) -> Void
@@ -22,6 +23,9 @@ struct SearchSidebarView: View {
                 Spacer()
                 if feature.isSearching {
                     ProgressView().controlSize(.mini)
+                }
+                LitheSidebarHideButton(title: "Search") {
+                    model.workbenchFeature.hideSidebar()
                 }
             }
             .padding(.horizontal, 12)
@@ -173,9 +177,15 @@ struct SearchSidebarView: View {
             guard !Task.isCancelled else { return }
             await searchProject(searchOptions)
         }
-        .onAppear { searchFocused = true }
+        .onAppear(perform: focusSearchFieldIfRequested)
         // 侧栏已经打开时再次按 Cmd+Shift+F，靠令牌变化把焦点移回输入框。
-        .onChange(of: session.sidebarFocusRequest) { _ in searchFocused = true }
+        .onChange(of: session.sidebarFocusRequest) { _ in focusSearchFieldIfRequested() }
+    }
+
+    private func focusSearchFieldIfRequested() {
+        guard session.sidebarFocusRequest > 0 else { return }
+        session.sidebarFocusRequest = 0
+        searchFocused = true
     }
 
     private var fileMaskField: some View {

@@ -341,7 +341,7 @@ enum LitheWindowLayout: Equatable {
     var minimumContentSize: NSSize {
         switch self {
         case .welcome: Self.welcomeContentSize
-        case .workspace: NSSize(width: 980, height: 640)
+        case .workspace: .zero
         case .standalone: Self.standaloneMinimumContentSize
         }
     }

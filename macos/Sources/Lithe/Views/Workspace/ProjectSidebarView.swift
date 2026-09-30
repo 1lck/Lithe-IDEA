@@ -258,6 +258,9 @@ struct ProjectSidebarView: View {
                 .accessibilityHidden(!isHeaderHovered)
                 .help("Refresh")
             }
+            LitheSidebarHideButton(title: selectedContent.title) {
+                model.workbenchFeature.hideSidebar()
+            }
         }
         .padding(.leading, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .padding(.trailing, 12)

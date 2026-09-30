@@ -298,7 +298,8 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Workspace",
-          "macos/Sources/Lithe/Services/Workspace"
+          "macos/Sources/Lithe/Services/Workspace",
+          "macos/Sources/Lithe/Application/Composition/WorkspaceProjectionComposition.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -311,7 +312,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workspace",
-      "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。"
+      "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确；macOS 重启并恢复上次在 Search 等其他侧栏打开的工作区时，默认显示 Project 侧栏，打开的编辑器文件仍恢复。"
     },
     {
       "id": "workspace-files",
@@ -579,7 +580,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Search",
-      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标。"
+      "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。"
     },
     {
       "id": "search-global",
@@ -1560,7 +1561,9 @@
       "capability": "多会话与标签",
       "macos": {
         "evidence": [
-          "macos/Sources/Lithe/Views/Terminal"
+          "macos/Sources/Lithe/Views/Terminal",
+          "macos/Resources/IDEAIcons/expui/general/chevronDownLarge.svg",
+          "macos/Resources/IDEAIcons/expui/general/chevronDownLarge_dark.svg"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1573,7 +1576,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；macOS 默认标签依次显示 Local、Local (2)、Local (3)，从下拉框选择 zsh 后依次显示 zsh、zsh (2)，不同 Shell 分别编号；终端与 Git Log 标签悬停有反馈，点击各自区域时选中标签背景显示活动色、点击外部时显示非活动色，文字始终保持相同颜色与常规字重；macOS 关闭终端会话直接停止进程，最后一个底部终端关闭后收起面板，编辑区的其他终端会话继续运行；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；macOS 默认标签依次显示 Local、Local (2)、Local (3)，从下拉框选择 zsh 后依次显示 zsh、zsh (2)，不同 Shell 分别编号；终端与 Git Log 标签悬停有反馈，点击各自区域时选中标签背景显示活动色、点击外部时显示非活动色，文字始终保持相同颜色与常规字重；macOS 终端标题栏的加号、下拉箭头、更多操作和收起图标在明暗主题分别使用 IDEA 的 #6C707E 和 #CED0D6 颜色，按钮动作及悬停效果保持一致；macOS 关闭终端会话直接停止进程，最后一个底部终端关闭后收起面板，编辑区的其他终端会话继续运行；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
     },
     {
       "id": "terminal-interaction",
@@ -2139,6 +2142,8 @@
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Views/Workbench",
+          "macos/Sources/Lithe/Application/Features/WorkbenchFeatureModel.swift",
+          "macos/Sources/Lithe/Views/Components/LitheToolWindowHeader.swift",
           "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
           "macos/Sources/Lithe/Views/Components/LitheSplitPaneView.swift",
           "macos/Sources/Lithe/Services/Workbench/WorkbenchLayoutStore.swift",
@@ -2160,7 +2165,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；macOS 主工作区窗口不再被固定的 980×640 内容下限阻止缩小，侧栏、右侧工具窗、编辑区和底部工具窗按 IDEA 主分隔器默认 30pt 下限与实时可用空间调整，无固定 520/760pt 上限，极窄窗口不产生负尺寸或越界，恢复窗口后保留原先保存的面板宽度；macOS Project、Commit、Search、Database 和 Pull Requests 侧栏标题右端使用 IDEA 明暗收起图标与共用悬停样式，点击后收起侧栏并保留活动栏和编辑区，再点击对应活动栏图标恢复侧栏及原宽度；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。"
     },
     {
       "id": "project-sidebar-header-icons",

@@ -1,35 +1,44 @@
 import SwiftUI
 
 enum WorkbenchRightToolGeometry {
-    // Reserve the project tree, editor, and their existing separator.
-    static let minimumWorkspaceWidth: CGFloat = 640
-
-    static func maximumWidth(in availableWidth: CGFloat) -> CGFloat {
-        max(0, min(
-            CGFloat(WorkbenchLayout.maximumMavenPaneWidth),
-            availableWidth - minimumWorkspaceWidth - SplitHandleView.thickness
-        ))
+    static func minimumWorkspaceWidth(isSidebarVisible: Bool) -> CGFloat {
+        CGFloat(WorkbenchLayout.minimumPaneSize) * (isSidebarVisible ? 2 : 1)
+            + (isSidebarVisible ? SplitHandleView.thickness : 0)
     }
 
-    static func minimumWidth(in availableWidth: CGFloat) -> CGFloat {
-        min(CGFloat(WorkbenchLayout.minimumMavenPaneWidth), maximumWidth(in: availableWidth))
+    static func maximumWidth(in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+        max(0, availableWidth - minimumWorkspaceWidth(isSidebarVisible: isSidebarVisible)
+            - SplitHandleView.thickness)
     }
 
-    static func resolvedWidth(_ width: CGFloat, in availableWidth: CGFloat) -> CGFloat {
+    static func minimumWidth(in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
+        min(CGFloat(WorkbenchLayout.minimumPaneSize),
+            maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible))
+    }
+
+    static func resolvedWidth(_ width: CGFloat, in availableWidth: CGFloat, isSidebarVisible: Bool) -> CGFloat {
         LitheSplitPaneGeometry.clamp(
             width,
-            minimum: minimumWidth(in: availableWidth),
-            maximum: maximumWidth(in: availableWidth)
+            minimum: minimumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible),
+            maximum: maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible)
         )
     }
 
     /// A window with no usable resize range is showing a temporary fit value.
     /// It must not replace the user's preferred width when a drag ends.
-    static func committedWidth(_ width: CGFloat, in availableWidth: CGFloat) -> CGFloat? {
-        guard maximumWidth(in: availableWidth) > CGFloat(WorkbenchLayout.minimumMavenPaneWidth) else {
+    static func committedWidth(
+        _ width: CGFloat,
+        preferredWidth: CGFloat,
+        in availableWidth: CGFloat,
+        isSidebarVisible: Bool
+    ) -> CGFloat? {
+        let maximum = maximumWidth(in: availableWidth, isSidebarVisible: isSidebarVisible)
+        guard maximum > CGFloat(WorkbenchLayout.minimumPaneSize) else {
             return nil
         }
-        return resolvedWidth(width, in: availableWidth)
+        // A window resize can clamp the displayed width without a user drag.
+        if preferredWidth > maximum, width >= maximum { return nil }
+        return resolvedWidth(width, in: availableWidth, isSidebarVisible: isSidebarVisible)
     }
 }
 
@@ -37,6 +46,7 @@ enum WorkbenchRightToolGeometry {
 /// the committed width, keeping persistence and full-page redraws off the hot path.
 struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
     let width: CGFloat
+    let isSidebarVisible: Bool
     let hasWorkbenchBackground: Bool
     let showsFrameGradient: Bool
     let onCommit: (CGFloat) -> Void
@@ -45,6 +55,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
 
     init(
         width: CGFloat,
+        isSidebarVisible: Bool,
         hasWorkbenchBackground: Bool,
         showsFrameGradient: Bool = false,
         onCommit: @escaping (CGFloat) -> Void,
@@ -52,6 +63,7 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
         @ViewBuilder tool: () -> Tool
     ) {
         self.width = width
+        self.isSidebarVisible = isSidebarVisible
         self.hasWorkbenchBackground = hasWorkbenchBackground
         self.showsFrameGradient = showsFrameGradient
         self.onCommit = onCommit
@@ -64,16 +76,18 @@ struct WorkbenchRightToolSplitView<Workspace: View, Tool: View>: View {
             LitheSplitPaneView(
                 axis: .horizontal,
                 placement: .trailing,
-                defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width),
-                minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width),
-                maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width),
+                defaultSize: WorkbenchRightToolGeometry.resolvedWidth(width, in: geometry.size.width, isSidebarVisible: isSidebarVisible),
+                minimum: WorkbenchRightToolGeometry.minimumWidth(in: geometry.size.width, isSidebarVisible: isSidebarVisible),
+                maximum: WorkbenchRightToolGeometry.maximumWidth(in: geometry.size.width, isSidebarVisible: isSidebarVisible),
                 clipsSizedPane: true,
                 trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                 showsIdleDivider: false,
                 onCommit: { width in
                     guard let committedWidth = WorkbenchRightToolGeometry.committedWidth(
                         width,
-                        in: geometry.size.width
+                        preferredWidth: self.width,
+                        in: geometry.size.width,
+                        isSidebarVisible: isSidebarVisible
                     ) else { return }
                     onCommit(committedWidth)
                 },

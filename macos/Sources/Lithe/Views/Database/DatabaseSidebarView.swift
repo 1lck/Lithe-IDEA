@@ -114,6 +114,9 @@ struct DatabaseSidebarView: View {
                     .litheIconButton()
                     .help("Refresh connection structure")
                     .disabled(model.databaseFeature.selectedProfile == nil)
+                LitheSidebarHideButton(title: "Database") {
+                    model.workbenchFeature.hideSidebar()
+                }
             }
             .foregroundStyle(LitheTheme.primaryText).padding(.leading, 10).padding(.trailing, 5)
             .frame(height: 42)

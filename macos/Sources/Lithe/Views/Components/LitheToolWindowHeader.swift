@@ -93,3 +93,22 @@ extension LitheToolWindowHeader where Actions == EmptyView {
         }
     }
 }
+
+struct LitheSidebarHideButton: View {
+    let title: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            LitheIDEAIcon(
+                resourcePath: "expui/general/hide.svg",
+                size: LitheTheme.Metrics.toolbarIconSize,
+                fallbackSystemImage: "minus",
+                preservesOriginalColors: true
+            )
+        }
+        .litheToolbarIconButton()
+        .help("Hide \(title) tool window")
+        .accessibilityLabel("Hide \(title) tool window")
+    }
+}

@@ -802,6 +802,7 @@ struct LitheCoreLogicTests {
 
         coordinator.attach(to: window, layout: .workspace)
         #expect(window.contentMinSize == LitheWindowLayout.workspace.minimumContentSize)
+        #expect(window.contentMinSize == .zero)
     }
 
     @Test
