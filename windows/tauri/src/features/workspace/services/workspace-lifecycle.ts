@@ -136,7 +136,8 @@ async function openWorkspaceRuntimeOnce({
   resume,
 }: OpenWorkspaceRuntimeOptions) {
   const workspaceId = createProjectTabId(descriptor.path);
-  const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+  const { projectWindowRouting } =
+    await import("@/features/window/services/project-window-routing");
   if (await projectWindowRouting.claim({ id: workspaceId, path: descriptor.path })) {
     return true;
   }
@@ -258,12 +259,15 @@ export async function closeWorkspaceRuntime(
   if (wasActive) {
     persist?.();
   }
+  const { disableMcp } = await import("@/features/host-api/mcp-connection");
+  await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
   await dispose?.(tab.path);
 
   workspaceTabs.actions.removeProjectTab(workspaceId);
   workspaceRuntimeRegistry.removeWorkspace(workspaceId);
-  const { projectWindowRouting } = await import("@/features/window/services/project-window-routing");
+  const { projectWindowRouting } =
+    await import("@/features/window/services/project-window-routing");
   await projectWindowRouting.release(workspaceId);
 
   if (!wasActive) {

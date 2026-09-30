@@ -107,6 +107,15 @@ fn execute(request: &str) -> CoreResponse {
 
     let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
+        CoreCommand::IdeHostControl => {
+            let action = parsed.payload["action"].as_str().unwrap_or("");
+            match lithe_ide_host::execute(action, parsed.payload["arguments"].clone()) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(message) => {
+                    CoreResponse::failure(id, CoreError::new(ErrorCode::InvalidRequest, message))
+                }
+            }
+        }
         CoreCommand::Ping => CoreResponse::success(
             id,
             json!({

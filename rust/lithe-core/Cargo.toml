@@ -11,6 +11,7 @@ crate-type = ["rlib", "staticlib", "cdylib"]
 [dependencies]
 lithe-git-host = { path = "../lithe-git-host" }
 lithe-agent-host = { path = "../lithe-agent-host" }
+lithe-ide-host = { path = "../lithe-ide-host" }
 ammonia = "4.1.4"
 base64 = "0.22"
 comrak = { version = "0.54.0", default-features = false, features = ["shortcodes"] }

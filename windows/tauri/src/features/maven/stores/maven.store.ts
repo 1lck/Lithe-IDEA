@@ -166,6 +166,8 @@ export interface MavenState {
   taskStatus: MavenTaskStatus;
   taskError: string | null;
   activeSessionId: string | null;
+  /** Retains output ownership after the native process exits. */
+  outputOperationID?: string;
   taskTitle: string | null;
   output: string;
   issues: MavenDiagnostic[];
@@ -715,6 +717,7 @@ export const createMavenStore = (
         activeTestRun: null,
         testResults: null,
         lastExitCode: 1,
+        outputOperationID: `maven:${crypto.randomUUID()}`,
         output: trimOutput(`${message}\n`),
         issues: [{ path: "", line: 1, column: null, severity: "error", message }],
       });
@@ -795,6 +798,7 @@ export const createMavenStore = (
                   taskStatus: "idle" as const,
                   taskError: null,
                   activeSessionId: null,
+                  outputOperationID: undefined,
                   taskTitle: null,
                   output: "",
                   issues: [],
@@ -1146,6 +1150,7 @@ export const createMavenStore = (
             taskStatus: "running",
             taskError: null,
             activeSessionId: sessionId,
+            outputOperationID: sessionId,
             taskTitle: title,
             output: "",
             issues: [],

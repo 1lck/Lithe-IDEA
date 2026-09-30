@@ -12,6 +12,7 @@ import type {
   ExtensionWorkspaceContext,
 } from "../types/extension-view";
 import { isExtensionNetworkRequestAllowed } from "./extension-permissions";
+import { callIdeExtensionService } from "./ide-extension-host";
 
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
 const STORAGE_PREFIX = "lithe-extension:";
@@ -60,6 +61,9 @@ export async function callExtensionHostService(
   params: unknown[],
 ): Promise<unknown> {
   switch (method) {
+    case "ide.authorizedWorkspaceIDs":
+    case "ide.call":
+      return callIdeExtensionService(manifest, method, params);
     case "http.request": {
       const request = params[0] as ExtensionHttpRequest;
       const allowedOrigins = manifest.permissions?.network ?? [];
