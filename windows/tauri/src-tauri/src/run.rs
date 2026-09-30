@@ -2661,7 +2661,11 @@ mod tests {
         fs::write(root.join("jdk8/bin/java.exe"), b"fixture").unwrap();
         assert_eq!(
             resolve_java_home(&root, "jdk8").unwrap(),
-            Some(runtimes[0].home_path.clone())
+            Some(
+                normalize_path(&root.join("jdk8"))
+                    .to_string_lossy()
+                    .into_owned()
+            )
         );
     }
 
