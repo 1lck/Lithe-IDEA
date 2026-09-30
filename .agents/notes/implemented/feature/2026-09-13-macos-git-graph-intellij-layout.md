@@ -86,6 +86,26 @@ CoreText 的单行布局和省略号处理，采用 `SimpleColoredComponent.getT
 仅在 Git Log 的绘制上下文关闭子像素字形定位，不对字形施加缩放或描边来模拟粗细。
 JVM 与 CoreText 的栅格化器不同，因此遵循相同度量规则不代表像素级完全相同。
 
+
+右侧文件树复用 `LitheTheme.Tree` 的 24pt 行高、19pt 层级缩进、16pt 图标、
+常规文字与选中/悬停色。对齐 `ChangesBrowserFileNode` / `ChangesBrowserNodeRenderer`：
+文件类型图标由已有 `LitheIcons` 目录取得，文件名用 `IslandSchemeDark` /
+`expUI_lightScheme` 的 FileStatus 色显示修改、新增、删除或重命名；不再显示
+状态字母、逐行横线和工具栏内重复总计数。保留原生横向滚动、裁剪文字展开、
+内容宽度缓存以及点击文件打开 diff，拖动只改变可视区，不重建每行图标。
+
+提交详情按 `CommitDetailsPanel` 的 14pt 外边距与 10pt 内部间距排版：
+标题使用默认编辑器字体的 bold，作者/邮箱/时间使用 13pt 普通界面字体，
+在同一段文字中换行；引用复用图谱标签绘制，不用原始 decoration 字符串。
+详情可滚动，避免长标题被两行限制裁掉。文件树与详情之间只保留共享 1pt
+分隔线，悬停和拖动不高亮。
+
+左侧分支栏的 180pt 限制不来自 `BranchesInGitLogUiFactoryProvider` 的
+`OnePixelSplitter`；上游把独立工具栏放在可调整树区之外，并按子组件尺寸限制。
+Lithe 删除这处专用限制，使用工作区已有 30pt 面板下限；36pt 竖栏不计入树区，
+且继续保留分隔条的命中区、裁剪、拖动结束更新宽度及收缩前视图身份。
+这遵循本项目共享窄面板规则，不宣称 IDEA 在所有环境中的最小树宽均为 30pt。
+
 ## 考虑过的备选方案
 
 - **按提交 hash 对固定颜色表取模（初版实现）**：实现最简单，不需要
@@ -127,7 +147,8 @@ JVM 与 CoreText 的栅格化器不同，因此遵循相同度量规则不代表
 
 `GitGraphInteractionTests.titleGutter` 检查六列标题预留与复杂图谱扩宽；
 `mergeColumnsRenderTogether` 实际渲染 SwiftUI/AppKit 两条路径，检查合并行
-标题、作者、日期在选中与未选中时的颜色。
+标题、作者、日期在选中与未选中时的颜色；`GitCommitFileTreeLayoutTests` 检查
+明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
 
 
 - `./scripts/build-macos.sh`
@@ -159,6 +180,8 @@ JVM 与 CoreText 的栅格化器不同，因此遵循相同度量规则不代表
 - `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
+- `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
+- `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
 - `rust/lithe-core/src/git/history.rs`
 - `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
 - `macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`

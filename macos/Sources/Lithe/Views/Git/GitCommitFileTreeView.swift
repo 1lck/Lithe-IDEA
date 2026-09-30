@@ -117,8 +117,8 @@ final class GitCommitFileTreeScrollNSView: NSScrollView {
 }
 
 final class GitCommitFileTreeNSView: NSControl {
-    static let rowHeight: CGFloat = 28
-    private let verticalInset: CGFloat = 5
+    static let rowHeight = LitheTheme.Tree.rowHeight
+    private let verticalInset = LitheTheme.Tree.verticalInset
 
     private var locale = Locale.current
     private var items: [GitCommitFileTreeItem] = []
@@ -133,6 +133,7 @@ final class GitCommitFileTreeNSView: NSControl {
     private var contentWidth: CGFloat = 0
     private var hoverTrackingArea: NSTrackingArea?
 
+    override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
 
@@ -241,12 +242,23 @@ final class GitCommitFileTreeNSView: NSControl {
         hoveredIndex = nil
     }
 
+    override func becomeFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.becomeFirstResponder()
+    }
+
+    override func resignFirstResponder() -> Bool {
+        needsDisplay = true
+        return super.resignFirstResponder()
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard let index = rowIndex(at: convert(event.locationInWindow, from: nil)),
               items.indices.contains(index) else {
             super.mouseDown(with: event)
             return
         }
+        window?.makeFirstResponder(self)
         switch items[index] {
         case let .folder(node, _):
             onToggleFolder?(node.id)
@@ -286,14 +298,14 @@ final class GitCommitFileTreeNSView: NSControl {
         for index in range {
             let rowRect = rowRect(for: index)
             if index == hoveredIndex {
-                context.setFillColor(style.hover.cgColor)
-                context.fill(rowRect.insetBy(dx: 4, dy: 1))
+                style.hover.setFill()
+                NSBezierPath(roundedRect: rowRect.insetBy(dx: 4, dy: 0), xRadius: 4, yRadius: 4).fill()
             }
             switch items[index] {
             case let .folder(node, depth):
-                drawFolder(node, depth: depth, presentation: rowPresentations[index], in: rowRect, style: style, context: context)
+                drawFolder(node, depth: depth, presentation: rowPresentations[index], in: rowRect, style: style)
             case let .file(file, depth):
-                drawFile(file, depth: depth, presentation: rowPresentations[index], in: rowRect, style: style, context: context)
+                drawFile(file, depth: depth, presentation: rowPresentations[index], in: rowRect, style: style)
             }
         }
     }
@@ -332,19 +344,19 @@ final class GitCommitFileTreeNSView: NSControl {
         depth: Int,
         presentation: RowPresentation,
         in rect: CGRect,
-        style: DrawingStyle,
-        context: CGContext
+        style: DrawingStyle
     ) {
-        let x = 8 + CGFloat(depth * 16)
-        let isCollapsed = collapsedFolderIDs.contains(node.id)
-        drawText(isCollapsed ? ">" : "v", in: CGRect(x: x, y: rect.minY, width: 10, height: rect.height), font: style.disclosureFont, color: style.secondaryText)
+        let x = LitheTheme.Tree.horizontalInset + CGFloat(depth) * LitheTheme.Tree.indent
+        let path = collapsedFolderIDs.contains(node.id)
+            ? "expui/general/chevronRight.svg" : "expui/general/chevronDown.svg"
+        let image = LitheIcons.ideaImage(resourcePath: style.isDark ? LitheIcons.darkIdeaAssetPath(for: path) : path)
+        drawIcon(image, x: x, in: rect)
+        drawIcon(presentation.icon, x: presentation.textX - LitheTheme.Tree.iconSize - LitheTheme.Tree.iconTextGap, in: rect)
         drawText(
             presentation.title,
             in: CGRect(x: presentation.textX, y: rect.minY, width: presentation.textWidth, height: rect.height),
             font: presentation.font
         )
-        context.setFillColor(style.divider.cgColor)
-        context.fill(CGRect(x: 0, y: rect.maxY - 1, width: rect.width, height: 1))
     }
 
     private func drawFile(
@@ -352,37 +364,25 @@ final class GitCommitFileTreeNSView: NSControl {
         depth: Int,
         presentation: RowPresentation,
         in rect: CGRect,
-        style: DrawingStyle,
-        context: CGContext
+        style: DrawingStyle
     ) {
         if file.id == selectedFileID {
-            context.setFillColor(style.selection.cgColor)
-            context.fill(rect.insetBy(dx: 4, dy: 1))
+            let focused = window?.isKeyWindow == true && window?.firstResponder === self
+            (focused ? style.selection : style.inactiveSelection).setFill()
+            NSBezierPath(roundedRect: rect.insetBy(dx: 4, dy: 0), xRadius: 4, yRadius: 4).fill()
         }
-        let x = 30 + CGFloat(max(depth - 1, 0) * 16)
-        drawText(file.status, in: CGRect(x: x, y: rect.minY, width: 18, height: rect.height), font: style.statusFont, color: statusColor(file.status, style: style), alignment: .center)
+        drawIcon(presentation.icon, x: presentation.textX - LitheTheme.Tree.iconSize - LitheTheme.Tree.iconTextGap, in: rect)
         drawText(
             presentation.title,
             in: CGRect(x: presentation.textX, y: rect.minY, width: presentation.textWidth, height: rect.height),
             font: presentation.font
         )
-        context.setFillColor(style.divider.cgColor)
-        context.fill(CGRect(x: 0, y: rect.maxY - 1, width: rect.width, height: 1))
     }
 
-    private func drawText(
-        _ text: String,
-        in rect: CGRect,
-        font: NSFont,
-        color: NSColor,
-        alignment: NSTextAlignment = .left
-    ) {
-        drawText(
-            NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: color]),
-            in: rect,
-            font: font,
-            alignment: alignment
-        )
+    private func drawIcon(_ image: NSImage?, x: CGFloat, in rect: CGRect) {
+        image?.draw(in: CGRect(x: x, y: rect.midY - LitheTheme.Tree.iconSize / 2,
+                               width: LitheTheme.Tree.iconSize, height: LitheTheme.Tree.iconSize),
+                    from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
     }
 
     private func drawText(
@@ -407,6 +407,7 @@ final class GitCommitFileTreeNSView: NSControl {
 
     private struct RowPresentation {
         let title: NSAttributedString
+        let icon: NSImage?
         let font: NSFont
         let textX: CGFloat
         let textWidth: CGFloat
@@ -418,32 +419,36 @@ final class GitCommitFileTreeNSView: NSControl {
         // Scrolling and splitter drags only move or resize the native clip view.
         rowPresentations = items.map { item in
             let title: NSMutableAttributedString
-            let font: NSFont
+            let font = style.bodyFont
+            let icon: NSImage?
             let textX: CGFloat
             switch item {
             case let .folder(node, depth):
-                font = style.mediumFont
-                textX = 29 + CGFloat(depth * 16)
+                icon = LitheIcons.ideaImage(for: .folder, isDark: style.isDark) ?? LitheIcons.nsImage(.folder, size: 16)
+                textX = LitheTheme.Tree.horizontalInset + CGFloat(depth) * LitheTheme.Tree.indent
+                    + LitheTheme.Tree.disclosureSlot + LitheTheme.Tree.iconSize + 2 * LitheTheme.Tree.iconTextGap
                 title = NSMutableAttributedString(string: node.name, attributes: [
                     .font: font, .foregroundColor: style.primaryText
                 ])
                 let count = node.fileCount == 1 ? gitLocalizedFormat("1 file", locale: locale) : gitLocalizedFormat("%lld files", node.fileCount, locale: locale)
                 title.append(NSAttributedString(string: "  \(count)", attributes: [
-                    .font: style.metadataFont, .foregroundColor: style.secondaryText
+                    .font: style.bodyFont, .foregroundColor: style.secondaryText
                 ]))
                 if depth == 0, let rootSubtitle, !rootSubtitle.isEmpty {
                     title.append(NSAttributedString(string: "  \(rootSubtitle)", attributes: [
-                        .font: style.metadataFont, .foregroundColor: style.tertiaryText
+                        .font: style.bodyFont, .foregroundColor: style.tertiaryText
                     ]))
                 }
             case let .file(file, depth):
-                font = style.bodyFont
-                textX = 56 + CGFloat(max(depth - 1, 0) * 16)
+                let kind = LitheIcons.kind(forFilePath: file.path)
+                icon = LitheIcons.ideaImage(for: kind, isDark: style.isDark) ?? LitheIcons.nsImage(kind, size: 16)
+                textX = LitheTheme.Tree.horizontalInset + CGFloat(depth) * LitheTheme.Tree.indent
+                    + LitheTheme.Tree.disclosureSlot + LitheTheme.Tree.iconSize + 2 * LitheTheme.Tree.iconTextGap
                 title = NSMutableAttributedString(string: (file.path as NSString).lastPathComponent, attributes: [
-                    .font: font, .foregroundColor: style.primaryText
+                    .font: font, .foregroundColor: statusColor(file.status, style: style)
                 ])
             }
-            return RowPresentation(title: title, font: font, textX: textX, textWidth: ceil(title.size().width))
+            return RowPresentation(title: title, icon: icon, font: font, textX: textX, textWidth: ceil(title.size().width))
         }
         contentWidth = rowPresentations.reduce(0) { max($0, $1.textX + $1.textWidth + 8) }
     }
@@ -457,42 +462,39 @@ final class GitCommitFileTreeNSView: NSControl {
     }
 
     private func statusColor(_ status: String, style: DrawingStyle) -> NSColor {
-        if status.hasPrefix("A") { return style.success }
-        if status.hasPrefix("D") { return style.error }
-        if status.hasPrefix("R") { return style.accent }
-        return style.warning
+        if status.hasPrefix("A") || status.hasPrefix("C") { return style.added }
+        if status.hasPrefix("D") { return style.deleted }
+        if status.hasPrefix("M") || status.hasPrefix("R") { return style.modified }
+        return style.primaryText
     }
 
     private struct DrawingStyle {
         let bodyFont = LitheTheme.uiNSFont(size: 13)
-        let mediumFont = LitheTheme.uiNSFont(size: 13, weight: .medium)
-        let metadataFont = LitheTheme.uiNSFont(size: 12)
-        let disclosureFont = LitheTheme.uiNSFont(size: 9, weight: .bold)
-        let statusFont = LitheTheme.uiNSFont(size: 11, weight: .bold)
+        let isDark: Bool
+        let added: NSColor
+        let modified: NSColor
+        let deleted: NSColor
+        let inactiveSelection: NSColor
         let background: NSColor
         let primaryText: NSColor
         let secondaryText: NSColor
         let tertiaryText: NSColor
-        let accent: NSColor
-        let success: NSColor
-        let warning: NSColor
-        let error: NSColor
-        let divider: NSColor
         let hover: NSColor
         let selection: NSColor
 
         init(isDark: Bool) {
+            self.isDark = isDark
+            // IslandSchemeDark / expUI_lightScheme: FileStatus.getColor() drives names.
+            added = NSColor(srgbRed: isDark ? 115.0/255 : 6.0/255, green: isDark ? 189.0/255 : 125.0/255, blue: isDark ? 121.0/255 : 23.0/255, alpha: 1)
+            modified = NSColor(srgbRed: isDark ? 112.0/255 : 0, green: isDark ? 174.0/255 : 51.0/255, blue: isDark ? 1 : 179.0/255, alpha: 1)
+            deleted = NSColor(srgbRed: isDark ? 111.0/255 : 108.0/255, green: isDark ? 115.0/255 : 112.0/255, blue: isDark ? 122.0/255 : 126.0/255, alpha: 1)
+            inactiveSelection = NSColor(LitheTheme.Tree.inactiveSelection)
             background = LitheTheme.nsColor(.sidebar, isDark: isDark)
-            primaryText = LitheTheme.nsColor(.primaryText, isDark: isDark)
-            secondaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark)
+            primaryText = NSColor(LitheTheme.Tree.text)
+            secondaryText = NSColor(LitheTheme.Tree.secondaryText)
             tertiaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark).withAlphaComponent(0.76)
-            accent = LitheTheme.nsColor(.accent, isDark: isDark)
-            success = LitheTheme.nsColor(.success, isDark: isDark)
-            warning = LitheTheme.nsColor(.warning, isDark: isDark)
-            error = LitheTheme.nsColor(.error, isDark: isDark)
-            divider = LitheTheme.nsColor(.divider, isDark: isDark)
-            hover = LitheTheme.nsColor(.toolHeader, isDark: isDark).withAlphaComponent(0.55)
-            selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
+            hover = NSColor(LitheTheme.Tree.hover)
+            selection = NSColor(LitheTheme.Tree.focusedSelection)
         }
     }
 }

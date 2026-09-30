@@ -9,10 +9,10 @@ struct LitheSplitPaneCollapseTests {
     @Test
     func collapseKeepsCommitAndDetailSurfacesMountedAndRestoresWidth() async throws {
         let surfaces = CollapseSurfaceRecorder()
-        func content(collapsed: Bool) -> some View {
+        func content(collapsed: Bool, referenceWidth: CGFloat = 220) -> some View {
             LitheSplitPaneView(
                 axis: .horizontal, placement: .leading,
-                defaultSize: 220, minimum: 180, maximum: 300,
+                defaultSize: referenceWidth, minimum: CGFloat(WorkbenchLayout.minimumPaneSize), maximum: 300,
                 clipsSizedPane: true, isSizedPaneCollapsed: collapsed,
                 sized: { CollapseSurface(name: "branches", recorder: surfaces) },
                 flexible: {
@@ -48,6 +48,16 @@ struct LitheSplitPaneCollapseTests {
             #expect(details.bounds.width == 250)
             #expect(commits.bounds.width == expandedCommitWidth + (collapsed ? 225 : 0))
         }
+        // The shared narrow-pane limit must not remount or squeeze the detail surface.
+        host.rootView = content(collapsed: false, referenceWidth: CGFloat(WorkbenchLayout.minimumPaneSize))
+        host.layoutSubtreeIfNeeded()
+        #expect(branches.bounds.width == 30)
+        #expect(details.bounds.width == 250)
+        #expect(commits.bounds.width == expandedCommitWidth + 190)
+        host.rootView = content(collapsed: false)
+        host.layoutSubtreeIfNeeded()
+        #expect(branches.bounds.width == 220)
+        #expect(surfaces.views.values.allSatisfy { $0.count == 1 })
     }
 }
 

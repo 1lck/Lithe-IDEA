@@ -1370,6 +1370,8 @@ struct GitLogView: View {
                 defaultSize: geometry.size.height - SplitHandleView.thickness - 156,
                 minimum: minimumFilesPaneHeight,
                 maximum: maximumFilesPaneHeight,
+                dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                highlightsOnHover: false,
                 sized: { commitFilesPane },
                 flexible: { commitDetail }
             )
@@ -1384,15 +1386,12 @@ struct GitLogView: View {
                 gitToolbarIcon(systemImage: "clock", help: "Show file history")
                 gitToolbarIcon(systemImage: "eye", help: "Toggle preview")
                 Spacer()
-                Text("\(feature.selectedGitCommitFiles.count) files")
             }
             .font(GitVisual.meta)
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.horizontal, 10)
             .frame(height: GitVisual.toolbarHeight)
             .background(background.hasImage ? Color.clear : LitheTheme.toolHeader)
-
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             switch feature.selectedGitCommitFilesLoadState {
             case .idle:
@@ -1449,29 +1448,32 @@ struct GitLogView: View {
     private var commitDetail: some View {
         Group {
             if let commit = feature.selectedGitCommit {
-                VStack(alignment: .leading, spacing: 9) {
-                    Text(commit.subject)
-                        .font(LitheTheme.uiFont(size: 13.5, weight: .semibold))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(2)
-                    Text("\(commit.shortHash)  \(commit.authorName) <\(commit.authorEmail)>")
-                        .font(GitVisual.meta)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
-                    Text(commit.date)
-                        .font(GitVisual.monoMeta)
-                        .foregroundStyle(LitheTheme.secondaryText)
-                    if !commit.decorations.isEmpty {
-                        Text(commit.decorations)
-                        .font(GitVisual.meta)
-                            .foregroundStyle(LitheTheme.accent)
-                            .lineLimit(2)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(commit.subject)
+                            .font(LitheTheme.uiFont(size: 13, weight: .bold, design: .monospaced))
+                            .foregroundStyle(LitheTheme.Tree.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.bottom, 10)
+                        (Text(verbatim: "\(commit.shortHash) \(commit.authorName) ")
+                         + Text(verbatim: "<\(commit.authorEmail)>").foregroundColor(LitheTheme.link)
+                         + Text(verbatim: " on \(commit.date)"))
+                            .font(LitheTheme.uiFont(size: 13))
+                            .foregroundStyle(LitheTheme.Tree.text)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(.vertical, 10)
+                        if let row = graphPresentation.rows.first(where: { $0.commit.hash == commit.hash }) {
+                            ForEach(row.labels.filter { $0.kind != .head }) { label in
+                                GitGraphLabelView(label: label, fontSize: 13, height: 17)
+                                    .padding(.bottom, 10)
+                            }
+                        }
+                        Spacer(minLength: 0)
                     }
-                    Spacer(minLength: 0)
+                    .padding(14)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .textSelection(.enabled)
                 }
-                .padding(11)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .textSelection(.enabled)
             } else {
                 Text("Commit details")
                     .font(LitheTheme.uiFont)
@@ -3233,7 +3235,7 @@ private struct GitReferenceRowView: View, Equatable {
 // MARK: - Git Log Three-Pane Layout
 
 private enum GitLogThreePaneMetrics {
-    static let minimumReferencePaneWidth: CGFloat = 180
+    static let minimumReferencePaneWidth = CGFloat(WorkbenchLayout.minimumPaneSize)
     static let minimumCommitPaneWidth: CGFloat = 340
     static let minimumDetailPaneWidth: CGFloat = 250
 }

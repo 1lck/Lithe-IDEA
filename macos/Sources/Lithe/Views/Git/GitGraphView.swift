@@ -763,21 +763,23 @@ private struct GitGraphRowView: View, Equatable {
     }
 }
 
-private struct GitGraphLabelView: View {
+struct GitGraphLabelView: View {
     let label: GitGraphLabel
+    var fontSize: CGFloat = LitheTheme.GitLog.fontSize - 1
+    var height: CGFloat = GitGraphGeometry.rowHeight
 
     var body: some View {
         HStack(spacing: 2) {
             GitReferenceTagIcon(color: accentColor)
                 .frame(width: 12, height: 12)
             Text(label.title)
-                .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize - 1))
+                .font(LitheTheme.uiFont(size: fontSize))
                 .foregroundStyle(LitheTheme.GitLog.referenceText)
                 .lineLimit(1)
         }
         .padding(.leading, 3)
         .padding(.trailing, 4)
-        .frame(height: GitGraphGeometry.rowHeight)
+        .frame(height: height)
     }
 
     private var accentColor: Color {
