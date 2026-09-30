@@ -124,6 +124,21 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func toolSearchFindsFilePathsReportedOnlyInDiffContent() throws {
+        var edit = AgentConversationMessage(id: "edit", role: .tool, text: "Apply changes")
+        edit.toolDetails.merge(["content": [["type": "diff", "path": "src/example.swift",
+                                             "oldText": "before", "newText": "after"]]])
+        let other = AgentConversationMessage(id: "read", role: .tool, text: "Read file")
+        let group = try #require(AgentTranscriptItem.grouped([other, edit]).first)
+
+        #expect(group.matches("example.swift"))
+        #expect(group.matches("src/example.swift"))
+        #expect(group.matches("after"))
+        #expect(!group.matches("missing.swift"))
+        #expect([other, edit].filter { AgentTranscriptItem.toolMatches($0, "example.swift") }.map(\.id) == ["edit"])
+    }
+
+    @Test
     func subscriptionQuotaPreservesWindowLengthsUnknownUsageAndStaleness() throws {
         let windows: [[String: Any]] = [
             ["id": "weekly", "name": "codex", "limitSeconds": 604800, "usedPercent": 68, "resetsAt": 1800000200],

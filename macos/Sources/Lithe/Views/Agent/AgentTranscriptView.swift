@@ -30,7 +30,9 @@ enum AgentTranscriptItem: Identifiable {
         message.text.localizedStandardContains(searchText)
             || message.toolDetails.input?.localizedStandardContains(searchText) == true
             || message.toolDetails.output?.localizedStandardContains(searchText) == true
-            || message.toolDetails.content.contains { $0.text.localizedStandardContains(searchText) } == true
+            || message.toolDetails.content.contains {
+                $0.title.localizedStandardContains(searchText) || $0.text.localizedStandardContains(searchText)
+            } == true
             || message.toolDetails.locations.contains { $0.path.localizedStandardContains(searchText) } == true
     }
 
