@@ -375,7 +375,13 @@ async function validateExtension(folder: string): Promise<void> {
       error(folder, "Integration extension must declare a 'permissions' object");
     } else {
       const permissionRecord = permissions as Record<string, unknown>;
-      const supportedPermissions = new Set(["network", "secrets", "workspace", "openExternal"]);
+      const supportedPermissions = new Set([
+        "network",
+        "secrets",
+        "workspace",
+        "openExternal",
+        "ide",
+      ]);
       for (const key of Object.keys(permissionRecord)) {
         if (!supportedPermissions.has(key)) error(folder, `Unsupported permission '${key}'`);
       }
@@ -390,6 +396,9 @@ async function validateExtension(folder: string): Promise<void> {
       }
       if (permissionRecord.secrets !== undefined && typeof permissionRecord.secrets !== "boolean") {
         error(folder, "Integration 'secrets' permission must be boolean");
+      }
+      if (permissionRecord.ide !== undefined && typeof permissionRecord.ide !== "boolean") {
+        error(folder, "Integration 'ide' permission must be boolean");
       }
       if (permissionRecord.workspace !== undefined && permissionRecord.workspace !== "read") {
         error(folder, "Integration 'workspace' permission must be 'read'");

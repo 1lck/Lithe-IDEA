@@ -109,6 +109,9 @@ interface RunState {
   selectedConfigurationId: string | null;
   defaultConfigurationId: string | null;
   primaryOutput: string;
+  primaryExecutionId: string | null;
+  primaryConfigurationId: string | null;
+  primaryPreparing: boolean;
   primaryRunning: boolean;
   primaryTitle: string | null;
   primaryExitCode: number | null;
@@ -503,6 +506,9 @@ export const createRunStore = (
     selectedConfigurationId: null,
     defaultConfigurationId: null,
     primaryOutput: "",
+    primaryExecutionId: null,
+    primaryConfigurationId: null,
+    primaryPreparing: false,
     primaryRunning: false,
     primaryTitle: null,
     primaryExitCode: null,
@@ -548,7 +554,14 @@ export const createRunStore = (
           saveError: null,
           editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
-          ...(sameProject ? {} : { javaLaunchDecisions: {} }),
+          ...(sameProject
+            ? {}
+            : {
+                javaLaunchDecisions: {},
+                primaryExecutionId: null,
+                primaryConfigurationId: null,
+                primaryPreparing: false,
+              }),
         });
         try {
           // Show validated documents before the potentially expensive content scan.
@@ -759,6 +772,7 @@ export const createRunStore = (
           set({
             primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -769,6 +783,7 @@ export const createRunStore = (
               `${state.primaryOutput}Open a source file before running Current File.\n`,
             ),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -788,6 +803,17 @@ export const createRunStore = (
         const executionId = crypto.randomUUID();
         // Reserve ownership before yielding so old Debug callbacks cannot stop a replacement.
         executions.set(sessionId, executionId);
+        if (sessionId === PRIMARY_SESSION_ID) {
+          set({
+            primaryExecutionId: executionId,
+            primaryConfigurationId: configuration.id,
+            primaryPreparing: true,
+            primaryRunning: false,
+            primaryOutput: "",
+            primaryExitCode: null,
+            primaryTitle: configuration.name,
+          });
+        }
         const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
@@ -828,9 +854,11 @@ export const createRunStore = (
                   {
                     id: sessionId,
                     configurationId: configuration.id,
+                    executionId,
                     title: configuration.name,
                     output: JAVA_PREPARATION_NOTICE,
                     isRunning: false,
+                    isPreparing: true,
                     exitCode: null,
                   },
                 ],
@@ -916,6 +944,7 @@ export const createRunStore = (
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: true,
+              primaryPreparing: false,
               primaryTitle: configuration.name,
               primaryExitCode: null,
               primaryOutput: trimOutput(`${commandLine}${javaBuildWarning}`),
@@ -929,6 +958,7 @@ export const createRunStore = (
                 {
                   id: sessionId,
                   configurationId: configuration.id,
+                  executionId,
                   title: configuration.name,
                   output: trimOutput(`${commandLine}${javaBuildWarning}`),
                   isRunning: true,
@@ -959,6 +989,7 @@ export const createRunStore = (
             if (sessionId === PRIMARY_SESSION_ID) {
               set((current) => ({
                 primaryRunning: false,
+                primaryPreparing: false,
                 primaryExitCode: exitCode,
                 primaryOutput: trimOutput(`${current.primaryOutput}${message}`),
               }));
@@ -969,6 +1000,7 @@ export const createRunStore = (
                     ? {
                         ...session,
                         isRunning: false,
+                        isPreparing: false,
                         exitCode,
                         output: trimOutput(`${session.output}${message}`),
                       }
@@ -1039,6 +1071,7 @@ export const createRunStore = (
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,
+              primaryPreparing: false,
               primaryExitCode: 1,
               primaryOutput: trimOutput(`${get().primaryOutput}${message}\n`),
             });
@@ -1050,9 +1083,11 @@ export const createRunStore = (
               const failedSession: RunSession = {
                 id: sessionId,
                 configurationId: configuration.id,
+                executionId,
                 title: configuration.name,
                 output: trimOutput(`${existingSession?.output ?? ""}${message}\n`),
                 isRunning: false,
+                isPreparing: false,
                 exitCode: 1,
               };
               return {
@@ -1099,7 +1134,18 @@ export const createRunStore = (
         set((current) => {
           const javaLaunchDecisions = { ...current.javaLaunchDecisions };
           delete javaLaunchDecisions[sessionId];
-          return { javaLaunchDecisions };
+          return {
+            javaLaunchDecisions,
+            primaryPreparing:
+              sessionId === PRIMARY_SESSION_ID && current.primaryExecutionId === pending.executionId
+                ? false
+                : current.primaryPreparing,
+            sessions: current.sessions.map((session) =>
+              session.id === sessionId && session.executionId === pending.executionId
+                ? { ...session, isPreparing: false }
+                : session,
+            ),
+          };
         });
         pending.resolve(false);
       },
@@ -1146,6 +1192,7 @@ export const createRunStore = (
         if (target === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryOutput: flushStampedOutput(target, get().primaryOutput),
           });
           return;
@@ -1156,6 +1203,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   output: flushStampedOutput(target, session.output),
                 }
               : session,
@@ -1262,6 +1310,7 @@ export const createRunStore = (
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: exitCode,
             primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
           });
@@ -1273,6 +1322,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   exitCode,
                   output: flushStampedOutput(sessionId, session.output),
                 }

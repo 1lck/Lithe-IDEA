@@ -18,6 +18,14 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     description: "Configure project Java SDK, Maven home, Maven JDK and local repository",
     keywords: ["java", "jdk", "sdk", "maven", "settings.xml", "项目", "环境", "仓库"],
   },
+  {
+    id: "mcp-configuration",
+    tab: "mcp",
+    section: "MCP Configuration",
+    label: "MCP agent connections",
+    description: "Authorize project access and copy MCP configuration for agents",
+    keywords: ["mcp", "agent", "permissions", "MCP 配置", "授权", "权限", "连接"],
+  },
   // Editor Settings
   {
     id: "editor-auto-save",

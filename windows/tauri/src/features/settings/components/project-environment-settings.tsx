@@ -30,7 +30,13 @@ export function ProjectEnvironmentSettings() {
   const { t } = useTranslation();
   if (!root) return <p>{t("settings.project.openProject")}</p>;
   return (
-    <ProjectEnvironmentForm key={`${workspaceId}:${root}`} root={root} workspaceId={workspaceId} />
+    <div className="space-y-4">
+      <ProjectEnvironmentForm
+        key={`${workspaceId}:${root}`}
+        root={root}
+        workspaceId={workspaceId}
+      />
+    </div>
   );
 }
 

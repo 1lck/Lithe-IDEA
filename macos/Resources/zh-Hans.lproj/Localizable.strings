@@ -2558,3 +2558,15 @@
 "Cache write tokens: %@" = "缓存写入 token：%@";
 "Token counts reported by the Agent. Accounting scope depends on the Agent." = "Agent 上报的 token 数；统计口径由 Agent 决定。";
 "Elapsed since sending, including tools and permission waits." = "从发送开始计时，包含工具执行和等待权限的时间。";
+
+"AI tool connections (MCP)" = "AI 工具连接（MCP）";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "仅授权此项目，连接的 Agent 可以读取环境、Maven、运行配置和输出。输出可能包含项目敏感信息。关闭项目或退出 Lithe 后连接失效。";
+"Allow project environment and Maven configuration changes" = "允许修改项目环境和 Maven 配置";
+"Allow run, build, reload and stop (executes project code)" = "允许运行、构建、重载和停止（会执行项目代码）";
+"Disable MCP" = "关闭 MCP";
+"Enable MCP" = "开启 MCP";
+"Copy agent configuration" = "复制 Agent 配置";
+"Enabled plugins can also use this project grant." = "已启用的插件也可使用此项目授权。";
+
+"MCP Configuration" = "MCP 配置";
+"Open a project to configure MCP access for agents." = "打开项目后，可在这里配置 Agent 的 MCP 访问权限。";

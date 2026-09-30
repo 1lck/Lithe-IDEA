@@ -32,6 +32,8 @@ pub struct CoreRequest {
 /// Variants are grouped by domain, but their serialized compatibility names
 /// live only in [`CoreCommand::parse`] so every host uses one mapping.
 pub enum CoreCommand {
+    /// Controls the native IDE capability broker (`ideHost.control`).
+    IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
@@ -335,6 +337,7 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),

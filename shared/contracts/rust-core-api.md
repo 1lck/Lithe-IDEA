@@ -2271,3 +2271,10 @@ is plain text and may use a null pointer. Nonzero input must point to at least
 `length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
 bridge exposes the same lifetime and result contract. Fixtures live in
 `shared/fixtures/editor/text-content-v1.json` and exercise both entry points.
+
+## Local IDE capability broker
+
+`ideHost.control` accepts `{action, arguments}` and delegates to the native
+`lithe-ide-host` adapter. This local host command is not remotely exposed. See
+[IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
+ownership, authorization, output cursors and shutdown semantics.

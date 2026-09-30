@@ -353,6 +353,12 @@ while IFS=$'\t' read -r status first_path _; do
             rust_core=true
             macos_release=true
             ;;
+        scripts/build-ide-mcp.sh|scripts/build-windows-ide-mcp.mjs|scripts/test-ide-mcp.mjs)
+            rust_core=true
+            macos_release=true
+            windows=true
+            windows_rust=true
+            ;;
         scripts/build-database-mcp.sh|scripts/build-database-sidecar.sh)
             rust_database=true
             macos_release=true

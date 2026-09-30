@@ -175,6 +175,12 @@ if ($Scope -in @("All", "SharedRust")) {
 
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `
+        -Package "lithe-ide-host" `
+        -TargetDirectory "rust/target" `
+        -Report (Join-Path $reportRoot "ide-host-rust.json")
+
+    Invoke-TimedRustTests `
+        -Manifest "rust/Cargo.toml" `
         -Package "lithe-core" `
         -TargetDirectory "rust/target" `
         -Report (Join-Path $reportRoot "shared-rust.json")
