@@ -174,7 +174,9 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 - Agent 历史注释：平台偏好设置键 `lithe.agent-history.v1.<workspace-agent-digest>` 保存收藏、自定义标题和隐藏状态，按标准化工作区与 Agent ID 隔离。它是用户可变状态，不受版本、平台、架构或工具链构建身份约束，不存在可验证的构建 stamp；Markdown 导出写到用户选择的位置。两者都禁止在任何复制阶段跨工作树复用，`excludedResources.agent-history-metadata` 由资源脚本显式拒绝。
 
 - `.artifacts/bun-tmp/`、下载或解压过程中的临时目录；
-- `.artifacts/jdtls/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出；
+- `.artifacts/jdtls/`、`.artifacts/jdtls-linux/`、`.artifacts/jdk-*` 等可以由已验证下载重新生成的解压输出
+  （Linux 由 `scripts/prepare-jdtls-linux.sh` 与 `scripts/prepare-jdk-linux.sh` 基于同一份
+  下载缓存重新生成）；
 - `.artifacts/editor/macos/` 和官方插件等尚未写入构建身份 stamp 的生成资源；
 - `.build` 中的 SwiftPM 构建状态；
 - `rust/target/` 中与当前源码、编译器或构建参数绑定的构建输出；

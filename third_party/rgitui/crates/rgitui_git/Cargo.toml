@@ -1,0 +1,29 @@
+[package]
+name = "rgitui_git"
+version = "0.4.1"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui.workspace = true
+git2.workspace = true
+anyhow.workspace = true
+log.workspace = true
+chrono.workspace = true
+parking_lot.workspace = true
+notify.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+dirs.workspace = true
+smol.workspace = true
+rgitui_settings.workspace = true
+tempfile.workspace = true
+same-file.workspace = true
+cap-std.workspace = true
+cap-fs-ext.workspace = true
+
+[features]
+perf = []

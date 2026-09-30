@@ -1,0 +1,19 @@
+[package]
+name = "rgitui_settings"
+version = "0.4.1"
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+gpui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+log.workspace = true
+keyring = { version = "3.6.2", default-features = false, features = ["linux-native", "apple-native", "windows-native"] }

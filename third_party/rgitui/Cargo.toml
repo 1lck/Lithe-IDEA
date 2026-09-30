@@ -1,0 +1,85 @@
+# Lithe vendored subset of noahbclarkson/rgitui.
+#
+# Upstream: https://github.com/noahbclarkson/rgitui
+# Revision: ead56a9ec9d43cf099f27ae1129323a08d56149e
+# License:  MIT (see LICENSE)
+#
+# Only the diff-viewer closure is vendored: `rgitui_diff` (the diff view) plus
+# `rgitui_ui`, `rgitui_theme`, `rgitui_git` (used for its plain data types only)
+# and `rgitui_settings`. The app crate and the graph/AI/perf/test-support crates
+# are not vendored.
+#
+# Adaptation (keep this as the single place that records it):
+# upstream pins `gpui`/`gpui_platform`/`http_client` to a Zed git revision.
+# Cargo treats a git dependency as a different package identity from the
+# published `gpui-pre`/`gpui-component` family Lithe renders through, so the
+# workspace re-points `gpui` at `gpui-pre` (same lib name) and drops the unused
+# optional dependencies (`rgitui_perf`, `rgitui_test_support`, and the `perf`
+# features that reached them). Nothing else in the members was edited.
+#
+# The vendored members are used for presentation only: repository data still
+# comes from the shared `lithe-core` `git.*` contract that macOS and Windows
+# already use. `git2` is compiled because `rgitui_git` needs it, but it is not
+# used to read repositories from Lithe.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/rgitui_settings",
+    "crates/rgitui_theme",
+    "crates/rgitui_ui",
+    "crates/rgitui_git",
+    "crates/rgitui_diff",
+]
+
+[workspace.package]
+edition = "2021"
+publish = false
+license = "MIT"
+repository = "https://github.com/noahbclarkson/rgitui"
+
+[workspace.lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+
+[workspace.dependencies]
+# GPUI framework, re-pointed from the Zed git revision to Lithe's published
+# `gpui-pre` family (its lib name is `gpui`).
+gpui = { package = "gpui-pre", version = "0.3.6" }
+
+# Internal crates
+rgitui_theme = { path = "crates/rgitui_theme" }
+rgitui_ui = { path = "crates/rgitui_ui" }
+rgitui_git = { path = "crates/rgitui_git" }
+rgitui_diff = { path = "crates/rgitui_diff" }
+rgitui_settings = { path = "crates/rgitui_settings" }
+
+# Core
+anyhow = "1"
+similar = "2.6"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = "0.12"
+smallvec = { version = "1", features = ["union"] }
+
+# Git
+#
+# All network and authentication work shells out to the `git` CLI, so libgit2's
+# own transports are never used; default features are disabled as upstream does.
+git2 = { version = "0.20", default-features = false }
+
+# Async
+smol = "2"
+
+# FS watching
+notify = "8"
+
+# Utils
+same-file = "1"
+cap-std = "4.0.3"
+cap-fs-ext = "4.0.3"
+dirs = "6"
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3.27"
