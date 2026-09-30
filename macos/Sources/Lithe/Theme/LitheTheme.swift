@@ -380,6 +380,36 @@ enum LitheTheme {
     static var hoverBackground: Color { adaptive(\.hoverBackground) }
     static var pressedBackground: Color { adaptive(\.pressedBackground) }
 
+    /// IDEA Islands Tree + DefaultControl/ClassicPainter, regular density.
+    enum Tree {
+        static let rowHeight: CGFloat = 24
+        static let iconSize: CGFloat = 16
+        // ClassicPainter clamps leftChildIndent=7 to half the 16pt control,
+        // then adds rightChildIndent=11: both renderer offset and indent are 19.
+        static let indent: CGFloat = 19
+        static let iconTextGap: CGFloat = 2
+        static let disclosureSlot: CGFloat = indent - iconTextGap
+        static let horizontalInset: CGFloat = 12
+        static let verticalInset: CGFloat = 4
+        static var text: Color { searchFieldText }
+        static var secondaryText: Color { searchFieldPlaceholder }
+        static var focusedSelection: Color {
+            activeTheme == .lithe ? controlColor(light: 0xD0DFFE, dark: 0x2A4371) : selection
+        }
+        static var inactiveSelection: Color {
+            activeTheme == .lithe ? controlColor(light: 0xE9EAEE, dark: 0x33353B) : subtleSelection
+        }
+        static var hover: Color {
+            activeTheme == .lithe
+                ? Color(nsColor: NSColor(name: nil) { appearance in
+                    appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                        ? NSColor.white.withAlphaComponent(16.0 / 255)
+                        : NSColor.black.withAlphaComponent(8.0 / 255)
+                })
+                : hoverBackground
+        }
+    }
+
     // MARK: - 标签页
     static var activeTabBackground: Color { adaptive(\.activeTabBackground) }
     static let inactiveTabBackground = Color.clear
@@ -397,21 +427,21 @@ enum LitheTheme {
     static var inputFocusBorder: Color { adaptive(\.inputFocusBorder) }
     // Islands' control-bg/control-border/text-secondary/control-brand-border.
     static var searchFieldBackground: Color {
-        activeTheme == .lithe ? searchFieldColor(light: 0xFFFFFF, dark: 0x191A1C) : inputBackground
+        activeTheme == .lithe ? controlColor(light: 0xFFFFFF, dark: 0x191A1C) : inputBackground
     }
     static var searchFieldBorder: Color {
-        activeTheme == .lithe ? searchFieldColor(light: 0xD1D3D9, dark: 0x40434A) : inputBorder
+        activeTheme == .lithe ? controlColor(light: 0xD1D3D9, dark: 0x40434A) : inputBorder
     }
     static var searchFieldFocusBorder: Color {
-        activeTheme == .lithe ? searchFieldColor(light: 0x3871E1, dark: 0x3871E1) : inputFocusBorder
+        activeTheme == .lithe ? controlColor(light: 0x3871E1, dark: 0x3871E1) : inputFocusBorder
     }
     static var searchFieldPlaceholder: Color {
-        activeTheme == .lithe ? searchFieldColor(light: 0x73767C, dark: 0x73767C) : secondaryText
+        activeTheme == .lithe ? controlColor(light: 0x73767C, dark: 0x73767C) : secondaryText
     }
     static var searchFieldText: Color {
-        activeTheme == .lithe ? searchFieldColor(light: 0x000000, dark: 0xD1D3D9) : primaryText
+        activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xD1D3D9) : primaryText
     }
-    private static func searchFieldColor(light: UInt32, dark: UInt32) -> Color {
+    private static func controlColor(light: UInt32, dark: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             RGBA(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light).nsColor
         })
@@ -544,6 +574,17 @@ extension View {
     /// hovered. The push/pop pair is balanced even when a view disappears.
     func lithePointer() -> some View {
         modifier(LithePointerModifier())
+    }
+
+    func litheTreeRow(isSelected: Bool = false, isFocused: Bool = false) -> some View {
+        font(.system(size: 13, weight: .regular))
+            .foregroundStyle(LitheTheme.Tree.text)
+            .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight,
+                   maxHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
+            .contentShape(Rectangle())
+            .litheRowHover(isActive: isSelected, cornerRadius: 4,
+                           activeBackground: isFocused ? LitheTheme.Tree.focusedSelection : LitheTheme.Tree.inactiveSelection,
+                           hoverBackground: LitheTheme.Tree.hover)
     }
 
     /// 给行/单元格加统一的悬停高亮，替代各处手写的 onHover + background。

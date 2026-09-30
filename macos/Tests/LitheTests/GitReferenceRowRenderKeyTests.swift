@@ -34,7 +34,9 @@ struct GitReferenceRowRenderKeyTests {
     /// except the ones a test varies explicitly.
     private func key(
         remoteBranches: [GitReference],
-        isSelected: Bool = false
+        isSelected: Bool = false,
+        isFocused: Bool = false,
+        baseDepth: Int = 1
     ) -> GitReferenceRowRenderKey {
         GitReferenceRowRenderKey(
             row: GitReferenceRow(
@@ -48,9 +50,17 @@ struct GitReferenceRowRenderKeyTests {
             currentReferenceID: "refs/heads/main",
             comparisonSourceID: nil,
             isReadOnly: false,
-            repositoryColorIndex: nil,
+            isFocused: isFocused,
+            baseDepth: baseDepth,
             remoteBranches: remoteBranches
         )
+    }
+
+    @Test("focus and repository nesting changes invalidate the displayed row")
+    func focusAndNestingInvalidateTheRow() {
+        #expect(key(remoteBranches: [], isSelected: true)
+                != key(remoteBranches: [], isSelected: true, isFocused: true))
+        #expect(key(remoteBranches: []) != key(remoteBranches: [], baseDepth: 2))
     }
 
     @Test("a refresh that only gains a remote branch invalidates the row")

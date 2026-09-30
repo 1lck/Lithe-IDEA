@@ -20,6 +20,13 @@ The Git Log branch stripe's chevronLeft and chevronRight light/dark icons come
 from the same expui/general directory; IDEA maps its legacy ArrowCollapse and
 ArrowExpand action names to these ExpUI resources.
 
+The Git Log reference tree's expui/general/vcs and dvcs/currentBranchLabel,
+dvcs/branchLabel light/dark assets were copied from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. The source paths are
+platform/icons/src/expui/general/vcs*.svg and
+platform/dvcs-impl/shared/resources/icons/new/{currentBranchLabel,branchLabel}*.svg.
+PlatformIconMappings maps AllIcons.Vcs.BranchNode to expui/general/vcs.svg.
+
 The source project and these resources are distributed under the Apache License
 2.0. Lithe does not include JetBrains product logos or external third-party
 plugin icons. See LICENSE-APACHE-2.0.txt for the license text.

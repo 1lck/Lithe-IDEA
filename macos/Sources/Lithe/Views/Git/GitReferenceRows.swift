@@ -127,13 +127,24 @@ struct GitReferenceRowRenderKey: Equatable {
     let currentReferenceID: String?
     let comparisonSourceID: String?
     let isReadOnly: Bool
-    /// Palette slot for the row's leading color bar; `nil` when colors are off.
-    let repositoryColorIndex: Int?
+    let isFocused: Bool
+    let baseDepth: Int
     /// Remote branches backing the "Tracking Branch" submenu. A `refs` refresh
     /// can add or remove remote branches while every other field of a local row
     /// stays identical; without this the row keeps the menu it built earlier
     /// and offers a stale — or still empty — remote branch list.
     let remoteBranches: [GitReference]
+}
+
+/// HEAD and the current branch filter the same Git ref but are distinct tree nodes.
+enum GitReferenceTreeSelection {
+    static func isSelected(
+        isHead: Bool, headSelected: Bool, reference: GitReference,
+        selectedReferenceID: String?, showingAll: Bool
+    ) -> Bool {
+        guard !showingAll, isHead == headSelected else { return false }
+        return selectedReferenceID == reference.id || (selectedReferenceID == nil && reference.isCurrent)
+    }
 }
 
 /// One entry of a reference row's context menu, stripped of closures and

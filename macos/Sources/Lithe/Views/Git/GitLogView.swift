@@ -55,6 +55,8 @@ struct GitLogView: View {
     @State private var showsFetchOptions = false
     @State private var branchesCollapsed = false
     @State private var branchSearchQuery = ""
+    @State private var headSelected = false
+    @State private var branchTreeActive = false
     @State private var branchStripeHovered = false
     @State private var showsGitLogAuthorFilterPopover = false
     @State private var graphPresentation = GitGraphPresentation.empty
@@ -82,7 +84,6 @@ struct GitLogView: View {
         static let meta = Font.system(size: 12, weight: .regular)
         static let monoMeta = Font.system(size: 12, weight: .regular, design: .monospaced)
         static let rowHeight: CGFloat = 38
-        static let treeRowHeight: CGFloat = 28
         static let toolbarHeight: CGFloat = 38
         static let commitFileLoadDelay = Duration.milliseconds(120)
         static let darkConsoleText = Color(red: 0.76, green: 0.77, blue: 0.79)
@@ -109,8 +110,17 @@ struct GitLogView: View {
         .gitLogFocusEffectHidden()
         .onAppear { gitLogCommitListFocused = true }
         .onChange(of: gitToolFocused) { focused in if focused { gitToolActive = true } }
-        .onChange(of: gitLogSearchFocused) { focused in if focused { gitToolActive = true } }
-        .onChange(of: gitLogCommitListFocused) { focused in if focused { gitToolActive = true } }
+        .onChange(of: gitLogSearchFocused) { focused in
+            if focused { gitToolActive = true; branchTreeActive = false }
+        }
+        .onChange(of: gitLogCommitListFocused) { focused in
+            if focused { gitToolActive = true; branchTreeActive = false }
+        }
+        .onChange(of: branchSearchFocused) { focused in if focused { branchTreeActive = true } }
+        .onChange(of: feature.selectedGitReference?.id) { id in
+            if id != currentReference?.id { headSelected = false }
+        }
+        .onChange(of: currentReference?.id) { _ in headSelected = false }
         .task(id: graphProjectionIdentity) {
             let identity = graphProjectionIdentity
             let commits = feature.gitCommits
@@ -150,6 +160,7 @@ struct GitLogView: View {
             await feature.applyGitLogFilter(gitLogQuery(now: Date()))
         }
         .onChange(of: feature.gitRepositoryRoot) { _ in
+            headSelected = false
             graphPresentation = .empty
             graphNavigationRequest = nil
             selectedGitLogAuthor = nil
@@ -728,11 +739,10 @@ struct GitLogView: View {
 
             GeometryReader { geometry in
                 ScrollView(.vertical) {
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 0) {
                         if let current = currentReference,
                            branchSearchQuery.isEmpty || current.shortName.localizedCaseInsensitiveContains(branchSearchQuery) {
-                            referenceButton(current, title: "HEAD (Current Branch)", icon: "arrow.right")
-                                .padding(.bottom, 4)
+                            headReferenceButton(current)
                         }
 
                         if isMultiRepositoryReferencePane {
@@ -745,19 +755,16 @@ struct GitLogView: View {
                         } else {
                             activeReferenceSection(
                                 title: "Local",
-                                icon: "folder",
                                 kind: .local,
                                 expanded: $localExpanded
                             )
                             activeReferenceSection(
                                 title: "Remote",
-                                icon: "network",
                                 kind: .remote,
                                 expanded: $remoteExpanded
                             )
                             activeReferenceSection(
                                 title: "Tags",
-                                icon: "tag",
                                 kind: .tag,
                                 expanded: $tagsExpanded
                             )
@@ -769,8 +776,8 @@ struct GitLogView: View {
                                 .padding(.top, 8)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 9)
+                    .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+                    .padding(.vertical, LitheTheme.Tree.verticalInset)
                     .frame(
                         minWidth: geometry.size.width,
                         minHeight: geometry.size.height,
@@ -781,6 +788,7 @@ struct GitLogView: View {
             }
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)
+        .background(LitheToolWindowActivityTracker(isActive: $branchTreeActive))
         // IDEA gives the expanded branch tree SideBorder.LEFT, not the action stripe.
         .overlay(alignment: .leading) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
     }
@@ -790,19 +798,17 @@ struct GitLogView: View {
     /// as before this feature.
     private func activeReferenceSection(
         title: String,
-        icon: String,
         kind: GitReferenceKind,
         expanded: Binding<Bool>
     ) -> some View {
         referenceSection(
             title: title,
-            icon: icon,
             kind: kind,
             expanded: expanded,
             rows: rows(for: kind),
             currentReference: currentReference,
             isActiveRepository: true,
-            repositoryColorIndex: nil,
+            depth: 0,
             remoteBranches: remoteBranches,
             actions: referenceRowActions
         )
@@ -835,7 +841,7 @@ struct GitLogView: View {
             matching: branchSearchQuery
         ).isEmpty
         if hasMatches {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 0) {
                 Button {
                     if isCollapsed {
                         collapsedRepositoryGroups.remove(collapseKey)
@@ -843,67 +849,59 @@ struct GitLogView: View {
                         collapsedRepositoryGroups.insert(collapseKey)
                     }
                 } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                            .frame(width: 10)
-                        LitheSystemIcon(systemImage: "shippingbox", size: 14)
-                            .foregroundStyle(LitheTheme.secondaryText)
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        gitReferenceDisclosure(isExpanded: !isCollapsed)
+                        LitheIDEAIcon(resourcePath: "maven/toolWindowMaven.svg", size: LitheTheme.Tree.iconSize,
+                                      fallbackSystemImage: "shippingbox", preservesOriginalColors: true)
                         if let colorIndex {
                             Circle()
                                 .fill(GitRepositoryColor.color(at: colorIndex))
                                 .frame(width: 8, height: 8)
                         }
                         Text(repository.name)
-                            .font(GitVisual.section)
-                            .foregroundStyle(LitheTheme.primaryText)
+                            .padding(.leading, 2)
                             .lineLimit(1)
                         Spacer(minLength: 8)
                         Text(verbatim: String(repository.totalCount))
                             .font(GitVisual.meta)
-                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .foregroundStyle(LitheTheme.Tree.secondaryText)
                     }
-                    .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .litheRowHover(cornerRadius: 4)
+                    .litheTreeRow()
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
+                .workbenchHoverHelp(Text(verbatim: repository.name), placement: .trailing)
 
                 if !isCollapsed {
                     referenceSection(
                         title: "Local",
-                        icon: "folder",
                         kind: .local,
                         expanded: $localExpanded,
                         rows: repository.localRows,
                         currentReference: repository.currentReference,
                         isActiveRepository: isActive,
-                        repositoryColorIndex: colorIndex,
+                        depth: 1,
                         remoteBranches: rowRemoteBranches,
                         actions: actions
                     )
                     referenceSection(
                         title: "Remote",
-                        icon: "network",
                         kind: .remote,
                         expanded: $remoteExpanded,
                         rows: repository.remoteRows,
                         currentReference: repository.currentReference,
                         isActiveRepository: isActive,
-                        repositoryColorIndex: colorIndex,
+                        depth: 1,
                         remoteBranches: rowRemoteBranches,
                         actions: actions
                     )
                     referenceSection(
                         title: "Tags",
-                        icon: "tag",
                         kind: .tag,
                         expanded: $tagsExpanded,
                         rows: repository.tagRows,
                         currentReference: repository.currentReference,
                         isActiveRepository: isActive,
-                        repositoryColorIndex: colorIndex,
+                        depth: 1,
                         remoteBranches: rowRemoteBranches,
                         actions: actions
                     )
@@ -915,52 +913,43 @@ struct GitLogView: View {
     @ViewBuilder
     private func referenceSection(
         title: String,
-        icon: String,
         kind: GitReferenceKind,
         expanded: Binding<Bool>,
         rows: [GitReferenceRow],
         currentReference: GitReference?,
         isActiveRepository: Bool,
-        repositoryColorIndex: Int?,
+        depth: Int,
         remoteBranches: [GitReference],
         actions: GitReferenceRowActions
     ) -> some View {
         let filteredRows = GitReferenceRowsBuilder.filter(rows, matching: branchSearchQuery)
         if branchSearchQuery.isEmpty || !filteredRows.isEmpty {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 Button {
                     expanded.wrappedValue.toggle()
                 } label: {
-                    HStack(spacing: 7) {
-                        Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 8, weight: .bold))
-                            .frame(width: 10)
-                        LitheSystemIcon(systemImage: icon, size: 14)
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        gitReferenceDisclosure(isExpanded: expanded.wrappedValue)
                         Text(LocalizedStringKey(title))
-                            .font(GitVisual.section)
                     }
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .litheRowHover(cornerRadius: 4)
+                    .padding(.leading, CGFloat(depth) * LitheTheme.Tree.indent)
+                    .litheTreeRow()
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
 
                 if expanded.wrappedValue {
-                    LazyVStack(alignment: .leading, spacing: 1) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(filteredRows) { row in
+                            let selected = isReferenceRowSelected(row, isActiveRepository: isActiveRepository)
                             GitReferenceRowView(
                                 row: row,
-                                isSelected: isReferenceRowSelected(
-                                    row,
-                                    isActiveRepository: isActiveRepository
-                                ),
+                                isSelected: selected,
+                                isFocused: selected && branchTreeActive,
+                                baseDepth: depth + 1,
                                 isPerformingBranchOperation: feature.isPerformingBranchOperation,
                                 currentReferenceID: currentReference?.id,
                                 comparisonSourceID: comparisonSourceReference?.id,
                                 isReadOnly: !isActiveRepository,
-                                repositoryColorIndex: repositoryColorIndex,
                                 remoteBranches: remoteBranches,
                                 actions: actions
                             )
@@ -988,9 +977,10 @@ struct GitLogView: View {
         isActiveRepository: Bool
     ) -> Bool {
         guard isActiveRepository, case .reference(let reference) = row.content else { return false }
-        return !feature.isShowingAllGitReferences && (
-            feature.selectedGitReference?.id == reference.id
-                || (feature.selectedGitReference == nil && reference.isCurrent)
+        return GitReferenceTreeSelection.isSelected(
+            isHead: false, headSelected: headSelected, reference: reference,
+            selectedReferenceID: feature.selectedGitReference?.id,
+            showingAll: feature.isShowingAllGitReferences
         )
     }
 
@@ -1007,6 +997,7 @@ struct GitLogView: View {
         var actions = referenceRowActions
         guard !isActive else { return actions }
         actions.select = { reference in
+            headSelected = false
             Task {
                 await feature.selectRepository(repositoryRoot)
                 await feature.selectGitReference(reference)
@@ -1028,6 +1019,7 @@ struct GitLogView: View {
     private var referenceRowActions: GitReferenceRowActions {
         GitReferenceRowActions(
             select: { reference in
+                headSelected = false
                 Task { await feature.selectGitReference(reference) }
             },
             toggleGroup: { key in
@@ -1087,35 +1079,26 @@ struct GitLogView: View {
         )
     }
 
-    private func referenceButton(_ reference: GitReference, title: String, icon: String) -> some View {
+    private func headReferenceButton(_ reference: GitReference) -> some View {
         Button {
+            headSelected = true
             Task { await feature.selectGitReference(reference) }
         } label: {
-            HStack(spacing: 7) {
-                LitheSystemIcon(systemImage: icon, size: 14)
-                    .foregroundStyle(reference.kind == .tag ? LitheTheme.warning : LitheTheme.secondaryText)
-                    .frame(width: 16)
-                Text(LocalizedStringKey(title))
-                    .font(GitVisual.body)
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Color.clear.frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.iconSize)
+                Text("HEAD (Current Branch)").lineLimit(1)
                 Spacer(minLength: 8)
             }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: GitVisual.treeRowHeight, alignment: .leading)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
-            .litheRowHover(
-                isActive: !feature.isShowingAllGitReferences && (
-                    feature.selectedGitReference?.id == reference.id
-                        || (feature.selectedGitReference == nil && reference.isCurrent)
+            .litheTreeRow(
+                isSelected: GitReferenceTreeSelection.isSelected(
+                    isHead: true, headSelected: headSelected, reference: reference,
+                    selectedReferenceID: feature.selectedGitReference?.id,
+                    showingAll: feature.isShowingAllGitReferences
                 ),
-                cornerRadius: 4,
-                activeBackground: LitheTheme.subtleSelection
+                isFocused: branchTreeActive
             )
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
             items.append(.action(gitNewBranchMenuTitle(reference.shortName, locale: locale), action: {
@@ -1689,6 +1672,7 @@ struct GitLogView: View {
                         },
                         onSelect: { item in
                             showsGitLogBranchFilterPopover = false
+                            headSelected = false
                             Task { await feature.selectGitReference(item.reference) }
                         }
                     )
@@ -1697,6 +1681,7 @@ struct GitLogView: View {
 
                 if feature.selectedGitReference != nil || feature.isShowingAllGitReferences {
                     gitLogFilterClearButton(help: "Clear branch filter") {
+                        headSelected = false
                         Task { await feature.showAllGitReferences() }
                     }
                 }
@@ -3006,10 +2991,20 @@ private struct GitReferenceRowActions {
     let branchOperation: (GitBranchOperationKind, GitReference) -> Void
 }
 
+private func gitReferenceDisclosure(isExpanded: Bool) -> some View {
+    LitheIDEAIcon(resourcePath: isExpanded ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                  size: LitheTheme.Tree.iconSize, fallbackSystemImage: isExpanded ? "chevron.down" : "chevron.right",
+                  preservesOriginalColors: true)
+        .frame(width: LitheTheme.Tree.disclosureSlot, alignment: .leading)
+}
+
 private struct GitReferenceRowView: View, Equatable {
     @Environment(\.locale) private var locale
+    @Environment(\.colorScheme) private var colorScheme
     let row: GitReferenceRow
     let isSelected: Bool
+    let isFocused: Bool
+    let baseDepth: Int
     let isPerformingBranchOperation: Bool
     let currentReferenceID: String?
     let comparisonSourceID: String?
@@ -3017,11 +3012,6 @@ private struct GitReferenceRowView: View, Equatable {
     /// context menu, so this participates in equality to force a re-render when
     /// the active repository changes.
     let isReadOnly: Bool
-    /// The repository's palette slot for the row's leading color bar, or `nil`
-    /// when colors are not shown (single-repository workspaces). The index, not
-    /// the resolved `Color`, participates in equality so the row refresh rule
-    /// stays value-based.
-    let repositoryColorIndex: Int?
     /// Remote branches backing this row's "Tracking Branch" submenu. Kept here,
     /// next to the other compared values, rather than inside `actions` — which
     /// `==` ignores — so a refresh that only changes the remote branch list
@@ -3042,7 +3032,8 @@ private struct GitReferenceRowView: View, Equatable {
             currentReferenceID: currentReferenceID,
             comparisonSourceID: comparisonSourceID,
             isReadOnly: isReadOnly,
-            repositoryColorIndex: repositoryColorIndex,
+            isFocused: isFocused,
+            baseDepth: baseDepth,
             remoteBranches: remoteBranches
         )
     }
@@ -3060,68 +3051,36 @@ private struct GitReferenceRowView: View, Equatable {
         Button {
             actions.toggleGroup(key)
         } label: {
-            HStack(spacing: 7) {
-                Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 10)
-                Image(systemName: "folder")
-                    .font(.system(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                Text(row.name)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                gitReferenceDisclosure(isExpanded: !isCollapsed)
+                LitheIDEAIcon(resourcePath: colorScheme == .dark ? "nodes/folder.svg" : "nodes/folder_light.svg",
+                              size: LitheTheme.Tree.iconSize, fallbackSystemImage: "folder", preservesOriginalColors: true)
+                Text(row.name).lineLimit(1)
                 Spacer(minLength: 8)
             }
-            .padding(.leading, CGFloat(row.depth * 16))
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-            .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 4)
+            .padding(.leading, CGFloat(baseDepth + row.depth) * LitheTheme.Tree.indent)
+            .litheTreeRow()
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .workbenchHoverHelp(Text(verbatim: String(key.split(separator: ":", maxSplits: 1).last ?? "")), placement: .trailing)
     }
 
     private func referenceRow(_ reference: GitReference) -> some View {
         Button {
             actions.select(reference)
         } label: {
-            HStack(spacing: 7) {
-                LitheSystemIcon(systemImage: referenceIcon(reference), size: 14)
-                    .foregroundStyle(reference.kind == .tag ? LitheTheme.warning : LitheTheme.secondaryText)
-                    .frame(width: 16)
-                Text(row.name)
-                    .font(.system(size: 13))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                if reference.isCurrent {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(LitheTheme.accent)
-                }
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                Color.clear.frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.iconSize)
+                LitheIDEAIcon(resourcePath: referenceIcon(reference), size: LitheTheme.Tree.iconSize,
+                              fallbackSystemImage: "point.3.connected.trianglepath.dotted", preservesOriginalColors: true)
+                Text(row.name).lineLimit(1)
                 Spacer(minLength: 8)
             }
-            .padding(.leading, CGFloat(row.depth * 16))
-            .padding(.trailing, 8)
-            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
-            .overlay(alignment: .leading) {
-                if let repositoryColorIndex {
-                    Rectangle()
-                        .fill(GitRepositoryColor.color(at: repositoryColorIndex))
-                        .frame(width: 2.5)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
-            .litheRowHover(
-                isActive: isSelected,
-                cornerRadius: 4,
-                activeBackground: LitheTheme.subtleSelection
-            )
+            .padding(.leading, CGFloat(baseDepth + row.depth) * LitheTheme.Tree.indent)
+            .litheTreeRow(isSelected: isSelected, isFocused: isFocused)
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .workbenchHoverHelp(Text(verbatim: reference.shortName), placement: .trailing)
         .litheContextMenu {
             referenceMenuItems(for: reference)
         }
@@ -3272,11 +3231,8 @@ private struct GitReferenceRowView: View, Equatable {
     }
 
     private func referenceIcon(_ reference: GitReference) -> String {
-        switch reference.kind {
-        case .local: "point.3.connected.trianglepath.dotted"
-        case .remote: "cloud"
-        case .tag: "tag"
-        }
+        if reference.isCurrent { return "dvcs/currentBranchLabel.svg" }
+        return reference.kind == .tag ? "dvcs/branchLabel.svg" : "expui/general/vcs.svg"
     }
 }
 
