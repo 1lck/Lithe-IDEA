@@ -29,6 +29,33 @@ extension AppModel {
         }
     }
 
+    func downloadPHPPlugin() async {
+        do {
+            try await services.pluginManager.download(pluginID: OfficialPluginCatalog.phpPluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    func reinstallPHPPlugin() async {
+        do {
+            try await services.pluginManager.reinstall(pluginID: OfficialPluginCatalog.phpPluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
+    func uninstallPHPPlugin() async {
+        do {
+            try await services.pluginManager.uninstall(OfficialPluginCatalog.phpPluginID)
+            objectWillChange.send()
+        } catch {
+            showNotification(error.localizedDescription)
+        }
+    }
+
     func applyPluginEnabledChanges(_ changes: [PluginID: Bool]) async -> Set<PluginID> {
         let snapshotsByID = Dictionary(uniqueKeysWithValues: pluginSnapshots.map { ($0.id, $0) })
         let closesDatabase = changes.contains { pluginID, enabled in

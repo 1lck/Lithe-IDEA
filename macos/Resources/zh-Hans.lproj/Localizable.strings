@@ -1340,6 +1340,8 @@
 "Installed (%lld of %lld enabled)" = "已安装（%lld / %lld 个已启用）";
 "Install Plugin from Disk…" = "从磁盘安装插件…";
 "Install PHP Support from a signed plugin package." = "请从已签名的插件包安装 PHP Support。";
+"Download PHP Support from the official plugin release." = "从官方插件版本下载 PHP 支持。";
+"Download and Install" = "下载并安装";
 "Install PHP Support Plugin" = "安装 PHP Support 插件";
 "Select a PHP Support plugin package." = "请选择 PHP Support 插件包。";
 "Plugin marketplace is not available" = "插件市场暂不可用";
@@ -1358,8 +1360,12 @@
 "Pending confirmation" = "等待确认";
 "Pending plugin changes: %lld" = "待确认的插件修改：%lld";
 "Uninstall" = "卸载";
+"Reinstall" = "重新安装";
+"Uninstall PHP Support?" = "卸载 PHP 支持？";
+"PHP language support will be removed after restarting Lithe." = "重启 Lithe 后将移除 PHP 语言支持。";
 "Overview" = "概览";
 "No Plugins" = "暂无插件";
+"Open Plugin Management" = "打开插件管理";
 "Database" = "数据库连接";
 "Enabled" = "已启用";
 "Disabled" = "已禁用";

@@ -215,10 +215,24 @@ final class MacServiceContainer {
         } catch {
             preconditionFailure("Invalid built-in module graph: \(error.localizedDescription)")
         }
+        let activePluginIDs = Set(pluginStartup.activeNativeManifests.map(\.id))
+        let pluginToolRoots = pluginStartup.installedPlugins
+            .filter { activePluginIDs.contains($0.manifest.id) }
+            .compactMap { installed -> URL? in
+                guard installed.manifest.id == OfficialPluginCatalog.phpPluginID,
+                      case .nativeBundle = installed.manifest.entrypoint.kind,
+                      let bundlePath = installed.manifest.entrypoint.bundlePath else {
+                    return nil
+                }
+                return installed.packageURL
+                    .appendingPathComponent(bundlePath, isDirectory: true)
+                    .appendingPathComponent("Contents/Resources/LanguageServers/php", isDirectory: true)
+                    .standardizedFileURL
+            }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery()
+            toolDiscovery: MacRuntimeToolDiscovery(pluginToolRoots: pluginToolRoots)
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
@@ -595,7 +609,8 @@ final class MacServiceContainer {
             configurationStore: moduleStore,
             launchMode: moduleLaunchMode,
             startup: pluginStartup,
-            managedBuiltInPlugins: bundledLanguageManifests
+            managedBuiltInPlugins: bundledLanguageManifests,
+            packageDownloader: MacPluginPackageDownloader()
         )
         let pluginCatalog: ValidatedPluginCatalog
         do {
