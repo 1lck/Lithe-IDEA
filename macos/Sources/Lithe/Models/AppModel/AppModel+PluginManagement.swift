@@ -2,6 +2,39 @@ import Foundation
 import LitheModuleAPI
 
 extension AppModel {
+    func pluginToolchainFeature(for pluginID: PluginID) -> PluginToolchainFeatureModel? {
+        guard services.pluginToolchainManager.snapshot(for: pluginID) != nil else { return nil }
+        if let feature = pluginToolchainFeatures[pluginID] { return feature }
+        let feature = PluginToolchainFeatureModel(
+            pluginID: pluginID,
+            manager: services.pluginToolchainManager
+        )
+        pluginToolchainFeatures[pluginID] = feature
+        return feature
+    }
+
+    func choosePluginToolchainPath(for pluginID: PluginID) {
+        guard let directory = platformUI.chooseDirectory(
+            title: NSLocalizedString("Choose Toolchain", comment: "Plugin toolchain directory picker title"),
+            prompt: NSLocalizedString("Choose", comment: "Directory picker action")
+        ) else { return }
+        Task { @MainActor in
+            if let feature = pluginToolchainFeature(for: pluginID),
+               let error = await feature.setToolchainPath(directory.path) {
+                showNotification(error)
+            }
+            objectWillChange.send()
+        }
+    }
+
+    func downloadPluginToolchain(for pluginID: PluginID) async {
+        if let feature = pluginToolchainFeature(for: pluginID),
+           let error = await feature.downloadLatestToolchain() {
+            showNotification(error)
+        }
+        objectWillChange.send()
+    }
+
     var pluginSnapshots: [PluginManagementSnapshot] {
         services.pluginManager.snapshots
     }
@@ -48,8 +81,13 @@ extension AppModel {
     }
 
     func uninstallPHPPlugin() async {
+        await uninstallPlugin(OfficialPluginCatalog.phpPluginID)
+    }
+
+    func uninstallPlugin(_ pluginID: PluginID) async {
         do {
-            try await services.pluginManager.uninstall(OfficialPluginCatalog.phpPluginID)
+            try await services.pluginManager.uninstall(pluginID)
+            try services.pluginToolchainManager.removeManagedState(for: pluginID)
             objectWillChange.send()
         } catch {
             showNotification(error.localizedDescription)

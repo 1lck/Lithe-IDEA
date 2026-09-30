@@ -229,10 +229,27 @@ final class MacServiceContainer {
                     .appendingPathComponent("Contents/Resources/LanguageServers/php", isDirectory: true)
                     .standardizedFileURL
             }
+        let toolchainConfigurationURLs = Dictionary(uniqueKeysWithValues: pluginStartup.installedPlugins.compactMap { installed -> (PluginID, URL)? in
+            let configurationURL = installed.packageURL.appendingPathComponent("toolchain.json")
+            guard FileManager.default.fileExists(atPath: configurationURL.path) else { return nil }
+            return (installed.manifest.id, configurationURL)
+        })
+        let pluginToolchainManager = MacPluginToolchainManager(
+            fileStorage: fileStorage,
+            store: store,
+            configurationURLs: toolchainConfigurationURLs,
+            runCommand: { try await MacPluginToolchainProcessOperation(processRegistry: processRegistry).run($0) }
+        )
+        let activeToolchainDeclarations = pluginToolchainManager.declarations.filter { activePluginIDs.contains($0.key) }
         let runtimeService = ProjectRuntimeService(
             runtimeLocator: MacRuntimeLocator(),
             store: store,
-            toolDiscovery: MacRuntimeToolDiscovery(pluginToolRoots: pluginToolRoots)
+            toolDiscovery: MacRuntimeToolDiscovery(
+                pluginToolRoots: pluginToolRoots,
+                configuredPluginExecutablesProvider: {
+                    MacPluginToolchainManager.configuredExecutables(declarations: activeToolchainDeclarations)
+                }
+            )
         )
         let rustLanguageProviderCatalogSource = RustLanguageProviderCatalogSource(core: rustCore)
         // Installation owns the process-backed language boundary even when a
@@ -624,6 +641,7 @@ final class MacServiceContainer {
         services = AppServices(
             moduleRuntime: moduleRuntime,
             pluginManager: pluginManager,
+            pluginToolchainManager: pluginToolchainManager,
             pluginCatalog: pluginCatalog,
             languageProviderCatalogSource: languageProviderCatalogSource,
             workspaceLanguageServerPreferences: workspaceLanguageServerPreferences,

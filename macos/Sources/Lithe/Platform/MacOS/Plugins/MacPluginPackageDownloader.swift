@@ -33,7 +33,7 @@ enum MacPluginPackageDownloadError: Error, Equatable, LocalizedError {
         case .invalidArchive:
             return "The downloaded plugin archive does not contain a valid plugin package."
         case .invalidLanguageServerPackage(let detail):
-            return "The downloaded PHP plugin does not contain a valid language-server package: \(detail)"
+            return "The downloaded plugin does not contain valid language-server or toolchain metadata: \(detail)"
         case .extractionFailed(let detail):
             return "The downloaded plugin archive could not be extracted: \(detail)"
         }

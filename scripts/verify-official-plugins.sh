@@ -39,5 +39,12 @@ for plugin in "${plugins[@]}"; do
         }
         /usr/bin/codesign --verify --deep --strict "$plugin/PhpSupport.bundle"
     fi
+    if [[ "$plugin:t" == "dev.lithe.plugin.go-support" ]]; then
+        [[ -f "$plugin/toolchain.json" ]] || {
+            print -u2 -- "Go Support toolchain manifest is missing: $plugin"
+            exit 1
+        }
+        python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "$plugin/toolchain.json"
+    fi
 done
 print "Verified ${#plugins[@]} released official native plugin package(s)"

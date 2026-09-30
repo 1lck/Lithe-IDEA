@@ -3,9 +3,7 @@ import LitheModuleAPI
 
 @MainActor
 public final class GoExecutionModule: LitheModule {
-    public static let moduleManifest = OfficialPluginCatalog.moduleManifest(
-        for: .languageExecutionExtension(goLanguageID)
-    )!
+    public static let moduleManifest = GoSupportManifest.execution
 
     public let manifest = moduleManifest
     private let executionHost: (any LanguageExecutionHostProviding)?

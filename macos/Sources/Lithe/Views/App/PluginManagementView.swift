@@ -132,7 +132,7 @@ struct PluginManagementView: View {
     }
 
     private func pluginRow(_ plugin: PluginManagementSnapshot) -> some View {
-        let presentation = phpPresentation
+        let presentation = presentation(for: plugin.id)
         let isSelected = selectedPlugin?.id == plugin.id
         let isHovered = hoveredPluginID == plugin.id
         return HStack(spacing: 10) {
@@ -176,9 +176,10 @@ struct PluginManagementView: View {
 
     private func availablePluginRow(_ manifest: PluginManifest) -> some View {
         HStack(spacing: 10) {
-            Image(systemName: phpPresentation.systemImage)
+            let presentation = presentation(for: manifest.id)
+            Image(systemName: presentation.systemImage)
                 .font(.system(size: 22))
-                .foregroundStyle(phpPresentation.tint)
+                .foregroundStyle(presentation.tint)
                 .frame(width: 42, height: 42)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(manifest.displayName))
@@ -197,7 +198,7 @@ struct PluginManagementView: View {
 
     @ViewBuilder private var detail: some View {
         if let plugin = selectedPlugin {
-            let presentation = phpPresentation
+            let presentation = presentation(for: plugin.id)
             let isEnabled = effectiveEnabledState(for: plugin)
             let hasPendingChange = pendingEnabledStates[plugin.id] != nil
             VStack(alignment: .leading, spacing: 0) {
@@ -252,6 +253,23 @@ struct PluginManagementView: View {
                         .foregroundStyle(hasPendingChange ? LitheTheme.warning : (isEnabled ? LitheTheme.success : LitheTheme.secondaryText))
                 }
                 .padding(24)
+                if let feature = model.pluginToolchainFeature(for: plugin.id) {
+                    PluginToolchainSettingsView(
+                        feature: feature,
+                        chooseToolchainPath: { model.choosePluginToolchainPath(for: plugin.id) },
+                        downloadLatestToolchain: {
+                            performPackageAction { await model.downloadPluginToolchain(for: plugin.id) }
+                        },
+                        installLanguageServer: {
+                            performPackageAction {
+                                if let error = await feature.installLanguageServer() {
+                                    model.showNotification(error)
+                                }
+                            }
+                        }
+                    )
+                    .padding(.horizontal, 24)
+                }
                 Spacer()
             }
             .background(LitheTheme.settingsSurface)
@@ -350,11 +368,11 @@ struct PluginManagementView: View {
         }
     }
 
-    private var phpPresentation: PluginPresentation {
-        PluginPresentation(
-            systemImage: "globe",
-            tint: LitheTheme.success,
-            summary: "Adds PHP language-server integration, formatting, running, and test support."
+    private func presentation(for _: PluginID) -> PluginPresentation {
+        return PluginPresentation(
+            systemImage: "puzzlepiece.extension",
+            tint: LitheTheme.accent,
+            summary: "Adds language tooling and project support provided by this plugin."
         )
     }
 }
@@ -363,12 +381,15 @@ struct PluginManagementListContent {
     let plugins: [PluginManagementSnapshot]
 
     var availablePHPManifest: PluginManifest? {
-        guard plugins.isEmpty else { return nil }
+        guard !plugins.contains(where: { $0.id == OfficialPluginCatalog.phpPluginID }) else { return nil }
         return OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
     }
 
     init(plugins: [PluginManagementSnapshot]) {
-        self.plugins = plugins.filter { $0.id == OfficialPluginCatalog.phpPluginID }
+        let officialIDs = Set(OfficialPluginCatalog.manifests.map(\.id))
+        self.plugins = plugins.filter {
+            officialIDs.contains($0.id)
+        }
     }
 }
 
