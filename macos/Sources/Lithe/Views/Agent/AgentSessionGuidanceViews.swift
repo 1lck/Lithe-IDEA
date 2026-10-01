@@ -7,14 +7,13 @@ struct AgentThoughtRow: View {
     let text: String
     let isStreaming: Bool
     var isSearching = false
-    /// nil follows the streaming state until the user toggles the row.
-    @State private var userExpanded: Bool?
+    @State private var expansion = AgentThoughtExpansion()
 
-    private var isExpanded: Bool { userExpanded ?? (isStreaming || isSearching) }
+    private var isExpanded: Bool { expansion.isExpanded(isStreaming: isStreaming, isSearching: isSearching) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Button { userExpanded = !isExpanded } label: {
+            Button { expansion.toggle(isStreaming: isStreaming, isSearching: isSearching) } label: {
                 HStack(spacing: 6) {
                     Image(systemName: "brain")
                         .font(.system(size: 10.5))
@@ -45,6 +44,21 @@ struct AgentThoughtRow: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Search temporarily reveals a match without replacing the user's disclosure preference.
+struct AgentThoughtExpansion {
+    private var userExpanded: Bool?
+
+    func isExpanded(isStreaming: Bool, isSearching: Bool) -> Bool {
+        isSearching || (userExpanded ?? isStreaming)
+    }
+
+    mutating func toggle(isStreaming: Bool, isSearching: Bool) {
+        // A matching search must keep its text visible, including after a click.
+        guard !isSearching else { return }
+        userExpanded = !isExpanded(isStreaming: isStreaming, isSearching: false)
     }
 }
 
@@ -153,6 +167,19 @@ struct AgentCommandSuggestionList: View {
     let commands: [AgentCommand]
     let highlightedIndex: Int
     let onSelect: (AgentCommand) -> Void
+    var maximumHeight: CGFloat = defaultMaximumHeight
+    static let defaultMaximumHeight: CGFloat = 168
+    /// One complete command row including the list's vertical padding and border.
+    static let minimumHeight = rowHeight + 2 * contentInset + 2 * borderInset
+    private static let rowHeight: CGFloat = 26
+    private static let contentInset: CGFloat = 3
+    private static let borderInset: CGFloat = 1
+
+    var height: CGFloat {
+        let contentHeight = commands.isEmpty ? Self.rowHeight
+            : min(maximumHeight, CGFloat(commands.count) * Self.rowHeight + 2 * Self.contentInset)
+        return contentHeight + 2 * Self.borderInset
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -161,7 +188,7 @@ struct AgentCommandSuggestionList: View {
                     .font(.system(size: 11.5))
                     .foregroundStyle(AgentPanelStyle.secondary)
                     .padding(.horizontal, 10)
-                    .frame(height: 26)
+                    .frame(height: Self.rowHeight)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView(.vertical) {
@@ -170,9 +197,9 @@ struct AgentCommandSuggestionList: View {
                                 row(command, isHighlighted: index == highlightedIndex).id(command.id)
                             }
                         }
-                        .padding(.vertical, 3)
+                        .padding(.vertical, Self.contentInset)
                     }
-                    .frame(maxHeight: 168)
+                    .frame(maxHeight: maximumHeight)
                     .fixedSize(horizontal: false, vertical: true)
                     .onChange(of: highlightedIndex) { index in
                         if commands.indices.contains(index) { proxy.scrollTo(commands[index].id) }
@@ -182,7 +209,8 @@ struct AgentCommandSuggestionList: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 7))
-        .padding(1)
+        .padding(Self.borderInset)
+        .frame(height: height)
         .accessibilityLabel("Agent commands")
     }
 
@@ -202,7 +230,7 @@ struct AgentCommandSuggestionList: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10)
-            .frame(height: 26)
+            .frame(height: Self.rowHeight)
             .background(isHighlighted ? AgentPanelStyle.focus.opacity(0.18) : Color.clear)
             .contentShape(Rectangle())
         }

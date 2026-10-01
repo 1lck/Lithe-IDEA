@@ -45,33 +45,32 @@ struct AgentComposerView: View {
             if !files.isEmpty {
                 AgentFileReferenceList(files: files) { id in files.removeAll { $0.id == id } }
             }
-            if let suggestions = commandSuggestions {
-                AgentCommandSuggestionList(
-                    commands: suggestions,
-                    highlightedIndex: min(highlightedCommand, max(0, suggestions.count - 1)),
-                    onSelect: complete
-                )
+            AgentComposerDraftArea(
+                commands: commandSuggestions,
+                highlightedIndex: highlightedCommand,
+                onSelect: complete
+            ) {
+                ScrollView {
+                    TextField("Message the Agent", text: $draft, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundStyle(AgentPanelStyle.text)
+                        .lineLimit(1...)
+                        .focused($isFocused)
+                        .onSubmit(submit)
+                        .modifier(AgentCommandKeyNavigation(
+                            isActive: commandSuggestions?.isEmpty == false,
+                            onMove: moveCommandHighlight,
+                            onComplete: { completeHighlighted() }
+                        ))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 10)
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .contentShape(Rectangle())
+                .onTapGesture { isFocused = true }
             }
-            ScrollView {
-                TextField("Message the Agent", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AgentPanelStyle.text)
-                    .lineLimit(1...)
-                    .focused($isFocused)
-                    .onSubmit(submit)
-                    .modifier(AgentCommandKeyNavigation(
-                        isActive: commandSuggestions?.isEmpty == false,
-                        onMove: moveCommandHighlight,
-                        onComplete: { completeHighlighted() }
-                    ))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(Rectangle())
-            .onTapGesture { isFocused = true }
             toolbar
         }
         .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
@@ -309,5 +308,6 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
                 transcript
             }
         }
+        .agentCommandSuggestionScope()
     }
 }

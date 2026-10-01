@@ -300,7 +300,8 @@
           "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
           "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
           "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
-          "shared/fixtures/agent/acp-events-v1.json"
+          "shared/fixtures/agent/acp-events-v1.json",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -313,7 +314,7 @@
         "verificationStatus": "not-applicable"
       },
       "owner": "Agent",
-      "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；思考与回复交替时顺序正确且文本不混合；搜索思考内容可以命中并展开；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows Agent 对话 UI 尚未实现。"
+      "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；思考与回复交替时顺序正确且文本不混合；手动收起思考块后搜索其内容，命中时仍展开，搜索期间保持可见，清空搜索后恢复手动折叠状态；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows Agent 对话 UI 尚未实现。"
     },
     {
       "id": "agent-plan-display",
@@ -344,13 +345,15 @@
       "id": "agent-slash-commands",
       "area": "AI",
       "group": "Agent 对话",
-      "capability": "输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agent 为当前会话上报的命令列表（ACP available_commands_update）弹出补全，显示名称、说明与参数提示，选择后填入命令并按普通消息原样发送",
+      "capability": "输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agent 为当前会话上报的命令列表（ACP available_commands_update）弹出补全，显示名称、说明与参数提示，选择后填入命令并按普通消息原样发送；长补全列表保留可见输入行，最小输入区中在上方浮出完整列表",
       "macos": {
         "evidence": [
           "macos/Sources/LitheAgentConversationModule/Application/AgentSessionGuidance.swift",
           "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
           "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
-          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift"
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentComposerDraftArea.swift",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -363,7 +366,7 @@
         "verificationStatus": "not-applicable"
       },
       "owner": "Agent",
-      "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表。Agent 自行切换模式（如退出计划模式）时权限模式选择器同步更新。Windows Agent 对话 UI 尚未实现。"
+      "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表；在默认和最小输入区高度、窄宽面板中输入 /，用长列表和空结果确认输入行可见可编辑，浮出的命令可鼠标选择，方向键选中最后一条时列表跟随滚动。Agent 自行切换模式（如退出计划模式）时权限模式选择器同步更新。Windows Agent 对话 UI 尚未实现。"
     },
     {
       "id": "agent-turn-statistics",

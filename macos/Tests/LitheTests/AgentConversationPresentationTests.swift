@@ -157,6 +157,80 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func thoughtSearchRevealsAManuallyCollapsedMatchAndRestoresItsPreference() {
+        var expansion = AgentThoughtExpansion()
+        #expect(expansion.isExpanded(isStreaming: true, isSearching: false))
+        expansion.toggle(isStreaming: true, isSearching: false)
+        #expect(!expansion.isExpanded(isStreaming: true, isSearching: false))
+
+        // The same row survives transcript filtering, retaining its manual collapse.
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
+        expansion.toggle(isStreaming: false, isSearching: true)
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
+        #expect(!expansion.isExpanded(isStreaming: false, isSearching: false))
+
+        expansion.toggle(isStreaming: false, isSearching: false)
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: false))
+    }
+
+    @Test
+    func thoughtStreamingCollapsesAutomaticallyButKeepsManualExpansion() {
+        var expansion = AgentThoughtExpansion()
+        #expect(expansion.isExpanded(isStreaming: true, isSearching: false))
+        #expect(!expansion.isExpanded(isStreaming: false, isSearching: false))
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: true))
+        #expect(!expansion.isExpanded(isStreaming: false, isSearching: false))
+        expansion.toggle(isStreaming: false, isSearching: false)
+        #expect(expansion.isExpanded(isStreaming: true, isSearching: false))
+        #expect(expansion.isExpanded(isStreaming: false, isSearching: false))
+    }
+
+    @Test
+    func commandSuggestionsKeepAWritingLineAtDefaultAndMinimumComposerHeights() throws {
+        let commands = (0..<200).map {
+            AgentCommand(name: "command-\($0)", description: "An upstream command with a long description", hint: nil)
+        }
+        for height in [120.0, 210.0, 400.0] {
+            for width in [280.0, 620.0] {
+                for count in [0, 1, 40, 200] {
+                    var editor: NSView?
+                    let host = NSHostingView(rootView: VStack(spacing: 0) {
+                        // Match the composer's context bar, toolbar and outer inset.
+                        Color.clear.frame(height: 30)
+                        AgentComposerDraftArea(commands: Array(commands.prefix(count)), highlightedIndex: 0, onSelect: { _ in }) {
+                            AgentDraftFrameProbe { editor = $0 }
+                        }
+                        Color.clear.frame(height: 38)
+                    }.padding(.horizontal, 8).padding(.bottom, 8).agentCommandSuggestionScope())
+                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                                          styleMask: [.borderless], backing: .buffered, defer: false)
+                    window.isReleasedWhenClosed = false
+                    defer { window.close() }
+                    window.contentView = host
+                    host.frame.size = NSSize(width: width, height: height)
+                    host.layoutSubtreeIfNeeded()
+                    let input = try #require(editor)
+                    let frame = host.convert(input.bounds, from: input)
+                    #expect(frame.height >= 36, "A complete writing line must survive \(count) commands at \(width)×\(height)")
+                    #expect(frame.minY >= 0 && frame.maxY <= host.bounds.maxY, "The writing line must stay inside the composer")
+                    #expect(abs(frame.width - (width - 16)) < 0.5)
+                    if count > 0 {
+                        let list = try #require(commandScroll(in: host))
+                        let listFrame = host.convert(list.bounds, from: list)
+                        #expect(listFrame.height >= 26, "Suggestions must retain a complete, selectable row")
+                        #expect(listFrame.minY >= 0 && listFrame.maxY <= host.bounds.maxY,
+                                "The floating list must stay inside its conversation scope")
+                        let isAboveInput = host.isFlipped ? listFrame.maxY <= frame.minY + 0.5
+                            : listFrame.minY >= frame.maxY - 0.5
+                        #expect(isAboveInput, "The floating list must not cover the writing line")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     func toolSearchKeepsTheOriginalGroupWhenEvidenceMatches() throws {
         var first = AgentConversationMessage(id: "list", role: .tool, text: "List files")
         first.toolDetails.kind = "search"
@@ -318,4 +392,22 @@ struct AgentConversationPresentationTests {
         if let handle = view as? SplitHandleInteractionView { return handle }
         return view.subviews.lazy.compactMap { splitHandle(in: $0) }.first
     }
+
+    private func commandScroll(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { commandScroll(in: $0) }.first
+    }
+}
+
+/// Observe the actual native editor frame assigned by SwiftUI, without a run loop delay.
+private struct AgentDraftFrameProbe: NSViewRepresentable {
+    let onCreate: (NSView) -> Void
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        onCreate(view)
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
