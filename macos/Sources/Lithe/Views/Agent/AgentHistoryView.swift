@@ -72,7 +72,7 @@ struct AgentHistoryView: View {
         VStack(spacing: 0) {
             HStack {
                 Button(action: onBack) { Label("Back", systemImage: "arrow.left") }
-                    .buttonStyle(.plain).lithePointer()
+                    .buttonStyle(.litheNoPress).lithePointer()
                     .accessibilityIdentifier("agent-history-back")
                 Spacer()
                 Text("Conversation history").fontWeight(.medium)
@@ -98,7 +98,7 @@ struct AgentHistoryView: View {
                     ProgressView().controlSize(.mini)
                     Text("Exporting conversations…")
                     Spacer()
-                    Button("Cancel") { history.cancelExport() }.buttonStyle(.plain)
+                    Button("Cancel") { history.cancelExport() }.buttonStyle(.litheNoPress)
                 }.font(.system(size: 12)).padding(12)
             }
             if sessions.isEmpty {
@@ -161,7 +161,7 @@ struct AgentHistoryView: View {
                         }
                     } label: { Text("Manage selected") }
                         .disabled(selected.isEmpty)
-                }.font(.system(size: 11)).buttonStyle(.borderless)
+                }.font(.system(size: 11)).buttonStyle(.litheNoPress)
             }
             if filter == .removed {
                 Text("Removed conversations are hidden only in Lithe. The Agent's original records are kept.")
@@ -204,7 +204,7 @@ struct AgentHistoryView: View {
                     .accessibilityIdentifier("agent-history-search")
                 if !query.isEmpty {
                     Button { query = "" } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).help("Clear search")
+                        .buttonStyle(.litheNoPress).help("Clear search")
                 } else { Image(systemName: "magnifyingglass") }
             }
             .font(.system(size: 12))
@@ -302,7 +302,7 @@ private struct AgentHistoryRow: View {
                 if isSelecting {
                     Button(action: onToggleSelection) {
                         Image(systemName: isSelected ? "checkmark.square.fill" : "square")
-                    }.buttonStyle(.plain).help("Select conversation")
+                    }.buttonStyle(.litheNoPress).help("Select conversation")
                 }
                 AgentBrandIcon(name: agentName, size: 18).foregroundStyle(AgentPanelStyle.text)
                 if isEditing {
@@ -318,7 +318,7 @@ private struct AgentHistoryRow: View {
                         Text(title).font(.system(size: 14, weight: .semibold))
                             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
-                    }.buttonStyle(.plain).lithePointer()
+                    }.buttonStyle(.litheNoPress).lithePointer()
                         .disabled(!isSelecting && !canOpen).help(title)
                     if let date = AgentHistoryPresentation.date(session.updatedAt) {
                         Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
@@ -365,6 +365,6 @@ private struct AgentHistoryRow: View {
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
         Button(action: action) { Image(systemName: name).font(.system(size: 11)).frame(width: 22, height: 22) }
-            .buttonStyle(.plain).lithePointer().help(title).accessibilityLabel(title)
+            .buttonStyle(.litheNoPress).lithePointer().help(title).accessibilityLabel(title)
     }
 }

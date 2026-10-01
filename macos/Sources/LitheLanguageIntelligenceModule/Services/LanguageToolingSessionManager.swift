@@ -396,9 +396,54 @@ package final class LanguageToolingSessionManager: ObservableObject,
         return languageServerOperationIDs[providerID] ?? operationID
     }
 
-    /// Reloads only Java and waits for project import, preserving other providers.
-    /// Cancellation terminates only the session created by this reload.
+    /// Outcome of handing the workspace's Maven context to its Java session.
+    package enum JavaMavenConfigurationOutcome: Equatable {
+        /// The running session took the change and re-resolves in place.
+        case updated(LanguageServerMavenConfigurationUpdate)
+        /// No Java session runs for this root; the next start reads the context.
+        case noSession
+        /// A session runs but could not take the change and needs a restart.
+        case failed(LanguageServerRuntimeFailure)
+    }
+
+    /// Sends the workspace's current Maven context to the running Java session.
+    ///
+    /// JDT LS re-resolves on its own: changed settings make it force-update every
+    /// Maven project, and `reloadProjects` re-resolves even when nothing changed.
+    /// A restart would reuse the workspace state and skip every project whose
+    /// `pom.xml` did not change, keeping unresolved artifacts missing (#970).
+    @discardableResult
+    package func updateJavaMavenConfiguration(
+        rootURL: URL,
+        reloadProjects: Bool
+    ) -> JavaMavenConfigurationOutcome {
+        let root = rootURL.standardizedFileURL
+        // The workspace preference is rechecked like every other entry point;
+        // a disabled provider reports no session, so a reload fails where a
+        // start would.
+        guard isLanguageServerEnabled("java", root),
+              let session = languageServers["java"],
+              session.isRunning,
+              languageServerRoots["java"] == root,
+              let descriptor = catalog.descriptors.first(where: { $0.id == "java" }),
+              let context = mavenContextProvider(descriptor, root) else {
+            return .noSession
+        }
+        switch session.updateMavenConfiguration(context, reloadProjects: reloadProjects) {
+        case .success(let update): return .updated(update)
+        case .failure(let failure): return .failed(failure)
+        }
+    }
+
+    /// Reloads Java Maven projects and waits for readiness, preserving other
+    /// providers. A running session re-resolves in place; a restart is only the
+    /// recovery for a session that cannot take the update, or the way to start
+    /// one. Cancellation terminates only a session created by this reload.
     package func reloadJavaWorkspace(rootURL: URL) async throws {
+        if case .updated = updateJavaMavenConfiguration(rootURL: rootURL, reloadProjects: true) {
+            try await waitUntilLanguageServerReady(providerID: "java", rootURL: rootURL)
+            return
+        }
         stopLanguageServer(providerID: "java")
         let operationID = try startLanguageServer(providerID: "java", rootURL: rootURL)
         do {
@@ -456,6 +501,35 @@ package final class LanguageToolingSessionManager: ObservableObject,
         rootURL: URL
     ) async throws -> JavaLaunchPreparation {
         try await prepareJavaLaunchTarget(fileURL: fileURL, rootURL: rootURL)
+    }
+
+    /// Rebuilds the original running target without allowing a failed build to proceed.
+    package func buildJavaServiceUpdate(
+        target: JavaDebugLaunchTarget, fileURL: URL, rootURL: URL
+    ) async throws {
+        let paths = try await executeJavaCommand(
+            "vscode.java.resolveClasspath",
+            arguments: [.string(target.mainClass), .string(target.projectName ?? ""), .string("runtime")],
+            rootURL: rootURL
+        )
+        guard case .array(let groups) = paths, groups.count == 2,
+              Self.stringValues(groups[0]) == target.modulePaths,
+              Self.stringValues(groups[1]) == target.classPaths else {
+            throw LanguageToolingSessionError.toolingUnavailable(
+                "Runtime paths changed. Restart the service to use the new dependencies."
+            )
+        }
+        let payload = JavaWorkspaceBuildRequest(
+            mainClass: target.mainClass, projectName: target.projectName,
+            filePath: fileURL.path, isFullBuild: false
+        )
+        let json = String(decoding: try JSONEncoder().encode(payload), as: UTF8.self)
+        let result = try await executeJavaCommand(
+            "vscode.java.buildWorkspace", arguments: [.string(json)], rootURL: rootURL
+        )
+        guard result == .integer(1) || result == .string("1") else {
+            throw LanguageToolingSessionError.toolingUnavailable("Java compilation did not complete successfully.")
+        }
     }
 
     /// JDT's launchable classes for the workspace, starting the Java service

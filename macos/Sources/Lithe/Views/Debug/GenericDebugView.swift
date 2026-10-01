@@ -122,7 +122,7 @@ struct GenericDebugView: View {
                     }
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
             }
             Spacer(minLength: 0)
@@ -192,7 +192,7 @@ struct GenericDebugView: View {
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 16, height: 16)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .help("Stop debug session")
             }
@@ -321,6 +321,22 @@ struct GenericDebugView: View {
                     if DebugToolbarPresentation.separatorsAfter.contains(action) {
                         toolbarDivider
                     }
+                }
+                if feature.canUpdateJavaService {
+                    Button { model.applyDebugServiceUpdate() } label: {
+                        Image(systemName: "bolt.fill")
+                    }
+                    .litheIconButton()
+                    .disabled(feature.updatingServiceSessionID != nil)
+                    .help("Apply code changes to this service")
+                    .accessibilityLabel("Apply code changes")
+                }
+                if feature.serviceUpdateFailed && feature.canUpdateJavaService {
+                    Button("Restart service") { model.restartUpdatedDebugService() }
+                        .disabled(feature.updatingServiceSessionID != nil)
+                }
+                if let message = feature.serviceUpdateMessage {
+                    Text(message).font(.caption).lineLimit(1).help(message)
                 }
                 debugOptionsMenu
                 debugExecutionStatus
@@ -487,7 +503,7 @@ struct GenericDebugView: View {
                         .foregroundStyle(LitheTheme.secondaryText.opacity(0.82))
                         .lineLimit(1)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help("Reveal stopped location in editor")
                 .accessibilityLabel("Reveal stopped location in editor")
             }
@@ -581,7 +597,7 @@ struct GenericDebugView: View {
                         feature.smartStepInto(target)
                         isSmartStepPickerPresented = false
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 11, design: .monospaced))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
@@ -624,7 +640,7 @@ struct GenericDebugView: View {
                                     .frame(minHeight: 27)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                         }
                         ForEach(feature.visibleStackFrameRows) { row in
                             if let frame = row.frame {
@@ -696,7 +712,7 @@ struct GenericDebugView: View {
                                     .frame(minHeight: 27)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.plain)
+                                .buttonStyle(.litheNoPress)
                                 .help("Show JDK, proxy, and framework frames")
                             }
                         }
@@ -1124,13 +1140,13 @@ struct GenericDebugView: View {
                     preservesOriginalColors: true
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .disabled(feature.state != .paused || feature.watches.isEmpty)
             .help("Refresh watches")
             Button { watchEditor = WatchEditorContext(watch: nil) } label: {
                 Image(systemName: "plus")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Add watch")
         }
         .padding(.horizontal, 10)
@@ -1436,7 +1452,7 @@ struct GenericDebugView: View {
             .frame(minHeight: 27)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(isLoading)
         .accessibilityLabel(isLoading ? "Loading debugger variables" : "Load more debugger variables")
     }
@@ -1469,7 +1485,7 @@ struct GenericDebugView: View {
             .background(selected ? LitheTheme.selection : Color.clear)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
     }
 }
 
@@ -1699,7 +1715,7 @@ struct DebugBreakpointManagerView: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help("Add method breakpoint")
             .accessibilityLabel("Add method breakpoint")
         }
@@ -1731,7 +1747,7 @@ struct DebugBreakpointManagerView: View {
                     )
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .help(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
             .accessibilityLabel(breakpoint.enabled ? "Disable breakpoint" : "Enable breakpoint")
             Button {
@@ -1755,7 +1771,7 @@ struct DebugBreakpointManagerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel("Open \(breakpoint.title)")
             Menu {
                 Button("Edit…") { editingBreakpoint = breakpoint }
@@ -1804,7 +1820,7 @@ struct DebugBreakpointManagerView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(breakpoint.enabled ? LitheTheme.error : LitheTheme.secondaryText)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel(
                 breakpoint.enabled
                     ? "Disable \(breakpoint.label) exception breakpoint"
@@ -1824,7 +1840,7 @@ struct DebugBreakpointManagerView: View {
                 Button { editingExceptionBreakpoint = breakpoint } label: {
                     Image(systemName: "ellipsis")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .help("Edit exception breakpoint")
                 .accessibilityLabel("Edit \(breakpoint.label) exception breakpoint")
             }
@@ -1850,7 +1866,7 @@ struct DebugBreakpointManagerView: View {
                             : LitheTheme.secondaryText
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel(
                 breakpoint.enabled
                     ? "Disable \(breakpoint.name) method breakpoint"
@@ -1872,7 +1888,7 @@ struct DebugBreakpointManagerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel("Edit \(breakpoint.name) method breakpoint")
             Menu {
                 Button("Edit…") {
@@ -1909,7 +1925,7 @@ struct DebugBreakpointManagerView: View {
                     preservesOriginalColors: true
                 )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel(
                 breakpoint.enabled
                     ? "Disable \(breakpoint.label) field breakpoint"
@@ -1927,7 +1943,7 @@ struct DebugBreakpointManagerView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .accessibilityLabel("Edit \(breakpoint.label) field breakpoint")
             Menu {
                 Button("Edit…") { editingDataBreakpoint = breakpoint }

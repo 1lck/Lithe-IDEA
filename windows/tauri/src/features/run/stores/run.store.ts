@@ -1,3 +1,8 @@
+import { invokeLsp } from "@/platform/lsp-core-adapter";
+import { applyJavaCodeChanges } from "@/features/debugger/services/debug-adapter-service";
+import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
+import { supportsDevToolsUpdate, updateJavaService } from "../services/java-service-update";
+import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -109,6 +114,9 @@ interface RunState {
   selectedConfigurationId: string | null;
   defaultConfigurationId: string | null;
   primaryOutput: string;
+  primaryExecutionId: string | null;
+  primaryConfigurationId: string | null;
+  primaryPreparing: boolean;
   primaryRunning: boolean;
   primaryTitle: string | null;
   primaryExitCode: number | null;
@@ -119,6 +127,10 @@ interface RunState {
   editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
+  serviceUpdates: Record<
+    string,
+    { executionId: string; context: JavaServiceUpdateContext; pending: boolean; message?: string; failed?: boolean }
+  >;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
@@ -143,6 +155,7 @@ interface RunState {
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
     rebuildJavaIndex: (sessionId: string, decisionId: string) => Promise<void>;
+    updateService: (sessionId: string, debugSessionId?: string) => Promise<void>;
     stop: (sessionId?: string, executionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
@@ -168,6 +181,7 @@ export interface RunStoreDependencies {
   seedMavenLocalConfiguration: (workspaceId: string, settings: Partial<MavenSettings>) => void;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
+  buildJavaServiceUpdate?: (root: string, context: JavaServiceUpdateContext) => Promise<void>;
   prepareJavaRunLaunch: typeof prepareJavaRunLaunch;
   rebuildJavaIndexForWorkspace?: typeof rebuildJavaIndexForWorkspace;
   javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
@@ -503,6 +517,9 @@ export const createRunStore = (
     selectedConfigurationId: null,
     defaultConfigurationId: null,
     primaryOutput: "",
+    primaryExecutionId: null,
+    primaryConfigurationId: null,
+    primaryPreparing: false,
     primaryRunning: false,
     primaryTitle: null,
     primaryExitCode: null,
@@ -512,6 +529,7 @@ export const createRunStore = (
     editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
+    serviceUpdates: {},
     discoveredJava: [],
     discoveredMaven: [],
     discoveredRuntimes: [],
@@ -548,7 +566,15 @@ export const createRunStore = (
           saveError: null,
           editingConfigurationId: sameProject ? get().editingConfigurationId : null,
           generationNotice: null,
-          ...(sameProject ? {} : { javaLaunchDecisions: {} }),
+          ...(sameProject
+            ? {}
+            : {
+                javaLaunchDecisions: {},
+                serviceUpdates: {},
+                primaryExecutionId: null,
+                primaryConfigurationId: null,
+                primaryPreparing: false,
+              }),
         });
         try {
           // Show validated documents before the potentially expensive content scan.
@@ -759,6 +785,7 @@ export const createRunStore = (
           set({
             primaryOutput: trimOutput(`${state.primaryOutput}${blocking.message}\n`),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -769,6 +796,7 @@ export const createRunStore = (
               `${state.primaryOutput}Open a source file before running Current File.\n`,
             ),
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: 1,
           });
           return null;
@@ -788,6 +816,17 @@ export const createRunStore = (
         const executionId = crypto.randomUUID();
         // Reserve ownership before yielding so old Debug callbacks cannot stop a replacement.
         executions.set(sessionId, executionId);
+        if (sessionId === PRIMARY_SESSION_ID) {
+          set({
+            primaryExecutionId: executionId,
+            primaryConfigurationId: configuration.id,
+            primaryPreparing: true,
+            primaryRunning: false,
+            primaryOutput: "",
+            primaryExitCode: null,
+            primaryTitle: configuration.name,
+          });
+        }
         const isCurrent = () => executions.get(sessionId) === executionId && get().root === root;
         bindRunSessionWorkspace(sessionId, workspaceId);
         resetOutputStamper(sessionId);
@@ -828,9 +867,11 @@ export const createRunStore = (
                   {
                     id: sessionId,
                     configurationId: configuration.id,
+                    executionId,
                     title: configuration.name,
                     output: JAVA_PREPARATION_NOTICE,
                     isRunning: false,
+                    isPreparing: true,
                     exitCode: null,
                   },
                 ],
@@ -911,11 +952,30 @@ export const createRunStore = (
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           if (!isCurrent()) return null;
+          if (javaLaunch && configuration.sourcePath) {
+            set((current) => ({
+              serviceUpdates: {
+                ...current.serviceUpdates,
+                [sessionId]: {
+                  executionId,
+                  pending: false,
+                  context: { target: javaLaunch, sourcePath: configuration.sourcePath!, debugPort },
+                },
+              },
+            }));
+          } else {
+            set((current) => {
+              const serviceUpdates = { ...current.serviceUpdates };
+              delete serviceUpdates[sessionId];
+              return { serviceUpdates };
+            });
+          }
           const mainArguments = withJavaPaths(plan.arguments, plan.classpath, plan.modulepath);
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${mainArguments.join(" ")}\n\n`;
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: true,
+              primaryPreparing: false,
               primaryTitle: configuration.name,
               primaryExitCode: null,
               primaryOutput: trimOutput(`${commandLine}${javaBuildWarning}`),
@@ -929,6 +989,7 @@ export const createRunStore = (
                 {
                   id: sessionId,
                   configurationId: configuration.id,
+                  executionId,
                   title: configuration.name,
                   output: trimOutput(`${commandLine}${javaBuildWarning}`),
                   isRunning: true,
@@ -959,6 +1020,7 @@ export const createRunStore = (
             if (sessionId === PRIMARY_SESSION_ID) {
               set((current) => ({
                 primaryRunning: false,
+                primaryPreparing: false,
                 primaryExitCode: exitCode,
                 primaryOutput: trimOutput(`${current.primaryOutput}${message}`),
               }));
@@ -969,6 +1031,7 @@ export const createRunStore = (
                     ? {
                         ...session,
                         isRunning: false,
+                        isPreparing: false,
                         exitCode,
                         output: trimOutput(`${session.output}${message}`),
                       }
@@ -1039,6 +1102,7 @@ export const createRunStore = (
           if (sessionId === PRIMARY_SESSION_ID) {
             set({
               primaryRunning: false,
+              primaryPreparing: false,
               primaryExitCode: 1,
               primaryOutput: trimOutput(`${get().primaryOutput}${message}\n`),
             });
@@ -1050,9 +1114,11 @@ export const createRunStore = (
               const failedSession: RunSession = {
                 id: sessionId,
                 configurationId: configuration.id,
+                executionId,
                 title: configuration.name,
                 output: trimOutput(`${existingSession?.output ?? ""}${message}\n`),
                 isRunning: false,
+                isPreparing: false,
                 exitCode: 1,
               };
               return {
@@ -1099,7 +1165,18 @@ export const createRunStore = (
         set((current) => {
           const javaLaunchDecisions = { ...current.javaLaunchDecisions };
           delete javaLaunchDecisions[sessionId];
-          return { javaLaunchDecisions };
+          return {
+            javaLaunchDecisions,
+            primaryPreparing:
+              sessionId === PRIMARY_SESSION_ID && current.primaryExecutionId === pending.executionId
+                ? false
+                : current.primaryPreparing,
+            sessions: current.sessions.map((session) =>
+              session.id === sessionId && session.executionId === pending.executionId
+                ? { ...session, isPreparing: false }
+                : session,
+            ),
+          };
         });
         pending.resolve(false);
       },
@@ -1133,6 +1210,59 @@ export const createRunStore = (
         }
       },
 
+      updateService: async (sessionId, debugSessionId) => {
+        const entry = get().serviceUpdates[sessionId];
+        const root = get().root;
+        if (!entry || !root || entry.pending) return;
+        const isCurrent = () => {
+          const state = get();
+          const running =
+            sessionId === PRIMARY_SESSION_ID
+              ? state.primaryRunning
+              : state.sessions.some((session) => session.id === sessionId && session.isRunning);
+          const debug = useDebuggerStore.getState().activeSession;
+          return (
+            state.root === root &&
+            executions.get(sessionId) === entry.executionId &&
+            running &&
+            (!debugSessionId ||
+              (debug?.id === debugSessionId &&
+                debug.status !== "idle" &&
+                debug.javaRun?.executionId === entry.executionId &&
+                debug.javaRun?.workspaceId === workspaceId))
+          );
+        };
+        if (!isCurrent() || (!debugSessionId && !supportsDevToolsUpdate(entry.context))) return;
+        const change = (values: { pending?: boolean; message?: string; failed?: boolean }) => {
+          if (get().serviceUpdates[sessionId]?.executionId !== entry.executionId) return;
+          set((state) => ({
+            serviceUpdates: {
+              ...state.serviceUpdates,
+              [sessionId]: { ...state.serviceUpdates[sessionId], ...values },
+            },
+          }));
+        };
+        change({ pending: true, message: undefined, failed: false });
+        try {
+          await updateJavaService({
+            isCurrent,
+            save: () => dependencies.saveWorkspaceBeforeLaunch(workspaceId),
+            build: () =>
+              dependencies.buildJavaServiceUpdate
+                ? dependencies.buildJavaServiceUpdate(root, entry.context)
+                : invokeLsp<void>("java_build_service_update", {
+                    workspacePath: root,
+                    sourcePath: `${root}/${entry.context.sourcePath}`,
+                    target: entry.context.target,
+                  }),
+            apply: debugSessionId ? () => applyJavaCodeChanges(debugSessionId) : undefined,
+            report: (message, failed = false) => change({ message, failed }),
+          });
+        } finally {
+          change({ pending: false });
+        }
+      },
+
       stop: async (sessionId, executionId) => {
         const target = sessionId ?? get().selectedSessionId ?? PRIMARY_SESSION_ID;
         get().actions.cancelJavaLaunch(target);
@@ -1146,6 +1276,7 @@ export const createRunStore = (
         if (target === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryOutput: flushStampedOutput(target, get().primaryOutput),
           });
           return;
@@ -1156,6 +1287,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   output: flushStampedOutput(target, session.output),
                 }
               : session,
@@ -1262,6 +1394,7 @@ export const createRunStore = (
         if (sessionId === PRIMARY_SESSION_ID) {
           set({
             primaryRunning: false,
+            primaryPreparing: false,
             primaryExitCode: exitCode,
             primaryOutput: flushStampedOutput(sessionId, get().primaryOutput),
           });
@@ -1273,6 +1406,7 @@ export const createRunStore = (
               ? {
                   ...session,
                   isRunning: false,
+                  isPreparing: false,
                   exitCode,
                   output: flushStampedOutput(sessionId, session.output),
                 }

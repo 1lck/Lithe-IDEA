@@ -1,5 +1,6 @@
 import type { ComponentProps } from "react";
 import { useTranslation } from "@/i18n/locale-provider";
+import { LoaderCircleIcon } from "@/ui/icons";
 import { cn } from "@/utils/cn";
 
 type SpinnerProps = Omit<ComponentProps<"span">, "children"> & {
@@ -23,12 +24,14 @@ function Spinner({
       aria-hidden={showLabel || undefined}
       aria-label={showLabel ? undefined : resolvedLabel}
       className={cn(
-        "inline-block shrink-0 animate-spin rounded-full border-2 border-current border-r-transparent",
+        "inline-flex shrink-0",
         compact ? "size-3" : "size-4",
         !showLabel && className,
       )}
       {...props}
-    />
+    >
+      <LoaderCircleIcon className="size-full animate-spin" aria-hidden="true" />
+    </span>
   );
 
   if (!showLabel) {

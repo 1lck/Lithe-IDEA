@@ -15,94 +15,76 @@ import { adaptCoreResult } from "./core-result-adapter";
 
 export { Channel, convertFileSrc };
 
-const nativeCommands = new Set([
-  // Agent connections keep a long-lived handle in the Tauri host, so they are
-  // invoked directly instead of through the shared command envelope.
-  "agent_open",
-  "agent_send",
-  "agent_close",
-  "begin_frontend_terminal_session",
-  "clipboard_clear",
-  "clipboard_get",
-  "clipboard_paste",
-  "clipboard_set",
-  "clear_lithe_logs",
-  "close_terminal",
-  "core_cancel",
-  "core_execute",
-  "read_document_file",
-  "read_document_file_details",
-  "read_document_file_change",
-  "save_document_file",
-  "set_document_watches",
-  "create_app_window",
-  "claim_project_window",
-  "release_project_window",
-  "release_pending_project_window",
-  "create_terminal",
-  "debug_send_request",
-  "debug_start_session",
-  "debug_session_ready",
-  "debug_stop_session",
-  "debug_stop_workspace_sessions",
-  "export_diagnostic_bundle",
-  "get_secure_secret",
-  "frontend_trace",
-  "get_application_memory_usage",
-  "get_bundled_extensions_path",
-  "get_log_settings",
-  "get_monospace_fonts",
-  "get_symlink_info",
-  "get_system_fonts",
-  "get_system_theme",
-  "get_tool_path",
-  "install_language_tools",
-  "cancel_language_tool_install",
-  "uninstall_language_tools",
-  "list_shells",
-  "lsp_rebuild_java_index",
-  "lsp_resolve_java_launch",
-  "maven_load_configuration",
-  "maven_write_configuration",
-  "move_file",
-  "open_log_directory",
-  "open_file_external",
-  "preview_diagnostic_bundle",
-  "read_file_custom",
-  "read_local_file",
-  "read_local_file_bounded",
-  "record_startup_milestone",
-  "read_lithe_log",
-  "remove_secure_secret",
-  "resolve_previous_log_cleanup",
-  "rename_file",
-  "run_discover_toolchains",
-  "run_list_java_sources",
-  "run_resolve_launch",
-  "run_resolve_toolchains",
-  "run_start_process",
-  "run_stop_process",
-  "run_write_documents",
-  "run_write_generated",
-  "run_write_stdin",
-  "set_native_window_appearance",
-  "set_diagnostic_logging",
-  "set_log_directory",
-  "set_project_root",
-  "start_watching",
-  "stop_watching",
-  "watch_git_repository",
-  "unwatch_git_repository",
-  "store_secure_secret",
-  "terminal_resize",
-  "terminal_set_paused",
-  "terminal_write",
-  "take_pending_cli_open_requests",
-  "warm_terminal_environment",
-  "validate_font",
-  "write_file",
-  "write_patch_file",
-]);
+/**
+ * Commands the shared `platform_invoke` dispatcher owns: Git compatibility
+ * names, AI commit generation, and dotted shared Core operations. Every other
+ * command is a Tauri command registered in `src-tauri/src/main.rs` and is
+ * invoked directly.
+ *
+ * The rule mirrors the dispatcher instead of listing native commands. A list
+ * silently sends a newly registered host command to the dispatcher, which
+ * rejects it as not implemented; that is how the Maven dependency tree broke
+ * (#970). `tauri-core.routing.test.ts` checks the rule against `main.rs`.
+ */
+export function isPlatformDispatcherCommand(command: string): boolean {
+  return (
+    command.startsWith("git_") ||
+    command.startsWith("ai_commit_") ||
+    command.includes(".")
+  );
+}
+
+/**
+ * A rejected host command, normalized to an `Error`.
+ *
+ * Tauri rejects with whatever the Rust command serialized, usually a bare
+ * string. Callers that report `error instanceof Error ? error.message : …`
+ * would otherwise replace the host's reason with their generic fallback.
+ * Fields of a structured rejection such as `code` and `details` are kept, and
+ * `toString` returns the message so string interpolation reads as before.
+ */
+export class HostCommandError extends Error {
+  readonly command: string;
+  readonly code?: string;
+  readonly details?: unknown;
+
+  constructor(command: string, message: string, fields: Record<string, unknown> = {}) {
+    super(message);
+    this.name = "HostCommandError";
+    this.command = command;
+    for (const [key, value] of Object.entries(fields)) {
+      if (key === "message" || key === "name" || key === "stack" || key === "command") continue;
+      (this as Record<string, unknown>)[key] = value;
+    }
+  }
+
+  override toString(): string {
+    return this.message;
+  }
+}
+
+export function toHostCommandError(command: string, error: unknown): Error {
+  if (error instanceof Error) return error;
+  if (typeof error === "string") return new HostCommandError(command, error);
+  if (error && typeof error === "object") {
+    const fields = error as Record<string, unknown>;
+    const message =
+      typeof fields.message === "string" && fields.message.trim()
+        ? fields.message
+        : safeJson(error);
+    return new HostCommandError(command, message, fields);
+  }
+  return new HostCommandError(command, String(error));
+}
+
+function safeJson(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 
 export function invoke<T>(
   command: string,
@@ -124,8 +106,11 @@ export function invoke<T>(
       new Error(`${BACKEND_UNAVAILABLE_TOOLTIP}: ${requiredCapability} (${command})`),
     );
   }
-  if (isNativeCommand(command)) {
-    return tauriInvoke<T>(command, args, nativeOptions);
+  const rejectAsError = (error: unknown): never => {
+    throw toHostCommandError(command, error);
+  };
+  if (!isPlatformDispatcherCommand(command)) {
+    return tauriInvoke<T>(command, args, nativeOptions).catch(rejectAsError);
   }
 
   if ((command.startsWith("git_") || command.startsWith("git.")) && command !== "git.consolePresentation") {
@@ -141,7 +126,7 @@ export function invoke<T>(
       (value) => {
         return adaptCoreResult<T>(command, args as Record<string, any> | undefined, value);
       },
-      (error) => { throw error; },
+      rejectAsError,
     );
   }
   return tauriInvoke<unknown>(
@@ -152,11 +137,8 @@ export function invoke<T>(
     nativeOptions,
   ).then(
     (value) => adaptCoreResult<T>(command, args as Record<string, any> | undefined, value),
+    rejectAsError,
   );
-}
-
-export function isNativeCommand(command: string): boolean {
-  return nativeCommands.has(command);
 }
 
 function capabilityForCommand(command: string): BackendCapability | null {

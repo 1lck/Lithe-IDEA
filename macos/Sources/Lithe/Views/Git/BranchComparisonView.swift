@@ -169,7 +169,7 @@ struct BranchComparisonView: View {
                                 )
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .lithePointer()
                         }
                     }

@@ -530,6 +530,29 @@ package final class LanguageServerRuntimeSession: LanguageServerSession {
         }
     }
 
+    /// Hands a changed Maven context to the running server. A failure means the
+    /// session cannot take it and the caller should restart the session.
+    package func updateMavenConfiguration(
+        _ context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
+        guard let sessionID, isRunning else {
+            return .failure(LanguageServerRuntimeFailure(
+                code: "sessionStopped",
+                message: "The Java language session is no longer running."
+            ))
+        }
+        let result = core.updateMavenConfiguration(
+            sessionID: sessionID,
+            context: context,
+            reloadProjects: reloadProjects
+        )
+        if case .failure(let failure) = result {
+            onLog?(.warning, "Maven configuration update failed", failure.userMessage, nil)
+        }
+        return result
+    }
+
     // MARK: - Requests
 
     private func request(

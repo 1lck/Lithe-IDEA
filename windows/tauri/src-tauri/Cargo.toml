@@ -64,6 +64,7 @@ windows-sys = { version = "0.61", features = [
     "Win32_System_ProcessStatus",
     "Win32_System_Threading",
 ] }
+webbrowser = "1.2.4"
 
 [profile.release]
 lto = "thin"

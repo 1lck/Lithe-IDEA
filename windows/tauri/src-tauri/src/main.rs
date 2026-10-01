@@ -8,6 +8,7 @@ mod diagnostics;
 mod document;
 mod file_events;
 mod host;
+mod html_browser;
 mod language_tools;
 mod logging;
 mod lsp;
@@ -103,6 +104,7 @@ fn main() {
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
                 agent::close_window_connections(window.label());
+                core::close_ide_hosts(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
                     if let Err(error) = watcher.remove_owner(window.label()) {
@@ -127,6 +129,7 @@ fn main() {
             document::set_document_watches,
             core::core_execute,
             core::core_cancel,
+            core::ide_host_paths,
             diagnostics::preview_diagnostic_bundle,
             diagnostics::export_diagnostic_bundle,
             debug::debug_start_session,
@@ -179,6 +182,7 @@ fn main() {
             host::rename_file,
             host::get_symlink_info,
             host::open_file_external,
+            host::open_html_in_browser,
             host::take_pending_cli_open_requests,
             host::clipboard_set,
             host::clipboard_get,
@@ -192,6 +196,7 @@ fn main() {
             lsp::lsp_rebuild_java_index,
             language_tools::get_tool_path,
             language_tools::install_language_tools,
+            language_tools::check_language_tool_requirements,
             language_tools::cancel_language_tool_install,
             language_tools::uninstall_language_tools,
             maven::maven_load_configuration,

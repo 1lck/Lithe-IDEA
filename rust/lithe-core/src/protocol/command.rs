@@ -32,6 +32,8 @@ pub struct CoreRequest {
 /// Variants are grouped by domain, but their serialized compatibility names
 /// live only in [`CoreCommand::parse`] so every host uses one mapping.
 pub enum CoreCommand {
+    /// Controls the native IDE capability broker (`ideHost.control`).
+    IdeHostControl,
     /// Reports the Core and protocol versions (`core.ping`).
     Ping,
     /// Detects Node.js and npm and lists catalog agent installs (`agent.status`).
@@ -80,6 +82,8 @@ pub enum CoreCommand {
     FileWrite,
     /// Reduces one shared document persistence event (`document.lifecycle`).
     DocumentLifecycle,
+    /// Classifies decoded Unicode text independently of its filename (`document.classifyText`).
+    DocumentClassifyText,
     /// Records one local-history snapshot (`history.record`).
     HistoryRecord,
     /// Lists retained local-history metadata (`history.entries`).
@@ -176,6 +180,9 @@ pub enum CoreCommand {
     LspStopServer,
     /// Retries Maven profile application for an existing Java session.
     LspRetryMavenProfiles,
+    /// Sends a changed Maven configuration to a running Java session
+    /// (`lsp.updateMavenConfiguration`).
+    LspUpdateMavenConfiguration,
     /// Opens or updates a synchronized document (`lsp.syncDocument`).
     LspSyncDocument,
     /// Publishes external workspace file changes (`lsp.workspaceFilesChanged`).
@@ -198,6 +205,8 @@ pub enum CoreCommand {
     LspDestroyServer,
     /// Validates layered run-configuration documents (`runConfig.inspect`).
     RunConfigInspect,
+    /// Selects an automatic project JDK (`runConfig.selectJava`).
+    RunConfigSelectJava,
     /// Regenerates detected run configurations (`runConfig.generate`).
     RunConfigGenerate,
     /// Merges configuration layers and toolchains (`runConfig.resolve`).
@@ -330,6 +339,7 @@ impl CoreCommand {
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "core.ping" => Some(Self::Ping),
+            "ideHost.control" => Some(Self::IdeHostControl),
             "agent.status" => Some(Self::AgentStatus),
             "agent.install" => Some(Self::AgentInstall),
             "agent.uninstall" => Some(Self::AgentUninstall),
@@ -353,6 +363,7 @@ impl CoreCommand {
             "file.read" => Some(Self::FileRead),
             "file.write" => Some(Self::FileWrite),
             "document.lifecycle" => Some(Self::DocumentLifecycle),
+            "document.classifyText" => Some(Self::DocumentClassifyText),
             "history.record" => Some(Self::HistoryRecord),
             "history.entries" => Some(Self::HistoryEntries),
             "history.content" => Some(Self::HistoryContent),
@@ -400,6 +411,7 @@ impl CoreCommand {
             "java.jdtWorkspaceFingerprint" => Some(Self::JavaJdtWorkspaceFingerprint),
             "lsp.stopServer" => Some(Self::LspStopServer),
             "lsp.retryMavenProfiles" => Some(Self::LspRetryMavenProfiles),
+            "lsp.updateMavenConfiguration" => Some(Self::LspUpdateMavenConfiguration),
             "lsp.syncDocument" => Some(Self::LspSyncDocument),
             "lsp.workspaceFilesChanged" => Some(Self::LspWorkspaceFilesChanged),
             "lsp.closeDocument" => Some(Self::LspCloseDocument),
@@ -410,6 +422,7 @@ impl CoreCommand {
             "lsp.waitEvents" => Some(Self::LspWaitEvents),
             "lsp.destroyServer" => Some(Self::LspDestroyServer),
             "runConfig.inspect" => Some(Self::RunConfigInspect),
+            "runConfig.selectJava" => Some(Self::RunConfigSelectJava),
             "runConfig.generate" => Some(Self::RunConfigGenerate),
             "runConfig.resolve" => Some(Self::RunConfigResolve),
             "runConfig.updateOptions" => Some(Self::RunConfigUpdateOptions),
@@ -488,6 +501,7 @@ mod tests {
             "lsp.startServer",
             "lsp.jdtWorkspaceKey",
             "lsp.stopServer",
+            "lsp.updateMavenConfiguration",
             "lsp.syncDocument",
             "lsp.closeDocument",
             "lsp.request",

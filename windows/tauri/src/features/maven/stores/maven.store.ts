@@ -28,6 +28,7 @@ import {
 } from "../services/maven-pom-watcher";
 import { resolveJavaTestClass } from "../services/java-test-launch-target";
 import { resolveEffectiveMavenExecutable } from "../services/resolve-maven-toolchain";
+import { updateJavaMavenConfiguration } from "../services/java-maven-configuration";
 import type {
   MavenDependencyLoad,
   MavenDiagnostic,
@@ -84,6 +85,7 @@ export interface MavenStoreDependencies {
   startMavenProcess: typeof startMavenProcess;
   stopMavenProcess: typeof stopMavenProcess;
   trace: typeof frontendTrace;
+  updateJavaMavenConfiguration: typeof updateJavaMavenConfiguration;
   writeMavenConfiguration: typeof writeMavenConfiguration;
 }
 
@@ -106,6 +108,7 @@ const defaultMavenStoreDependencies: MavenStoreDependencies = {
   startMavenProcess,
   stopMavenProcess,
   trace: frontendTrace,
+  updateJavaMavenConfiguration,
   writeMavenConfiguration,
 };
 
@@ -146,6 +149,11 @@ export interface MavenState {
   javaHomePath: string;
   configurationSaveError: string | null;
   /**
+   * Why the running Java language session did not take the latest Maven
+   * configuration. The reload action restarts that session.
+   */
+  javaConfigurationError: string | null;
+  /**
    * What a Maven launch would use for the saved configuration, shared by every
    * surface that shows these fields. `null` hides the detected values.
    */
@@ -158,6 +166,8 @@ export interface MavenState {
   taskStatus: MavenTaskStatus;
   taskError: string | null;
   activeSessionId: string | null;
+  /** Retains output ownership after the native process exits. */
+  outputOperationID?: string;
   taskTitle: string | null;
   output: string;
   issues: MavenDiagnostic[];
@@ -398,14 +408,25 @@ function mavenTestGoals(selector: string): string[] {
 
 type MavenLaunchStage = "save-workspace" | "create-plan" | "resolve-launch" | "start-process";
 
-function mavenLaunchErrorMessage(error: unknown): string {
+/**
+ * The reason a Maven operation failed, as the owning layer reported it.
+ *
+ * Host commands reject with strings or structured objects as well as `Error`
+ * values. Reading only `Error.message` replaced every host reason with the
+ * generic fallback, which hid why dependency loading failed (#970).
+ */
+function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message;
   if (typeof error === "string" && error.trim()) return error;
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
     if (typeof message === "string" && message.trim()) return message;
   }
-  return "Unable to start the Maven task.";
+  return fallback;
+}
+
+function mavenLaunchErrorMessage(error: unknown): string {
+  return errorMessage(error, "Unable to start the Maven task.");
 }
 
 export const createMavenStore = (
@@ -607,7 +628,7 @@ export const createMavenStore = (
           if (configurationRevision !== revision) return;
           set({
             configurationSaveError:
-              error instanceof Error ? error.message : "Unable to save Maven configuration.",
+              errorMessage(error, "Unable to save Maven configuration."),
           });
         });
     };
@@ -633,10 +654,58 @@ export const createMavenStore = (
       }));
     };
 
+    // Maven changes reach the running Java language session in the order they
+    // were made. Each step reads the latest context, so a burst of changes
+    // ends with JDT LS holding the final configuration.
+    let javaConfigurationTask: Promise<void> = Promise.resolve();
+    const syncJavaConfiguration = () => {
+      javaConfigurationTask = javaConfigurationTask
+        .catch(() => undefined)
+        .then(async () => {
+          const state = get();
+          if (!state.root || !state.project) return;
+          const root = state.root;
+          if (!state.mavenExecutablePath && !state.resolvedMavenExecutablePath) {
+            // Automatic selection must resolve to the installation a build
+            // uses; JDT LS reads that installation's settings.
+            const resolved = await dependencies.resolveEffectiveMavenExecutable(root, "");
+            if (get().root !== root || get().mavenExecutablePath) return;
+            set({ resolvedMavenExecutablePath: resolved });
+          }
+          const context = mavenLaunchContext(get());
+          if (!context || get().root !== root) return;
+          await dependencies.updateJavaMavenConfiguration(root, context, false);
+          if (get().root === root) set({ javaConfigurationError: null });
+        })
+        .catch((error: unknown) => {
+          // The session could not take the change; offer the reload action,
+          // which restarts a session that is no longer usable.
+          const message = errorMessage(error, "Unknown error");
+          dependencies.trace("warn", "maven.java", "Java language session did not take the Maven configuration", {
+            workspaceId,
+            error: message,
+          });
+          markReloadRequired();
+          set({ javaConfigurationError: message });
+        });
+    };
+
+    // Build configuration changes invalidate results computed under the old
+    // configuration and go straight to the running Java language session.
+    // No reload prompt is needed: JDT LS re-resolves on its own.
     const configurationDidChange = () => {
-      markReloadRequired();
-      set({ configurationSaveError: null });
+      invalidateDependencies();
+      diagnosticsRevision += 1;
+      set((state) => ({
+        configurationSaveError: null,
+        testResults: null,
+        activeTestRun: null,
+        // The revision still advances so an in-flight reload does not restore
+        // or acknowledge over a configuration edited meanwhile.
+        reloadRevision: state.reloadRevision + 1,
+      }));
       persistConfiguration();
+      syncJavaConfiguration();
     };
 
     const reportTestLaunchFailure = (message: string) => {
@@ -648,6 +717,7 @@ export const createMavenStore = (
         activeTestRun: null,
         testResults: null,
         lastExitCode: 1,
+        outputOperationID: `maven:${crypto.randomUUID()}`,
         output: trimOutput(`${message}\n`),
         issues: [{ path: "", line: 1, column: null, severity: "error", message }],
       });
@@ -668,6 +738,7 @@ export const createMavenStore = (
       resolvedMavenExecutablePath: "",
       javaHomePath: "",
       configurationSaveError: null,
+      javaConfigurationError: null,
       effectiveConfiguration: null,
       effectiveConfigurationStatus: "idle",
       reloadRequired: false,
@@ -727,6 +798,7 @@ export const createMavenStore = (
                   taskStatus: "idle" as const,
                   taskError: null,
                   activeSessionId: null,
+                  outputOperationID: undefined,
                   taskTitle: null,
                   output: "",
                   issues: [],
@@ -844,7 +916,7 @@ export const createMavenStore = (
           } catch (error) {
             if (projectLoadRevision !== revision || get().root !== root) return;
             const message =
-              error instanceof Error ? error.message : "Unable to scan the Maven project.";
+              errorMessage(error, "Unable to scan the Maven project.");
             if (previous.root === root && previous.project) {
               set((state) => ({
                 projectStatus: "failed",
@@ -1051,7 +1123,12 @@ export const createMavenStore = (
 
         acknowledgeReload: (revision) => {
           if (revision !== undefined && get().reloadRevision !== revision) return;
-          set({ reloadRequired: false, projectReloadRequired: false, projectError: null });
+          set({
+            reloadRequired: false,
+            projectReloadRequired: false,
+            projectError: null,
+            javaConfigurationError: null,
+          });
         },
 
         runGoals: async (goals, module, title, testRun) => {
@@ -1073,6 +1150,7 @@ export const createMavenStore = (
             taskStatus: "running",
             taskError: null,
             activeSessionId: sessionId,
+            outputOperationID: sessionId,
             taskTitle: title,
             output: "",
             issues: [],
@@ -1248,7 +1326,7 @@ export const createMavenStore = (
               set({
                 taskStatus: "running",
                 taskError:
-                  error instanceof Error ? error.message : "Unable to stop the Maven task.",
+                  errorMessage(error, "Unable to stop the Maven task."),
               });
             }
           } finally {
@@ -1317,9 +1395,7 @@ export const createMavenStore = (
               if (diagnosticsRevision !== revision || get().root !== root) return;
               set({
                 taskError:
-                  error instanceof Error
-                    ? error.message
-                    : "Unable to parse Maven build diagnostics.",
+                  errorMessage(error, "Unable to parse Maven build diagnostics."),
               });
             });
           const testRun = state.activeTestRun;
@@ -1362,9 +1438,7 @@ export const createMavenStore = (
                 if (diagnosticsRevision !== revision || get().root !== root) return;
                 set({
                   taskError:
-                    error instanceof Error
-                      ? error.message
-                      : "Unable to parse Maven test results.",
+                    errorMessage(error, "Unable to parse Maven test results."),
                 });
               });
           }
@@ -1468,9 +1542,7 @@ export const createMavenStore = (
             }
             clearDependencyTimer();
             const message =
-              error instanceof Error
-                ? error.message
-                : "Unable to load Maven dependencies for this module.";
+              errorMessage(error, "Unable to load Maven dependencies for this module.");
             set({
               activeDependencySessionId: null,
               activeDependencyModulePath: null,
@@ -1505,9 +1577,7 @@ export const createMavenStore = (
             await dependencies.stopMavenProcess(sessionId);
           } catch (error) {
             const message =
-              error instanceof Error
-                ? error.message
-                : "Unable to stop Maven dependency resolution.";
+              errorMessage(error, "Unable to stop Maven dependency resolution.");
             setDependencyLoad(modulePath, { status: "failed", dependencies: [], error: message });
           } finally {
             releaseDependencySession(sessionId);
@@ -1564,9 +1634,7 @@ export const createMavenStore = (
               status: "failed",
               dependencies: [],
               error:
-                error instanceof Error
-                  ? error.message
-                  : "Unable to parse Maven dependencies for this module.",
+                errorMessage(error, "Unable to parse Maven dependencies for this module."),
             });
           } finally {
             // Core has finished reading, successfully or not, before the file goes.

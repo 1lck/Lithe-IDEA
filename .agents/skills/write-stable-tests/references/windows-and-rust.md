@@ -56,7 +56,9 @@ The `tests::git_patch_exchange::patch_metadata_can_list_an_oversized_export_befo
 case also gets 30 seconds because it writes and inspects a real file larger
 than the 32 MiB patch limit; Windows CI terminated it at 16.1 seconds under
 the default 15-second limit. Core rebase requests use a nested 20-second
-deadline. Other cases retain the normal 15-second budget. The Rust runner's repeatable
+deadline. The workspace commit submodule publication test also gets 30 seconds
+because it creates two local remotes and runs multiple real Git pushes. Other
+cases retain the normal 15-second budget. The Rust runner's repeatable
 `--test-budget prefix=milliseconds` option uses the most specific matching
 prefix, records each case's effective budget in JSON, uses that budget for
 HTML/JUnit classification, and remains capped by the shared suite deadline.

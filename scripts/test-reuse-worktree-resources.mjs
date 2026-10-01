@@ -64,6 +64,11 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "ide-mcp"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /ide-mcp.*cannot be reused/);
+  });
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -76,6 +81,21 @@ try {
     const refused = reuse(["--resource", "agent-history-metadata"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /agent-history-metadata.*lithe\.agent-history\.v1.*cannot be reused/);
+  });
+  await test("JDT Maven settings snapshots cannot be copied between worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "jdt-maven-settings"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
+  });
+  await test("PHP downloads and native plugin packages stay isolated in each worktree", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    for (const id of ["php-language-server-downloads", "official-plugin-packages"]) {
+      assert.ok(!listed.stdout.includes(id));
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
+    }
   });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });

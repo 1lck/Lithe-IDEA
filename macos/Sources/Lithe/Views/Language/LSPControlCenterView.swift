@@ -1,4 +1,5 @@
 import SwiftUI
+import LitheModuleAPI
 
 struct LSPControlCenterView: View {
     @EnvironmentObject private var model: AppModel
@@ -8,11 +9,13 @@ struct LSPControlCenterView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     projectSummary
-                    if projectLanguageServers.isEmpty {
+                    if let phpNotice = phpNotice {
+                        phpPluginNotice(phpNotice)
+                    }
+                    if projectLanguageServers.isEmpty && phpNotice == nil {
                         emptyState
                     } else {
                         ForEach(projectLanguageServers) { descriptor in
@@ -23,24 +26,13 @@ struct LSPControlCenterView: View {
                         degradedCatalogNotice
                     }
                 }
-                .padding(20)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 20)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .litheScrollViewChrome(alwaysShowVertical: true, usesCompactScrollers: true)
             .background(LitheTheme.settingsSurface)
         }
-        .background(LitheTheme.settingsSurface)
-    }
-
-    private var header: some View {
-        HStack {
-            Text(usesChinese ? "语言支持" : "Language Support")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(LitheTheme.primaryText)
-            Spacer()
-        }
-        .padding(.horizontal, 16)
-        .frame(height: 42)
         .background(LitheTheme.settingsSurface)
     }
 
@@ -142,8 +134,74 @@ struct LSPControlCenterView: View {
         model.languageProviderCatalog.descriptors
             .filter { $0.capabilities.contains(.languageServer) && $0.languageServerLaunch != nil }
             .filter { descriptor in
+                descriptor.id != "php" || phpPluginIsReady
+            }
+            .filter { descriptor in
                 model.projectFiles.contains { descriptor.handles(fileURL: $0) }
             }
+    }
+
+    private var phpPluginSnapshot: PluginManagementSnapshot? {
+        model.pluginSnapshots.first { $0.id == OfficialPluginCatalog.phpPluginID }
+    }
+
+    private var phpPluginIsReady: Bool {
+        guard let snapshot = phpPluginSnapshot else { return false }
+        return snapshot.isEnabled && !snapshot.requiresRestart && !snapshot.isQuarantined
+    }
+
+    private var hasPHPProjectFiles: Bool {
+        model.projectFiles.contains { fileURL in
+            let pathExtension = fileURL.pathExtension.lowercased()
+            return ["php", "phtml"].contains(pathExtension)
+                || fileURL.lastPathComponent.lowercased() == "composer.json"
+        }
+    }
+
+    private var phpNotice: String? {
+        guard hasPHPProjectFiles, !phpPluginIsReady else { return nil }
+        guard let snapshot = phpPluginSnapshot else {
+            return usesChinese
+                ? "检测到 PHP 项目，请先在插件管理中下载并安装 PHP 支持。"
+                : "This PHP project needs PHP Support. Download and install it from Plugin Management."
+        }
+        if snapshot.requiresRestart {
+            return usesChinese
+                ? "PHP 支持已安装，重启 Lithe 后才能在这里控制语言服务器。"
+                : "PHP Support is installed. Restart Lithe before controlling its language server here."
+        }
+        if snapshot.isQuarantined {
+            return usesChinese
+                ? "PHP 支持因上次启动异常被隔离，请先在插件管理中重新启用。"
+                : "PHP Support was quarantined after its previous session. Re-enable it from Plugin Management."
+        }
+        return usesChinese
+            ? "PHP 支持插件已禁用，请先在插件管理中启用。"
+            : "PHP Support is disabled. Enable it from Plugin Management first."
+    }
+
+    private func phpPluginNotice(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(message, systemImage: "puzzlepiece.extension")
+                .font(.system(size: 12))
+                .foregroundStyle(LitheTheme.secondaryText)
+                .fixedSize(horizontal: false, vertical: true)
+            Button(usesChinese ? "打开插件管理" : "Open Plugin Management") {
+                model.showSettings(category: .plugins)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .fill(LitheTheme.settingsSurface)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
+                .stroke(LitheTheme.divider, lineWidth: 1)
+        }
     }
 
     private func serverStatus(for descriptor: LanguageProviderDescriptor) -> LSPServerStatus {

@@ -51,6 +51,120 @@
   },
   "features": [
     {
+      "id": "ide-api-run-output",
+      "area": "AI",
+      "group": "IDE MCP",
+      "capability": "插件与 MCP 列举运行配置、启动重启，按执行 ID 读取增量输出和停止",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+          "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+          "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/host-api/ide-capabilities.ts",
+          "windows/tauri/src/features/host-api/mcp-settings.tsx",
+          "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "运行服务、读增量输出、清空日志验证 reset、重启后拒绝旧 ID，停止正确进程，检查退出码及资源清理。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+    },
+    {
+      "id": "ide-api-maven",
+      "area": "AI",
+      "group": "IDE MCP",
+      "capability": "插件与 MCP 读取 Maven 模块和 Profile，保存配置、重载并执行既有生命周期和插件目标",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+          "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+          "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/host-api/ide-capabilities.ts",
+          "windows/tauri/src/features/host-api/mcp-settings.tsx",
+          "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "双端对同一示例项目设置 Profile/skipTests，重载、执行 clean verify，核对按钮与 MCP 的命令、输出、失败和取消。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+    },
+    {
+      "id": "ide-api-environment",
+      "area": "AI",
+      "group": "IDE MCP",
+      "capability": "插件与 MCP 查询和修改项目 Java/Maven 默认环境，并返回实际选择结果",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+          "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+          "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/host-api/ide-capabilities.ts",
+          "windows/tauri/src/features/host-api/mcp-settings.tsx",
+          "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+          "rust/lithe-ide-host/src/lib.rs"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "读取环境、修改一个默认值，检查其他字段保留；对照设置页与实际启动路径，验证保存失败及项目切换。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+    },
+    {
+      "id": "ide-mcp-connection",
+      "area": "AI",
+      "group": "IDE MCP",
+      "capability": "从设置侧栏独立的 MCP 配置页按项目开启连接，分别授权配置与执行，复制 stdio 客户端配置；关闭项目撤销访问",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+          "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+          "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+          "rust/lithe-ide-host/src/lib.rs",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/host-api/ide-capabilities.ts",
+          "windows/tauri/src/features/host-api/mcp-settings.tsx",
+          "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+          "rust/lithe-ide-host/src/lib.rs",
+          "windows/tauri/src/features/settings/components/mcp-configuration-settings.tsx"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "检查设置侧栏 MCP 配置入口与搜索跳转；未打开项目时显示提示，切换项目后展示对应授权。双端打包启动后开启连接，配置真实 Agent，验证工具发现、默认拒绝写入、启用权限、禁用、项目关闭和多窗口隔离。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+    },
+    {
       "id": "agent-entry-discoverability",
       "area": "AI",
       "group": "Agent 对话",
@@ -171,6 +285,59 @@
       },
       "owner": "Agent",
       "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 面板已覆盖消息流、工具证据与权限确认、会话创建与恢复、Agent 上报的配置选项和停止确认；可搜索模型/权限独立面板与本机默认模型同步尚未实现，Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
+    },
+    {
+      "id": "agent-tool-activity-timeline",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "连续 Agent 工具调用（执行命令、列文件、读文件与编辑等）合并为默认折叠的时间线卡片，汇总总数与失败/中断/完成进度，并逐条展开输入、输出与文件位置",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentToolGroupView.swift",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Windows Agent 对话 UI 尚未实现。"
+    },
+    {
+      "id": "agent-turn-statistics",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "发送后实时计时、每轮结束固定耗时、Agent 上报的输入/输出 token 与缓存/推理用量详情",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentTurnStatistics.swift",
+          "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "rust/lithe-agent-host/src/prompt.rs",
+          "rust/lithe-agent-host/src/tests.rs",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ],
+        "implementationStatus": "partial",
+        "verificationStatus": "pending"
+      },
+      "owner": "Agent",
+      "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；上报 usage 时显示准确输入/输出并悬停查看总量、缓存和推理值，缺失时只显示耗时。历史回放不编造统计，上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage，对话 UI 尚未接入。"
     },
     {
       "id": "agent-file-references",
@@ -1005,11 +1172,14 @@
       "id": "java-runtime-discovery",
       "area": "Java",
       "group": "Java/Maven",
-      "capability": "JDK 与 Maven 工具链发现",
+      "capability": "JDK 与 Maven 工具链发现及按项目要求自动选择 JDK",
       "macos": {
         "evidence": [
           "macos/Sources/Lithe/Services/Java",
-          "macos/Sources/Lithe/Views/Run"
+          "macos/Sources/Lithe/Views/Run",
+          "macos/Sources/Lithe/Core/Ports/RuntimeLocator.swift",
+          "macos/Tests/LitheTests/MavenRuntimeTests.swift",
+          "rust/lithe-core/src/execution/java_selection.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -1017,13 +1187,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/maven",
-          "windows/tauri/src/features/workspace"
+          "windows/tauri/src/features/workspace",
+          "windows/tauri/src-tauri/src/run.rs",
+          "shared/fixtures/run-configuration/automatic-java-selection.json"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "配置多个 JDK/Maven 候选，验证发现、选择、版本不匹配和错误提示。"
+      "verification": "两端安装 JDK 8/17/21：项目要求 17 且 JAVA_HOME 为 8 时验证自动选择兼容版本；核对设置、Run、Maven 目标、测试使用同一 JDK。验证显式选择不变、没有兼容版本时回退并提示，以及无要求时的平台默认顺序。"
     },
     {
       "id": "java-maven-project-settings",
@@ -1105,7 +1277,38 @@
         "verificationStatus": "pending"
       },
       "owner": "Java / Maven",
-      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。"
+      "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。 Windows 在 Maven 面板展开「依赖项」应直接加载依赖树，失败时显示宿主返回的真实原因，而不是通用的“无法加载 Maven 依赖”（#970）。"
+    },
+    {
+      "id": "java-maven-settings-reach-jdt",
+      "area": "Java",
+      "group": "Java/Maven",
+      "capability": "Maven 设置与重新加载实时作用于 Java 语言服务，并展示依赖解析问题",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift",
+          "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+          "macos/Sources/Lithe/Models/Java/MavenResolutionProblems.swift",
+          "macos/Sources/Lithe/Views/Run/MavenView.swift",
+          "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/maven/services/java-maven-configuration.ts",
+          "windows/tauri/src/features/maven/services/reload-maven-workspace.ts",
+          "windows/tauri/src/features/maven/hooks/use-maven-resolution-problems.ts",
+          "windows/tauri/src/platform/lsp-core-adapter.ts",
+          "windows/tauri/src/platform/tauri-core.ts",
+          "rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Java / Maven",
+      "verification": "打开一个依赖尚未下载的 Maven 项目，在 Java 语言服务导入过程中修改 settings.xml、本地仓库或镜像并保存，不点重新加载，确认第三方 import 在导入完成后解析成功；修改 settings.xml 内容（路径不变）后点「重新加载」，确认 Java 语言服务不重启而依赖重新解析；故意写错一个依赖版本，确认 Maven 工具窗口列出 pom.xml 问题、通知可跳转到对应行，修正后问题消失；初始化期间设置不变时点击重新加载，确认导入就绪后仍执行一次强制更新；旧 profile 任务失败或超时期间切换 profile，确认旧请求结束后应用最新选择；保存设置与重新加载交错执行时，已发送的 settings 副本保持可读。"
     },
     {
       "id": "java-maven-toolbar-tooltips",
@@ -1375,7 +1578,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Run",
-      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因。"
+      "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因；在 Windows 确认重新扫描服务使用双箭头刷新图标。"
     },
     {
       "id": "run-save-toolchain",
@@ -1935,8 +2138,9 @@
           "macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift",
           "macos/Sources/Lithe/Views/App/ProjectRuntimeSettingsView.swift",
           "macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift",
-          "macos/Sources/Lithe/Theme/LitheTheme.swift",
           "macos/Tests/LitheTests/SettingsAppearanceContainerTests.swift",
+          "macos/Tests/LitheTests/SettingsSelectPopupGeometryTests.swift",
+          "macos/Sources/Lithe/Theme/LitheTheme.swift",
           "macos/Tests/LitheTests/PluginManagementPresentationTests.swift"
         ],
         "implementationStatus": "implemented",
@@ -1950,7 +2154,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动；缩小设置窗口确认最小尺寸 900×700，底部操作按钮为 72×28 且边框与输入框一样以 1pt 内描边绘制；拖动设置树与插件列表右侧分隔线，确认设置分类栏不能小于原始宽度、插件列表分隔线可向左缩至 200 pt 或向右加宽，在 900 pt 最小宽度下仍有至少 150 pt 可分配的拖动余量，窗口缩小时设置内容区保留至少 500 pt、插件详情区至少 160 pt，拖动结束后宽度可恢复，悬停及拖动分隔线仅显示左右调整光标而不改变线条颜色；点击设置搜索框后切换分类及点击内容空白区域，确认焦点边框消失；悬停插件条目及设置窗口各子页面的按钮和选择控件时光标保持箭头；从主窗口打开设置后切换到其他应用，确认设置窗口随主窗口置后且不置顶遮挡；在插件页点击 Enable 后点击设置窗口 OK，确认成功时应用并关闭、失败时保留待确认状态且可重试；应用期间确认窗口关闭按钮和常规关闭命令不能关闭窗口，应用结束后恢复关闭能力；A 项目开始应用插件后从 B 项目重新打开共享设置窗口，确认 A 完成后 B 窗口仍打开且未应用草稿保留；待确认时点击 Cancel 或窗口关闭按钮，确认重开后草稿已清除；亮色模式确认分段选择的选中文字清晰可读；检查搜索框、普通及密码输入框、多行编辑框（含获得与失去焦点的边框）、数值步进器、下拉框和分段选择在各设置子页面中的背景、边框、焦点态及操作行为一致，关闭后重开再检查。"
+      "verification": "修改应用级和项目级设置，验证持久化、迁移、重启恢复和无效值提示；macOS 保持设置窗口打开切换亮色、暗色和跟随系统模式，并改变系统外观，确认标题栏、设置树、插件列表与详情背景和主界面侧边栏使用同一主题色，窗口按钮可用且可拖动；缩小设置窗口确认最小尺寸 900×700，底部操作按钮为 72×28 且边框与输入框一样以 1pt 内描边绘制；拖动设置树与插件列表右侧分隔线，确认设置分类栏不能小于原始宽度、插件列表分隔线可向左缩至 200 pt 或向右加宽，在 900 pt 最小宽度下仍有至少 150 pt 可分配的拖动余量，窗口缩小时设置内容区保留至少 500 pt、插件详情区至少 160 pt，拖动结束后宽度可恢复，悬停及拖动分隔线仅显示左右调整光标而不改变线条颜色；点击设置搜索框后切换分类及点击内容空白区域，确认焦点边框消失；悬停插件条目及设置窗口各子页面的按钮和选择控件时光标保持箭头；从主窗口打开设置后切换到其他应用，确认设置窗口随主窗口置后且不置顶遮挡；在插件页点击 Enable 后点击设置窗口 OK，确认成功时应用并关闭、失败时保留待确认状态且可重试；应用期间确认窗口关闭按钮和常规关闭命令不能关闭窗口，应用结束后恢复关闭能力；A 项目开始应用插件后从 B 项目重新打开共享设置窗口，确认 A 完成后 B 窗口仍打开且未应用草稿保留；待确认时点击 Cancel 或窗口关闭按钮，确认重开后草稿已清除；亮色模式确认分段选择的选中文字清晰可读；检查搜索框、普通及密码输入框、多行编辑框（含获得与失去焦点的边框）、数值步进器、下拉框和分段选择在各设置子页面中的背景、边框、焦点态及操作行为一致，关闭后重开再检查；macOS 切换通用、编辑器、快捷键、项目、运行配置和语言服务等设置页，检查右侧路径标题、分组线、行对齐、说明文字、下拉框、复选框、分段控件与底部操作区；打开短列表和超过十项的下拉框，检查当前项蓝色高亮、无勾号、圆角、紧凑行距、鼠标悬停不跳动、键盘选择与按需滚动；再次点击原下拉按钮应收起弹层，点击另一处下拉框应切换弹层，点击空白处应关闭弹层；缩小可用屏幕高度时检查弹层不遮挡控件；使用辅助功能检查勾选框和分段控件的当前状态。"
     },
     {
       "id": "keymap-customization",
@@ -1976,7 +2180,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Settings",
-      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等对应操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8、继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认。Windows 保持现有快捷键编辑、导出和导入验证。",
+      "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。",
       "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
     },
     {
@@ -1998,13 +2202,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/extensions",
-          "windows/tauri/src/features/settings"
+          "windows/tauri/src/features/settings",
+          "windows/tauri/src-tauri/src/language_tools.rs",
+          "windows/tauri/src/extensions/registry/extension-store-lifecycle.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Extensions",
-      "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。"
+      "verification": "macOS 全新安装时打开插件页，确认显示 PHP Support 未安装占位项，并可选择已签名的 PHP 插件包安装；选择非 PHP 包应被拒绝，安装后可搜索并启用、禁用 PHP，确认状态与重启恢复，且页面不显示无恢复路径的卸载操作；同时打开 Maven 面板确认插件内容不被遮挡。Windows 检查扩展管理入口和持久化。 Windows 缺少 Bun 或语言服务器时更新扩展，确认旧扩展的安装、启用和待更新状态保留，错误给出安装依赖后重试的提示；预检期间禁用或卸载扩展，确认返回后不会继续安装或重新启用；手动将 Marksman 等语言服务器安装到 PATH 后重启，确认能识别并启用。"
     },
     {
       "id": "onboarding-welcome",
@@ -2052,6 +2258,57 @@
       },
       "owner": "Workbench",
       "verification": "搜索并执行打开面板、运行、Git 和设置命令，确认快捷键和不可用命令状态。"
+    },
+    {
+      "id": "workbench-compact-menu-bar",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "紧凑菜单栏可在标题栏左侧原位展开完整水平菜单，并在点击外部或按 Escape 后收起，不遮挡工作区",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/LitheApp.swift"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+          "windows/tauri/src/features/window/components/title-bar/title-project-menu.tsx",
+          "windows/tauri/src/features/window/components/window-menu-bar.tsx",
+          "windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.ts",
+          "windows/tauri/src/features/window/hooks/use-compact-menu-bar-dismissal.test.tsx"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 Windows 工作台点击标题栏左端菜单按钮，确认汉堡按钮由“文件”菜单项取代，“文件”项处于选中状态且其下拉菜单立即展开；菜单与标题栏同高，不覆盖编辑区域，项目/分支控件在展开时隐藏。检查常驻品牌标识与下方活动栏图标列对齐且不可选中，并确认项目菜单显示当前项目图标（无自定义图标时显示项目缩写）。点击其他菜单项时菜单条保持展开并执行动作；点击工作区、标题栏空白和右侧控件或按 Escape 后收起；按 Escape 后确认焦点返回菜单入口；窄窗口确认菜单在标题栏内水平滚动且不挤压窗口控件。macOS 保持系统菜单栏行为。"
+    },
+    {
+      "id": "window-controls",
+      "area": "工作台",
+      "group": "窗口管理",
+      "capability": "标题栏控制窗口最小化、最大化/还原与关闭；命令面板可最小化、最大化及切换全屏",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/LitheApp.swift",
+          "macos/Sources/Lithe/Views/App/RootView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/window-controls.tsx",
+          "windows/tauri/src/features/command-palette/constants/window-actions.tsx",
+          "windows/tauri/src/features/window/utils/window-actions.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 macOS 检查系统标题栏控制及全屏入口；在 Windows 验证标题栏最小化、最大化/还原和关闭，以及命令面板的窗口操作，确认图标语义、最大化/还原状态与按钮标签一致，并确认悬停关闭按钮背景贴合窗口右边缘。"
     },
     {
       "id": "workbench-panes",
@@ -2143,20 +2400,24 @@
         "evidence": [
           "macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift",
           "macos/Sources/Lithe/Views/Editor/MediaViewerView.swift",
-          "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift"
+          "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift",
+          "macos/Sources/Lithe/Platform/MacOS/UI/MacHTMLBrowserOpener.swift",
+          "macos/Tests/LitheTests/HTMLBrowserOpenerTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features/viewer"
+          "windows/tauri/src/features/viewer",
+          "windows/tauri/src-tauri/src/html_browser.rs",
+          "windows/tauri/src/features/editor/components/html/html-preview.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。"
+      "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。"
     },
     {
       "id": "docker-compose",
@@ -2292,13 +2553,14 @@
           "windows/tauri/src/features/layout/components/app-update-control.tsx",
           "windows/tauri/src/features/layout/components/app-update-details-dialog.tsx",
           "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
-          "windows/tauri/src/features/settings/hooks/use-updater.ts"
+          "windows/tauri/src/features/settings/hooks/use-updater.ts",
+          "windows/tauri/src/features/settings/stores/update.store.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。"
     },
     {
       "id": "updates-failure-rollback",
@@ -2480,7 +2742,10 @@
         "evidence": [
           "Plugins/mac/Official/PhpSupport",
           "scripts/official-plugin-distribution.mjs",
-          "macos/Sources/Lithe/Platform/MacOS/Plugins"
+          "macos/Sources/Lithe/Platform/MacOS/Plugins",
+          "macos/Sources/Lithe/Views/App/PluginManagementView.swift",
+          "macos/Sources/Lithe/Views/Language/LSPControlCenterView.swift",
+          ".github/workflows/release-macos.yml"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -2497,7 +2762,7 @@
         "verificationStatus": "pending"
       },
       "owner": "PHP Support",
-      "verification": "在干净安装上确认没有 PHP 插件运行时；显式安装并启用后验证补全、诊断，安装中取消、运行中禁用、关闭工作区和卸载后确认无插件进程，用户工具保留。 Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
+      "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
     },
     {
       "id": "php-run-test",
@@ -2640,6 +2905,102 @@
       "owner": "Git",
       "verification": "让子仓库推送失败，确认父仓库被阻塞、独立仓库成功；重试计划应显示子仓库只推送，验证子仓库提交数不增加，随后才提交和推送父仓库。",
       "notes": "两端直接消费共享 Rust Core 的计划、依赖排序、执行结果与重试。平台负责真实暂存勾选、确认与结果界面、认证取消和项目生命周期。原生界面实测待平台验收。"
+    },
+    {
+      "id": "editor-unicode-text-classification",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "中文 properties 与未知扩展名文本的一致打开和恢复",
+      "owner": "Editor",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift",
+          "macos/Tests/LitheTests/TextContentPolicyTests.swift",
+          "frontend/editor/src/language-contributions.ts"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts",
+          "windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts",
+          "frontend/editor/src/language-contributions.ts"
+        ]
+      },
+      "verification": "双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。"
+    },
+    {
+      "id": "ide-api-plugins",
+      "area": "插件与扩展",
+      "group": "IDE API / MCP",
+      "capability": "插件调用已授权项目的环境、Maven 与运行 API",
+      "owner": "IDE API",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/LitheModuleAPI/Plugins/IDECapabilities.swift",
+          "macos/Sources/Lithe/Application/Composition/IdeCapabilityRegistry.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "Plugins/win/SDK/ide-capabilities.ts",
+          "windows/tauri/src/extensions/ui/services/ide-extension-host.ts",
+          "windows/tauri/src/extensions/ui/services/ide-extension-host.test.ts"
+        ]
+      },
+      "verification": "双端插件枚举显式授权的项目，读取环境并调用已允许的操作；撤销项目权限后拒绝调用，Windows 未声明 permissions.ide 的 Worker 无法访问。",
+      "notes": "复用 MCP 的同一应用功能和参数校验，不扩张语言包权限；原生运行验收待完成。"
+    },
+    {
+      "id": "java-service-devtools-update",
+      "area": "Run/Debug",
+      "group": "Java 服务更新",
+      "capability": "运行中的 Spring Boot DevTools 服务手动保存并编译更新",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Run/RunView.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/run/components/run-pane.tsx"
+        ]
+      },
+      "owner": "Run/Debug",
+      "verification": "在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。"
+    },
+    {
+      "id": "java-service-hot-code-replace",
+      "area": "Run/Debug",
+      "group": "Java 服务更新",
+      "capability": "本地 Java Debug 服务手动编译并热替换代码",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/LitheDebugModule/Application/GenericDebugFeatureModel.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/debugger/components/java-service-update.tsx"
+        ]
+      },
+      "owner": "Run/Debug",
+      "verification": "在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。"
     }
   ]
 }

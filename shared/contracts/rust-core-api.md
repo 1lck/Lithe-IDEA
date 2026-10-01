@@ -157,6 +157,23 @@ invalid data and a zero capacity represent unknown usage, not an empty window.
 The macOS indicator clears stale capacity on disconnect or confirmed model
 changes and waits for a new report; it does not infer limits from model names.
 
+`turnFinished` optionally includes the ACP prompt response's `usage` object:
+required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
+`thoughtTokens`, `cachedReadTokens`, `cachedWriteTokens`. The pinned SDK's
+`unstable_end_turn_token_usage` feature preserves these counters; absent, null
+or invalid usage is omitted without preventing completion. Zero is a reported
+value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
+session delta or billing amount, because the adapters' accounting scopes differ.
+They must not derive these counters from context occupancy or subscription quota.
+`acp-events-v1.json` covers completion both with and without usage.
+
+macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
+from user submission (including queued session creation/loading, tools and
+permission waits) until completion, request failure or disconnect. Cancellation
+continues timing until acknowledged. Each observed turn keeps a frozen footer
+before the next user message; tab switches do not reset it. Replayed history
+does not fabricate timing or token measurements absent from the Agent's records.
+
 Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
 the agent. Permission displays combine already received tool details with the
@@ -347,6 +364,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.jdtWorkspaceFingerprint` | Reduce platform build-file observations to the portable JDT LS workspace fingerprint |
 | `java.jdtCacheRetention` | Select expired inactive JDT LS workspace-state keys from platform metadata |
 | `lsp.stopServer` | Gracefully shut down a session, with a bounded force-stop fallback |
+| `lsp.updateMavenConfiguration` | Send a changed Maven context to a running Java session, or force JDT LS to re-resolve its Maven projects |
 | `lsp.syncDocument` | Open a document or apply a full-text or incremental `didChange` with monotonic versions |
 | `lsp.workspaceFilesChanged` | Publish normalized created, changed, or deleted workspace files to one session |
 | `lsp.closeDocument` | Close a document and clear its diagnostics |
@@ -366,6 +384,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
+| `runConfig.selectJava` | Select a project-compatible automatic JDK from platform-probed candidates |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -1386,13 +1405,45 @@ initialize, post-initialize readiness, request, Java project build
 (`javaBuildTimeoutMilliseconds`), and shutdown deadlines.
 Java callers may also provide the versioned `mavenContext` accepted by
 `maven.launchPlan`. Core validates its reactor and recursively declared modules,
-publishes `settingsPath` through
-`java.configuration.maven.userSettings`, and, after `ServiceReady`, sends one
+publishes the user-level settings through
+`java.configuration.maven.userSettings` and the selected installation's
+`conf/settings.xml` through `java.configuration.maven.globalSettings`, and,
+after `ServiceReady`, sends one
 `java.project.updateSettings` command per Maven project with
 `org.eclipse.m2e.core.selectedProfiles`. Maven Java, test, and generated source
 roots are normalized to workspace-relative `java.project.sourcePaths` during
 the same configuration flow, so JDT LS receives the selected reactor's source
-model without platform-specific POM parsing. Maven profile application is a
+model without platform-specific POM parsing. Both settings documents are passed as content-addressed copies inside the
+session's JDT LS state directory (`<data>/.lithe/maven/`). The user-level copy
+comes from `settingsPath`, else Maven's default `~/.m2/settings.xml`, else an
+empty document when only `localRepositoryPath` is set, and carries that local
+repository override. JDT LS detects settings changes by comparing paths, so a
+content change must always produce a new path. An unreadable document is passed
+by its original path with a session warning instead of failing startup.
+Copies remain readable until JDT workspace cache eviction or index rebuilding;
+notification delivery is not an acknowledgement that the server read them.
+
+`lsp.updateMavenConfiguration` accepts `{ sessionId, mavenContext,
+reloadProjects? }` for a running Java session started with a `mavenContext`,
+and returns `{ settingsChanged, projectsReloaded, profilesUpdating }`. When the
+settings copies differ from the ones JDT LS holds, Core sends
+`workspace/didChangeConfiguration` and JDT LS force-updates every Maven project
+itself. When they are unchanged and `reloadProjects` is `true`, Core sends
+`java/projectConfigurationsUpdate` for the reactor's project URIs, which
+re-resolves dependencies even though no `pom.xml` changed. Changed profiles
+restart the profile task once the session is ready. Before the `initialized`
+handshake, the new configuration replaces the one the pending settings
+notification sends. Explicit reloads received before `ServiceReady` are coalesced
+and sent once projects are ready, even when settings are unchanged. Response
+booleans describe actions sent immediately, not queued work. A newer profile
+selection is applied after the preceding batch terminates, including failed
+batches; timed-out requests must all drain before that follow-up can start.
+The same failed selection is not automatically retried.
+A stopped or failed session returns `invalidRequest`.
+Resolution problems are not part of the response; JDT LS reports them as
+`pom.xml` diagnostics.
+
+Maven profile application is a
 bounded background task: at most eight project commands are in flight, remaining
 projects are queued, and each project reports `running`, `succeeded`, or
 `failed` with optional error details. Project results use a redacted stable
@@ -1778,6 +1829,27 @@ fixture is `shared/fixtures/maven/dependency-tree-v2.json`.
 the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
+
+`runConfig.selectJava` reads only the existing workspace
+`.lithe/toolchains/requirements.json` document. Its request contains optional
+`root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
+`fallbackId`. IDs are opaque machine-local identities, never persisted or opened
+by this operation. Lower priority wins; equal-priority candidates use descending
+numeric Java versions (including legacy `1.8`), then ascending ID.
+
+When `project-jdk.minimumVersion` exists, selection first filters using the same
+Java version comparison as run-configuration diagnostics. The response is
+`{ id, warning }`: the compatible candidate, or the supplied usable fallback
+with an actionable warning if none qualifies. Missing requirements retain the
+platform's unconstrained choice; malformed/unsupported documents return the
+existing parse/version error. Explicit configured paths bypass automatic
+selection. The operation never generates requirements or probes executables.
+The cross-platform examples are in
+`shared/fixtures/run-configuration/automatic-java-selection.json`.
+
+Windows `run_resolve_toolchains` includes an optional `warning` on resolved
+JDKs, including inherited Maven JDKs. This warning remains visible even when no
+run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
 
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,
@@ -2200,3 +2272,54 @@ and real staging checkboxes. The native products must not duplicate planning or 
 See `shared/fixtures/git/workspace-commit-v1.json` for primitive payloads and
 `shared/fixtures/git/workspace-commit-workflow-v1.json` for the complete planning
 and continuation fixture consumed by Rust, Swift, TypeScript and Tauri adapter tests.
+
+### Decoded document text classification
+
+`document.classifyText` accepts `{ text }` and returns `{ isPlainText }`.
+The input is already decoded Unicode, independent of the filename, language ID,
+or tokenizer availability. Core uses the same control-character policy as
+`file.read`: reject U+0000–U+0008, U+000E–U+001F, and U+007F; allow other scalars,
+including tabs, line breaks, form feed, Chinese, and emoji. The entire decoded
+text is inspected, not an arbitrary byte prefix. A missing or non-string `text`
+returns `invalid_request`. Hosts retain responsibility for size limits, I/O,
+encoding selection, and decode failures; a permission or decode error must not
+be relabeled as binary content.
+
+The synchronous C ABI `lithe_core_is_plain_text(const uint8_t *, size_t)` borrows
+UTF-8 bytes for the call, including embedded NUL, without allocating a JSON
+copy. It returns `1` for plain text, `0` for binary control characters, and `-1`
+for invalid UTF-8 or an invalid pointer/length combination. A zero-length input
+is plain text and may use a null pointer. Nonzero input must point to at least
+`length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
+bridge exposes the same lifetime and result contract. Fixtures live in
+`shared/fixtures/editor/text-content-v1.json` and exercise both entry points.
+
+## Local IDE capability broker
+
+`ideHost.control` accepts `{action, arguments}` and delegates to the native
+`lithe-ide-host` adapter. This local host command is not remotely exposed. See
+[IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
+ownership, authorization, output cursors and shutdown semantics.
+
+### Java service hot replacement
+
+`debug.inspect` accepts the Java-provider extension `kind: "redefineClasses"`
+with a caller-owned `operationId`. Unlike the inspection kinds, this operation
+**mutates the running debuggee**; it requires a running or paused Java session,
+but no selected thread. Platforms save documents and complete a successful JDT
+`vscode.java.buildWorkspace` before submitting it. They must retain the original
+launch target and compare its runtime paths with JDT before compiling; changed
+paths require a restart instead of applying to a different output directory.
+
+The terminal result is `{ kind: "redefineClasses", changedClasses: [...] }`,
+sorted and deduplicated. Empty means no classes were replaced. Java Debug Server's
+`errorMessage` inside a successful DAP response becomes `operationFailed` with
+`adapterRejected`; the debug session remains usable. Malformed replacement
+results also fail only the operation. Replacement does not imply continue.
+The fixture is `shared/fixtures/debug/hot-code-replace-v1.json`.
+
+Java debug launches append `-Dspring.devtools.restart.enabled=false` (also for
+Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloader during
+HotSwap. Attach to independently launched JVMs does not change their options.
+The Windows host maps `redefineClasses` to this operation and `cancelOperation`
+to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.

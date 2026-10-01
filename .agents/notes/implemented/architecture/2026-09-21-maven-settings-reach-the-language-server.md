@@ -86,9 +86,9 @@ Maven 设置面板的显式配置
 **4. 本地仓库通过生成的设置文档传递。** JDT LS 没有“本地仓库”这个首选项，
 该值只能写在 `settings.xml` 里。所以当用户填了本地仓库时，Core 以生效的设置
 文件为底稿做一次**保留式 XML 改写**——只替换 `<localRepository>` 节点，
-`<mirrors>`、`<servers>`、`<proxies>`、注释和缩进原样带过——写进语言服务已有
-的缓存目录，再作为 `userSettings` 传下去。安装级设置仍在 `globalSettings` 上，
-Maven 会把两者合并。
+`<mirrors>`、`<servers>`、`<proxies>`、注释和缩进原样带过——作为 `userSettings`
+传下去。安装级设置仍在 `globalSettings` 上，Maven 会把两者合并。生成文档的
+存放位置和命名规则见下文“设置变更必须让 JDT LS 重新解析（#970）”。
 
 绝不凭空合成一份只含 `<localRepository>` 的文档：那会丢掉镜像配置，把下载从
 阿里云打回 Maven Central。这是本次事故里代价最大的一条。
@@ -131,11 +131,8 @@ Maven 会把两者合并。
 
 - Wrapper 工程仍然得不到安装级设置。这是正确行为，但用户如果期望
   「配了 Maven 主目录就该全局生效」，需要显式填写而不是依赖 Wrapper。
-- 本地仓库走生成文档这条路，意味着缓存目录里多出一份 `maven/settings.xml`。
-  它是派生产物，用户配置文件本身不被修改。
-- 生成文档的路径是固定的，所以仓库路径变化不体现在 JDT Profile 指纹上。
-  当前没有问题，因为改动 Maven 设置会触发 Java 会话重载并重新生成；如果将来
-  去掉这个重载，指纹需要一并纳入仓库路径。
+- 本地仓库走生成文档这条路，意味着 JDT LS 状态目录里多出派生的设置副本。
+  用户配置文件本身不被修改。副本的命名和生命周期见 #970 一节。
 - Maven 上下文仍然不进日志。这次定位只能靠翻启动命令行里的 `-cp`，下次遇到
   类似问题依然会很慢。补日志是独立的后续工作。
 
@@ -236,8 +233,41 @@ Maven、版本、路径和来源，例如「自动 → JDK 21.0.4 · 路径 · �
 版本比较。运行面板保留一步进入「设置 → 运行配置」并定位当前服务的入口；两端设置窗口
 每次分类请求都会重新定位，重复请求同一分类同样生效。
 
-「自动」本身的选择规则（是否按项目要求版本挑选、Windows 候选排序）属于 #815，不在此处
-改变。
+### 自动 JDK 选择（#815）
+
+自动模式先满足项目已有的 Java 最低版本要求，再按来源选择。显式选择的项目 JDK、
+服务 JDK 或 Maven JDK 不会被自动替换。两端共用 Core `runConfig.selectJava`，版本
+比较复用现有需求诊断中的逻辑，兼容 Java 8 的 `1.8` 表达；不要在 Swift/TypeScript
+各写一套版本比较，也不要重新解析 POM 或建立另一个项目模型。JDT LS 仍拥有语言
+服务项目状态，本次只消费既有生成文档中的最低版本，选择机器上的启动工具。
+
+来源顺序为 JAVA_HOME、PATH、普通安装、Windows 项目内安装。来源相同时先按数值
+版本降序，再按候选标识排序，避免目录枚举顺序左右结果。macOS 没有版本要求时
+保留原有 JAVA_HOME/首个发现候选回退；Windows 无要求时仍按来源选取，但修正原本
+覆盖 JAVA_HOME 优先级的字符串排序。没有任何兼容版本时继续保留回退选择，同时在
+生效值旁显示安装兼容 JDK 的提示。损坏或未来版本的需求文件明确报错，不按无要求处理。
+
+例如项目要求 Java 17、JAVA_HOME 为 8、PATH 为 17、普通目录有 21 时，自动选择
+PATH 的 17；显式选择 8 仍保留 8，由既有启动诊断报告不兼容。不要仅让设置页显示
+17，而启动仍取候选列表第一个 8。Windows 的发现结果也把实际自动候选放在首位，
+保证 Run 诊断与宿主启动一致。Windows 设置与服务表单在项目发现结果更新后重新解析
+生效值，即使自动路径字段仍为空；旧请求不能覆盖刷新后的结果。macOS 的 Run、Maven、
+测试和设置经过同一个选择入口。
+
+考虑过只改 Windows 排序，但这不能解决两端忽略项目要求的问题。也没有直接选最高
+版本：兼容的 JAVA_HOME/PATH 是用户已有环境意图，应优先保留。选择策略只读取现有
+工作区需求文档，不生成文件、探测进程或写入安装包。macOS 启动复用当前项目已经
+探测的候选；尚未完成完整发现时只探测 Java 并保留到项目切换或显式刷新，不能为了
+选择 Java 连带探测 Maven。无版本要求且 JAVA_HOME 可用时保留不探测的快速路径。
+PATH 仅用于识别已有候选的来源（平台负责解析符号链接），不额外扩大默认候选集合；代价是需求变化后需要重新解析
+选择，不能把上一次项目的结果缓存成全局默认值。
+
+回归验证使用共享 `automatic-java-selection.json`，覆盖枚举反序、数值补丁版本、
+旧版 Java 格式、兼容候选筛选、无要求/无匹配回退、空候选及损坏文档。macOS 的
+`automaticJavaUsesProjectMinimumAndPreservesExplicitSelections` 验证设置选择、Maven
+继承、显式覆盖与项目切换；Windows 的
+`automatic_java_selection_reads_requirement_changes_without_probing` 验证同一工作区
+需求变化和显式路径旁路。原生实机验收仍需覆盖 Run、Maven 目标和测试运行。
 
 ### Maven 设置页的检测边界（#844）
 
@@ -258,6 +288,90 @@ Maven 目标共用项目默认值继承逻辑。显式字段不再显示未启�
 结果。不能截取标签间的原始字符串，否则 `D:/R&amp;D` 会变成错误目录，缺失闭合
 标签也可能被当作路径。这里只提供只读提示，不生成 Maven 的完整生效模型；
 `${user.home}` 以外的属性保持原文，完整插值和最终构建配置仍由 Maven 负责。
+
+### 设置变更必须让 JDT LS 重新解析（#970）
+
+**先说结论：** 改 Maven 设置或点“重新加载”，都必须让 JDT LS 真的重新解析依赖。
+Lithe 不自己判断“要不要重解析”，而是按 JDT LS 上游（vscode-java 同一套）的机制
+把变化交给它：设置文件路径变了，JDT LS 会强制更新所有 Maven 项目；用户手动
+重新加载，就发 `java/projectConfigurationsUpdate`（上游的“更新项目”，不看 pom
+有没有改）。
+
+**问题。** #970 的用户在 JDT LS 导入过程中改了 Maven 设置，结果 Spring、MyBatis
+等第三方 import 全红，但界面没有任何错误。代码里有三处缺陷叠在一起：
+
+1. 保存设置只标记“需要重新加载”，从不通知运行中的 JDT LS；Maven 配置只在
+   `initialize` 时送过一次。
+2. 重新加载的做法是停掉 JDT LS 再启动。重启会复用 `-data` 工作区状态，而
+   JDT LS 导入时对已导入项目只检查 pom 时间戳和摘要
+   （`MavenProjectImporter.updateProjects` → `needsMavenUpdate`），pom 没变就跳过。
+   上次没解析成功的依赖会一直缺失。
+3. JDT LS 判断“设置是否变化”只比较设置文件的**路径字符串**
+   （`StandardPreferenceManager.update`）。以前生成的设置固定写在
+   `<缓存>/maven/settings.xml`，改本地仓库或镜像后路径不变，JDT LS 看不出变化；
+   所有项目还共用这一个文件，会互相覆盖。
+
+**决策。**
+
+- **设置副本按内容命名。** JDT LS 收到的每一份设置文档都复制到该会话的
+  `-data` 目录下 `.lithe/maven/`，文件名带内容哈希
+  （`user-settings-<哈希>.xml`、`global-settings-<哈希>.xml`）。内容一变路径就变，
+  JDT LS 自己的变化检测才能生效。用户级副本的来源依次是：配置的 settings.xml →
+  Maven 默认的 `~/.m2/settings.xml`（与命令行一致）→ 只配了本地仓库时的空文档。
+  安装级 `conf/settings.xml` 同样复制。副本放在 `-data` 里，随 JDT 缓存保留期
+  清理、随“重建 Java 索引”删除，不写发行包，也不改用户文件。读不到的文档
+  按原路径传并写 warn 日志，沿用上文“降级而不是失败”的原则。
+- **配置变化实时送达。** 新增 Core 操作 `lsp.updateMavenConfiguration`：替换会话
+  持有的 Maven 配置；设置副本路径变了就发 `workspace/didChangeConfiguration`
+  （JDT LS 会强制更新所有 Maven 项目，导入中途也会排队执行）；profile 变了就
+  重启 profile 任务。握手前到达的更新由 `initialized` 后那次设置通知带上。
+  显式的强制重载单独保留，合并重复请求后在 `ServiceReady`（项目已导入）时执行，
+  不能因为设置没变而丢弃。
+  两个平台保存 Maven 设置、切换 profile 时都调用它，不再弹“需要重新加载”。
+- **重新加载改为强制更新。** 会话还在时，“重新加载”发
+  `lsp.updateMavenConfiguration` 并带 `reloadProjects`，Core 在设置未变时发
+  `java/projectConfigurationsUpdate`。只有会话不存在、或会话拒绝更新时才停止并
+  重新启动。
+- **profile 任务期间的变更不丢。** 任务完成时只把它开始时的配置记为“已应用”；
+  如果期间配置被替换，无论旧任务成功还是失败，都自动再跑一轮。超时后的取消
+  是建议性的，必须等待旧请求全部收到终态响应才启动新配置；同一份失败配置不
+  自动无限重试。
+- **解析失败要让用户看见。** m2e 的解析结果就是 pom.xml 上的错误诊断
+  （缺少构件、父 POM 解析失败等）。两个平台都把工作区内 pom.xml 的错误诊断
+  列在 Maven 工具窗口，并对每个不同的问题集合发一次可跳转的通知；原来的
+  “Maven configuration applied” 提示只代表 profile 命令返回了，不代表依赖解析
+  成功，已经移除。
+
+正确做法：改一项 Maven 设置 → 调 `lsp.updateMavenConfiguration` → 让 JDT LS 按
+上游规则重解析。不要这样做：重启 JDT LS 来“应用”设置，或者用固定文件名改写
+设置文档——两者都会让 JDT LS 以为什么都没变。
+
+**考虑过的备选方案。**
+
+- **设置一变就删掉 JDT 工作区再冷启动。** 被否。能保证重解析，但每次改设置都
+  丢掉整个索引，冷导入大工程要几分钟，而上游已经有等价且增量的机制。
+- **在 Lithe 里自己跟踪“哪些项目需要更新”。** 被否。这是 m2e/JDT LS 的项目
+  状态，Lithe 另记一份会成为第二真相源，违反“复用上游子系统”的规则。
+- **保持固定文件名，另外发一次 `projectConfigurationsUpdate`。** 被否。m2e 会
+  缓存已加载的 settings，路径不变时不会重新读取，强制更新仍然用旧镜像和旧仓库。
+
+**代价。** JDT 状态目录里多出小的设置副本，其中可能包含用户 settings.xml 里的
+服务器凭据；它们位于平台提供的用户缓存目录，Unix 新文件权限为 `0600`。
+配置生成和发布使用会话专用串行锁，磁盘操作不占用协议锁；临时文件独占创建并带
+进程内唯一编号，避免并发写入覆盖。旧副本保留到 JDT 工作区缓存过期或重建索引时
+一起清理，因为通知写入管道并不代表 JDT LS 已读取文件。不能在下一次生成时删除
+上一份副本；否则导入中的服务可能读到已经不存在的路径。这些副本属于会话可变
+状态，禁止跨工作树复用，见资源清单 `jdt-maven-settings` 排除项。强制
+更新会重新解析所有 Maven 项目，大工程上比“什么都不做”慢，但这正是用户点重新加载
+时要的结果。
+
+**验证。** Rust Core `cargo test --manifest-path rust/lithe-core/Cargo.toml --lib`
+覆盖内容寻址（内容变路径变、相同内容复用、旧副本保留、临时文件所有权、默认用户设置、读不到时降级），
+以及 `update_maven_configuration` 的四条路径（设置变化、强制更新、握手前更新、
+profile 变化、失败或超时期间变更补跑、握手前无设置变化的强制重载）。Windows `bun test src/platform src/features/maven`
+覆盖命令路由、错误包装、实时同步、重新加载先走强制更新、pom 问题提取；macOS
+`LanguageIntelligenceModuleTests`、`ExecutionModuleTests` 覆盖原地更新、回退重启和
+设置实时同步。
 
 ## 验证
 
@@ -307,6 +421,13 @@ Maven 目标共用项目默认值继承逻辑。显式字段不再显示未启�
 - Rust Core Maven 域：`rust/lithe-core/src/project/maven.rs`
 - Rust Core JDT 适配：`rust/lithe-core/src/lsp/languages/jdt.rs`
 - Rust Core 语言服务引擎：`rust/lithe-core/src/lsp/interface/engine.rs`
+- Rust Core 设置副本：`rust/lithe-core/src/lsp/languages/jdt_maven_settings.rs`
+- Windows 实时同步与问题展示：`windows/tauri/src/features/maven/services/java-maven-configuration.ts`、
+  `windows/tauri/src/features/maven/services/reload-maven-workspace.ts`、
+  `windows/tauri/src/features/maven/utils/maven-resolution-problems.ts`
+- macOS 实时同步与问题展示：
+  `macos/Sources/LitheLanguageIntelligenceModule/Services/LanguageToolingSessionManager.swift`、
+  `macos/Sources/Lithe/Models/Java/MavenResolutionProblems.swift`
 - Windows 前端：`windows/tauri/src/features/maven/services/resolve-maven-toolchain.ts`、
   `windows/tauri/src/features/maven/stores/maven.store.ts`
 - Windows 宿主：`windows/tauri/src-tauri/src/run.rs`（`maven_resolve_installation`）

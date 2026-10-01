@@ -113,6 +113,7 @@ impl Session {
                 AgentEvent::TurnFinished {
                     session_id: id,
                     stop_reason,
+                    ..
                 } if id == session_id => Some(stop_reason.clone()),
                 _ => None,
             },
@@ -204,6 +205,7 @@ fn real_agent_conversation_cancel_history_and_cleanup() {
             AgentEvent::TurnFinished {
                 session_id,
                 stop_reason,
+                ..
             } if session_id == second => {
                 assert!(["cancelled", "end_turn"].contains(&stop_reason.as_str()));
                 break;

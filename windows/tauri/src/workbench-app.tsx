@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MotionConfig } from "motion/react";
+import { closeMcpConnections } from "@/features/host-api/mcp-connection";
 import { FontStyleInjector } from "@/features/settings/components/font-style-injector";
 import { initializeAppBootstrap } from "@/features/bootstrap/initialize-app-bootstrap";
 import {
@@ -71,6 +72,14 @@ function WorkbenchApp() {
     return () => {
       window.cancelAnimationFrame(frame);
       if (timer !== null) window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("beforeunload", closeMcpConnections);
+    return () => {
+      window.removeEventListener("beforeunload", closeMcpConnections);
+      closeMcpConnections();
     };
   }, []);
 

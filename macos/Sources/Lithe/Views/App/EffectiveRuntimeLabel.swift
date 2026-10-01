@@ -39,6 +39,12 @@ struct EffectiveRuntimeLabel: View {
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .lineLimit(3)
+        case .warning(let url, let source, let message)?:
+            Text(resolvedText(url: url, source: source, mode: modeTitle))
+                .font(LitheTheme.smallFont).textSelection(.enabled)
+            Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
+        case .unavailable(let message)?:
+            Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
         case .fallback(let invalidPath, let replacement)?:
             VStack(alignment: .leading, spacing: 2) {
                 Text(String(format: String(localized: "Cannot use %@; using the project JDK instead."), invalidPath))
@@ -52,6 +58,12 @@ struct EffectiveRuntimeLabel: View {
                         .font(.system(size: 11.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .textSelection(.enabled)
+                case .warning(let url, _, let message):
+                    Text(resolvedText(url: url, source: .projectJDK, mode: String(localized: "Use Project JDK")))
+                        .font(LitheTheme.smallFont)
+                    Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
+                case .unavailable(let message):
+                    Text(message).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.error)
                 case .invalid(let path), .fallback(let path, _):
                     Text(String(format: String(localized: "Cannot be used: %@"), path))
                         .font(LitheTheme.smallFont)

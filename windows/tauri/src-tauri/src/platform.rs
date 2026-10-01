@@ -11,11 +11,18 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 pub async fn platform_invoke(
     webview: tauri::Webview,
     command: String,
-    args: Value,
+    mut args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     agent_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
+        let owner = webview.window().label().to_owned();
+        args["arguments"]["ownerID"] = json!(owner);
+        Some((webview.app_handle().clone(), owner))
+    } else {
+        None
+    };
     if command.starts_with("ai_commit_") {
         return crate::ai_commit::dispatch(webview.app_handle().clone(), &command, args).await;
     }
@@ -72,14 +79,43 @@ pub async fn platform_invoke(
         if let Some(events) = events {
             return lithe_core::execute_json_with_events(&request, events);
         }
-        lithe_core::execute_json(&request)
+        let response = lithe_core::execute_json(&request);
+        if let Some((app, owner)) = ide_owner {
+            // Destruction can run before a blocking open registers its host. Clean
+            // up here as well, even if the WebView's awaiting IPC future is gone.
+            if app.get_webview_window(&owner).is_none() {
+                crate::core::close_ide_hosts(&owner);
+                return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
+            }
+        }
+        response
     })
     .await
     .map_err(|error| format!("Shared core task failed: {error}"))?;
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
-    core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+    platform_response(
+        &command,
+        &envelope,
+        preserve_history_rewrite,
+        preserve_stash_restore,
+    )
+}
+
+/// IDE operation output may describe a failed process while the inspection itself
+/// succeeded. Preserve its exit code and output instead of applying Git's legacy
+/// conversion of nonzero exit codes into rejected IPC calls.
+fn platform_response(
+    command: &str,
+    envelope: &Value,
+    preserve_history_rewrite: bool,
+    preserve_stash_restore: bool,
+) -> Result<Value, String> {
+    if command == "ideHost.control" && envelope.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(envelope.get("data").cloned().unwrap_or(Value::Null));
+    }
+    core_response(envelope, preserve_history_rewrite, preserve_stash_restore)
 }
 
 fn is_interactive_git(core_command: &str, command: &str) -> bool {
@@ -952,6 +988,19 @@ mod tests {
         translate,
     };
     use serde_json::json;
+
+    #[test]
+    fn ide_output_preserves_failed_process_details_without_weakening_git_errors() {
+        let data = json!({"operationID":"run:fixture","exitCode":1,"output":"Compilation failed"});
+        let envelope = json!({"ok":true,"data":data});
+        assert_eq!(
+            super::platform_response("ideHost.control", &envelope, false, false).unwrap(),
+            data
+        );
+        assert!(super::platform_response("git.command", &envelope, false, false).is_err());
+        let failure = json!({"ok":false,"error":{"message":"IDE broker unavailable"}});
+        assert!(super::platform_response("ideHost.control", &failure, false, false).is_err());
+    }
 
     #[test]
     fn core_failure_preserves_repository_access_diagnostics() {

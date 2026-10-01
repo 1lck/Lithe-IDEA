@@ -14,6 +14,7 @@ import LitheCoreContracts
 @MainActor
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
+    lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }
@@ -335,6 +336,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.diagnosticsByURL
     }
     var languageSessionChromeSignature: LanguageSessionChromeSignature?
+    /// Last Maven problem set announced for the workspace, so one failure is
+    /// reported once rather than on every diagnostics refresh.
+    var announcedMavenResolutionProblems = ""
 
     var detectedCodexConfiguration: CodexConfigurationSnapshot? {
         detectedAIConfigurations.first { $0.source == .codex }
@@ -620,6 +624,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func shutdownProjectSession() async {
+        await ideCapabilities.shutdown()
         shortcutSessionCoordinator?.shutdown()
         documentLanguageCoordinator?.stop()
         cancelJavaTestWorkflows()
@@ -895,6 +900,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     private func finishWorkspaceClose(for workspaceURL: URL) {
+        ideCapabilities.disable()
         documentLanguageCoordinator?.stop()
         cancelJavaLanguageServerPreparation()
         beginModuleRuntimeShutdown()

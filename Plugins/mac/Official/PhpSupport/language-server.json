@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "pluginID": "dev.lithe.plugin.php-support",
+  "toolID": "intelephense",
+  "version": "1.15.1",
+  "archiveURL": "https://registry.npmjs.org/intelephense/-/intelephense-1.15.1.tgz",
+  "archiveSHA256": "24a33fe3cd7a2382f44285e2ae553a7e1c898cbc208ee20cee0693497ee9ebe2",
+  "archiveFormat": "tarGzip",
+  "archiveRoot": "package",
+  "entrypoint": "lib/intelephense.js",
+  "license": "LICENSE.txt"
+}

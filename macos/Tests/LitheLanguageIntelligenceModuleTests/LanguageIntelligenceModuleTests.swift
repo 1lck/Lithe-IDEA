@@ -116,6 +116,111 @@ struct LanguageIntelligenceModuleTests {
     }
 
     @Test
+    func mavenReloadUpdatesARunningJavaSessionInPlace() async throws {
+        // #970: restarting JDT LS reused its workspace state and skipped every
+        // project whose pom.xml had not changed, so missing artifacts stayed
+        // missing. A running session must take a forced update instead.
+        let root = URL(fileURLWithPath: "/workspace/java-reload-in-place", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        let context = MavenLaunchContext(
+            reactorPath: ".", profiles: [], settingsPath: "/maven/conf/settings.xml",
+            localRepositoryPath: "/repository", skipTests: false,
+            mavenExecutablePath: "/maven/bin/mvn", javaHomePath: nil
+        )
+        manager.configureMavenContextProvider { _, _ in context }
+        defer { manager.stopLanguageServer(providerID: "java") }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+        session.mavenUpdateResult = .success(LanguageServerMavenConfigurationUpdate(
+            settingsChanged: false, projectsReloaded: true, profilesUpdating: false
+        ))
+
+        try await manager.reloadJavaWorkspace(rootURL: root)
+
+        #expect(session.startCallCount == 1)
+        #expect(session.stopCallCount == 0)
+        #expect(session.mavenUpdates.count == 1)
+        #expect(session.mavenUpdates.first?.context == context)
+        #expect(session.mavenUpdates.first?.reloadProjects == true)
+    }
+
+    @Test
+    func mavenReloadRestartsASessionThatCannotTakeTheUpdate() async throws {
+        let root = URL(fileURLWithPath: "/workspace/java-reload-restart", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        manager.configureMavenContextProvider { _, _ in
+            MavenLaunchContext(
+                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
+                mavenExecutablePath: nil, javaHomePath: nil
+            )
+        }
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        session.publish(.ready)
+
+        let task = Task { try await manager.reloadJavaWorkspace(rootURL: root) }
+        defer { task.cancel(); manager.stopLanguageServer(providerID: "java") }
+        // The failed update, stop, and restart run synchronously on the main
+        // actor before the reload suspends for readiness; a bounded number of
+        // yields lets the task reach that point.
+        for _ in 0..<100 where session.startCallCount < 2 { await Task.yield() }
+        try #require(session.startCallCount == 2)
+        session.publish(.ready)
+        try await task.value
+
+        #expect(session.mavenUpdates.count == 1)
+        #expect(session.stopCallCount == 1)
+        #expect(session.startCallCount == 2)
+    }
+
+    @Test
+    func mavenSettingsReachOnlyARunningJavaSessionOfTheSameWorkspace() throws {
+        let root = URL(fileURLWithPath: "/workspace/java-settings", isDirectory: true)
+        let descriptor = try #require(LanguageProviderCatalog.compatibilityFallback.provider(
+            for: root.appendingPathComponent("Main.java")
+        ))
+        let session = WorkspaceStateLanguageServerSession()
+        let manager = LanguageToolingSessionManager(
+            catalog: .compatibilityFallback,
+            runtimes: [WorkspaceStateLanguageProviderRuntime(descriptor: descriptor, session: session)]
+        )
+        manager.configureMavenContextProvider { _, _ in
+            MavenLaunchContext(
+                reactorPath: ".", profiles: [], settingsPath: nil, skipTests: false,
+                mavenExecutablePath: nil, javaHomePath: nil
+            )
+        }
+        defer { manager.stopLanguageServer(providerID: "java") }
+
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .noSession)
+        try manager.startLanguageServer(providerID: "java", rootURL: root)
+        let update = LanguageServerMavenConfigurationUpdate(
+            settingsChanged: true, projectsReloaded: false, profilesUpdating: false
+        )
+        session.mavenUpdateResult = .success(update)
+
+        #expect(manager.updateJavaMavenConfiguration(rootURL: root, reloadProjects: false) == .updated(update))
+        #expect(manager.updateJavaMavenConfiguration(
+            rootURL: URL(fileURLWithPath: "/workspace/other", isDirectory: true),
+            reloadProjects: false
+        ) == .noSession)
+        #expect(session.mavenUpdates.map(\.reloadProjects) == [false])
+    }
+
+    @Test
     func disabledModuleDoesNotConstructFactoryOrServiceGraph() async throws {
         let recorder = Recorder()
         let runtime = ModuleRuntime()
@@ -1253,6 +1358,10 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
     private(set) var startCallCount = 0
     var startError: Error?
     private(set) var executedCommands: [LanguageServerCommand] = []
+    /// Maven updates handed to the running session, in order.
+    private(set) var mavenUpdates: [(context: MavenLaunchContext, reloadProjects: Bool)] = []
+    var mavenUpdateResult: Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> =
+        .failure(LanguageServerRuntimeFailure(code: "unsupported", message: "unsupported"))
     private var startWaiters: [UUID: CheckedContinuation<Void, Error>] = [:]
     private var startTimeoutTasks: [UUID: Task<Void, Never>] = [:]
     private var executeWaiters: [UUID: (
@@ -1288,6 +1397,14 @@ private final class WorkspaceStateLanguageServerSession: LanguageServerSession {
 
     func publish(_ state: LanguageServerSessionState) {
         onStateChange?(state)
+    }
+
+    func updateMavenConfiguration(
+        _ context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, LanguageServerRuntimeFailure> {
+        mavenUpdates.append((context, reloadProjects))
+        return mavenUpdateResult
     }
 
     func publishPreparation(_ snapshot: ProjectPreparationSnapshot) {

@@ -13,6 +13,43 @@ import LitheModuleAPI
 /// from the run inventory.
 @MainActor
 extension AppModel {
+    func applyDebugServiceUpdate() {
+        guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
+              let updateSessionID = feature.activeSessionID else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await feature.applyJavaServiceUpdate { target, source, root in
+                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
+                      self.isCurrentWorkspace(identity) else { throw CancellationError() }
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                guard self.isCurrentWorkspace(identity), feature.activeSessionID == updateSessionID,
+                      feature.isSessionActive else { throw CancellationError() }
+                try await sessions.buildJavaServiceUpdate(target: target, fileURL: source, rootURL: root)
+            }
+        }
+    }
+
+    func restartUpdatedDebugService() {
+        guard let feature = genericDebugFeatureIfActive, let identity = currentWorkspaceIdentity,
+              let sessionID = feature.activeSessionID else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            await feature.restartJavaService { source, root in
+                guard self.isCurrentWorkspace(identity), await self.saveAllDocuments(),
+                      self.isCurrentWorkspace(identity), feature.activeSessionID == sessionID else {
+                    throw CancellationError()
+                }
+                let sessions = try await self.languageSessionsForWorkspaceMaintenance()
+                let preparation = try await sessions.prepareJavaRunLaunchTarget(fileURL: source, rootURL: root)
+                switch preparation {
+                case .ready(let target): return target
+                case .buildFailed(_, let failure):
+                    throw RunConfigurationOperationFailure(message: failure.message)
+                }
+            }
+        }
+    }
+
     func toggleDebug() {
         guard toggleToolWindow(.debug) else { return }
         Task { [weak self] in
@@ -402,6 +439,7 @@ extension AppModel {
         guard await featureGraph.debugLaunchPreparation.saveDirtyDocumentIfNeeded(document) else {
             return
         }
+        var javaUpdateTarget: JavaDebugLaunchTarget?
         let configuration: DebugLaunchConfiguration
         do {
             configuration = try await featureGraph.debugLaunchPreparation.prepare(
@@ -418,10 +456,12 @@ extension AppModel {
                         fileURL: fileURL,
                         rootURL: workspaceURL
                     )
-                    return try await self.resolveJavaLaunchPreparation(
+                    let target = try await self.resolveJavaLaunchPreparation(
                         preparation,
                         identity: identity
                     )
+                    javaUpdateTarget = target
+                    return target
                 }
             )
         } catch is CancellationError {
@@ -447,6 +487,7 @@ extension AppModel {
         ) else {
             return
         }
+        if let javaUpdateTarget { genericDebugFeature.registerJavaUpdateTarget(javaUpdateTarget) }
         showDebugToolWindow()
     }
 

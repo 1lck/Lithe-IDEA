@@ -5,9 +5,20 @@ import type { MavenReloadSnapshot } from "../stores/maven.store";
 import {
   reloadJavaForMavenWorkspace,
   reloadMavenWorkspaceProjects,
+  type MavenWorkspaceReloadDependencies,
 } from "./reload-maven-workspace";
 
 afterEach(() => workspaceRuntimeRegistry.resetForTests());
+
+/**
+ * Dependencies for scenarios where no Java session can take the reload in
+ * place, which exercises the restart path.
+ */
+const withoutRunningJavaSession = {
+  getMavenContext: () => null,
+  updateJavaMavenConfiguration: mock(async () => ({ kind: "noSession" as const })),
+  trace: mock(() => undefined),
+};
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -112,6 +123,7 @@ test("finishes workspace A reload without reading or mutating active workspace B
     hasWorkspace: (workspaceId) => workspaceRuntimeRegistry.hasWorkspace(workspaceId),
     getMavenState,
     getFileSystemState,
+    ...withoutRunningJavaSession,
     getJavaOwner: () => ({ stop, prewarm }),
   });
 
@@ -165,6 +177,7 @@ test("does not recreate stores after the workspace is closed", async () => {
   const outcome = await reloadJavaForMavenWorkspace(
     { workspaceId: "closed-workspace", root: "D:/closed" },
     {
+      ...withoutRunningJavaSession,
       hasWorkspace: () => false,
       getMavenState,
       getFileSystemState,
@@ -211,6 +224,7 @@ test("acknowledges only the configuration revision active when Java reload start
         rootFolderPath: "D:/work",
         getAllProjectFiles: () => projectFiles.promise,
       }),
+      ...withoutRunningJavaSession,
       getJavaOwner: () => ({
         stop: mock(async () => undefined),
         prewarm: mock(async () => ({ kind: "ready" as const })),
@@ -262,6 +276,7 @@ test("does not restart Java when the Maven scan fails with an old project", asyn
         rootFolderPath: "D:/work",
         getAllProjectFiles: async () => [],
       }),
+      ...withoutRunningJavaSession,
       getJavaOwner: () => ({ stop, prewarm }),
     },
   );
@@ -304,6 +319,7 @@ test("coalesces concurrent reload requests for the same workspace root", async (
       rootFolderPath: "D:/work",
       getAllProjectFiles: async () => [],
     }),
+    ...withoutRunningJavaSession,
     getJavaOwner: () => ({
       stop: mock(async () => undefined),
       prewarm: mock(async () => ({ kind: "ready" as const })),
@@ -362,6 +378,7 @@ test("does not coalesce case-sensitive workspace roots", async () => {
           rootFolderPath: root,
           getAllProjectFiles: async () => [],
         }),
+        ...withoutRunningJavaSession,
         getJavaOwner: () => ({
           stop: mock(async () => undefined),
           prewarm: mock(async () => ({ kind: "ready" as const })),
@@ -430,6 +447,7 @@ test("refreshes Java after the last Maven descriptor is removed", async () => {
           { name: "Main.java", path: "D:/work/src/Main.java", isDir: false },
         ],
       }),
+      ...withoutRunningJavaSession,
       getJavaOwner: () => ({ stop, prewarm }),
     },
   );
@@ -477,6 +495,7 @@ test("keeps reload actionable when Java restart fails", async () => {
           rootFolderPath: "D:/work",
           getAllProjectFiles: async () => [],
         }),
+        ...withoutRunningJavaSession,
         getJavaOwner: () => ({
           stop: mock(async () => {
             throw new Error("JDT LS did not stop");
@@ -532,6 +551,7 @@ test("keeps reload actionable when Java preparation reports failure", async () =
             { name: "Main.java", path: "D:/work/src/Main.java", isDir: false },
           ],
         }),
+        ...withoutRunningJavaSession,
         getJavaOwner: () => ({
           stop: mock(async () => undefined),
           prewarm: mock(async () => ({ kind: "timedOut" as const })),
@@ -547,4 +567,110 @@ test("keeps reload actionable when Java preparation reports failure", async () =
     2,
     "Unable to reload the Java language server.",
   );
+});
+
+function singleWorkspaceReload(options: {
+  updateJavaMavenConfiguration: MavenWorkspaceReloadDependencies["updateJavaMavenConfiguration"];
+}) {
+  const acknowledgeReload = mock((_revision?: number) => undefined);
+  const maven = {
+    root: "D:/work" as string | null,
+    visiblePaths: ["pom.xml"],
+    projectStatus: "ready" as const,
+    projectError: null as string | null,
+    reloadRevision: 4,
+    projectReloadRevision: 0,
+    project: mavenProject("demo") as MavenProject | null,
+    actions: {
+      loadProject: mock(async () => undefined),
+      acknowledgeReload,
+      restoreReloadSnapshot: mock(() => undefined),
+    },
+  };
+  const fileSystem = {
+    rootFolderPath: "D:/work",
+    getAllProjectFiles: mock(async () => [
+      { name: "Main.java", path: "D:/work/src/Main.java", isDir: false },
+    ]),
+  };
+  const stop = mock(async () => undefined);
+  const prewarm = mock(async () => ({ kind: "ready" as const }));
+  const context = {
+    version: 1 as const,
+    reactorPath: ".",
+    profiles: [],
+    settingsPath: "D:/maven/conf/settings.xml",
+    localRepositoryPath: "D:/dev/.m2/repository",
+    skipTests: false,
+    mavenExecutablePath: "D:/maven/bin/mvn.cmd",
+    javaHomePath: null,
+  };
+  const dependencies: MavenWorkspaceReloadDependencies = {
+    hasWorkspace: () => true,
+    getMavenState: () => maven,
+    getMavenContext: () => context,
+    getFileSystemState: () => fileSystem,
+    getJavaOwner: () => ({ stop, prewarm }),
+    updateJavaMavenConfiguration: options.updateJavaMavenConfiguration,
+    trace: mock(() => undefined),
+  };
+  return { acknowledgeReload, context, dependencies, prewarm, stop };
+}
+
+test("reloads a running Java session in place with a forced Maven project update", async () => {
+  // #970: restarting reused the JDT LS workspace state and skipped every
+  // project whose pom.xml had not changed, so missing artifacts stayed missing.
+  const updateJavaMavenConfiguration = mock(async () => ({
+    kind: "updated" as const,
+    settingsChanged: false,
+    projectsReloaded: true,
+    profilesUpdating: false,
+  }));
+  const reload = singleWorkspaceReload({ updateJavaMavenConfiguration });
+
+  const outcome = await reloadJavaForMavenWorkspace(
+    { workspaceId: "workspace", root: "D:/work" },
+    reload.dependencies,
+  );
+
+  expect(outcome).toBe("completed");
+  expect(updateJavaMavenConfiguration).toHaveBeenCalledWith("D:/work", reload.context, true);
+  expect(reload.stop).not.toHaveBeenCalled();
+  expect(reload.prewarm).not.toHaveBeenCalled();
+  expect(reload.acknowledgeReload).toHaveBeenCalledWith(4);
+});
+
+test("starts the Java session when none is running to reload", async () => {
+  const reload = singleWorkspaceReload({
+    updateJavaMavenConfiguration: mock(async () => ({ kind: "noSession" as const })),
+  });
+
+  const outcome = await reloadJavaForMavenWorkspace(
+    { workspaceId: "workspace", root: "D:/work" },
+    reload.dependencies,
+  );
+
+  expect(outcome).toBe("completed");
+  expect(reload.prewarm).toHaveBeenCalledWith(
+    { workspaceId: "workspace", root: "D:/work" },
+    "D:/work/src/Main.java",
+  );
+});
+
+test("restarts a Java session that cannot take the reload", async () => {
+  const reload = singleWorkspaceReload({
+    updateJavaMavenConfiguration: mock(async () => {
+      throw new Error("The Java language session is no longer running.");
+    }),
+  });
+
+  const outcome = await reloadJavaForMavenWorkspace(
+    { workspaceId: "workspace", root: "D:/work" },
+    reload.dependencies,
+  );
+
+  expect(outcome).toBe("completed");
+  expect(reload.stop).toHaveBeenCalledTimes(1);
+  expect(reload.prewarm).toHaveBeenCalledTimes(1);
+  expect(reload.acknowledgeReload).toHaveBeenCalledWith(4);
 });

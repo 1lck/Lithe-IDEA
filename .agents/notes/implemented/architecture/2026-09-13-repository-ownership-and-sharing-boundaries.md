@@ -74,6 +74,16 @@ Windows 产品是 `windows/tauri` 下的 React/Tauri 实现；此前的 Qt/C++
 一个 Tauri command。没有共享实现的命令必须显式失败，不得在桌面构建
 里塞入伪造的成功值。
 
+`tauri-core.ts` 按归属规则分流，而不是维护一份原生命令白名单：`git_*`、
+`ai_commit_*` 和带点号的 Core 命令交给 `platform_invoke`，其余命令一律当作
+`main.rs` 注册的 Tauri 命令直接调用。白名单的问题在于新增宿主命令时很容易
+漏登记，漏掉的命令会被 dispatcher 当作“未实现”拒绝，而且每次调用都失败——
+#970 中 Maven 依赖树、Maven 安装解析、启动前步骤就是这样整体失效的。
+`tauri-core.routing.test.ts` 读取 `main.rs` 的注册列表校验这条规则。
+`invoke` 还会把宿主返回的字符串或结构化错误统一包装成 `Error`
+（`HostCommandError`，保留 `code`、`details`），这样调用方写
+`error instanceof Error ? error.message : 通用提示` 时不会把真实原因吞掉。
+
 macOS 可执行目标使用按所有权划分的目录：
 
 ```text

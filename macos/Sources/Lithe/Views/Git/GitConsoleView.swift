@@ -77,7 +77,7 @@ struct GitConsoleView: View {
                 .disabled(records.isEmpty).help("Copy complete console")
             Spacer(minLength: 0)
         }
-        .buttonStyle(.plain).litheIconButton()
+        .buttonStyle(.litheNoPress).litheIconButton()
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.top, 6).frame(width: 28)
     }

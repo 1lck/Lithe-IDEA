@@ -6,9 +6,9 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
 import Dialog from "@/ui/dialog";
 import {
-  ArrowClockwiseIcon,
   CodeBlockIcon,
   DatabaseIcon,
+  DownloadIcon,
   GearIcon,
   GearSixIcon,
   KeyboardIcon,
@@ -42,11 +42,12 @@ const categories: CategoryItem[] = [
   { id: "terminal", labelKey: "settings.tabs.terminal", icon: TerminalWindowIcon },
   { id: "lsp", labelKey: "settings.tabs.lsp", icon: DatabaseIcon },
   { id: "maven", labelKey: "settings.tabs.maven", icon: PackageIcon },
+  { id: "mcp", labelKey: "settings.mcp.title", icon: MagicWandIcon },
   { id: "ai", labelKey: "settings.tabs.ai", icon: MagicWandIcon },
   { id: "ai-commit", labelKey: "settings.tabs.aiCommit", icon: MagicWandIcon },
   { id: "git", labelKey: "settings.tabs.git", icon: CodeBlockIcon },
   { id: "logs", labelKey: "settings.tabs.logs", icon: FileTextIcon },
-  { id: "updates", labelKey: "settings.tabs.updates", icon: ArrowClockwiseIcon },
+  { id: "updates", labelKey: "settings.tabs.updates", icon: DownloadIcon },
 ];
 
 function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory {
@@ -61,6 +62,7 @@ function categoryFromRequestedTab(tab: SettingsTab | null): MacSettingsCategory 
     case "keyboard":
     case "terminal":
     case "maven":
+    case "mcp":
     case "ai":
     case "ai-commit":
     case "logs":
@@ -126,7 +128,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
     >
       <div className="flex size-full min-h-0 min-w-0">
         <nav
-          className="flex w-47.5 shrink-0 flex-col gap-0.5 border-border border-r bg-surface p-2"
+          className="flex min-h-0 w-47.5 shrink-0 flex-col gap-0.5 border-border border-r bg-surface p-2 overflow-y-auto"
           aria-label={t("settings.mac.categories")}
         >
           {categories.map((category) => {
@@ -137,7 +139,7 @@ const SettingsDialog = ({ isOpen, onClose }: SettingsDialogProps) => {
                 key={category.id}
                 type="button"
                 onClick={() => setActiveCategory(category.id)}
-                className={`flex h-8 w-full items-center gap-2.5 rounded-sm px-2.5 text-left ui-text-sm transition-colors ${
+                className={`flex h-8 w-full shrink-0 items-center gap-2.5 rounded-sm px-2.5 text-left ui-text-sm transition-colors ${
                   selected
                     ? "bg-primary/65 font-medium text-white"
                     : "text-foreground hover:bg-accent"

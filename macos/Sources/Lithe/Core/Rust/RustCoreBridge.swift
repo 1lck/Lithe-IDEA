@@ -1816,6 +1816,12 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         let sessionId: String
     }
 
+    private struct LspUpdateMavenConfigurationRequest: Encodable {
+        let sessionId: String
+        let mavenContext: MavenLaunchContext
+        let reloadProjects: Bool
+    }
+
     private struct LspSyncDocumentRequest: Encodable {
         struct Change: Encodable {
             let range: Range
@@ -2607,6 +2613,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
                 testCases: testCases
             )
         )
+    }
+
+    func selectJavaRuntime(
+        at root: URL?, candidates: [AutomaticJavaCandidate], fallbackID: String?
+    ) -> Result<AutomaticJavaSelection, CoreCallError> {
+        struct Payload: Encodable {
+            let root: String?
+            let candidates: [AutomaticJavaCandidate]
+            let fallbackId: String?
+        }
+        return executeResult(command: "runConfig.selectJava", payload: Payload(
+            root: root?.standardizedFileURL.path, candidates: candidates, fallbackId: fallbackID
+        ))
     }
 
     func inspectRunConfiguration(
@@ -3491,6 +3510,23 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    /// Sends a changed Maven context to a running JDTLS session. JDT LS
+    /// re-resolves in place instead of restarting on its unchanged workspace state.
+    func lspUpdateMavenConfiguration(
+        sessionID: String,
+        context: MavenLaunchContext,
+        reloadProjects: Bool
+    ) -> Result<LanguageServerMavenConfigurationUpdate, CoreCallError> {
+        executeResult(
+            command: "lsp.updateMavenConfiguration",
+            payload: LspUpdateMavenConfigurationRequest(
+                sessionId: sessionID,
+                mavenContext: context,
+                reloadProjects: reloadProjects
+            )
+        )
+    }
+
     /// Publishes the current text of a document. Rust decides whether that means
     /// an open or a change, and assigns the version.
     func lspSyncDocument(
@@ -4081,3 +4117,5 @@ private extension RustCoreBridge.WorkspaceNodePayload {
         )
     }
 }
+
+extension RustCoreBridge: JavaRuntimeSelecting {}

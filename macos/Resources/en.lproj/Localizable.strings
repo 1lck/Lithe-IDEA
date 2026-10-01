@@ -12,6 +12,8 @@
 "Installed (%lld of %lld enabled)" = "Installed (%lld of %lld enabled)";
 "Install Plugin from Disk…" = "Install Plugin from Disk…";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
+"Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
+"Download and Install" = "Download and Install";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
@@ -30,8 +32,12 @@
 "Pending confirmation" = "Pending confirmation";
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
+"Reinstall" = "Reinstall";
+"Uninstall PHP Support?" = "Uninstall PHP Support?";
+"PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
 "No Plugins" = "No Plugins";
+"Open Plugin Management" = "Open Plugin Management";
 "Database" = "Database";
 "Enabled" = "Enabled";
 "Disabled" = "Disabled";
@@ -1303,3 +1309,18 @@
 "Waiting for subscription quota…" = "Waiting for subscription quota…";
 
 "ChatGPT sign-in was cancelled." = "ChatGPT sign-in was cancelled.";
+
+"Could not open HTML in browser" = "Could not open HTML in browser";
+"Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
+
+"AI tool connections (MCP)" = "AI tool connections (MCP)";
+"Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
+"Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";
+"Allow run, build, reload and stop (executes project code)" = "Allow run, build, reload and stop (executes project code)";
+"Disable MCP" = "Disable MCP";
+"Enable MCP" = "Enable MCP";
+"Copy agent configuration" = "Copy agent configuration";
+"Enabled plugins can also use this project grant." = "Enabled plugins can also use this project grant.";
+
+"MCP Configuration" = "MCP Configuration";
+"Open a project to configure MCP access for agents." = "Open a project to configure MCP access for agents.";

@@ -149,13 +149,15 @@ jobs:
         uses: ./.github/actions/prepare-macos-dependency-cache
         with:
           swiftpm: "true"
+          cargo: "true"
 
+      # The suite deadline includes cold Rust Core and Swift compilation.
       - name: Run Swift unit tests
-        timeout-minutes: 12
+        timeout-minutes: 17
         run: |
           ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh \
             --report .artifacts/test-stability/macos-unit.json \
-            --suite-timeout-seconds 660 -- \
+            --suite-timeout-seconds 960 -- \
             --skip fullSignedDiskImageStagesWithoutChangingInstalledApp \
             --skip StableRollbackDiskImageIntegrationTests \
             --skip GitStatusObservationTests \

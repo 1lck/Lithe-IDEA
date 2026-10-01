@@ -2,6 +2,69 @@ import AppKit
 import SwiftUI
 import LitheAgentConversationModule
 
+/// Groups adjacent ACP tool calls without changing the stored transcript.
+/// Prose and user messages end a group, preserving the order of the conversation.
+enum AgentTranscriptItem: Identifiable {
+    case message(AgentConversationMessage)
+    case toolGroup([AgentConversationMessage])
+    case turnSummary(AgentTurnStatistics)
+
+    var id: String {
+        switch self {
+        case .message(let message): message.id
+        case .toolGroup(let tools): "tools:\(tools[0].id)"
+        case .turnSummary(let turn): "turn:\(turn.id)"
+        }
+    }
+
+    func matches(_ searchText: String) -> Bool {
+        guard !searchText.isEmpty else { return true }
+        switch self {
+        case .message(let message): return message.text.localizedStandardContains(searchText)
+        case .toolGroup(let tools): return tools.contains { Self.toolMatches($0, searchText) }
+        case .turnSummary: return false
+        }
+    }
+
+    static func toolMatches(_ message: AgentConversationMessage, _ searchText: String) -> Bool {
+        message.text.localizedStandardContains(searchText)
+            || message.toolDetails.input?.localizedStandardContains(searchText) == true
+            || message.toolDetails.output?.localizedStandardContains(searchText) == true
+            || message.toolDetails.content.contains {
+                $0.title.localizedStandardContains(searchText) || $0.text.localizedStandardContains(searchText)
+            } == true
+            || message.toolDetails.locations.contains { $0.path.localizedStandardContains(searchText) } == true
+    }
+
+    static func grouped(_ messages: [AgentConversationMessage], turns: [AgentTurnStatistics] = []) -> [Self] {
+        var items: [Self] = []
+        var tools: [AgentConversationMessage] = []
+        let summaries = turns.reduce(into: [String: AgentTurnStatistics]()) { result, turn in
+            if let ending = turn.endingMessageID { result[ending] = turn }
+        }
+        for message in messages {
+            if message.role == .tool {
+                tools.append(message)
+            } else {
+                if !tools.isEmpty {
+                    items.append(.toolGroup(tools))
+                    tools.removeAll(keepingCapacity: true)
+                }
+                items.append(.message(message))
+            }
+            if let summary = summaries[message.id] {
+                if !tools.isEmpty {
+                    items.append(.toolGroup(tools))
+                    tools.removeAll(keepingCapacity: true)
+                }
+                items.append(.turnSummary(summary))
+            }
+        }
+        if !tools.isEmpty { items.append(.toolGroup(tools)) }
+        return items
+    }
+}
+
 /// Message list of the selected conversation, followed by the pending
 /// permission request and a summary of this turn's tool activity.
 struct AgentTranscriptView: View {
@@ -17,6 +80,8 @@ struct AgentTranscriptView: View {
     var body: some View {
         let conversation = feature.selectedConversation
         let messages = conversation?.messages ?? []
+        let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
+            .filter { $0.matches(searchText) }
         VStack(spacing: 0) {
             if conversation?.isLoading != true && messages.isEmpty && feature.pendingNewConversationPrompt == nil {
                 AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
@@ -38,7 +103,7 @@ struct AgentTranscriptView: View {
                                 .frame(height: 26)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.plain)
+                            .buttonStyle(.litheNoPress)
                             .litheRowHover()
                         }
                     }
@@ -55,29 +120,49 @@ struct AgentTranscriptView: View {
                                     Text("Loading conversation…").foregroundStyle(LitheTheme.secondaryText)
                                 }
                             }
-                            if !searchText.isEmpty && !messages.contains(where: { $0.text.localizedStandardContains(searchText) }) {
+                            if !searchText.isEmpty && transcript.isEmpty {
                                 Text("No matching messages")
                                     .foregroundStyle(AgentPanelStyle.secondary)
                             }
-                            ForEach(messages.filter { searchText.isEmpty || $0.text.localizedStandardContains(searchText) }) { message in
-                                AgentMessageRow(message: message, onOpenFile: onOpenFile).id(message.id)
+                            ForEach(transcript) { item in
+                                Group {
+                                    switch item {
+                                    case .message(let message):
+                                        AgentMessageRow(message: message, onOpenFile: onOpenFile)
+                                    case .toolGroup(let tools):
+                                        AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
+                                    case .turnSummary(let turn):
+                                        AgentTurnStatisticsView(statistics: turn)
+                                    }
+                                }
+                                .id(item.id)
                             }
                             if feature.selectedSessionID == nil, let prompt = feature.pendingNewConversationPrompt {
                                 AgentMessageRow(message: AgentConversationMessage(id: "pending", role: .user, text: prompt))
                                     .id("pending")
                             }
                             if conversation?.isResponding == true || feature.isCreatingSession {
-                                AgentThinkingRow(isCancelling: conversation?.isCancelling == true).id("responding")
+                                AgentThinkingRow(
+                                    isCancelling: conversation?.isCancelling == true,
+                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt
+                                ).id("responding")
                             }
                         }
                         .padding(.horizontal, 12)
                         .padding(.vertical, 12)
                     }
                     .onChange(of: messages.last?.text) { _ in
-                        if searchText.isEmpty, let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                        if searchText.isEmpty, let last = transcript.last {
+                            proxy.scrollTo(conversation?.isResponding == true ? "responding" : last.id, anchor: .bottom)
+                        }
                     }
                     .onChange(of: messages.count) { _ in
-                        if searchText.isEmpty, let last = messages.last { proxy.scrollTo(last.id, anchor: .bottom) }
+                        if searchText.isEmpty, let last = transcript.last {
+                            proxy.scrollTo(conversation?.isResponding == true ? "responding" : last.id, anchor: .bottom)
+                        }
+                    }
+                    .onChange(of: conversation?.completedTurns.count) { _ in
+                        if searchText.isEmpty, let last = transcript.last { proxy.scrollTo(last.id, anchor: .bottom) }
                     }
                 }
             }
@@ -86,19 +171,6 @@ struct AgentTranscriptView: View {
             }
             AgentActivitySummaryBar(messages: messages)
         }
-    }
-}
-
-private struct AgentThinkingRow: View {
-    var isCancelling = false
-    var body: some View {
-        HStack(spacing: 8) {
-            ProgressView().controlSize(.small)
-            Text(isCancelling ? "Stopping…" : "Thinking…")
-                .font(.system(size: 12))
-                .foregroundStyle(LitheTheme.secondaryText)
-        }
-        .padding(.leading, 2)
     }
 }
 
@@ -115,7 +187,7 @@ struct AgentHeroView: View {
                 AgentBrandIcon(name: agentName, size: 60)
                     .foregroundStyle(isHovering ? AgentPanelStyle.secondary : AgentPanelStyle.logo)
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityLabel("Switch Agent")
             .onHover { isHovering = $0 }
@@ -256,76 +328,12 @@ private struct AgentMessageRow: View {
             AgentMarkdownMessage(text: message.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
         case .tool:
-            AgentToolCallRow(message: message, onOpenFile: onOpenFile)
+            AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
         }
     }
 }
 
-private struct AgentToolCallRow: View {
-    let message: AgentConversationMessage
-    let onOpenFile: (AgentToolDetails.Location) -> Void
-    @State private var expanded = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Button { expanded.toggle() } label: {
-                header
-            }
-            .buttonStyle(.plain)
-            .help(expanded ? "Hide tool details" : "Show tool details")
-            if expanded && !message.toolDetails.isEmpty {
-                AgentToolEvidenceView(details: message.toolDetails, onOpenFile: onOpenFile)
-                    .padding(.horizontal, 10)
-                    .padding(.bottom, 8)
-            }
-        }
-        .background(LitheTheme.raised, in: RoundedRectangle(cornerRadius: 6))
-        .overlay(RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder, lineWidth: 1))
-    }
-
-    private var header: some View {
-        HStack(alignment: .top, spacing: 8) {
-            Group {
-                if message.toolStatus == .inProgress || message.toolStatus == .pending {
-                    ProgressView().controlSize(.mini)
-                } else {
-                    Image(systemName: icon)
-                        .foregroundStyle(tint)
-                }
-            }
-            .frame(width: 14, height: 14)
-            Text(message.text)
-                .font(.system(size: 12, design: .monospaced))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(3)
-                .textSelection(.enabled)
-            Spacer(minLength: 0)
-            Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                .font(.system(size: 10))
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-    }
-
-    private var icon: String {
-        switch message.toolStatus {
-        case .completed: "checkmark.circle.fill"
-        case .failed: "xmark.circle.fill"
-        case .interrupted: "pause.circle"
-        default: "circle.dotted"
-        }
-    }
-
-    private var tint: Color {
-        switch message.toolStatus {
-        case .completed: LitheTheme.success
-        case .failed: LitheTheme.error
-        default: LitheTheme.tertiaryText
-        }
-    }
-}
-
-private struct AgentToolEvidenceView: View {
+struct AgentToolEvidenceView: View {
     let details: AgentToolDetails
     let onOpenFile: (AgentToolDetails.Location) -> Void
 
@@ -337,7 +345,7 @@ private struct AgentToolEvidenceView: View {
                         .lineLimit(2)
                         .truncationMode(.middle)
                 }
-                    .buttonStyle(.plain)
+                    .buttonStyle(.litheNoPress)
                     .font(.system(size: 11, design: .monospaced))
                     .help(location.path)
             }
@@ -452,7 +460,7 @@ private struct AgentCodeBlock: View {
                     Image(systemName: didCopy ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 10.5))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .lithePointer()
                 .foregroundStyle(didCopy ? LitheTheme.success : LitheTheme.tertiaryText)
                 .help("Copy code")

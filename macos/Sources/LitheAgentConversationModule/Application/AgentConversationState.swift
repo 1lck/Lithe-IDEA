@@ -55,6 +55,10 @@ public struct AgentPermissionPrompt: Identifiable, Equatable, Sendable {
 public struct AgentConversation: Equatable, Sendable {
     public var messages: [AgentConversationMessage] = []
     public var contextUsage: AgentContextUsage?
+    public var activeTurn: AgentTurnStatistics?
+    /// Local statistics survive tab switches and disconnects, but are not fabricated
+    /// when the Agent replays history without timing or usage records.
+    public var completedTurns: [AgentTurnStatistics] = []
     public var isResponding = false
     public var isLoading = false
     public var isCancelling = false
@@ -71,6 +75,13 @@ public struct AgentConversation: Equatable, Sendable {
     public var errorMessage: String?
 
     public init() {}
+
+    mutating func finishTurn(at instant: ContinuousClock.Instant, usage: AgentTurnUsage? = nil) {
+        guard var turn = activeTurn else { return }
+        turn.finish(at: instant, endingMessageID: messages.last?.id ?? turn.id, usage: usage)
+        completedTurns.append(turn)
+        activeTurn = nil
+    }
 
     mutating func enqueuePermission(_ prompt: AgentPermissionPrompt) {
         if let index = pendingPermissions.firstIndex(where: { $0.id == prompt.id }) {

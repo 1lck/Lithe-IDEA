@@ -425,6 +425,13 @@ export function resolveInstalledExtensionId(
   return installed.extensionId || `lithe.${installed.languageId}`;
 }
 
+/** Check the required server without downloading tools or modifying an installed extension. */
+export async function checkLanguageToolRequirements(languageId: string, manifest: ExtensionManifest): Promise<void> {
+  const config = getLanguageToolConfigSet(manifest);
+  if (!config?.lsp) return;
+  await invoke("check_language_tool_requirements", { languageId, tools: { lsp: config.lsp } });
+}
+
 async function installLanguageTools(
   languageId: string,
   manifest?: ExtensionManifest,

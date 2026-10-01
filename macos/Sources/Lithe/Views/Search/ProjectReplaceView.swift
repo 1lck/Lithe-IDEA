@@ -374,7 +374,7 @@ private struct ProjectReplaceOptionButton: View {
                 .background(isOn || isHovering ? LitheTheme.subtleSelection : .clear)
                 .clipShape(RoundedRectangle(cornerRadius: 3))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .disabled(!isEnabled)
         .opacity(isEnabled ? 1 : 0.45)
         .onHover { isHovering = $0 }
@@ -417,7 +417,7 @@ private struct ProjectReplaceCheckboxStyle: ToggleStyle {
                 configuration.label
             }
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.litheNoPress)
         .lithePointer()
     }
 }

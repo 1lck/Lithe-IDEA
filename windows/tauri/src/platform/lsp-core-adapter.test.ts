@@ -385,6 +385,14 @@ const executeCore = mock(
         data: { operationId },
       };
     }
+    if (request.command === "lsp.updateMavenConfiguration") {
+      requestPayload = request.payload;
+      return {
+        id: request.id,
+        ok: true as const,
+        data: { settingsChanged: true, projectsReloaded: false, profilesUpdating: false },
+      };
+    }
     return { id: request.id, ok: true as const, data: null };
   },
 );
@@ -630,6 +638,39 @@ describe("Rust Core LSP adapter failures", () => {
     expect(ownsLspSession("java-session")).toBe(false);
   });
 
+  test("sends Maven configuration changes to the running Java session of the workspace", async () => {
+    scenario = "capabilities";
+    const mavenContext = { version: 1, reactorPath: ".", settingsPath: "C:/maven/settings.xml" };
+
+    const beforeStart = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:/work",
+      mavenContext,
+      reloadProjects: true,
+    });
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    const running = await invokeLsp("lsp_update_maven_configuration", {
+      workspacePath: "C:\\work",
+      mavenContext,
+      reloadProjects: true,
+    });
+
+    // Without a session the next start reads the current context; Core is not asked.
+    expect(beforeStart).toEqual({ kind: "noSession" });
+    expect(running).toEqual({
+      kind: "updated",
+      settingsChanged: true,
+      projectsReloaded: false,
+      profilesUpdating: false,
+    });
+    expect(requestPayload).toEqual({ sessionId: "java-session", mavenContext, reloadProjects: true });
+    expect(commands.filter((command) => command === "lsp.updateMavenConfiguration")).toHaveLength(1);
+  });
+
   test("startup poll failure retires preparation and explicit stop clears the failed snapshot", async () => {
     scenario = "poll-failure";
     await expect(
@@ -744,6 +785,59 @@ describe("Rust Core LSP adapter failures", () => {
             (payload.command as { command?: string } | undefined)?.command ?? payload.operation,
         ),
     ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
+  });
+
+  test("service update validates original paths before building the original target", async () => {
+    scenario = "semantic-request";
+    const target = {
+      mainClass: "example.Main",
+      projectName: "service",
+      modulePaths: [],
+      classPaths: ["C:/work/classes"],
+    };
+    semanticRequestResults = [{ value: [[], target.classPaths] }, { value: 1 }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await invokeLsp("java_build_service_update", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/src/Main.java",
+      target,
+    });
+    expect(
+      requestPayloads.slice(-2).map((payload) => (payload.command as { command: string }).command),
+    ).toEqual(["vscode.java.resolveClasspath", "vscode.java.buildWorkspace"]);
+    const build = requestPayloads[requestPayloads.length - 1]!.command as { arguments: string[] };
+    expect(JSON.parse(build.arguments[0])).toEqual({
+      mainClass: "example.Main",
+      projectName: "service",
+      filePath: "C:/work/src/Main.java",
+      isFullBuild: false,
+    });
+  });
+
+  test("service update refuses changed runtime paths before compiling", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ value: [[], ["C:/work/new-classes"]] }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await expect(
+      invokeLsp("java_build_service_update", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/src/Main.java",
+        target: { mainClass: "example.Main", modulePaths: [], classPaths: ["C:/work/classes"] },
+      }),
+    ).rejects.toThrow("Runtime paths changed");
+    expect(
+      (requestPayloads[requestPayloads.length - 1]!.command as { command: string }).command,
+    ).toBe("vscode.java.resolveClasspath");
   });
 
   test("picks the launch target by source path when two modules share a class", async () => {
@@ -1497,6 +1591,7 @@ describe("Rust Core LSP adapter failures", () => {
       "lsp_stop_for_file",
       "lsp_workspace_files_changed",
       "lsp_retry_maven_profiles",
+      "lsp_update_maven_configuration",
     ]);
     const clientSource = readFileSync(
       new URL("../features/editor/lsp/lsp-client.ts", import.meta.url),

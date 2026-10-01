@@ -59,6 +59,12 @@
   说明。生成资源没有可靠 identity stamp 时不得注册为可复用资源；可变构建状态
   和 LSP workspace 状态不得跨 worktree 共享。
 
+### LSP 插件构建入口
+
+新增或修改语言服务器插件前，先阅读
+[LSP 插件构建与语言服务器资源归属](.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)。
+所有 LSP 插件都必须在构建阶段固定来源并校验语言服务器，把完整资源放入插件包后签名；运行时只能从已安装插件发现入口，不能把下载物、解压物或插件状态写入 app bundle、安装目录或跨工作树共享缓存。
+
 ## 跨平台功能同步
 
 跨平台功能矩阵的字段、状态语义、更新流程和 CI 例外规则以

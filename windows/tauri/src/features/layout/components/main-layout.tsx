@@ -9,6 +9,7 @@ import { isGitChangeRelevant, subscribeToGitChanges } from "@/features/git/event
 import { closeMavenToolWindow } from "@/features/maven/actions/maven-tool-window-actions";
 import { closeAgentToolWindow } from "@/features/agent/actions/agent-tool-window-actions";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
+import { useMavenResolutionNotifications } from "@/features/maven/hooks/use-maven-resolution-problems";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useOnboardingStore } from "@/features/onboarding/stores/onboarding.store";
 import { CachedWorkspaceSplitViews } from "@/features/panes/components/split-view-root";
@@ -38,10 +39,10 @@ import Footer from "./footer/footer";
 import { WorkbenchErrorBoundary } from "./workbench-error-boundary";
 import { ResizablePane } from "./resizable-pane";
 import {
-  COLLAPSED_ACTIVITY_RAIL_WIDTH,
   MainSidebar,
   SidebarActivityRail,
 } from "./sidebar/main-sidebar";
+import { COLLAPSED_ACTIVITY_RAIL_WIDTH } from "@/features/layout/constants/activity-rail";
 import { PluginActivityRail } from "./plugin-activity-rail";
 import { WelcomeScreen } from "./welcome-screen";
 import { AppUpdateDetailsDialog } from "./app-update-details-dialog";
@@ -88,6 +89,7 @@ const AgentPane = lazy(() =>
 export function MainLayout() {
   const { t } = useTranslation();
   useAutoUpdate();
+  useMavenResolutionNotifications();
   const [deferredSurfacesReady, setDeferredSurfacesReady] = useState(false);
 
   usePaneKeyboard();

@@ -1,14 +1,21 @@
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
+import {
+  maximizeCurrentWindow,
+  minimizeCurrentWindow,
+  toggleCurrentWindowFullscreen,
+} from "@/features/window/utils/window-actions";
 import { isLinux, isMac } from "@/utils/platform";
 
 export function toggleFullscreen(): void {
-  window.dispatchEvent(new CustomEvent("toggle-fullscreen"));
+  void toggleCurrentWindowFullscreen().catch((error: unknown) =>
+    console.error("Error toggling fullscreen:", error),
+  );
 }
 
 export function toggleFullscreenMac(): void {
   if (isMac()) {
-    window.dispatchEvent(new CustomEvent("toggle-fullscreen"));
+    toggleFullscreen();
   }
 }
 
@@ -17,24 +24,28 @@ export function createNewWindow(): void {
 }
 
 export function minimizeWindow(): void {
-  window.dispatchEvent(new CustomEvent("minimize-window"));
+  void minimizeCurrentWindow().catch((error: unknown) =>
+    console.error("Error minimizing window:", error),
+  );
 }
 
 export function minimizeWindowMac(): void {
   if (isMac()) {
-    window.dispatchEvent(new CustomEvent("minimize-window"));
+    minimizeWindow();
   }
 }
 
 export function minimizeWindowAlt(): void {
   if (!isMac()) {
-    window.dispatchEvent(new CustomEvent("minimize-window"));
+    minimizeWindow();
   }
 }
 
 export function maximizeWindow(): void {
   if (!isMac()) {
-    window.dispatchEvent(new CustomEvent("maximize-window"));
+    void maximizeCurrentWindow().catch((error: unknown) =>
+      console.error("Error maximizing window:", error),
+    );
   }
 }
 

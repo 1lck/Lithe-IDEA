@@ -24,6 +24,7 @@ import { LogSettingsPanel } from "./log-settings-panel";
 import { MavenSettingsPanel } from "./tabs/maven-settings-panel";
 import { GitSettings } from "./tabs/git-settings";
 import { KeyboardSettings } from "./tabs/keyboard-settings";
+import { McpConfigurationSettings } from "./mcp-configuration-settings";
 import { ProjectEnvironmentSettings } from "./project-environment-settings";
 
 import { RunConfigurationSettings } from "./run-configuration-settings";
@@ -31,6 +32,7 @@ import { RunConfigurationSettings } from "./run-configuration-settings";
 export type MacSettingsCategory =
   | "run"
   | "project"
+  | "mcp"
   | "git"
   | "general"
   | "editor"
@@ -442,7 +444,6 @@ function LspPanel() {
 function UpdatesPanel() {
   const { t } = useTranslation();
   const [appVersion, setAppVersion] = useState("");
-  const [hasCheckedForUpdates, setHasCheckedForUpdates] = useState(false);
   const {
     status,
     checking,
@@ -468,6 +469,7 @@ function UpdatesPanel() {
   }, []);
 
   const statusMessage = () => {
+    if (checking) return t("settings.mac.checking");
     if (downloading) {
       return t("update.updatingProgress", { percentage: downloadProgress?.percentage ?? 0 });
     }
@@ -477,7 +479,7 @@ function UpdatesPanel() {
     if (available) {
       return t("settings.mac.updateAvailable", { version: updateInfo?.targetVersion ?? "" });
     }
-    return hasCheckedForUpdates ? t("settings.mac.upToDate") : t("settings.mac.updateHint");
+    return status === "upToDate" ? t("settings.mac.upToDate") : t("settings.mac.updateHint");
   };
 
   return (
@@ -493,7 +495,6 @@ function UpdatesPanel() {
               size="sm"
               disabled={busy}
               onClick={() => {
-                setHasCheckedForUpdates(true);
                 void checkForUpdates({ ignoreSuppression: true });
               }}
             >
@@ -531,6 +532,8 @@ export function MacSettingsPanel({
   switch (category) {
     case "run":
       return <RunConfigurationSettings />;
+    case "mcp":
+      return <McpConfigurationSettings />;
     case "project":
       return <ProjectEnvironmentSettings />;
     case "git":

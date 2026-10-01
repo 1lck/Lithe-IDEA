@@ -69,10 +69,11 @@ function Invoke-TimedRustTests {
             $arguments += @("--package", $Package)
         }
         if ($Package -eq "lithe-core") {
-            # History-rewrite integration tests create and rewrite real repos,
-            # sometimes several per case. Keep unit tests at the normal limit.
+            # Integration tests that create multiple real repositories or push
+            # through Git subprocesses need a bounded allowance on Windows.
             foreach ($prefix in @(
                 "tests::git_history_rewrite::",
+                "tests::git_workspace_commit::git_workspace_commit_push_checks_submodule_publication_before_updating_the_remote",
                 "tests::git::git_write_squashes_",
                 "tests::git::git_write_deletes_a_local_commit_",
                 "tests::git::git_write_edits_a_local_commit_message_",
@@ -171,6 +172,12 @@ if ($Scope -in @("All", "SharedRust")) {
         -Package "lithe-agent-host" `
         -TargetDirectory "rust/target" `
         -Report (Join-Path $reportRoot "agent-host-rust.json")
+
+    Invoke-TimedRustTests `
+        -Manifest "rust/Cargo.toml" `
+        -Package "lithe-ide-host" `
+        -TargetDirectory "rust/target" `
+        -Report (Join-Path $reportRoot "ide-host-rust.json")
 
     Invoke-TimedRustTests `
         -Manifest "rust/Cargo.toml" `

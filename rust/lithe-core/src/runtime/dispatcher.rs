@@ -107,6 +107,15 @@ fn execute(request: &str) -> CoreResponse {
 
     let preserve_workspace_outcome = matches!(command, CoreCommand::GitWorkspaceCommitStep);
     let response = match command {
+        CoreCommand::IdeHostControl => {
+            let action = parsed.payload["action"].as_str().unwrap_or("");
+            match lithe_ide_host::execute(action, parsed.payload["arguments"].clone()) {
+                Ok(data) => CoreResponse::success(id, data),
+                Err(message) => {
+                    CoreResponse::failure(id, CoreError::new(ErrorCode::InvalidRequest, message))
+                }
+            }
+        }
         CoreCommand::Ping => CoreResponse::success(
             id,
             json!({
@@ -403,6 +412,27 @@ fn execute(request: &str) -> CoreResponse {
             ),
             Err(error) => CoreResponse::failure(id, error),
         },
+        CoreCommand::DocumentClassifyText => {
+            match parsed
+                .payload
+                .get("text")
+                .and_then(serde_json::Value::as_str)
+            {
+                Some(text) => CoreResponse::success(
+                    id,
+                    serde_json::json!({
+                        "isPlainText": project::is_plain_text(text)
+                    }),
+                ),
+                None => CoreResponse::failure(
+                    id,
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Decoded document text is required",
+                    ),
+                ),
+            }
+        }
         CoreCommand::DocumentLifecycle => {
             match serde_json::from_value::<DocumentLifecycleRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1213,6 +1243,27 @@ fn execute(request: &str) -> CoreResponse {
                 Err(error) => CoreResponse::failure(id, error),
             }
         }
+        CoreCommand::LspUpdateMavenConfiguration => {
+            match serde_json::from_value::<crate::lsp::UpdateMavenConfigurationRequest>(
+                parsed.payload,
+            )
+            .map_err(|error| {
+                CoreError::new(
+                    ErrorCode::InvalidRequest,
+                    "Invalid Maven configuration update request",
+                )
+                .with_details(error.to_string())
+            })
+            .and_then(crate::lsp::update_maven_configuration)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data)
+                        .expect("Maven configuration update response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::LspSyncDocument => {
             match serde_json::from_value::<crate::lsp::SyncDocumentRequest>(parsed.payload)
                 .map_err(|error| {
@@ -1383,6 +1434,21 @@ fn execute(request: &str) -> CoreResponse {
                 Ok(data) => CoreResponse::success(
                     id,
                     serde_json::to_value(data).expect("LSP destroy-server response should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::RunConfigSelectJava => {
+            match serde_json::from_value::<crate::execution::JavaSelectionRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(ErrorCode::InvalidRequest, "Invalid Java selection request")
+                        .with_details(error.to_string())
+                })
+                .and_then(crate::execution::select_java)
+            {
+                Ok(data) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(data).expect("Java selection encodes"),
                 ),
                 Err(error) => CoreResponse::failure(id, error),
             }

@@ -192,7 +192,7 @@ struct LanguageServerSetupView: View {
                 Button(copy.useAutomatic) {
                     clearOverride()
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
                 .disabled(tools.customExecutablePath(for: selectedProviderID) == nil)
