@@ -34,7 +34,6 @@ import {
 } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import { layoutGitGraph } from "../../utils/git-graph-layout";
-import { formatGitLogDate } from "../../utils/git-log-date";
 import { matchesGitLogCommit } from "../../utils/git-log-filter";
 import {
   isContiguousGitHistorySelection,
@@ -42,6 +41,7 @@ import {
 } from "../../utils/git-history-selection";
 import { GitGraphRow } from "./git-graph-row";
 import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
+import { GitLogDateCell } from "./git-log-date-cell";
 import { isGitHeadCommit } from "../../utils/git-history-message";
 
 const ROW_HEIGHT = 30;
@@ -332,9 +332,10 @@ export function GitCommitTable({
                         <GitLogColumnResizeHandle column="author" onStartResize={startResize} />
                       </div>
                       <div className="relative flex h-full w-(--git-log-date-width) shrink-0 items-center">
-                        <span className="min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-left text-foreground tabular-nums">
-                          {formatGitLogDate(row.commit.date, t)}
-                        </span>
+                        <GitLogDateCell
+                          date={row.commit.date}
+                          utcOffsetMinutes={row.commit.dateUtcOffsetMinutes}
+                        />
                         <GitLogColumnResizeHandle column="date" onStartResize={startResize} />
                       </div>
                     </ContextMenuTrigger>

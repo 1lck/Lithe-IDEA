@@ -626,7 +626,12 @@ pub struct GitCommitResponse {
     pub parent_hashes: Vec<String>,
     pub author_name: String,
     pub author_email: String,
+    /// Author date as `YYYY/MM/DD HH:MM` in the author's own time zone.
     pub date: String,
+    /// Author's UTC offset in minutes (east positive) for `date`; `null` when
+    /// Git did not report one. Hosts compare it with the local offset before
+    /// presenting relative times.
+    pub date_utc_offset_minutes: Option<i32>,
     pub subject: String,
     pub decorations: String,
 }
