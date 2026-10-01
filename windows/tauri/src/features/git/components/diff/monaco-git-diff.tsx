@@ -12,7 +12,9 @@ import { detectLanguageFromPath } from "@/features/editor/utils/language-detecti
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
-import { stageHunk, unstageHunk } from "../../api/git-status-api";
+import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import { showConfirmDialog } from "@/ui/dialog";
+import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import { createMonacoDiffHunkActions, type DiffStagingContext } from "../../utils/monaco-diff-hunk-actions";
 import { monacoDiffRows } from "../../utils/monaco-diff-rows";
 import type { GitDiff } from "../../types/git.types";
@@ -47,7 +49,13 @@ export default function MonacoGitDiff({ diff, viewMode = "split", showWhitespace
   const updating = useRef(false);
   const repoPath = staging?.repoPath;
   const isStaged = staging?.isStaged ?? false;
+  const canDiscard = staging?.canDiscard === true;
   const actionTitle = isStaged ? t("git.diff.unstage") : t("git.diff.stage");
+  const discardTitle = t("git.rollback");
+  // The confirmation runs from an owner created per patch; read the current
+  // translator instead of rebuilding the owner when the language changes.
+  const translate = useRef(t);
+  translate.current = t;
   const { fontSize, fontFamily, lineHeight, tabSize, themeId, editorItalicComments, editorFontLigatures } = useMonacoEditorSettings();
 
   useEffect(() => {
@@ -100,30 +108,38 @@ export default function MonacoGitDiff({ diff, viewMode = "split", showWhitespace
   }, []);
 
   useEffect(() => {
-    const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged } : undefined,
-      { stage: stageHunk, unstage: unstageHunk });
+    const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk,
+        confirmDiscard: async hunk => {
+          // Reuse the product-wide "confirm before discard" preference that
+          // already guards file and repository rollbacks.
+          if (!useSettingsStore.getState().settings.confirmBeforeDiscard) return true;
+          const t = translate.current;
+          return showConfirmDialog(t("git.diff.rollbackHunkConfirm", { path: hunk.file_path }), {
+            title: t("git.diff.rollbackHunk"), confirmLabel: t("git.rollback") });
+        } });
     hunkActions.current = owner;
     setActionFailed(false);
     return () => {
       owner.dispose();
       if (hunkActions.current === owner) hunkActions.current = null;
     };
-  }, [diff, repoPath, isStaged]);
+  }, [diff, repoPath, isStaged, canDiscard]);
 
   useEffect(() => {
     let cancelled = false;
     setError(undefined);
     updating.current = true;
-    const action = hunkActions.current?.action;
+    const titles = { stage: actionTitle, unstage: actionTitle, discard: discardTitle };
+    const actions = (hunkActions.current?.actions ?? []).map(id => ({ id, title: titles[id] }));
     // Only a full-file patch may fold: Monaco's fold bands reveal hidden lines
     // in place, which is meaningless for a sparse patch whose gaps are absent.
     void review.current!.update({ rows, language: toMonacoLanguageId(detectLanguageFromPath(sourcePath)),
-      sideBySide: viewMode === "split", collapse: fullContext, overview: !embedded,
-      actions: action ? [{ id: action, title: actionTitle }] : [] })
+      sideBySide: viewMode === "split", collapse: fullContext, overview: !embedded, actions })
       .then(() => { if (!cancelled) { latest.current = { rows, sourcePath }; updating.current = false; } })
       .catch(error => { if (!cancelled) setError(String(error)); });
     return () => { cancelled = true; };
-  }, [rows, sourcePath, fullContext, viewMode, embedded, repoPath, isStaged, actionTitle]);
+  }, [rows, sourcePath, fullContext, viewMode, embedded, repoPath, isStaged, canDiscard, actionTitle, discardTitle]);
 
   useEffect(() => {
     review.current?.select({ matches: searchMatches.map(match => ({ rowID: `line-${match.lineIndex}`,

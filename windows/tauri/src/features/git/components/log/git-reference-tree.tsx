@@ -405,7 +405,7 @@ function GitReferenceToolbar({
     return (
       <div
         ref={toolbarRef}
-        className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-surface/60 py-1"
+        className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-background py-1"
       >
         {primaryActions.map((action) => renderAction(action))}
         <div className="my-1 h-px w-5 shrink-0 bg-border" />
@@ -419,7 +419,7 @@ function GitReferenceToolbar({
   return (
     <div
       ref={toolbarRef}
-      className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-surface/60 py-1"
+      className="flex h-full min-h-0 w-9 shrink-0 flex-col items-center overflow-hidden border-border border-r bg-background py-1"
     >
       {visibleActions.map((action) => renderAction(action))}
       <div className="mt-auto" />
@@ -1022,7 +1022,7 @@ export function GitReferenceTree({
   );
 
   return (
-    <div className="flex h-full min-h-0 bg-surface/45 font-sans ui-text-sm select-none">
+    <div className="flex h-full min-h-0 bg-background font-sans ui-text-sm select-none">
       <GitReferenceToolbar
         selectedReference={selectedReference}
         currentReference={currentReference}

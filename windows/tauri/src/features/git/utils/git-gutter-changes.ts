@@ -1,6 +1,21 @@
 import type { ReviewRow } from "@lithe/editor/diff-review";
-import type { GitDiff, GitDiffLine, GitHunk } from "../types/git.types";
+import type { GitDiff, GitDiffLine, GitFile, GitHunk } from "../types/git.types";
+import { normalizeRepositoryPath } from "../api/git-repository-path";
 import { parseDiffHunkRange } from "./git-diff-helpers";
+
+/** Aggregated workspace status must match both repository and relative path. */
+export function isGitGutterFileUntracked(
+  files: readonly GitFile[],
+  repoPath: string,
+  filePath: string,
+): boolean {
+  return files.some((file) =>
+    file.status === "untracked" &&
+    (!file.repositoryPath ||
+      normalizeRepositoryPath(file.repositoryPath) === normalizeRepositoryPath(repoPath)) &&
+    (file.repositoryRelativePath ?? file.path) === filePath,
+  );
+}
 
 export type GitGutterChangeKind = "added" | "modified" | "deleted";
 
@@ -255,7 +270,9 @@ export function gitGutterChangeHunk(
   const newCount = leading + change.modifiedLines.length + trailing;
   // Git names the line before an empty range, or 0 at the start of the file.
   const oldStart = oldCount === 0 ? contextStart : contextStart + 1;
-  const firstNewLine = change.modifiedStart - leading;
+  // This patch applies only this change to the index. Earlier unstaged
+  // insertions/deletions must not shift its new-side coordinates.
+  const firstNewLine = contextStart + 1;
   const newStart = newCount === 0 ? firstNewLine - 1 : firstNewLine;
 
   return {

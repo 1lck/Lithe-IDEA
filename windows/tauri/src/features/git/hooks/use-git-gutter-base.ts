@@ -6,6 +6,7 @@ import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events
 import { useGitStore } from "../stores/git.store";
 import {
   gitGutterBaseFromDiff,
+  isGitGutterFileUntracked,
   splitGitGutterLines,
   type GitGutterBaseSource,
 } from "../utils/git-gutter-changes";
@@ -30,12 +31,9 @@ export async function loadGitGutterBase(
   const resolved = await resolveRepositoryForFile(rootPath, filePath);
   if (!resolved) return null;
   const status = useGitStore.getState().workspaceGitStatus;
-  const untracked = status?.files.some(
-    (file) =>
-      file.status === "untracked" &&
-      (file.repositoryRelativePath ?? file.path) === resolved.filePath,
-  );
-  if (untracked) return null;
+  if (isGitGutterFileUntracked(status?.files ?? [], resolved.repoPath, resolved.filePath)) {
+    return null;
+  }
 
   const source: GitGutterBaseSource | null = gitGutterBaseFromDiff(
     await getFullContextFileDiff(resolved.repoPath, resolved.filePath, false),

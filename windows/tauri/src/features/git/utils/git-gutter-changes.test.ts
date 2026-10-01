@@ -3,6 +3,8 @@ import { monacoLineDiff } from "@/features/editor/engines/monaco/monaco-line-dif
 import type { GitDiff, GitDiffLine } from "../types/git.types";
 import {
   adjacentGitGutterChangeIndex,
+  isGitGutterFileUntracked,
+  type GitGutterChange,
   computeGitGutterChanges,
   gitGutterBaseFromDiff,
   gitGutterChangeHunk,
@@ -64,12 +66,12 @@ describe("Git gutter change locations", () => {
   });
 
   test("a modification wins over a deletion marked on the same line", () => {
-    const changes = [
+    const changes: GitGutterChange[] = [
       { kind: "deleted", originalStart: 2, originalEnd: 3, modifiedStart: 2, modifiedEnd: 2,
         originalLines: ["b"], modifiedLines: [] },
       { kind: "modified", originalStart: 3, originalEnd: 4, modifiedStart: 2, modifiedEnd: 3,
         originalLines: ["c"], modifiedLines: ["C"] },
-    ] as const;
+    ];
     expect(gitGutterChangeIndexAtLine([...changes], 2, 3)).toBe(1);
   });
 
@@ -206,5 +208,46 @@ describe("Git gutter staging patch", () => {
 
     const [deletion] = changesOf(["x"], []);
     expect(gitGutterChangeHunk("f", ["x"], deletion).lines[0].content).toBe("@@ -1,1 +0,0 @@");
+  });
+});
+
+
+describe("Git gutter repository identity", () => {
+  test("an untracked sibling path does not hide the tracked file's markers", () => {
+    const files = [{
+      path: "a/src/app.ts", repositoryPath: "C:/workspace/a",
+      repositoryRelativePath: "src/app.ts", status: "untracked" as const, staged: false,
+    }];
+    expect(isGitGutterFileUntracked(files, "C:/workspace/b", "src/app.ts")).toBe(false);
+    expect(isGitGutterFileUntracked(files, "C:/workspace/a/", "src/app.ts")).toBe(true);
+    expect(isGitGutterFileUntracked(files, "C:/workspace/a", "src/other.ts")).toBe(false);
+  });
+
+  test("single-repository status retains undecorated path support", () => {
+    expect(isGitGutterFileUntracked([
+      { path: "src/app.ts", status: "untracked", staged: false },
+    ], "C:/workspace/a", "src/app.ts")).toBe(true);
+  });
+});
+
+describe("Git gutter isolated patch coordinates", () => {
+  test("earlier unstaged deletions do not make the selected patch start negative", () => {
+    const base = Array.from({ length: 10 }, (_, index) => String(index + 1));
+    // Exercise an isolated range directly: Monaco may coalesce nearby edits,
+    // but patch coordinates must remain valid for any selected range.
+    const change: GitGutterChange = {
+      kind: "modified", originalStart: 10, originalEnd: 11,
+      modifiedStart: 2, modifiedEnd: 3, originalLines: ["10"], modifiedLines: ["TEN"],
+    };
+    const hunk = gitGutterChangeHunk("f", base, change);
+    expect(hunk.lines[0].content).toBe("@@ -7,4 +7,4 @@");
+    expect(hunk.lines.slice(1).map((line) => line.content)).toEqual(["7", "8", "9", "10", "TEN"]);
+  });
+
+  test("earlier unstaged insertions do not shift the selected patch", () => {
+    const base = ["a", "b", "c", "d", "e", "f"];
+    const changes = changesOf(base, ["new", ...base.slice(0, -1), "F"]);
+    expect(changes).toHaveLength(2);
+    expect(gitGutterChangeHunk("f", base, changes[1]).lines[0].content).toBe("@@ -3,4 +3,4 @@");
   });
 });

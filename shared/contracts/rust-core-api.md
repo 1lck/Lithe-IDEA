@@ -38,6 +38,18 @@ quoted values, since the native argument-file parser processes bytes.
 Every execution owns an exclusively created temporary file; partial writes and
 spawn failures clean it up, while successful launches retain it until that exact
 process exits. A replacement execution never shares its predecessor's file.
+For a known JDK older than 9, Rust hosts call
+`lithe_core::execution::plan_classpath_jar_launch` instead. Under the same
+command-line budget it replaces the effective `-cp`/`-classpath` value with a
+host-owned JAR path and returns the ASCII `META-INF/MANIFEST.MF` text: the
+`Class-Path` header lists every entry, in order, as an absolute percent-encoded
+UTF-8 `file:` URL (directories end in `/`), wrapped at 72 bytes. The host
+answers whether each entry is a directory and writes the manifest-only JAR with
+the same exclusive temporary-file lifecycle. Wildcard entries, drive-relative
+Windows entries, `-jar` launches, and unknown JDK versions stay direct. This is
+a Rust API only; there is no JSON command yet because the macOS process
+argument limit (`ARG_MAX`) is far above the Windows cap, so a direct JDK 8
+launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -418,10 +430,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, and an opaque continuation cursor |
+| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
-| `git.commit` | Return one structured commit by revision |
+| `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
@@ -1150,7 +1162,13 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `offset`; repository size does not select
 between the two protocols.
 
-`git.commit` accepts `root` and a revision, returning one `commit` object.
+`git.commit` accepts `root` and a revision, returning one `commit` object with
+the same fields as a history page entry and a `body` string. `body` is the
+message after the subject paragraph (Git `%b`), keeps internal line breaks and
+indentation, has trailing whitespace removed, and is empty for a subject-only
+message. History pages carry only `subject`; a commit detail view reads the
+body on demand with `git.commit`. See
+`shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
 

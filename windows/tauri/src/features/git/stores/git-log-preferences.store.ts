@@ -4,6 +4,12 @@ import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
 import { normalizeRepositoryPath } from "../api/git-repo-api";
 import type { GitReferenceKind } from "../types/git.types";
+import {
+  GIT_LOG_COLUMN_DEFAULT_WIDTHS,
+  clampGitLogColumnWidth,
+  normalizeGitLogColumnWidth,
+  type GitLogColumn,
+} from "../utils/git-log-columns";
 
 export type GitLogFilterScope = "text" | "author" | "branch";
 
@@ -19,6 +25,8 @@ interface GitLogPreferencesStore {
   showWorktreeRepositories: boolean;
   mainPanelLayout: GitLogPanelLayout;
   inspectorPanelLayout: GitLogPanelLayout;
+  authorColumnWidth: number;
+  dateColumnWidth: number;
   collapsedReferenceSections: GitReferenceKind[];
   collapsedReferenceGroups: string[];
   markedReferenceFullNamesByRepository: Record<string, string[]>;
@@ -30,6 +38,8 @@ interface GitLogPreferencesStore {
     setShowWorktreeRepositories: (show: boolean) => void;
     setMainPanelLayout: (layout: GitLogPanelLayout) => void;
     setInspectorPanelLayout: (layout: GitLogPanelLayout) => void;
+    /** Persists a commit-table column width; call once when a drag ends, not per pointer move. */
+    setColumnWidth: (column: GitLogColumn, width: number) => void;
     toggleReferenceSection: (kind: GitReferenceKind) => void;
     toggleReferenceGroup: (id: string) => void;
     setReferenceExpansion: (sections: GitReferenceKind[], groups: string[]) => void;
@@ -67,6 +77,8 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
       showWorktreeRepositories: true,
       mainPanelLayout: DEFAULT_MAIN_LAYOUT,
       inspectorPanelLayout: DEFAULT_INSPECTOR_LAYOUT,
+      authorColumnWidth: GIT_LOG_COLUMN_DEFAULT_WIDTHS.author,
+      dateColumnWidth: GIT_LOG_COLUMN_DEFAULT_WIDTHS.date,
       collapsedReferenceSections: [],
       collapsedReferenceGroups: [],
       markedReferenceFullNamesByRepository: {},
@@ -79,6 +91,12 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
           set({ showWorktreeRepositories }),
         setMainPanelLayout: (mainPanelLayout) => set({ mainPanelLayout }),
         setInspectorPanelLayout: (inspectorPanelLayout) => set({ inspectorPanelLayout }),
+        setColumnWidth: (column, width) =>
+          set(
+            column === "author"
+              ? { authorColumnWidth: clampGitLogColumnWidth(column, width) }
+              : { dateColumnWidth: clampGitLogColumnWidth(column, width) },
+          ),
         toggleReferenceSection: (kind) =>
           set((state) => ({
             collapsedReferenceSections: toggleListItem(state.collapsedReferenceSections, kind),
@@ -148,6 +166,11 @@ const useGitLogPreferencesStoreBase = create<GitLogPreferencesStore>()(
           markedReferenceFullNamesByRepository:
             persistedPreferences.markedReferenceFullNamesByRepository ?? {},
           showWorktreeRepositories: persistedPreferences.showWorktreeRepositories ?? true,
+          authorColumnWidth: normalizeGitLogColumnWidth(
+            "author",
+            persistedPreferences.authorColumnWidth,
+          ),
+          dateColumnWidth: normalizeGitLogColumnWidth("date", persistedPreferences.dateColumnWidth),
           actions: currentState.actions,
         };
       },

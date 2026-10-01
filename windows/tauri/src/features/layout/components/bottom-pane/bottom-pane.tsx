@@ -223,29 +223,18 @@ const BottomPane = () => {
   const resizeGutter = !isFullScreen ? (
     <div
       onMouseDown={handleMouseDown}
-      className={cn(
-        "group relative flex h-(--lithe-workbench-gap) w-full shrink-0 cursor-ns-resize items-center justify-center",
-        "transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-primary/8",
-        isResizing && "bg-primary/8",
-      )}
+      className="relative flex h-(--lithe-workbench-gap) w-full shrink-0 cursor-ns-resize items-center justify-center"
       role="separator"
       aria-orientation="horizontal"
       aria-label={t("layout.resizeBottomPane")}
-    >
-      <div
-        className={cn(
-          "h-px w-full bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary",
-          isResizing && "bg-primary",
-        )}
-      />
-    </div>
+    />
   ) : null;
 
   const paneContent = (
     <div
       data-bottom-pane-drop-target
       className={cn(
-        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl border-border/70 border-t border-l bg-background",
+        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl bg-background",
         isInternalHoverTarget && "ring-2 ring-primary ring-inset",
         isFullScreen && "size-full rounded-none border-0 shadow-none ring-0",
         !isFullScreen && "flex-1",

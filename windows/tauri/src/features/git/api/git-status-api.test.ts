@@ -41,6 +41,7 @@ let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 const {
   addPathsToGitignore,
   addPathsToLocalGitExclude,
+  discardHunk,
   rollbackFilesChanges,
   setFilesStaged,
   getWorkspaceGitStatus,
@@ -48,6 +49,7 @@ const {
   getGitStatus,
 } = await import("./git-status-api");
 const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
+const gitEvents = await import("../events/git-events");
 
 beforeEach(() => {
   invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
@@ -101,6 +103,44 @@ describe("Git status batch mutations", () => {
       operation: "discardAll",
       paths: ["src/first.ts", "src/second.ts"],
     });
+  });
+
+  test("discards one hunk in its owning repository and announces the file change", async () => {
+    const hunk = {
+      file_path: "src/App.tsx",
+      lines: [
+        { line_type: "header" as const, content: "@@ -1 +1 @@" },
+        { line_type: "removed" as const, content: "old", old_line_number: 1 },
+        { line_type: "added" as const, content: "new", new_line_number: 1 },
+      ],
+    };
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    const recorded = () => emitted.mock.calls.map(([change]) => change);
+    try {
+      await expect(discardHunk("C:/workspace/service-a", hunk)).resolves.toBe(true);
+      expect(invoke).toHaveBeenLastCalledWith("git_discard_hunk", {
+        repoPath: "C:/workspace/service-a",
+        hunk,
+      });
+      expect(recorded()).toEqual([{
+        repoPath: "C:/workspace/service-a",
+        filePath: "src/App.tsx",
+        scopes: ["working-tree"],
+        source: "discard-hunk",
+      }]);
+
+      // A rejected patch reports failure without announcing a change. Route by
+      // command: repository discovery may already be cached in random order.
+      invokeSpy.mockImplementation((async (command: string, args?: Record<string, unknown>) => {
+        if (command === "git_discard_hunk") throw new Error("patch does not apply");
+        return invoke(command, args);
+      }) as typeof tauriCore.invoke);
+      const error = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(discardHunk("C:/repo", hunk)).resolves.toBe(false);
+      } finally { error.mockRestore(); }
+      expect(recorded()).toHaveLength(1);
+    } finally { emitted.mockRestore(); }
   });
 
   test("adds selected paths to the repository gitignore", async () => {
