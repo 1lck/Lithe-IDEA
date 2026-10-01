@@ -196,21 +196,26 @@ struct GitCommitDiffReviewView: View {
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
-        GeometryReader { geometry in
-            let usesSinglePane = context.kind == .added || context.kind == .deleted
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: feature.diffRows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: usesSinglePane ? 680 : 980,
-                paneCount: usesSinglePane ? 1 : 2
-            )
-
-            let kinds = feature.diffRows.map(\.kind)
+        let usesSinglePane = context.kind == .added || context.kind == .deleted
+        let measuredWidth = DiffLayoutMetrics.contentWidth(
+            rows: feature.diffRows, viewportWidth: 0,
+            minimumWidth: usesSinglePane ? 680 : 980, paneCount: usesSinglePane ? 1 : 2)
+        let kinds = feature.diffRows.map(\.kind)
+        let displayRows = usesSinglePane ? [] : feature.diffRows.enumerated().map {
+            DiffDisplayRow.row($0.element, index: $0.offset)
+        }
+        let layout = usesSinglePane ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
+        let measuredHeight = usesSinglePane ? DiffLayoutMetrics.contentHeight(rows: feature.diffRows, kinds: kinds) : 0
+        let selectedRowIDs = Set(differenceIndexByRow.compactMap { entry in
+            entry.value == selectedDifferenceIndex ? entry.key : nil
+        })
+        return GeometryReader { geometry in
+            let contentWidth = max(geometry.size.width, measuredWidth)
             if usesSinglePane {
                 ScrollView(.horizontal) {
                     ScrollView(.vertical) {
                         let contentHeight = max(
-                            DiffLayoutMetrics.contentHeight(rows: feature.diffRows, kinds: kinds),
+                            measuredHeight,
                             geometry.size.height
                         )
                         LazyVStack(spacing: 0) {
@@ -226,20 +231,15 @@ struct GitCommitDiffReviewView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
                 .background(LitheTheme.editor)
             } else {
-                let displayRows = feature.diffRows.enumerated().map {
-                    DiffDisplayRow.row($0.element, index: $0.offset)
-                }
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: kinds,
+                    layout: layout,
                     fileExtension: context.url.pathExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
                     highlightsWords: highlightsWords,
-                    selectedRowIDs: Set(differenceIndexByRow.compactMap { entry in
-                        entry.value == selectedDifferenceIndex ? entry.key : nil
-                    }),
+                    selectedRowIDs: selectedRowIDs,
                     onExpand: { _ in }
                 )
                 .frame(width: geometry.size.width, height: geometry.size.height)

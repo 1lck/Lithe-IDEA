@@ -84,10 +84,10 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
 
     var body: some View {
         let size = resolvedSize
-        if axis == .horizontal {
-            HStack(spacing: 0) { panes(size) }
-        } else {
-            VStack(spacing: 0) { panes(size) }
+        LitheSplitPaneLayout(axis: axis, placement: placement, size: size,
+            dividerSize: isSizedPaneCollapsed ? 0 : SplitHandleView.thickness,
+            flexibleMinimum: flexibleMinimum ?? 0) {
+            panes(size)
         }
     }
 
@@ -95,7 +95,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     private func panes(_ size: CGFloat) -> some View {
         switch placement {
         case .leading:
-            sizedPane(size)
+            sizedPane
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -104,7 +104,7 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
         case .trailing:
             flexiblePane
             handle(size)
-            sizedPane(size)
+            sizedPane
                 .opacity(isSizedPaneCollapsed ? 0 : 1)
                 .allowsHitTesting(!isSizedPaneCollapsed)
                 .accessibilityHidden(isSizedPaneCollapsed)
@@ -112,25 +112,15 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
     }
 
     @ViewBuilder
-    private func sizedPane(_ size: CGFloat) -> some View {
-        if axis == .horizontal {
-            if clipsSizedPane {
-                sized
-                    .frame(width: size, alignment: placement == .leading ? .leading : .trailing)
-                    .clipped()
-                    .contentShape(Rectangle())
-            } else {
-                sized.frame(width: size)
-            }
+    private var sizedPane: some View {
+        let pane = sized.frame(maxWidth: .infinity, maxHeight: .infinity,
+            alignment: axis == .horizontal
+                ? (placement == .leading ? .leading : .trailing)
+                : (placement == .leading ? .top : .bottom))
+        if clipsSizedPane {
+            pane.clipped().contentShape(Rectangle())
         } else {
-            if clipsSizedPane {
-                sized
-                    .frame(height: size, alignment: placement == .leading ? .top : .bottom)
-                    .clipped()
-                    .contentShape(Rectangle())
-            } else {
-                sized.frame(height: size)
-            }
+            pane
         }
     }
 
@@ -152,7 +142,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             highlightsOnHover: highlightsOnHover,
             onDragStarted: { dragStart = size },
             onDragChanged: { translation in
-                draggedSize = resolved(from: translation)
+                let nextSize = resolved(from: translation)
+                if nextSize != resolvedSize { draggedSize = nextSize }
             },
             onDragEnded: { translation in
                 let finalSize = resolved(from: translation)
@@ -183,5 +174,53 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             minimum: minimum,
             maximum: maximum
         )
+    }
+}
+
+/// Like IDEA's ThreeComponentsSplitter, assign existing panes exact bounds.
+/// Stack layouts probe children's minimum/ideal sizes on each drag, even when
+/// the container and the divider already determine every pane's rectangle.
+private struct LitheSplitPaneLayout: Layout {
+    let axis: LitheSplitAxis
+    let placement: LitheSplitPaneGeometry.Placement
+    let size: CGFloat
+    let dividerSize: CGFloat
+    let flexibleMinimum: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        if let width = proposal.width, let height = proposal.height,
+           width.isFinite, height.isFinite {
+            return CGSize(width: max(0, width), height: max(0, height))
+        }
+        // Intrinsic sizing is only needed if the host has not assigned bounds.
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let sizedExtent = size + dividerSize + flexibleMinimum
+        let ideal = axis == .horizontal
+            ? CGSize(width: max(sizedExtent, sizes.reduce(0) { $0 + $1.width }),
+                     height: sizes.map(\.height).max() ?? 0)
+            : CGSize(width: sizes.map(\.width).max() ?? 0,
+                     height: max(sizedExtent, sizes.reduce(0) { $0 + $1.height }))
+        return CGSize(width: proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? ideal.width,
+                      height: proposal.height.flatMap { $0.isFinite ? $0 : nil } ?? ideal.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 3 else { return }
+        let extent = axis == .horizontal ? bounds.width : bounds.height
+        let divider = min(dividerSize, max(0, extent))
+        let tracked = min(max(0, size), max(0, extent - divider - flexibleMinimum))
+        let flexible = max(0, extent - tracked - divider)
+        let lengths = placement == .leading ? [tracked, divider, flexible] : [flexible, divider, tracked]
+        var offset: CGFloat = 0
+        for (index, length) in lengths.enumerated() {
+            let point = CGPoint(x: bounds.minX + (axis == .horizontal ? offset : 0),
+                                y: bounds.minY + (axis == .vertical ? offset : 0))
+            let size = axis == .horizontal
+                ? CGSize(width: length, height: bounds.height)
+                : CGSize(width: bounds.width, height: length)
+            let childProposal = ProposedViewSize(size)
+            subviews[index].place(at: point, anchor: .topLeading, proposal: childProposal)
+            offset += length
+        }
     }
 }

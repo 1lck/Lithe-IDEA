@@ -542,6 +542,246 @@ struct GitGraphInteractionTests {
         }
     }
 
+    @Test("Continuous native viewport resizing retains document, scroll and multiple selections")
+    func continuousViewportResize() throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history"))
+        let data = presentation(layout)
+        var clicked: [(String, NSEvent.ModifierFlags)] = []
+        var callbacks = actions { _ in }
+        callbacks.onSelectWithModifiers = { clicked.append(($0.hash, $1)) }
+        let hashes = Set(layout.rows[8...10].map(\.commit.hash))
+        let scroll = GitGraphScrollView.makeScrollView(presentation: data,
+            selectedHash: layout.rows[10].commit.hash, showCommitDecorations: true,
+            canLoadMore: true, isLoadingMore: false, actions: callbacks, onLoadMore: {}, selectedHashes: hashes)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 420),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = scroll
+        defer { window.orderOut(nil); window.close() }
+        window.contentView?.layoutSubtreeIfNeeded()
+        let document = try #require(scroll.documentView as? GitGraphScrollDocumentView)
+        let subviews = document.subviews.map(ObjectIdentifier.init)
+        scroll.contentView.setBoundsOrigin(CGPoint(x: 0, y: 7 * GitGraphGeometry.rowHeight))
+        let origin = scroll.contentView.bounds.origin
+        for step in 0..<80 {
+            let height = CGFloat(80 + abs(40 - step) * 8)
+            scroll.setFrameSize(CGSize(width: step.isMultiple(of: 2) ? 850 : 780, height: height))
+            scroll.needsLayout = true
+            scroll.layoutSubtreeIfNeeded()
+            #expect(scroll.documentView === document)
+            #expect(document.subviews.map(ObjectIdentifier.init) == subviews)
+            #expect(document.bounds.width == scroll.contentView.bounds.width)
+            #expect(scroll.contentView.bounds.origin == origin)
+        }
+        let accessible = try #require(document.accessibilityChildren()?.compactMap { $0 as? NSAccessibilityElement })
+        #expect(accessible.count == data.rows.count)
+        #expect(accessible[8...10].allSatisfy { $0.isAccessibilitySelected() })
+        #expect(!accessible[7].isAccessibilitySelected())
+        #expect(accessible[9].accessibilityPerformPress())
+        #expect(clicked.last?.0 == data.rows[9].commit.hash)
+        let rows = try #require(document.subviews.compactMap { $0 as? GitGraphCommitRowsNSView }.first)
+        rows.select(rowIndex: 11, modifiers: [.shift])
+        rows.select(rowIndex: 12, modifiers: [.command])
+        #expect(clicked.suffix(2).map(\.1) == [[.shift], [.command]])
+        for (code, expected) in [(UInt16(125), 11), (UInt16(126), 9)] {
+            let key = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                modifierFlags: [.shift], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code))
+            scroll.keyDown(with: key)
+            #expect(clicked.last?.0 == data.rows[expected].commit.hash)
+            #expect(clicked.last?.1 == [.shift])
+        }
+        let id = UUID()
+        #expect(document.revealNavigation(hash: data.rows[100].commit.hash, id: id))
+        #expect(scroll.contentView.bounds.intersects(CGRect(x: 0, y: 100 * GitGraphGeometry.rowHeight, width: 1, height: 26)))
+        #expect(!document.revealNavigation(hash: data.rows[100].commit.hash, id: id))
+        #expect(document.revealNavigation(hash: data.rows[100].commit.hash, id: UUID()))
+    }
+
+    @Test("Split panes receive exact bounds without minimum/ideal size probes", arguments: Array(0..<8))
+    func splitPaneBounds(_ scenario: Int) throws {
+        let horizontal = scenario & 1 == 0
+        let trailing = scenario & 2 != 0
+        let collapsed = scenario & 4 != 0
+        let tracked = SplitPaneSizeProbe()
+        let flexible = SplitPaneSizeProbe()
+        let hosting = NSHostingView(rootView: GeometryReader { geometry in
+            LitheSplitPaneView(axis: horizontal ? .horizontal : .vertical,
+                placement: trailing ? .trailing : .leading, defaultSize: 120,
+                minimum: 30, maximum: 400, flexibleMinimum: 30,
+                isSizedPaneCollapsed: collapsed,
+                sized: { SplitPaneProbeView(probe: tracked) },
+                flexible: { SplitPaneProbeView(probe: flexible) })
+        })
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 320),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.orderOut(nil); window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        let trackedView = try #require(tracked.view)
+        let flexibleView = try #require(flexible.view)
+        tracked.proposals.removeAll()
+        flexible.proposals.removeAll()
+        for size in [CGSize(width: 540, height: 280), CGSize(width: 480, height: 250)] {
+            hosting.setFrameSize(size)
+            hosting.layoutSubtreeIfNeeded()
+            #expect(tracked.view === trackedView && flexible.view === flexibleView)
+            let extent = horizontal ? size.width : size.height
+            let actualTracked = horizontal ? trackedView.bounds.width : trackedView.bounds.height
+            let actualFlexible = horizontal ? flexibleView.bounds.width : flexibleView.bounds.height
+            #expect(actualTracked == (collapsed ? 0 : 120))
+            #expect(actualFlexible == extent - (collapsed ? 0 : 125))
+        }
+        // HStack/VStack probe 0 and infinity to negotiate content sizes; a
+        // splitter with known bounds must never send those probes to a pane.
+        #expect(!flexible.proposals.isEmpty)
+        #expect(flexible.proposals.allSatisfy { $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 })
+        if !collapsed {
+            #expect(tracked.proposals.allSatisfy { $0.width.isFinite && $0.height.isFinite && $0.width > 0 && $0.height > 0 })
+        }
+    }
+
+    @Test("The production split handle continuously resizes Git Log with a diff above it")
+    func dragGitLogWithDiff() async throws {
+        let data = presentation(GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history")))
+        let diff = (0..<1_200).map { index in
+            DiffRow(oldLine: index + 1, newLine: index + 1, left: "let value = \(index)",
+                    right: nil, kind: .context, sequence: index)
+        }
+        let root = LitheSplitPaneView(axis: .vertical, placement: .leading, defaultSize: 280,
+            minimum: 30, maximum: 600, flexibleMinimum: 0, clipsSizedPane: true,
+            sized: { DiffPaneView(rows: diff, fileExtension: "swift", collapsesUnchangedRegions: false, showsDiffMap: false) },
+            flexible: { GitGraphScrollView(presentation: data, selectedHash: nil,
+                showCommitDecorations: false, canLoadMore: false, isLoadingMore: false,
+                actions: actions { _ in }, onLoadMore: {}) })
+        let hosting = NSHostingView(rootView: root)
+        // The real workbench assigns its split a viewport. Do not let the
+        // test's content view resize the window to the split's intrinsic size.
+        hosting.sizingOptions = []
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.orderOut(nil); window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let views = descendants(hosting)
+        let handle = try #require(views.compactMap { $0 as? SplitHandleInteractionView }.first { $0.axis == .vertical })
+        let scroll = try #require(views.compactMap { $0 as? GitGraphScrollNSView }.first)
+        let document = try #require(scroll.documentView)
+        let originalHeight = scroll.bounds.height
+        let origin = handle.convert(CGPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+        func event(_ type: NSEvent.EventType, offset: CGFloat) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: CGPoint(x: origin.x, y: origin.y + offset),
+                modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1))
+        }
+        handle.mouseDown(with: try event(.leftMouseDown, offset: 0))
+        let clock = ContinuousClock()
+        let dragStarted = clock.now
+        for offset in [CGFloat(-80), -160, -220, -120, -40, 0] {
+            handle.mouseDragged(with: try event(.leftMouseDragged, offset: offset))
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while abs(scroll.bounds.height - (originalHeight + offset)) > 1 && clock.now < deadline {
+                await Task.yield()
+                hosting.layoutSubtreeIfNeeded()
+            }
+            #expect(abs(scroll.bounds.height - (originalHeight + offset)) <= 1)
+            #expect(scroll.documentView === document)
+        }
+        handle.mouseUp(with: try event(.leftMouseUp, offset: 0))
+        hosting.layoutSubtreeIfNeeded()
+        #expect(abs(scroll.bounds.height - originalHeight) <= 1)
+        print("GIT_LOG_RESIZE sample=diff-and-log-native-drag events=6 elapsed=\(dragStarted.duration(to: clock.now))")
+    }
+
+    @Test("Long split diffs create visible rows and can still scroll to the last row")
+    func splitDiffCreatesViewportRows() async throws {
+        let rows = (0..<1_200).map { index in
+            DiffRow(oldLine: index + 1, newLine: index + 1, left: "let value = \(index)",
+                    right: nil, kind: .context, sequence: index)
+        }
+        let display = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        let layout = DiffSplitLayout.plan(displayRows: display, kinds: rows.map(\.kind))
+        var instantiated: Set<DiffRowID> = []
+        var builtRows = 0
+        let kinds = rows.map(\.kind)
+        let view = GeometryReader { geometry in
+            DiffSplitPaneView(displayRows: display, kinds: kinds, layout: layout,
+                fileExtension: "swift", contentWidth: 980, viewportWidth: 850,
+                onExpand: { _ in }) { row, _ in
+                    instantiated.insert(row.id)
+                    builtRows += 1
+                    return EmptyView()
+                }
+        }
+        let hosting = NSHostingView(rootView: view)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 240),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = hosting
+        defer { window.orderOut(nil); window.close() }
+        hosting.layoutSubtreeIfNeeded()
+        #expect(!instantiated.isEmpty && instantiated.count < 200,
+                "A 240pt viewport must not lay out 1,200 diff rows: \(instantiated.count)")
+        func descendants(_ view: NSView) -> [NSView] { [view] + view.subviews.flatMap(descendants) }
+        let scroll = try #require(descendants(hosting).compactMap { $0 as? NSScrollView }.first)
+        scroll.contentView.setBoundsOrigin(CGPoint(x: 0, y: layout.contentHeight - 240))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        let last = try #require(rows.last?.id)
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while !instantiated.contains(last) && clock.now < deadline {
+            await Task.yield()
+            hosting.layoutSubtreeIfNeeded()
+        }
+        #expect(instantiated.contains(last), "Offscreen rows must appear when scrolled into view")
+        // SwiftUI can measure intermediate rows on the first distant jump.
+        // The regression is redoing the whole file on subsequent size changes.
+        let beforeResize = builtRows
+        for height in [CGFloat(180), 300, 200, 280, 240] {
+            hosting.setFrameSize(CGSize(width: 850, height: height))
+            hosting.needsLayout = true
+            hosting.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(builtRows - beforeResize < 400,
+                "Resizing after a distant scroll must not rebuild the whole file: \(builtRows - beforeResize)")
+    }
+
+    @Test("Git Log viewport resize comparison with 300 commits")
+    func viewportResizeComparison() throws {
+        let layout = GitGraphLayoutService.layout(commits: try reportedCommits("issue410-date-history"))
+        let data = presentation(layout)
+        let callbacks = actions { _ in }
+        let legacy = NSHostingView(rootView: ScrollView {
+            GitGraphView(presentation: data, selectedHash: nil, showCommitDecorations: false, actions: callbacks)
+        })
+        let native = GitGraphScrollView.makeScrollView(presentation: data, selectedHash: nil,
+            showCommitDecorations: false, canLoadMore: false, isLoadingMore: false, actions: callbacks, onLoadMore: {})
+        for (name, view) in [("swiftui-before", legacy as NSView), ("native-after", native as NSView)] {
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 850, height: 400),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = view
+            defer { window.orderOut(nil); window.close() }
+            view.layoutSubtreeIfNeeded()
+            let start = ContinuousClock.now
+            for step in 0..<30 {
+                view.setFrameSize(CGSize(width: 850, height: CGFloat(180 + abs(15 - step) * 14)))
+                view.needsLayout = true
+                view.layoutSubtreeIfNeeded()
+                let region = view.bounds
+                let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: region))
+                view.cacheDisplay(in: region, to: bitmap)
+                #expect(bitmap.pixelsWide > 0 && bitmap.pixelsHigh > 0)
+            }
+            // Diagnostic only: machine-dependent time is not a unit-test gate.
+            print("GIT_LOG_RESIZE sample=\(name) frames=30 elapsed=\(start.duration(to: .now))")
+        }
+    }
+
     private func commits() -> [GitCommit] {
         (0...40).map { row -> GitCommit in
             let hash = String(row)
@@ -595,5 +835,26 @@ final class GraphCaptureBackground: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.windowBackgroundColor.setFill()
         NSBezierPath(rect: dirtyRect).fill()
+    }
+}
+
+@MainActor
+private final class SplitPaneSizeProbe {
+    var view: NSView?
+    var proposals: [CGSize] = []
+}
+
+private struct SplitPaneProbeView: NSViewRepresentable {
+    let probe: SplitPaneSizeProbe
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        probe.view = view
+        return view
+    }
+    func updateNSView(_ nsView: NSView, context: Context) {}
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
+        let size = proposal.replacingUnspecifiedDimensions()
+        probe.proposals.append(size)
+        return size
     }
 }

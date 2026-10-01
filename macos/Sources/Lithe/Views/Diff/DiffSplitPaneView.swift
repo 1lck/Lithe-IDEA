@@ -5,12 +5,10 @@ import LitheGitModule
 /// One-sided changes therefore never manufacture blank source rows; their
 /// height difference is explained by the curved transition in the gutter.
 struct DiffSplitPaneView<RowOverlay: View>: View {
-    let displayRows: [DiffDisplayRow]
-    let kinds: [DiffRowKind]
+    let layout: DiffSplitLayout
     let fileExtension: String
     let contentWidth: CGFloat
     let viewportWidth: CGFloat
-    let minimumHeight: CGFloat
     let highlightsWords: Bool
     let selectedRowIDs: Set<DiffRowID>
     let searchMatchIDs: Set<DiffRowID>
@@ -24,10 +22,10 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     init(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
+        layout: DiffSplitLayout? = nil,
         fileExtension: String,
         contentWidth: CGFloat,
         viewportWidth: CGFloat,
-        minimumHeight: CGFloat,
         highlightsWords: Bool = true,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
@@ -35,12 +33,10 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         onExpand: @escaping (DiffCollapsedRegion) -> Void,
         @ViewBuilder rowOverlay: @escaping (DiffRow, DiffSide) -> RowOverlay
     ) {
-        self.displayRows = displayRows
-        self.kinds = kinds
+        self.layout = layout ?? DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
         self.fileExtension = fileExtension
         self.contentWidth = contentWidth
         self.viewportWidth = viewportWidth
-        self.minimumHeight = minimumHeight
         self.highlightsWords = highlightsWords
         self.selectedRowIDs = selectedRowIDs
         self.searchMatchIDs = searchMatchIDs
@@ -50,7 +46,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     }
 
     var body: some View {
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
         let gutterWidth = DiffLayoutMetrics.centerGutterWidth
         let availablePaneWidth = max(0, viewportWidth - gutterWidth)
         let paneViewportWidth = max(
@@ -62,79 +57,76 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
             paneViewportWidth,
             (contentWidth - gutterWidth) / 2
         )
-        let height = max(layout.contentHeight, minimumHeight)
+        // Keep row content outside the height reader. Cached lazy rows must
+        // not be regenerated when only the viewport height changes.
+        let leftColumn = sideColumn(layout.leftItems, side: .left, width: paneContentWidth)
+        let rightColumn = sideColumn(layout.rightItems, side: .right,
+            width: max(rightPaneViewportWidth, contentWidth - gutterWidth - paneViewportWidth))
+        return GeometryReader { geometry in
+            let height = max(layout.contentHeight, geometry.size.height)
+            DiffHorizontalOffsetLayer(
+                viewportWidth: viewportWidth,
+                contentWidth: paneContentWidth,
+                height: height
+            ) { horizontalOffset in
+                ZStack(alignment: .topLeading) {
+                    HStack(alignment: .top, spacing: 0) {
+                        sideViewport(
+                            leftColumn,
+                            viewportWidth: paneViewportWidth,
+                            height: height,
+                            horizontalOffset: horizontalOffset
+                        )
+                        centerGutter
+                        sideViewport(
+                            rightColumn,
+                            viewportWidth: rightPaneViewportWidth,
+                            height: height,
+                            horizontalOffset: horizontalOffset
+                        )
+                    }
 
-        DiffHorizontalOffsetLayer(
-            viewportWidth: viewportWidth,
-            contentWidth: paneContentWidth,
-            height: height
-        ) { horizontalOffset in
-            ZStack(alignment: .topLeading) {
-                HStack(alignment: .top, spacing: 0) {
-                    sideViewport(
-                        layout.leftItems,
-                        side: .left,
-                        viewportWidth: paneViewportWidth,
-                        contentWidth: paneContentWidth,
-                        height: height,
-                        horizontalOffset: horizontalOffset
-                    )
-                    centerGutter
-                    sideViewport(
-                        layout.rightItems,
-                        side: .right,
-                        viewportWidth: rightPaneViewportWidth,
-                        contentWidth: max(
-                            rightPaneViewportWidth,
-                            contentWidth - gutterWidth - paneViewportWidth
-                        ),
-                        height: height,
-                        horizontalOffset: horizontalOffset
+                    DiffTransitionOverlay(
+                        transitions: layout.transitions,
+                        contentWidth: viewportWidth,
+                        contentHeight: height
                     )
                 }
-
-                DiffTransitionOverlay(
-                    transitions: layout.transitions,
-                    contentWidth: viewportWidth,
-                    contentHeight: height
-                )
             }
+            .overlay(alignment: .topLeading) {
+                SplitHandleView(
+                    axis: .horizontal,
+                    showsIdleDivider: false,
+                    onDragStarted: {
+                        paneDragStart = paneViewportWidth
+                    },
+                    onDragChanged: { translation in
+                        leftPaneWidth = min(
+                            max(paneDragStart + translation, 220),
+                            max(220, availablePaneWidth - 220)
+                        )
+                    },
+                    onDragEnded: { translation in
+                        leftPaneWidth = min(
+                            max(paneDragStart + translation, 220),
+                            max(220, availablePaneWidth - 220)
+                        )
+                    }
+                )
+                .offset(x: paneViewportWidth + gutterWidth / 2 - SplitHandleView.thickness / 2)
+                .frame(height: geometry.size.height)
+            }
+            .frame(width: viewportWidth, height: geometry.size.height, alignment: .topLeading)
         }
-        .overlay(alignment: .topLeading) {
-            SplitHandleView(
-                axis: .horizontal,
-                showsIdleDivider: false,
-                onDragStarted: {
-                    paneDragStart = paneViewportWidth
-                },
-                onDragChanged: { translation in
-                    leftPaneWidth = min(
-                        max(paneDragStart + translation, 220),
-                        max(220, availablePaneWidth - 220)
-                    )
-                },
-                onDragEnded: { translation in
-                    leftPaneWidth = min(
-                        max(paneDragStart + translation, 220),
-                        max(220, availablePaneWidth - 220)
-                    )
-                }
-            )
-            .offset(x: paneViewportWidth + gutterWidth / 2 - SplitHandleView.thickness / 2)
-            .frame(height: minimumHeight)
-        }
-        .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
     }
 
-    private func sideViewport(
-        _ items: [DiffSplitLayout.Item],
-        side: DiffSide,
+    private func sideViewport<Column: View>(
+        _ column: Column,
         viewportWidth: CGFloat,
-        contentWidth: CGFloat,
         height: CGFloat,
         horizontalOffset: CGFloat
     ) -> some View {
-        sideColumn(items, side: side, width: contentWidth)
+        column
             .offset(x: -horizontalOffset)
             .frame(width: viewportWidth, height: height, alignment: .topLeading)
             .clipped()
@@ -158,7 +150,10 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
         side: DiffSide,
         width: CGFloat
     ) -> some View {
-        VStack(spacing: 0) {
+        // ponytail: SwiftUI may measure all preceding rows on the first distant
+        // jump; reuse lazy rows for resizing. A viewport renderer is the upgrade
+        // path if that separate scrolling cost becomes a product constraint.
+        LazyVStack(spacing: 0) {
             ForEach(items) { item in
                 sideItem(item, side: side, width: width)
             }
@@ -274,10 +269,10 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
     init(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
+        layout: DiffSplitLayout? = nil,
         fileExtension: String,
         contentWidth: CGFloat,
         viewportWidth: CGFloat,
-        minimumHeight: CGFloat,
         highlightsWords: Bool = true,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
@@ -287,10 +282,10 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
         self.init(
             displayRows: displayRows,
             kinds: kinds,
+            layout: layout,
             fileExtension: fileExtension,
             contentWidth: contentWidth,
             viewportWidth: viewportWidth,
-            minimumHeight: minimumHeight,
             highlightsWords: highlightsWords,
             selectedRowIDs: selectedRowIDs,
             searchMatchIDs: searchMatchIDs,

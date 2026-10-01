@@ -43,29 +43,27 @@ struct DiffPaneView: View {
     @State private var scrollTarget: DiffRowID?
 
     private var diffSurface: some View {
-        GeometryReader { geometry in
-            let displayRows = displayRows()
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: rows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: minimumWidth,
-                paneCount: 2
-            )
-            let kinds = displayRows.map { displayRow in
-                switch displayRow {
-                case let .row(row, _): row.kind
-                case .collapsed: DiffRowKind.information
-                }
+        let displayRows = displayRows()
+        let measuredWidth = DiffLayoutMetrics.contentWidth(
+            rows: rows, viewportWidth: 0, minimumWidth: minimumWidth, paneCount: 2)
+        let kinds = displayRows.map { displayRow in
+            switch displayRow {
+            case let .row(row, _): row.kind
+            case .collapsed: DiffRowKind.information
             }
+        }
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
+        return GeometryReader { geometry in
+            let contentWidth = max(geometry.size.width, measuredWidth)
 
             ScrollViewReader { proxy in
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: kinds,
+                    layout: layout,
                     fileExtension: fileExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
                     highlightsWords: highlightsWords
                 ) { region in
                     expandedRegionIDs.insert(region.id)

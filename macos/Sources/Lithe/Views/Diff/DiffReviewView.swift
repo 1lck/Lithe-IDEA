@@ -325,30 +325,31 @@ struct DiffReviewView: View {
     }
 
     private func diffCanvas(proxy: ScrollViewProxy) -> some View {
-        GeometryReader { geometry in
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: feature.diffRows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: usesSingleFileDiff ? 680 : 980,
-                paneCount: usesSingleFileDiff ? 1 : 2
-            )
-
-            let kinds = feature.diffRows.map(effectiveKind)
-            let indexByRow = differenceIndexByRow
-            let displayRows = collapsePlan(kinds: kinds)
-            let layoutRows = displayRows.map(\.layoutRow)
-            let layoutKinds = displayRows.map { displayRow in
-                switch displayRow {
-                case let .row(_, index): return kinds[index]
-                case .collapsed: return DiffRowKind.information
-                }
+        let measuredWidth = DiffLayoutMetrics.contentWidth(
+            rows: feature.diffRows, viewportWidth: 0,
+            minimumWidth: usesSingleFileDiff ? 680 : 980,
+            paneCount: usesSingleFileDiff ? 1 : 2)
+        let kinds = feature.diffRows.map(effectiveKind)
+        let indexByRow = differenceIndexByRow
+        let displayRows = collapsePlan(kinds: kinds)
+        let layoutRows = displayRows.map(\.layoutRow)
+        let layoutKinds = displayRows.map { displayRow in
+            switch displayRow {
+            case let .row(_, index): return kinds[index]
+            case .collapsed: return DiffRowKind.information
             }
+        }
+
+        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds)
+        let measuredHeight = usesSingleFileDiff ? DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds) : 0
+        return GeometryReader { geometry in
+            let contentWidth = max(geometry.size.width, measuredWidth)
 
             if usesSingleFileDiff {
                 ScrollView(.horizontal) {
                     ScrollView(.vertical) {
                         let contentHeight = max(
-                            DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
+                            measuredHeight,
                             geometry.size.height
                         )
                         LazyVStack(spacing: 0) {
@@ -377,10 +378,10 @@ struct DiffReviewView: View {
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: layoutKinds,
+                    layout: layout,
                     fileExtension: change.url.pathExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
                     highlightsWords: highlightsWords,
                     selectedRowIDs: Set(indexByRow.compactMap { entry in
                         entry.value == selectedDifferenceIndex ? entry.key : nil

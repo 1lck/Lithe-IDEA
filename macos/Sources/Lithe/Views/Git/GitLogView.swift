@@ -356,15 +356,20 @@ struct GitLogView: View {
     }
 
     private var logPanes: some View {
-        GeometryReader { geometry in
+        // Build feature content outside the geometry closure: changing only
+        // height must not rebuild branch rows, callbacks or commit file trees.
+        let references = referencePane
+        let commits = commitPane
+        let details = detailPane
+        return GeometryReader { geometry in
             HStack(spacing: 0) {
                 branchActionStripe
                 GitLogThreePaneLayout(
                     availableWidth: max(0, geometry.size.width - 36),
                     branchesCollapsed: branchesCollapsed,
-                    referencePane: { referencePane },
-                    commitPane: { commitPane },
-                    detailPane: { detailPane }
+                    referencePane: { references },
+                    commitPane: { commits },
+                    detailPane: { details }
                 )
             }
         }
@@ -1292,60 +1297,27 @@ struct GitLogView: View {
                 GitRepositoryEmptyView(feature: feature, setup: feature.repositorySetup,
                                        openSettings: navigation.openGitSettings, openChanges: navigation.openChanges)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            GitHistorySelectionGraphView(
-                                editor: feature.historyEditing,
-                                presentation: graphPresentation,
-                                focusedHash: feature.selectedGitCommit?.hash,
-                                showCommitDecorations: showCommitDecorations,
-                                actions: graphRowActions,
-                                isFocused: gitLogCommitListFocused
-                            )
-
-                            if feature.canLoadMoreGitHistory {
-                                Button {
-                                        Task { await feature.loadMoreGitHistory() }
-                                } label: {
-                                    HStack(spacing: 6) {
-                                        if feature.isLoadingMoreGitHistory {
-                                            ProgressView().controlSize(.small)
-                                        }
-                                        Text(LocalizedStringKey(feature.isLoadingMoreGitHistory ? "Loading commits…" : "Load more commits"))
-                                    }
-                                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                                    .foregroundStyle(LitheTheme.accent)
-                                    .frame(maxWidth: .infinity)
-                                    .frame(height: 32)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.litheNoPress)
-                                .lithePointer()
-                            }
-                        }
-                    }
-                    .litheScrollViewChrome(hideHorizontal: true)
-                    .focusable()
-                    .focused($gitLogCommitListFocused)
-                    .gitLogFocusEffectHidden()
-                    .onMoveCommand { direction in
-                        switch direction {
-                        case .up:
-                            moveGitLogCommitSelection(by: -1)
-                        case .down:
-                            moveGitLogCommitSelection(by: 1)
-                        default:
-                            break
-                        }
-                    }
-                    .onChange(of: feature.selectedGitCommit?.hash) { _ in
-                        guard let hash = feature.selectedGitCommit?.hash else { return }
-                        proxy.scrollTo(hash)
-                    }
-                    .onChange(of: graphNavigationRequest) { request in
-                        guard let request else { return }
-                        proxy.scrollTo(request.hash, anchor: .center)
+                GitHistorySelectionGraphView(
+                    editor: feature.historyEditing,
+                    presentation: graphPresentation,
+                    focusedHash: feature.selectedGitCommit?.hash,
+                    showCommitDecorations: showCommitDecorations,
+                    actions: graphRowActions,
+                    canLoadMore: feature.canLoadMoreGitHistory,
+                    isLoadingMore: feature.isLoadingMoreGitHistory,
+                    onLoadMore: { Task { await feature.loadMoreGitHistory() } },
+                    navigationHash: graphNavigationRequest?.hash,
+                    navigationID: graphNavigationRequest?.id,
+                    isFocused: gitLogCommitListFocused
+                )
+                .focusable()
+                .focused($gitLogCommitListFocused)
+                .gitLogFocusEffectHidden()
+                .onMoveCommand { direction in
+                    switch direction {
+                    case .up: moveGitLogCommitSelection(by: -1)
+                    case .down: moveGitLogCommitSelection(by: 1)
+                    default: break
                     }
                 }
             }
@@ -1354,7 +1326,9 @@ struct GitLogView: View {
     }
 
     private var detailPane: some View {
-        GeometryReader { geometry in
+        let files = commitFilesPane
+        let detail = commitDetail
+        return GeometryReader { geometry in
             let minimumFilesPaneHeight: CGFloat = 90
             let minimumCommitDetailHeight: CGFloat = 110
             let maximumFilesPaneHeight = max(
@@ -1372,8 +1346,8 @@ struct GitLogView: View {
                 maximum: maximumFilesPaneHeight,
                 dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
                 highlightsOnHover: false,
-                sized: { commitFilesPane },
-                flexible: { commitDetail }
+                sized: { files },
+                flexible: { detail }
             )
         }
         .background(background.hasImage ? Color.clear : LitheTheme.sidebar)

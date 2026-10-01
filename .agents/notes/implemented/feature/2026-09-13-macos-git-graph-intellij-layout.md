@@ -129,6 +129,49 @@ Lithe 删除这处专用限制，使用工作区已有 30pt 面板下限；36pt 
 且继续保留分隔条的命中区、裁剪、拖动结束更新宽度及收缩前视图身份。
 这遵循本项目共享窄面板规则，不宣称 IDEA 在所有环境中的最小树宽均为 30pt。
 
+### 连续拖动时保持原生可见区域与数据计算独立
+
+Git Log 的生产路径使用已有 `GitGraphScrollView` 的原生滚动容器和绘制表面。
+分隔条改变可见区域的高度，提交数据和图谱快照继续保留；绘制仅处理脏矩形中的
+行，不为每条提交重新布置 SwiftUI 控件。这个边界参照 UI 基准提交的
+[VcsLogGraphTable](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogGraphTable.java)
+与工具窗口外层实际使用的
+[ThreeComponentsSplitter](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-api/src/com/intellij/openapi/ui/ThreeComponentsSplitter.kt)：
+鼠标坐标转到固定容器、限制尺寸，再对现有组件设置边界；仅边界变化时才
+让子组件重新布局。面板尺寸调整与日志数据更新分开。
+底部工具窗口标题栏的入口则是
+[ToolWindowContentUi.initMouseListeners](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-impl/src/com/intellij/openapi/wm/impl/content/ToolWindowContentUi.java)：
+按下时保存屏幕坐标及初始高度，拖动时用屏幕 Y 位移修改同一个 splitter 的
+末尾面板高度。它和分隔条的坐标入口不同，但共用现有面板边界布局。
+
+Lithe 的共享分隔容器在宽高确定时直接向子面板传入最终矩形，避免堆栈布局
+在每次拖动中询问最小、理想及最大尺寸。布局仍由 SwiftUI 管理，不移走焦点、
+滚动代理和环境值；这只是采用上游的确定边界布局原则，不能将两种 UI 框架的
+实现或耗时视为相同。主队列异步合并只合并交付前到达的事件，不保证每个显示
+刷新周期只交付一次，也不能代替布局成本验证。
+
+原生视口的 `layout` 负责同步文档宽度和高度，因此恢复尺寸不依赖一次新的数据
+刷新。多选、Shift/Command 点击、上下键、焦点选中色、右键操作、箭头跳转、
+引用图标、分页与辅助功能继续使用已有动作。重复跳转到已选提交使用导航请求
+标识，不能只比较所选 hash。辅助功能访问时才生成可操作的行和箭头节点，
+不能在每次拖动时创建整棵行视图。
+
+Git Log 分支内容和右侧文件树在尺寸读取器外构建；仅改变高度时不重建文件树。
+上方 Diff 的全文宽度测量、折叠规划及双栏布局同样在尺寸读取器外生成，再传给
+共享 `DiffSplitPaneView`。Diff 两侧使用 `LazyVStack` 按可见区域创建行，避免
+普通 `VStack` 在拖动时布置整份文件。行内容在共享双栏视图自己的高度读取器
+外构建；即使远距离滚动已创建中间行，后续高度变化也不重新生成全部行。
+窗口尺寸仅影响最终可见宽高；数据、折叠或差异选择
+变化时仍会重新计算。三个 Diff 调用入口都遵守这个规则，不能只优化 Git Log
+截图对应的一条路径。
+
+SwiftUI 第一次远距离滚动时仍可能测量中间行，测试已观察到这个行为；本次
+约束是初始可见区域和随后的拖动不能反复构建整份 Diff。若以后远距离跳转的
+成本成为问题，再评估原生视口绘制，不扩大本次拖动修复的范围。
+
+局部绘制对照计时只用于定位成本，不作为固定帧率承诺，也不以机器相关的耗时
+阈值让单元测试失败。最终流畅度仍需在目标工作区连续拖动确认。
+
 ## 考虑过的备选方案
 
 - **按提交 hash 对固定颜色表取模（初版实现）**：实现最简单，不需要
@@ -167,6 +210,15 @@ Lithe 删除这处专用限制，使用工作区已有 30pt 面板下限；36pt 
   算法回归 fixture 为依据，不能重新从零选择对齐目标。
 
 ## 验证
+
+`GitGraphInteractionTests.continuousViewportResize` 连续调整原生视口 80 次，
+检查文档和子视图身份、文档宽度、滚动位置、多选、修饰键、上下键及重复跳转。
+`dragGitLogWithDiff` 用真实共享分隔条事件调整上方 1,200 行 Diff 和下方
+300 条提交的布局，检查收缩和恢复以及原生文档身份。
+`splitDiffCreatesViewportRows` 检查 1,200 行 Diff 只创建视口附近的行，并能滚动到
+末行，随后改变高度时也不重新生成全部行；`viewportResizeComparison` 输出同机旧 SwiftUI 列表和原生列表各 30 次调整与
+绘制的耗时，不设置机器相关时间门槛。
+
 
 `GitGraphInteractionTests.titleGutter` 检查六列标题预留与复杂图谱扩宽；
 `mergeColumnsRenderTogether` 实际渲染 SwiftUI/AppKit 两条路径，检查合并行

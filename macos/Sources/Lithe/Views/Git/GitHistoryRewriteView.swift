@@ -42,16 +42,26 @@ struct GitHistorySelectionGraphView: View {
     let focusedHash: String?
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
+    let canLoadMore: Bool
+    let isLoadingMore: Bool
+    let onLoadMore: () -> Void
+    let navigationHash: String?
+    let navigationID: UUID?
     var isFocused = true
 
     var body: some View {
-        GitGraphView(
+        GitGraphScrollView(
             presentation: presentation,
             selectedHash: focusedHash,
             showCommitDecorations: showCommitDecorations,
+            canLoadMore: canLoadMore,
+            isLoadingMore: isLoadingMore,
             actions: actions,
+            onLoadMore: onLoadMore,
             selectedHashes: editor.selection.hashes,
-            isFocused: isFocused
+            isFocused: isFocused,
+            navigationHash: navigationHash,
+            navigationID: navigationID
         )
     }
 }
