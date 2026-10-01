@@ -112,6 +112,12 @@
   text-overflow: ellipsis;
 }
 
+/* The commit-files rows end with a count/status trailing span, which would otherwise match
+   `:last-child` above and split the free width with the label, truncating names early. */
+.file-tree-container.git-commit-file-tree .file-tree-row > span:last-child {
+  flex: 0 0 auto;
+}
+
 .file-tree-container .file-tree-row [data-sidebar-tree-disclosure] {
   width: var(--file-tree-disclosure-size);
   height: var(--file-tree-disclosure-size);
