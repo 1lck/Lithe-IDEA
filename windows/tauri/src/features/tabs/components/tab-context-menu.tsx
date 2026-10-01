@@ -69,6 +69,29 @@ const TabContextMenu = ({
   const closeKeys = [IS_MAC ? "Cmd" : "Ctrl", "W"];
   const items: MenuItem[] = [
     {
+      id: "close",
+      label: t("tabs.close"),
+      icon: <X />,
+      keybinding: <Keybinding keys={closeKeys} className="opacity-60" />,
+      onClick: () => onCloseTab(buffer.id),
+    },
+    {
+      id: "close-others",
+      label: t("tabs.closeOthers"),
+      onClick: () => onCloseOthers(buffer.id),
+    },
+    {
+      id: "close-right",
+      label: t("tabs.closeToRight"),
+      onClick: () => onCloseToRight(buffer.id),
+    },
+    {
+      id: "close-all",
+      label: t("tabs.closeAll"),
+      onClick: onCloseAll,
+    },
+    { id: "sep-close", label: "", separator: true, onClick: () => {} },
+    {
       id: "pin",
       label: buffer.isPinned ? t("tabs.unpin") : t("tabs.pin"),
       icon: buffer.isPinned ? <PinOff /> : <Pin />,
@@ -176,29 +199,6 @@ const TabContextMenu = ({
           },
         ]
       : []),
-    { id: "sep-3", label: "", separator: true, onClick: () => {} },
-    {
-      id: "close",
-      label: t("tabs.close"),
-      icon: <X />,
-      keybinding: <Keybinding keys={closeKeys} className="opacity-60" />,
-      onClick: () => onCloseTab(buffer.id),
-    },
-    {
-      id: "close-others",
-      label: t("tabs.closeOthers"),
-      onClick: () => onCloseOthers(buffer.id),
-    },
-    {
-      id: "close-right",
-      label: t("tabs.closeToRight"),
-      onClick: () => onCloseToRight(buffer.id),
-    },
-    {
-      id: "close-all",
-      label: t("tabs.closeAll"),
-      onClick: onCloseAll,
-    },
   ];
 
   return (
