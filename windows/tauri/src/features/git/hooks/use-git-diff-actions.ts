@@ -20,23 +20,17 @@ import {
 import type { MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff, GitFile, GitReference } from "../types/git.types";
 import { mapGitReadsInBatches } from "../utils/git-async-batch";
-import {
-  aggregateSelectedCommitDiffs,
-  type GitCommitSelectionDiff,
-} from "../utils/git-commit-selection-diff";
+import { aggregateSelectedCommitDiffs } from "../utils/git-commit-selection-diff";
 import {
   getGitFileOriginalRepositoryRelativePath,
   getGitFileRepositoryPath,
   getGitFileRepositoryRelativePath,
 } from "../utils/git-status-selection";
 import { createRequestGeneration, type RequestGeneration } from "../utils/request-generation";
-import {
-  createCommitDiffBuffer,
-  createCommitFileDiffPreview,
-  createMultiFileDiff,
-  findCommitFileDiff,
-} from "../utils/multi-file-diff";
+import { createCommitDiffBuffer, createMultiFileDiff } from "../utils/multi-file-diff";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
+
+import { useCommitFilePreview } from "./use-commit-file-preview";
 
 const WORKING_TREE_TITLES: Record<WorkingTreeDiffScope, string> = {
   all: "git.diff.uncommitted",
@@ -81,6 +75,7 @@ export function useGitDiffActions({
   currentBranch,
   currentReference,
   onBranchDiffOpened,
+  commitPreviewScope = null,
 }: {
   activeRepoPath: string | null;
   onFileSelect?: (path: string, isDir: boolean) => void;
@@ -90,6 +85,7 @@ export function useGitDiffActions({
   currentBranch?: string;
   currentReference?: GitReference;
   onBranchDiffOpened?: () => void;
+  commitPreviewScope?: string | null;
 }) {
   const { t } = useTranslation();
   const [isLoadingCommitDiff, setIsLoadingCommitDiff] = useState(false);
@@ -102,7 +98,11 @@ export function useGitDiffActions({
   latestFileDiffRequestRef.current = latestFileDiffRequest;
   const activeRepoPathRef = useRef(activeRepoPath);
   activeRepoPathRef.current = activeRepoPath;
-  const commitFilePreviewRequestRef = useRef<RequestGeneration>(createRequestGeneration());
+  const previewCommitFileDiff = useCommitFilePreview(
+    activeRepoPath,
+    commitPreviewScope,
+    openDiffBuffer,
+  );
 
   const openOriginalFile = useCallback(
     async (filePath: string) => {
@@ -341,59 +341,6 @@ export function useGitDiffActions({
       }
     },
     [activeRepoPath, commitByHash, t],
-  );
-
-  // Shows one file of the selected commit(s) in the shared preview tab. Quick successive clicks
-  // supersede each other, and failures are logged instead of alerting because previews also run
-  // automatically when a commit is selected.
-  const previewCommitFileDiff = useCallback(
-    async (selection: GitCommitSelectionDiff, filePath: string) => {
-      if (!activeRepoPath) return;
-      const requestId = commitFilePreviewRequestRef.current.begin();
-      const repoPath = activeRepoPath;
-
-      try {
-        let diffs: readonly GitDiff[] | null;
-        let commitHash: string;
-        let label: string;
-        if (selection.kind === "commit") {
-          diffs = await getCommitDiff(repoPath, selection.commit.hash);
-          commitHash = selection.commit.hash;
-          label = selection.commit.shortHash;
-        } else if (selection.kind === "range") {
-          diffs = await getRefDiff(repoPath, selection.baseRef, selection.targetRef);
-          commitHash = `${selection.baseRef ?? "root"}..${selection.targetRef}`;
-          label = `${selection.oldest.shortHash}..${selection.newest.shortHash}`;
-        } else {
-          const results = await mapGitReadsInBatches(selection.commits, async (commit) => ({
-            commit,
-            diffs: await getCommitDiff(repoPath, commit.hash),
-          }));
-          diffs = results.some((result) => result.diffs === null)
-            ? null
-            : aggregateSelectedCommitDiffs(
-                results.map((result) => ({ commit: result.commit, diffs: result.diffs ?? [] })),
-              ).diffs;
-          commitHash = selection.commits[0]?.hash ?? "selection";
-          label = String(selection.commits.length);
-        }
-
-        if (
-          !commitFilePreviewRequestRef.current.isCurrent(requestId) ||
-          activeRepoPathRef.current !== repoPath
-        ) {
-          return;
-        }
-        const diff = diffs ? findCommitFileDiff(diffs, filePath) : null;
-        if (!diff) return;
-
-        const preview = createCommitFileDiffPreview({ repoPath, commitHash, diff, label });
-        openDiffBuffer(preview.virtualPath, preview.displayName, preview.diffData);
-      } catch (error) {
-        console.error("Error previewing commit file diff:", error);
-      }
-    },
-    [activeRepoPath],
   );
 
   const viewCommitRangeDiff = useCallback(

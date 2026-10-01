@@ -93,6 +93,7 @@ export function GitLogToolWindow() {
     if (!rootFolderPath || availableRepoPaths.length > 0) return;
     void syncWorkspaceRepositories(rootFolderPath);
   }, [availableRepoPaths.length, rootFolderPath, syncWorkspaceRepositories]);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
@@ -207,6 +208,10 @@ export function GitLogToolWindow() {
     viewReferenceWorkingTreeDiff,
   } = useGitDiffActions({
     activeRepoPath: repoPath,
+    commitPreviewScope:
+      isBottomPaneVisible && panel === "log" && selectedCommits.length > 0
+        ? JSON.stringify(selectedCommits.map((commit) => commit.hash))
+        : null,
     gitFileByPath: emptyGitFileByPath,
     workingTreeDiffEntriesByScope: emptyWorkingTreeEntries,
     commitByHash,

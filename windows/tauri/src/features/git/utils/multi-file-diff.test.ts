@@ -5,7 +5,6 @@ import {
   createCommitDiffBuffer,
   createCommitFileDiffPreview,
   createMultiFileDiff,
-  findCommitFileDiff,
 } from "./multi-file-diff";
 
 const diff = (filePath: string, additions: number, deletions: number): GitDiff => ({
@@ -55,10 +54,7 @@ describe("commit diff buffers", () => {
     });
 
     expect(multiDiff.files).toBe(diffs);
-    expect(multiDiff.fileKeys).toEqual([
-      "newest:src/shared.ts",
-      "oldest:src/shared.ts",
-    ]);
+    expect(multiDiff.fileKeys).toEqual(["newest:src/shared.ts", "oldest:src/shared.ts"]);
     expect(multiDiff.fileLabels).toEqual(["newest", "oldest"]);
     expect(multiDiff.initiallyExpandedFileKey).toBe("newest:src/shared.ts");
     expect(multiDiff.initiallySelectedFileKey).toBe("newest:src/shared.ts");
@@ -71,10 +67,12 @@ describe("commit file preview", () => {
     const preview = createCommitFileDiffPreview({
       repoPath: "C:/repo",
       commitHash: "1234567890abcdef",
-      diff: selected,
+      diffs: [selected],
+      filePath: selected.file_path,
       label: "1234567",
     });
 
+    if (!preview) throw new Error("Expected file preview");
     expect(preview.virtualPath).toBe(COMMIT_FILE_PREVIEW_PATH);
     expect(preview.displayName).toBe("feature.ts (1234567)");
     expect(preview.diffData.files).toEqual([selected]);
@@ -93,8 +91,16 @@ describe("commit file preview", () => {
     };
     const diffs = [diff("src/main.ts", 2, 1), renamed];
 
-    expect(findCommitFileDiff(diffs, "src/new.ts")).toBe(renamed);
-    expect(findCommitFileDiff(diffs, "src/old.ts")).toBe(renamed);
-    expect(findCommitFileDiff(diffs, "src/missing.ts")).toBeNull();
+    const preview = (filePath: string) =>
+      createCommitFileDiffPreview({
+        repoPath: "C:/repo",
+        commitHash: "abc",
+        diffs,
+        filePath,
+        label: "abc",
+      });
+    expect(preview("src/new.ts")?.diffData.files).toEqual([renamed]);
+    expect(preview("src/old.ts")?.diffData.files).toEqual([renamed]);
+    expect(preview("src/missing.ts")).toBeNull();
   });
 });
