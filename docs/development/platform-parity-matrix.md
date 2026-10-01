@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：118
-- macOS：实现：✅ 104 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 1 已验证，🔍 106 待验证，— 11 不适用
-- Windows：实现：✅ 99 已实现，🟡 11 部分实现，❌ 6 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 110 待验证，— 8 不适用
+- 功能项：121
+- macOS：实现：✅ 106 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 5 平台专属；验证：✔️ 1 已验证，🔍 108 待验证，— 12 不适用
+- Windows：实现：✅ 102 已实现，🟡 11 部分实现，❌ 6 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 113 待验证，— 8 不适用
 
 ## 实现状态定义
 
@@ -73,7 +73,7 @@
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 16 个能力点</summary>
+<summary><strong>编辑器</strong> · 19 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -93,6 +93,9 @@
 | 文本编辑 | **按指定编码重新打开文本文件**<br><sub>editor-file-encoding-reopen</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/services/document-encoding-workflow.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
 | 文本编辑 | **按指定编码保存文本文件**<br><sub>editor-file-encoding-save</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift`、`macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift`、`macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/command-palette/components/encoding-picker.tsx`、`windows/tauri/src/features/editor/stores/editor-app.store.ts`、`windows/tauri/crates/project/src/document_file.rs`</sub> | Editor | 在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。 |  |
 | 文本编辑 | **中文 properties 与未知扩展名文本的一致打开和恢复**<br><sub>editor-unicode-text-classification</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Core/Rust/RustTextContentPolicy.swift`、`macos/Tests/LitheTests/TextContentPolicyTests.swift`、`frontend/editor/src/language-contributions.ts`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/file-system/controllers/workspace-session-restore.ts`、`windows/tauri/src/features/file-system/controllers/workspace-session-restore.test.ts`、`frontend/editor/src/language-contributions.ts`</sub> | Editor | 双端打开高中文比例的 .properties 和未知扩展名 UTF-8 文件，编辑保存后恢复会话并验证内容及编码；验证 properties 高亮、emoji 跨边界、NUL 和控制字符拒绝、读取错误独立报告，并执行 text-content-v1.json 共享规则样例。 |  |
+| Git 变更 | **编辑器 Git 行变更标记、点击预览与变更导航**<br><sub>editor-git-gutter-peek</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/CodeEditorView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/engines/monaco/git-gutter-controller.ts`、`windows/tauri/src/features/editor/engines/monaco/git-gutter-peek-widget.ts`、`windows/tauri/src/features/git/utils/git-gutter-changes.test.ts`</sub> | Editor / Git | 在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。 |  |
+| Git 变更 | **从编辑器行变更入口暂存单处修改**<br><sub>editor-git-gutter-stage</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/CodeEditorView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/git/services/git-gutter-actions.ts`、`windows/tauri/src/features/git/utils/git-gutter-changes.test.ts`</sub> | Editor / Git | 保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。 |  |
+| Git 变更 | **设置中开关编辑器 Git 变更标记**<br><sub>editor-git-gutter-setting</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`macos/Sources/Lithe/Views/Editor/CodeEditorView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/settings/components/tabs/git-settings.tsx`、`windows/tauri/src/features/settings/config/default-settings.ts`</sub> | Editor / Git | Windows 默认显示 Git 变更标记；在 Git 设置中关闭时清除标记和预览，重新启用后恢复，重启后保留选择。此项记录 Windows 新增的独立开关。 |  |
 
 </details>
 
