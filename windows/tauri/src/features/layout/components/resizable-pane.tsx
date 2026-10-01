@@ -154,11 +154,12 @@ export function ResizablePane({
       onMouseDown={handleMouseDown}
       style={
         position === "left"
-          ? { right: "calc(var(--lithe-workbench-gap) * -1)" }
+          ? { right: "calc(var(--lithe-sidebar-gap) * -1)" }
           : { left: "calc(var(--lithe-workbench-gap) * -1)" }
       }
       className={cn(
-        "group absolute top-0 z-30 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center",
+        "group absolute top-0 z-30 flex h-full cursor-col-resize items-center justify-center",
+        position === "left" ? "w-(--lithe-sidebar-gap)" : "w-(--lithe-workbench-gap)",
         "transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-primary/8",
       )}
       role="separator"
@@ -185,7 +186,7 @@ export function ResizablePane({
       className={cn(
         "lithe-resizable-pane relative flex h-full min-w-0 shrink-0 overflow-visible bg-transparent",
         hidden && "pointer-events-none",
-        !hidden && position === "left" && "mr-(--lithe-workbench-gap)",
+        !hidden && position === "left" && "mr-(--lithe-sidebar-gap)",
         !hidden && position === "right" && "ml-(--lithe-workbench-gap)",
         className,
       )}
@@ -201,8 +202,8 @@ export function ResizablePane({
         <div
           className={cn(
             "lithe-glass-island flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
-            !hidden && "rounded-xl border-border border-x",
-            position === "right" && !outerEdge && "rounded-r-none border-r-0",
+            !hidden && "rounded-xl",
+            position === "right" && !outerEdge && "rounded-r-none",
           )}
         >
           {children}

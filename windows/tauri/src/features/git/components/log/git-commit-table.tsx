@@ -202,7 +202,7 @@ export function GitCommitTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background font-sans ui-text-sm select-none">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-background px-2">
         <div className="flex h-6 min-w-36 max-w-72 flex-1 items-center gap-1.5 rounded border border-border bg-background px-2 focus-within:border-border-strong">
           <Search className="size-3.5 shrink-0 text-subtle-foreground" />
           <input
@@ -257,7 +257,7 @@ export function GitCommitTable({
         </span>
       </div>
 
-      <div className="flex h-6 shrink-0 items-center border-border border-b bg-surface/70 px-2 text-subtle-foreground">
+      <div className="flex h-6 shrink-0 items-center border-border border-b bg-background px-2 text-subtle-foreground">
         <span className="min-w-0 flex-1">{t("git.log.commit")}</span>
         <span className="w-28 shrink-0">{t("git.log.author")}</span>
         <span className="w-32 shrink-0 text-right">{t("git.log.date")}</span>

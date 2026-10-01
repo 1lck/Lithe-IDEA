@@ -93,7 +93,7 @@ export function GitCommitInspector({
   }, [repoPath, selectionDiff]);
 
   return (
-    <div className="h-full min-h-0 bg-surface/35 font-sans ui-text-sm select-none">
+    <div className="h-full min-h-0 bg-background font-sans ui-text-sm select-none">
       <ResizablePanelGroup
         orientation="vertical"
         defaultLayout={inspectorPanelLayout}
@@ -103,7 +103,7 @@ export function GitCommitInspector({
       >
         <ResizablePanel id="files" defaultSize="62" minSize={90}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-surface px-2 text-subtle-foreground">
+            <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-background px-2 text-subtle-foreground">
               <span>{t("git.log.commitFiles")}</span>
               <span className="ml-auto tabular-nums">
                 {loadState === "loading"
