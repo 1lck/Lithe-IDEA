@@ -880,6 +880,7 @@ private final class LithePointerCursor {
 struct LitheSearchTextField: View {
     let title: LocalizedStringKey
     @Binding var text: String
+    @State private var hasEditingText = false
 
     init(_ title: LocalizedStringKey, text: Binding<String>) {
         self.title = title
@@ -889,8 +890,9 @@ struct LitheSearchTextField: View {
     var body: some View {
         TextField(title, text: $text, prompt: Text(""))
             .textFieldStyle(.plain)
+            .background(LitheTextFieldEditingObserver { hasEditingText = $0 })
             .overlay(alignment: .leading) {
-                if text.isEmpty {
+                if text.isEmpty && !hasEditingText {
                     Text(title)
                         .font(LitheTheme.uiFont(size: 13, weight: .regular))
                         .foregroundColor(LitheTheme.searchFieldPlaceholder)
@@ -900,6 +902,82 @@ struct LitheSearchTextField: View {
                 }
             }
     }
+}
+
+/// Read the native field editor's visible text, including uncommitted IME text.
+/// Keep SwiftUI's own editor, focus bindings, submit actions and delegate intact.
+private struct LitheTextFieldEditingObserver: NSViewRepresentable {
+    let onChange: (Bool) -> Void
+
+    func makeNSView(context: Context) -> LitheTextFieldEditingView {
+        let view = LitheTextFieldEditingView()
+        view.onChange = onChange
+        return view
+    }
+
+    func updateNSView(_ view: LitheTextFieldEditingView, context: Context) {
+        view.onChange = onChange
+    }
+
+    static func dismantleNSView(_ view: LitheTextFieldEditingView, coordinator: ()) {
+        view.onChange = nil
+        view.stopObserving()
+    }
+}
+
+private final class LitheTextFieldEditingView: NSView {
+    var onChange: ((Bool) -> Void)?
+    private weak var editor: NSTextView?
+    private var hasEditingText = false
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        stopObserving()
+        guard window != nil else { return }
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(editingChanged), name: NSTextStorage.didProcessEditingNotification, object: nil)
+        center.addObserver(self, selector: #selector(editingEnded), name: NSText.didEndEditingNotification, object: nil)
+    }
+
+    @objc private func editingChanged(_ notification: Notification) {
+        // Unrelated text storage can publish on worker threads; native field
+        // editor changes are always on the UI thread.
+        guard Thread.isMainThread else { return }
+        guard let editor = window?.firstResponder as? NSTextView, editor.isFieldEditor,
+              notification.object as? NSTextStorage === editor.textStorage,
+              editor.convert(editor.bounds, to: self).contains(NSPoint(x: bounds.midX, y: bounds.midY)) else { return }
+        self.editor = editor
+        reportEditingText()
+    }
+
+    @objc private func editingEnded(_ notification: Notification) {
+        guard Thread.isMainThread else { return }
+        guard let editor, notification.object as? NSTextView === editor else { return }
+        self.editor = nil
+        reportEditingText()
+    }
+
+    private func reportEditingText() {
+        let next = editor.map { !$0.string.isEmpty } ?? false
+        guard next != hasEditingText else { return }
+        hasEditingText = next
+        // Text storage also changes during native view updates. Deliver after
+        // that update, and read the latest state if composition changed again.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.onChange?(self.hasEditingText)
+        }
+    }
+
+    func stopObserving() {
+        NotificationCenter.default.removeObserver(self)
+        editor = nil
+        reportEditingText()
+    }
+
+    deinit { NotificationCenter.default.removeObserver(self) }
 }
 
 /// Shared search chrome follows IDEA SearchFieldWithExtension + DarculaSearchFieldWithExtensionBorder:

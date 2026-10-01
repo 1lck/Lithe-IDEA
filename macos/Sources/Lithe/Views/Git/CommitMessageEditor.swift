@@ -128,9 +128,21 @@ final class CommitMessageTextView: NSTextView {
         if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
     }
 
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        // IME updates may invalidate only the composed glyphs. Clear the whole
+        // previously drawn placeholder, including the area beyond those glyphs.
+        needsDisplay = true
+    }
+
+    override func unmarkText() {
+        super.unmarkText()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
-        guard string.isEmpty, let font else { return }
+        guard string.isEmpty, !hasMarkedText(), let font else { return }
         // Use TextKit for the placeholder too, so its baseline matches the caret.
         let storage = NSTextStorage(string: "Commit Message", attributes: [
             .font: font, .foregroundColor: placeholderColor

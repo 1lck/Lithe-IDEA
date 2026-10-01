@@ -6,6 +6,90 @@ import Testing
 @MainActor
 @Suite("Shared search field chrome", .serialized)
 struct LitheSearchFieldStyleTests {
+    @Test(arguments: [ColorScheme.dark, .light])
+    func uncommittedIMETextHidesOnlyItsOwnPlaceholder(scheme: ColorScheme) async throws {
+        // A constant binding deliberately stays empty until commit: the prompt
+        // must follow the visible field editor, not wait for the bound value.
+        let host = NSHostingView(rootView: HStack {
+            LitheSearchTextField("Branch or tag", text: .constant("")).litheSearchField().frame(width: 220)
+            LitheSearchTextField("Search connections", text: .constant("")).litheSearchField().frame(width: 220)
+        }.environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 448, height: 36),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+        func fields(in view: NSView) -> [NSTextField] {
+            if let field = view as? NSTextField { return [field] }
+            return view.subviews.flatMap { fields(in: $0) }
+        }
+        let fields = fields(in: host).sorted { $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX }
+        #expect(fields.count == 2)
+        let first = try #require(fields.first)
+        let second = try #require(fields.last)
+        func placeholderPixels(_ field: NSTextField) throws -> Int {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let rect = field.convert(field.bounds, to: host)
+            let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+            let minY = Int((host.bounds.height - rect.maxY) * scale)
+            let maxY = Int((host.bounds.height - rect.minY) * scale)
+            // Compare glyphs with this bitmap's blank field background so the
+            // window's display color profile cannot affect the presence check.
+            let background = try #require(bitmap.colorAt(x: Int((rect.maxX - 3) * scale), y: (minY + maxY) / 2))
+            var count = 0
+            // Skip the short composing syllable at the left edge. Remaining
+            // prompt glyphs must also disappear, including cached trailing text.
+            for y in minY..<maxY {
+                for x in Int((rect.minX + 30) * scale)..<Int((rect.maxX - 3) * scale) {
+                    let color = try #require(bitmap.colorAt(x: x, y: y))
+                    if abs(color.redComponent - background.redComponent) > 0.05
+                        || abs(color.greenComponent - background.greenComponent) > 0.05
+                        || abs(color.blueComponent - background.blueComponent) > 0.05 { count += 1 }
+                }
+            }
+            return count
+        }
+        let clock = ContinuousClock()
+        func settle(_ field: NSTextField, visible: Bool) async throws {
+            let deadline = clock.now.advanced(by: .seconds(1))
+            while clock.now < deadline {
+                if try (placeholderPixels(field) > 10) == visible { return }
+                await Task.yield()
+            }
+            #expect(try (placeholderPixels(field) > 10) == visible)
+        }
+        #expect(try placeholderPixels(first) > 10)
+        #expect(try placeholderPixels(second) > 10)
+        #expect(window.makeFirstResponder(first))
+        let editor = try #require(first.currentEditor() as? NSTextView)
+        editor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(editor.hasMarkedText())
+        try await settle(first, visible: false)
+        #expect(try placeholderPixels(first) == 0)
+        #expect(try placeholderPixels(second) > 10)
+
+        editor.setMarkedText("", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        editor.unmarkText()
+        try await settle(first, visible: true)
+        #expect(try placeholderPixels(first) > 10)
+        editor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await settle(first, visible: false)
+        editor.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(!editor.hasMarkedText())
+        #expect(editor.string == "你")
+        #expect(try placeholderPixels(first) == 0)
+        #expect(window.makeFirstResponder(second))
+        try await settle(first, visible: true)
+        let secondEditor = try #require(second.currentEditor() as? NSTextView)
+        secondEditor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        try await settle(second, visible: false)
+        #expect(try placeholderPixels(first) > 10)
+        #expect(try placeholderPixels(second) == 0)
+    }
+
     @Test(arguments: [ColorScheme.dark, .light], ["", "typed"])
     func nativeSearchFieldRendersPlaceholderAndEnteredTextColors(scheme: ColorScheme, value: String) throws {
         // ImageRenderer cannot cover AppKit-backed text. Capture the native host

@@ -6,6 +6,47 @@ import Testing
 @MainActor
 @Suite("Commit message editor")
 struct CommitMessageEditorTests {
+    @Test func composingCancellingAndCommittingRedrawTheWholePlaceholder() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let editor = CommitMessageTextView()
+        editor.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
+        window.contentView = editor
+        defer { window.makeFirstResponder(nil); window.contentView = nil; window.close() }
+        #expect(window.makeFirstResponder(editor))
+        func placeholderPixels() throws -> Int {
+            let bitmap = try #require(editor.bitmapImageRepForCachingDisplay(in: editor.bounds))
+            editor.cacheDisplay(in: editor.bounds, to: bitmap)
+            let background = try #require(bitmap.colorAt(x: bitmap.pixelsWide - 1, y: 0))
+            var count = 0
+            for y in 0..<bitmap.pixelsHigh {
+                for x in bitmap.pixelsWide / 4..<bitmap.pixelsWide {
+                    let color = try #require(bitmap.colorAt(x: x, y: y))
+                    if abs(color.redComponent - background.redComponent) > 0.05
+                        || abs(color.greenComponent - background.greenComponent) > 0.05
+                        || abs(color.blueComponent - background.blueComponent) > 0.05 { count += 1 }
+                }
+            }
+            return count
+        }
+        #expect(try placeholderPixels() > 10)
+        editor.needsDisplay = false
+        editor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(editor.hasMarkedText())
+        // Short composition must invalidate the end of the old placeholder too.
+        #expect(editor.needsToDraw(NSRect(x: 160, y: 3, width: 10, height: 20)))
+        #expect(try placeholderPixels() == 0)
+        editor.setMarkedText("", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        editor.unmarkText()
+        #expect(try placeholderPixels() > 10)
+        editor.setMarkedText("ni", selectedRange: NSRange(location: 2, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        editor.insertText("你", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(editor.string == "你")
+        #expect(!editor.hasMarkedText())
+        #expect(try placeholderPixels() == 0)
+    }
+
     @Test func editorUsesOneTextOriginAndWrapsLongMessages() throws {
         let editor = CommitMessageTextView()
         editor.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
