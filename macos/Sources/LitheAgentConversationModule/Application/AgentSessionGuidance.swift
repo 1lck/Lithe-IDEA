@@ -70,8 +70,12 @@ public struct AgentCommand: Identifiable, Equatable, Sendable {
 
     static func parse(_ update: [String: Any]) -> [Self]? {
         guard let commands = update["availableCommands"] as? [[String: Any]] else { return nil }
+        // A command name is its invocation and UI identity. Keep the first
+        // advertised definition when an upstream list repeats the same name.
+        var names = Set<String>()
         return commands.prefix(commandLimit).compactMap { command in
-            guard let name = command["name"] as? String, !name.isEmpty else { return nil }
+            guard let name = command["name"] as? String, !name.isEmpty,
+                  names.insert(name).inserted else { return nil }
             let input = command["input"] as? [String: Any]
             return Self(name: name, description: command["description"] as? String ?? "",
                         hint: (input?["hint"] as? String).flatMap { $0.isEmpty ? nil : $0 })

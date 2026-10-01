@@ -196,6 +196,34 @@ describe("refreshWorkingTreeFileDiff", () => {
     expect(diffLoads).toBe(0);
   });
 
+  test("closes after the last block is rolled back and the file leaves Git status", async () => {
+    // #688: rolling back the only remaining block makes the file clean. The
+    // review must close rather than keep a patch whose blocks no longer exist.
+    const buffers = bufferPort(openedDiff());
+    const outcome = await refreshWorkingTreeFileDiff(
+      { bufferId: BUFFER_ID, fileKey: FILE_KEY },
+      { buffers: buffers.port, loadStatus: async () => status([]), loadDiff: async () => diffWithLines(0) },
+    );
+    expect(outcome).toBe("closed");
+    expect(buffers.closed).toEqual([BUFFER_ID]);
+  });
+
+  test("records staged edits so an unstaged snapshot stops offering rollback", async () => {
+    // Staging one block of a worktree-only file turns it into MM; the
+    // HEAD-to-worktree snapshot then also shows the staged block.
+    const buffers = bufferPort(openedDiff());
+    const outcome = await refreshWorkingTreeFileDiff(
+      { bufferId: BUFFER_ID, fileKey: FILE_KEY },
+      {
+        buffers: buffers.port,
+        loadStatus: async () => status([statusFile({ staged: true })]),
+        loadDiff: async () => diffWithLines(2),
+      },
+    );
+    expect(outcome).toBe("updated");
+    expect(buffers.current()?.workingTreeTargets?.[FILE_KEY]).toEqual({ ...TARGET, hasStagedChanges: true });
+  });
+
   test("keeps current content when status or diff reads fail", async () => {
     const opened = openedDiff();
     const buffers = bufferPort(opened);

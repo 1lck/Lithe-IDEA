@@ -680,6 +680,7 @@ public final class AgentConnectionModel: ObservableObject {
         for id in conversations.keys {
             conversations[id]?.finishTurn(at: now())
             conversations[id]?.contextUsage = nil
+            conversations[id]?.availableCommands = []
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()
             conversations[id]?.isCancelling = false

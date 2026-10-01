@@ -721,6 +721,10 @@ pub struct GitPushTagResponse {
 /// Exact lookup result for one commit.
 pub struct GitCommitLookupResponse {
     pub commit: GitCommitResponse,
+    /// Message text after the subject paragraph, as Git's `%b` placeholder,
+    /// with line breaks preserved and trailing whitespace removed. Empty when
+    /// the message has only a subject. History pages omit it to stay compact.
+    pub body: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -433,7 +433,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
-| `git.commit` | Return one structured commit by revision |
+| `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
@@ -1162,7 +1162,13 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `offset`; repository size does not select
 between the two protocols.
 
-`git.commit` accepts `root` and a revision, returning one `commit` object.
+`git.commit` accepts `root` and a revision, returning one `commit` object with
+the same fields as a history page entry and a `body` string. `body` is the
+message after the subject paragraph (Git `%b`), keeps internal line breaks and
+indentation, has trailing whitespace removed, and is empty for a subject-only
+message. History pages carry only `subject`; a commit detail view reads the
+body on demand with `git.commit`. See
+`shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
 

@@ -228,6 +228,10 @@ jobs:
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
 
+      - name: Test Git gutter changes and inline review lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts
+
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs
@@ -253,6 +257,10 @@ jobs:
       - name: Test Windows Git path identity
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
+
+      - name: Test Git commit messages and asynchronous diff ownership
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-commit-messages.json -- src/features/git/api/git-commits-api.test.ts src/features/git/components/log/git-commit-details.test.tsx src/features/git/hooks/use-git-diff-actions.test.tsx
 
       - name: Test Git query recovery and isolation
         shell: pwsh

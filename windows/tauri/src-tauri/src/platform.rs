@@ -627,17 +627,19 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["reset", "HEAD"]));
             "git.command"
         }
-        "git_stage_hunk" | "git_unstage_hunk" => {
+        "git_stage_hunk" | "git_unstage_hunk" | "git_discard_hunk" => {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
             payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
             payload.insert(
                 "mode".into(),
-                json!(if command == "git_stage_hunk" {
-                    "stage"
-                } else {
-                    "unstage"
+                // `discard` reverse-applies the worktree hunk without touching
+                // the index, so staged content for the file survives.
+                json!(match command {
+                    "git_stage_hunk" => "stage",
+                    "git_unstage_hunk" => "unstage",
+                    _ => "discard",
                 }),
             );
             "git.apply"
@@ -1599,5 +1601,41 @@ mod tests {
             payload["patch"],
             "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
         );
+    }
+
+    #[test]
+    fn translates_hunk_discard_to_reverse_worktree_apply() {
+        let hunk = json!({
+            "file_path": "src/main.rs",
+            "lines": [
+                { "line_type": "header", "content": "@@ -1,2 +1,2 @@" },
+                { "line_type": "context", "content": "keep" },
+                { "line_type": "removed", "content": "old" },
+                { "line_type": "added", "content": "new" }
+            ]
+        });
+        let (command, payload) = translate(
+            "git_discard_hunk",
+            json!({ "repoPath": "C:/work", "hunk": hunk.clone() }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.apply");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "mode": "discard",
+                "patch": "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
+            })
+        );
+
+        // Stage and unstage keep their modes when the discard arm is shared.
+        for (name, mode) in [("git_stage_hunk", "stage"), ("git_unstage_hunk", "unstage")] {
+            let (_, payload) =
+                translate(name, json!({ "repoPath": "C:/work", "hunk": hunk.clone() })).unwrap();
+            assert_eq!(payload["mode"], mode);
+        }
+        assert!(translate("git_discard_hunk", json!({ "repoPath": "C:/work" })).is_err());
     }
 }

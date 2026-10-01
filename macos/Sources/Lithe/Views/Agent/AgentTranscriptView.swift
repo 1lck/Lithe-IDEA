@@ -152,7 +152,8 @@ struct AgentTranscriptView: View {
                             if conversation?.isResponding == true || feature.isCreatingSession {
                                 AgentThinkingRow(
                                     isCancelling: conversation?.isCancelling == true,
-                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt
+                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
+                                    hasStreamingThought: liveThoughtID != nil
                                 ).id("responding")
                             }
                         }

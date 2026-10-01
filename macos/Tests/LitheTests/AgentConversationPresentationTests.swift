@@ -187,43 +187,138 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func commandKeysCompleteWithoutSendingAndSubmitFullInvocations() {
+        let commands = [AgentCommand(name: "review", description: "Review"),
+                        AgentCommand(name: "compact", description: "Compact"),
+                        AgentCommand(name: "$pdf", description: "Read PDFs")]
+        var completion = AgentCommandCompletion()
+        completion.draft = "/"
+        #expect(completion.handle(.up, commands: commands, isResponding: false) == .handled)
+        #expect(completion.highlightedIndex == 2)
+        #expect(completion.handle(.down, commands: commands, isResponding: false) == .handled)
+        #expect(completion.highlightedIndex == 0)
+        #expect(completion.handle(.down, commands: commands, isResponding: false) == .handled)
+        #expect(completion.handle(.tab, commands: commands, isResponding: false) == .handled)
+        #expect(completion.draft == "/compact ")
+        #expect(completion.suggestions(in: commands) == nil)
+        #expect(completion.handle(.submit, commands: commands, isResponding: false) == .send)
+
+        completion.draft = "/re"
+        #expect(completion.handle(.submit, commands: commands, isResponding: false) == .handled)
+        #expect(completion.draft == "/review ")
+        completion.draft = "/review"
+        #expect(completion.handle(.submit, commands: commands, isResponding: false) == .send)
+        #expect(completion.draft == "/review")
+        completion.draft = "$pd"
+        #expect(completion.handle(.tab, commands: commands, isResponding: false) == .handled)
+        #expect(completion.draft == "$pdf ")
+    }
+
+    @Test
+    func escapeDismissesSuggestionsBeforeCancellingAndEditingReopensThem() {
+        let commands = [AgentCommand(name: "review", description: "Review")]
+        var completion = AgentCommandCompletion()
+        completion.draft = "/"
+        #expect(completion.handle(.escape, commands: commands, isResponding: true) == .handled)
+        #expect(completion.draft == "/")
+        #expect(completion.suggestions(in: commands) == nil)
+        #expect(completion.handle(.escape, commands: commands, isResponding: true) == .cancel)
+        #expect(completion.handle(.escape, commands: commands, isResponding: false) == .ignored)
+        completion.draft = "/r"
+        #expect(completion.suggestions(in: commands)?.count == 1)
+        completion.draft = "/"
+        #expect(completion.suggestions(in: commands)?.count == 1)
+        completion.draft = "/missing"
+        #expect(completion.suggestions(in: commands)?.isEmpty == true)
+        #expect(completion.handle(.escape, commands: commands, isResponding: true) == .handled)
+        #expect(completion.handle(.escape, commands: commands, isResponding: true) == .cancel)
+    }
+
+    @Test
+    func unavailableCommandKeysLeaveOrdinaryTypingAndChangedListsUsable() {
+        let commands = [AgentCommand(name: "review", description: "Review"),
+                        AgentCommand(name: "compact", description: "Compact")]
+        var completion = AgentCommandCompletion()
+        for draft in ["text", "$", "/missing", "/review argument"] {
+            completion.draft = draft
+            for key in [AgentCommandCompletion.Key.up, .down, .tab] {
+                #expect(completion.handle(key, commands: commands, isResponding: false) == .ignored)
+                #expect(completion.draft == draft)
+            }
+            #expect(completion.handle(.submit, commands: commands, isResponding: false) == .send)
+        }
+        completion.draft = "/"
+        #expect(completion.handle(.up, commands: commands, isResponding: false) == .handled)
+        // A fresh upstream list can be shorter while the same draft is focused.
+        #expect(completion.handle(.tab, commands: Array(commands.prefix(1)), isResponding: false) == .handled)
+        #expect(completion.draft == "/review ")
+        completion.draft = "/"
+        #expect(completion.handle(.tab, commands: [], isResponding: false) == .ignored)
+    }
+
+    @Test
+    func activeThoughtKeepsOneThinkingLabelAndTheWaitingTimer() {
+        #expect(AgentThinkingRow().status == String(localized: "Thinking…"))
+        #expect(AgentThinkingRow(hasStreamingThought: true).status == String(localized: "Responding…"))
+        #expect(AgentThinkingRow(isCancelling: true, hasStreamingThought: true).status == String(localized: "Stopping…"))
+    }
+
+    @Test
     func commandSuggestionsKeepAWritingLineAtDefaultAndMinimumComposerHeights() throws {
         let commands = (0..<200).map {
             AgentCommand(name: "command-\($0)", description: "An upstream command with a long description", hint: nil)
         }
-        for height in [120.0, 210.0, 400.0] {
+        let attachment = try AgentFileReference(url: URL(fileURLWithPath: "/example/project/README.md"))
+        for height in [400.0, 700.0] {
             for width in [280.0, 620.0] {
-                for count in [0, 1, 40, 200] {
-                    var editor: NSView?
-                    let host = NSHostingView(rootView: VStack(spacing: 0) {
-                        // Match the composer's context bar, toolbar and outer inset.
-                        Color.clear.frame(height: 30)
-                        AgentComposerDraftArea(commands: Array(commands.prefix(count)), highlightedIndex: 0, onSelect: { _ in }) {
-                            AgentDraftFrameProbe { editor = $0 }
+                for files in [[], [attachment]] {
+                    for count in [0, 1, 40, 200] {
+                        var editor: NSView?
+                        var composer: NSView?
+                        let host = NSHostingView(rootView: AgentConversationLayout {
+                            Color.clear
+                        } composer: {
+                            AgentComposerContent(files: files, commands: Array(commands.prefix(count)), highlightedIndex: 0,
+                                                 onSelect: { _ in }, onRemoveFile: { _ in }, onFocus: {}) {
+                                Color.clear.frame(height: AgentComposerMetrics.contextHeight)
+                            } editor: {
+                                TextField("Message the Agent", text: .constant("/"), axis: .vertical)
+                                    .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...)
+                                    .background(AgentDraftFrameProbe { editor = $0 })
+                                    .padding(.horizontal, 8).padding(.vertical, 10)
+                                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                            } toolbar: {
+                                Color.clear.frame(height: AgentComposerMetrics.toolbarHeight)
+                            }
+                            .padding(.horizontal, 8).padding(.bottom, AgentComposerMetrics.bottomInset)
+                            .background(AgentDraftFrameProbe { composer = $0 })
+                        })
+                        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+                                              styleMask: [.borderless], backing: .buffered, defer: false)
+                        window.isReleasedWhenClosed = false
+                        defer { window.close() }
+                        window.contentView = host
+                        host.frame.size = NSSize(width: width, height: height)
+                        host.layoutSubtreeIfNeeded()
+                        let input = try #require(editor)
+                        let frame = host.convert(input.bounds, from: input)
+                        let composerView = try #require(composer)
+                        let pane = host.convert(composerView.bounds, from: composerView)
+                        #expect(pane.height + AgentComposerMetrics.splitTopInset >= AgentComposerMetrics.minimumHeight(hasFiles: !files.isEmpty) - 0.5)
+                        #expect(frame.height > 0, "The actual text field must survive \(count) commands and \(files.count) attachments")
+                        #expect(pane.insetBy(dx: -0.5, dy: -0.5).contains(frame), "The writing line must stay inside the sized pane")
+                        let writingScroll = try #require(enclosingScroll(of: input))
+                        #expect(writingScroll.bounds.height >= AgentComposerMetrics.writingLineHeight - 0.5)
+                        if count > 0 {
+                            let list = try #require(commandScroll(in: host, excluding: input))
+                            let listFrame = host.convert(list.bounds, from: list)
+                            #expect(listFrame.height >= 26, "Suggestions must retain a complete, selectable row")
+                            #expect(host.bounds.insetBy(dx: -0.5, dy: -0.5).contains(listFrame),
+                                    "The floating list must stay inside its conversation scope")
+                            let isAboveInput = host.isFlipped ? listFrame.maxY <= frame.minY + 0.5
+                                : listFrame.minY >= frame.maxY - 0.5
+                            #expect(isAboveInput, "The floating list must not cover the writing line")
                         }
-                        Color.clear.frame(height: 38)
-                    }.padding(.horizontal, 8).padding(.bottom, 8).agentCommandSuggestionScope())
-                    let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: height),
-                                          styleMask: [.borderless], backing: .buffered, defer: false)
-                    window.isReleasedWhenClosed = false
-                    defer { window.close() }
-                    window.contentView = host
-                    host.frame.size = NSSize(width: width, height: height)
-                    host.layoutSubtreeIfNeeded()
-                    let input = try #require(editor)
-                    let frame = host.convert(input.bounds, from: input)
-                    #expect(frame.height >= 36, "A complete writing line must survive \(count) commands at \(width)×\(height)")
-                    #expect(frame.minY >= 0 && frame.maxY <= host.bounds.maxY, "The writing line must stay inside the composer")
-                    #expect(abs(frame.width - (width - 16)) < 0.5)
-                    if count > 0 {
-                        let list = try #require(commandScroll(in: host))
-                        let listFrame = host.convert(list.bounds, from: list)
-                        #expect(listFrame.height >= 26, "Suggestions must retain a complete, selectable row")
-                        #expect(listFrame.minY >= 0 && listFrame.maxY <= host.bounds.maxY,
-                                "The floating list must stay inside its conversation scope")
-                        let isAboveInput = host.isFlipped ? listFrame.maxY <= frame.minY + 0.5
-                            : listFrame.minY >= frame.maxY - 0.5
-                        #expect(isAboveInput, "The floating list must not cover the writing line")
                     }
                 }
             }
@@ -393,9 +488,14 @@ struct AgentConversationPresentationTests {
         return view.subviews.lazy.compactMap { splitHandle(in: $0) }.first
     }
 
-    private func commandScroll(in view: NSView) -> NSScrollView? {
-        if let scroll = view as? NSScrollView { return scroll }
-        return view.subviews.lazy.compactMap { commandScroll(in: $0) }.first
+    private func enclosingScroll(of view: NSView) -> NSScrollView? {
+        if let scroll = view.superview as? NSScrollView { return scroll }
+        return view.superview.flatMap { enclosingScroll(of: $0) }
+    }
+
+    private func commandScroll(in view: NSView, excluding editor: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView, scroll.hasVerticalScroller, !editor.isDescendant(of: scroll) { return scroll }
+        return view.subviews.lazy.compactMap { commandScroll(in: $0, excluding: editor) }.first
     }
 }
 

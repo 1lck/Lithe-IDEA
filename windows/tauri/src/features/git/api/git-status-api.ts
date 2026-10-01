@@ -299,6 +299,28 @@ export const unstageHunk = async (repoPath: string, hunk: GitHunk): Promise<bool
   }
 };
 
+/**
+ * Reverse-applies one working-tree hunk, discarding only that block's unstaged
+ * edits. The hunk must come from an index-to-worktree patch of `repoPath`;
+ * Git rejects it without writing when the file no longer matches.
+ */
+export const discardHunk = async (repoPath: string, hunk: GitHunk): Promise<boolean> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);
+    await tauriInvoke("git_discard_hunk", { repoPath: resolvedRepoPath, hunk });
+    emitGitChanged({
+      repoPath: resolvedRepoPath,
+      filePath: hunk.file_path,
+      scopes: ["working-tree"],
+      source: "discard-hunk",
+    });
+    return true;
+  } catch (error) {
+    console.error("Failed to discard hunk:", error);
+    return false;
+  }
+};
+
 export const discardAllChanges = async (repoPath: string): Promise<boolean> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPathOrThrow(repoPath);

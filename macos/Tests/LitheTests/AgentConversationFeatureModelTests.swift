@@ -407,6 +407,26 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func duplicateAdvertisedCommandsKeepTheFirstDefinitionAndUniqueRowIdentities() throws {
+        let (feature, _) = try respondingFeature()
+        let advertised: [[String: Any]] = [
+            ["name": "review", "description": "First definition", "input": ["hint": "focus"]],
+            ["name": "review", "description": "Repeated definition"],
+            ["name": "compact", "description": "Compact the conversation"]
+        ] + (0..<201).map { ["name": "command-\($0)"] }
+        try feature.receive(event("availableCommands", ["update": [
+            "sessionUpdate": "available_commands_update", "availableCommands": advertised
+        ]]))
+        let commands = try #require(feature.selectedConversation?.availableCommands)
+        #expect(commands.count == 199, "Only the first 200 upstream entries are consumed")
+        #expect(Set(commands.map(\.id)).count == commands.count)
+        #expect(commands.prefix(2).map(\.name) == ["review", "compact"])
+        #expect(commands[0].description == "First definition")
+        #expect(commands[0].hint == "focus")
+        #expect(AgentCommand.suggestions(for: "/re", in: commands)?.count == 1)
+    }
+
+    @Test
     func agentReportedModeChangeMovesOnlyTheMatchingModeSelector() throws {
         let (feature, connection) = try connectedFeature()
         feature.prepareConversation()
@@ -523,11 +543,17 @@ struct AgentConversationFeatureModelTests {
         try feature.send("Explain this project")
         try feature.receive(event("sessionCreated", ["token": transport.connections[0].commands.last?["token"] as Any]))
 
+        try feature.receive(event("availableCommands"))
+        #expect(feature.selectedConversation?.availableCommands.count == 2)
+        try feature.receive(event("availableCommands", ["sessionId": "session-2"]))
+        #expect(feature.conversations["session-2"]?.availableCommands.count == 2)
+
         try feature.receive(event("stopped"))
         #expect(feature.connectionState == .failed("The Agent connection closed unexpectedly"))
         #expect(feature.selectedConversation?.isResponding == false)
         #expect(feature.selectedConversation?.isAttached == false)
         #expect(feature.selectedConversation?.messages.count == 1)
+        #expect(feature.conversations.values.allSatisfy { $0.availableCommands.isEmpty })
         #expect(throws: AgentConversationError.notConnected) { try feature.send("again") }
 
         await feature.stop()
@@ -536,7 +562,13 @@ struct AgentConversationFeatureModelTests {
         try feature.receive(event("ready"))
         try feature.send("again")
         #expect(transport.connections[1].commands.last?["kind"] as? String == "loadSession")
+        #expect(feature.selectedConversation?.availableCommands.isEmpty == true)
+        try feature.receive(event("sessionLoaded", ["token": transport.connections[1].commands.last?["token"] as Any]))
+        try feature.receive(event("availableCommands", ["update": ["sessionUpdate": "available_commands_update",
+            "availableCommands": [["name": "new-process-command", "description": "Current capabilities"]]]]))
+        #expect(feature.selectedConversation?.availableCommands.map(\.name) == ["new-process-command"])
         await feature.stop()
+        #expect(feature.selectedConversation?.availableCommands.isEmpty == true)
         #expect(transport.connections[1].closeCount == 1)
     }
 

@@ -8,18 +8,16 @@ struct AgentComposerDraftArea<Editor: View>: View {
     let onSelect: (AgentCommand) -> Void
     @ViewBuilder let editor: () -> Editor
 
-    private let minimumEditorHeight: CGFloat = 36
-
     var body: some View {
         GeometryReader { geometry in
-            let listHeight = max(0, geometry.size.height - minimumEditorHeight)
+            let listHeight = max(0, geometry.size.height - AgentComposerMetrics.writingLineHeight)
             let showsInline = listHeight >= AgentCommandSuggestionList.minimumHeight
             VStack(spacing: 0) {
                 if let commands, showsInline {
                     suggestions(commands, maximumHeight: min(AgentCommandSuggestionList.defaultMaximumHeight, listHeight - 2))
                 }
                 editor()
-                    .frame(minHeight: minimumEditorHeight, maxHeight: .infinity, alignment: .topLeading)
+                    .frame(minHeight: AgentComposerMetrics.writingLineHeight, maxHeight: .infinity, alignment: .topLeading)
             }
             .anchorPreference(key: AgentFloatingCommandsKey.self, value: .bounds) { bounds in
                 guard let commands, !showsInline else { return nil }
