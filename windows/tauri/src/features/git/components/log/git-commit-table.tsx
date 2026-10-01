@@ -257,12 +257,6 @@ export function GitCommitTable({
         </span>
       </div>
 
-      <div className="flex h-6 shrink-0 items-center border-border border-b bg-background px-2 text-subtle-foreground">
-        <span className="min-w-0 flex-1">{t("git.log.commit")}</span>
-        <span className="w-28 shrink-0">{t("git.log.author")}</span>
-        <span className="w-32 shrink-0 text-right">{t("git.log.date")}</span>
-      </div>
-
       <div
         ref={scrollRef}
         data-scroll-container=""
