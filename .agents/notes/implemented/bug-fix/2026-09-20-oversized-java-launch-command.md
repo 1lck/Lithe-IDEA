@@ -107,6 +107,16 @@ JDK 8 不认识 argfile，Windows 普通 Run 改用 classpath JAR（只含 `META
 - **修改 PowerShell profile、注册表或全局环境变量**：被否。该问题只属于 Lithe 生成的输入，系统级修改会影响 IDE 之外的程序，
   也不能可靠消除不同 Shell 的长度和解析差异。
 
+Windows 的目录探测、JDK release 读取、临时文件写入和进程创建在后台阻塞任务中执行，
+不能让慢速 UNC 路径冻结 UI。每次启动先登记独立的准备请求，停止会取消该请求，
+重新运行会替换它；准备完成后必须在与停止共用的锁内检查归属，再发布进程。
+例如 A 准备期间启动 B，即使 A 最后才完成，也必须释放 A 的临时文件而不启动它。
+不能只把同步命令改成后台执行而省略归属检查，否则停止后旧进程可能重新出现。
+
+临时 argfile 与 classpath JAR 在 `scripts/worktree-resources.json` 的
+`java-launch-temporaries` 中登记为不可复用资源，复用脚本直接拒绝。它们属于单次
+执行，没有构建身份 stamp，任何阶段都不能跨工作树复制，也不写发行目录。
+
 ## 后果
 
 - 大型多模块 Maven 项目在 Windows 上可以启动，命令行只剩下一个 `@文件` 引用。
@@ -116,7 +126,8 @@ JDK 8 不认识 argfile，Windows 普通 Run 改用 classpath JAR（只含 `META
 - 每次执行用 `create_new` 独占创建一个参数文件，不按窗口或会话名复用。文件由
   RAII 所有者管理（离开作用域时自动清理）：写入或启动失败时删除，成功后交给
   该进程的退出线程删除；旧执行的清理不能影响替代它的新执行。
-  JVM 已读取参数后，外部清理文件不影响该进程；后续执行会创建新文件。
+  `@argfile` 在 JVM 启动时读取；classpath JAR 可能在后续类加载时仍被访问，
+  因此两者统一保留到进程退出，后续执行创建新文件。
 - `@argfile` 需要 JDK 9 以上。JDK 8 的普通 Run 现在由 classpath JAR 覆盖。代价：
   JDK 8 缩短后 `System.getProperty("java.class.path")` 只返回临时 JAR 路径；
   只依赖类加载器的代码不受影响。JDK 8 的 `--module-path` 不存在，所以不需要处理。
