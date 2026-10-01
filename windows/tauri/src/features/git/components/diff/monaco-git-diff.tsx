@@ -42,6 +42,7 @@ export default function MonacoGitDiff({ diff, viewMode = "split", showWhitespace
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
   const rows = useMemo(() => monacoDiffRows(diff), [diff]);
   const sourcePath = diff.new_path || diff.old_path || diff.file_path;
+  const fullContext = diff.is_full_context === true;
   const latest = useRef({ rows, sourcePath });
   const updating = useRef(false);
   const repoPath = staging?.repoPath;
@@ -114,13 +115,15 @@ export default function MonacoGitDiff({ diff, viewMode = "split", showWhitespace
     setError(undefined);
     updating.current = true;
     const action = hunkActions.current?.action;
+    // Only a full-file patch may fold: Monaco's fold bands reveal hidden lines
+    // in place, which is meaningless for a sparse patch whose gaps are absent.
     void review.current!.update({ rows, language: toMonacoLanguageId(detectLanguageFromPath(sourcePath)),
-      sideBySide: viewMode === "split", collapse: false, overview: !embedded,
+      sideBySide: viewMode === "split", collapse: fullContext, overview: !embedded,
       actions: action ? [{ id: action, title: actionTitle }] : [] })
       .then(() => { if (!cancelled) { latest.current = { rows, sourcePath }; updating.current = false; } })
       .catch(error => { if (!cancelled) setError(String(error)); });
     return () => { cancelled = true; };
-  }, [rows, sourcePath, viewMode, embedded, repoPath, isStaged, actionTitle]);
+  }, [rows, sourcePath, fullContext, viewMode, embedded, repoPath, isStaged, actionTitle]);
 
   useEffect(() => {
     review.current?.select({ matches: searchMatches.map(match => ({ rowID: `line-${match.lineIndex}`,

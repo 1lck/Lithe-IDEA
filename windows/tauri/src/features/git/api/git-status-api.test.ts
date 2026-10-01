@@ -43,7 +43,7 @@ const {
   getWorkspaceRootGitStatus,
   getGitStatus,
 } = await import("./git-status-api");
-const { getWorkingTreePathDiff } = await import("./git-diff-api");
+const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
 
 beforeEach(() => {
   invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
@@ -171,6 +171,36 @@ describe("Git status review diffs", () => {
       repoPath: "C:/repo",
       filePath: "src/partially-staged.ts",
       worktreeSnapshot: true,
+    });
+  });
+
+  // #557: a single-file review needs every source line so folded unchanged
+  // regions can be expanded; the result is marked for the renderer.
+  test("requests the whole file as context for a single-file review", async () => {
+    invoke.mockImplementationOnce(async () => ({ file_path: "src/App.tsx", lines: [] }));
+    await expect(
+      getWorkingTreePathDiff("C:/repo", "src/App.tsx", false, undefined, true),
+    ).resolves.toMatchObject({ is_full_context: true });
+
+    expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
+      repoPath: "C:/repo",
+      filePath: "src/App.tsx",
+      worktreeSnapshot: true,
+      contextLines: 2_147_483_647,
+    });
+  });
+
+  test("requests a full-context staged diff without the sparse cache", async () => {
+    invoke.mockImplementationOnce(async () => ({ file_path: "src/App.tsx", lines: [] }));
+    await expect(getFullContextFileDiff("C:/repo", "src/App.tsx", true)).resolves.toMatchObject({
+      is_full_context: true,
+    });
+
+    expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
+      repoPath: "C:/repo",
+      filePath: "src/App.tsx",
+      staged: true,
+      contextLines: 2_147_483_647,
     });
   });
 });

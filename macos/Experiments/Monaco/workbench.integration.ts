@@ -115,6 +115,45 @@ async function verify() {
       subscription?.dispose(); review.dispose(); container.remove();
     }
   });
+  // #557: the first text after the empty mount used to open with every
+  // unchanged region revealed, so a full-file review showed nothing to expand.
+  await check("first full-file diff folds unchanged regions and anchors hunk actions", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;inset:0;height:400px;width:1000px";
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const rows: ReviewRow[] = Array.from({ length: 120 }, (_, index) => ({
+      id: `full-${index}`, oldLine: index + 1, newLine: index + 1,
+      left: `value ${index}`, right: index === 4 ? "changed" : `value ${index}`,
+      kind: index === 4 ? "changed" : "context", hunkID: index < 8 ? "hunk-4" : null,
+      ...(index === 4 ? { actionAnchor: true } : {}),
+    }));
+    let subscription: { dispose(): void } | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const computed = new Promise<void>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Full-file diff computation exceeded 5 seconds")), 5000);
+        subscription = review.editor.onDidUpdateDiff(() => {
+          if (review.editor.getLineChanges()?.length) resolve();
+        });
+      });
+      await Promise.all([review.update({ rows, language: "plaintext", collapse: true,
+        actions: [{ id: "stage", title: "Stage" }] }), computed]);
+      const next = review.editor.getModifiedEditor();
+      // Content height, unlike the viewport, shrinks only when lines are folded.
+      const lineHeight = next.getOption(monacoEditor.EditorOption.lineHeight);
+      assert(next.getContentHeight() < lineHeight * 40,
+        "unchanged region opened revealed instead of folded");
+      assert(container.querySelectorAll(".lithe-review-actions button").length === 1,
+        "full-file hunk did not render exactly one action band");
+      review.select({ revealID: "full-60", searchIDs: ["full-60"] });
+      assert(next.getVisibleRanges().some(range => range.startLineNumber <= 61 && range.endLineNumber >= 61),
+        "folded source row could not be revealed");
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+      subscription?.dispose(); review.dispose(); container.remove();
+    }
+  });
   await check("inline diff navigation scrolls to a removed source row", async () => {
     const container = document.createElement("div");
     container.style.cssText = "position:absolute;inset:0;height:400px;width:1000px";
