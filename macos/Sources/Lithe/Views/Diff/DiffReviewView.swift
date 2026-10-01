@@ -308,12 +308,14 @@ struct DiffReviewView: View {
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 0) {
             diffCanvas(proxy: proxy)
-            Rectangle().fill(LitheTheme.divider).frame(width: 1)
-            DiffMapView(rows: feature.diffRows) { rowID in
-                // The tick may sit inside a fold, so pin it open first.
-                mapTargetRowID = rowID
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    proxy.scrollTo(rowID, anchor: .center)
+            if usesSingleFileDiff {
+                Rectangle().fill(LitheTheme.divider).frame(width: 1)
+                DiffMapView(rows: feature.diffRows) { rowID in
+                    // The tick may sit inside a fold, so pin it open first.
+                    mapTargetRowID = rowID
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        proxy.scrollTo(rowID, anchor: .center)
+                    }
                 }
             }
         }

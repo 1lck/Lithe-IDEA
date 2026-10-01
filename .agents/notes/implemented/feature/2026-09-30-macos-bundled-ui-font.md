@@ -68,6 +68,28 @@ Diff 的复制菜单复用 `LitheContextMenuPresenter` 和 IDEA 16pt 复制 SVG�
 拖动不重新生成文字。若未来统一到 Monaco，应先验证中央行号、单侧增删、折叠、
 源行号映射和现有差异块动作，而不是只替换截图中的颜色。
 
+### 历史提交 Diff 工具栏、单栏与滚动标记
+
+历史提交页的文件标签、提交说明、Parent/Commit 标签及补丁区块头曾占用多行。
+现在保留工具栏和版本信息两行：版本行显示父提交/当前提交的短哈希，左侧附文件
+路径并从中间省略，标题跟随各自面板宽度和收起状态。单栏模式把版本信息上下排列，将已有修改前/修改后的文本依次
+显示；双栏维持两个紧凑代码流。`@@` 是补丁元数据，只在历史提交页隐藏；工作区
+Diff 的区块动作、搜索、折叠与只读/暂存语义保留。高亮词语和关闭操作进入已有
+共享 `LitheMenu` 设置入口，不增加截图里 Lithe 尚未实现的操作。
+
+依据同一 Community 版本的 `DiffHeaderToolbarPanel`、`DiffUtil.getContentTitleBorderInsets`、
+`DiffToolChooser`、`SegmentedButtonComponent` 与 `FilePathDiffTitleCustomizer`。
+上一处/下一处、只读锁、双栏/单栏使用原始明暗 SVG；普通工具按钮复用
+`litheToolbarIconButton`、共享 hover/提示和界面字体；布局选择复用现有行 hover，
+保持 IDEA 分段按钮的独立选中边框，不能套用设置页的蓝色文字分段选择样式。
+
+两侧滚动条复用 `DiffMapView.width`、共享 compact 原生滑块绘制和 `LitheTheme.Diff`
+标记色。相对位置依据各自完整代码流高度，至少 2pt，点击把变更置于视口约三分之一
+处；单侧增删的另一侧仍有对应细标记。AppKit 对 layer-backed NSScroller 有自身轨道
+绘制，故原生跟踪与既有滑块绘制放在有明确裁剪的视图内，避免系统浅色轨道和越界
+绘制盖住代码。原生双栏消费者不再另外显示旧概览条；工作区新增/删除的旧单栏仍用
+原概览入口。未改 Windows、Monaco 或后端比较结果。
+
 ### 项目标识的字母
 
 项目颜色标识的字母属于已有 `ProjectAvatarBadge`，不是普通界面标题。
@@ -106,6 +128,15 @@ node scripts/test-reuse-worktree-resources.mjs
 
 完整安装包由 `scripts/verify-macos-package.sh` 检查全部字型及许可信息。
 本次字体注册/字重与明暗弹窗圆角渲染测试通过；按用户要求不启动预览，当前运行界面的视觉验收尚未完成。Windows 原生界面不在本次验证范围内。
+
+此次 Diff 主测试目标 1,379 项 / 178 个 suite 通过，49.363 秒；普通 SwiftPM
+不包含应用 SVG 资源时跳过专用资源检查，另用实际资源 helper 跑 9 项 / 两个 suite
+通过（1.125 秒），包括明暗位图、原生点击布局切换、标题预留高度、标记颜色和定位、卸载、连续
+选择、滚动条无障碍增减及两种 SVG 路径写法。最后滚动条无障碍调整另由 8 项
+实际执行的聚焦检查通过（1.189 秒，普通 SwiftPM 跳过资源专用检查）。1,200 行 / 60 帧组件调整与截图检查文字重建为零，
+p95 为 10.26ms；该测量包含组件布局和截图，不能证明完整应用的实际滚动帧延迟。
+所有任务窗口/进程退出；按用户要求没有启动完整预览应用。HTML 报告分别在
+`.artifacts/diff-validation/full/index.html` 与 `native/index.html`。
 
 ## 适用范围
 

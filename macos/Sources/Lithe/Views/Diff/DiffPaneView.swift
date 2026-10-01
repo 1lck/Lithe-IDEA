@@ -18,29 +18,10 @@ struct DiffPaneView: View {
     var showsDiffMap: Bool = true
 
     @State private var expandedRegionIDs: Set<String> = []
-    @State private var pinnedRowIDs: Set<DiffRowID> = []
-
     var body: some View {
-        HStack(spacing: 0) {
-            diffSurface
-            if showsDiffMap, !rows.isEmpty {
-                Rectangle().fill(LitheTheme.Diff.separator).frame(width: 1)
-                DiffMapView(rows: rows) { rowID in
-                    // A tick can point into a fold, so force that region open
-                    // before asking the list to scroll there.
-                    pinnedRowIDs = [rowID]
-                    scrollTarget = rowID
-                }
-            }
-        }
-        .onChange(of: rows.map(\.id)) { _ in
-            expandedRegionIDs.removeAll()
-            pinnedRowIDs.removeAll()
-            scrollTarget = nil
-        }
+        diffSurface
+            .onChange(of: rows.map(\.id)) { _ in expandedRegionIDs.removeAll() }
     }
-
-    @State private var scrollTarget: DiffRowID?
 
     private var diffSurface: some View {
         let displayRows = displayRows()
@@ -56,7 +37,7 @@ struct DiffPaneView: View {
         return GeometryReader { geometry in
             let contentWidth = max(geometry.size.width, measuredWidth)
 
-            ScrollViewReader { proxy in
+            ScrollViewReader { _ in
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: kinds,
@@ -64,15 +45,10 @@ struct DiffPaneView: View {
                     fileExtension: fileExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    highlightsWords: highlightsWords
+                    highlightsWords: highlightsWords,
+                    showsChangeMarkers: showsDiffMap
                 ) { region in
                     expandedRegionIDs.insert(region.id)
-                }
-                .onChange(of: scrollTarget) { target in
-                    guard let target else { return }
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        proxy.scrollTo(target, anchor: .center)
-                    }
                 }
             }
         }
@@ -84,8 +60,7 @@ struct DiffPaneView: View {
         }
         return DiffCollapse.plan(
             rows: rows,
-            expandedRegionIDs: expandedRegionIDs,
-            pinnedRowIDs: pinnedRowIDs
+            expandedRegionIDs: expandedRegionIDs
         )
     }
 }

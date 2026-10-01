@@ -189,7 +189,7 @@ enum LitheIcons {
         let directory = path.deletingLastPathComponent
         let filename = path.lastPathComponent as NSString
         let resourceName = filename.deletingPathExtension
-        let darkFilename = "\(resourceName)_dark.\(filename.pathExtension)"
+        let darkFilename = "\(resourceName)_dark.\(filename.pathExtension.isEmpty ? "svg" : filename.pathExtension)"
         return directory.isEmpty ? darkFilename : "\(directory)/\(darkFilename)"
     }
 
@@ -201,7 +201,7 @@ enum LitheIcons {
         let directory = path.deletingLastPathComponent
         let filename = path.lastPathComponent as NSString
         let resourceName = filename.deletingPathExtension
-        let lightFilename = "\(resourceName)_light.\(filename.pathExtension)"
+        let lightFilename = "\(resourceName)_light.\(filename.pathExtension.isEmpty ? "svg" : filename.pathExtension)"
         return directory.isEmpty ? lightFilename : "\(directory)/\(lightFilename)"
     }
 
@@ -498,7 +498,7 @@ enum LitheIcons {
         let resourceName = filename.deletingPathExtension
         guard let url = Bundle.main.url(
             forResource: resourceName,
-            withExtension: filename.pathExtension,
+            withExtension: filename.pathExtension.isEmpty ? "svg" : filename.pathExtension,
             subdirectory: "IDEAIcons/\(directory)"
         ), let image = NSImage(contentsOf: url) else {
             return nil

@@ -1,0 +1,222 @@
+import AppKit
+import SwiftUI
+import Testing
+@testable import LitheGitModule
+@testable import Lithe
+
+@Suite("Diff synchronized viewers", .serialized)
+@MainActor
+struct DiffScrollSynchronizationTests {
+    private func rows() -> [DiffRow] {
+        var result = (0..<80).map {
+            DiffRow(oldLine: $0 + 1, newLine: $0 + 1, left: "let value = \($0)", right: nil, kind: .context, sequence: $0)
+        }
+        for i in 0..<3 {
+            result.append(DiffRow(oldLine: nil, newLine: 81 + i, left: nil, right: "added\(i)()", kind: .addition, sequence: 80 + i))
+        }
+        for i in 80..<180 {
+            result.append(DiffRow(oldLine: i + 1, newLine: i + 4, left: "let value = \(i)",
+                right: i == 84 ? "let value = 184" : nil, kind: i == 84 ? .changed : .context, sequence: i + 3))
+        }
+        return result
+    }
+
+    @Test
+    func boundaryMappingPreservesMatchingLinesAndClampsInsertions() {
+        let rows = rows()
+        let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind))
+        let map = DiffScrollMapping(layout: layout)
+        #expect(map.transfer(1_700, from: .left) == 1_700)
+        #expect(map.transfer(1_780, from: .right) == 1_760)
+        #expect(map.transfer(1_826, from: .right) == 1_760)
+        #expect(map.transfer(1_850, from: .right) == 1_784)
+        #expect(map.transfer(2_000, from: .left) == 2_066)
+        #expect(map.transfer(4_000, from: .right) == 3_934)
+    }
+
+    @Test
+    func nativeClipsSynchronizeFlattenConnectorsAndNavigateFromStripes() async throws {
+        let rows = rows()
+        let display = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        let layout = DiffSplitLayout.plan(displayRows: display, kinds: rows.map(\.kind))
+        let hosting = NSHostingView(rootView: ScrollViewReader { _ in
+            DiffSplitPaneView(displayRows: display, kinds: rows.map(\.kind), layout: layout,
+                fileExtension: "swift", contentWidth: 1_100, viewportWidth: 900,
+                header: { _ in AnyView(Color.clear.frame(height: 22)) }, onExpand: { _ in })
+        })
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = hosting
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        let stripes = descendants(hosting).compactMap { $0 as? DiffStripeScroller }
+        let left = try #require(stripes.first { $0.side == .left })
+        let right = try #require(stripes.first { $0.side == .right })
+        #expect(left.bounds.height == 228 && right.bounds.height == 228, "Version headers reserve space above the native scroll viewports")
+        let sync = try #require(left.synchronization)
+        let oldClip = try #require(sync.scrollView(.left)?.contentView)
+        let newClip = try #require(sync.scrollView(.right)?.contentView)
+        let ribbon = try #require(descendants(hosting).compactMap { $0 as? DiffNativeTransitionsView }.first)
+        let editors = descendants(hosting).compactMap { $0 as? DiffNativeTextView }
+        #expect(editors.count == 2)
+        let revisions = editors.map(\.appliedRevision)
+        sync.scroll(.left, to: 1_650)
+        #expect(abs(oldClip.bounds.minY - newClip.bounds.minY) < 0.1)
+        sync.scroll(.left, to: 1_700)
+        #expect(abs(newClip.bounds.minY - oldClip.bounds.minY - 66) < 0.1)
+        let change = try #require(ribbon.transitions.first { $0.kind == .changed })
+        #expect(abs(change.leftRange.lowerBound - ribbon.leftOffset
+            - (change.rightRange.lowerBound - ribbon.rightOffset)) < 0.1,
+            "Matched changes flatten after the insertion passes the one-third viewport anchor")
+        #expect(left.knobProportion > 0 && left.knobProportion < 1)
+        #expect(left.transitions.contains { $0.kind == .addition })
+        #expect(right.transitions.contains { $0.kind == .changed })
+        sync.scroll(.right, to: 0)
+        #expect(right.isAccessibilityElement() && right.accessibilityRole() == .scrollBar)
+        #expect(right.accessibilityPerformIncrement())
+        #expect(newClip.bounds.minY == DiffLayoutMetrics.rowHeight)
+        #expect(right.accessibilityPerformDecrement())
+        #expect(newClip.bounds.minY == 0)
+        let marker = right.markerRect(change)
+        let point = NSPoint(x: marker.midX, y: marker.midY)
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown,
+            location: right.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        right.mouseDown(with: event)
+        #expect(abs(newClip.bounds.minY - (change.rightRange.lowerBound - newClip.bounds.height / 3)) < 0.1)
+        #expect(editors.map(\.appliedRevision) == revisions, "Scrolling and stripe clicks never replace prepared text")
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
+        for (kind, expected) in [(DiffRowKind.addition, NSColor(LitheTheme.Diff.insertedStripe)),
+                                 (.changed, NSColor(LitheTheme.Diff.modifiedStripe))] {
+            let transition = try #require(right.transitions.first { $0.kind == kind })
+            let rect = right.markerRect(transition)
+            let point = hosting.convert(NSPoint(x: rect.midX, y: rect.midY), from: right)
+            let pixel = try #require(bitmap.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
+            let color = try #require(expected.usingColorSpace(.deviceRGB))
+            #expect(abs(pixel.redComponent - color.redComponent) < 0.04
+                && abs(pixel.greenComponent - color.greenComponent) < 0.04
+                && abs(pixel.blueComponent - color.blueComponent) < 0.04,
+                "Each native stripe must actually paint its addition/modified color")
+        }
+        if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("diff-synchronized.png"))
+        }
+        window.contentView = nil
+        #expect(sync.scrollView(.left) == nil && sync.scrollView(.right) == nil, "Unmounting removes clip observers")
+    }
+
+    @Test
+    func unifiedViewerShowsBothSourceVersionsAndSelectsOnlyCode() async throws {
+        let rows = [DiffRow(oldLine: nil, newLine: nil, left: "@@ -1,2 +1,2 @@", right: nil, kind: .information, sequence: 0),
+                    DiffRow(oldLine: 1, newLine: 1, left: "let unchanged = 0", right: nil, kind: .context, sequence: 1),
+                    DiffRow(oldLine: 2, newLine: 2, left: "let value = 1", right: "let value = 2", kind: .changed, sequence: 2)]
+        let layout = DiffUnifiedLayout(rows: rows)
+        #expect(layout.items.map(\.kind) == [.context, .removal, .addition])
+        #expect(layout.items.map(\.isScrollAnchor) == [true, true, false])
+        let hosting = NSHostingView(rootView: ScrollViewReader { _ in
+            DiffUnifiedPaneView(layout: layout, fileExtension: "swift", contentWidth: 700,
+                highlightsWords: true, selectedRowIDs: [])
+        })
+        hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = hosting
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        let editors = descendants(hosting).compactMap { $0 as? DiffNativeTextView }
+        #expect(editors.count == 1)
+        let editor = try #require(editors.first)
+        #expect(editor.string == "let unchanged = 0\nlet value = 1\nlet value = 2\n")
+        let column = try #require(editor.column)
+        #expect(column.lines.map(\.sourceNumber) == [1, 2, 2])
+        #expect(descendants(hosting).compactMap { $0 as? DiffNativeGutterView }.first?.showsBothNumbers == true)
+        #expect(column.selectedSource(in: NSRange(location: 0, length: editor.string.utf16.count)) == editor.string)
+        #expect(!editor.isEditable && editor.isSelectable)
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("diff-unified.png"))
+        }
+    }
+
+    @Test
+    func commitHeadersSwitchBetweenTwoColumnsAndStackedVersions() async throws {
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        let context = GitCommitDiffContext(repositoryRoot: FileManager.default.temporaryDirectory,
+            commit: GitCommit(hash: "3162dee9", shortHash: "3162dee9", parentHashes: ["8e12be9b"],
+                authorName: "Test", authorEmail: "test@example.invalid", date: "", subject: "Test", decorations: ""),
+            file: GitCommitFile(status: "M", path: "macos/Sources/Lithe/Views/Workbench/SplitHandleView.swift"))
+        let suite = "lithe-diff-header-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services:
+            MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        do {
+            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context).environmentObject(model).environment(\.colorScheme, .dark))
+            hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
+            let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = hosting
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.orderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            func snapshot() throws -> NSBitmapImageRep {
+                let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                return bitmap
+            }
+            func ink(_ bitmap: NSBitmapImageRep, x: Range<Int>, y: Range<Int>) -> Int {
+                let scale = CGFloat(bitmap.pixelsWide) / 900
+                return x.reduce(0) { count, x in count + y.filter { y in
+                    guard let color = bitmap.colorAt(x: Int(CGFloat(x) * scale), y: Int(CGFloat(y) * scale)) else { return false }
+                    return color.redComponent > 0.6 && color.greenComponent > 0.6 && color.blueComponent > 0.6
+                }.count }
+            }
+            let before = try snapshot()
+            #expect(ink(before, x: 474..<545, y: 42..<60) > 20, "Current commit is in the right version column")
+            let point = hosting.convert(NSPoint(x: 844, y: 19), to: nil)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(with: type, location: point,
+                    modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                    context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                window.sendEvent(event)
+            }
+            await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            let after = try snapshot()
+            #expect(ink(after, x: 474..<545, y: 42..<60) == 0, "Unified mode clears the right version column")
+            #expect(ink(after, x: 24..<95, y: 64..<82) > 20, "Current commit is the second stacked version")
+            if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+                let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+                hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+                try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: directory).appendingPathComponent("diff-toolbar-unified.png"))
+            }
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
+    @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_VERIFY_IDEA_RESOURCES"] == "1"))
+    func bundledToolbarAssetsResolveWithAndWithoutSVGExtension() throws {
+        for path in ["expui/general/up", "expui/general/down", "expui/general/locked",
+                     "expui/general/settings", "expui/diff/sideBySide", "expui/diff/unified"] {
+            #expect(try #require(LitheIcons.ideaImage(resourcePath: path)).size ==
+                    #require(LitheIcons.ideaImage(resourcePath: path + ".svg")).size)
+            #expect(LitheIcons.ideaImage(resourcePath: LitheIcons.darkIdeaAssetPath(for: path)) != nil)
+        }
+    }
+
+    private func descendants(_ view: NSView) -> [NSView] {
+        [view] + view.subviews.flatMap { descendants($0) }
+    }
+}

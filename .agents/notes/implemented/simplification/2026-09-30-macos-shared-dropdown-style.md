@@ -42,7 +42,7 @@ SwiftUI 产品菜单已迁移：操作列表经 `LitheDropdown.swift` 的 `Lithe
 
 Monaco 编辑区右键菜单由网页内部渲染，原来的 SwiftUI 菜单扫描无法覆盖这个入口。macOS 现在通过 `macos/EditorFrontend/context-menu.ts` 的 `installNativeContextMenu` 替换 Monaco 0.55.1 的菜单渲染器，把已生成的条目交给 `MonacoEditorContextMenu` 和共享 `LitheContextMenuPresenter`。Monaco 仍然负责上下文条件、分组顺序、快捷键和动作执行；这里只传菜单展示信息与选中条目，不调用 Rust 或新增 IDEA 独有动作。取消、替换与卸载必须结束原来的菜单回调，旧响应不得执行动作。
 
-图标以 IDEA 的动作定义 `Presentation.icon` 和 `PlatformIconMappings.json` 为依据。剪切、复制、粘贴、格式化及已有 Run/Debug 动作使用已确认的官方 SVG；跳转、重命名、更改所有匹配与命令面板保留空图标位。图标显示为原始 16pt，保留 SVG 路径、描边、原色和明暗资源，禁用透明度由共享行处理。不能按菜单文字猜图标或用 SF Symbols 补齐空位。
+图标以 IDEA 的动作定义 `Presentation.icon` 和 `PlatformIconMappings.json` 为依据。剪切、复制、粘贴、格式化及已有 Run/Debug 动作使用已确认的官方 SVG；跳转、重命名、更改所有匹配与命令面板保留空图标位。图标显示为原始 16pt，保留 SVG 路径、描边、原色和明暗资源，禁用透明度由共享行处理。 `LitheIcons.ideaImage` 接受带或不带 `.svg` 的已有调用，省略后缀时默认 SVG；明暗兄弟路径同样补齐后缀。避免调用缺后缀导致空图标或 SF 回退；实际打包资源探针检查两种写法都可解析。不能按菜单文字猜图标或用 SF Symbols 补齐空位。
 
 同一操作菜单的子菜单必须跟随触发行的可见位置，不能与父菜单顶部对齐。
 共享呈现器读取父菜单行的实际几何位置，因此分隔线和父菜单滚动都会参与定位；

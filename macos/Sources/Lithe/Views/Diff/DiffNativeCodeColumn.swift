@@ -38,6 +38,7 @@ final class DiffNativeColumnState: ObservableObject {
     private var fileExtension = ""
     private var dark = false
     private var highlightsWords = false
+    private var unified = false
     private(set) var lines: [Line] = []
     private(set) var preparedText = NSAttributedString()
     private(set) var revision = 0
@@ -48,25 +49,27 @@ final class DiffNativeColumnState: ObservableObject {
     weak var gutter: DiffNativeGutterView?
 
     func prepare(identity: UUID, items: [DiffSplitLayout.Item], side: DiffSide,
-                 fileExtension: String, highlightsWords: Bool, dark: Bool) {
+                 fileExtension: String, highlightsWords: Bool, dark: Bool, unified: Bool = false) {
         guard self.identity != identity || self.fileExtension != fileExtension
-            || self.highlightsWords != highlightsWords || self.dark != dark else { return }
+            || self.highlightsWords != highlightsWords || self.dark != dark || self.unified != unified else { return }
         self.identity = identity
         self.fileExtension = fileExtension
         self.highlightsWords = highlightsWords
         self.dark = dark
+        self.unified = unified
         let text = NSMutableAttributedString()
         lines = []
         for item in items {
             let start = text.length
             var sourceNumber: Int?
             if case let .row(row, _) = item.displayRow, item.kind != .information {
-                let source = side == .left ? row.left ?? "" : row.rightText ?? ""
-                let other = side == .left ? row.rightText : row.left
-                sourceNumber = side == .left ? row.oldLine : row.newLine
+                let sourceSide: DiffSide = unified ? (item.kind == .removal ? .left : .right) : side
+                let source = sourceSide == .left ? row.left ?? "" : row.rightText ?? ""
+                let other = sourceSide == .left ? row.rightText : row.left
+                sourceNumber = sourceSide == .left ? row.oldLine : row.newLine
                 let styled = DiffSyntaxHighlighter.styled(source, comparing: other,
-                    fileExtension: fileExtension, side: side,
-                    highlightsWords: highlightsWords && item.kind == .changed)
+                    fileExtension: fileExtension, side: sourceSide,
+                    highlightsWords: highlightsWords && (item.kind == .changed || unified && row.kind == .changed))
                 for run in styled.runs {
                     var attributes: [NSAttributedString.Key: Any] = [:]
                     if let color = run.foregroundColor { attributes[.foregroundColor] = NSColor(color) }
@@ -140,6 +143,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     let highlightsWords: Bool
     let selectedRowIDs: Set<DiffRowID>
     let currentSearchMatchID: DiffRowID?
+    var unified = false
     @Environment(\.colorScheme) private var colorScheme
 
     func makeNSView(context: Context) -> DiffNativeTextView {
@@ -166,7 +170,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
 
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
         state.prepare(identity: layoutIdentity, items: items, side: side,
-            fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark)
+            fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark, unified: unified)
         state.selectedIDs = selectedRowIDs
         state.currentSearchID = currentSearchMatchID
         view.selectedTextAttributes = [.backgroundColor: NSColor(LitheTheme.Diff.selection)]
@@ -261,16 +265,21 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
 
 struct DiffNativeLineNumbers: NSViewRepresentable {
     let state: DiffNativeColumnState
+    var showsBothNumbers = false
     func makeNSView(context: Context) -> DiffNativeGutterView {
         let view = DiffNativeGutterView()
         view.column = state
         state.gutter = view
         return view
     }
-    func updateNSView(_ view: DiffNativeGutterView, context: Context) { view.needsDisplay = true }
+    func updateNSView(_ view: DiffNativeGutterView, context: Context) {
+        view.showsBothNumbers = showsBothNumbers
+        view.needsDisplay = true
+    }
 }
 
 final class DiffNativeGutterView: NSView {
+    var showsBothNumbers = false
     var column: DiffNativeColumnState?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -285,13 +294,21 @@ final class DiffNativeGutterView: NSView {
             guard line.item.top < dirtyRect.maxY else { break }
             column.background(line.item, muted: false).setFill()
             NSRect(x: 0, y: line.item.top, width: bounds.width, height: line.item.height).fill()
-            guard let number = line.sourceNumber else { continue }
-            let text = NSAttributedString(string: String(number), attributes: [.font: font,
-                .foregroundColor: NSColor(column.hasCaret && index == column.caretLine
-                    ? LitheTheme.Diff.caretLineNumber : LitheTheme.Diff.lineNumber)])
-            let size = text.size()
-            text.draw(at: NSPoint(x: bounds.width - DiffLayoutMetrics.lineNumberTrailingPadding - size.width,
-                y: line.item.top + (line.item.height - size.height) / 2))
+            let numbers: [Int?]
+            if showsBothNumbers, case let .row(row, _) = line.item.displayRow {
+                numbers = [line.item.kind == .addition ? nil : row.oldLine,
+                           line.item.kind == .removal ? nil : row.newLine]
+            } else { numbers = [line.sourceNumber] }
+            for (columnIndex, number) in numbers.enumerated() {
+                guard let number else { continue }
+                let text = NSAttributedString(string: String(number), attributes: [.font: font,
+                    .foregroundColor: NSColor(column.hasCaret && index == column.caretLine
+                        ? LitheTheme.Diff.caretLineNumber : LitheTheme.Diff.lineNumber)])
+                let size = text.size()
+                let rightEdge = showsBothNumbers ? CGFloat(columnIndex + 1) * bounds.width / 2 : bounds.width
+                text.draw(at: NSPoint(x: rightEdge - DiffLayoutMetrics.lineNumberTrailingPadding - size.width,
+                    y: line.item.top + (line.item.height - size.height) / 2))
+            }
         }
     }
 }
@@ -300,6 +317,8 @@ final class DiffNativeGutterView: NSView {
 /// Canvas backing image or traverse every off-screen change during resizing.
 final class DiffNativeTransitionsView: NSView {
     var transitions: [DiffSplitLayout.Transition] = []
+    var leftOffset: CGFloat = 0
+    var rightOffset: CGFloat = 0
     var leftX: CGFloat = 0
     var rightX: CGFloat = 0
     override var isFlipped: Bool { true }
@@ -309,24 +328,24 @@ final class DiffNativeTransitionsView: NSView {
         while low < high {
             let mid = (low + high) / 2
             let transition = transitions[mid]
-            if max(transition.leftRange.upperBound, transition.rightRange.upperBound) < dirtyRect.minY {
+            if max(transition.leftRange.upperBound - leftOffset, transition.rightRange.upperBound - rightOffset) < dirtyRect.minY {
                 low = mid + 1
             } else { high = mid }
         }
         for index in low..<transitions.count {
             let transition = transitions[index]
-            if min(transition.leftRange.lowerBound, transition.rightRange.lowerBound) > dirtyRect.maxY { break }
+            if min(transition.leftRange.lowerBound - leftOffset, transition.rightRange.lowerBound - rightOffset) > dirtyRect.maxY { break }
             let path = NSBezierPath()
             let c1 = leftX + (rightX - leftX) * 0.3
             let c2 = leftX + (rightX - leftX) * 0.7
-            path.move(to: NSPoint(x: leftX, y: transition.leftRange.lowerBound))
-            path.curve(to: NSPoint(x: rightX, y: transition.rightRange.lowerBound),
-                controlPoint1: NSPoint(x: c1, y: transition.leftRange.lowerBound),
-                controlPoint2: NSPoint(x: c2, y: transition.rightRange.lowerBound))
-            path.line(to: NSPoint(x: rightX, y: transition.rightRange.upperBound))
-            path.curve(to: NSPoint(x: leftX, y: transition.leftRange.upperBound),
-                controlPoint1: NSPoint(x: c2, y: transition.rightRange.upperBound),
-                controlPoint2: NSPoint(x: c1, y: transition.leftRange.upperBound))
+            path.move(to: NSPoint(x: leftX, y: transition.leftRange.lowerBound - leftOffset))
+            path.curve(to: NSPoint(x: rightX, y: transition.rightRange.lowerBound - rightOffset),
+                controlPoint1: NSPoint(x: c1, y: transition.leftRange.lowerBound - leftOffset),
+                controlPoint2: NSPoint(x: c2, y: transition.rightRange.lowerBound - rightOffset))
+            path.line(to: NSPoint(x: rightX, y: transition.rightRange.upperBound - rightOffset))
+            path.curve(to: NSPoint(x: leftX, y: transition.leftRange.upperBound - leftOffset),
+                controlPoint1: NSPoint(x: c2, y: transition.rightRange.upperBound - rightOffset),
+                controlPoint2: NSPoint(x: c1, y: transition.leftRange.upperBound - leftOffset))
             path.close()
             NSColor(transition.isAddition ? LitheTheme.Diff.inserted : transition.isRemoval
                 ? LitheTheme.Diff.deleted : LitheTheme.Diff.modified).setFill()
@@ -334,7 +353,7 @@ final class DiffNativeTransitionsView: NSView {
             if transition.isAddition || transition.isRemoval {
                 NSColor(transition.isAddition ? LitheTheme.Diff.insertedStripe : LitheTheme.Diff.deletedStripe).setFill()
                 NSRect(x: transition.isAddition ? 0 : rightX,
-                    y: transition.isAddition ? transition.leftRange.lowerBound : transition.rightRange.lowerBound,
+                    y: transition.isAddition ? transition.leftRange.lowerBound - leftOffset : transition.rightRange.lowerBound - rightOffset,
                     width: max(0, transition.isAddition ? leftX : bounds.width - rightX), height: 1).fill()
             }
         }

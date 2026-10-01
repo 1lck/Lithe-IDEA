@@ -57,3 +57,7 @@ expui/general/open, expui/vcs/{commit,push} and
 expui/nodes/folder SVG assets from Community revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Existing add, search, closeSmall,
 settings, vcs, fetch, chevron and dvcs/currentBranchLabel resources are reused.
+
+The historical commit Diff toolbar uses unmodified expui/general/{up,down,locked}
+and expui/diff/{sideBySide,unified} light/dark SVGs from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Up/down follow PlatformIconMappings action mappings.

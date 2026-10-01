@@ -8,18 +8,19 @@ struct GitCommitDiffReviewView: View {
     @ObservedObject var feature: GitFeatureModel
     let context: GitCommitDiffContext
 
+    @State private var unified = false
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
 
     var body: some View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
-                diffTab
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 toolbar(proxy: proxy)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
-                versionHeader
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                if usesUnifiedPane || feature.isLoadingDiff || feature.diffRows.isEmpty {
+                    versionHeader
+                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
+                }
 
                 if feature.isLoadingDiff {
                     VStack(spacing: 9) {
@@ -49,217 +50,111 @@ struct GitCommitDiffReviewView: View {
         }
     }
 
-    private var diffTab: some View {
-        HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: "doc.text", size: 14)
-                .foregroundStyle(fileIconColor)
-            Text((context.file.path as NSString).lastPathComponent)
-                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-
-            statusBadge
-
-            Text("COMMIT DIFF")
-                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
-                .foregroundStyle(LitheTheme.accent)
-                .padding(.horizontal, 6)
-                .frame(height: 18)
-                .background(LitheTheme.accent.opacity(0.10))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-            Spacer()
-
-            Button {
-                feature.closeGitCommitDiff()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-            }
-            .litheIconButton()
-            .help("Close diff")
-        }
-        .padding(.leading, 12)
-        .padding(.trailing, 5)
-        .frame(height: 34)
-        .litheWorkbenchSurface(LitheTheme.sidebar)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.accent).frame(height: 2)
-        }
-    }
-
-    private var statusBadge: some View {
-        HStack(spacing: 4) {
-            Image(systemName: context.kind.symbol)
-                .font(LitheTheme.uiFont(size: 8, weight: .bold))
-            Text(LocalizedStringKey(context.kind.title.uppercased()))
-                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
-        }
-        .foregroundStyle(changeKindColor)
-        .padding(.horizontal, 6)
-        .frame(height: 18)
-        .background(changeKindColor.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-    }
+    private var usesUnifiedPane: Bool { unified || context.kind == .added || context.kind == .deleted }
 
     private func toolbar(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
-            Button {
-                navigateDifference(by: -1, proxy: proxy)
-            } label: {
-                Image(systemName: "arrow.up")
-            }
-            .litheIconButton()
-            .disabled(differenceStarts.isEmpty)
-            .help("Previous difference")
-
-            Button {
-                navigateDifference(by: 1, proxy: proxy)
-            } label: {
-                Image(systemName: "arrow.down")
-            }
-            .litheIconButton()
-            .disabled(differenceStarts.isEmpty)
-            .help("Next difference")
-
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1, height: 22)
-                .padding(.horizontal, 4)
-
-            Text(context.commit.shortHash)
-                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.accent)
-            Text(context.commit.subject)
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-
+            Button { navigateDifference(by: -1, proxy: proxy) } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/up", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: !differenceStarts.isEmpty).accessibilityLabel("Previous difference").workbenchHoverHelp(Text("Previous difference"))
+            Button { navigateDifference(by: 1, proxy: proxy) } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/down", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: !differenceStarts.isEmpty).accessibilityLabel("Next difference").workbenchHoverHelp(Text("Next difference"))
             Spacer()
-
-            Button {
-                highlightsWords.toggle()
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: highlightsWords ? "checkmark.square.fill" : "square")
-                    Text("Highlight words")
-                }
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(LitheTheme.raised.opacity(0.58))
-                .clipShape(RoundedRectangle(cornerRadius: 5))
-                .contentShape(Rectangle())
+            Text("\(differenceStarts.count) differences")
+                .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
+                .padding(.trailing, 8)
+            HStack(spacing: 0) {
+                viewerButton(unified: false)
+                viewerButton(unified: true)
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
-
-            Text("Read-only")
-                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .padding(.horizontal, 7)
+            LitheMenu {
+                LitheContextMenuItem.toggle("Highlight words", isOn: $highlightsWords)
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Close diff") { feature.closeGitCommitDiff() }
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/settings", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton().accessibilityLabel("Diff settings").workbenchHoverHelp(Text("Diff settings"))
         }
-        .padding(.horizontal, 8)
-        .frame(height: 40)
+        .padding(.horizontal, 6).frame(height: 38)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
-    private var versionHeader: some View {
-        HStack(spacing: 0) {
-            versionLabel("Parent version", path: context.path)
-            Rectangle()
-                .fill(LitheTheme.divider)
-                .frame(width: 1)
-            versionLabel("Commit version", path: context.path)
+    private func viewerButton(unified target: Bool) -> some View {
+        Button { unified = target } label: {
+            LitheIDEAIcon(resourcePath: target ? "expui/diff/unified" : "expui/diff/sideBySide",
+                size: 16, preservesOriginalColors: true)
+                .frame(width: 48, height: 28)
+                .contentShape(Rectangle())
         }
-        .frame(height: 34)
-        .background(LitheTheme.window)
+        .buttonStyle(.litheNoPress)
+        .litheRowHover(isActive: usesUnifiedPane == target, cornerRadius: 3,
+                       activeBackground: LitheTheme.hoverBackground)
+        .overlay { RoundedRectangle(cornerRadius: 3).stroke(
+            usesUnifiedPane == target ? LitheTheme.secondaryText.opacity(0.5) : LitheTheme.divider, lineWidth: 1) }
+        .accessibilityLabel(target ? "Unified view" : "Side-by-side view")
+        .accessibilityValue(usesUnifiedPane == target ? "Selected" : "Not selected")
+        .workbenchHoverHelp(Text(target ? "Unified view" : "Side-by-side view"))
     }
 
-    private func versionLabel(_ title: String, path: String) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "doc.text")
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-            Text(path)
-                .font(LitheTheme.uiFont(size: 10.5))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(1)
-            Spacer(minLength: 8)
-        }
-        .padding(.horizontal, 10)
-        .frame(maxWidth: .infinity)
+    private var versionHeader: some View {
+        Group {
+            if usesUnifiedPane {
+                VStack(spacing: 0) {
+                    versionLabel(parentHash, path: context.path)
+                    versionLabel(context.commit.shortHash, path: nil)
+                }
+            } else {
+                HStack(spacing: 0) {
+                    versionLabel(parentHash, path: context.path)
+                    versionLabel(context.commit.shortHash, path: nil)
+                }
+            }
+        }.background(LitheTheme.Diff.background)
+    }
+
+    private var parentHash: String { context.commit.parentHashes.first.map { String($0.prefix(8)) } ?? "Empty" }
+
+    private func versionLabel(_ hash: String, path: String?) -> some View {
+        HStack(spacing: 4) {
+            LitheIDEAIcon(resourcePath: "expui/general/locked", size: 16, preservesOriginalColors: true)
+            Text(hash).font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
+            if let path {
+                Text(path).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
+                    .lineLimit(1).truncationMode(.middle).padding(.leading, 6)
+            }
+            Spacer(minLength: 4)
+        }.padding(.horizontal, 4).frame(maxWidth: .infinity).frame(height: 22)
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
-        let usesSinglePane = context.kind == .added || context.kind == .deleted
-        let measuredWidth = DiffLayoutMetrics.contentWidth(
-            rows: feature.diffRows, viewportWidth: 0,
-            minimumWidth: usesSinglePane ? 680 : 980, paneCount: usesSinglePane ? 1 : 2)
-        let kinds = feature.diffRows.map(\.kind)
-        let displayRows = usesSinglePane ? [] : feature.diffRows.enumerated().map {
-            DiffDisplayRow.row($0.element, index: $0.offset)
-        }
-        let layout = usesSinglePane ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
-        let measuredHeight = usesSinglePane ? DiffLayoutMetrics.contentHeight(rows: feature.diffRows, kinds: kinds) : 0
-        let selectedRowIDs = Set(differenceIndexByRow.compactMap { entry in
-            entry.value == selectedDifferenceIndex ? entry.key : nil
-        })
+        // Patch hunk headers are metadata. Preserve source row IDs for existing navigation.
+        let rows = feature.diffRows.filter { $0.kind != .information }
+        let displayRows = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        let kinds = rows.map(\.kind)
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
+        let unifiedLayout = DiffUnifiedLayout(rows: rows)
+        let measuredWidth = DiffLayoutMetrics.contentWidth(rows: rows, viewportWidth: 0,
+            minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2)
+        let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
-            let contentWidth = max(geometry.size.width, measuredWidth)
-            if usesSinglePane {
-                ScrollView(.horizontal) {
-                    ScrollView(.vertical) {
-                        let contentHeight = max(
-                            measuredHeight,
-                            geometry.size.height
-                        )
-                        LazyVStack(spacing: 0) {
-                            ForEach(feature.diffRows, id: \.id) { row in
-                                diffRowView(for: row, contentWidth: contentWidth)
-                            }
-                        }
-                        .textSelection(.enabled)
-                        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
-                    }
-                    .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(LitheTheme.Diff.background)
+            if usesUnifiedPane {
+                DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: context.url.pathExtension,
+                    contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs)
             } else {
-                DiffSplitPaneView(
-                    displayRows: displayRows,
-                    kinds: kinds,
-                    layout: layout,
-                    fileExtension: context.url.pathExtension,
-                    contentWidth: contentWidth,
-                    viewportWidth: geometry.size.width,
-                    highlightsWords: highlightsWords,
-                    selectedRowIDs: selectedRowIDs,
-                    onExpand: { _ in }
-                )
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(LitheTheme.Diff.background)
+                DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
+                    fileExtension: context.url.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
+                    viewportWidth: geometry.size.width, highlightsWords: highlightsWords,
+                    header: { position in AnyView(
+                        HStack(spacing: 0) {
+                            versionLabel(parentHash, path: context.path).frame(width: position).clipped()
+                            versionLabel(context.commit.shortHash, path: nil)
+                        }.background(LitheTheme.Diff.background)
+                         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.separator).frame(height: 1) }
+                    ) },
+                    selectedRowIDs: selectedIDs, onExpand: { _ in })
             }
-        }
-    }
-
-    @ViewBuilder
-    private func diffRowView(for row: DiffRow, contentWidth: CGFloat) -> some View {
-        let differenceIndex = differenceIndexByRow[row.id]
-        if context.kind == .added || context.kind == .deleted {
-            SingleFileDiffRowView(
-                row: row,
-                changeKind: context.kind,
-                fileExtension: context.url.pathExtension,
-                isSelectedDifference: differenceIndex == selectedDifferenceIndex
-            )
-            .id(row.id)
-        }
+        }.background(LitheTheme.Diff.background)
     }
 
     private var differenceStarts: [DiffRowID] {
@@ -303,25 +198,7 @@ struct GitCommitDiffReviewView: View {
         }
     }
 
-    private var changeKindColor: Color {
-        switch context.kind {
-        case .added: LitheTheme.success
-        case .modified: LitheTheme.warning
-        case .deleted: .red.opacity(0.86)
-        case .moved: LitheTheme.accent
-        case .copied: Color(red: 0.46, green: 0.72, blue: 0.92)
-        case .conflicted: .red
-        }
-    }
 
-    private var fileIconColor: Color {
-        switch context.url.pathExtension.lowercased() {
-        case "swift": .orange
-        case "java", "kt", "kts": Color(red: 0.42, green: 0.66, blue: 0.95)
-        case "js", "jsx", "ts", "tsx": .yellow
-        default: LitheTheme.accent
-        }
-    }
 }
 
 private extension DiffRowKind {

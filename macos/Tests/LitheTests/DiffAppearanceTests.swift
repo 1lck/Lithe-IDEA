@@ -62,7 +62,8 @@ struct DiffAppearanceTests {
                 && abs(color.greenComponent - CGFloat((hex >> 8) & 255) / 255) < tolerance
                 && abs(color.blueComponent - CGFloat(hex & 255) / 255) < tolerance
         }
-        let background = try color(10, 140)
+        // The outer 14pt now contains whole-file change markers; sample the code surface.
+        let background = try color(20, 140)
         let inserted = try color(880, 33)
         let deleted = try color(300, 55)
         let modified = try color(880, 77)
