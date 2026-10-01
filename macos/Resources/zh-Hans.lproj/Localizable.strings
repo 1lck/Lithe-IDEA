@@ -2259,6 +2259,26 @@
 "Completed" = "已完成";
 "Interrupted" = "已中断";
 
+/* Agent reasoning, plan and commands */
+"Thinking" = "思考";
+"Thinking process" = "思考过程";
+"Hide thinking" = "收起思考";
+"Show thinking" = "展开思考";
+"Plan %lld/%lld" = "计划 %lld/%lld";
+"Hide plan" = "收起计划";
+"Show plan" = "展开计划";
+"Agent commands" = "Agent 命令";
+"Tool call" = "工具调用";
+"Allow the Agent to continue?" = "允许 Agent 继续吗？";
+"The Agent request failed." = "Agent 请求失败。";
+"The response stopped at the model's token limit." = "回复已达到模型的 token 上限，已停止。";
+"The Agent stopped after reaching its request limit for this turn." = "Agent 已达到本轮请求次数上限，已停止。";
+"The Agent declined to continue." = "Agent 拒绝继续。";
+"Content" = "内容";
+"Unsupported content" = "不支持的内容";
+"Tool" = "工具";
+"You" = "你";
+
 /* Agent panel settings */
 "Agent conversation" = "Agent 对话";
 "Enable Agent conversation" = "启用 Agent 对话";

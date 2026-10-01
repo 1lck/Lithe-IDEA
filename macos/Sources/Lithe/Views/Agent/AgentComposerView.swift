@@ -23,7 +23,11 @@ struct AgentComposerView: View {
     var subscriptionAccount: String?
     var quotaFailure: String?
     var onSetConfig: (String, String) -> Void = { _, _ in }
+    var commands: [AgentCommand] = []
     @State private var draft = ""
+    @State private var highlightedCommand = 0
+    /// Esc hides suggestions for this exact draft; editing shows them again.
+    @State private var dismissedCommandDraft: String?
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
@@ -31,12 +35,22 @@ struct AgentComposerView: View {
     @FocusState private var isFocused: Bool
 
     private var hasContent: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+    private var commandSuggestions: [AgentCommand]? {
+        dismissedCommandDraft == draft ? nil : AgentCommand.suggestions(for: draft, in: commands)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             contextBar
             if !files.isEmpty {
                 AgentFileReferenceList(files: files) { id in files.removeAll { $0.id == id } }
+            }
+            if let suggestions = commandSuggestions {
+                AgentCommandSuggestionList(
+                    commands: suggestions,
+                    highlightedIndex: min(highlightedCommand, max(0, suggestions.count - 1)),
+                    onSelect: complete
+                )
             }
             ScrollView {
                 TextField("Message the Agent", text: $draft, axis: .vertical)
@@ -45,7 +59,12 @@ struct AgentComposerView: View {
                     .foregroundStyle(AgentPanelStyle.text)
                     .lineLimit(1...)
                     .focused($isFocused)
-                    .onSubmit(send)
+                    .onSubmit(submit)
+                    .modifier(AgentCommandKeyNavigation(
+                        isActive: commandSuggestions?.isEmpty == false,
+                        onMove: moveCommandHighlight,
+                        onComplete: { completeHighlighted() }
+                    ))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 10)
                     .frame(maxWidth: .infinity, alignment: .topLeading)
@@ -73,11 +92,18 @@ struct AgentComposerView: View {
         .onChange(of: sessionID) { newSessionID in
             if newSessionID != nil { files.removeAll() }
         }
+        .onChange(of: draft) { _ in highlightedCommand = 0 }
         .onHover { isHovering = $0 }
         .padding(.horizontal, 8)
         .padding(.bottom, 8)
         .onAppear { isFocused = true }
-        .onExitCommand { if isResponding { onCancel() } }
+        .onExitCommand {
+            if commandSuggestions != nil {
+                dismissedCommandDraft = draft
+            } else if isResponding {
+                onCancel()
+            }
+        }
     }
 
     private var contextBar: some View {
@@ -186,6 +212,32 @@ struct AgentComposerView: View {
         }
     }
 
+    /// Return completes a partially typed command; a fully typed one is sent.
+    private func submit() {
+        if let suggestions = commandSuggestions, !suggestions.isEmpty,
+           !suggestions.contains(where: { $0.invocation == draft }) {
+            completeHighlighted()
+            return
+        }
+        send()
+    }
+
+    private func completeHighlighted() {
+        guard let suggestions = commandSuggestions, !suggestions.isEmpty else { return }
+        complete(suggestions[min(highlightedCommand, suggestions.count - 1)])
+    }
+
+    private func complete(_ command: AgentCommand) {
+        draft = command.invocation + " "
+        dismissedCommandDraft = nil
+        isFocused = true
+    }
+
+    private func moveCommandHighlight(_ offset: Int) {
+        guard let count = commandSuggestions?.count, count > 0 else { return }
+        highlightedCommand = (min(highlightedCommand, count - 1) + offset + count) % count
+    }
+
     private func send() {
         guard hasContent, !isResponding else { return }
         if isBlocked {
@@ -202,6 +254,32 @@ struct AgentComposerView: View {
         }
     }
 
+}
+
+/// Arrow keys and Tab drive the command list while it is open. Key handling on a
+/// focused text field needs macOS 14; macOS 13 keeps mouse selection and Return.
+private struct AgentCommandKeyNavigation: ViewModifier {
+    let isActive: Bool
+    let onMove: (Int) -> Void
+    let onComplete: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .onKeyPress(.upArrow) { handle { onMove(-1) } }
+                .onKeyPress(.downArrow) { handle { onMove(1) } }
+                .onKeyPress(.tab) { handle(onComplete) }
+        } else {
+            content
+        }
+    }
+
+    @available(macOS 14.0, *)
+    private func handle(_ action: () -> Void) -> KeyPress.Result {
+        guard isActive else { return .ignored }
+        action()
+        return .handled
+    }
 }
 
 /// The shared split container keeps resize updates outside the conversation model.

@@ -310,6 +310,126 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func interleavedReasoningAndReplyBecomeSeparateMessagesInArrivalOrder() throws {
+        let (feature, _) = try respondingFeature()
+        // Thought and reply chunks share one flush window; a role change must
+        // still end the previous segment instead of merging the texts.
+        try feature.receive(event("agentThoughtChunk"))
+        try feature.receive(event("agentThoughtChunk", ["update": ["sessionUpdate": "agent_thought_chunk",
+                                                                   "content": ["type": "text", "text": " Then test."]]]))
+        try feature.receive(event("agentMessageChunk"))
+        try feature.receive(event("toolCall"))
+        try feature.receive(event("agentThoughtChunk"))
+        try feature.receive(event("turnFinished"))
+
+        let messages = try #require(feature.selectedConversation?.messages)
+        #expect(messages.map(\.role) == [.user, .thought, .agent, .tool, .thought])
+        #expect(messages[1].text == "Read the manifest first. Then test.")
+        #expect(messages[2].text == "This project **builds** an IDE.")
+        #expect(messages[4].text == "Read the manifest first.")
+        let document = AgentHistoryDocument(id: "session-1", title: "Sample", messages: messages)
+        let markdown = AgentHistoryDocument.markdown([document])
+        #expect(markdown.contains("> Read the manifest first. Then test."))
+        #expect(markdown.contains("This project **builds** an IDE."))
+        #expect(!markdown.contains("> This project"))
+    }
+
+    @Test
+    func planUpdatesReplaceTheWholePlanAndAnEmptyPlanClearsIt() throws {
+        let (feature, _) = try respondingFeature()
+        try feature.receive(event("plan"))
+        let plan = try #require(feature.selectedConversation?.plan)
+        #expect(plan.entries.map(\.status) == [.completed, .inProgress, .pending])
+        #expect(plan.entries.first?.priority == "high")
+        #expect(plan.completedCount == 1)
+        #expect(plan.currentEntry?.content == "Run the tests")
+        #expect(!plan.isComplete)
+
+        try feature.receive(event("plan", ["update": ["sessionUpdate": "plan", "entries": [
+            ["content": "Summarize the results", "priority": "low", "status": "completed"],
+            ["content": "Unknown status", "priority": "low", "status": "blocked"]
+        ]]]))
+        let replaced = try #require(feature.selectedConversation?.plan)
+        #expect(replaced.entries.map(\.content) == ["Summarize the results"])
+        #expect(replaced.isComplete)
+        #expect(replaced.currentEntry == nil)
+
+        try feature.receive(event("plan", ["update": ["sessionUpdate": "plan", "entries": [] as [Any]]]))
+        #expect(feature.selectedConversation?.plan == nil)
+        // A malformed update leaves the plan state unchanged rather than inventing one.
+        try feature.receive(event("plan", ["update": ["sessionUpdate": "plan"]]))
+        #expect(feature.selectedConversation?.plan == nil)
+    }
+
+    @Test
+    func advertisedCommandsArePerSessionAndFilterOnlyWhileTypingAName() throws {
+        let (feature, connection) = try respondingFeature()
+        try feature.receive(event("availableCommands"))
+        let commands = try #require(feature.selectedConversation?.availableCommands)
+        #expect(commands.map(\.name) == ["review", "compact"])
+        #expect(commands[0].hint == "optional focus")
+        #expect(commands[1].hint == nil)
+
+        #expect(AgentCommand.suggestions(for: "/", in: commands)?.map(\.name) == ["review", "compact"])
+        #expect(AgentCommand.suggestions(for: "/CO", in: commands)?.map(\.name) == ["compact"])
+        // Prefix matches rank before names that only contain the query.
+        #expect(AgentCommand.suggestions(for: "/e", in: commands)?.map(\.name) == ["review"])
+        #expect(AgentCommand.suggestions(for: "/zz", in: commands)?.isEmpty == true)
+        #expect(AgentCommand.suggestions(for: "/review ", in: commands) == nil)
+        #expect(AgentCommand.suggestions(for: "review", in: commands) == nil)
+        #expect(AgentCommand.suggestions(for: "/", in: []) == nil)
+        #expect(commands.map(\.invocation) == ["/review", "/compact"])
+        // A dollar sign is ordinary text unless the agent advertises skills.
+        #expect(AgentCommand.suggestions(for: "$", in: commands) == nil)
+
+        // codex-acp lists skills as `$name` commands and ignores `/$name`, so a
+        // skill is inserted as a `$` mention and `$` filters to skills only.
+        let withSkills = commands + [AgentCommand(name: "$pdf", description: "Read PDF files"),
+                                     AgentCommand(name: "$spreadsheets", description: "Edit sheets")]
+        #expect(withSkills[2].isSkill && !withSkills[0].isSkill)
+        #expect(withSkills[2].invocation == "$pdf")
+        #expect(AgentCommand.suggestions(for: "$", in: withSkills)?.map(\.name) == ["$pdf", "$spreadsheets"])
+        #expect(AgentCommand.suggestions(for: "$sp", in: withSkills)?.map(\.name) == ["$spreadsheets"])
+        #expect(AgentCommand.suggestions(for: "/pd", in: withSkills)?.map(\.name) == ["$pdf"])
+        #expect(AgentCommand.suggestions(for: "$pdf ", in: withSkills) == nil)
+
+        // Another session has its own list; the command text is sent as typed.
+        feature.startNewConversation()
+        try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                    "sessionId": "session-2"]))
+        #expect(feature.selectedConversation?.availableCommands.isEmpty == true)
+        try feature.send("/review src")
+        #expect(connection.commands.last?["text"] as? String == "/review src")
+        try feature.receive(event("availableCommands", ["sessionId": "session-2", "update": [
+            "sessionUpdate": "available_commands_update", "availableCommands": [] as [Any]
+        ]]))
+        #expect(feature.conversations["session-1"]?.availableCommands.count == 2)
+    }
+
+    @Test
+    func agentReportedModeChangeMovesOnlyTheMatchingModeSelector() throws {
+        let (feature, connection) = try connectedFeature()
+        feature.prepareConversation()
+        let configured = try #require(JSONSerialization.jsonObject(with: Data(event("sessionConfigured").utf8)) as? [String: Any])
+        try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                    "configOptions": configured["configOptions"] as Any]))
+        func current(_ category: String) -> String? {
+            feature.selectedConversation?.configOptions.first { $0.category == category }?.currentValue
+        }
+        #expect(current("mode") == "read-only")
+        let commandCount = connection.commands.count
+        try feature.receive(event("currentModeUpdate"))
+        #expect(current("mode") == "auto")
+        #expect(current("model") == "example-model")
+        // The agent already switched; echoing it back as a request would be wrong.
+        #expect(connection.commands.count == commandCount)
+        // A mode the selector does not offer is ignored rather than shown as a raw id.
+        try feature.receive(event("currentModeUpdate", ["update": ["sessionUpdate": "current_mode_update",
+                                                                   "currentModeId": "unlisted"]]))
+        #expect(current("mode") == "auto")
+    }
+
+    @Test
     func permissionChoicesAreAnsweredOrRejectedByCancel() throws {
         let (feature, connection) = try respondingFeature()
         var attention: [Bool] = []

@@ -291,6 +291,81 @@
       "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Windows Agent 对话 UI 尚未实现。"
     },
     {
+      "id": "agent-reasoning-display",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 上报的思考内容（ACP agent_thought_chunk）显示为独立的可折叠思考块，流式输出时展开、回复或工具到达后收起，不并入回复正文，导出 Markdown 时以引用块保留",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；思考与回复交替时顺序正确且文本不混合；搜索思考内容可以命中并展开；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows Agent 对话 UI 尚未实现。"
+    },
+    {
+      "id": "agent-plan-display",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 上报的执行计划（ACP plan）固定显示在活动统计栏上方，折叠时显示完成进度与当前步骤，展开查看每条状态；每次更新整体替换，空计划清除",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LitheAgentConversationModule/Application/AgentSessionGuidance.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+          "shared/fixtures/agent/acp-events-v1.json"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：让真实 Agent（例如在计划模式或多步任务中）上报计划，确认计划栏显示“计划 已完成/总数”与当前步骤，展开后每条待办、进行中、已完成状态和图标正确；步骤推进时整体刷新而不重复；切换会话显示各自计划，加载历史会话后计划恢复；不上报计划的 Agent 不显示计划栏。在窄宽面板及深浅主题检查长步骤截断与滚动。Windows Agent 对话 UI 尚未实现。"
+    },
+    {
+      "id": "agent-slash-commands",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "输入框以 / 开头（或以 $ 开头选择 Skill）时，按 Agent 为当前会话上报的命令列表（ACP available_commands_update）弹出补全，显示名称、说明与参数提示，选择后填入命令并按普通消息原样发送",
+      "macos": {
+        "evidence": [
+          "macos/Sources/LitheAgentConversationModule/Application/AgentSessionGuidance.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
+          "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Agent",
+      "verification": "macOS：分别连接 Codex 与 Claude，输入 / 确认弹出的命令与 Agent 实际上报一致，不出现 Lithe 内置命令；Codex 上报的 $Skill 补全为 $名称 而不是 /$名称，输入 $ 只列 Skill；继续输入时按前缀优先过滤，无匹配时显示“没有匹配的命令”，输入空格后关闭；鼠标选择或 Return 补全为“/命令 ”，完整命令按 Return 直接发送并由 Agent 执行；macOS 14 及以上方向键和 Tab 可导航，macOS 13 仍可鼠标选择；Esc 先关闭补全、回复中再次 Esc 才停止；切换会话后显示各自命令列表。Agent 自行切换模式（如退出计划模式）时权限模式选择器同步更新。Windows Agent 对话 UI 尚未实现。"
+    },
+    {
       "id": "agent-turn-statistics",
       "area": "AI",
       "group": "Agent 对话",

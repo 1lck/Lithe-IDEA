@@ -82,6 +82,9 @@ struct AgentTranscriptView: View {
         let messages = conversation?.messages ?? []
         let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
             .filter { $0.matches(searchText) }
+        // Only reasoning that is still streaming opens by default.
+        let liveThoughtID = conversation?.isResponding == true && messages.last?.role == .thought
+            ? messages.last?.id : nil
         VStack(spacing: 0) {
             if conversation?.isLoading != true && messages.isEmpty && feature.pendingNewConversationPrompt == nil {
                 AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
@@ -128,7 +131,12 @@ struct AgentTranscriptView: View {
                                 Group {
                                     switch item {
                                     case .message(let message):
-                                        AgentMessageRow(message: message, onOpenFile: onOpenFile)
+                                        AgentMessageRow(
+                                            message: message,
+                                            isStreamingThought: liveThoughtID == message.id,
+                                            isSearching: !searchText.isEmpty,
+                                            onOpenFile: onOpenFile
+                                        )
                                     case .toolGroup(let tools):
                                         AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
                                     case .turnSummary(let turn):
@@ -168,6 +176,10 @@ struct AgentTranscriptView: View {
             }
             if let permission = conversation?.permission {
                 AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
+            }
+            if let plan = conversation?.plan {
+                AgentPlanView(plan: plan, isResponding: conversation?.isResponding == true)
+                    .id(feature.selectedSessionID)
             }
             AgentActivitySummaryBar(messages: messages)
         }
@@ -310,6 +322,8 @@ private struct AgentPermissionCard: View {
 
 private struct AgentMessageRow: View {
     let message: AgentConversationMessage
+    var isStreamingThought = false
+    var isSearching = false
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
 
     var body: some View {
@@ -327,6 +341,8 @@ private struct AgentMessageRow: View {
         case .agent:
             AgentMarkdownMessage(text: message.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        case .thought:
+            AgentThoughtRow(text: message.text, isStreaming: isStreamingThought, isSearching: isSearching)
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
         }

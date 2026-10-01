@@ -105,6 +105,58 @@ struct AgentConversationPresentationTests {
     }
 
     @Test
+    func planReasoningAndCommandListsFitNarrowAndWidePanelsInBothAppearances() throws {
+        let plan = AgentPlan(entries: [
+            .init(content: "Read the manifest and the build scripts of the sample project", priority: "high", status: .completed),
+            .init(content: "Run the tests", priority: "medium", status: .inProgress),
+            .init(content: "Summarize the results", priority: "low", status: .pending)
+        ])
+        let commands = [AgentCommand(name: "review", description: "Review the current changes before committing", hint: "optional focus"),
+                        AgentCommand(name: "compact", description: "Summarize the conversation to free context", hint: nil)]
+        for (name, scheme, width) in [("dark-narrow", ColorScheme.dark, 280.0), ("light-narrow", .light, 280.0),
+                                      ("dark-wide", .dark, 620.0), ("light-wide", .light, 620.0)] {
+            let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 10) {
+                AgentThoughtRow(text: "The manifest names the entry point, so read it first.", isStreaming: true)
+                AgentCommandSuggestionList(commands: commands, highlightedIndex: 0, onSelect: { _ in })
+                AgentPlanView(plan: plan, isResponding: true)
+            }.padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(AgentPanelStyle.canvas).environment(\.colorScheme, scheme))
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 260),
+                                  styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = host
+            host.frame.size = NSSize(width: width, height: 260)
+            host.layoutSubtreeIfNeeded()
+            #expect(host.fittingSize.height <= 260, "Reasoning, commands and plan summary must fit a short panel")
+            if let folder = ProcessInfo.processInfo.environment["LITHE_AGENT_STATISTICS_SCREENSHOTS"] {
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let data = try #require(bitmap.representation(using: .png, properties: [:]))
+                try data.write(to: URL(fileURLWithPath: folder).appendingPathComponent("guidance-\(name).png"))
+            }
+        }
+    }
+
+    @Test
+    func reasoningSplitsToolTimelinesAndIsSearchableButNotCountedAsAMessage() throws {
+        let messages = [
+            AgentConversationMessage(id: "list", role: .tool, text: "List files"),
+            AgentConversationMessage(id: "why", role: .thought, text: "The manifest names the entry point"),
+            AgentConversationMessage(id: "read", role: .tool, text: "Read file"),
+            AgentConversationMessage(id: "reply", role: .agent, text: "Done")
+        ]
+        let items = AgentTranscriptItem.grouped(messages)
+        #expect(items.map(\.id) == ["tools:list", "why", "tools:read", "reply"])
+        #expect(items.filter { $0.matches("entry point") }.map(\.id) == ["why"])
+
+        var conversation = AgentConversation()
+        conversation.isAttached = true
+        conversation.messages = [AgentConversationMessage(role: .user, text: "Explain")] + messages
+        #expect(AgentHistoryPresentation.messageCount(conversation) == 2)
+    }
+
+    @Test
     func toolSearchKeepsTheOriginalGroupWhenEvidenceMatches() throws {
         var first = AgentConversationMessage(id: "list", role: .tool, text: "List files")
         first.toolDetails.kind = "search"
