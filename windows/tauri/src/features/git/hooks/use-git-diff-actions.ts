@@ -3,6 +3,7 @@ import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-syn
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { showAlertDialog } from "@/ui/dialog";
+import { withCommitDescription } from "../api/git-commits-api";
 import {
   getCommitDiff,
   getFullContextFileDiff,
@@ -309,7 +310,10 @@ export function useGitDiffActions({
           return;
         }
 
-        const commit = commitByHash.get(commitHash);
+        const listedCommit = commitByHash.get(commitHash);
+        const commit = listedCommit
+          ? await withCommitDescription(activeRepoPath, listedCommit)
+          : undefined;
         const buffer = createCommitDiffBuffer({
           repoPath: activeRepoPath,
           commitHash,

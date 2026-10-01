@@ -32,6 +32,7 @@ import {
   rebaseOntoBranch,
   type IntegrationOutcome,
 } from "../../api/git-integration-api";
+import { withCommitDescription } from "../../api/git-commits-api";
 import { deleteRemoteBranch, fetchChanges } from "../../api/git-remotes-api";
 import { normalizeRepositoryPath } from "../../api/git-repo-api";
 import { showGitRebaseDialog } from "../../services/git-rebase-dialog-service";
@@ -708,10 +709,15 @@ export function GitLogToolWindow() {
               onCopyHash={(commit) => void copyCommitText(commit.hash, t("git.log.commitHash"))}
               onCopyShortHash={(commit) => void copyCommitText(commit.shortHash, commit.shortHash)}
               onCopyMessage={(commit) =>
-                void copyCommitText(
-                  [commit.message, commit.description].filter(Boolean).join("\n\n"),
-                  t("git.log.commitMessage"),
-                )
+                void (async () => {
+                  const detailed = repoPath
+                    ? await withCommitDescription(repoPath, commit)
+                    : commit;
+                  await copyCommitText(
+                    [detailed.message, detailed.description].filter(Boolean).join("\n\n"),
+                    t("git.log.commitMessage"),
+                  );
+                })()
               }
               onEditMessage={(commit) => void editMessage(commit)}
               onUndo={(commit) => void undoCommit(commit)}

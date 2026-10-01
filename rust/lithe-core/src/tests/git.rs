@@ -3505,6 +3505,81 @@ fn git_history_page_treats_unborn_head_as_empty_history() {
     assert_eq!(response["data"]["hasMore"], false);
 }
 
+/// Regression for #771: the commit detail view must receive the full multi-line
+/// message, including text that contains the field separator used by the header,
+/// while history pages keep returning only the subject.
+#[test]
+fn git_commit_returns_the_multi_line_body_separately_from_history_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-commit-body");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    // Keep the trailing blank lines so the test covers the trimming contract.
+    git_text(&root, &["config", "commit.cleanup", "verbatim"]);
+    let body = "First body line\n  indented \u{1f} separator\n\n中文第二段";
+    let message = format!("Fix commit details\n\n{body}\n\n");
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", message.as_str()],
+    );
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", "Subject only"],
+    );
+    let detailed_hash = git_text(&root, &["rev-parse", "HEAD~1"]);
+
+    let lookup = |id: &str, revision: &str| -> Value {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.commit",
+            "payload": {"root": root, "commit": revision}
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("commit response should be JSON");
+        assert_eq!(response["ok"], true, "{response:?}");
+        response["data"].clone()
+    };
+
+    let detailed = lookup("detailed", &detailed_hash);
+    assert_eq!(detailed["commit"]["hash"], detailed_hash);
+    assert_eq!(detailed["commit"]["subject"], "Fix commit details");
+    assert_eq!(detailed["body"], body);
+
+    let subject_only = lookup("subject-only", "HEAD");
+    assert_eq!(subject_only["commit"]["subject"], "Subject only");
+    // The body follows the decorations column, so the header must still parse fully.
+    assert!(subject_only["commit"]["decorations"]
+        .as_str()
+        .is_some_and(|decorations| decorations.starts_with("HEAD -> ")));
+    assert_eq!(subject_only["body"], "");
+
+    let page_request = serde_json::json!({
+        "id": "history-page-subjects",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "limit": 10}
+    });
+    let page: Value = serde_json::from_str(&execute_json(&page_request.to_string()))
+        .expect("history page response should be JSON");
+    assert_eq!(page["ok"], true, "{page:?}");
+    let subjects = page["data"]["commits"]
+        .as_array()
+        .expect("history page should contain commits")
+        .iter()
+        .map(|commit| commit["subject"].as_str().expect("subject").to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, ["Subject only", "Fix commit details"]);
+}
+
 #[test]
 fn git_history_page_returns_disjoint_incremental_pages() {
     struct RemoveOnDrop(std::path::PathBuf);

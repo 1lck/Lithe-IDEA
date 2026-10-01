@@ -1,0 +1,13 @@
+{
+  "commit": {
+    "hash": "0123456789abcdef0123456789abcdef01234567",
+    "shortHash": "0123456",
+    "parentHashes": ["89abcdef0123456789abcdef0123456789abcdef"],
+    "authorName": "Lithe Test",
+    "authorEmail": "test@example.invalid",
+    "date": "2026/08/30 12:00",
+    "subject": "Fix commit details",
+    "decorations": "HEAD -> feature/recent"
+  },
+  "body": "Explain why the change is needed.\n\n- keep blank lines\n  and indentation"
+}
