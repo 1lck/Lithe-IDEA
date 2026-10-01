@@ -1,0 +1,69 @@
+[
+  {
+    "name": "begin-install",
+    "lifecycle": {
+      "pluginId": "dev.lithe.plugin.php-support",
+      "state": "discovered",
+      "generation": 0,
+      "resources": []
+    },
+    "action": "beginInstall",
+    "operationId": "install-1",
+    "expectedState": "installing",
+    "expectedGeneration": 1
+  },
+  {
+    "name": "complete-install",
+    "lifecycle": {
+      "pluginId": "dev.lithe.plugin.php-support",
+      "state": "installing",
+      "generation": 1,
+      "resources": []
+    },
+    "action": "completeInstall",
+    "operationId": "install-1",
+    "expectedState": "installed",
+    "expectedGeneration": 2
+  },
+  {
+    "name": "enable-and-bind",
+    "lifecycle": {
+      "pluginId": "dev.lithe.plugin.php-support",
+      "state": "enabling",
+      "generation": 3,
+      "resources": []
+    },
+    "action": "completeEnable",
+    "operationId": "enable-1",
+    "bindResource": "lsp-session-1",
+    "expectedState": "enabled",
+    "expectedGeneration": 4,
+    "expectedResources": ["lsp-session-1"]
+  },
+  {
+    "name": "disable-after-resource-stop",
+    "lifecycle": {
+      "pluginId": "dev.lithe.plugin.php-support",
+      "state": "enabled",
+      "generation": 4,
+      "resources": []
+    },
+    "action": "disable",
+    "operationId": "disable-1",
+    "expectedState": "disabling",
+    "expectedGeneration": 5
+  },
+  {
+    "name": "reinstall-after-uninstall",
+    "lifecycle": {
+      "pluginId": "dev.lithe.plugin.php-support",
+      "state": "uninstalled",
+      "generation": 4,
+      "resources": []
+    },
+    "action": "beginInstall",
+    "operationId": "install-2",
+    "expectedState": "installing",
+    "expectedGeneration": 5
+  }
+]

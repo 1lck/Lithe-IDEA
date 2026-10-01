@@ -559,6 +559,38 @@ struct PluginPackageStoreTests {
             to: packageURL.appendingPathComponent("plugin.json"),
             options: .atomic
         )
+        if let languageSupport, languageSupport.languageServerModuleID != nil {
+            let launcherRoot = packageURL
+                .appendingPathComponent("Feature.bundle/Contents/Resources/LanguageServers/\(languageSupport.id)/bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: launcherRoot, withIntermediateDirectories: true)
+            let launcher = launcherRoot.appendingPathComponent("server")
+            #expect(FileManager.default.createFile(atPath: launcher.path, contents: Data()))
+            try FileManager.default.setAttributes(
+                [.posixPermissions: 0o755],
+                ofItemAtPath: launcher.path
+            )
+            let languageServerManifest = """
+            {
+              "schemaVersion": 1,
+              "pluginID": "\(pluginID.rawValue)",
+              "languageID": "\(languageSupport.id)",
+              "toolID": "fixture-server",
+              "version": "1.0.0",
+              "archiveURL": "https://example.com/fixture-server-1.0.0.tgz",
+              "archiveSHA256": "0000000000000000000000000000000000000000000000000000000000000000",
+              "archiveFormat": "tarGzip",
+              "archiveRoot": "package",
+              "launcherRelativePath": "bin/server",
+              "arguments": ["--stdio"],
+              "entrypoint": "bin/server.js",
+              "license": "LICENSE.txt"
+            }
+            """
+            try Data(languageServerManifest.utf8).write(
+                to: packageURL.appendingPathComponent("language-server.json"),
+                options: .atomic
+            )
+        }
         return packageURL
     }
 
@@ -603,12 +635,15 @@ struct PluginPackageStoreTests {
         {
           "schemaVersion": 1,
           "pluginID": "dev.lithe.plugin.php-support",
+          "languageID": "php",
           "toolID": "intelephense",
           "version": "1.15.1",
           "archiveURL": "https://registry.npmjs.org/intelephense/-/intelephense-1.15.1.tgz",
           "archiveSHA256": "24a33fe3cd7a2382f44285e2ae553a7e1c898cbc208ee20cee0693497ee9ebe2",
           "archiveFormat": "tarGzip",
           "archiveRoot": "package",
+          "launcherRelativePath": "bin/intelephense",
+          "arguments": ["--stdio"],
           "entrypoint": "lib/intelephense.js",
           "license": "LICENSE.txt"
         }

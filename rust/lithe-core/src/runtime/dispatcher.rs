@@ -123,6 +123,116 @@ fn execute(request: &str) -> CoreResponse {
                 "coreVersion": env!("CARGO_PKG_VERSION")
             }),
         ),
+        CoreCommand::PluginValidateManifest => {
+            let host_version = parsed
+                .payload
+                .get("hostVersion")
+                .and_then(|value| value.as_str());
+            let manifest = parsed.payload.get("manifest");
+            match host_version
+                .zip(manifest)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Plugin manifest validation requires hostVersion and manifest",
+                    )
+                })
+                .and_then(|(host_version, manifest)| {
+                    let host_version = crate::plugins::PluginVersion::parse(host_version)
+                        .ok_or_else(|| {
+                            CoreError::new(ErrorCode::InvalidRequest, "Invalid host version")
+                        })?;
+                    let manifest = serde_json::to_string(manifest).map_err(|error| {
+                        CoreError::new(ErrorCode::InvalidRequest, "Invalid plugin manifest")
+                            .with_details(error.to_string())
+                    })?;
+                    crate::plugins::validate_plugin_manifest_json(&manifest, host_version).map_err(
+                        |error| {
+                            CoreError::new(
+                                ErrorCode::ParseFailed,
+                                "Plugin manifest validation failed",
+                            )
+                            .with_details(error.to_string())
+                        },
+                    )
+                }) {
+                Ok(manifest) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(manifest).expect("plugin manifest should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::PluginValidateLanguageServer => {
+            let plugin_id = parsed
+                .payload
+                .get("pluginID")
+                .and_then(|value| value.as_str());
+            let manifest = parsed.payload.get("manifest");
+            match plugin_id
+                .zip(manifest)
+                .ok_or_else(|| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Language-server validation requires pluginID and manifest",
+                    )
+                })
+                .and_then(|(plugin_id, manifest)| {
+                    let manifest = serde_json::to_string(manifest).map_err(|error| {
+                        CoreError::new(
+                            ErrorCode::InvalidRequest,
+                            "Invalid language-server manifest",
+                        )
+                        .with_details(error.to_string())
+                    })?;
+                    crate::plugins::validate_language_server_manifest_json(&manifest, plugin_id)
+                        .map_err(|error| {
+                            CoreError::new(
+                                ErrorCode::ParseFailed,
+                                "Language-server manifest validation failed",
+                            )
+                            .with_details(error.to_string())
+                        })
+                }) {
+                Ok(manifest) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(manifest).expect("language-server manifest should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
+        CoreCommand::PluginLifecycle => {
+            match serde_json::from_value::<crate::plugins::PluginLifecycleRequest>(parsed.payload)
+                .map_err(|error| {
+                    CoreError::new(
+                        ErrorCode::InvalidRequest,
+                        "Invalid plugin lifecycle request",
+                    )
+                    .with_details(error.to_string())
+                })
+                .and_then(|mut request| {
+                    let event = request
+                        .lifecycle
+                        .apply(request.action, request.operation_id)
+                        .map_err(|error| {
+                            CoreError::new(
+                                ErrorCode::InvalidRequest,
+                                "Plugin lifecycle transition failed",
+                            )
+                            .with_details(error.to_string())
+                        })?;
+                    Ok(crate::plugins::PluginLifecycleResponse {
+                        lifecycle: request.lifecycle,
+                        event,
+                    })
+                }) {
+                Ok(response) => CoreResponse::success(
+                    id,
+                    serde_json::to_value(response).expect("plugin lifecycle should encode"),
+                ),
+                Err(error) => CoreResponse::failure(id, error),
+            }
+        }
         CoreCommand::AgentStatus => agent_response(id, parsed.payload, crate::agent::status),
         CoreCommand::AgentParseProviderConfiguration => {
             match crate::ai::parse_provider_configuration(parsed.payload) {

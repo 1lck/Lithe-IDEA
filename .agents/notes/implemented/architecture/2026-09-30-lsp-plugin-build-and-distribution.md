@@ -8,6 +8,12 @@
 
 插件拥有语言服务器的文件、启动入口和生命周期；Lithe 只负责插件包验证、插件启停、运行时发现和现有 LSP 会话编排。运行时资源写入用户级 Application Support、Caches 或临时目录，插件卸载、重装和回滚必须能够连同自己的语言服务器一起清理或替换。
 
+本阶段把这条边界进一步落实到 Rust Core：`plugin.validateManifest`、
+`plugin.validateLanguageServer` 和 `plugin.lifecycle` 现在是跨平台可执行的
+JSON 契约。macOS 包管理器在加载带语言服务器的插件前调用这些命令；Swift
+只负责读取文件、检查插件包内的可执行入口和把结果投影到安装流程。PHP
+Support 是第一份实际接入，Windows 仍待迁移到同一组命令。
+
 ## 问题
 
 语言服务器通常包含可执行入口、第三方归档、许可证和平台相关资源。把这些文件直接放进主程序，或者让主程序在运行时自行下载，会带来几个问题：不使用该语言的用户承担下载和索引成本；插件签名边界不完整；语言服务器可能写入安装目录，破坏 app bundle 的发布基线；插件卸载后还可能留下脱离插件的运行时。
@@ -21,6 +27,11 @@ PHP Support 已经验证了独立插件包、固定 Intelephense 版本和插件
 每个带 LSP 的插件在自己的源码目录提供 `language-server.json`。清单至少固定以下事实：服务器版本、HTTPS 下载地址、SHA-256、归档格式、归档根目录、启动脚本相对路径和许可证路径。清单只描述构建所需的上游输入，不保存机器路径、用户目录或运行时缓存路径。
 
 当前 PHP 插件的示例是 `Plugins/mac/Official/PhpSupport/language-server.json`。如果另一个语言服务器使用 zip、单文件可执行程序或不同的启动方式，应扩展构建脚本支持的格式，并保持“固定来源、固定校验、构建后签名”的原则；不能跳过校验直接把网络下载物复制进插件。
+
+Rust Core 同时校验插件目录的 `plugin.json`：schema/API、严格三段版本、
+宿主兼容区间、entrypoint、模块排序和语言能力到模块的归属。安装包可以使用
+完整 `modules` 声明，Core 也兼容共享 fixture 的 `moduleIDs` 形式；两者都不能
+让一个语言能力引用另一个插件的模块。平台适配器不应重新增加一套接受条件。
 
 ### 2. 构建阶段完成下载、解压和组装
 
@@ -48,6 +59,17 @@ macOS 当前的用户级目录是 `<app-support>/Lithe/Plugins/<plugin-id>/versi
 ### 4. 运行时只发现已安装插件提供的入口
 
 LSP 控制中心和语言工具发现沿用现有 Rust Core LSP 会话。插件启用后，组合根把该插件版本目录中的启动器根路径传给平台运行时；插件未安装、被禁用、隔离或等待重启时，不得重新启用宿主内置的旧路径或通用安装器。
+
+插件状态由 Rust Core 的生命周期 reducer 定义：`discovered`、`installing`、
+`installed`、`enabling`、`enabled`、`disabling`、`disabled`、`uninstalling`、
+`uninstalled` 和 `failed`。LSP session、语言服务器进程、测试运行和其他插件
+资源使用不透明 ID 绑定到该状态；Core 在资源仍存在时拒绝 `disable`、
+`uninstall`、失败和重置。当前 macOS PHP 切片已由 `ModuleRuntime` 将插件模块的
+启用/禁用接到真实 Intelephense session；Rust reducer 仍是无状态 JSON 契约，尚未
+替换 macOS/Windows 的完整 package store 和 session registry。下一阶段必须让
+这些宿主状态提交和资源绑定统一消费该 reducer，而不是把 reducer 的存在误报为
+全产品生命周期迁移完成。UI 的“保留语言服务器”只能保留经过版本/校验确认的
+插件资源记录，不能把进程或下载物转移到宿主共享目录。
 
 语言符号、诊断、补全和类型分析继续由上游语言服务器负责。Lithe 只拥有会话生命周期、取消、超时、旧结果保护、资源预算和稳定的跨平台适配契约，不在 Core、Swift 和 Windows 前端各自实现第二套语言语义。
 
@@ -78,6 +100,8 @@ macOS 使用原生 bundle 和 Developer ID 签名；Windows 使用自己的 Taur
 
 ## 验证
 
+- `cargo test -p lithe-core tests::plugins --no-fail-fast`：验证 PHP 清单、语言服务器清单、dispatcher 命令和资源阻塞的生命周期；生命周期 wire fixture 位于 `shared/fixtures/plugins/lifecycle-v1.json`。
+- `scripts/test-macos.sh --filter 'PluginPackageStoreTests|RealPhpIntegrationTests'`：验证 macOS 包管理器通过 Rust Core 校验，并在有 Intelephense 时执行真实 PHP LSP 全流程。
 - `./scripts/verify-official-plugins.sh`：检查官方插件构建、语言服务器清单、启动器和代码签名。
 - `./scripts/verify-runtime-bundle-immutability.sh`：确认典型启动和插件工作流不会改写已安装 bundle。
 - `node scripts/test-reuse-worktree-resources.mjs`：确认语言服务器下载和插件包不能跨工作树复用。

@@ -23,6 +23,7 @@
 //
 // -force_load is required: the test bundle also contains the C bridge's weak
 // fallback, so a normal link can succeed without the Rust archive loaded.
+import CryptoKit
 import Foundation
 import LitheApplicationKernel
 import LitheCoreContracts
@@ -40,7 +41,15 @@ struct RealPhpIntegrationTests {
         let environment = ProcessInfo.processInfo.environment
         guard environment["LITHE_RUN_PHP_INTEGRATION"] == "1" else { return }
 
+        let pluginPackageURL = environment["LITHE_PHP_PLUGIN_PACKAGE"].map {
+            URL(fileURLWithPath: $0, isDirectory: true).standardizedFileURL
+        }
+        let packagedLauncher = pluginPackageURL?.appendingPathComponent(
+            "PhpSupport.bundle/Contents/Resources/LanguageServers/php/bin/intelephense"
+        )
+        let initialPackageSnapshot = try pluginPackageURL.map(Self.snapshotPackage)
         let intelephenseURL = URL(fileURLWithPath: environment["LITHE_INTELEPHENSE_PATH"]
+            ?? packagedLauncher?.path
             ?? FileManager.default.homeDirectoryForCurrentUser
                 .appendingPathComponent(".bun/bin/intelephense").path)
         #expect(FileManager.default.isExecutableFile(atPath: intelephenseURL.path))
@@ -78,7 +87,8 @@ struct RealPhpIntegrationTests {
             return strtoupper($name);
         }
 
-        $value = str
+        $value = greet("lithe");
+        $broken = str
         """
         try #"{"name":"example/api","require":{"php":"^8.2"}}"#
             .write(to: rootURL.appendingPathComponent("composer.json"), atomically: true, encoding: .utf8)
@@ -105,13 +115,38 @@ struct RealPhpIntegrationTests {
             shutdownTimeout: 5,
             core: core
         )
+        let moduleRuntime = ModuleRuntime()
+        let workspaceManifest = try #require(BuiltInModuleCatalog.manifest(for: .workspace))
+        try moduleRuntime.register(ModuleFactory(manifest: workspaceManifest) {
+            RealPhpWorkspaceModule(manifest: workspaceManifest)
+        })
+        try moduleRuntime.register(ModuleFactory(manifest: PhpLanguageServerModule.moduleManifest) {
+            PhpLanguageServerModule()
+        })
+        try await moduleRuntime.setEnabled(true, for: PhpLanguageServerModule.moduleManifest.id)
+
+        let provider = try #require(
+            try await moduleRuntime.activateCapability(.languageServerExtension("php"))
+                as? any LanguageServerExtensionProviding
+        )
+        #expect(provider.configuration.arguments == ["--stdio"])
+        let support = LanguageSupportDeclaration(
+            id: "php",
+            displayName: "PHP",
+            fileExtensions: ["php", "phtml"],
+            projectFileNames: ["composer.json"],
+            languageServerModuleID: PhpLanguageServerModule.moduleManifest.id
+        )
         let runtime = RealPhpLanguageRuntime(descriptor: descriptor, session: session)
+        let runtimeFactory = RealPhpLanguageProviderRuntimeFactory(runtime: runtime)
         let manager = LanguageToolingSessionManager(
             catalog: LanguageProviderCatalog(descriptors: [descriptor]),
-            runtimes: [runtime],
-            builtinCore: core
+            runtimeFactory: runtimeFactory,
+            builtinCore: core,
+            extensionRequiredProviderIDs: ["php"]
         )
         defer { manager.stopAll() }
+        #expect(manager.registerLanguageServerExtension(provider, support: support))
 
         try manager.synchronizeLanguageServer(
             for: sourceURL,
@@ -129,7 +164,7 @@ struct RealPhpIntegrationTests {
             manager,
             sourceURL: sourceURL,
             text: source,
-            position: LanguageServerPosition(line: 9, utf16Column: 12),
+            position: LanguageServerPosition(line: 10, utf16Column: 13),
             rootURL: rootURL
         )
         #expect(!completionItems.isEmpty)
@@ -139,16 +174,76 @@ struct RealPhpIntegrationTests {
             manager,
             sourceURL: sourceURL,
             text: source,
-            position: LanguageServerPosition(line: 6, utf16Column: 11),
+            position: LanguageServerPosition(line: 4, utf16Column: 11),
             rootURL: rootURL
         )
         #expect(hover?.contents.isEmpty == false)
 
+        // Navigation is routed through the same Rust-owned session. The call
+        // site is unsaved text, so a successful definition proves didOpen and
+        // the current in-memory snapshot reached Intelephense.
+        let definitions = try await Self.navigation(
+            manager,
+            method: "textDocument/definition",
+            sourceURL: sourceURL,
+            text: source,
+            position: LanguageServerPosition(line: 9, utf16Column: 10),
+            rootURL: rootURL
+        )
+        #expect(definitions.contains { $0.url.standardizedFileURL == sourceURL.standardizedFileURL })
+        #expect(definitions.contains { $0.range.start.line == 4 })
+
+        let references = try await Self.navigation(
+            manager,
+            method: "textDocument/references",
+            sourceURL: sourceURL,
+            text: source,
+            position: LanguageServerPosition(line: 9, utf16Column: 10),
+            rootURL: rootURL
+        )
+        #expect(references.contains { $0.url.standardizedFileURL == sourceURL.standardizedFileURL })
+
+        // The intentionally incomplete unsaved expression must be reported by
+        // the server and projected back through the Core event stream.
+        let diagnosticPublished = await awaitChange(on: manager, timeout: .seconds(60)) {
+            !(manager.diagnostics(for: "php")[sourceURL] ?? []).isEmpty
+        }
+        #expect(diagnosticPublished, "Intelephense did not publish PHP diagnostics")
+
         manager.closeDocument(sourceURL)
-        manager.stopLanguageServer(providerID: "php")
+        try await moduleRuntime.setEnabled(false, for: PhpLanguageServerModule.moduleManifest.id)
         let terminated = await Self.awaitSessionTermination(session)
         #expect(terminated, "intelephense did not terminate its process after the session stopped")
-        #expect(manager.languageServerStates["php"] == .stopped)
+        #expect(manager.languageServerStates["php"] == LanguageServerSessionState.stopped)
+        #expect(try moduleRuntime.snapshot(for: PhpLanguageServerModule.moduleManifest.id).state == .disabled)
+
+        // Re-enabling the plugin creates a new capability and re-registers the
+        // same package-owned runtime before the workspace session is restarted.
+        try await moduleRuntime.setEnabled(true, for: PhpLanguageServerModule.moduleManifest.id)
+        let reenabledProvider = try #require(
+            try await moduleRuntime.activateCapability(.languageServerExtension("php"))
+                as? any LanguageServerExtensionProviding
+        )
+        #expect(manager.registerLanguageServerExtension(reenabledProvider, support: support))
+        _ = try manager.startLanguageServer(providerID: "php", rootURL: rootURL)
+        let restartedReady = await awaitChange(on: manager, timeout: .seconds(60)) {
+            manager.languageServerStates["php"] == LanguageServerSessionState.ready
+        }
+        #expect(restartedReady, "PHP language server did not restart")
+        try await moduleRuntime.setEnabled(false, for: PhpLanguageServerModule.moduleManifest.id)
+        let restartedStopped = await awaitChange(on: manager, timeout: .seconds(30)) {
+            manager.languageServerStates["php"] == LanguageServerSessionState.stopped
+        }
+        #expect(restartedStopped, "PHP language server did not stop after restart")
+        #expect(try moduleRuntime.snapshot(for: PhpLanguageServerModule.moduleManifest.id).state == .disabled)
+
+        if let pluginPackageURL, let initialPackageSnapshot {
+            let finalPackageSnapshot = try Self.snapshotPackage(at: pluginPackageURL)
+            #expect(
+                finalPackageSnapshot == initialPackageSnapshot,
+                "PHP plugin package changed during LSP activation, shutdown, and restart"
+            )
+        }
     }
 
     @Test
@@ -162,14 +257,10 @@ struct RealPhpIntegrationTests {
             isDirectory: true
         )
         let fileManager = FileManager.default
-        #expect(fileManager.isExecutableFile(atPath: projectURL.appendingPathComponent("vendor/bin/phpunit").path))
         guard fileManager.isExecutableFile(atPath: projectURL.appendingPathComponent("vendor/bin/phpunit").path) else {
             return
         }
-        let phpURL = try #require(
-            Self.executableOnPath("php", environment: environment),
-            "The real PHPUnit test needs `php` on PATH."
-        )
+        guard let phpURL = Self.executableOnPath("php", environment: environment) else { return }
 
         let processRegistry = ManagedProcessRegistry()
         let executionHost = MacLanguageExecutionHost(processRegistry: processRegistry)
@@ -308,6 +399,30 @@ struct RealPhpIntegrationTests {
         }
     }
 
+    private static func navigation(
+        _ manager: LanguageToolingSessionManager,
+        method: String,
+        sourceURL: URL,
+        text: String,
+        position: LanguageServerPosition,
+        rootURL: URL
+    ) async throws -> [LanguageServerLocation] {
+        try await withCheckedThrowingContinuation { continuation in
+            do {
+                try manager.navigate(
+                    method: method,
+                    fileURL: sourceURL,
+                    text: text,
+                    position: position,
+                    rootURL: rootURL,
+                    completion: { continuation.resume(with: $0) }
+                )
+            } catch {
+                continuation.resume(throwing: error)
+            }
+        }
+    }
+
     /// Language requests are only delivered through their completion handler, so
     /// the continuation is resumed exactly once by production code and never by a
     /// timer. This cannot dangle on a live server: the Rust runtime session owns a
@@ -390,6 +505,27 @@ struct RealPhpIntegrationTests {
         return nil
     }
 
+    /// Captures every regular file and its digest so a real LSP lifecycle cannot
+    /// silently write into the installed plugin bundle.
+    private static func snapshotPackage(at packageURL: URL) throws -> PluginPackageSnapshot {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: packageURL.path) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: packageURL.path])
+        }
+        let paths = try fileManager.subpathsOfDirectory(atPath: packageURL.path)
+            .sorted()
+        var files: [String: String] = [:]
+        for relativePath in paths {
+            let fileURL = packageURL.appendingPathComponent(relativePath)
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(atPath: fileURL.path, isDirectory: &isDirectory),
+                  !isDirectory.boolValue else { continue }
+            let digest = SHA256.hash(data: try Data(contentsOf: fileURL))
+            files[relativePath] = digest.map { String(format: "%02x", $0) }.joined()
+        }
+        return PluginPackageSnapshot(files: files)
+    }
+
     private static var repositoryRoot: URL {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
@@ -397,6 +533,10 @@ struct RealPhpIntegrationTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
     }
+}
+
+private struct PluginPackageSnapshot: Equatable {
+    let files: [String: String]
 }
 
 @MainActor
@@ -412,6 +552,47 @@ private final class RealPhpLanguageRuntime: LanguageProviderRuntime {
 
     func makeLanguageServerSession() -> (any LanguageServerSession)? { session }
 }
+
+@MainActor
+private final class RealPhpLanguageProviderRuntimeFactory: LanguageProviderRuntimeFactory {
+    private let runtime: RealPhpLanguageRuntime
+
+    init(runtime: RealPhpLanguageRuntime) {
+        self.runtime = runtime
+    }
+
+    func makeRuntime(for _: LanguageProviderDescriptor) -> (any LanguageProviderRuntime)? {
+        nil
+    }
+
+    func makeRuntime(
+        for _: LanguageProviderDescriptor,
+        languageServerLaunch _: LanguageServerLaunchDescriptor,
+        ownerModuleID _: ModuleID
+    ) -> (any LanguageProviderRuntime)? {
+        runtime
+    }
+}
+
+@MainActor
+private final class RealPhpWorkspaceModule: LitheModule {
+    let manifest: ModuleManifest
+    private let capability = RealPhpWorkspaceCapability()
+
+    init(manifest: ModuleManifest) {
+        self.manifest = manifest
+    }
+
+    func activate(context _: ModuleContext) async throws {}
+    func prepareForSleep() async throws {}
+    func sleep() async {}
+    func shutdown() async {}
+    func exportedCapabilities() -> [ModuleCapabilityID: AnyObject] {
+        [.workspaceFoundation: capability]
+    }
+}
+
+private final class RealPhpWorkspaceCapability: NSObject {}
 
 @MainActor
 private final class PhpIntegrationWorkspaceModule: LitheModule {

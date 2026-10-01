@@ -3,9 +3,7 @@ import LitheModuleAPI
 
 @MainActor
 public final class PhpLanguageServerModule: LitheModule {
-    public static let moduleManifest = OfficialPluginCatalog.moduleManifest(
-        for: .languageServerExtension(phpLanguageID)
-    )!
+    public static let moduleManifest = PhpSupportManifest.languageServerModule
 
     public let manifest = moduleManifest
     private var capability: PhpLanguageServerCapability?

@@ -2740,7 +2740,7 @@
           "macos/Tests/LitheTests/RealPhpIntegrationTests.swift"
         ],
         "implementationStatus": "implemented",
-        "verificationStatus": "pending"
+        "verificationStatus": "verified"
       },
       "windows": {
         "evidence": [
@@ -2995,6 +2995,34 @@
       },
       "owner": "Run/Debug",
       "verification": "在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。"
+    },
+    {
+      "id": "rust-core-plugin-contract",
+      "area": "扩展",
+      "group": "插件与语言服务",
+      "capability": "Rust Core 校验插件清单、语言服务器清单并约束插件资源生命周期",
+      "owner": "Core / Extensions",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "rust/lithe-core/src/plugins/mod.rs",
+          "rust/lithe-core/src/protocol/command.rs",
+          "rust/lithe-core/src/runtime/dispatcher.rs",
+          "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginLanguageServerPackageValidator.swift",
+          "macos/Tests/LitheTests/RealPhpIntegrationTests.swift",
+          "shared/contracts/rust-core-api.md"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "partial",
+        "verificationStatus": "pending",
+        "evidence": [
+          "rust/lithe-core/src/plugins/mod.rs",
+          "windows/tauri/src/extensions"
+        ]
+      },
+      "verification": "macOS 使用 PHP 插件清单和真实 Intelephense 完成清单校验、initialize、补全、Hover、定义、引用、诊断、关闭、停止、重启和进程清理；Windows 迁移插件包后使用同一 Core 命令和生命周期 fixture 完成对应验证。"
     }
   ]
 }

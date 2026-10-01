@@ -188,6 +188,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 let candidate = InstalledPluginPackage(
@@ -249,6 +250,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 installed.append(InstalledPluginPackage(
@@ -307,6 +309,7 @@ final class MacPluginPackageStore {
             try MacPluginLanguageServerPackageValidator.validate(
                 packageAt: stagedURL,
                 pluginManifest: manifest,
+                hostVersion: hostVersion,
                 fileManager: fileManager
             )
         } catch {
@@ -395,6 +398,7 @@ final class MacPluginPackageStore {
         try MacPluginLanguageServerPackageValidator.validate(
             packageAt: previousPackageURL,
             pluginManifest: manifest,
+            hostVersion: hostVersion,
             fileManager: fileManager
         )
         let restored = PluginInstallationRecord(
