@@ -37,15 +37,27 @@ struct ProjectTreeSelection: Equatable {
         if let focusedPath, !visible.contains(focusedPath) { self.focusedPath = nil }
     }
 
-    /// ⌘A selects the visible items that share the focused item's parent
-    /// directory, including expanded descendants. The focus stays put so a
-    /// repeated ⌘A keeps the same scope.
-    mutating func selectAll(visiblePaths: [String], rootPath: String) {
-        let scope = focusedPath.flatMap { $0 == rootPath ? nil : ($0 as NSString).deletingLastPathComponent }
-        let scoped = scope.map { scope in visiblePaths.filter { $0.hasPrefix(scope + "/") } } ?? visiblePaths
-        paths = Set(scoped)
-        anchorPath = scoped.first
-        if focusedPath.map({ !paths.contains($0) }) ?? true { focusedPath = scoped.last }
+    /// ⌘A selects the focused row's siblings in the displayed tree, so a
+    /// folder selects the items beside it rather than its own contents. Batch
+    /// actions already include a selected folder's descendants. With no focus,
+    /// or focus on the project row, the project's top-level items are selected.
+    mutating func selectAll(in root: FileNode) {
+        let parent = focusedPath.flatMap { Self.displayedParent(of: $0, in: root) } ?? root
+        let siblings = (parent.children ?? []).map(\.url.path)
+        guard let first = siblings.first else { return }
+        paths = Set(siblings)
+        anchorPath = first
+        if focusedPath.map({ !paths.contains($0) }) ?? true { focusedPath = first }
+    }
+
+    /// Uses tree structure instead of path components because compacted Java
+    /// packages display below an ancestor that is not their filesystem parent.
+    private static func displayedParent(of path: String, in node: FileNode) -> FileNode? {
+        for child in node.children ?? [] {
+            if child.url.path == path { return node }
+            if let parent = displayedParent(of: path, in: child) { return parent }
+        }
+        return nil
     }
 
     static func visibleNodes(in root: FileNode, expandedPaths: Set<String>) -> [FileNode] {

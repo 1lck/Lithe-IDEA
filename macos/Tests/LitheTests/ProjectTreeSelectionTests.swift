@@ -127,42 +127,56 @@ struct ProjectTreeSelectionTests {
 
     @Test
     func rightClickPreservesTheGroupOnlyForSelectedRows() {
+        let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [
+            FileNode(url: URL(fileURLWithPath: "/p/a"), isDirectory: false, children: nil),
+            FileNode(url: URL(fileURLWithPath: "/p/b"), isDirectory: false, children: nil)
+        ])
         var selection = ProjectTreeSelection()
-        selection.selectAll(visiblePaths: ["a", "b"], rootPath: "/")
-        selection.selectForContextMenu("a")
-        #expect(selection.paths == ["a", "b"])
-        selection.selectForContextMenu("c")
-        #expect(selection.paths == ["c"])
-        #expect(selection.anchorPath == "c")
+        selection.selectAll(in: root)
+        selection.selectForContextMenu("/p/a")
+        #expect(selection.paths == ["/p/a", "/p/b"])
+        selection.selectForContextMenu("/p/c")
+        #expect(selection.paths == ["/p/c"])
+        #expect(selection.anchorPath == "/p/c")
     }
 
     @Test
-    func selectAllUsesTheFocusedItemsDirectory() {
-        let rows = ["/p", "/p/dest", "/p/dest/a.txt", "/p/dest copy", "/p/dest copy/a.txt",
-                    "/p/dest copy/b.txt", "/p/alpha.txt", "/p/gamma.txt"]
+    func selectAllUsesTheFocusedRowsSiblings() {
+        func node(_ path: String, _ children: [FileNode]? = nil, collapsed: [String] = []) -> FileNode {
+            FileNode(url: URL(fileURLWithPath: path), isDirectory: children != nil, children: children,
+                     collapsedAncestorPaths: collapsed)
+        }
+        // `src/com/acme` is a compacted package shown directly below `src`.
+        let root = node("/p", [
+            node("/p/dest", [node("/p/dest/a.txt")]),
+            node("/p/dest copy", [node("/p/dest copy/a.txt"), node("/p/dest copy/b.txt")]),
+            node("/p/src", [node("/p/src/com/acme", [node("/p/src/com/acme/App.java")], collapsed: ["/p/src/com"])]),
+            node("/p/alpha.txt"), node("/p/gamma.txt")
+        ])
+        let topLevel: Set<String> = ["/p/dest", "/p/dest copy", "/p/src", "/p/alpha.txt", "/p/gamma.txt"]
         var selection = ProjectTreeSelection()
+        func selectAll(focusing path: String) -> Set<String> {
+            selection.select(path, visiblePaths: [path], extending: false, toggling: false)
+            selection.selectAll(in: root)
+            return selection.paths
+        }
 
-        // Inside an expanded folder: only that folder's visible items.
-        selection.select("/p/dest copy/a.txt", visiblePaths: rows, extending: false, toggling: false)
-        selection.selectAll(visiblePaths: rows, rootPath: "/p")
-        #expect(selection.paths == ["/p/dest copy/a.txt", "/p/dest copy/b.txt"])
+        // A file inside a folder selects that folder's items only.
+        #expect(selectAll(focusing: "/p/dest copy/a.txt") == ["/p/dest copy/a.txt", "/p/dest copy/b.txt"])
         #expect(selection.focusedPath == "/p/dest copy/a.txt")
-
-        // At the project's top level: every visible item below the root,
-        // including folders and their expanded children, but not the root row.
-        selection.select("/p/alpha.txt", visiblePaths: rows, extending: false, toggling: false)
-        selection.selectAll(visiblePaths: rows, rootPath: "/p")
-        #expect(selection.paths == Set(rows.dropFirst()))
-
-        // A similarly named sibling folder is not part of the scope.
-        selection.select("/p/dest/a.txt", visiblePaths: rows, extending: false, toggling: false)
-        selection.selectAll(visiblePaths: rows, rootPath: "/p")
-        #expect(selection.paths == ["/p/dest/a.txt"])
-
-        // Focus on the root row, or no focus, selects the whole visible tree.
-        selection.select("/p", visiblePaths: rows, extending: false, toggling: false)
-        selection.selectAll(visiblePaths: rows, rootPath: "/p")
-        #expect(selection.paths == Set(rows))
+        // A folder selects the items beside it, not its own contents.
+        #expect(selectAll(focusing: "/p/dest copy") == topLevel)
+        #expect(selectAll(focusing: "/p/alpha.txt") == topLevel)
+        // A similarly named sibling folder stays out of the scope.
+        #expect(selectAll(focusing: "/p/dest/a.txt") == ["/p/dest/a.txt"])
+        // Compacted packages use their displayed parent.
+        #expect(selectAll(focusing: "/p/src/com/acme") == ["/p/src/com/acme"])
+        #expect(selectAll(focusing: "/p/src/com/acme/App.java") == ["/p/src/com/acme/App.java"])
+        // The project row, or no focus, selects the top-level items.
+        #expect(selectAll(focusing: "/p") == topLevel)
+        var unfocused = ProjectTreeSelection()
+        unfocused.selectAll(in: root)
+        #expect(unfocused.paths == topLevel)
     }
 
     @Test
@@ -175,7 +189,8 @@ struct ProjectTreeSelectionTests {
         let visible = ProjectTreeSelection.visibleNodes(in: root, expandedPaths: [rootURL.path]).map { $0.url.path }
         #expect(visible == [rootURL.path, folder.url.path, last.url.path])
         var selection = ProjectTreeSelection()
-        selection.selectAll(visiblePaths: visible + [child.url.path], rootPath: rootURL.path)
+        selection.select(last.url.path, visiblePaths: visible, extending: false, toggling: false)
+        selection.select(child.url.path, visiblePaths: visible, extending: false, toggling: true)
         selection.retain(visiblePaths: visible)
         #expect(!selection.paths.contains(child.url.path))
         #expect(selection.focusedPath == nil)
