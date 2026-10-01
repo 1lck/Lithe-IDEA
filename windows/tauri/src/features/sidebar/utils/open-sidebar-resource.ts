@@ -1,6 +1,6 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
-import { getFileDiff } from "@/features/git/api/git-diff-api";
+import { getFullContextFileDiff } from "@/features/git/api/git-diff-api";
 import { openGitWorktreeWorkspace } from "@/features/git/utils/git-worktree-open";
 import { openCommitDiffBuffer } from "@/features/git/utils/open-commit-diff-buffer";
 import { createSingleFileWorkingTreeDiff } from "@/features/git/utils/working-tree-multi-diff";
@@ -34,7 +34,7 @@ const openWorkingTreeDiffBuffer = async (
     return useBufferStore.getState().activeBufferId;
   }
 
-  const diff = await getFileDiff(resource.repoPath, actualFilePath, resource.staged);
+  const diff = await getFullContextFileDiff(resource.repoPath, actualFilePath, resource.staged);
   if (!diff || (diff.lines.length === 0 && diff.is_image !== true)) {
     await useFileSystemStore
       .getState()

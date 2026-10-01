@@ -168,7 +168,7 @@ public struct DebugSteppingFilters: Codable, Equatable, Sendable {
 
 /// JDT LS-owned identity for one Java launch target. `mainClass` may include
 /// the JPMS module prefix (`module/name.Type`) required by Java Debug Server.
-public struct JavaDebugLaunchTarget: Equatable, Sendable {
+public struct JavaDebugLaunchTarget: Hashable, Sendable {
     public let mainClass: String
     public let projectName: String?
     public let modulePaths: [String]
@@ -735,6 +735,7 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
         column: Int?,
         completion: @escaping (Result<[DebugGotoTarget], Error>) -> Void
     )
+    func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void)
     func requestThreads(_ completion: @escaping (Result<[DebugThread], Error>) -> Void)
     func requestExceptionInfo(
         threadID: Int,
@@ -761,6 +762,9 @@ public protocol DebugAdapterControllingSession: DebugAdapterSession {
 }
 
 public extension DebugAdapterControllingSession {
+    func redefineClasses(_ completion: @escaping (Result<[String], Error>) -> Void) {
+        completion(.failure(NSError(domain: "Lithe.Debug", code: 1, userInfo: [NSLocalizedDescriptionKey: "This adapter does not support hot code replacement."])))
+    }
     var capabilities: DebugAdapterCapabilities { .unknown }
     func setExceptionBreakpoints(_: [DebugExceptionBreakpoint]) {}
     func setFunctionBreakpoints(_: [DebugFunctionBreakpoint]) {}

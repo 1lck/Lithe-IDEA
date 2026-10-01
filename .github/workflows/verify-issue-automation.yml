@@ -1,0 +1,35 @@
+name: Verify issue automation
+
+on:
+  pull_request:
+    paths:
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/lithe-issue-*/**'
+      - '.github/workflows/lithe-issue-*.yml'
+      - '.github/workflows/verify-issue-automation.yml'
+      - 'scripts/test-lithe-issue-*.mjs'
+  push:
+    branches: [main, preview]
+    paths:
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/lithe-issue-*/**'
+      - '.github/workflows/lithe-issue-*.yml'
+      - '.github/workflows/verify-issue-automation.yml'
+      - 'scripts/test-lithe-issue-*.mjs'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Test issue decisions and workflow orchestration
+        run: node --test --test-timeout=10000 scripts/test-lithe-issue-*.mjs

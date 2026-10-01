@@ -6,7 +6,7 @@ license = "Apache-2.0"
 description = "Shared ACP session and agent process host for Lithe"
 
 [dependencies]
-agent-client-protocol = "=2.2.0"
+agent-client-protocol = { version = "=2.2.0", features = ["unstable_end_turn_token_usage"] }
 futures = "0.3"
 kill_tree = { version = "0.2", features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }

@@ -19,6 +19,19 @@ if [[ -n "$bundle_write_violations" ]]; then
     exit 1
 fi
 
+# Check native Windows resource lookups too. The IDE host integration test also
+# snapshots its packaged helper while creating and removing app-data descriptors.
+windows_bundle_write_pattern='(resource_dir\(\)|resolve_resource\().*(write|create_dir|copy|rename|remove_file)|((write|create_dir|copy|rename|remove_file).*)(resource_dir\(\)|resolve_resource\()'
+windows_bundle_write_violations=$(
+    find windows/tauri/src-tauri/src -type f -name '*.rs' -print0 \
+        | xargs -0 /usr/bin/grep -En -- "$windows_bundle_write_pattern" || true
+)
+if [[ -n "$windows_bundle_write_violations" ]]; then
+    print -u2 -- "Runtime code must not write to Windows packaged resources:"
+    print -u2 -- "$windows_bundle_write_violations"
+    exit 1
+fi
+
 # JDT LS is the one runtime that writes into a packaged directory by design.
 # Rust Core redirects its Equinox configuration area into the host cache for
 # both products; `jdt_configuration` tests and the real JDT LS smoke test

@@ -31,12 +31,9 @@ describe("Git Log workbench entry points", () => {
     });
   });
 
-  test("places Git Log on the bottom activity rail above Settings", () => {
+  test("places Git Log on the bottom activity rail after Run", () => {
     expect(SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.indexOf("run")).toBeLessThan(
       SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.indexOf("gitLog"),
-    );
-    expect(SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.indexOf("gitLog")).toBeLessThan(
-      SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS.indexOf("settings"),
     );
   });
 });

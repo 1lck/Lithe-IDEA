@@ -1,0 +1,216 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "name": "skip-incompatible-java-home",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "1.8.0_402",
+          "priority": 0
+        },
+        {
+          "id": "path",
+          "version": "17.0.12",
+          "priority": 1
+        },
+        {
+          "id": "latest",
+          "version": "21.0.4",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "compatible-java-home-wins",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "17.0.12",
+          "priority": 0
+        },
+        {
+          "id": "latest",
+          "version": "21.0.4",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "numeric-version-order",
+      "minimum": "8",
+      "candidates": [
+        {
+          "id": "eight",
+          "version": "8.0.402",
+          "priority": 2
+        },
+        {
+          "id": "twenty-one",
+          "version": "21.0.4",
+          "priority": 2
+        },
+        {
+          "id": "seventeen",
+          "version": "17.0.12",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "eight"
+    },
+    {
+      "name": "numeric-patch-order",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "nine",
+          "version": "17.0.9",
+          "priority": 2
+        },
+        {
+          "id": "ten",
+          "version": "17.0.10",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "nine"
+    },
+    {
+      "name": "legacy-java-eight",
+      "minimum": "8",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "1.8.0_402",
+          "priority": 0
+        },
+        {
+          "id": "latest",
+          "version": "21.0.4",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "stable-tie",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "z",
+          "version": "17.0.12",
+          "priority": 2
+        },
+        {
+          "id": "a",
+          "version": "17.0.12",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "z"
+    },
+    {
+      "name": "unsatisfied-retains-fallback",
+      "minimum": "21",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "8.0.402",
+          "priority": 0
+        },
+        {
+          "id": "other",
+          "version": "17.0.12",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "missing-requirement-retains-fallback",
+      "minimum": null,
+      "candidates": [
+        {
+          "id": "env",
+          "version": "8.0.402",
+          "priority": 0
+        },
+        {
+          "id": "latest",
+          "version": "21.0.4",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "unknown-version-is-not-compatible",
+      "minimum": "17",
+      "candidates": [
+        {
+          "id": "env",
+          "version": "",
+          "priority": 0
+        },
+        {
+          "id": "other",
+          "version": "17.0.12",
+          "priority": 2
+        }
+      ],
+      "fallbackId": "env"
+    },
+    {
+      "name": "no-runtimes",
+      "minimum": "17",
+      "candidates": [],
+      "fallbackId": null
+    }
+  ],
+  "expected": {
+    "skip-incompatible-java-home": {
+      "id": "path",
+      "warning": false
+    },
+    "compatible-java-home-wins": {
+      "id": "env",
+      "warning": false
+    },
+    "numeric-version-order": {
+      "id": "twenty-one",
+      "warning": false
+    },
+    "numeric-patch-order": {
+      "id": "ten",
+      "warning": false
+    },
+    "legacy-java-eight": {
+      "id": "env",
+      "warning": false
+    },
+    "stable-tie": {
+      "id": "a",
+      "warning": false
+    },
+    "unsatisfied-retains-fallback": {
+      "id": "env",
+      "warning": true
+    },
+    "missing-requirement-retains-fallback": {
+      "id": "env",
+      "warning": false
+    },
+    "unknown-version-is-not-compatible": {
+      "id": "other",
+      "warning": false
+    },
+    "no-runtimes": {
+      "id": null,
+      "warning": true
+    }
+  }
+}

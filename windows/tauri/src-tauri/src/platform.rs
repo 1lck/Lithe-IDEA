@@ -9,10 +9,17 @@ static REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 pub async fn platform_invoke(
     webview: tauri::Webview,
     command: String,
-    args: Value,
+    mut args: Value,
     git_events: Option<tauri::ipc::JavaScriptChannelId>,
     git_execution: Option<Value>,
 ) -> Result<Value, String> {
+    let ide_owner = if command == "ideHost.control" && args["action"] == "open" {
+        let owner = webview.window().label().to_owned();
+        args["arguments"]["ownerID"] = json!(owner);
+        Some((webview.app_handle().clone(), owner))
+    } else {
+        None
+    };
     if command.starts_with("ai_commit_") {
         return crate::ai_commit::dispatch(webview.app_handle().clone(), &command, args).await;
     }
@@ -72,14 +79,43 @@ pub async fn platform_invoke(
                 );
             }
         }
-        lithe_core::execute_json(&request)
+        let response = lithe_core::execute_json(&request);
+        if let Some((app, owner)) = ide_owner {
+            // Destruction can run before a blocking open registers its host. Clean
+            // up here as well, even if the WebView's awaiting IPC future is gone.
+            if app.get_webview_window(&owner).is_none() {
+                crate::core::close_ide_hosts(&owner);
+                return json!({"ok":false,"error":{"message":"The authorized project window was closed"}}).to_string();
+            }
+        }
+        response
     })
     .await
     .map_err(|error| format!("Shared core task failed: {error}"))?;
     let envelope: Value = serde_json::from_str(&response)
         .map_err(|error| format!("Shared core returned invalid JSON: {error}"))?;
 
-    core_response(&envelope, preserve_history_rewrite, preserve_stash_restore)
+    platform_response(
+        &command,
+        &envelope,
+        preserve_history_rewrite,
+        preserve_stash_restore,
+    )
+}
+
+/// IDE operation output may describe a failed process while the inspection itself
+/// succeeded. Preserve its exit code and output instead of applying Git's legacy
+/// conversion of nonzero exit codes into rejected IPC calls.
+fn platform_response(
+    command: &str,
+    envelope: &Value,
+    preserve_history_rewrite: bool,
+    preserve_stash_restore: bool,
+) -> Result<Value, String> {
+    if command == "ideHost.control" && envelope.get("ok").and_then(Value::as_bool) == Some(true) {
+        return Ok(envelope.get("data").cloned().unwrap_or(Value::Null));
+    }
+    core_response(envelope, preserve_history_rewrite, preserve_stash_restore)
 }
 
 fn is_interactive_git(core_command: &str, command: &str) -> bool {
@@ -591,17 +627,19 @@ fn translate(command: &str, args: Value) -> Result<(String, Value), String> {
             payload.insert("arguments".into(), json!(["reset", "HEAD"]));
             "git.command"
         }
-        "git_stage_hunk" | "git_unstage_hunk" => {
+        "git_stage_hunk" | "git_unstage_hunk" | "git_discard_hunk" => {
             let hunk = payload
                 .remove("hunk")
                 .ok_or_else(|| "Hunk payload is required".to_string())?;
             payload.insert("patch".into(), json!(hunk_patch(&hunk)?));
             payload.insert(
                 "mode".into(),
-                json!(if command == "git_stage_hunk" {
-                    "stage"
-                } else {
-                    "unstage"
+                // `discard` reverse-applies the worktree hunk without touching
+                // the index, so staged content for the file survives.
+                json!(match command {
+                    "git_stage_hunk" => "stage",
+                    "git_unstage_hunk" => "unstage",
+                    _ => "discard",
                 }),
             );
             "git.apply"
@@ -812,6 +850,19 @@ mod tests {
         translate,
     };
     use serde_json::json;
+
+    #[test]
+    fn ide_output_preserves_failed_process_details_without_weakening_git_errors() {
+        let data = json!({"operationID":"run:fixture","exitCode":1,"output":"Compilation failed"});
+        let envelope = json!({"ok":true,"data":data});
+        assert_eq!(
+            super::platform_response("ideHost.control", &envelope, false, false).unwrap(),
+            data
+        );
+        assert!(super::platform_response("git.command", &envelope, false, false).is_err());
+        let failure = json!({"ok":false,"error":{"message":"IDE broker unavailable"}});
+        assert!(super::platform_response("ideHost.control", &failure, false, false).is_err());
+    }
 
     #[test]
     fn core_failure_preserves_repository_access_diagnostics() {
@@ -1280,6 +1331,33 @@ mod tests {
     }
 
     #[test]
+    fn preserves_full_file_context_for_single_file_review() {
+        // #557: the review reveals folded lines locally, so Core must receive
+        // the whole-file context request unchanged.
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "src/main.rs",
+                "worktreeSnapshot": true,
+                "contextLines": 2_147_483_647u32
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "worktreeSnapshot": true,
+                "contextLines": 2_147_483_647u32
+            })
+        );
+    }
+
+    #[test]
     fn translates_untracked_diff_file_pathspec() {
         let (command, payload) = translate(
             "git_diff_file",
@@ -1523,5 +1601,41 @@ mod tests {
             payload["patch"],
             "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1 +1 @@\n-old\n+new\n"
         );
+    }
+
+    #[test]
+    fn translates_hunk_discard_to_reverse_worktree_apply() {
+        let hunk = json!({
+            "file_path": "src/main.rs",
+            "lines": [
+                { "line_type": "header", "content": "@@ -1,2 +1,2 @@" },
+                { "line_type": "context", "content": "keep" },
+                { "line_type": "removed", "content": "old" },
+                { "line_type": "added", "content": "new" }
+            ]
+        });
+        let (command, payload) = translate(
+            "git_discard_hunk",
+            json!({ "repoPath": "C:/work", "hunk": hunk.clone() }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.apply");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "mode": "discard",
+                "patch": "diff --git a/src/main.rs b/src/main.rs\n--- a/src/main.rs\n+++ b/src/main.rs\n@@ -1,2 +1,2 @@\n keep\n-old\n+new\n"
+            })
+        );
+
+        // Stage and unstage keep their modes when the discard arm is shared.
+        for (name, mode) in [("git_stage_hunk", "stage"), ("git_unstage_hunk", "unstage")] {
+            let (_, payload) =
+                translate(name, json!({ "repoPath": "C:/work", "hunk": hunk.clone() })).unwrap();
+            assert_eq!(payload["mode"], mode);
+        }
+        assert!(translate("git_discard_hunk", json!({ "repoPath": "C:/work" })).is_err());
     }
 }

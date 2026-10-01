@@ -33,6 +33,8 @@ export interface GitCommit {
   author: string;
   email?: string;
   date: string;
+  /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
+  dateUtcOffsetMinutes?: number;
   decorations: string;
 }
 
@@ -134,6 +136,11 @@ export interface GitDiff {
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
+  /**
+   * Every line of the file is present as patch context, so a review can fold
+   * and reveal unchanged regions locally instead of showing sparse hunks.
+   */
+  is_full_context?: boolean;
   split_hunks?: GitDiffSplitRow[][];
 }
 

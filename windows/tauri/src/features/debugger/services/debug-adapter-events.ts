@@ -157,6 +157,13 @@ async function handleOperationCompleted(sessionId: string, event: Record<string,
   if (operationId) {
     store.actions.clearAdapterRequest(operationId);
   }
+  // HCR is correlated by its caller; refresh paused frames without resuming execution.
+  if (kind === "redefineClasses") {
+    if (store.activeSession?.status === "paused" && typeof store.stoppedState?.threadId === "number") {
+      await requestStackTrace(sessionId, store.stoppedState.threadId);
+    }
+    return;
+  }
   if (!context) return;
 
   switch (kind) {

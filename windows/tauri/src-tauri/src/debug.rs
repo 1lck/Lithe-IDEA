@@ -740,7 +740,7 @@ fn translate_request(
                 }),
             )
         }
-        "threads" | "stackTrace" | "scopes" | "variables" | "evaluate" => (
+        "threads" | "stackTrace" | "scopes" | "variables" | "evaluate" | "redefineClasses" => (
             "debug.inspect".to_string(),
             inspect_payload(session_id, operation_id, command, &arguments)?,
         ),
@@ -773,6 +773,10 @@ fn translate_request(
                     .ok_or_else(|| "setVariable requires a value.".to_string())?,
             }),
         ),
+        "cancelOperation" => (
+            "debug.cancelOperation".into(),
+            json!({"sessionId": session_id, "operationId": required_argument(&arguments, "operationId")?, "reason": "timedOut"}),
+        ),
         _ => return Err(format!("Unsupported debug adapter request: {command}")),
     };
     Ok((core_command, payload))
@@ -790,7 +794,7 @@ fn inspect_payload(
     payload.insert("operationId".into(), json!(operation_id));
     payload.insert("kind".into(), json!(kind));
     match kind {
-        "threads" => {}
+        "threads" | "redefineClasses" => {}
         "stackTrace" => {
             payload.insert("threadId".into(), required_argument(arguments, "threadId")?);
         }
@@ -1579,6 +1583,27 @@ mod tests {
         assert_eq!(payload["sourcePath"], "C:/work/main.js");
         assert_eq!(payload["breakpoints"][0]["line"], 3);
         assert_eq!(payload["breakpoints"][1]["line"], 7);
+    }
+
+    #[test]
+    fn translates_java_hot_replace_and_its_timeout_without_a_thread() {
+        let (command, payload) =
+            translate_request("java-session", "redefineClasses", &json!({}), "update-1").unwrap();
+        assert_eq!(command, "debug.inspect");
+        assert_eq!(
+            payload,
+            json!({"sessionId":"java-session", "operationId":"update-1", "kind":"redefineClasses"})
+        );
+        let (command, payload) = translate_request(
+            "java-session",
+            "cancelOperation",
+            &json!({"operationId":"update-1"}),
+            "cancel-1",
+        )
+        .unwrap();
+        assert_eq!(command, "debug.cancelOperation");
+        assert_eq!(payload["operationId"], "update-1");
+        assert_eq!(payload["reason"], "timedOut");
     }
 
     #[test]

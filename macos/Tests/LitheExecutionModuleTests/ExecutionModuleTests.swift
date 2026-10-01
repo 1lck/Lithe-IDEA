@@ -578,6 +578,39 @@ struct ExecutionModuleTests {
     }
 
     @Test
+    func serviceUpdateUsesTheRunningTargetAndDiscardsResultsAfterStop() async throws {
+        let configuration = RunConfiguration(
+            id: "service:update", name: "Service", kind: .javaMain,
+            execution: .service, modulePath: nil, mainClass: "example.Main", sourcePath: "src/Main.java"
+        )
+        let service = RunService(
+            runtime: TestRuntime(), process: TestStreamingProcess(),
+            processFactory: { TestStreamingProcess() }, fileAccess: TestRunFileAccess(),
+            preferences: TestRunPreferences(), serverPortParser: TestServerPortParser(),
+            runConfigurationOperations: SelectionRunConfigurationOperations(configurations: [configuration]),
+            executableResolver: TestExecutableResolver(),
+            languageProviderCatalog: .compatibilityFallback,
+            languageRunProviders: .standard(catalog: .compatibilityFallback)
+        )
+        defer { service.reset() }
+        await service.loadProject(at: URL(fileURLWithPath: "/workspace"), files: [], mavenProject: nil)
+        let target = JavaDebugLaunchTarget(mainClass: "example.Main", projectName: "app",
+            classPaths: ["/workspace/classes", "/repository/spring-boot-devtools-3.5.0.jar"])
+        service.startConfiguration(configuration, javaLaunch: target)
+        let feature = RunFeatureModel(service: service)
+        let running = try #require(feature.moduleSessions.first)
+        #expect(feature.canUpdateService(running))
+        await feature.updateService(running) { receivedTarget, source in
+            #expect(receivedTarget == target)
+            #expect(source.path == "/workspace/src/Main.java")
+            feature.stopModule(running)
+        }
+        #expect(feature.serviceUpdateMessage == nil)
+        #expect(feature.updatingServiceExecutionID == nil)
+        #expect(!feature.canUpdateService(try #require(feature.moduleSessions.first)))
+    }
+
+    @Test
     func selectingBetweenRunningServicesSynchronizesLogIdentityAndControls() async {
         let first = RunConfiguration(id: "service:a", name: "A", kind: .javaMain,
                                      execution: .service, modulePath: nil, mainClass: "demo.A")
@@ -1621,6 +1654,26 @@ struct ExecutionModuleTests {
         ])
         #expect(service.output.contains("-s <settings.xml>"))
         #expect(!service.output.contains("/local/settings.xml"))
+    }
+
+    @Test
+    func mavenAPISaveWaitsForPersistenceAndReportsWriteFailure() async {
+        let root = URL(fileURLWithPath: "/workspace", isDirectory: true)
+        let store = RecordingMavenConfigurationStore(
+            configuration: MavenStoredConfiguration(portable: nil, local: nil),
+            saveError: "Fixture configuration is read-only"
+        )
+        let service = MavenService(
+            runtimeService: TestRuntime(), process: TestStreamingProcess(),
+            dependencyProcess: TestStreamingProcess(), mavenOperations: ReloadMavenOperations(),
+            configurationStore: store
+        )
+        defer { service.reset() }
+        await service.loadProject(at: root, files: [root.appendingPathComponent("pom.xml")])
+        service.setSkipTests(true)
+        let error = await service.saveConfiguration()
+        #expect(error == "Fixture configuration is read-only")
+        #expect(service.configurationSaveError == error)
     }
 
     @Test
@@ -2725,9 +2778,11 @@ private final class FingerprintingMavenOperations: MavenProjectOperations, @unch
 
 private final class RecordingMavenConfigurationStore: MavenConfigurationStoring, @unchecked Sendable {
     private let configuration: MavenStoredConfiguration
+    private let saveError: String?
 
-    init(configuration: MavenStoredConfiguration) {
+    init(configuration: MavenStoredConfiguration, saveError: String? = nil) {
         self.configuration = configuration
+        self.saveError = saveError
     }
 
     func loadMavenConfiguration(
@@ -2741,7 +2796,11 @@ private final class RecordingMavenConfigurationStore: MavenConfigurationStoring,
         _ configuration: MavenStoredConfiguration,
         workspaceURL: URL,
         reactorPath: String
-    ) throws {}
+    ) throws {
+        if let saveError {
+            throw NSError(domain: "MavenConfigurationFixture", code: 1, userInfo: [NSLocalizedDescriptionKey: saveError])
+        }
+    }
 }
 
 @MainActor

@@ -1,0 +1,105 @@
+import SwiftUI
+import LitheAgentConversationModule
+
+enum AgentTurnStatisticsPresentation {
+    static func duration(_ seconds: TimeInterval) -> String {
+        guard seconds.isFinite, seconds < Double(Int.max) else { return "—" }
+        let total = Int(max(0, seconds.rounded(.down)))
+        if total >= 3600 {
+            return String(format: String(localized: "%lldh %lldm %llds"), total / 3600, total / 60 % 60, total % 60)
+        }
+        if total >= 60 {
+            return String(format: String(localized: "%lldm %llds"), total / 60, total % 60)
+        }
+        return String(format: String(localized: "%llds"), total)
+    }
+
+    static func input(_ usage: AgentTurnUsage, locale: Locale) -> String {
+        String(format: String(localized: "Input: %@"), usage.inputTokens.formatted(.number.locale(locale)))
+    }
+
+    static func output(_ usage: AgentTurnUsage, locale: Locale) -> String {
+        String(format: String(localized: "Output: %@"), usage.outputTokens.formatted(.number.locale(locale)))
+    }
+
+    static func details(_ usage: AgentTurnUsage, locale: Locale) -> String {
+        var lines = [String(localized: "Token counts reported by the Agent. Accounting scope depends on the Agent."),
+                     input(usage, locale: locale), output(usage, locale: locale),
+                     String(format: String(localized: "Total tokens: %@"), usage.totalTokens.formatted(.number.locale(locale)))]
+        for (label, count) in [(String(localized: "Reasoning tokens: %@"), usage.thoughtTokens),
+                               (String(localized: "Cache read tokens: %@"), usage.cachedReadTokens),
+                               (String(localized: "Cache write tokens: %@"), usage.cachedWriteTokens)] {
+            if let count { lines.append(String(format: label, count.formatted(.number.locale(locale)))) }
+        }
+        return lines.joined(separator: "\n")
+    }
+}
+
+/// Only the visible waiting row ticks; it never republishes the conversation.
+struct AgentThinkingRow: View {
+    var isCancelling = false
+    var startedAt: ContinuousClock.Instant?
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { _ in
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(isCancelling ? "Stopping…" : "Thinking…")
+                if let startedAt {
+                    let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
+                    Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()
+                }
+            }
+            .font(.system(size: 12))
+            .foregroundStyle(LitheTheme.secondaryText)
+            .padding(.leading, 2)
+            .help("Elapsed since sending, including tools and permission waits.")
+        }
+    }
+}
+
+/// One frozen footer per locally observed turn, including failed or cancelled turns.
+struct AgentTurnStatisticsView: View {
+    let statistics: AgentTurnStatistics
+    @Environment(\.locale) private var locale
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                elapsed
+                if let usage = statistics.usage { tokens(usage) }
+            }
+            VStack(alignment: .leading, spacing: 5) {
+                elapsed
+                if let usage = statistics.usage { tokens(usage) }
+            }
+        }
+        .font(.system(size: 11))
+        .foregroundStyle(AgentPanelStyle.secondary)
+        .monospacedDigit()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("agent-turn-statistics")
+    }
+
+    private var elapsed: some View {
+        Label(String(format: String(localized: "Elapsed: %@"),
+                     AgentTurnStatisticsPresentation.duration(statistics.duration ?? 0)), systemImage: "clock")
+            .fixedSize()
+            .help("Elapsed since sending, including tools and permission waits.")
+    }
+
+    private func tokens(_ usage: AgentTurnUsage) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                Text(AgentTurnStatisticsPresentation.input(usage, locale: locale))
+                Text(AgentTurnStatisticsPresentation.output(usage, locale: locale))
+            }.fixedSize()
+            VStack(alignment: .leading, spacing: 5) {
+                Text(AgentTurnStatisticsPresentation.input(usage, locale: locale))
+                Text(AgentTurnStatisticsPresentation.output(usage, locale: locale))
+            }
+        }
+        .help(AgentTurnStatisticsPresentation.details(usage, locale: locale))
+    }
+}

@@ -211,6 +211,84 @@ private struct GenericDebugSessionSnapshot {
 
 @MainActor
 public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatureTarget {
+    @Published public private(set) var serviceUpdateMessage: String?
+    @Published public private(set) var serviceUpdateFailed = false
+    @Published public private(set) var updatingServiceSessionID: DebugSessionID?
+    private var javaUpdateTargets: [DebugSessionID: JavaDebugLaunchTarget] = [:]
+
+    public func registerJavaUpdateTarget(_ target: JavaDebugLaunchTarget) {
+        guard let id = activeSessionID else { return }
+        javaUpdateTargets[id] = target
+    }
+
+    public var canUpdateJavaService: Bool {
+        guard let id = activeSessionID else { return false }
+        return providerID == "java" && canControl && javaUpdateTargets[id] != nil
+    }
+
+    public func applyJavaServiceUpdate(
+        prepare: (JavaDebugLaunchTarget, URL, URL) async throws -> Void
+    ) async {
+        guard updatingServiceSessionID == nil, canUpdateJavaService,
+              let id = activeSessionID, let target = javaUpdateTargets[id],
+              let request = lastStartRequest, let session = activeSession else { return }
+        updatingServiceSessionID = id
+        serviceUpdateFailed = false
+        serviceUpdateMessage = "Saving and compiling code changes…"
+        defer { updatingServiceSessionID = nil }
+        do {
+            try await prepare(target, request.fileURL, request.rootURL)
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateMessage = "Applying code changes…"
+            let classes: [String] = try await withCheckedThrowingContinuation { continuation in
+                session.redefineClasses { continuation.resume(with: $0) }
+            }
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateMessage = classes.isEmpty ? "No code changes to apply." : "Code changes applied."
+            append((serviceUpdateMessage ?? "") + "\n")
+            if state == .paused { inspectThreads() }
+        } catch {
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateFailed = true
+            serviceUpdateMessage = "Could not apply changes: " + error.localizedDescription
+                + " Restart the service if this change is not supported."
+            append((serviceUpdateMessage ?? "") + "\n")
+        }
+    }
+
+    /// Explicit restart preserves the original launch options and re-resolves runtime paths.
+    public func restartJavaService(
+        prepare: (URL, URL) async throws -> JavaDebugLaunchTarget
+    ) async {
+        guard updatingServiceSessionID == nil, canUpdateJavaService,
+              let id = activeSessionID, let request = lastStartRequest else { return }
+        updatingServiceSessionID = id
+        serviceUpdateFailed = false
+        serviceUpdateMessage = "Preparing service restart…"
+        defer { updatingServiceSessionID = nil }
+        do {
+            let target = try await prepare(request.fileURL, request.rootURL)
+            guard activeSessionID == id, isSessionActive else { return }
+            var arguments = request.configuration.arguments
+            arguments["mainClass"] = .string(target.mainClass)
+            arguments["projectName"] = target.projectName.map(ToolingJSONValue.string)
+            arguments["classPaths"] = .array(target.classPaths.map(ToolingJSONValue.string))
+            arguments["modulePaths"] = .array(target.modulePaths.map(ToolingJSONValue.string))
+            stop()
+            // stop() may select another live session; do not stop that replacement too.
+            if startAdditional(fileURL: request.fileURL, rootURL: request.rootURL,
+                     configuration: DebugLaunchConfiguration(
+                        name: request.configuration.name, request: request.configuration.request,
+                        arguments: arguments, steppingFilters: request.configuration.steppingFilters)) {
+                registerJavaUpdateTarget(target)
+            }
+        } catch {
+            guard activeSessionID == id, isSessionActive else { return }
+            serviceUpdateFailed = true
+            serviceUpdateMessage = "Could not restart service: " + error.localizedDescription
+        }
+    }
+
     @Published public private(set) var providerID: String?
     @Published public private(set) var activeSessionID: DebugSessionID?
     @Published public private(set) var sessionSummaries: [DebugSessionSummary] = []
@@ -512,6 +590,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
         saveActiveSessionSnapshot()
         invalidateInspectionRequests()
         guard sessions.select(sessionID: sessionID) else { return false }
+        serviceUpdateMessage = nil
+        serviceUpdateFailed = false
         activeSessionID = sessionID
         providerID = summary.providerID
         isExecutionRequestPending = false
@@ -534,6 +614,7 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     /// Stops one session. Inactive sessions do not disturb the currently
     /// displayed debugger state.
     public func stopSession(_ sessionID: DebugSessionID) {
+        javaUpdateTargets[sessionID] = nil
         if activeSessionID == sessionID {
             stop()
             return
@@ -554,6 +635,8 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
             rootURL: rootURL.standardizedFileURL,
             configuration: configuration
         )
+        serviceUpdateMessage = nil
+        serviceUpdateFailed = false
         lastStartRequest = request
         activeFileURL = request.fileURL
         providerID = sessionsProviderID(for: fileURL)
@@ -620,6 +703,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func stop() {
+        if let id = activeSessionID { javaUpdateTargets[id] = nil }
+        serviceUpdateMessage = nil
+        serviceUpdateFailed = false
         invalidateInspectionRequests()
         outputPresentation.flush()
         if let activeFileURL {
@@ -676,6 +762,9 @@ public final class GenericDebugFeatureModel: ObservableObject, GenericDebugFeatu
     }
 
     public func reset() {
+        javaUpdateTargets.removeAll()
+        serviceUpdateMessage = nil
+        serviceUpdateFailed = false
         invalidateInspectionRequests()
         sessions.stopAll()
         sessionSnapshots.removeAll()
