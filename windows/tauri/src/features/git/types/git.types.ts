@@ -134,6 +134,11 @@ export interface GitDiff {
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;
+  /**
+   * Every line of the file is present as patch context, so a review can fold
+   * and reveal unchanged regions locally instead of showing sparse hunks.
+   */
+  is_full_context?: boolean;
   split_hunks?: GitDiffSplitRow[][];
 }
 

@@ -10,6 +10,9 @@ export interface ReviewRow {
   right: string | null;
   kind: "context" | "changed" | "addition" | "removal" | "information";
   hunkID?: string | null;
+  /** Renders the hunk's action band above this row. Full-file reviews have no
+   * `@@` information rows, so the host marks each hunk's first change instead. */
+  actionAnchor?: boolean;
 }
 export interface ReviewAction { id: string; title: string }
 export interface DiffReviewInput {
@@ -136,8 +139,14 @@ export function mountDiffReview(container: HTMLElement,
       leftRows = old.rows; rightRows = next.rows;
       if (original.getLanguageId() !== input.language) monaco.editor.setModelLanguage(original, input.language);
       if (modified.getLanguageId() !== input.language) monaco.editor.setModelLanguage(modified, input.language);
+      const replaced = original.getValue() !== old.text || modified.getValue() !== next.text;
       if (original.getValue() !== old.text) original.setValue(old.text);
       if (modified.getValue() !== next.text) modified.setValue(next.text);
+      // Monaco carries fold state across content changes: regions that did not
+      // exist before, such as every region of the first real text after the
+      // empty mount, open fully revealed. Re-attaching the models starts a
+      // fresh diff view model whose unchanged regions fold, like a new review.
+      if (replaced) { editor.setModel(null); editor.setModel({ original, modified }); }
       left.updateOptions({ lineNumbers: line => String(leftRows[line - 1]?.oldLine ?? "") });
       right.updateOptions({ lineNumbers: line => String(rightRows[line - 1]?.newLine ?? "") });
       editor.updateOptions({ renderSideBySide: input.sideBySide ?? true,
@@ -146,11 +155,19 @@ export function mountDiffReview(container: HTMLElement,
       container.classList.toggle("no-word-highlights", input.highlightWords === false);
       const actions = input.actions ?? [];
       if (actions.length) {
-        for (const [view, rows] of [[left, leftRows], [right, rightRows]] as const) {
+        for (const [view, side] of [[left, "left"], [right, "right"]] as const) {
           const ids: string[] = [];
           view.changeViewZones(accessor => {
-            rows.forEach((row, index) => {
-              if (row.kind !== "information" || !row.hunkID) return;
+            let projected = 0;
+            for (const row of input.rows) {
+              const visible = row[side] !== null;
+              // An `@@` row owns the band below it. An anchor row may be absent
+              // from this side (an addition on the left), so its band goes after
+              // the rows this side has already shown, keeping both sides level.
+              const afterLineNumber = row.hunkID && row.actionAnchor ? projected
+                : row.hunkID && row.kind === "information" && visible ? projected + 1 : null;
+              if (visible) projected++;
+              if (afterLineNumber === null) continue;
               const node = document.createElement("div");
               node.className = "lithe-review-actions";
               if (view === right) for (const action of actions) {
@@ -159,8 +176,8 @@ export function mountDiffReview(container: HTMLElement,
                 button.onclick = () => { if (!disposed && request === version) onAction(row.hunkID!, action.id); };
                 node.append(button);
               }
-              ids.push(accessor.addZone({ afterLineNumber: index + 1, heightInPx: 26, domNode: node }));
-            });
+              ids.push(accessor.addZone({ afterLineNumber, heightInPx: 26, domNode: node }));
+            }
           });
           zones.push({ view, ids });
         }
