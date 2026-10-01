@@ -2864,7 +2864,6 @@ const catalogs = {
     "git.unstageAllChanges": "Unstage all changes",
     "git.trackedFiles": "Tracked files",
     "git.untrackedFiles": "Untracked files",
-    "git.workingTreeClean": "Working tree clean",
     "git.openFile": "Open File",
     "git.rollback": "Rollback",
     "git.rollbackPathsConfirm":
@@ -7255,7 +7254,6 @@ const catalogs = {
     "git.unstageAllChanges": "取消暂存所有更改",
     "git.trackedFiles": "已跟踪文件",
     "git.untrackedFiles": "未跟踪文件",
-    "git.workingTreeClean": "工作区干净",
     "git.openFile": "打开文件",
     "git.rollback": "回滚",
     "git.rollbackPathsConfirm": "确定回滚选中的 {count} 个路径吗？此操作无法撤销。",
