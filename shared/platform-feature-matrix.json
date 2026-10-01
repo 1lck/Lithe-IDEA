@@ -2276,6 +2276,31 @@
       "verification": "在 Windows 工作台点击标题栏左端菜单按钮，确认汉堡按钮由“文件”菜单项取代，“文件”项处于选中状态且其下拉菜单立即展开；菜单与标题栏同高，不覆盖编辑区域，项目/分支控件在展开时隐藏。检查常驻品牌标识与下方活动栏图标列对齐且不可选中，并确认项目菜单显示当前项目图标（无自定义图标时显示项目缩写）。点击其他菜单项时菜单条保持展开并执行动作；点击工作区、标题栏空白和右侧控件或按 Escape 后收起；按 Escape 后确认焦点返回菜单入口；窄窗口确认菜单在标题栏内水平滚动且不挤压窗口控件。macOS 保持系统菜单栏行为。"
     },
     {
+      "id": "workbench-settings-entry",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "从工作台 chrome 打开设置：Windows 点击标题栏搜索按钮右侧的齿轮，macOS 通过应用菜单及面板内入口",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Models/LitheAction.swift",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+          "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+          "windows/tauri/src/features/layout/config/item-order.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 Windows 打开工作区，确认左侧活动栏底部不再显示设置齿轮，活动栏右键“在活动栏中显示”列表不包含设置项；点击标题栏右上搜索按钮右侧的齿轮打开设置对话框并再次关闭；携带旧版设置文件（活动栏排序或隐藏列表含 settings）启动后确认遗留条目被清理且活动栏显示正常。macOS 通过应用菜单和各面板入口打开设置保持不变。"
+    },
+    {
       "id": "window-controls",
       "area": "工作台",
       "group": "窗口管理",

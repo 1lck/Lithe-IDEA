@@ -14,7 +14,6 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  GearIcon,
   GitBranchIcon,
   GitGraphIcon,
   FilesIcon,
@@ -63,7 +62,6 @@ interface SidebarPaneSelectorProps {
   isSearchActive?: boolean;
   onGitLogClick?: () => void;
   isGitLogActive?: boolean;
-  onSettingsClick?: () => void;
   onTerminalClick?: () => void;
   isTerminalActive?: boolean;
   onDiagnosticsClick?: () => void;
@@ -85,7 +83,6 @@ export const SidebarPaneSelector = ({
   isSearchActive = false,
   onGitLogClick,
   isGitLogActive = false,
-  onSettingsClick,
   onTerminalClick,
   isTerminalActive = false,
   onDiagnosticsClick,
@@ -231,21 +228,6 @@ export const SidebarPaneSelector = ({
             } satisfies SidebarPaneItem,
           ]
         : []),
-      ...(onSettingsClick
-        ? [
-            {
-              id: "settings",
-              label: showLabels ? t("workbench.settings") : undefined,
-              icon: <GearIcon className={iconClassName} />,
-              onClick: onSettingsClick,
-              ariaLabel: t("workbench.settings"),
-              tooltip: {
-                content: t("workbench.settings"),
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
     ],
     [
       coreFeatures.diagnostics,
@@ -265,7 +247,6 @@ export const SidebarPaneSelector = ({
       onDiagnosticsClick,
       isDiagnosticsActive,
       onRunClick,
-      onSettingsClick,
       isRunActive,
       onViewChange,
       showLabels,

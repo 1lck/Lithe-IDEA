@@ -70,7 +70,6 @@ import {
   FilesIcon,
   FolderIcon,
   FolderOpenIcon,
-  GearIcon,
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
@@ -121,7 +120,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const activeSidebarView = useUIState((state) => state.activeSidebarView);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
-  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
@@ -193,7 +191,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
       ],
       ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
-      ["settings", { id: "settings", label: t("workbench.settings"), icon: <GearIcon /> }],
     ]);
     return sidebarActivityVisibilityItemIds(coreFeatures).map((id) => items.get(id)!);
   }, [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t]);
@@ -623,7 +620,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   }
                   onGitLogClick={() => toggleGitLogPane()}
                   isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
-                  onSettingsClick={() => openSettingsDialog()}
                   onTerminalClick={() => toggleTerminalPane()}
                   isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
                   onDiagnosticsClick={() => toggleDiagnosticsPane()}
