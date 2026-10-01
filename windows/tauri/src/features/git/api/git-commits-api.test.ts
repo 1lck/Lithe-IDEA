@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import * as gitEvents from "../events/git-events";
 
 let gitWriteResult = { output: "", exitCode: 0 };
@@ -64,17 +65,17 @@ describe("Git commit message details", () => {
   // Regression for #771: history rows only carry the subject, so the full
   // message must come from the shared single-commit lookup.
   test("reads the body through git.commit and reuses it for the same commit", async () => {
-    commitLookupResult = {
-      commit: { hash: "detail-cached", subject: "Fix commit details" },
-      body: "First line\n\n  indented second paragraph",
-    };
+    // The shared fixture is the Rust Core response shape for `git.commit`.
+    const fixture = JSON.parse(
+      readFileSync(
+        new URL("../../../../../../shared/fixtures/git/commit-lookup-response-v1.json", import.meta.url),
+        "utf8",
+      ),
+    ) as { body: string };
+    commitLookupResult = fixture;
 
-    expect(await getCommitDescription("C:/repo", "detail-cached")).toBe(
-      "First line\n\n  indented second paragraph",
-    );
-    expect(await getCommitDescription("C:/repo", "detail-cached")).toBe(
-      "First line\n\n  indented second paragraph",
-    );
+    expect(await getCommitDescription("C:/repo", "detail-cached")).toBe(fixture.body);
+    expect(await getCommitDescription("C:/repo", "detail-cached")).toBe(fixture.body);
 
     const lookups = invoke.mock.calls.filter(([command]) => command === "git.commit");
     expect(lookups).toEqual([["git.commit", { repoPath: "C:/repo", commit: "detail-cached" }]]);
