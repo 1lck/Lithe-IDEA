@@ -751,6 +751,7 @@ private struct LitheRowHoverModifier: ViewModifier {
     let hoverBackground: Color
     let animation: Animation?
     @State private var isHovering = false
+    @Environment(\.isLithePaneResizing) private var isResizing
 
     func body(content: Content) -> some View {
         content
@@ -759,7 +760,8 @@ private struct LitheRowHoverModifier: ViewModifier {
                     .fill(isActive ? activeBackground : (isHovering ? hoverBackground : .clear))
             )
             .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
+            .onHover { if !isResizing { isHovering = $0 } }
+            .onChange(of: isResizing) { if $0 { isHovering = false } }
             .animation(animation, value: isHovering)
     }
 }

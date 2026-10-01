@@ -79,7 +79,9 @@ private struct WorkbenchHoverTooltipScope: ViewModifier {
 
 private struct WorkbenchHoverTooltipSource: ViewModifier {
     @Environment(\.workbenchHoverTooltipState) private var state
+    @Environment(\.isLithePaneResizing) private var isResizing
     @State private var id = UUID()
+    @State private var isHovered = false
     let title: Text
     let placement: WorkbenchHoverTooltipPlacement
 
@@ -87,17 +89,36 @@ private struct WorkbenchHoverTooltipSource: ViewModifier {
         // Keep hover tracking outside the Button's disabled environment.
         ZStack { content }
             .contentShape(Rectangle())
-            .anchorPreference(key: WorkbenchHoverTooltipPreferenceKey.self, value: .bounds) {
-                [id: WorkbenchHoverTooltipAnchor(bounds: $0, title: title, placement: placement)]
+            .overlay {
+                // Only the hovered source needs geometry. Idle rows must not
+                // contribute anchors to every resized panel's preference pass.
+                if isHovered && !isResizing {
+                    Color.clear
+                        .anchorPreference(key: WorkbenchHoverTooltipPreferenceKey.self, value: .bounds) {
+                            [id: WorkbenchHoverTooltipAnchor(bounds: $0, title: title, placement: placement)]
+                        }
+                        .allowsHitTesting(false)
+                }
             }
             .onHover { isHovered in
+                guard !isResizing else { return }
+                self.isHovered = isHovered
                 if isHovered {
                     state?.enter(id)
                 } else {
                     state?.leave(id)
                 }
             }
-            .simultaneousGesture(TapGesture().onEnded { state?.leave(id) })
+            .simultaneousGesture(TapGesture().onEnded {
+                isHovered = false
+                state?.leave(id)
+            })
+            .onChange(of: isResizing) { resizing in
+                if resizing {
+                    isHovered = false
+                    state?.leave(id)
+                }
+            }
             .onDisappear { state?.leave(id) }
     }
 }

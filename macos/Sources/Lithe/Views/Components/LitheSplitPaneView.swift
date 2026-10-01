@@ -1,5 +1,17 @@
 import SwiftUI
 
+private struct LithePaneResizingKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Interaction chrome can pause while an enclosing split changes bounds.
+    var isLithePaneResizing: Bool {
+        get { self[LithePaneResizingKey.self] }
+        set { self[LithePaneResizingKey.self] = newValue }
+    }
+}
+
 /// A two-pane split whose divider drag is confined to this container.
 ///
 /// One pane has a tracked size and the other takes the remainder. The dragged
@@ -38,6 +50,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
 
     @State private var draggedSize: CGFloat?
     @State private var dragStart: CGFloat = 0
+    @State private var isDragging = false
+    @Environment(\.isLithePaneResizing) private var ancestorIsDragging
 
     init(
         axis: LitheSplitAxis,
@@ -89,6 +103,8 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             flexibleMinimum: flexibleMinimum ?? 0) {
             panes(size)
         }
+        .environment(\.isLithePaneResizing, ancestorIsDragging || isDragging)
+        .onDisappear { isDragging = false }
     }
 
     @ViewBuilder
@@ -140,12 +156,16 @@ struct LitheSplitPaneView<Sized: View, Flexible: View>: View {
             dividerColor: dividerColor,
             showsIdleDivider: showsIdleDivider,
             highlightsOnHover: highlightsOnHover,
-            onDragStarted: { dragStart = size },
+            onDragStarted: {
+                dragStart = size
+                isDragging = true
+            },
             onDragChanged: { translation in
                 let nextSize = resolved(from: translation)
                 if nextSize != resolvedSize { draggedSize = nextSize }
             },
             onDragEnded: { translation in
+                isDragging = false
                 let finalSize = resolved(from: translation)
                 if let onCommit {
                     onCommit(finalSize)

@@ -649,13 +649,25 @@ private final class LitheRightClickCaptureView: NSView {
     }
 }
 
+private struct LitheContextMenuModifier: ViewModifier {
+    @Environment(\.isLithePaneResizing) private var isResizing
+    let items: () -> [LitheContextMenuItem]
+    let onRightClick: () -> Void
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if !isResizing {
+                LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
+            }
+        }
+    }
+}
+
 extension View {
     func litheContextMenu(
         items: @escaping () -> [LitheContextMenuItem],
         onRightClick: @escaping () -> Void = {}
     ) -> some View {
-        overlay {
-            LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
-        }
+        modifier(LitheContextMenuModifier(items: items, onRightClick: onRightClick))
     }
 }
