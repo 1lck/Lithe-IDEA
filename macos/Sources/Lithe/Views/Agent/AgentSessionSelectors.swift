@@ -22,7 +22,7 @@ enum AgentSessionSelectorPresentation {
             if choice.id == "off" { return String(localized: "Standard") }
             if choice.id == "on" { return String(localized: "Fast") }
         }
-        return option.category == "model" ? choice.name : localized(choice.name)
+        return option.category == "model" || option.category == "thought_level" ? choice.name : localized(choice.name)
     }
 
     static func currentTitle(_ option: AgentSessionConfigOption) -> String {
@@ -31,9 +31,11 @@ enum AgentSessionSelectorPresentation {
 
     static func modeIcon(_ id: String) -> String {
         switch id {
-        case "read-only": "bubble.left.and.bubble.right"
-        case "agent": "checkmark.shield"
-        case "agent-full-access": "bolt"
+        case "read-only", "default", "manual": "bubble.left.and.bubble.right"
+        case "agent", "auto": "checkmark.shield"
+        case "agent-full-access", "bypassPermissions": "bolt"
+        case "acceptEdits": "pencil"
+        case "plan": "list.bullet.rectangle"
         default: "slider.horizontal.3"
         }
     }
