@@ -14,7 +14,7 @@ import {
   resolveGitCommitSelectionDiff,
   type GitCommitSelectionDiff,
 } from "../../utils/git-commit-selection-diff";
-import { GitCommitFileTree } from "./git-commit-file-tree";
+import { GitCommitFileTree, getFirstCommitFilePath } from "./git-commit-file-tree";
 
 type FilesLoadState = "idle" | "loading" | "ready" | "failed";
 
@@ -25,6 +25,8 @@ export function GitCommitInspector({
   onOpenDiff,
   onOpenRangeDiff,
   onOpenSelectionDiff,
+  onPreviewFile,
+  previewRequest,
 }: {
   repoPath: string | null;
   commit: GitCommit | null;
@@ -38,6 +40,10 @@ export function GitCommitInspector({
     selection: Extract<GitCommitSelectionDiff, { kind: "selection" }>,
     filePath?: string,
   ) => void;
+  /** Shows only one file's diff in the editor preview tab. */
+  onPreviewFile: (selection: GitCommitSelectionDiff, filePath: string) => void;
+  /** Bumped when the user selects a commit; the first file is previewed once its files load. */
+  previewRequest: number;
 }) {
   const { t } = useTranslation();
   const [files, setFiles] = useState<GitCommitFile[]>([]);
@@ -47,10 +53,28 @@ export function GitCommitInspector({
   const inspectorPanelLayout = useGitLogPreferencesStore.use.inspectorPanelLayout();
   const { setInspectorPanelLayout } = useGitLogPreferencesStore.use.actions();
   const selectionDiff = useMemo(() => resolveGitCommitSelectionDiff(commits), [commits]);
+  // The selection `files` were loaded for; guards against previewing the previous commit's files
+  // during the render in which a new selection has arrived but its files have not loaded yet.
+  const [loadedSelection, setLoadedSelection] = useState<GitCommitSelectionDiff | null>(null);
+  const handledPreviewRequestRef = useRef(previewRequest);
+
+  // Selecting a commit previews its first file, like the IDEA Git log. Only explicit user
+  // selections bump `previewRequest`, so opening the Log never steals the editor on its own.
+  useEffect(() => {
+    if (!selectionDiff || loadedSelection !== selectionDiff) return;
+    if (handledPreviewRequestRef.current === previewRequest) return;
+    handledPreviewRequestRef.current = previewRequest;
+
+    const firstPath = getFirstCommitFilePath(files);
+    if (!firstPath) return;
+    setSelectedPath(firstPath);
+    onPreviewFile(selectionDiff, firstPath);
+  }, [files, loadedSelection, onPreviewFile, previewRequest, selectionDiff]);
 
   useEffect(() => {
     const requestId = ++requestIdRef.current;
     setFiles([]);
+    setLoadedSelection(null);
     setSelectedPath(null);
     if (!repoPath || !selectionDiff) {
       setLoadState("idle");
@@ -84,6 +108,7 @@ export function GitCommitInspector({
         return;
       }
       setFiles(loadedFiles);
+      setLoadedSelection(selectionDiff);
       setLoadState("ready");
     });
 
@@ -93,7 +118,7 @@ export function GitCommitInspector({
   }, [repoPath, selectionDiff]);
 
   return (
-    <div className="h-full min-h-0 bg-surface/35 font-sans ui-text-sm select-none">
+    <div className="h-full min-h-0 bg-background font-sans ui-text-sm select-none">
       <ResizablePanelGroup
         orientation="vertical"
         defaultLayout={inspectorPanelLayout}
@@ -103,7 +128,7 @@ export function GitCommitInspector({
       >
         <ResizablePanel id="files" defaultSize="62" minSize={90}>
           <div className="flex h-full min-h-0 flex-col">
-            <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-surface px-2 text-subtle-foreground">
+            <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-background px-2 text-subtle-foreground">
               <span>{t("git.log.commitFiles")}</span>
               <span className="ml-auto tabular-nums">
                 {loadState === "loading"
@@ -148,13 +173,12 @@ export function GitCommitInspector({
               <GitCommitFileTree
                 files={files}
                 selectedPath={selectedPath}
-                onSelect={setSelectedPath}
+                onSelect={(path) => {
+                  setSelectedPath(path);
+                  if (selectionDiff) onPreviewFile(selectionDiff, path);
+                }}
                 onOpen={(path) => {
-                  if (selectionDiff?.kind === "commit") onOpenDiff(selectionDiff.commit, path);
-                  else if (selectionDiff?.kind === "range") onOpenRangeDiff(selectionDiff, path);
-                  else if (selectionDiff?.kind === "selection") {
-                    onOpenSelectionDiff(selectionDiff, path);
-                  }
+                  if (selectionDiff) onPreviewFile(selectionDiff, path);
                 }}
               />
             )}
