@@ -33,6 +33,7 @@ import {
 } from "../../stores/git-log-preferences.store";
 import type { GitCommit } from "../../types/git.types";
 import { layoutGitGraph } from "../../utils/git-graph-layout";
+import { formatGitLogDate } from "../../utils/git-log-date";
 import { matchesGitLogCommit } from "../../utils/git-log-filter";
 import {
   isContiguousGitHistorySelection,
@@ -320,8 +321,8 @@ export function GitCommitTable({
                       <span className="w-28 shrink-0 overflow-clip px-2 text-ellipsis whitespace-nowrap text-subtle-foreground">
                         {row.commit.author}
                       </span>
-                      <span className="w-32 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-subtle-foreground">
-                        {row.commit.date}
+                      <span className="w-36 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-subtle-foreground">
+                        {formatGitLogDate(row.commit.date, t)}
                       </span>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
