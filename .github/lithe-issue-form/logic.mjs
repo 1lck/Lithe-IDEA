@@ -58,14 +58,14 @@ export function decideIssueFormGate({
   // Bot accounts can only create issues here through an app or workflow that
   // a maintainer installed on this repository.
   if (issue.user.type === 'Bot') return { action: 'allow', reason: 'bot-author' };
-  // An `opened` event whose actor is not the author is produced by a
-  // maintainer action such as transferring an issue from another repository.
+  // Preserve another actor's transfer or reopen decision. Author reopens
+  // still pass through the gate, so closing and reopening cannot bypass it.
   if (sender?.login && sender.login !== author) return { action: 'skip', reason: 'opened-by-another-actor' };
   if (authorPermission === null || authorPermission === undefined) return { action: 'skip', reason: 'permission-unknown' };
   if (isMaintainerPermission(authorPermission)) return { action: 'allow', reason: 'maintainer' };
   const labels = labelNames(issue.labels);
   if (labels.some((label) => allowedLabels.includes(label))) return { action: 'allow', reason: 'issue-form' };
-  // Issue Forms silently drop labels that do not exist yet. Until every
+  // Issue Forms cannot apply missing or archived labels. Until every
   // allowed label exists, an unlabeled issue may still come from a form.
   if (missingLabels.length > 0) return { action: 'skip', reason: 'form-labels-missing' };
   return { action: 'close', reason: 'not-from-issue-form' };

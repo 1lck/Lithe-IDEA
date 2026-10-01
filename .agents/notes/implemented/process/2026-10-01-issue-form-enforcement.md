@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-`blank_issues_enabled: false` 只隐藏网页上的空白 Issue 入口，挡不住 API、`gh issue create` 和第三方客户端。现在每个 Issue 表单都带一个 `issue-form:*` 标签，`.github/workflows/lithe-issue-form-gate.yml` 在 Issue 创建时检查：对仓库有 write、maintain 或 admin 权限的作者直接放行；其他作者没有这类标签就收到中英双语说明，Issue 被关闭。任何拿不准的情况都保留 Issue，宁可漏关，不误关。
+`blank_issues_enabled: false` 只隐藏网页上的空白 Issue 入口，挡不住 API、`gh issue create` 和第三方客户端。现在每个 Issue 表单都带一个 `issue-form:*` 标签，`.github/workflows/lithe-issue-form-gate.yml` 在 Issue 创建或重新打开时检查：对仓库有 write、maintain 或 admin 权限的作者直接放行；其他作者没有这类标签就收到中英双语说明，Issue 被关闭。任何拿不准的情况都保留 Issue，宁可漏关，不误关。
 
 ## 问题
 
@@ -26,11 +26,11 @@ Issue 表单（Issue Form，`.github/ISSUE_TEMPLATE/*.yml` 定义的结构化模
 
 1. 不是开放状态的 Issue、Pull Request、缺少作者信息：`skip`。
 2. 作者是 Bot：`allow`。只有维护者安装的 App 或工作流才能以 Bot 身份建 Issue。
-3. 触发者不是作者（例如维护者从其他仓库转移 Issue）：`skip`。
+3. 触发者不是作者（例如维护者转移或重新打开 Issue）：`skip`。
 4. 读取作者权限失败：`skip`。
 5. 作者权限是 write、maintain、admin（`role_name` 或旧 `permission` 字段任一命中，后者覆盖自定义角色）：`allow`。
 6. Issue 带任一允许的 `issue-form:*` 标签：`allow`。
-7. 仓库里缺少任一允许的标签：`skip`。表单遇到不存在的标签会静默不加，此时无法区分“来自表单”和“绕过表单”。
+7. 仓库里缺少任一允许的标签，或任一标签已归档：`skip`。表单无法应用不存在或已归档的标签，此时无法区分“来自表单”和“绕过表单”。
 8. 其余情况：`close`，`state_reason` 为 `not_planned`。
 
 权限以 `GET /repos/{owner}/{repo}/collaborators/{username}/permission` 为准，不以 `author_association` 为准：`COLLABORATOR` 可能只有 read 或 triage，`MEMBER` 也不代表对本仓库有写权限。工作流级 `if` 只跳过 `OWNER`、Bot 和 Pull Request，省掉一次 runner 启动，其余作者都由脚本查询真实权限。
@@ -45,21 +45,21 @@ Issue 表单（Issue Form，`.github/ISSUE_TEMPLATE/*.yml` 定义的结构化模
 
 ### 和现有 Issue 自动化的关系
 
-- `lithe-issue-priority.yml` 在 `opened` 和 `edited` 时用 `setLabels` 重写标签，但只替换自己管理的 `bug`、`enhancement`、`P*`、`platform:*`、`area:*`，`issue-form:*` 会被保留。它和本工作流并行运行；本工作流同时使用事件里的标签和重新读取的标签，所以并发重写不会让表单 Issue 被误判。
+- `lithe-issue-priority.yml` 在 `opened` 和 `edited` 时只增删自己管理的 `bug`、`enhancement`、`P*`、`platform:*`、`area:*`，`issue-form:*` 会被保留。它和本工作流并行运行；禁止用旧快照执行 `setLabels` 整体替换，否则会抹掉读取后 GitHub 才补上的来源标签。使用 `addLabels` 和 `removeLabel`，让非托管标签始终保留。
 - `lithe-issue-claim.yml` 只处理评论事件，被关闭的 Issue 仍可由维护者重新打开后认领。
 - 维护者手动创建的 Issue 不需要 `issue-form:*` 标签。
 
 ### 正确做法
 
 - 新增表单：模板 `labels:` 加 `issue-form:<类型>`，`ISSUE_FORMS` 登记，先在仓库创建标签再合并。
-- 误关时：维护者重新打开 Issue 即可，工作流只监听 `opened`，不会再次关闭。
+- 误关时：由维护者重新打开 Issue，触发者与作者不同会跳过门禁。作者自己重新打开会再次检查，不能通过“立即关闭 → 等待门禁跳过 → 重新打开”绕过。
 
 ### 不要这样做
 
 - 不要改成只检查正文是否为空，API 写一句话就能绕过。
 - 不要用 `author_association` 判断维护者，它不等于仓库写权限。
 - 不要在 `run:` 步骤里用 `${{ github.event.issue.title }}` 或正文拼 shell 命令。
-- 不要在缺少标签时“先关再说”，那会关闭所有正常的表单 Issue。
+- 不要在缺少或归档标签时“先关再说”，那会关闭所有正常的表单 Issue。
 
 ## 考虑过的备选方案
 
@@ -89,12 +89,12 @@ Issue 表单（Issue Form，`.github/ISSUE_TEMPLATE/*.yml` 定义的结构化模
 ## 验证
 
 ```bash
-node --test scripts/test-lithe-issue-form-gate.mjs
-actionlint .github/workflows/lithe-issue-form-gate.yml
+node --test --test-timeout=10000 scripts/test-lithe-issue-*.mjs
+actionlint .github/workflows/lithe-issue-form-gate.yml .github/workflows/lithe-issue-priority.yml .github/workflows/verify-issue-automation.yml
 ./scripts/verify-agent-notes.sh
 ```
 
-测试覆盖 Bug、Feature 表单放行，空白 Issue 和带正文但无表单标签的 Issue 被关闭，write、maintain、admin 与自定义角色放行，以及权限未知、标签缺失、转移等不确定情况不关闭。测试只调用纯函数，不访问网络。
+测试覆盖 Bug、Feature 表单放行，空白 Issue 和带正文但无表单标签的 Issue 被关闭，write、maintain、admin 与自定义角色放行，以及权限未知、标签缺失、转移等不确定情况不关闭。工作流编排测试执行实际的 github-script 脚本，以模拟 API 控制“分类读取 → GitHub 补标签 → 分类写入 → 门禁检查”的顺序，同时覆盖作者重新打开、维护者重新打开、标签归档及权限读取失败。所有测试均不访问网络、不依赖真实延时。`verify-issue-automation.yml` 在相关 PR 和 main/preview 推送时执行这些测试。
 
 ## 适用范围
 
@@ -103,3 +103,7 @@ actionlint .github/workflows/lithe-issue-form-gate.yml
 - `.github/ISSUE_TEMPLATE/bug_report.yml`
 - `.github/ISSUE_TEMPLATE/feature_request.yml`
 - `scripts/test-lithe-issue-form-gate.mjs`
+
+- `scripts/test-lithe-issue-workflows.mjs`
+- `.github/workflows/verify-issue-automation.yml`
+- `.github/workflows/lithe-issue-priority.yml`
