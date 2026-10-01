@@ -210,6 +210,7 @@ export const defaultSettings: Settings = {
   gitSidebarTabOrder: ["changes", "history"],
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
   enableInlineGitBlame: true,
+  enableGitGutter: true,
 };
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>

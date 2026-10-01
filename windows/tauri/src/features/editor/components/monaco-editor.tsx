@@ -35,6 +35,16 @@ import { useInlineEditToolbarStore } from "@/features/editor/stores/inline-edit-
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useActiveWorkspaceId } from "@/features/workspace/stores/create-workspace-scoped-store";
 import { useGitBlame } from "@/features/git/hooks/use-git-blame";
+import { useGitGutterBase, type GitGutterBase } from "@/features/git/hooks/use-git-gutter-base";
+import {
+  openGitGutterFullDiff,
+  stageGitGutterChange,
+} from "@/features/git/services/git-gutter-actions";
+import {
+  createGitGutterController,
+  type GitGutterController,
+  type GitGutterControllerOptions,
+} from "../engines/monaco/git-gutter-controller";
 import { keymapRegistry } from "@/features/keymaps/utils/registry";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { openMavenRunPane } from "@/features/maven/actions/maven-tool-window-actions";
@@ -150,6 +160,50 @@ import { toast } from "sonner";
 
 registerMonacoLspProviders();
 registerMonacoCodeLensProvider();
+
+interface GitGutterRenderContext {
+  base: GitGutterBase | null;
+  canStage: boolean;
+  languageId: string;
+  t: (key: string, values?: Record<string, string | number>) => string;
+}
+
+/** Binds the long-lived gutter controller to the editor's latest render values. */
+function gitGutterControllerOptions(
+  context: () => GitGutterRenderContext | null,
+): GitGutterControllerOptions {
+  const translate = (key: string, values?: Record<string, string | number>) =>
+    context()?.t(key, values) ?? key;
+  return {
+    language: () => context()?.languageId ?? "plaintext",
+    labels: (peek) => ({
+      title: translate("git.gutter.title", { index: peek.index + 1, total: peek.total }),
+      previous: translate("git.gutter.previous"),
+      next: translate("git.gutter.next"),
+      stage: translate("git.gutter.stage"),
+      stageUnavailable: translate("git.gutter.stageUnavailable"),
+      openDiff: translate("git.gutter.openDiff"),
+      close: translate("git.gutter.close"),
+    }),
+    markerTooltip: (kind) => translate(`git.gutter.${kind}`),
+    canStage: () => !!context()?.base && !!context()?.canStage,
+    stage: async (change, baseLines) => {
+      const base = context()?.base;
+      if (!base) return false;
+      const staged = await stageGitGutterChange(base, baseLines, change);
+      if (!staged) toast.error(translate("git.operationFailed"));
+      return staged;
+    },
+    openDiff: () => {
+      const base = context()?.base;
+      if (!base) return;
+      void openGitGutterFullDiff(base, translate("git.diff.uncommitted")).catch((error) => {
+        console.error("Failed to open Git diff:", error);
+        toast.error(translate("git.operationFailed"));
+      });
+    },
+  };
+}
 
 const EMPTY_DIAGNOSTICS: Diagnostic[] = [];
 const INACTIVE_CURSOR_POSITION: Position = { line: 0, column: 0, offset: 0 };
@@ -337,6 +391,9 @@ export function MonacoEditor({
   // Latest Run-marker decorations, reapplied when the Monaco instance is recreated.
   const runMarkerDecorationSpecsRef = useRef<Monaco.editor.IModelDeltaDecoration[]>([]);
   const renderInlineGitBlameRef = useRef<() => void>(() => {});
+  const gitGutterControllerRef = useRef<GitGutterController | null>(null);
+  // Latest render values read by the long-lived gutter controller callbacks.
+  const gitGutterContextRef = useRef<GitGutterRenderContext | null>(null);
   const mouseSelectingRef = useRef(false);
   const mouseGestureStartRef = useRef<CursorHistoryEntry | null>(null);
   const suppressNextCursorSelectionSyncRef = useRef(false);
@@ -374,6 +431,16 @@ export function MonacoEditor({
     return current && current.type === "editor" ? (current.content ?? "") : "";
   }, [contentRevision, editorBufferId]);
   const filePath = editorBuffer?.path ?? "";
+  // Narrow selectors: staging needs saved text, and the gutter base reloads
+  // when the saved text changes. Neither re-renders on every keystroke.
+  const bufferIsDirty = useBufferStore((state) => {
+    const current = getBufferById(state.buffers, editorBufferId);
+    return current?.type === "editor" ? current.isDirty : false;
+  });
+  const bufferSavedContent = useBufferStore((state) => {
+    const current = getBufferById(state.buffers, editorBufferId);
+    return current?.type === "editor" ? current.savedContent : "";
+  });
   const editorLanguage = editorBuffer?.language;
   const editorLanguageOverride = editorBuffer?.languageOverride;
   const documentUri = editorBuffer?.lspDocument?.documentUri;
@@ -439,6 +506,7 @@ export function MonacoEditor({
     javaMarkerRefreshRevision(state.lspStatus),
   );
   const inlineGitBlameEnabled = useSettingsStore((state) => state.settings.enableInlineGitBlame);
+  const gitGutterEnabled = useSettingsStore((state) => state.settings.enableGitGutter);
   const workspaceId = useActiveWorkspaceId();
   const rootFolderPath = useFileSystemStore((state) => state.rootFolderPath);
   const javaTestScope = useMemo(
@@ -480,6 +548,20 @@ export function MonacoEditor({
       ? filePath
       : undefined,
   );
+
+  const gitGutterActive =
+    gitGutterEnabled && enableExpensiveServices && !isPreviewMode && !editorBuffer?.isVirtual;
+  const gitGutterBase = useGitGutterBase(
+    gitGutterActive && filePath ? filePath : undefined,
+    () => bufferSavedContent,
+    bufferSavedContent,
+  );
+  gitGutterContextRef.current = {
+    base: gitGutterBase,
+    canStage: !bufferIsDirty && !readOnly,
+    languageId: monacoLanguageId,
+    t,
+  };
 
   const renderInlineGitBlame = useCallback(() => {
     const editor = editorRef.current;
@@ -964,6 +1046,16 @@ export function MonacoEditor({
       runMarkerDecorationSpecsRef.current,
     );
     runMarkerDecorationsRef.current = runMarkerDecorationCollection;
+    // The gutter controller lives exactly as long as this editor and model,
+    // so recreating the editor (file switch, option change) also disposes any
+    // open inline review. Its base arrives through `setBase`.
+    const gitGutterController = createGitGutterController(
+      editor,
+      model,
+      gitGutterControllerOptions(() => gitGutterContextRef.current),
+    );
+    gitGutterControllerRef.current = gitGutterController;
+    gitGutterController.setBase(gitGutterContextRef.current?.base?.lines ?? null);
     previousContentRef.current = content;
     pendingLocalContentSnapshotsRef.current = [];
     if (filePath && fileOpenBenchmark.has(filePath)) {
@@ -1488,6 +1580,10 @@ export function MonacoEditor({
       }
       implementationMarkerOwnerRef.current = null;
       implementationMarkersRef.current = [];
+      gitGutterController.dispose();
+      if (gitGutterControllerRef.current === gitGutterController) {
+        gitGutterControllerRef.current = null;
+      }
       runMarkerDecorationCollection.clear();
       if (runMarkerDecorationsRef.current === runMarkerDecorationCollection) {
         runMarkerDecorationsRef.current = null;
@@ -2265,6 +2361,14 @@ export function MonacoEditor({
   useEffect(() => {
     scheduleInlineGitBlameRender();
   }, [renderInlineGitBlame, scheduleInlineGitBlameRender]);
+
+  useEffect(() => {
+    gitGutterControllerRef.current?.setBase(gitGutterBase?.lines ?? null);
+  }, [gitGutterBase]);
+
+  useEffect(() => {
+    gitGutterControllerRef.current?.refreshPeek();
+  }, [bufferIsDirty, readOnly]);
 
   useEffect(() => {
     const editor = editorRef.current;
