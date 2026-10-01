@@ -3,7 +3,6 @@ import {
   ArrowCounterClockwiseIcon as RotateCcw,
   CaretDownIcon as CaretDown,
   CaretRightIcon as CaretRight,
-  CheckIcon as Check,
   FolderOpenIcon as FolderOpen,
   GitCommitIcon as GitCommit,
   GitDiffIcon as GitDiff,
@@ -29,7 +28,6 @@ import { Button } from "@/ui/button";
 import { ButtonGroup, ButtonGroupSeparator } from "@/ui/button-group";
 import { Checkbox } from "@/ui/checkbox";
 import { Dropdown, useDropdownMenu, type MenuItem } from "@/ui/dropdown";
-import { Empty, EmptyMedia, EmptyTitle } from "@/ui/empty";
 import { ScrollArea } from "@/ui/scroll-area";
 import { showConfirmDialog } from "@/ui/dialog";
 import { SidebarHeaderIconButton, SidebarSectionHeader, SidebarToolbar } from "@/ui/sidebar";
@@ -1310,14 +1308,7 @@ const GitStatusPanel = ({
             </SidebarTree>
           </ScrollArea>
         </>
-      ) : (
-        <Empty className="flex-1" tone="success">
-          <EmptyMedia variant="icon">
-            <Check />
-          </EmptyMedia>
-          <EmptyTitle>{t("git.workingTreeClean")}</EmptyTitle>
-        </Empty>
-      )}
+      ) : null}
 
       <Dropdown
         isOpen={contextMenu.isOpen}

@@ -72,6 +72,10 @@ use std::time::Duration;
 
 const DEFAULT_PUSH_PREVIEW_LIMIT: usize = 500;
 const INTERNAL_REF_PREFIX: &str = "refs/lithe/";
+/// Commit date argument for every `parse_commit` producer. The trailing `%z`
+/// carries the author's UTC offset, which `parse_commit` splits off so the
+/// displayed `date` keeps its `%Y/%m/%d %H:%M` shape.
+const GIT_COMMIT_DATE_ARGUMENT: &str = "--date=format:%Y/%m/%d %H:%M %z";
 const DEFAULT_REPOSITORY_SCAN_MAX_DIRECTORIES: usize = usize::MAX;
 const DEFAULT_REPOSITORY_SCAN_MAX_DEPTH: usize = usize::MAX;
 static TEMPORARY_INDEX_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -2036,7 +2040,7 @@ fn read_commit_log(
         "--decorate=short".to_string(),
         "-n".to_string(),
         (limit.saturating_add(1)).to_string(),
-        "--date=format:%Y/%m/%d %H:%M".to_string(),
+        GIT_COMMIT_DATE_ARGUMENT.to_string(),
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
     let commit_output = readonly_command(GitCommandRequest {
@@ -2058,7 +2062,7 @@ fn read_commit_log(
     Ok((all_commits.into_iter().take(limit).collect(), has_more))
 }
 
-/// Resolves one commit and its parent metadata.
+/// Resolves one commit, its parent metadata, and the message body after the subject.
 pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, CoreError> {
     let root = validate_root(&request.root)?;
     validate_revision(&request.commit)?;
@@ -2067,8 +2071,13 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
         arguments: vec![
             "show".to_string(),
             "-s".to_string(),
-            "--date=format:%Y/%m/%d %H:%M".to_string(),
-            "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
+            // `log.showSignature` would otherwise print verification output ahead of
+            // the machine-parsed format.
+            "--no-show-signature".to_string(),
+            GIT_COMMIT_DATE_ARGUMENT.to_string(),
+            // The body is free-form multi-line text that may contain the unit
+            // separator, so it follows a NUL that Git never emits in the header fields.
+            "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D%x00%b".to_string(),
             request.commit,
         ],
         input: None,
@@ -2079,12 +2088,19 @@ pub fn commit(request: GitCommitRequest) -> Result<GitCommitLookupResponse, Core
                 .with_details(response.output),
         );
     }
-    let commit = response
-        .output
-        .lines()
-        .find_map(parse_commit)
-        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git commit was not found"))?;
-    Ok(GitCommitLookupResponse { commit })
+    parse_commit_lookup(&response.stdout)
+        .ok_or_else(|| CoreError::new(ErrorCode::ProcessFailed, "Git commit was not found"))
+}
+
+/// Splits `git show` output produced by [`commit`] into header metadata and body.
+fn parse_commit_lookup(output: &str) -> Option<GitCommitLookupResponse> {
+    let (header, body) = output.split_once('\0')?;
+    let commit = parse_commit(header.trim_end_matches(['\r', '\n']))?;
+    Some(GitCommitLookupResponse {
+        commit,
+        // Git terminates `%b` with a line break; trailing blank lines carry no content.
+        body: body.trim_end().to_string(),
+    })
 }
 
 /// Lists workspace-relative files changed by one commit.
@@ -5944,16 +5960,38 @@ fn parse_commit(line: &str) -> Option<GitCommitResponse> {
     if columns.len() < 8 {
         return None;
     }
+    let (date, date_utc_offset_minutes) = split_commit_date_offset(columns[5]);
     Some(GitCommitResponse {
         hash: columns[0].to_string(),
         short_hash: columns[1].to_string(),
         parent_hashes: columns[2].split_whitespace().map(String::from).collect(),
         author_name: columns[3].to_string(),
         author_email: columns[4].to_string(),
-        date: columns[5].to_string(),
+        date: date.to_string(),
+        date_utc_offset_minutes,
         subject: columns[6].to_string(),
         decorations: columns[7].to_string(),
     })
+}
+
+/// Splits a `GIT_COMMIT_DATE_ARGUMENT` value into the displayed local date and
+/// the author's UTC offset in minutes. Values without a valid `±HHMM` suffix are
+/// kept whole with no offset so unexpected Git output stays visible.
+fn split_commit_date_offset(value: &str) -> (&str, Option<i32>) {
+    let Some((date, zone)) = value.rsplit_once(' ') else {
+        return (value, None);
+    };
+    let bytes = zone.as_bytes();
+    if bytes.len() != 5
+        || !matches!(bytes[0], b'+' | b'-')
+        || !zone[1..].bytes().all(|b| b.is_ascii_digit())
+    {
+        return (value, None);
+    }
+    let hours: i32 = zone[1..3].parse().unwrap_or(0);
+    let minutes: i32 = zone[3..5].parse().unwrap_or(0);
+    let sign = if bytes[0] == b'-' { -1 } else { 1 };
+    (date, Some(sign * (hours * 60 + minutes)))
 }
 
 fn validate_revision(value: &str) -> Result<(), CoreError> {
@@ -6780,13 +6818,15 @@ fn relative_or_absolute(path: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_diff,
-        pathspec_batches, simplified_canonical_path, structured_diff_from_output, DiffEntry,
-        GitCommandInvocation, GitCommandResponse, GitProcessOutput, MAX_ALIGNMENT_CELLS,
+        annotation_message_from_tag_object, line_similarity, pair_diff_entries, parse_commit,
+        parse_commit_lookup, parse_diff, pathspec_batches, simplified_canonical_path,
+        structured_diff_from_output, DiffEntry, GitCommandInvocation, GitCommandResponse,
+        GitProcessOutput, MAX_ALIGNMENT_CELLS,
     };
     use crate::protocol::{
-        CoreError, ErrorCode, GitCommitResponse, GitHistoryPageResponse, GitHistoryResponse,
-        GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse, GitReferencesResponse,
+        CoreError, ErrorCode, GitCommitLookupResponse, GitCommitResponse, GitHistoryPageResponse,
+        GitHistoryResponse, GitPushPreviewResponse, GitPushTagResponse, GitReferenceResponse,
+        GitReferencesResponse,
     };
     use serde_json::Value;
     use std::path::PathBuf;
@@ -7242,6 +7282,25 @@ mod tests {
     }
 
     #[test]
+    fn parse_commit_splits_the_author_utc_offset_from_the_displayed_date() {
+        let line =
+            |date: &str| format!("h\u{1f}s\u{1f}\u{1f}A\u{1f}a@x\u{1f}{date}\u{1f}msg\u{1f}");
+
+        let east = parse_commit(&line("2026/09/30 21:05 +0800")).expect("commit should parse");
+        assert_eq!(east.date, "2026/09/30 21:05");
+        assert_eq!(east.date_utc_offset_minutes, Some(480));
+
+        let west = parse_commit(&line("2026/09/30 08:05 -0330")).expect("commit should parse");
+        assert_eq!(west.date, "2026/09/30 08:05");
+        assert_eq!(west.date_utc_offset_minutes, Some(-210));
+
+        // Output without a recognizable zone stays visible unchanged instead of being trimmed.
+        let legacy = parse_commit(&line("2026/09/30 08:05")).expect("commit should parse");
+        assert_eq!(legacy.date, "2026/09/30 08:05");
+        assert_eq!(legacy.date_utc_offset_minutes, None);
+    }
+
+    #[test]
     fn history_response_matches_shared_fixture() {
         let fixture: Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -7278,6 +7337,7 @@ mod tests {
                 author_name: "Lithe Test".into(),
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -7347,6 +7407,7 @@ mod tests {
                 author_name: "Lithe Test".into(),
                 author_email: "test@example.invalid".into(),
                 date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
                 subject: "Initial commit".into(),
                 decorations: "HEAD -> feature/recent".into(),
             }],
@@ -7359,6 +7420,54 @@ mod tests {
             serde_json::to_value(response).expect("Git history page response should serialize"),
             fixture
         );
+    }
+
+    #[test]
+    fn commit_lookup_response_matches_shared_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../shared/fixtures/git/commit-lookup-response-v1.json"
+        )))
+        .expect("Git commit lookup response fixture should be valid JSON");
+        let response = GitCommitLookupResponse {
+            commit: GitCommitResponse {
+                hash: "0123456789abcdef0123456789abcdef01234567".into(),
+                short_hash: "0123456".into(),
+                parent_hashes: vec!["89abcdef0123456789abcdef0123456789abcdef".into()],
+                author_name: "Lithe Test".into(),
+                author_email: "test@example.invalid".into(),
+                date: "2026/08/30 12:00".into(),
+                date_utc_offset_minutes: Some(480),
+                subject: "Fix commit details".into(),
+                decorations: "HEAD -> feature/recent".into(),
+            },
+            body: "Explain why the change is needed.\n\n- keep blank lines\n  and indentation"
+                .into(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(response).expect("Git commit lookup response should serialize"),
+            fixture
+        );
+    }
+
+    #[test]
+    fn commit_lookup_keeps_separator_characters_inside_the_body() {
+        // The body may contain the header's unit separator or CRLF line breaks;
+        // only the first NUL delimits the header from the free-form message.
+        let output = "abc\u{1f}ab\u{1f}p1 p2\u{1f}Dev\u{1f}dev@example.invalid\u{1f}2026/08/30 12:00\u{1f}Subject\u{1f}tag: v1\0Line \u{1f} one\r\n\r\nLine two\n\n";
+        let lookup = parse_commit_lookup(output).expect("lookup output should parse");
+        assert_eq!(lookup.commit.parent_hashes, ["p1", "p2"]);
+        assert_eq!(lookup.commit.subject, "Subject");
+        assert_eq!(lookup.commit.decorations, "tag: v1");
+        assert_eq!(lookup.body, "Line \u{1f} one\r\n\r\nLine two");
+
+        let subject_only = parse_commit_lookup(
+            "abc\u{1f}ab\u{1f}\u{1f}Dev\u{1f}dev@example.invalid\u{1f}2026/08/30 12:00\u{1f}Only\u{1f}\0",
+        )
+        .expect("subject-only output should parse");
+        assert_eq!(subject_only.body, "");
+        assert!(parse_commit_lookup("missing delimiter").is_none());
     }
 
     #[test]
@@ -7386,6 +7495,7 @@ mod tests {
                 author_name: "Lithe Developer".into(),
                 author_email: "developer@lithe.local".into(),
                 date: "2026/08/31 10:30".into(),
+                date_utc_offset_minutes: Some(-300),
                 subject: "Add push preview".into(),
                 decorations: "HEAD -> feature/core".into(),
             }],

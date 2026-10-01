@@ -2994,6 +2994,67 @@ fn git_diff_and_apply_round_trip_a_patch() {
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
 
+/// Windows single-file reviews ask for Git's largest context so the renderer
+/// can reveal folded unchanged lines (#557). The snapshot diff must accept that
+/// value and return the complete file as one hunk.
+#[test]
+fn git_snapshot_diff_returns_the_whole_file_for_maximum_context() {
+    let root = temporary_root("git-full-context-diff");
+    fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    let original = (1..=200)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    fs::write(root.join("long.txt"), &original).expect("file should be writable");
+    assert!(run(&["add", "long.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    fs::write(
+        root.join("long.txt"),
+        original
+            .replace("line 10\n", "line ten\n")
+            .replace("line 190\n", "line one-ninety\n"),
+    )
+    .expect("file should be writable");
+
+    let request = serde_json::json!({
+        "id": "full-context-diff",
+        "command": "git.diff",
+        "payload": {
+            "root": root,
+            "pathspecs": ["long.txt"],
+            "worktreeSnapshot": true,
+            "contextLines": i32::MAX
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("diff request should encode"),
+    ))
+    .expect("diff response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+    let patch = response["data"]["patch"]
+        .as_str()
+        .expect("diff output should be text");
+    assert!(patch.contains("@@ -1,200 +1,200 @@"), "{patch}");
+    assert!(
+        patch.contains("\n line 100\n"),
+        "middle context missing: {patch}"
+    );
+    assert_eq!(response["data"]["hunks"].as_array().unwrap().len(), 1);
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
 #[test]
 fn git_diff_resolves_the_empty_tree_for_a_sha256_repository() {
     let root = temporary_root("git-diff-sha256-empty-tree");
@@ -3442,6 +3503,81 @@ fn git_history_page_treats_unborn_head_as_empty_history() {
     assert_eq!(response["ok"], true, "{response:?}");
     assert_eq!(response["data"]["commits"], serde_json::json!([]));
     assert_eq!(response["data"]["hasMore"], false);
+}
+
+/// Regression for #771: the commit detail view must receive the full multi-line
+/// message, including text that contains the field separator used by the header,
+/// while history pages keep returning only the subject.
+#[test]
+fn git_commit_returns_the_multi_line_body_separately_from_history_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-commit-body");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    // Keep the trailing blank lines so the test covers the trimming contract.
+    git_text(&root, &["config", "commit.cleanup", "verbatim"]);
+    let body = "First body line\n  indented \u{1f} separator\n\n中文第二段";
+    let message = format!("Fix commit details\n\n{body}\n\n");
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", message.as_str()],
+    );
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", "Subject only"],
+    );
+    let detailed_hash = git_text(&root, &["rev-parse", "HEAD~1"]);
+
+    let lookup = |id: &str, revision: &str| -> Value {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.commit",
+            "payload": {"root": root, "commit": revision}
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("commit response should be JSON");
+        assert_eq!(response["ok"], true, "{response:?}");
+        response["data"].clone()
+    };
+
+    let detailed = lookup("detailed", &detailed_hash);
+    assert_eq!(detailed["commit"]["hash"], detailed_hash);
+    assert_eq!(detailed["commit"]["subject"], "Fix commit details");
+    assert_eq!(detailed["body"], body);
+
+    let subject_only = lookup("subject-only", "HEAD");
+    assert_eq!(subject_only["commit"]["subject"], "Subject only");
+    // The body follows the decorations column, so the header must still parse fully.
+    assert!(subject_only["commit"]["decorations"]
+        .as_str()
+        .is_some_and(|decorations| decorations.starts_with("HEAD -> ")));
+    assert_eq!(subject_only["body"], "");
+
+    let page_request = serde_json::json!({
+        "id": "history-page-subjects",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "limit": 10}
+    });
+    let page: Value = serde_json::from_str(&execute_json(&page_request.to_string()))
+        .expect("history page response should be JSON");
+    assert_eq!(page["ok"], true, "{page:?}");
+    let subjects = page["data"]["commits"]
+        .as_array()
+        .expect("history page should contain commits")
+        .iter()
+        .map(|commit| commit["subject"].as_str().expect("subject").to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, ["Subject only", "Fix commit details"]);
 }
 
 #[test]

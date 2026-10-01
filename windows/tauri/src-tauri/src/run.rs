@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::{
     mpsc::{self, Receiver, RecvTimeoutError, SyncSender},
-    Mutex, OnceLock,
+    Arc, Mutex, OnceLock,
 };
 use std::thread;
 use std::time::{Duration, Instant};
@@ -77,6 +77,52 @@ impl Default for RunProcessManager {
 fn sessions() -> &'static Mutex<HashMap<RunSessionKey, RunningSession>> {
     static SESSIONS: OnceLock<Mutex<HashMap<RunSessionKey, RunningSession>>> = OnceLock::new();
     SESSIONS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+// Serializes reservation changes with process publication, never with launch preparation.
+fn pending_launches() -> &'static Mutex<HashMap<RunSessionKey, PendingLaunch>> {
+    static PENDING: OnceLock<Mutex<HashMap<RunSessionKey, PendingLaunch>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct PendingLaunch {
+    identity: Arc<()>,
+    execution_id: Option<String>,
+}
+
+struct LaunchReservation {
+    key: RunSessionKey,
+    identity: Arc<()>,
+}
+
+impl LaunchReservation {
+    fn is_current(&self, pending: &HashMap<RunSessionKey, PendingLaunch>) -> bool {
+        pending
+            .get(&self.key)
+            .is_some_and(|launch| Arc::ptr_eq(&launch.identity, &self.identity))
+    }
+}
+
+impl Drop for LaunchReservation {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = pending_launches().lock() {
+            if self.is_current(&pending) {
+                pending.remove(&self.key);
+            }
+        }
+    }
+}
+
+fn cancel_pending_launch(
+    pending: &mut HashMap<RunSessionKey, PendingLaunch>,
+    key: &RunSessionKey,
+    execution_id: Option<&str>,
+) {
+    if pending.get(key).is_some_and(|launch| {
+        execution_id.is_none() || launch.execution_id.as_deref() == execution_id
+    }) {
+        pending.remove(key);
+    }
 }
 
 fn run_session_key(window_label: &str, session_id: &str) -> RunSessionKey {
@@ -604,12 +650,52 @@ pub async fn run_execute_prelaunch(args: ExecutePreLaunchArgs) -> Result<PreLaun
 }
 
 #[tauri::command]
-pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), String> {
+pub async fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), String> {
     if args.window_label.trim().is_empty() {
         return Err("A run process must be started from an active window.".into());
     }
-    stop_session(&args.window_label, &args.session_id, None);
+    let (reservation, previous_pid) = {
+        let mut pending = pending_launches()
+            .lock()
+            .map_err(|_| "Run launch state is unavailable".to_string())?;
+        let previous_pid = take_running_pid(&args.window_label, &args.session_id, None);
+        let key = run_session_key(&args.window_label, &args.session_id);
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: args.execution_id.clone(),
+            },
+        );
+        (LaunchReservation { key, identity }, previous_pid)
+    };
+    // Filesystem metadata, JAR writes and process creation may block. The worker
+    // owns the reservation and temporary file even if the awaiting task ends.
+    tauri::async_runtime::spawn_blocking(move || {
+        if let Some(pid) = previous_pid {
+            terminate_run_process(pid);
+        }
+        start_reserved_process(app, args, reservation)
+    })
+    .await
+    .map_err(|error| format!("Run launch preparation failed: {error}"))?
+}
+
+fn start_reserved_process(
+    app: AppHandle,
+    args: StartProcessArgs,
+    reservation: LaunchReservation,
+) -> Result<(), String> {
     let (arguments, argfile) = prepare_launch_arguments(&args)?;
+    let pending = pending_launches()
+        .lock()
+        .map_err(|_| "Run launch state is unavailable".to_string())?;
+    if !reservation.is_current(&pending) {
+        return Err("Run launch was stopped or replaced during preparation.".into());
+    }
+    // Stop/restart cannot invalidate the reservation between this check and
+    // publication in sessions(). Preparation never holds this lock.
     let mut command = command_for_executable(&args.executable, &arguments);
     command
         .current_dir(&args.working_directory)
@@ -618,6 +704,9 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     apply_creation_flags(&mut command);
+    let mut current = sessions()
+        .lock()
+        .map_err(|_| "Run process state is unavailable".to_string())?;
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
@@ -631,17 +720,18 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
     let stderr = child.stderr.take();
     let execution_id = args.execution_id.clone();
     let session_key = run_session_key(&args.window_label, &args.session_id);
-    sessions()
-        .lock()
-        .map_err(|_| "Run process state is unavailable".to_string())?
-        .insert(
-            session_key,
-            RunningSession {
-                pid,
-                execution_id: args.execution_id,
-                stdin,
-            },
-        );
+    current.insert(
+        session_key,
+        RunningSession {
+            pid,
+            execution_id: args.execution_id,
+            stdin,
+        },
+    );
+
+    drop(current);
+    drop(pending);
+    drop(reservation);
 
     // Run and Maven panels rebuild highlighted output when this event crosses
     // into the webview. Coalesce native pipe reads before that expensive
@@ -676,7 +766,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 fn prepare_launch_arguments(
     args: &StartProcessArgs,
 ) -> Result<(Vec<String>, Option<launch_arguments::LaunchArgumentFile>), String> {
-    launch_arguments::prepare(&args.executable, &args.arguments)
+    launch_arguments::prepare(&args.executable, &args.arguments, &args.working_directory)
 }
 
 /// Explains a refused spawn with the detail the operating system reported.
@@ -701,12 +791,16 @@ fn spawn_failure_message(executable: &str, arguments: &[String], error: &std::io
 }
 
 #[tauri::command]
-pub fn run_stop_process(
+pub async fn run_stop_process(
     window_label: String,
     session_id: String,
     execution_id: Option<String>,
 ) -> Result<(), String> {
-    stop_session(&window_label, &session_id, execution_id.as_deref());
+    if let Some(pid) = stop_session(&window_label, &session_id, execution_id.as_deref()) {
+        tauri::async_runtime::spawn_blocking(move || terminate_run_process(pid))
+            .await
+            .map_err(|error| format!("Run stop failed: {error}"))?;
+    }
     Ok(())
 }
 
@@ -2124,27 +2218,119 @@ fn take_owned_session(
     current.remove(key)
 }
 
-fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) {
-    let pid = sessions().lock().ok().and_then(|mut current| {
+fn stop_session(window_label: &str, session_id: &str, execution_id: Option<&str>) -> Option<u32> {
+    // Use the same lock/order as publication, so a stop cannot miss a process
+    // between its pending reservation and its running session.
+    let Ok(mut pending) = pending_launches().lock() else {
+        eprintln!("Run launch state is unavailable while stopping a session");
+        return None;
+    };
+    cancel_pending_launch(
+        &mut pending,
+        &run_session_key(window_label, session_id),
+        execution_id,
+    );
+    take_running_pid(window_label, session_id, execution_id)
+}
+
+fn take_running_pid(
+    window_label: &str,
+    session_id: &str,
+    execution_id: Option<&str>,
+) -> Option<u32> {
+    sessions().lock().ok().and_then(|mut current| {
         take_owned_session(
             &mut current,
             &run_session_key(window_label, session_id),
             execution_id,
         )
         .map(|session| session.pid)
-    });
-    if let Some(pid) = pid {
-        let mut command = Command::new("taskkill");
-        command.args(["/F", "/T", "/PID", &pid.to_string()]);
-        apply_creation_flags(&mut command);
-        let _ = command.output();
-    }
+    })
+}
+
+fn terminate_run_process(pid: u32) {
+    let mut command = Command::new("taskkill");
+    command.args(["/F", "/T", "/PID", &pid.to_string()]);
+    apply_creation_flags(&mut command);
+    let _ = command.output();
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn reserve_test_launch(
+        pending: &mut HashMap<RunSessionKey, PendingLaunch>,
+        window: &str,
+        execution: &str,
+    ) -> LaunchReservation {
+        let key = run_session_key(window, "launch-reservation-test");
+        let identity = Arc::new(());
+        pending.insert(
+            key.clone(),
+            PendingLaunch {
+                identity: identity.clone(),
+                execution_id: Some(execution.into()),
+            },
+        );
+        LaunchReservation { key, identity }
+    }
+
+    #[test]
+    fn pending_launch_owner_cleanup_preserves_replacement() {
+        // This key is exclusive to this test; every reservation has RAII cleanup
+        // even when an assertion unwinds. No threads or wall-clock waits needed.
+        let reserve = || {
+            let mut pending = pending_launches().lock().unwrap();
+            reserve_test_launch(&mut pending, "owner-cleanup-window", "same-id")
+        };
+        let old = reserve();
+        let latest = reserve();
+        let key = latest.key.clone();
+        drop(old);
+        assert!(latest.is_current(&pending_launches().lock().unwrap()));
+        drop(latest);
+        assert!(!pending_launches().lock().unwrap().contains_key(&key));
+    }
+
+    #[test]
+    fn pending_launch_stop_prevents_late_publication() {
+        let mut pending = HashMap::new();
+        let launch = reserve_test_launch(&mut pending, "first-window", "first");
+        assert!(launch.is_current(&pending));
+        // Preparation is still in progress when Stop arrives. Completing that
+        // preparation later must never grant permission to spawn a process.
+        cancel_pending_launch(&mut pending, &launch.key, None);
+        assert!(!launch.is_current(&pending));
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn pending_launch_restart_rejects_out_of_order_completion() {
+        let mut pending = HashMap::new();
+        let old = reserve_test_launch(&mut pending, "first-window", "old");
+        let latest = reserve_test_launch(&mut pending, "first-window", "new");
+        assert!(latest.is_current(&pending));
+        assert!(!old.is_current(&pending));
+        // An old adapter's delayed Stop must not cancel the replacement Run.
+        cancel_pending_launch(&mut pending, &old.key, Some("old"));
+        assert!(latest.is_current(&pending));
+        cancel_pending_launch(&mut pending, &latest.key, Some("new"));
+        assert!(!latest.is_current(&pending));
+    }
+
+    #[test]
+    fn pending_launch_isolates_windows_and_reused_execution_ids() {
+        let mut pending = HashMap::new();
+        let old = reserve_test_launch(&mut pending, "first-window", "same-id");
+        let latest = reserve_test_launch(&mut pending, "first-window", "same-id");
+        let other = reserve_test_launch(&mut pending, "second-window", "same-id");
+        assert!(!old.is_current(&pending));
+        assert!(latest.is_current(&pending));
+        cancel_pending_launch(&mut pending, &latest.key, None);
+        assert!(other.is_current(&pending));
+    }
 
     #[test]
     fn output_batch_coalesces_queued_chunks_in_order() {

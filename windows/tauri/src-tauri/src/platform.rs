@@ -1329,6 +1329,33 @@ mod tests {
     }
 
     #[test]
+    fn preserves_full_file_context_for_single_file_review() {
+        // #557: the review reveals folded lines locally, so Core must receive
+        // the whole-file context request unchanged.
+        let (command, payload) = translate(
+            "git_diff_file",
+            json!({
+                "repoPath": "C:/work",
+                "filePath": "src/main.rs",
+                "worktreeSnapshot": true,
+                "contextLines": 2_147_483_647u32
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(command, "git.diff");
+        assert_eq!(
+            payload,
+            json!({
+                "root": "C:/work",
+                "pathspecs": ["src/main.rs"],
+                "worktreeSnapshot": true,
+                "contextLines": 2_147_483_647u32
+            })
+        );
+    }
+
+    #[test]
     fn translates_untracked_diff_file_pathspec() {
         let (command, payload) = translate(
             "git_diff_file",

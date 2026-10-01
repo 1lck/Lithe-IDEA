@@ -366,9 +366,9 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Runtime snapshots and isolated PHP packaging resources take this
-      // rejection route, never a content-hash reuse validator: the pinned npm
-      // archive alone does not identify the generated, signed plugin package.
+      // Runtime snapshots, per-execution Java launch files and isolated plugin
+      // packages take this rejection route, never a content-hash validator.
+      // Identical bytes do not establish transferable execution ownership.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.reason}; it cannot be reused across worktrees`);
