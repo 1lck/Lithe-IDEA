@@ -172,6 +172,20 @@ struct ProjectTreeSelectionTests {
         // Compacted packages use their displayed parent.
         #expect(selectAll(focusing: "/p/src/com/acme") == ["/p/src/com/acme"])
         #expect(selectAll(focusing: "/p/src/com/acme/App.java") == ["/p/src/com/acme/App.java"])
+        // Selected folders show their contents as selected too, without adding
+        // them to the action set or matching a similarly named sibling.
+        #expect(selectAll(focusing: "/p/dest copy") == topLevel)
+        #expect(selection.covers("/p/dest copy/a.txt"))
+        #expect(selection.covers("/p/src/com/acme/App.java"))
+        #expect(!selection.paths.contains("/p/dest copy/a.txt"))
+        // Right-clicking a covered row keeps the group for the batch menu.
+        selection.selectForContextMenu("/p/dest copy/a.txt")
+        #expect(selection.paths == topLevel)
+        // Inside a single selected folder, right-click targets the clicked row.
+        selection.select("/p/dest", visiblePaths: ["/p/dest"], extending: false, toggling: false)
+        #expect(selection.covers("/p/dest/a.txt") && !selection.covers("/p/dest copy/a.txt"))
+        selection.selectForContextMenu("/p/dest/a.txt")
+        #expect(selection.paths == ["/p/dest/a.txt"])
         // The project row, or no focus, selects the top-level items.
         #expect(selectAll(focusing: "/p") == topLevel)
         var unfocused = ProjectTreeSelection()

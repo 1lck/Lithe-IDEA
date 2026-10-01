@@ -552,7 +552,7 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: selection.paths.contains(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
+                isActive: selection.covers(node.url.path) || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,
                 activeBackground: LitheTheme.subtleSelection,
                 animation: nil
@@ -602,7 +602,7 @@ private struct FileNodeRow: View {
             .frame(height: rowHeight)
             .contentShape(Rectangle())
             .litheRowHover(
-                isActive: selection.paths.contains(node.url.path)
+                isActive: selection.covers(node.url.path)
                     || (selection.paths.isEmpty && activeDocumentURL?.standardizedFileURL.path == node.url.standardizedFileURL.path)
                     || contextMenuPath == node.url.standardizedFileURL.path,
                 cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius,

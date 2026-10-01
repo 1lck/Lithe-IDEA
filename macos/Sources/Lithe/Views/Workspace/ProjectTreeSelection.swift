@@ -23,9 +23,23 @@ struct ProjectTreeSelection: Equatable {
         }
     }
 
+    /// A selected folder also shows its descendants as selected; batch actions
+    /// already operate on everything inside it.
+    func covers(_ path: String) -> Bool {
+        var current = path
+        while true {
+            if paths.contains(current) { return true }
+            let parent = (current as NSString).deletingLastPathComponent
+            guard parent != current, !parent.isEmpty else { return false }
+            current = parent
+        }
+    }
+
     mutating func selectForContextMenu(_ path: String) {
         focusedPath = path
-        guard !paths.contains(path) else { return }
+        // Inside a single selected folder the row is its own target, because the
+        // single-item menu acts on the clicked row rather than the folder.
+        guard !paths.contains(path), !(paths.count > 1 && covers(path)) else { return }
         paths = [path]
         anchorPath = path
     }
