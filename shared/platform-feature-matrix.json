@@ -361,13 +361,15 @@
           "rust/lithe-agent-host/src/prompt.rs",
           "shared/fixtures/agent/acp-events-v1.json",
           "windows/tauri/src/features/agent/components/agent-composer.tsx",
-          "windows/tauri/src/features/agent/types/agent-file-uri.ts"
+          "windows/tauri/src/features/agent/types/agent-file-uri.ts",
+          "windows/tauri/src/features/agent/services/agent-composer-mentions.ts",
+          "windows/tauri/src/features/file-system/utils/file-system-dropped-paths.ts"
         ],
-        "implementationStatus": "partial",
+        "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 面板提供项目文件搜索选择器、可移除标签、去重与数量上限；从系统或项目树原生拖放尚未接入，Claude 端到端待验证。"
+      "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 面板提供项目文件搜索选择器、可移除标签、去重与数量上限；从系统拖拽文件到输入区与在输入框输入 @ 打开选择器都已接入（两者共用同一套去重、数量上限与可移除标签，选中后把 @query 文本替换为引用标签），真实拖放体验与 Claude 端到端仍待验证。"
     },
     {
       "id": "agent-management",
@@ -392,13 +394,14 @@
           "rust/lithe-core/src/agent/mod.rs",
           "windows/tauri/src/features/agent/components/agent-settings-section.tsx",
           "windows/tauri/src/features/agent/services/agent-management.ts",
+          "windows/tauri/src/features/agent/hooks/use-agent-management.ts",
           "windows/tauri/src-tauri/src/platform.rs"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 面板已接入 Node.js/npm 检测、预检问题、适配器安装（含下载进度）与卸载；取消安装、CLI 升级与本机 CLI 配置导入尚未接入。"
+      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 面板已接入 Node.js/npm 检测、预检问题、适配器安装（含下载进度）与卸载；CLI 的安装与升级也已接入：只有 host 明确给出可更新来源（canUpdate）或完全没有检测到 CLI 时才显示按钮，升级后显示 host 验证过的版本，安装器报错但版本确实提升时单独一行展示警告，未知来源只显示手动指引；取消安装、预检清单与本机 CLI 配置文件的一键读取尚未接入。"
     },
     {
       "id": "agent-provider-configuration",
@@ -425,11 +428,12 @@
           "rust/lithe-core/src/ai/agent_configuration.rs",
           "shared/fixtures/agent/provider-configuration-v1.json",
           "windows/tauri/src/features/agent/components/agent-settings-section.tsx",
-          "windows/tauri/src/features/agent/services/agent-launch.ts"
+          "windows/tauri/src/features/agent/services/agent-launch.ts",
+          "windows/tauri/src/features/agent/services/agent-provider-import.ts"
         ]
       },
       "owner": "Agent",
-      "verification": "macOS：验证本机 Codex/Claude 配置读取、刷新与取消关联；添加自定义 TOML/auth JSON 或 Claude settings JSON，检查格式化、输入直引号不被自动替换、弯引号 TOML 错误在保存按钮上方始终可见、非法配置和缺失密钥、取消不保存、编辑保持 ID、删除确认及安全存储失败不丢失配置。在一个窗口保存并等待连接关闭期间，由另一窗口删除或修改同一供应商，确认旧保存失败且不恢复/覆盖供应商、密钥或 Agent 关联。检查窄宽面板、深浅主题、中英文本。空闲切换后确认请求到所选地址和模型；未发送空会话切换或意外退出后重新创建，不向旧 ID 加载，首条消息与文件只发送一次；已有消息、上游列出或成功加载的会话继续恢复，历史加载失败保留记录；正在响应、加载、权限待处理或配置确认时拒绝切换。提交服务商选择不被添加/启用改变。CLI 文件与 bundle 不被写入。Windows 面板当前是单一供应商表单：endpoint、模型、密钥安全存储与重连；导入本机配置文本、多供应商列表与取消关联尚未实现。"
+      "verification": "macOS：验证本机 Codex/Claude 配置读取、刷新与取消关联；添加自定义 TOML/auth JSON 或 Claude settings JSON，检查格式化、输入直引号不被自动替换、弯引号 TOML 错误在保存按钮上方始终可见、非法配置和缺失密钥、取消不保存、编辑保持 ID、删除确认及安全存储失败不丢失配置。在一个窗口保存并等待连接关闭期间，由另一窗口删除或修改同一供应商，确认旧保存失败且不恢复/覆盖供应商、密钥或 Agent 关联。检查窄宽面板、深浅主题、中英文本。空闲切换后确认请求到所选地址和模型；未发送空会话切换或意外退出后重新创建，不向旧 ID 加载，首条消息与文件只发送一次；已有消息、上游列出或成功加载的会话继续恢复，历史加载失败保留记录；正在响应、加载、权限待处理或配置确认时拒绝切换。提交服务商选择不被添加/启用改变。CLI 文件与 bundle 不被写入。Windows 面板当前是单一供应商表单：endpoint、模型、密钥安全存储与重连；粘贴配置文本导入已接入：由共享 Rust 解析出 endpoint、模型与协议后填入表单，只读元数据、不搬运密钥，chatCompletions 或与所选适配器协议不匹配时明确报错；一键读取本机 CLI 配置文件、多供应商列表与取消关联尚未实现。"
     },
     {
       "id": "agent-codex-subscription",
