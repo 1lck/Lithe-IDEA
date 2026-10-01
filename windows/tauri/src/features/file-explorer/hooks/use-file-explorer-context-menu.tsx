@@ -400,9 +400,10 @@ export function useFileExplorerContextMenu({
       void (async () => {
         setIsGitOperationRunning(true);
         try {
-          // Stage first so the commit panel's staging area holds exactly this
-          // file, then reuse the shared commit flow in the Source Control view.
-          if (!context.staged) {
+        // Stage the file, then surface the shared commit flow. The panel
+        // commits everything currently staged, so the action is named
+        // "Stage and Open Commit" (per review on PR #989).
+        if (!context.staged) {
             const staged = await stageFile(context.repoPath, context.repositoryRelativePath);
             if (!staged) {
               toast.error(t("git.contextMenu.stageFailed"));
