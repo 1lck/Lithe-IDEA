@@ -35,6 +35,10 @@ Issue 表单（Issue Form，`.github/ISSUE_TEMPLATE/*.yml` 定义的结构化模
 
 权限以 `GET /repos/{owner}/{repo}/collaborators/{username}/permission` 为准，不以 `author_association` 为准：`COLLABORATOR` 可能只有 read 或 triage，`MEMBER` 也不代表对本仓库有写权限。工作流级 `if` 只跳过 `OWNER`、Bot 和 Pull Request，省掉一次 runner 启动，其余作者都由脚本查询真实权限。
 
+### 标签时序
+
+表单标签不一定和 Issue 同一时刻写入：#987 的 `bug` 标签比创建时间晚约 1 秒，事件记录的操作者是作者本人。所以工作流合并事件里的标签和重新读取的标签，并在真正关闭前再读一次 Issue、重新判定；只要此时出现表单标签，或 Issue 已被关闭，就不再处理。
+
 ### 评论与幂等
 
 关闭前的评论带隐藏标记 `<!-- lithe-issue-form-gate -->`，重跑工作流时如果已经有机器人发的同标记评论就不再重复评论。评论只引用作者 login 和固定的模板链接，不回显 Issue 标题或正文，避免把用户输入带进机器人内容。脚本通过 `actions/github-script` 的 API 客户端读取事件数据，不把标题或正文插入 shell 或 `${{ }}` 表达式，因此不存在脚本注入面。

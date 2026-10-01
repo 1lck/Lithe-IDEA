@@ -72,6 +72,20 @@ jobs:
             core.info(`Issue #${issue_number} by ${login}: ${decision.action} (${decision.reason})`);
             if (decision.action !== 'close') return;
 
+            // Form labels can be written a moment after the issue is created,
+            // and a maintainer may act meanwhile; re-check right before closing.
+            const latest = (await github.rest.issues.get({ owner, repo, issue_number })).data;
+            const recheck = logic.decideIssueFormGate({
+              issue: { ...latest, user: latest.user ?? payloadIssue.user, labels: [...labels, ...logic.labelNames(latest.labels)] },
+              sender: context.payload.sender,
+              authorPermission,
+              missingLabels,
+            });
+            if (recheck.action !== 'close') {
+              core.info(`Issue #${issue_number} recheck: ${recheck.action} (${recheck.reason})`);
+              return;
+            }
+
             const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
             if (!logic.hasGateComment(comments)) {
               const body = logic.gateComment({ login, serverUrl: context.serverUrl, owner, repo });
