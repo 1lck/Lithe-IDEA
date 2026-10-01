@@ -1823,6 +1823,29 @@
       "verification": "使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。"
     },
     {
+      "id": "markdown-preview-outline",
+      "area": "编辑器",
+      "group": "Markdown",
+      "capability": "Markdown 预览目录默认展开、全高滚动与标题跳转",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Resources/MarkdownPreview/preview.js",
+          "macos/Sources/Lithe/Resources/MarkdownPreview/preview.css"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/editor/markdown/markdown-preview.tsx"
+        ],
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable"
+      },
+      "owner": "Editor",
+      "verification": "在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。Windows 目录入口待实现。"
+    },
+    {
       "id": "markdown-images-links",
       "area": "编辑器",
       "group": "Markdown",

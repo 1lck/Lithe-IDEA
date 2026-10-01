@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：117
-- macOS：实现：✅ 103 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 106 待验证，— 11 不适用
-- Windows：实现：✅ 99 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 110 待验证，— 7 不适用
+- 功能项：118
+- macOS：实现：✅ 104 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 1 已验证，🔍 106 待验证，— 11 不适用
+- Windows：实现：✅ 99 已实现，🟡 11 部分实现，❌ 6 未实现，🧩 2 平台专属；验证：✔️ 0 已验证，🔍 110 待验证，— 8 不适用
 
 ## 实现状态定义
 
@@ -72,7 +72,7 @@
 </details>
 
 <details>
-<summary><strong>编辑器</strong> · 16 个能力点</summary>
+<summary><strong>编辑器</strong> · 17 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -84,6 +84,7 @@
 | 文本编辑 | **LSP 语义高亮**<br><sub>editor-semantic-highlighting</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Models/AppModel/AppModel+LanguageEditing.swift`、`macos/Sources/LitheLanguageIntelligenceModule/Runtime/LanguageServerSession.swift`、`frontend/editor/src/semantic-tokens.ts`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/platform/lsp-core-adapter.ts`、`windows/tauri/src/features/editor/lsp/lsp-client.ts`、`windows/tauri/src/features/editor/engines/monaco/semantic-token-provider.ts`、`windows/tauri/src/features/editor/engines/monaco/semantic-token-provider.test.ts`、`windows/tauri/src/platform/lsp-core-adapter.test.ts`</sub> | Editor / Language Tooling | 打开普通 Java 文件并等待 JDTLS 就绪，开启语义高亮，确认字段、方法等按协商图例上色；编辑、切换、关闭文档和重连服务器后不应用旧结果；服务器 refresh 后重新请求；关闭设置或大文件降级时保留基础语法高亮。 | Windows 复用 Core semanticTokens 和共享 fixture，修复 #675；Linux 上的适配器与模型测试不替代 Windows WebView2/JDTLS 实机验收。 |
 | 文本编辑 | **多行标签与标签导航**<br><sub>editor-multiline-tabs</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/tabs`</sub> | Editor | 打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 |  |
 | Markdown | **Markdown 预览与富文本渲染**<br><sub>markdown-rendering</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Editor/MarkdownPreviewView.swift`、`macos/Sources/Lithe/Core/Ports/MarkdownRendering.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`</sub> | Editor | 使用代码高亮、表格、Mermaid、链接和相对路径 fixture 对比渲染结果。 |  |
+| Markdown | **Markdown 预览目录默认展开、全高滚动与标题跳转**<br><sub>markdown-preview-outline</sub> | ✅ 已实现<br><sub>✔️ 已验证</sub><br><sub>`macos/Sources/Lithe/Resources/MarkdownPreview/preview.js`、`macos/Sources/Lithe/Resources/MarkdownPreview/preview.css`</sub> | ❌ 未实现<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/features/editor/markdown/markdown-preview.tsx`</sub> | Editor | 在 macOS 原生 Lithe 打开含 60 节标题的 Markdown，验证默认展开、全高目录独立滚动、末尾标题跳转后保持展开、按钮与 Escape 收起；分栏中编辑保存及外部刷新保留折叠选择，删除全部标题隐藏目录，恢复标题保留展开偏好；检查短文档与无标题文档、宽预览正文避让和窄预览可收起。Windows 目录入口待实现。 |  |
 | Markdown | **图片导入与链接定位**<br><sub>markdown-images-links</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Services/Markdown`、`macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/editor/markdown`、`windows/tauri/src/features/viewer`</sub> | Editor | 验证本地图片、远程图片、相对链接和打开源文件行为。 |  |
 | 代码结构 | **当前文件 Outline 与符号树**<br><sub>outline-symbols</sub> | 🟡 部分实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Language`、`macos/Sources/Lithe/Views/Search`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/outline`</sub> | Language Tooling | 使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。 |  |
 | 代码结构 | **引用结果面板与引用跳转**<br><sub>references-pane</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Language/JavaReferencesView.swift`</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`windows/tauri/src/features/references`</sub> | Language Tooling | 从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。 |  |

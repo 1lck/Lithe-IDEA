@@ -13,6 +13,8 @@
   let scrollCommandVersion = 0;
   let suppressScrollReportsUntil = 0;
   let scrollReportFrame = 0;
+  let tocExpanded = true;
+  let tocDocumentURL;
 
   function setTheme(theme) {
     document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
@@ -172,24 +174,29 @@
       link.addEventListener('click', event => {
         event.preventDefault();
         heading.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        closeTOC();
       });
       tocList.append(link);
     });
 
     tocToggle.hidden = headings.length === 0;
-    if (headings.length === 0) closeTOC();
+    updateTOCVisibility();
+  }
+
+  function updateTOCVisibility() {
+    const visible = !tocToggle.hidden && tocExpanded;
+    toc.hidden = !visible;
+    tocToggle.setAttribute('aria-expanded', String(visible));
+    document.body.classList.toggle('toc-open', visible);
   }
 
   function closeTOC() {
-    toc.hidden = true;
-    tocToggle.setAttribute('aria-expanded', 'false');
+    tocExpanded = false;
+    updateTOCVisibility();
   }
 
   function toggleTOC() {
-    const opening = toc.hidden;
-    toc.hidden = !opening;
-    tocToggle.setAttribute('aria-expanded', String(opening));
+    tocExpanded = !tocExpanded;
+    updateTOCVisibility();
   }
 
   function closeImage() {
@@ -243,6 +250,10 @@
     const version = ++renderVersion;
     const initialScrollCommandVersion = scrollCommandVersion;
     const scrollRatio = currentScrollRatio();
+    if (tocDocumentURL !== payload?.documentURL) {
+      tocDocumentURL = payload?.documentURL;
+      tocExpanded = true;
+    }
     setTheme(payload?.appearance);
     content.innerHTML = payload?.html || '';
     rewriteLocalAssets();
@@ -262,9 +273,6 @@
   tocToggle.addEventListener('click', event => {
     event.stopPropagation();
     toggleTOC();
-  });
-  document.addEventListener('click', event => {
-    if (!toc.hidden && !toc.contains(event.target) && event.target !== tocToggle) closeTOC();
   });
   viewer.addEventListener('click', event => {
     if (event.target === viewer || event.target === imageClose) closeImage();
