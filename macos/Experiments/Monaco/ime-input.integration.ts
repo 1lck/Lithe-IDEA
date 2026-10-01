@@ -1,10 +1,11 @@
 import { editor as monacoEditor } from "monaco-editor/esm/vs/editor/editor.api.js";
-import "../../EditorFrontend/ime-input.css";
 
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
 
 // These cases exercise Monaco's real composition presentation. Native candidate
 // selection and WebKit repaint timing still require the macOS input-method run.
+// Load styles through the production workbench entrypoint, not this test module,
+// so a missing production CSS import cannot be masked by the regression test.
 export const imeInputCases = [false, true].flatMap(dark => [false, true].map(wallpaper => ({
   name: `IME overlay covers old glyphs in ${dark ? "dark" : "light"} ${wallpaper ? "wallpaper" : "solid"} theme`,
   run() {
