@@ -211,8 +211,13 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
         for line in column.lines[first...] {
             let item = line.item
             guard item.top < dirtyRect.maxY else { break }
+            // Adjacent row rectangles must share an opaque pixel edge even
+            // when the clip view is scrolled by a fractional point.
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current?.shouldAntialias = false
             column.background(item, muted: true).setFill()
             NSRect(x: dirtyRect.minX, y: item.top, width: dirtyRect.width, height: item.height).fill()
+            NSGraphicsContext.restoreGraphicsState()
             if case let .row(row, _) = item.displayRow {
                 if column.currentSearchID == row.id {
                     NSColor.systemYellow.setStroke()
@@ -298,11 +303,14 @@ final class DiffNativeGutterView: NSView {
             let line = column.lines[index]
             guard line.item.top < dirtyRect.maxY else { break }
             if line.item.kind.isSplitDifference {
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current?.shouldAntialias = false
                 column.background(line.item, muted: false).setFill()
                 NSRect(x: 0, y: line.item.top, width: bounds.width, height: line.item.height).fill()
                 column.background(line.item, muted: true).setFill()
                 NSRect(x: mirrored ? 0 : bounds.width - edgeWidth, y: line.item.top,
                        width: edgeWidth, height: line.item.height).fill()
+                NSGraphicsContext.restoreGraphicsState()
             }
             let numbers: [Int?]
             if showsBothNumbers, case let .row(row, _) = line.item.displayRow {

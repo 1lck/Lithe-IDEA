@@ -104,9 +104,9 @@ struct DiffSplitLayout {
                 return side == .left ? row.left ?? "" : row.rightText ?? ""
             }
             // Preserve the existing prefix/suffix highlighter, but compare the
-            // complete replacement, never positional row pairs. A reflowed
+            // complete replacement before refining equal line ranges. A reflowed
             // method call is one modification, not alternating insert/delete.
-            // ponytail: one inner span per fragment; use provider-owned inner
+            // ponytail: one inner span per aligned line or reflowed fragment; use provider-owned inner
             // fragments if disjoint word edits need finer highlighting.
             let highlight = InlineHighlight.compare(
                 leftItems[run.leftIndex...].map { source($0, side: .left) }.joined(separator: "\n"),
@@ -127,6 +127,19 @@ struct DiffSplitLayout {
             }
             apply(&leftItems, start: run.leftIndex, side: .left, highlight: highlight.left)
             apply(&rightItems, start: run.rightIndex, side: .right, highlight: highlight.right)
+            // When both source ranges retain their line boundaries, refine each
+            // line independently so unchanged indentation/calls between edits
+            // do not become one large word highlight. Unequal ranges keep the
+            // whole-fragment comparison, avoiding positional reflow artifacts.
+            if leftItems.count - run.leftIndex == rightItems.count - run.rightIndex {
+                for index in 0..<(leftItems.count - run.leftIndex) {
+                    let left = run.leftIndex + index, right = run.rightIndex + index
+                    let pair = InlineHighlight.compare(source(leftItems[left], side: .left),
+                        source(rightItems[right], side: .right))
+                    leftItems[left].inlineHighlight = pair.left
+                    rightItems[right].inlineHighlight = pair.right
+                }
+            }
             transitions.append(
                 Transition(
                     id: run.id,

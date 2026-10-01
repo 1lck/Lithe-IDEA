@@ -8,6 +8,64 @@ import LitheGitModule
 @Suite("Native Diff appearance", .serialized)
 @MainActor
 struct DiffAppearanceTests {
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func adjacentEditsKeepNarrowWordRangesAndContinuousGutter(appearance: NSAppearance.Name) async throws {
+        let old = ["    .padding(.horizontal, 18)", "    .frame(height: 30)"]
+        let new = ["    .padding(.horizontal, horizontalPadding)", "    .frame(height: height)"]
+        let rows = old.indices.map { DiffRow(oldLine: 536 + $0, newLine: 559 + $0,
+            left: old[$0], right: new[$0], kind: .changed, sequence: $0) }
+        let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) },
+            kinds: rows.map(\.kind))
+        for (items, source, expected) in [(layout.leftItems, old, ["18", "30"]),
+                                        (layout.rightItems, new, ["horizontalPadding", "height"])] {
+            for index in items.indices {
+                let range = try #require(items[index].inlineHighlight?.range)
+                #expect(String(Array(source[index])[range]) == expected[index],
+                    "Separate changes must not highlight the unchanged call or indentation on the next line")
+            }
+        }
+        let state = DiffNativeColumnState()
+        state.prepare(identity: layout.identity, items: layout.rightItems, side: .right,
+            fileExtension: "swift", highlightsWords: true, dark: appearance == .darkAqua)
+        let gutter = DiffNativeGutterView(frame: NSRect(x: 0, y: 0, width: 64, height: 44))
+        gutter.column = state; gutter.appearance = NSAppearance(named: appearance)
+        for fraction in [CGFloat(0), 0.25, 0.5, 0.75] {
+            let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 64, pixelsHigh: 48,
+                bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.cgContext.translateBy(x: 0, y: fraction)
+            gutter.effectiveAppearance.performAsCurrentDrawingAppearance { gutter.draw(gutter.bounds) }
+            NSGraphicsContext.restoreGraphicsState()
+            let reference = try #require(bitmap.colorAt(x: 5, y: 15))
+            for y in 24...27 {
+                let color = try #require(bitmap.colorAt(x: 5, y: y))
+                #expect(abs(color.redComponent - reference.redComponent) < 0.005
+                    && abs(color.greenComponent - reference.greenComponent) < 0.005
+                    && abs(color.blueComponent - reference.blueComponent) < 0.005,
+                    "Adjacent rows cannot leave a seam at fractional scroll offsets: \(fraction), \(y)")
+            }
+        }
+        let hosting = NSHostingView(rootView: DiffSplitPaneView(
+            displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind),
+            layout: layout, fileExtension: "swift", contentWidth: 1_200, viewportWidth: 900,
+            onExpand: { _ in }).environment(\.colorScheme, appearance == .darkAqua ? .dark : .light))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 120),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = hosting; window.appearance = NSAppearance(named: appearance)
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("adjacent-edits-\(appearance == .darkAqua).png"))
+        }
+    }
+
     @Test
     func multilineReplacementKeepsOneInlineColorAcrossReflowedRows() async throws {
         let old = [".padding(.horizontal, 10)", ".frame(height: 30)",
