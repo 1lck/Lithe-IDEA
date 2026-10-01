@@ -19,16 +19,19 @@ describe("GitCommitFileTree", () => {
     expect(root ? countCommitFileTreeLeaves(root) : 0).toBe(3);
   });
 
-  test("keeps the trailing count/status from stealing width from file names", async () => {
+  test("shows the file count beside folder names and no status letter on file rows", async () => {
     const css = await Bun.file(
       new URL("../../../file-explorer/styles/file-explorer-tree.css", import.meta.url),
     ).text();
     const source = await Bun.file(new URL("./git-commit-file-tree.tsx", import.meta.url)).text();
 
     expect(source).toContain("file-tree-container git-commit-file-tree");
-    expect(css).toMatch(
-      /\.file-tree-container\.git-commit-file-tree \.file-tree-row > span:last-child \{\s*flex: 0 0 auto;/,
-    );
+    // The count rides in the label's description slot so it sits right after the folder name.
+    expect(source).toContain("git.log.fileCountOne");
+    expect(source).not.toContain("trailing=");
+    expect(source).not.toContain("{file.status}");
+    // No trailing span remains, so the shared `:last-child` flex rule must not be overridden.
+    expect(css).not.toContain(".git-commit-file-tree .file-tree-row > span:last-child");
   });
 
   test("picks the first file in the order the tree renders, not input order", () => {

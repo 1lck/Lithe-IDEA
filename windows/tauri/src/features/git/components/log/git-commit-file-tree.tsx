@@ -15,7 +15,6 @@ import {
 } from "@/features/sidebar/lib/path-tree";
 import { useTranslation } from "@/i18n/locale-provider";
 import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
-import { cn } from "@/utils/cn";
 import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 
@@ -70,6 +69,7 @@ function FileNode({
       : { branch: node, label: node.name };
     const branch = compacted.branch;
     const expanded = !collapsed.has(branch.path);
+    const fileCount = countCommitFileTreeLeaves(branch);
 
     return (
       <div>
@@ -92,9 +92,11 @@ function FileNode({
               />
             ) : null
           }
-          trailing={
-            <span className="pr-1 text-subtle-foreground tabular-nums">
-              {countCommitFileTreeLeaves(branch)}
+          description={
+            <span className="tabular-nums">
+              {t(fileCount === 1 ? "git.log.fileCountOne" : "git.log.filesCount", {
+                count: fileCount,
+              })}
             </span>
           }
           title={branch.path}
@@ -141,11 +143,6 @@ function FileNode({
             className="file-tree-node-icon shrink-0 text-subtle-foreground"
           />
         ) : null
-      }
-      trailing={
-        <span className={cn("pr-1 font-mono text-[10px]", statusColorClassName)}>
-          {file.status}
-        </span>
       }
       title={t("git.log.openFileDiff")}
       className="h-full py-0.5"
