@@ -144,12 +144,17 @@ function ProjectEnvironmentForm({ root, workspaceId }: { root: string; workspace
     );
   };
 
+  // A project refresh may change minimum Java requirements without changing
+  // the draft's empty automatic paths. Re-resolve the displayed choice too.
+  const discoveredJava = useRunStore((state) => state.discoveredJava);
   // Resolve the draft, so the line under each field shows what saving it would launch.
   const resolved = useResolvedToolchains(
     environment ? root : null,
     environment?.toolchain.javaHomePath ?? "",
     environment?.toolchain.mavenExecutablePath ?? "",
     environment?.toolchain.mavenJavaHomePath ?? "",
+    undefined,
+    discoveredJava,
   );
   // Core checks the saved defaults against the project's requirements.
   const diagnostics = useRunStore((state) =>

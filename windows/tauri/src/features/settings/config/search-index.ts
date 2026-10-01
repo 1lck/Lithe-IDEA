@@ -410,7 +410,7 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: "git",
     section: "Editor",
     label: "Enable Git Gutter",
-    description: "Show Git gutter indicators in the editor",
+    description: "Mark changed lines in the editor gutter and review a change inline",
     keywords: ["git", "gutter", "editor", "modified", "added", "deleted"],
   },
 

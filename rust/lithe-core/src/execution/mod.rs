@@ -1,10 +1,19 @@
 //! Run configuration generation, resolution, and project detectors.
 
+mod classpath_jar;
 mod configuration;
 mod detectors;
+mod java_selection;
 mod launch_command;
+pub use java_selection::{
+    compare_java_candidates, select_java, select_java_candidates, JavaSelection,
+    JavaSelectionCandidate, JavaSelectionRequest,
+};
 mod types;
 
+pub use classpath_jar::{
+    plan_classpath_jar_launch, ClasspathJarPlan, ClasspathJarRequest, ClasspathStyle,
+};
 pub(crate) use configuration::*;
 pub use launch_command::{
     java_feature_version_from_release, plan_launch_command, plan_launch_command_request,

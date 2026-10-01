@@ -2615,6 +2615,19 @@ struct RustCoreBridge: Sendable, IncrementalLanguageServerRuntimeCore {
         )
     }
 
+    func selectJavaRuntime(
+        at root: URL?, candidates: [AutomaticJavaCandidate], fallbackID: String?
+    ) -> Result<AutomaticJavaSelection, CoreCallError> {
+        struct Payload: Encodable {
+            let root: String?
+            let candidates: [AutomaticJavaCandidate]
+            let fallbackId: String?
+        }
+        return executeResult(command: "runConfig.selectJava", payload: Payload(
+            root: root?.standardizedFileURL.path, candidates: candidates, fallbackId: fallbackID
+        ))
+    }
+
     func inspectRunConfiguration(
         at rootURL: URL,
         checkFingerprint: Bool? = nil,
@@ -4104,3 +4117,5 @@ private extension RustCoreBridge.WorkspaceNodePayload {
         )
     }
 }
+
+extension RustCoreBridge: JavaRuntimeSelecting {}
