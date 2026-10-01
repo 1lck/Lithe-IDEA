@@ -1,6 +1,8 @@
+import CryptoKit
 import Foundation
 import LitheApplicationKernel
 import LitheModuleAPI
+import LithePluginPackageSigning
 import Security
 
 protocol PluginPackageSignatureVerifying {
@@ -20,6 +22,8 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
     case unsignedCode(URL)
     case invalidCodeSignature(URL)
     case signingTeamMismatch
+    case missingPackageSignature
+    case invalidPackageSignature(String)
     case retiredPlugin(PluginID)
     case invalidInstalledPlugin(PluginID?, String)
 
@@ -37,6 +41,8 @@ enum PluginPackageStoreError: Error, Equatable, LocalizedError {
         case .unsignedCode(let url): "Plugin code is not signed: \(url.lastPathComponent)."
         case .invalidCodeSignature(let url): "Plugin signature is invalid: \(url.lastPathComponent)."
         case .signingTeamMismatch: "Plugin and host application signing teams do not match."
+        case .missingPackageSignature: "The official plugin package signature is missing."
+        case .invalidPackageSignature(let detail): "The official plugin package signature is invalid: \(detail)"
         case .retiredPlugin(let id): "Plugin \(id) has been removed from Lithe. Uninstall the old package."
         case .invalidInstalledPlugin(let id, let message):
             if let id {
@@ -182,6 +188,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 let candidate = InstalledPluginPackage(
@@ -243,6 +250,7 @@ final class MacPluginPackageStore {
                 try MacPluginLanguageServerPackageValidator.validate(
                     packageAt: packageURL,
                     pluginManifest: manifest,
+                    hostVersion: hostVersion,
                     fileManager: fileManager
                 )
                 installed.append(InstalledPluginPackage(
@@ -301,6 +309,7 @@ final class MacPluginPackageStore {
             try MacPluginLanguageServerPackageValidator.validate(
                 packageAt: stagedURL,
                 pluginManifest: manifest,
+                hostVersion: hostVersion,
                 fileManager: fileManager
             )
         } catch {
@@ -389,6 +398,7 @@ final class MacPluginPackageStore {
         try MacPluginLanguageServerPackageValidator.validate(
             packageAt: previousPackageURL,
             pluginManifest: manifest,
+            hostVersion: hostVersion,
             fileManager: fileManager
         )
         let restored = PluginInstallationRecord(
@@ -532,6 +542,10 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         guard SecStaticCodeCheckValidity(pluginCode, validationFlags, nil) == errSecSuccess else {
             throw PluginPackageStoreError.invalidCodeSignature(pluginBundleURL)
         }
+        if manifest.vendor.signatureRequirement == .publisherPackage {
+            try verifyPublisherPackageSignature(packageAt: packageURL, manifest: manifest)
+            return
+        }
         let pluginTeam = try teamIdentifier(for: pluginCode)
         let hostTeam = try teamIdentifier(for: hostCode)
         if let pluginTeam, let hostTeam {
@@ -545,6 +559,37 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
               hostTeam == nil,
               pluginBundleURL.path.hasPrefix(hostBundlePath) else {
             throw PluginPackageStoreError.signingTeamMismatch
+        }
+    }
+
+    private func verifyPublisherPackageSignature(
+        packageAt packageURL: URL,
+        manifest: PluginManifest
+    ) throws {
+        let signatureURL = packageURL.appendingPathComponent(PluginPackageSignature.signatureFileName)
+        guard FileManager.default.fileExists(atPath: signatureURL.path) else {
+            throw PluginPackageStoreError.missingPackageSignature
+        }
+        let document: PluginPackageSignature.Document
+        do {
+            document = try PluginPackageSignature.read(from: packageURL)
+        } catch {
+            throw PluginPackageStoreError.invalidPackageSignature("The signature document could not be decoded.")
+        }
+        guard let publicKeyData = Data(base64Encoded: PluginPackageSignature.publisherPublicKeyBase64),
+              let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData) else {
+            throw PluginPackageStoreError.invalidPackageSignature("The embedded public key is invalid.")
+        }
+        do {
+            try PluginPackageSignature.verify(
+                packageAt: packageURL,
+                pluginID: manifest.id.rawValue,
+                pluginVersion: manifest.version.description,
+                document: document,
+                publicKey: publicKey
+            )
+        } catch {
+            throw PluginPackageStoreError.invalidPackageSignature(error.localizedDescription)
         }
     }
 

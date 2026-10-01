@@ -304,6 +304,9 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | Command | Purpose |
 | --- | --- |
 | `core.ping` | Verify the ABI and protocol version |
+| `plugin.validateManifest` | Validate one plugin-owned `plugin.json` against the host, API, entrypoint, module ownership, and language-support contract |
+| `plugin.validateLanguageServer` | Validate one plugin-owned `language-server.json` and its fixed archive/launcher paths |
+| `plugin.lifecycle` | Reduce one plugin installation/enablement transition while preventing disable/uninstall with live owned resources |
 | `community.discourse.auth.begin` | Create an ephemeral RSA-OAEP authorization session and return the Discourse browser URL |
 | `community.discourse.auth.complete` | Decrypt, validate, and consume one Discourse user API key callback |
 | `community.discourse.auth.revoke` | Revoke the current Discourse user API key |
@@ -1375,6 +1378,63 @@ The compatibility cases are in
 socket or process alive long enough to flush the frame, then closes it and
 calls `debug.destroySession`. A session allocates no process, socket, timer, or
 background task, and no session exists until Debug is used.
+
+### Plugin package contract and lifecycle
+
+Plugin manifests and language-server manifests are executable Rust Core
+contracts. The platform reads files from an installed package and passes their
+JSON to Core; Swift and TypeScript adapters may decode the result for display,
+but they must not add a second acceptance rule. `plugin.validateManifest`
+accepts `{ "hostVersion": "0.3.0", "manifest": { ...plugin.json... } }` and
+returns the normalized manifest when it is valid. It checks the schema and API
+versions, strict three-component versions, host compatibility, publisher
+signature policy, native/built-in entrypoint shape, sorted owned modules, and
+that every language capability points only at modules in that same package.
+The plugin manifest may use the installed-package `modules` declarations or the
+compact `moduleIDs` fixture representation; both describe the same ownership
+boundary.
+
+`plugin.validateLanguageServer` accepts
+`{ "pluginID": "...", "manifest": { ...language-server.json... } }` and
+returns the normalized tool description. Its source must be HTTPS, its archive
+checksum must be a 64-character SHA-256 value, its archive format must be a
+known supported format, and archive, entrypoint, launcher, and license paths
+must be non-empty relative paths without `..` components. Launcher arguments
+are ordered data and cannot contain NUL. The manifest carries the plugin ID,
+language ID, tool ID, exact version, fixed source archive, launcher path and
+arguments; it never carries a machine-specific executable path or a writable
+cache location. Downloading, checksum calculation, archive extraction, code
+signing, and executable discovery remain platform adapter work.
+
+`plugin.lifecycle` is a stateless reducer. Its request contains the previous
+`lifecycle`, one action, and an `operationId`; the response returns the updated
+snapshot plus an event with previous/current state, monotonic generation and a
+deterministically sorted resource list. The valid path is
+`discovered -> installing -> installed -> enabling -> enabled`, followed by
+`disabling -> disabled` or `uninstalling -> uninstalled`; an uninstalled package
+may begin a fresh install. `fail` moves any state to `failed`, and only `reset`
+can return it to `discovered`. LSP sessions,
+language-server processes, test runners and other plugin-owned resources are
+bound by opaque resource IDs while the plugin is enabling or enabled. Core
+rejects shutdown, uninstall, failure, or reset transitions while any resource
+remains bound; the host must stop the resource, unbind it, and then retry the
+transition. This is the
+wire-level rule behind the UI's optional “保留语言服务器” choice: retaining a
+tool means retaining an explicitly managed plugin resource and its package
+record, never leaving an unmanaged process or copying it into a host-wide
+language-tools directory.
+The canonical transition cases are also kept in
+`shared/fixtures/plugins/lifecycle-v1.json` so Swift and Windows adapters can
+exercise the same JSON names and generation semantics.
+
+The PHP macOS package is the first consumer. Its `plugin.json`,
+`language-server.json`, module declarations and LSP lifecycle are under
+`Plugins/mac/Official/PhpSupport`; `RealPhpIntegrationTests` starts a real
+Intelephense process and verifies initialize/readiness, completion, hover,
+definition, references, diagnostics, document close, stop, restart, and final
+process cleanup. This fixture is intentionally macOS-only for the migration
+slice; Windows consumes the same Core command contract when its plugin package
+is migrated.
 
 `lsp.builtinCompletions`, `lsp.builtinHover`, and `lsp.builtinNavigation` are
 the no-process lightweight language path. They accept current-file text, an

@@ -99,6 +99,7 @@ public struct PluginHostCompatibility: Equatable, Codable, Sendable {
 
 public enum PluginSignatureRequirement: String, Codable, Sendable {
     case sameTeamAsHost
+    case publisherPackage
 }
 
 public struct PluginVendor: Equatable, Codable, Sendable {

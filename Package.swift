@@ -25,10 +25,12 @@ let package = Package(
         .library(name: "LitheWorkspaceModule", targets: ["LitheWorkspaceModule"]),
         .library(name: "LitheGoSupportModule", targets: ["LitheGoSupportModule"]),
         .library(name: "LithePhpSupportModule", targets: ["LithePhpSupportModule"]),
+        .library(name: "LithePluginPackageSigning", targets: ["LithePluginPackageSigning"]),
         .executable(name: "LitheCoreVerifier", targets: ["LitheCoreVerifier"]),
         .executable(name: "LitheGitGraphVerifier", targets: ["LitheGitGraphVerifier"]),
         .executable(name: "LitheGitPerformanceVerifier", targets: ["LitheGitPerformanceVerifier"]),
-        .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"])
+        .executable(name: "LitheOfficialPluginVerifier", targets: ["LitheOfficialPluginVerifier"]),
+        .executable(name: "LithePluginPackageSigner", targets: ["LithePluginPackageSigner"])
     ],
     dependencies: [
         .package(url: "https://github.com/sparkle-project/Sparkle.git", exact: "2.10.0"),
@@ -90,6 +92,11 @@ let package = Package(
         .target(name: "LitheGoSupportModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "Plugins/mac/Official/GoSupport/Sources/LitheGoSupportModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(name: "LithePhpSupportModule", dependencies: ["LitheModuleAPI", "LitheCoreContracts"], path: "Plugins/mac/Official/PhpSupport/Sources/LithePhpSupportModule", swiftSettings: [.swiftLanguageMode(.v6)]),
         .target(
+            name: "LithePluginPackageSigning",
+            path: "macos/Sources/LithePluginPackageSigning",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .target(
             name: "LitheRustCore",
             path: "macos/Sources/LitheRustCore",
             publicHeadersPath: "include"
@@ -111,6 +118,7 @@ let package = Package(
                 "LitheDebugModule",
                 "LitheLanguageIntelligenceModule",
                 "LitheWorkspaceModule",
+                "LithePluginPackageSigning",
                 "LitheRustCore",
                 .product(name: "SwiftTerm", package: "SwiftTerm"),
                 .product(name: "Sparkle", package: "Sparkle")
@@ -131,7 +139,7 @@ let package = Package(
         ),
         .testTarget(
             name: "LitheTests",
-            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", .product(name: "Testing", package: "swift-testing")],
+            dependencies: ["Lithe", "LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts", "LitheGitModule", "LitheDatabaseModule", "LitheAIAssistanceModule", "LitheAgentConversationModule", "LitheLanguageIntelligenceModule", "LitheGoSupportModule", "LithePhpSupportModule", "LithePluginPackageSigning", .product(name: "Testing", package: "swift-testing")],
             path: "macos/Tests/LitheTests",
             resources: [
                 .copy("Fixtures")
@@ -270,6 +278,12 @@ let package = Package(
             name: "LitheOfficialPluginVerifier",
             dependencies: ["LitheModuleAPI", "LitheApplicationKernel", "LitheCoreContracts"],
             path: "macos/Tests/LitheOfficialPluginVerifier",
+            swiftSettings: [.swiftLanguageMode(.v6)]
+        ),
+        .executableTarget(
+            name: "LithePluginPackageSigner",
+            dependencies: ["LithePluginPackageSigning"],
+            path: "macos/Tools/LithePluginPackageSigner",
             swiftSettings: [.swiftLanguageMode(.v6)]
         )
     ]
