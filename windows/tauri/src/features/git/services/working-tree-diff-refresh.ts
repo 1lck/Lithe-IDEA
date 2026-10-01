@@ -93,6 +93,9 @@ export async function refreshWorkingTreeFileDiff(
     ...(originalPath ? { originalPath } : {}),
     untracked: statusFile.status === "untracked",
     ...(target.staged ? { staged: true } : {}),
+    // Staging a block from an unstaged review turns the file into MM; the
+    // review keeps its key, so discard eligibility must follow live status.
+    ...(!target.staged && statusFile.staged ? { hasStagedChanges: true } : {}),
   };
   const diff = await loadDiff(
     nextTarget.repoPath,

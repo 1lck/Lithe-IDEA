@@ -4514,6 +4514,9 @@ const catalogs = {
     "git.diff.statusRenamed": "RENAMED",
     "git.diff.stage": "Stage",
     "git.diff.unstage": "Unstage",
+    "git.diff.rollbackHunk": "Rollback Change Block",
+    "git.diff.rollbackHunkConfirm":
+      'Roll back this change block in "{path}"? Its unstaged edits will be discarded. This cannot be undone.',
     "git.diff.uncommitted": "Uncommitted Changes",
     "welcome.openProjectOrRemote": "Open project or remote connection",
     "welcome.openFolder": "Open Folder",
@@ -8871,6 +8874,8 @@ const catalogs = {
     "git.diff.statusRenamed": "重命名",
     "git.diff.stage": "暂存",
     "git.diff.unstage": "取消暂存",
+    "git.diff.rollbackHunk": "回滚修改块",
+    "git.diff.rollbackHunkConfirm": "回滚 “{path}” 中的这个修改块吗？该块未暂存的修改将被丢弃，此操作无法撤销。",
     "git.diff.uncommitted": "未提交的更改",
     "welcome.openProjectOrRemote": "打开项目或远程连接",
     "welcome.openFolder": "打开文件夹",

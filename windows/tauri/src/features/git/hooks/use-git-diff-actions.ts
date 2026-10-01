@@ -160,6 +160,7 @@ export function useGitDiffActions({
               ...(originalRelativePath ? { originalPath: originalRelativePath } : {}),
               untracked,
               ...(staged ? { staged: true } : {}),
+              ...(!staged && file.staged ? { hasStagedChanges: true } : {}),
             },
           };
           const loadingDiff: MultiFileDiff = {
