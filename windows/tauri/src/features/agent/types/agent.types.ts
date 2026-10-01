@@ -9,6 +9,12 @@
  * and tests drive them straight from the shared fixture.
  */
 
+import {
+  finishTurn,
+  type AgentTurnStatistics,
+  type AgentTurnUsage,
+} from "./agent-turn-statistics";
+
 /** Agent-owned context occupancy, distinct from cumulative billing tokens. */
 export interface AgentContextUsage {
   usedTokens: number;
@@ -99,6 +105,13 @@ export interface AgentSessionSummary {
 export interface AgentConversation {
   messages: AgentConversationMessage[];
   contextUsage: AgentContextUsage | null;
+  /** The turn the user submitted and the Agent has not finished yet. */
+  activeTurn: AgentTurnStatistics | null;
+  /**
+   * Local statistics survive tab switches and disconnects, but are not
+   * fabricated when the Agent replays history without timing or usage.
+   */
+  completedTurns: AgentTurnStatistics[];
   isResponding: boolean;
   isLoading: boolean;
   isCancelling: boolean;
@@ -125,6 +138,8 @@ export interface AgentFileReference {
 export interface AgentPrompt {
   text: string;
   files: AgentFileReference[];
+  /** Monotonic milliseconds when the user pressed send, before any session exists. */
+  submittedAt: number;
 }
 
 export type AgentConnectionState =
@@ -164,6 +179,8 @@ export function createConversation(): AgentConversation {
   return {
     messages: [],
     contextUsage: null,
+    activeTurn: null,
+    completedTurns: [],
     isResponding: false,
     isLoading: false,
     isCancelling: false,
@@ -413,6 +430,25 @@ export function appendMessage(
     });
   }
   return { ...conversation, messages };
+}
+
+/**
+ * Freeze the running turn after the last message it produced. A conversation
+ * with no running turn, such as replayed history, is returned unchanged.
+ */
+export function finishActiveTurn(
+  conversation: AgentConversation,
+  now: number,
+  usage: AgentTurnUsage | null = null,
+): AgentConversation {
+  const turn = conversation.activeTurn;
+  if (turn === null) return conversation;
+  const ending = conversation.messages[conversation.messages.length - 1]?.id ?? turn.id;
+  return {
+    ...conversation,
+    activeTurn: null,
+    completedTurns: [...conversation.completedTurns, finishTurn(turn, now, ending, usage)],
+  };
 }
 
 /** A turn that ended without a final tool status must not look like it is still running. */

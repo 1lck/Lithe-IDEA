@@ -15,7 +15,7 @@ function renderIcon(IconComponent: ElementType) {
 
 describe("application icon mappings", () => {
   test("exports the complete icon inventory", () => {
-    expect(iconEntries).toHaveLength(210);
+    expect(iconEntries).toHaveLength(214);
   });
 
   test("avoids unintended help fallbacks", () => {

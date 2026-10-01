@@ -62,7 +62,12 @@
       "windows/tauri/src/features/agent/components/agent-transcript.tsx",
       "windows/tauri/src/features/agent/components/agent-composer.tsx",
       "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
-      "windows/tauri/src/features/agent/services/agent-transport.ts"
+      "windows/tauri/src/features/agent/services/agent-transport.ts",
+      "windows/tauri/src/features/agent/components/agent-session-selectors.tsx",
+      "windows/tauri/src/features/agent/components/brand/agent-brand-icon.tsx",
+      "windows/tauri/src/features/agent/services/agent-session-selectors.test.ts",
+      "windows/tauri/src/features/agent/services/agent-session-selectors.ts",
+      "windows/tauri/src/features/agent/components/agent-panel-parts.tsx"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
