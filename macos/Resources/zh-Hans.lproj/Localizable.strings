@@ -2556,6 +2556,7 @@
 "Paste" = "粘贴";
 "Copied files" = "已复制文件";
 "Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
+"Pasted files" = "已粘贴文件";
 "Copy Files" = "拷贝";
 "Choose a directory inside the project" = "请选择项目内的目录";
 "Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";

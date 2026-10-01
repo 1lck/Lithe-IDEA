@@ -1316,6 +1316,7 @@
 "Paste" = "Paste";
 "Copied files" = "Copied files";
 "Move %lld items to Trash?" = "Move %lld items to Trash?";
+"Pasted files" = "Pasted files";
 "Copy Files" = "Copy";
 "Choose a directory inside the project" = "Choose a directory inside the project";
 "Cannot copy a directory into itself" = "Cannot copy a directory into itself";

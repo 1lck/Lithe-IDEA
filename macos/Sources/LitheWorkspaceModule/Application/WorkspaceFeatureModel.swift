@@ -610,7 +610,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }.value
         isPerformingProjectItemOperation = false
         guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return }
-        if let error = result.1 { notify?(error) } else { notify?("Copied files") }
+        if let error = result.1 { notify?(error) } else { notify?("Pasted files") }
         if result.0 > 0 { await refreshCurrent() }
     }
 

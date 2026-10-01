@@ -75,6 +75,26 @@ struct ProjectTreeSelectionTests {
         #expect(copies == 3)
     }
 
+    @Test
+    @MainActor
+    func consumedTreeShortcutIsNotAlsoDeliveredToTheEditor() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let tree = ProjectTreeKeyboardCommandView(frame: NSRect(x: 0, y: 0, width: 200, height: 300))
+        defer { tree.removeMonitor(); window.close() }
+        window.contentView?.addSubview(tree)
+        var selections = 0
+        tree.selectAllItems = { selections += 1 }
+
+        // The installed monitor returns this value to AppKit; a non-nil result
+        // means the editor would also select all text or paste the clipboard.
+        _ = ProjectTreeKeyboardCommandView.monitorResult(for: try mouseDown(at: NSPoint(x: 50, y: 50), in: window), view: tree)
+        #expect(ProjectTreeKeyboardCommandView.monitorResult(for: try commandKey("a", in: window), view: tree) == nil)
+        #expect(selections == 1)
+        #expect(ProjectTreeKeyboardCommandView.monitorResult(for: try commandKey("a", in: window), view: nil) != nil)
+    }
+
     @MainActor
     private func mouseDown(at point: NSPoint, in window: NSWindow) throws -> NSEvent {
         try #require(NSEvent.mouseEvent(

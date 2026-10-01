@@ -46,8 +46,16 @@ final class ProjectTreeKeyboardCommandView: NSView {
         removeMonitor()
         guard window != nil else { return }
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .keyDown]) { [weak self] event in
-            self?.handle(event) ?? event
+            Self.monitorResult(for: event, view: self)
         }
+    }
+
+    /// The local monitor's return value: `nil` stops AppKit from also sending a
+    /// consumed shortcut to the editor. `view?.handle(event) ?? event` would
+    /// flatten that `nil` back into the event and deliver it twice.
+    static func monitorResult(for event: NSEvent, view: ProjectTreeKeyboardCommandView?) -> NSEvent? {
+        guard let view else { return event }
+        return view.handle(event)
     }
 
     /// Returns `nil` when the tree consumed the event.
