@@ -63,6 +63,7 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = TrackingView()
         context.coordinator.view = view
+        view.windowChanged = { [weak coordinator = context.coordinator] in coordinator?.observeFocus() }
         context.coordinator.monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { event in
             guard let view = context.coordinator.view, let window = view.window,
                   event.window === window else { return event }
@@ -87,6 +88,8 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
     static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
         if let monitor = coordinator.monitor { NSEvent.removeMonitor(monitor) }
         coordinator.monitor = nil
+        coordinator.stopObservingFocus()
+        (view as? TrackingView)?.windowChanged = nil
         coordinator.view = nil
     }
 
@@ -94,11 +97,38 @@ struct LitheToolWindowActivityTracker: NSViewRepresentable {
         @Binding var isActive: Bool
         weak var view: NSView?
         var monitor: Any?
+        private var focusObserver: NSObjectProtocol?
+        private weak var lastResponder: NSResponder?
+
+        func stopObservingFocus() {
+            if let focusObserver { NotificationCenter.default.removeObserver(focusObserver) }
+            focusObserver = nil; lastResponder = nil
+        }
+
+        func observeFocus() {
+            stopObservingFocus()
+            guard let window = view?.window else { return }
+            lastResponder = window.firstResponder
+            focusObserver = NotificationCenter.default.addObserver(forName: NSWindow.didUpdateNotification,
+                object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let view = self.view, let window = view.window,
+                          self.lastResponder !== window.firstResponder else { return }
+                    self.lastResponder = window.firstResponder
+                    guard let responder = window.firstResponder as? NSView else { return }
+                    let rect = view.convert(responder.visibleRect.intersection(responder.bounds), from: responder)
+                    let active = view.bounds.intersects(rect) && !responder.isHiddenOrHasHiddenAncestor
+                    if self.isActive != active { self.isActive = active }
+                }
+            }
+        }
 
         init(isActive: Binding<Bool>) { _isActive = isActive }
     }
 
     private final class TrackingView: NSView {
+        var windowChanged: (() -> Void)?
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); windowChanged?() }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
     }
 }

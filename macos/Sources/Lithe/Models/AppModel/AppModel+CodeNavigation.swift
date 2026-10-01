@@ -259,6 +259,7 @@ extension AppModel {
                 if let providerID {
                     self.virtualDocumentProviderIDs[url] = providerID
                 }
+                self.editorTabOrderFeature.repositoryDiffSelected = false
                 self.documentFeature.openVirtualDocument(url, text: text, displayPath: displayPath)
             },
             setTarget: { [weak self] destination in

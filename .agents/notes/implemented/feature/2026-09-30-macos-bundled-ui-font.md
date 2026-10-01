@@ -222,3 +222,35 @@ node scripts/test-reuse-worktree-resources.mjs
 - `macos/EditorFrontend`
 - `macos/Resources/Fonts`
 - `scripts/worktree-resources.json`
+
+
+## 编辑器标签与 Repository Diff
+
+Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`VcsLogEditorDiffPreview.getEditorTabName` 与 `VcsLogBundle.properties` 使用
+`Repository Diff: {0}`，参数为当前文件名；空预览为 `Repository Diff`，文件历史则
+是 `History: {0}`。`DiffEditorTabTitleProvider` 将标题缩至 30 字符。图标来自
+`DiffVirtualFileBase` 的 Diff 文件类型，复用已有 `expui/vcs/diff.svg` 明暗资源。
+
+Git Log 历史 Diff 进入已有 `EditorTabItem`/`EditorTabOrderFeatureModel` 的混合顺序，
+使用一个可更新文件名的 repositoryDiff 槽。Git feature 继续持有比较上下文和数据；
+标签模型仅持有呈现选中状态和返回标签，不复制比较数据。切入 Diff 时停用
+原编辑文档/媒体/终端，防止隐藏文档接收保存命令；关闭活动 Diff 恢复前一个
+仍存在的标签，关闭后台 Diff 不改当前选择。切换普通文件、媒体、编辑器终端时
+隐藏但保留 Diff；重新点标签恢复。关闭 Diff 清理原 Git 上下文，关闭命令按当前
+活动内容执行；项目关闭/切换时移除槽；Git Log 改选提交但尚未选文件时保留空预览标题。
+加载前即显示可关闭标签，请求身份阻止关闭/替换后的旧激活回调重新打开预览。
+
+`IslandsTabPainter` 对编辑器与工具窗口复用相同 selected active/inactive token；
+ManyIslands 明暗主题的 EditorTabs 也指向 `tab-selected-*`。因此编辑器复用
+`LitheToolWindowTabStyle` 与 `LitheToolWindowTabCloseButton`，不复制另一套颜色。
+普通模式 28pt 圆角块，水平/垂直外侧各 4pt，去掉旧 2pt 蓝色底线；编辑器文字
+13pt regular，文件和 Diff 图标 16pt。工具窗口容器保留各自布局。
+
+活动状态与“选中哪个标签”分开；共享 tracker 既观察所在区域鼠标事件，也观察
+原生 first responder 变化，使用其 visibleRect 与 bounds 的交集（不能使用超出裁剪区的全文 bounds；
+非裁剪 NSView 的 visibleRect 也可能大于自身 bounds）
+判断所在区域，支持键盘/程序切换焦点。窗口失活通过 controlActiveState
+使用已有非活动样式。观察器随原生视图卸载移除；不启动轮询和定时器。
+验证涵盖混合排序、普通文件往返不丢 Diff、关闭恢复文档，以及原生焦点往返和卸载。
+完整工作区逐项视觉验收保持 pending；Windows 标签实现未修改。

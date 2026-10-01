@@ -76,6 +76,7 @@ extension AppModel {
     var activeDocumentID: UUID? {
         get { documentFeature.activeDocumentID }
         set {
+            if newValue != nil { editorTabOrderFeature.repositoryDiffSelected = false }
             let previousDocumentID = documentFeature.activeDocumentID
             documentFeature.activeDocumentID = newValue
             guard previousDocumentID != newValue else { return }
@@ -83,7 +84,25 @@ extension AppModel {
         }
     }
 
-    var editorTabItems: [EditorTabItem] { editorTabOrderFeature.items }
+    var isRepositoryDiffSelected: Bool {
+        editorTabOrderFeature.contains(.repositoryDiff) && (editorTabOrderFeature.repositoryDiffSelected
+            || activeDocument == nil && activeEditorTerminalSession == nil && activeMediaDocument == nil)
+    }
+    var editorTabItems: [EditorTabItem] {
+        editorTabOrderFeature.items
+    }
+
+    func selectRepositoryDiffTab() {
+        guard editorTabOrderFeature.contains(.repositoryDiff) else { return }
+        if !editorTabOrderFeature.repositoryDiffSelected {
+            editorTabOrderFeature.repositoryDiffReturnTab = activeEditorTerminalSession.map { .terminal($0.id) }
+                ?? activeMediaDocument.map { .media($0.id) } ?? activeDocument.map { .document($0.id) }
+        }
+        terminalPlacementFeature.activateDocument()
+        mediaFeature.deactivate()
+        activeDocumentID = nil
+        editorTabOrderFeature.repositoryDiffSelected = true
+    }
 
     func moveOpenDocument(_ documentID: UUID, before targetDocumentID: UUID) {
         moveEditorTab(.document(documentID), before: .document(targetDocumentID))
@@ -113,6 +132,8 @@ extension AppModel {
         guard moved else { return }
 
         switch item {
+        case .repositoryDiff:
+            selectRepositoryDiffTab()
         case .document(let documentID):
             guard let document = openDocuments.first(where: { $0.id == documentID }) else {
                 editorTabOrderFeature.remove(item)

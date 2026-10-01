@@ -878,6 +878,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         navigationHistoryFeature.reset()
         virtualDocumentProviderIDs.removeAll()
         blameVisibleURL = nil
+        closeGitCommitDiff()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         featureGraph.editorSession.resetContent()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
@@ -913,6 +914,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         editorDiagnosticsStore.reset()
         historyModuleCoordinator.resetFeature(projectHistoryFeatureIfActive)
         workspaceSessionCoordinator.resetWorkspaceFeature()
+        closeGitCommitDiff()
         gitModuleCoordinator.resetFeature(gitFeatureIfActive)
         workbenchFeature.hideAllToolWindows()
         stopTerminalSessions()
@@ -987,6 +989,7 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         isReadOnly: Bool = false,
         displayPath: String? = nil
     ) {
+        editorTabOrderFeature.repositoryDiffSelected = false
         selectedChange = nil
         closeBranchComparison()
         editorNavigationTarget = nil
@@ -1433,15 +1436,39 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     }
 
     func showGitCommitDiff(for file: GitCommitFile) {
-        activeDocumentID = nil
+        if selectedGitCommitDiffContext == nil || !editorTabOrderFeature.contains(.repositoryDiff) {
+            editorTabOrderFeature.moveToEnd(.repositoryDiff)
+        }
+        selectRepositoryDiffTab()
+        let requestID = UUID()
+        editorTabOrderFeature.repositoryDiffRequestID = requestID
         Task { [weak self] in
-            guard let gitFeature = await self?.activateGitModule() else { return }
-            await gitFeature.showGitCommitDiff(for: file)
+            let feature = await self?.activateGitModule()
+            guard let self, self.editorTabOrderFeature.repositoryDiffRequestID == requestID else { return }
+            guard let feature else { self.closeGitCommitDiff(); return }
+            await feature.showGitCommitDiff(for: file)
         }
     }
 
     func closeGitCommitDiff() {
+        let wasSelected = isRepositoryDiffSelected
+        let previous = editorTabOrderFeature.repositoryDiffReturnTab
+        editorTabOrderFeature.repositoryDiffSelected = false
+        editorTabOrderFeature.repositoryDiffReturnTab = nil
+        editorTabOrderFeature.repositoryDiffRequestID = nil
+        editorTabOrderFeature.remove(.repositoryDiff)
         gitFeatureIfActive?.closeGitCommitDiff()
+        guard wasSelected else { return }
+        let target = previous.flatMap { editorTabItems.contains($0) ? $0 : nil } ?? editorTabItems.last
+        switch target {
+        case .document(let id):
+            if let document = openDocuments.first(where: { $0.id == id }) { selectEditorDocument(document) }
+        case .terminal(let id):
+            if let session = terminalSessions.first(where: { $0.id == id }) { selectEditorTerminalSession(session) }
+        case .media(let id):
+            if let media = openMediaDocuments.first(where: { $0.id == id }) { selectMediaDocument(media) }
+        case .repositoryDiff, nil: break
+        }
     }
 
     func showGitCommit(_ hash: String) async {
