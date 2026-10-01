@@ -64,6 +64,14 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("Java launch files are never listed or copied between worktrees", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("java-launch-temporaries"));
+    const refused = reuse(["--resource", "java-launch-temporaries"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /java-launch-temporaries.*classpath\.jar.*cannot be reused/);
+  });
   await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
     const refused = reuse(["--resource", "ide-mcp"]);
     assert.notEqual(refused.status, 0);

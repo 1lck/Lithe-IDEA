@@ -255,6 +255,70 @@ export const getCommitFiles = async (
   }
 };
 
+interface GitCommitLookupResult {
+  commit?: { hash?: string };
+  body?: string;
+}
+
+/**
+ * History pages carry only the subject so paging stays compact; the message
+ * body is read on demand when one commit is inspected, copied, or diffed.
+ * A commit object is immutable, so a body never goes stale for its hash.
+ */
+const COMMIT_DESCRIPTION_CACHE_LIMIT = 200;
+const commitDescriptionCache = new Map<string, string>();
+
+const rememberCommitDescription = (key: string, description: string) => {
+  commitDescriptionCache.delete(key);
+  commitDescriptionCache.set(key, description);
+  if (commitDescriptionCache.size > COMMIT_DESCRIPTION_CACHE_LIMIT) {
+    const oldest = commitDescriptionCache.keys().next().value;
+    if (oldest !== undefined) commitDescriptionCache.delete(oldest);
+  }
+};
+
+/** Returns the commit message body after the subject, or null when it cannot be read. */
+export const getCommitDescription = async (
+  repoPath: string,
+  commitHash: string,
+): Promise<string | null> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    if (!resolvedRepoPath) return null;
+    const cacheKey = JSON.stringify([resolvedRepoPath, commitHash]);
+    const cached = commitDescriptionCache.get(cacheKey);
+    if (cached !== undefined) {
+      rememberCommitDescription(cacheKey, cached);
+      return cached;
+    }
+
+    const result = await runGitRead(resolvedRepoPath, `commit-details:${commitHash}`, () =>
+      tauriInvoke<GitCommitLookupResult>("git.commit", {
+        repoPath: resolvedRepoPath,
+        commit: commitHash,
+      }),
+    );
+    const description = typeof result?.body === "string" ? result.body : "";
+    rememberCommitDescription(cacheKey, description);
+    return description;
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to get commit details:", error);
+    }
+    return null;
+  }
+};
+
+/** Fills `description` from the full message; keeps the subject-only commit on failure. */
+export const withCommitDescription = async (
+  repoPath: string,
+  commit: GitCommit,
+): Promise<GitCommit> => {
+  if (commit.description !== undefined) return commit;
+  const description = await getCommitDescription(repoPath, commit.hash);
+  return description === null ? commit : { ...commit, description };
+};
+
 export const resetToCommit = (
   repoPath: string,
   revision: string,

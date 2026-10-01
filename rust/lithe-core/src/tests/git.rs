@@ -3061,28 +3061,54 @@ fn git_snapshot_diff_returns_the_whole_file_for_maximum_context() {
 /// patch must still apply, restore only its block, and leave the index alone.
 #[test]
 fn git_apply_discard_reverts_one_rebuilt_hunk_and_keeps_the_index() {
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
     let root = temporary_root("git-discard-hunk");
+    let _cleanup = RemoveOnDrop(root.clone());
     fs::create_dir_all(&root).expect("temporary workspace should be creatable");
-    let run = |arguments: &[&str]| {
-        Command::new("git")
-            .args(arguments)
-            .current_dir(&root)
-            .output()
-            .expect("git should be available")
+    // Use the existing process adapter's deadline and process-tree cleanup;
+    // fixture setup must not hang on user hooks or commit signing prompts.
+    let run = |arguments: &[&str]| -> String {
+        let mut isolated_arguments = vec![
+            "-c",
+            "core.hooksPath=disabled-fixture-hooks",
+            "-c",
+            "commit.gpgSign=false",
+        ];
+        isolated_arguments.extend_from_slice(arguments);
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "discard-hunk-setup",
+                "timeoutMilliseconds": 5_000,
+                "command": "git.command",
+                "payload": { "root": root, "arguments": isolated_arguments }
+            })
+            .to_string(),
+        ))
+        .expect("setup response should be JSON");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(response["data"]["exitCode"], 0, "{response}");
+        response["data"]["stdout"]
+            .as_str()
+            .expect("stdout")
+            .to_string()
     };
-    assert!(run(&["init", "-q"]).status.success());
-    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
-    assert!(run(&["config", "user.email", "test@example.com"])
-        .status
-        .success());
-    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    run(&["init", "-q"]);
+    run(&["config", "core.autocrlf", "false"]);
+    run(&["config", "user.email", "test@example.invalid"]);
+    run(&["config", "user.name", "Lithe Test"]);
     let original = (1..=40)
         .map(|line| format!("line {line}\n"))
         .collect::<String>();
     fs::write(root.join("long.txt"), &original).expect("file should be writable");
     fs::write(root.join("mixed.txt"), "one\ntwo\nthree\n").expect("file should be writable");
-    assert!(run(&["add", "."]).status.success());
-    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    run(&["add", "."]);
+    run(&["commit", "-qm", "initial"]);
 
     let edited = original
         .replace("line 5\n", "line five\n")
@@ -3093,6 +3119,7 @@ fn git_apply_discard_reverts_one_rebuilt_hunk_and_keeps_the_index() {
     let discard = |patch: &str| -> Value {
         let request = serde_json::json!({
             "id": "discard-hunk",
+            "timeoutMilliseconds": 5_000,
             "command": "git.apply",
             "payload": { "root": root, "patch": patch, "mode": "discard" }
         });
@@ -3126,7 +3153,7 @@ fn git_apply_discard_reverts_one_rebuilt_hunk_and_keeps_the_index() {
 
     // Index-to-worktree blocks of a file with staged edits leave the index intact.
     fs::write(root.join("mixed.txt"), "ONE\ntwo\nthree\n").expect("file should be writable");
-    assert!(run(&["add", "mixed.txt"]).status.success());
+    run(&["add", "mixed.txt"]);
     fs::write(root.join("mixed.txt"), "ONE\ntwo\nTHREE\n").expect("file should be writable");
     let response = discard(
         "diff --git a/mixed.txt b/mixed.txt\n--- a/mixed.txt\n+++ b/mixed.txt\n\
@@ -3137,9 +3164,8 @@ fn git_apply_discard_reverts_one_rebuilt_hunk_and_keeps_the_index() {
         fs::read_to_string(root.join("mixed.txt")).expect("file should be readable"),
         "ONE\ntwo\nthree\n"
     );
-    let status = run(&["status", "--porcelain", "--", "mixed.txt"]).stdout;
-    assert_eq!(String::from_utf8_lossy(&status), "M  mixed.txt\n");
-    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+    let status = run(&["status", "--porcelain", "--", "mixed.txt"]);
+    assert_eq!(status, "M  mixed.txt\n");
 }
 
 #[test]
@@ -3590,6 +3616,81 @@ fn git_history_page_treats_unborn_head_as_empty_history() {
     assert_eq!(response["ok"], true, "{response:?}");
     assert_eq!(response["data"]["commits"], serde_json::json!([]));
     assert_eq!(response["data"]["hasMore"], false);
+}
+
+/// Regression for #771: the commit detail view must receive the full multi-line
+/// message, including text that contains the field separator used by the header,
+/// while history pages keep returning only the subject.
+#[test]
+fn git_commit_returns_the_multi_line_body_separately_from_history_pages() {
+    struct RemoveOnDrop(std::path::PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    let root = temporary_root("git-commit-body");
+    let _cleanup = RemoveOnDrop(root.clone());
+    fs::create_dir_all(&root).expect("temporary repository should be creatable");
+    git_text(&root, &["init", "-q"]);
+    git_text(&root, &["config", "user.email", "test@example.invalid"]);
+    git_text(&root, &["config", "user.name", "Lithe Test"]);
+    // Keep the trailing blank lines so the test covers the trimming contract.
+    git_text(&root, &["config", "commit.cleanup", "verbatim"]);
+    let body = "First body line\n  indented \u{1f} separator\n\n中文第二段";
+    let message = format!("Fix commit details\n\n{body}\n\n");
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", message.as_str()],
+    );
+    git_text(
+        &root,
+        &["commit", "-q", "--allow-empty", "-m", "Subject only"],
+    );
+    let detailed_hash = git_text(&root, &["rev-parse", "HEAD~1"]);
+
+    let lookup = |id: &str, revision: &str| -> Value {
+        let request = serde_json::json!({
+            "id": id,
+            "command": "git.commit",
+            "payload": {"root": root, "commit": revision}
+        });
+        let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+            .expect("commit response should be JSON");
+        assert_eq!(response["ok"], true, "{response:?}");
+        response["data"].clone()
+    };
+
+    let detailed = lookup("detailed", &detailed_hash);
+    assert_eq!(detailed["commit"]["hash"], detailed_hash);
+    assert_eq!(detailed["commit"]["subject"], "Fix commit details");
+    assert_eq!(detailed["body"], body);
+
+    let subject_only = lookup("subject-only", "HEAD");
+    assert_eq!(subject_only["commit"]["subject"], "Subject only");
+    // The body follows the decorations column, so the header must still parse fully.
+    assert!(subject_only["commit"]["decorations"]
+        .as_str()
+        .is_some_and(|decorations| decorations.starts_with("HEAD -> ")));
+    assert_eq!(subject_only["body"], "");
+
+    let page_request = serde_json::json!({
+        "id": "history-page-subjects",
+        "command": "git.historyPage",
+        "payload": {"root": root, "reference": "HEAD", "limit": 10}
+    });
+    let page: Value = serde_json::from_str(&execute_json(&page_request.to_string()))
+        .expect("history page response should be JSON");
+    assert_eq!(page["ok"], true, "{page:?}");
+    let subjects = page["data"]["commits"]
+        .as_array()
+        .expect("history page should contain commits")
+        .iter()
+        .map(|commit| commit["subject"].as_str().expect("subject").to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(subjects, ["Subject only", "Fix commit details"]);
 }
 
 #[test]

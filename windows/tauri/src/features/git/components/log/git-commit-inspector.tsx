@@ -14,6 +14,7 @@ import {
   resolveGitCommitSelectionDiff,
   type GitCommitSelectionDiff,
 } from "../../utils/git-commit-selection-diff";
+import { GitCommitDetails } from "./git-commit-details";
 import { GitCommitFileTree, getFirstCommitFilePath } from "./git-commit-file-tree";
 
 type FilesLoadState = "idle" | "loading" | "ready" | "failed";
@@ -187,31 +188,7 @@ export function GitCommitInspector({
         <ResizableHandle />
         <ResizablePanel id="details" defaultSize="38" minSize={80}>
           <div className="h-full overflow-auto border-border bg-background p-3">
-            {commit ? (
-              <div className="space-y-2 select-text">
-                <div className="font-medium text-foreground">{commit.message}</div>
-                {commit.description ? (
-                  <div className="whitespace-pre-wrap text-subtle-foreground">
-                    {commit.description}
-                  </div>
-                ) : null}
-                <div className="font-mono text-[11px] text-subtle-foreground">
-                  {commit.shortHash} · {commit.author}
-                  {commit.email ? ` <${commit.email}>` : ""}
-                </div>
-                <div className="font-mono text-[11px] text-subtle-foreground">{commit.date}</div>
-                {commit.decorations ? (
-                  <div className="text-primary">{commit.decorations}</div>
-                ) : null}
-                <div className="break-all font-mono text-[10px] text-subtle-foreground">
-                  {commit.hash}
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center text-subtle-foreground">
-                {t("git.log.commitDetails")}
-              </div>
-            )}
+            <GitCommitDetails repoPath={repoPath} commit={commit} />
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
