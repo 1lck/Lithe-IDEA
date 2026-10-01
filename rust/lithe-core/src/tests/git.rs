@@ -3055,6 +3055,93 @@ fn git_snapshot_diff_returns_the_whole_file_for_maximum_context() {
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
 
+/// Windows diff reviews roll back one block by reverse-applying a patch the
+/// host rebuilds from parsed lines (#688). Full-context reviews re-derive
+/// blocks with three context lines and their own `@@` ranges, so the rebuilt
+/// patch must still apply, restore only its block, and leave the index alone.
+#[test]
+fn git_apply_discard_reverts_one_rebuilt_hunk_and_keeps_the_index() {
+    let root = temporary_root("git-discard-hunk");
+    fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    let original = (1..=40)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    fs::write(root.join("long.txt"), &original).expect("file should be writable");
+    fs::write(root.join("mixed.txt"), "one\ntwo\nthree\n").expect("file should be writable");
+    assert!(run(&["add", "."]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+
+    let edited = original
+        .replace("line 5\n", "line five\n")
+        .replace("line 30\n", "line thirty\n");
+    fs::write(root.join("long.txt"), &edited).expect("file should be writable");
+    // Block shape the Windows adapter derives from a full-context review: the
+    // change at line 30 with three lines of context and a synthesized header.
+    let discard = |patch: &str| -> Value {
+        let request = serde_json::json!({
+            "id": "discard-hunk",
+            "command": "git.apply",
+            "payload": { "root": root, "patch": patch, "mode": "discard" }
+        });
+        serde_json::from_str(&execute_json(
+            &serde_json::to_string(&request).expect("apply request should encode"),
+        ))
+        .expect("apply response should be JSON")
+    };
+    let response = discard(
+        "diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n\
+         @@ -27,7 +27,7 @@\n line 27\n line 28\n line 29\n-line 30\n+line thirty\n line 31\n line 32\n line 33\n",
+    );
+    assert_eq!(response["ok"], true, "{response}");
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(
+        fs::read_to_string(root.join("long.txt")).expect("file should be readable"),
+        original.replace("line 5\n", "line five\n"),
+        "only the selected block may be restored"
+    );
+
+    // A second click with the same, now stale block must fail without writing.
+    let stale = discard(
+        "diff --git a/long.txt b/long.txt\n--- a/long.txt\n+++ b/long.txt\n\
+         @@ -27,7 +27,7 @@\n line 27\n line 28\n line 29\n-line 30\n+line thirty\n line 31\n line 32\n line 33\n",
+    );
+    assert_ne!(stale["data"]["exitCode"], 0, "{stale}");
+    assert_eq!(
+        fs::read_to_string(root.join("long.txt")).expect("file should be readable"),
+        original.replace("line 5\n", "line five\n")
+    );
+
+    // Index-to-worktree blocks of a file with staged edits leave the index intact.
+    fs::write(root.join("mixed.txt"), "ONE\ntwo\nthree\n").expect("file should be writable");
+    assert!(run(&["add", "mixed.txt"]).status.success());
+    fs::write(root.join("mixed.txt"), "ONE\ntwo\nTHREE\n").expect("file should be writable");
+    let response = discard(
+        "diff --git a/mixed.txt b/mixed.txt\n--- a/mixed.txt\n+++ b/mixed.txt\n\
+         @@ -1,3 +1,3 @@\n ONE\n two\n-three\n+THREE\n",
+    );
+    assert_eq!(response["data"]["exitCode"], 0, "{response}");
+    assert_eq!(
+        fs::read_to_string(root.join("mixed.txt")).expect("file should be readable"),
+        "ONE\ntwo\nthree\n"
+    );
+    let status = run(&["status", "--porcelain", "--", "mixed.txt"]).stdout;
+    assert_eq!(String::from_utf8_lossy(&status), "M  mixed.txt\n");
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
 #[test]
 fn git_diff_resolves_the_empty_tree_for_a_sha256_repository() {
     let root = temporary_root("git-diff-sha256-empty-tree");
