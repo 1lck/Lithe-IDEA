@@ -31,7 +31,8 @@ struct TerminalView: View {
         .onReceive(NotificationCenter.default.publisher(for: LitheTerminalView.focusDidChange)) { notification in
             guard let view = notification.object as? LitheTerminalView,
                   view === model.activeToolTerminalSession?.nativeView else { return }
-            if notification.userInfo?["focused"] as? Bool == true { terminalToolActive = true }
+            guard let focused = notification.userInfo?["focused"] as? Bool else { return }
+            terminalToolActive = focused
         }
     }
 

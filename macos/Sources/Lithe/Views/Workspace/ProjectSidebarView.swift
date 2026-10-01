@@ -38,6 +38,9 @@ struct ProjectSidebarView: View {
     @State private var selectedContent: ProjectSidebarContent = .project
     @State private var dependencyRefreshRevision = 0
     @State private var isHeaderHovered = false
+    private enum HeaderAction: Hashable { case reveal, refresh }
+    @FocusState private var focusedHeaderAction: HeaderAction?
+    @AccessibilityFocusState private var accessibleHeaderAction: HeaderAction?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -221,11 +224,14 @@ struct ProjectSidebarView: View {
                         fallbackSystemImage: "scope",
                         preservesOriginalColors: true
                     )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .reveal
+                             || accessibleHeaderAction == .reveal ? 1 : 0)
                 }
                 .litheToolbarIconButton()
-                .opacity(isHeaderHovered ? 1 : 0)
-                .allowsHitTesting(isHeaderHovered)
-                .accessibilityHidden(!isHeaderHovered)
+                .focused($focusedHeaderAction, equals: .reveal)
+                .accessibilityFocused($accessibleHeaderAction, equals: .reveal)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Reveal Active File in Project Tree")
                 .help("Reveal Active File in Project Tree")
             }
             if selectedContent == .dependencies {
@@ -251,11 +257,14 @@ struct ProjectSidebarView: View {
                         fallbackSystemImage: "arrow.clockwise",
                         preservesOriginalColors: true
                     )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .refresh
+                             || accessibleHeaderAction == .refresh ? 1 : 0)
                 }
                 .litheToolbarIconButton()
-                .opacity(isHeaderHovered ? 1 : 0)
-                .allowsHitTesting(isHeaderHovered)
-                .accessibilityHidden(!isHeaderHovered)
+                .focused($focusedHeaderAction, equals: .refresh)
+                .accessibilityFocused($accessibleHeaderAction, equals: .refresh)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Refresh")
                 .help("Refresh")
             }
             LitheSidebarHideButton(title: selectedContent.title) {

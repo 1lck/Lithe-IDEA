@@ -107,15 +107,11 @@ struct GitLogView: View {
         .focusable()
         .focused($gitToolFocused)
         .gitLogFocusEffectHidden()
-        .onAppear { gitLogCommitListFocused = true }
-        .onChange(of: gitToolFocused) { focused in if focused { gitToolActive = true } }
-        .onChange(of: gitLogSearchFocused) { focused in
-            if focused { gitToolActive = true; branchTreeActive = false }
+        .onChange(of: [gitToolFocused, gitLogSearchFocused, gitLogCommitListFocused,
+                       branchSearchFocused, gitLogPathFocused]) { focusStates in
+            gitToolActive = focusStates.contains(true)
+            branchTreeActive = branchSearchFocused
         }
-        .onChange(of: gitLogCommitListFocused) { focused in
-            if focused { gitToolActive = true; branchTreeActive = false }
-        }
-        .onChange(of: branchSearchFocused) { focused in if focused { branchTreeActive = true } }
         .onChange(of: feature.selectedGitReference?.id) { id in
             if id != currentReference?.id { headSelected = false }
         }
