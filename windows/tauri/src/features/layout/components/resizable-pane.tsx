@@ -141,7 +141,7 @@ export function ResizablePane({
 
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
     },
     [width, position, widthKey, updateSetting, clampWidth],
@@ -158,9 +158,8 @@ export function ResizablePane({
           : { left: "calc(var(--lithe-workbench-gap) * -1)" }
       }
       className={cn(
-        "group absolute top-0 z-30 flex h-full cursor-col-resize items-center justify-center",
+        "absolute top-0 z-30 flex h-full cursor-ew-resize items-center justify-center",
         position === "left" ? "w-(--lithe-sidebar-gap)" : "w-(--lithe-workbench-gap)",
-        "transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-primary/8",
       )}
       role="separator"
       aria-orientation="vertical"
@@ -169,14 +168,7 @@ export function ResizablePane({
       aria-valuemin={Math.round(getMinWidth())}
       aria-valuemax={Math.round(getMaxWidth())}
       tabIndex={0}
-    >
-      <div
-        className={cn(
-          "h-full w-px bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary",
-          isResizing && "bg-primary",
-        )}
-      />
-    </div>
+    />
   ) : null;
 
   return (
@@ -193,7 +185,7 @@ export function ResizablePane({
       aria-hidden={hidden}
     >
       {position === "right" ? resizeHandle : null}
-      {isResizing && <div className="fixed inset-0 z-40 cursor-col-resize" />}
+      {isResizing && <div className="fixed inset-0 z-40 cursor-ew-resize" />}
       <div
         ref={contentRef}
         style={{ width: hidden ? "0px" : `${width}px` }}
