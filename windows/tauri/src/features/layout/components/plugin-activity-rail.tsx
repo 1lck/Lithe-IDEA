@@ -11,13 +11,24 @@ import { PuzzlePieceIcon } from "@/ui/icons";
 export function PluginActivityRail() {
   const { t } = useTranslation();
   const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;
-  const isExtensionsActive = useBufferStore((state) => {
-    if (!state.activeBufferId) return false;
+  const closeBuffer = useBufferStore.use.actions().closeBuffer;
+  const activeExtensionsBufferId = useBufferStore((state) => {
+    if (!state.activeBufferId) return null;
 
-    return state.buffers.some(
-      (buffer) => buffer.id === state.activeBufferId && buffer.type === "extensions",
-    );
+    const activeBuffer = state.buffers.find((buffer) => buffer.id === state.activeBufferId);
+    return activeBuffer?.type === "extensions" ? activeBuffer.id : null;
   });
+  const isExtensionsActive = activeExtensionsBufferId !== null;
+
+  // The Extensions page is a singleton buffer: a second click while it is the
+  // active tab closes it, otherwise the click opens or focuses it.
+  const toggleExtensionsBuffer = () => {
+    if (activeExtensionsBufferId) {
+      closeBuffer(activeExtensionsBufferId);
+      return;
+    }
+    openExtensionsBuffer();
+  };
   const isMavenAvailable = useMavenStore(
     (state) => Boolean(state.project) || state.projectStatus === "failed",
   );
@@ -43,7 +54,7 @@ export function PluginActivityRail() {
         aria-label={extensionsLabel}
         aria-pressed={isExtensionsActive}
         className="rounded-sm"
-        onClick={openExtensionsBuffer}
+        onClick={toggleExtensionsBuffer}
       >
         <PuzzlePieceIcon className="size-4.5" />
       </Button>
