@@ -1,0 +1,80 @@
+name: Lithe issue form gate
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: lithe-issue-form-gate-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    # Skip pull requests and every author whose association already proves
+    # repository membership; the script still verifies the real permission.
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.issue.user.type != 'Bot' &&
+      github.event.issue.author_association != 'OWNER'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+      - uses: actions/github-script@v7
+        env:
+          ISSUE_FORM_LOGIC: ${{ github.workspace }}/.github/lithe-issue-form/logic.mjs
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const logic = await import(process.env.ISSUE_FORM_LOGIC);
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const payloadIssue = context.payload.issue;
+            const login = payloadIssue.user.login;
+
+            // Re-read the issue so a maintainer action that already closed it
+            // is respected; keep the labels delivered with the opened event too.
+            const current = (await github.rest.issues.get({ owner, repo, issue_number })).data;
+            const labels = [...new Set([...logic.labelNames(payloadIssue.labels), ...logic.labelNames(current.labels)])];
+            const issue = { ...current, user: current.user ?? payloadIssue.user, labels };
+
+            // Non-collaborators receive a 200 response with read/none, so any
+            // error means the permission is unknown and the issue stays open.
+            let authorPermission = null;
+            try {
+              authorPermission = (await github.rest.repos.getCollaboratorPermissionLevel({ owner, repo, username: login })).data;
+            } catch (error) {
+              core.warning(`Unable to read permission for ${login}; leaving the issue open: ${error.message}`);
+            }
+
+            // Issue Forms drop labels that do not exist, so a missing or
+            // unreadable allowed label disables closing instead of misfiring.
+            const existingLabels = [];
+            for (const name of logic.ALLOWED_LABELS) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+                existingLabels.push(name);
+              } catch (error) {
+                if (error.status !== 404) core.warning(`Unable to read label ${name}: ${error.message}`);
+              }
+            }
+            const missingLabels = logic.missingAllowedLabels(existingLabels);
+            if (missingLabels.length) core.warning(`Issue form labels are missing (${missingLabels.join(', ')}); the gate will not close unlabeled issues until they exist.`);
+
+            const decision = logic.decideIssueFormGate({ issue, sender: context.payload.sender, authorPermission, missingLabels });
+            core.info(`Issue #${issue_number} by ${login}: ${decision.action} (${decision.reason})`);
+            if (decision.action !== 'close') return;
+
+            const comments = await github.paginate(github.rest.issues.listComments, { owner, repo, issue_number, per_page: 100 });
+            if (!logic.hasGateComment(comments)) {
+              const body = logic.gateComment({ login, serverUrl: context.serverUrl, owner, repo });
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }
+            await github.rest.issues.update({ owner, repo, issue_number, state: 'closed', state_reason: 'not_planned' });
