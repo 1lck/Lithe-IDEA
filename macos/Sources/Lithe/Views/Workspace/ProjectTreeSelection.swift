@@ -37,10 +37,15 @@ struct ProjectTreeSelection: Equatable {
         if let focusedPath, !visible.contains(focusedPath) { self.focusedPath = nil }
     }
 
-    mutating func selectAll(visiblePaths: [String]) {
-        paths = Set(visiblePaths)
-        anchorPath = visiblePaths.first
-        focusedPath = visiblePaths.last
+    /// ⌘A selects the visible items that share the focused item's parent
+    /// directory, including expanded descendants. The focus stays put so a
+    /// repeated ⌘A keeps the same scope.
+    mutating func selectAll(visiblePaths: [String], rootPath: String) {
+        let scope = focusedPath.flatMap { $0 == rootPath ? nil : ($0 as NSString).deletingLastPathComponent }
+        let scoped = scope.map { scope in visiblePaths.filter { $0.hasPrefix(scope + "/") } } ?? visiblePaths
+        paths = Set(scoped)
+        anchorPath = scoped.first
+        if focusedPath.map({ !paths.contains($0) }) ?? true { focusedPath = scoped.last }
     }
 
     static func visibleNodes(in root: FileNode, expandedPaths: Set<String>) -> [FileNode] {

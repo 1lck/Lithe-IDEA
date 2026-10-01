@@ -128,12 +128,41 @@ struct ProjectTreeSelectionTests {
     @Test
     func rightClickPreservesTheGroupOnlyForSelectedRows() {
         var selection = ProjectTreeSelection()
-        selection.selectAll(visiblePaths: ["a", "b"])
+        selection.selectAll(visiblePaths: ["a", "b"], rootPath: "/")
         selection.selectForContextMenu("a")
         #expect(selection.paths == ["a", "b"])
         selection.selectForContextMenu("c")
         #expect(selection.paths == ["c"])
         #expect(selection.anchorPath == "c")
+    }
+
+    @Test
+    func selectAllUsesTheFocusedItemsDirectory() {
+        let rows = ["/p", "/p/dest", "/p/dest/a.txt", "/p/dest copy", "/p/dest copy/a.txt",
+                    "/p/dest copy/b.txt", "/p/alpha.txt", "/p/gamma.txt"]
+        var selection = ProjectTreeSelection()
+
+        // Inside an expanded folder: only that folder's visible items.
+        selection.select("/p/dest copy/a.txt", visiblePaths: rows, extending: false, toggling: false)
+        selection.selectAll(visiblePaths: rows, rootPath: "/p")
+        #expect(selection.paths == ["/p/dest copy/a.txt", "/p/dest copy/b.txt"])
+        #expect(selection.focusedPath == "/p/dest copy/a.txt")
+
+        // At the project's top level: every visible item below the root,
+        // including folders and their expanded children, but not the root row.
+        selection.select("/p/alpha.txt", visiblePaths: rows, extending: false, toggling: false)
+        selection.selectAll(visiblePaths: rows, rootPath: "/p")
+        #expect(selection.paths == Set(rows.dropFirst()))
+
+        // A similarly named sibling folder is not part of the scope.
+        selection.select("/p/dest/a.txt", visiblePaths: rows, extending: false, toggling: false)
+        selection.selectAll(visiblePaths: rows, rootPath: "/p")
+        #expect(selection.paths == ["/p/dest/a.txt"])
+
+        // Focus on the root row, or no focus, selects the whole visible tree.
+        selection.select("/p", visiblePaths: rows, extending: false, toggling: false)
+        selection.selectAll(visiblePaths: rows, rootPath: "/p")
+        #expect(selection.paths == Set(rows))
     }
 
     @Test
@@ -146,7 +175,7 @@ struct ProjectTreeSelectionTests {
         let visible = ProjectTreeSelection.visibleNodes(in: root, expandedPaths: [rootURL.path]).map { $0.url.path }
         #expect(visible == [rootURL.path, folder.url.path, last.url.path])
         var selection = ProjectTreeSelection()
-        selection.selectAll(visiblePaths: visible + [child.url.path])
+        selection.selectAll(visiblePaths: visible + [child.url.path], rootPath: rootURL.path)
         selection.retain(visiblePaths: visible)
         #expect(!selection.paths.contains(child.url.path))
         #expect(selection.focusedPath == nil)

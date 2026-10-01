@@ -104,7 +104,10 @@ struct ProjectSidebarView: View {
                                 Task { await model.pasteProjectItems(in: destination) }
                             },
                             selectAll: {
-                                selection.selectAll(visiblePaths: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path })
+                                selection.selectAll(
+                                    visiblePaths: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path },
+                                    rootPath: root.url.path
+                                )
                             }
                         ).frame(maxWidth: .infinity, maxHeight: .infinity))
                         .onChange(of: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path }) { paths in
