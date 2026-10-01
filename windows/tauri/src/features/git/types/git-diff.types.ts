@@ -129,6 +129,8 @@ export interface MultiFileDiff {
   fileLabels?: string[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
+  /** Hides the changed-files navigator, e.g. for a single-file commit preview. */
+  hideFileList?: boolean;
   /** Working-tree refresh identities keyed by file key. */
   workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
   isLoading?: boolean;

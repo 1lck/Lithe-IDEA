@@ -30,6 +30,8 @@ import { createRequestGeneration, type RequestGeneration } from "../utils/reques
 import { createCommitDiffBuffer, createMultiFileDiff } from "../utils/multi-file-diff";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 
+import { useCommitFilePreview } from "./use-commit-file-preview";
+
 const WORKING_TREE_TITLES: Record<WorkingTreeDiffScope, string> = {
   all: "git.diff.uncommitted",
   unstaged: "git.diff.unstagedChanges",
@@ -73,6 +75,7 @@ export function useGitDiffActions({
   currentBranch,
   currentReference,
   onBranchDiffOpened,
+  commitPreviewScope = null,
 }: {
   activeRepoPath: string | null;
   onFileSelect?: (path: string, isDir: boolean) => void;
@@ -82,6 +85,7 @@ export function useGitDiffActions({
   currentBranch?: string;
   currentReference?: GitReference;
   onBranchDiffOpened?: () => void;
+  commitPreviewScope?: string | null;
 }) {
   const { t } = useTranslation();
   const [isLoadingCommitDiff, setIsLoadingCommitDiff] = useState(false);
@@ -94,6 +98,11 @@ export function useGitDiffActions({
   latestFileDiffRequestRef.current = latestFileDiffRequest;
   const activeRepoPathRef = useRef(activeRepoPath);
   activeRepoPathRef.current = activeRepoPath;
+  const previewCommitFileDiff = useCommitFilePreview(
+    activeRepoPath,
+    commitPreviewScope,
+    openDiffBuffer,
+  );
 
   const openOriginalFile = useCallback(
     async (filePath: string) => {
@@ -625,6 +634,7 @@ export function useGitDiffActions({
     viewFileDiff,
     viewWorkingTreeDiff,
     viewCommitDiff,
+    previewCommitFileDiff,
     viewCommitRangeDiff,
     viewCommitSelectionDiff,
     viewStashDiff,

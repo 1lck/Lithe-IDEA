@@ -7,10 +7,13 @@ test("right activity rail opens the real singleton Extensions buffer", async () 
   expect(railSource).toContain(
     "const openExtensionsBuffer = useBufferStore.use.actions().openExtensionsBuffer;",
   );
-  expect(railSource).toContain('buffer.type === "extensions"');
+  expect(railSource).toContain('activeBuffer?.type === "extensions"');
   expect(railSource).toContain('const extensionsLabel = t("extensions.title");');
   expect(railSource).toContain("aria-pressed={isExtensionsActive}");
-  expect(railSource).toContain("onClick={openExtensionsBuffer}");
+  expect(railSource).toContain("onClick={toggleExtensionsBuffer}");
+  // A second click on the active Extensions tab closes it instead of reopening.
+  expect(railSource).toContain("closeBuffer(activeExtensionsBufferId);");
+  expect(railSource).toContain("openExtensionsBuffer();");
   expect(railSource).not.toContain("useState");
   expect(layoutSource).toContain("<PluginActivityRail />");
 });

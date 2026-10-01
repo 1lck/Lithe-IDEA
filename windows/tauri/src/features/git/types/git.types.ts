@@ -33,6 +33,8 @@ export interface GitCommit {
   author: string;
   email?: string;
   date: string;
+  /** Author's UTC offset in minutes (east positive) for `date`, when Core reports one. */
+  dateUtcOffsetMinutes?: number;
   decorations: string;
 }
 
