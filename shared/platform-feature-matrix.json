@@ -363,13 +363,15 @@
           "windows/tauri/src/features/agent/components/agent-composer.tsx",
           "windows/tauri/src/features/agent/types/agent-file-uri.ts",
           "windows/tauri/src/features/agent/services/agent-composer-mentions.ts",
+          "windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts",
+          "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts",
           "windows/tauri/src/features/file-system/utils/file-system-dropped-paths.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 面板提供项目文件搜索选择器、可移除标签、去重与数量上限；从系统拖拽文件到输入区与在输入框输入 @ 打开选择器都已接入（两者共用同一套去重、数量上限与可移除标签，选中后把 @query 文本替换为引用标签），真实拖放体验与 Claude 端到端仍待验证。"
+      "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 面板提供项目文件搜索选择器、可移除标签、去重与数量上限；从系统、项目树拖入文件到输入区与在输入框输入 @ 打开选择器都已接入（系统拖放走 Tauri 原生拖放事件、项目树走鼠标拖动，都按落点路由到输入区；两者共用同一套去重、数量上限与可移除标签，选中后把 @query 文本替换为引用标签），真实拖放体验与 Claude 端到端仍待验证。"
     },
     {
       "id": "agent-management",
