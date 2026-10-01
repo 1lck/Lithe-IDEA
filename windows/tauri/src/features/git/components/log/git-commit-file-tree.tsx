@@ -194,7 +194,7 @@ export function GitCommitFileTree({
       ref={scrollRef}
       data-scroll-container=""
       label={t("git.log.commitFiles")}
-      className="file-tree-container git-commit-file-tree min-h-0 flex-1 overflow-auto p-1.5"
+      className="file-tree-container min-h-0 flex-1 overflow-auto p-1.5"
       style={
         {
           "--file-tree-row-height": `${presentation.rowHeight}px`,

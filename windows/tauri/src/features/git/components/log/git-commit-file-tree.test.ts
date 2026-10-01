@@ -25,7 +25,8 @@ describe("GitCommitFileTree", () => {
     ).text();
     const source = await Bun.file(new URL("./git-commit-file-tree.tsx", import.meta.url)).text();
 
-    expect(source).toContain("file-tree-container git-commit-file-tree");
+    // No CSS targets a Git-specific tree class, so the shared file-tree styling applies unchanged.
+    expect(source).not.toContain("git-commit-file-tree");
     // The count rides in the label's description slot so it sits right after the folder name.
     expect(source).toContain("git.log.fileCountOne");
     expect(source).not.toContain("trailing=");
