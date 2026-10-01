@@ -184,30 +184,41 @@ struct DatabaseTableView: View {
 
                 toolbarDivider
 
-                Menu {
-                    Button("Import CSV…") { importFormat = .csv; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-                    Button("Import JSON…") { importFormat = .json; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
-                    Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true || model.databaseFeature.selectedProfile?.kind == .sqlserver)
-                    Divider()
-                    Button("Export Table as CSV…") { export(.csv) }
-                    Button("Export Table as JSON…") { export(.json) }
-                    Button("Back Up Database as SQL…") { export(.sql) }
+                LitheMenu {
+                    LitheContextMenuItem.action("Import CSV…") {
+                        importFormat = .csv
+                        showsImporter = true
+                    }
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    LitheContextMenuItem.action("Import JSON…") {
+                        importFormat = .json
+                        showsImporter = true
+                    }
+                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    LitheContextMenuItem.action("Restore SQL Backup…") {
+                        importFormat = .sql
+                        showsImporter = true
+                    }
+                    .disabled(
+                        model.databaseFeature.selectedProfile?.readOnly == true
+                            || model.databaseFeature.selectedProfile?.kind == .sqlserver)
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Export Table as CSV…") { export(.csv) }
+                    LitheContextMenuItem.action("Export Table as JSON…") { export(.json) }
+                    LitheContextMenuItem.action("Back Up Database as SQL…") { export(.sql) }
                         .disabled(model.databaseFeature.selectedProfile?.kind == .sqlserver)
                 } label: {
                     toolbarActionLabel("Data Tools", systemImage: "shippingbox", showsChevron: true)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .buttonStyle(.litheNoPress)
+
                 .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
 
                 toolbarDivider
 
-                Menu {
-                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-                    Button("Replace in Current Page…") { showsReplaceSheet = true }
+                LitheMenu {
+                    LitheContextMenuItem.action("Paste TSV from Clipboard") { pasteFromClipboard() }
+                    LitheContextMenuItem.action("Replace in Current Page…") { showsReplaceSheet = true }
                         .disabled(model.databaseFeature.rows.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
@@ -216,8 +227,7 @@ struct DatabaseTableView: View {
                         .frame(width: 30, height: 27)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .buttonStyle(.litheNoPress)
                 .help("Batch table tools")
             }
         }
@@ -232,13 +242,13 @@ struct DatabaseTableView: View {
                 icon: "line.3.horizontal.decrease",
                 active: !appliedFilters.isEmpty
             ) { showsFilterPopover.toggle() }
-            .popover(isPresented: $showsFilterPopover, arrowEdge: .bottom) { filterPopover }
+            .litheDropdown(isPresented: $showsFilterPopover) { filterPopover }
             clausePill(
                 title: Text(verbatim: sortClauseTitle),
                 icon: "arrow.up.arrow.down",
                 active: !appliedSort.isEmpty
             ) { showsSortPopover.toggle() }
-            .popover(isPresented: $showsSortPopover, arrowEdge: .bottom) { sortPopover }
+            .litheDropdown(isPresented: $showsSortPopover) { sortPopover }
             Spacer()
             if !appliedFilters.isEmpty || !appliedSort.isEmpty {
                 Button("Clear query") { clearQuery() }
@@ -258,18 +268,24 @@ struct DatabaseTableView: View {
             Group {
                 Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
                     .buttonStyle(.litheNoPress).font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                Menu {
-                    ForEach(model.databaseFeature.columns, id: \.self) { column in
-                        Button(column) { jumpTargetColumn = column }
+                LitheMenu {
+                    for column in model.databaseFeature.columns {
+                        LitheContextMenuItem.action(column) { jumpTargetColumn = column }
                     }
-                } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
-                    .menuStyle(.borderlessButton).fixedSize()
-                Menu {
-                    Button("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
+                } label: {
+                    Label("Jump to Column", systemImage: "rectangle.split.3x1")
+                }
+                .buttonStyle(.litheNoPress)
+                    .fixedSize()
+                LitheMenu {
+                    LitheContextMenuItem.action("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
                         .disabled(selectedRows.isEmpty)
-                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-                } label: { Text("TSV") }
-                    .menuStyle(.borderlessButton).frame(width: 52)
+                    LitheContextMenuItem.action("Paste TSV from Clipboard") { pasteFromClipboard() }
+                } label: {
+                    Text("TSV")
+                }
+                .buttonStyle(.litheNoPress)
+                    .frame(width: 52)
                 Button {
                     rowDetailsIndex = selectedRows.first
                 } label: {
@@ -347,13 +363,9 @@ struct DatabaseTableView: View {
                     }
                     .buttonStyle(.litheNoPress)
                     .help(condition.isEnabled ? "Disable condition" : "Enable condition")
-                    Picker("Column", selection: $condition.column) {
-                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    LitheSettingsSelect(selection: $condition.column, options: model.databaseFeature.columns, width: 150, accessibilityLabel: "Column", title: { $0 })
                     .frame(width: 150)
-                    Picker("Operator", selection: $condition.operator) {
-                        ForEach(DatabaseFilterOperator.allCases, id: \.self) { op in Text(op.title).tag(op) }
-                    }
+                    LitheSettingsSelect(selection: $condition.operator, options: DatabaseFilterOperator.allCases, width: 130, accessibilityLabel: "Operator", title: { $0.menuTitle })
                     .frame(width: 130)
                     TextField("Value", text: $condition.value)
                         .textFieldStyle(.roundedBorder)
@@ -396,14 +408,9 @@ struct DatabaseTableView: View {
             ForEach(Array(sortConditions.indices), id: \.self) { index in
                 HStack(spacing: 8) {
                     Text("\(index + 1)").font(LitheTheme.uiFont(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
-                    Picker("Column", selection: $sortConditions[index].column) {
-                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    LitheSettingsSelect(selection: $sortConditions[index].column, options: model.databaseFeature.columns, width: 190, accessibilityLabel: "Column", title: { $0 })
                     .frame(width: 190)
-                    Picker("Direction", selection: $sortConditions[index].descending) {
-                        Text("Ascending").tag(false)
-                        Text("Descending").tag(true)
-                    }
+                    LitheSettingsSelect(selection: $sortConditions[index].descending, options: [false, true], width: 120, accessibilityLabel: "Direction", title: { $0 ? "Descending" : "Ascending" })
                     .frame(width: 120)
                     Button { moveSort(from: index, by: -1) } label: { Image(systemName: "arrow.up") }
                         .buttonStyle(.litheNoPress).help("Move up").disabled(index == 0)
@@ -548,16 +555,12 @@ struct DatabaseTableView: View {
                             .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
-                    Menu {
-                        Button {
+                    LitheMenu {
+                        LitheContextMenuItem.action("Ascending", systemImage: "arrow.up") {
                             setSort(column: column, descending: false)
-                        } label: {
-                            Label("Ascending", systemImage: "arrow.up")
                         }
-                        Button {
+                        LitheContextMenuItem.action("Descending", systemImage: "arrow.down") {
                             setSort(column: column, descending: true)
-                        } label: {
-                            Label("Descending", systemImage: "arrow.down")
                         }
                     } label: {
                         Image(systemName: sortIcon(for: column))
@@ -566,8 +569,7 @@ struct DatabaseTableView: View {
                             .frame(width: 24, height: 30)
                             .contentShape(Rectangle())
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .fixedSize()
                     .help("Sort column")
                 }
@@ -1061,9 +1063,7 @@ private struct DatabaseBatchUpdateSheet: View {
                     Text("Column")
                         .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Picker("Column", selection: $column) {
-                        ForEach(columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    LitheSettingsSelect(selection: $column, options: columns, width: 240, accessibilityLabel: "Column", title: { $0 })
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                 }
@@ -1171,7 +1171,8 @@ private struct DatabaseTableSortDraft: Identifiable {
 }
 
 private extension DatabaseFilterOperator {
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .equals: "Equals"
         case .notEquals: "Not Equals"
@@ -1246,10 +1247,7 @@ private struct DatabaseReplaceSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
             Form {
-                Picker("Column", selection: $column) {
-                    Text("All columns").tag("")
-                    ForEach(columns, id: \.self) { Text($0).tag($0) }
-                }
+                LitheSettingsSelect(selection: $column, options: [""] + columns, width: 240, accessibilityLabel: "Column", title: { $0.isEmpty ? "All columns" : $0 })
                 TextField("Find", text: $searchText)
                 TextField("Replace with", text: $replacementText)
             }

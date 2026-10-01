@@ -86,10 +86,8 @@ private struct GitPatchDialog: View {
                 Text("The patch changes the base commit's tree into the target commit's tree.")
                     .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             } else {
-                Picker("Include", selection: Binding(get: { editor.source }, set: { editor.setSource($0) })) {
-                    Text("All uncommitted changes").tag(GitPatchSource.workingTree)
-                    Text("Staged changes").tag(GitPatchSource.staged)
-                    Text("Unstaged changes").tag(GitPatchSource.unstaged)
+                LabeledContent("Include") {
+                    LitheSettingsSelect(selection: Binding(get: { editor.source }, set: { editor.setSource($0) }), options: [GitPatchSource.workingTree, .staged, .unstaged], width: 260, accessibilityLabel: "Include", title: { $0 == .workingTree ? "All uncommitted changes" : $0 == .staged ? "Staged changes" : "Unstaged changes" })
                 }
                 .disabled(editor.isBusy)
                 Text(LocalizedStringKey(editor.source == .workingTree
@@ -111,9 +109,8 @@ private struct GitPatchDialog: View {
                 }
                 Spacer()
             }
-            Picker("Apply to", selection: Binding(get: { editor.target }, set: { editor.setTarget($0) })) {
-                Text("Working tree").tag(GitPatchTarget.worktree)
-                Text("Index and working tree").tag(GitPatchTarget.indexAndWorktree)
+            LabeledContent("Apply to") {
+                LitheSettingsSelect(selection: Binding(get: { editor.target }, set: { editor.setTarget($0) }), options: [GitPatchTarget.worktree, .indexAndWorktree], width: 260, accessibilityLabel: "Apply to", title: { $0 == .worktree ? "Working tree" : "Index and working tree" })
             }
             .disabled(editor.isBusy)
             Text("Review the files and diff before applying. The repository is checked again when you confirm.")

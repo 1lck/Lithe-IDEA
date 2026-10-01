@@ -8,6 +8,92 @@ import LitheGitModule
 @MainActor
 struct ContextMenuCoverageTests {
     @Test
+    func sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches() async throws {
+        let probe = DropdownEnvironmentProbe()
+        let host = NSHostingView(rootView: DropdownEnvironmentHarness(probe: probe))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 220, height: 36),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        defer {
+            probe.isPresented = false
+            window.contentView = nil
+            window.close()
+        }
+        host.layoutSubtreeIfNeeded()
+        probe.isPresented = true
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while probe.renderedLocale == nil, clock.now < deadline {
+            host.layoutSubtreeIfNeeded()
+            await Task.yield()
+        }
+        #expect(probe.renderedLocale == "zh-Hans")
+        let dropdown = try #require(window.childWindows?.first)
+        #expect(dropdown.isVisible)
+        #expect(dropdown.animationBehavior == .none)
+        // Detaching a still-presented anchor must close its window and release
+        // native event monitors, even before SwiftUI destroys the host.
+        window.contentView = nil
+        #expect(!dropdown.isVisible)
+        #expect(!probe.isPresented)
+    }
+
+    @Test
+    func nestedDropdownKeepsParentAndRoutesKeysToChild() throws {
+        let parent = LitheContextMenuPresenter()
+        let child = LitheContextMenuPresenter()
+        defer { child.dismiss(); parent.dismiss() }
+        let screen = try #require(NSScreen.main).visibleFrame
+        let controller = LitheDropdownHostingController(rootView: AnyView(
+            Text("Branches").frame(width: 300, height: 180).litheContextMenuSurface()
+        ))
+        var parentDismissals = 0
+        parent.show(contentController: controller, at: NSPoint(x: screen.midX, y: screen.midY),
+                    appearance: NSAppearance(named: .darkAqua)) { parentDismissals += 1 }
+        let parentWindow = try #require(controller.view.window)
+        var chosen = false
+        var childDismissals = 0
+        child.show(items: [.action("Checkout") { chosen = true }],
+                   at: NSPoint(x: parentWindow.frame.maxX, y: parentWindow.frame.maxY),
+                   appearance: parentWindow.effectiveAppearance, locale: Locale(identifier: "en"),
+                   anchored: true, parentWindow: parentWindow) { childDismissals += 1 }
+        let childWindow = try #require(parentWindow.childWindows?.first)
+        #expect(childWindow.isVisible)
+        #expect(parentWindow.isVisible)
+        #expect(parentDismissals == 0)
+        try sendKey(125, to: childWindow)
+        try sendKey(36, to: childWindow)
+        #expect(chosen)
+        #expect(childDismissals == 1)
+        #expect(parentDismissals == 0)
+        #expect(parentWindow.isVisible)
+        try sendKey(53, to: parentWindow)
+        #expect(parentDismissals == 1)
+    }
+
+    @Test
+    func itemBuilderKeepsConditionalActionsDisabledChoicesAndSubmenus() {
+        @LitheMenuItemsBuilder func items() -> [LitheContextMenuItem] {
+            LitheContextMenuItem.heading("Actions")
+            for index in 0..<2 {
+                if index == 1 { LitheContextMenuItem.action("Choice", checked: true) {}.disabled(true) }
+            }
+            LitheContextMenuItem.submenu("More") {
+                LitheContextMenuItem.action("Remove", role: .destructive) {}
+            }
+        }
+        let result = items()
+        #expect(result.count == 3)
+        #expect(!result[0].isEnabled)
+        #expect(!result[1].isEnabled)
+        #expect(result[1].isChecked)
+        guard case .submenu(let children) = result[2].kind else { Issue.record("Lost submenu"); return }
+        #expect(children.count == 1)
+        #expect(children[0].role == .destructive)
+    }
+
+    @Test
     func filterPopoverAnchorLeavesMouseEventsToItsButton() {
         let button = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 30))
         let anchor = GitLogPopoverAnchorView(frame: button.bounds)
@@ -199,6 +285,18 @@ struct ContextMenuCoverageTests {
         let files = try #require(FileManager.default.enumerator(at: sources, includingPropertiesForKeys: nil))
         for case let file as URL in files where file.pathExtension == "swift" {
             let source = try String(contentsOf: file, encoding: .utf8)
+            #expect(source.range(of: #"\b(?:SwiftUI\.)?Menu\s*[({]"#, options: .regularExpression) == nil,
+                    "Product dropdowns must use LitheMenu in \(file.lastPathComponent)")
+            #expect(source.range(of: #"\.popover\s*\("#, options: .regularExpression) == nil,
+                    "Product popups must use litheDropdown in \(file.lastPathComponent)")
+            #expect(source.range(of: #"\bNSPopUpButton\s*\("#, options: .regularExpression) == nil,
+                    "Value dropdowns must use LitheSettingsSelect in \(file.lastPathComponent)")
+            if source.contains("Picker") {
+                let pickers = source.matches(of: /\bPicker\s*\(/).count
+                let segmented = source.matches(of: /\.pickerStyle\(\.segmented\)/).count
+                #expect(pickers == segmented,
+                        "Only segmented Pickers remain native in \(file.lastPathComponent); use LitheSettingsSelect for dropdowns")
+            }
             #expect(source.range(of: #"\.contextMenu\s*[({]"#, options: .regularExpression) == nil,
                     "Use the shared context menu in \(file.lastPathComponent)")
             // Completion and source-action pickers are caret popups, not right-click menus.
@@ -331,5 +429,31 @@ struct ContextMenuCoverageTests {
             isCurrent: current, isPrimary: primary, isBare: false, isDetached: false,
             isLocked: locked, lockReason: nil, isPrunable: prunable, pruneReason: nil
         ), status: .available)
+    }
+}
+
+@MainActor
+private final class DropdownEnvironmentProbe: ObservableObject {
+    @Published var isPresented = false
+    var renderedLocale: String?
+}
+
+private struct DropdownEnvironmentHarness: View {
+    @ObservedObject var probe: DropdownEnvironmentProbe
+    var body: some View {
+        Text("Anchor")
+            .frame(width: 220, height: 36)
+            .litheDropdown(isPresented: $probe.isPresented) { DropdownEnvironmentContent() }
+            .environmentObject(probe)
+            .environment(\.locale, Locale(identifier: "zh-Hans"))
+    }
+}
+
+private struct DropdownEnvironmentContent: View {
+    @EnvironmentObject private var probe: DropdownEnvironmentProbe
+    @Environment(\.locale) private var locale
+    var body: some View {
+        Text("Inherited environment").frame(width: 180, height: 48)
+            .onAppear { probe.renderedLocale = locale.identifier }
     }
 }

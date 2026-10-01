@@ -51,8 +51,10 @@ struct WorkbenchRenderingSafetyTests {
         )
         let source = try String(contentsOf: workbenchURL, encoding: .utf8)
 
-        #expect(source.contains(".overlayPreferenceValue(ProjectSwitcherButtonBoundsPreferenceKey.self)"))
-        #expect(source.contains(".overlayPreferenceValue(BranchSwitcherButtonBoundsPreferenceKey.self)"))
+        #expect(source.contains(".litheDropdown(isPresented: instantProjectSwitcherPresentation)"))
+        #expect(source.contains(".litheDropdown(isPresented: instantBranchSwitcherPresentation)"))
+        #expect(!source.contains("isActive: isProjectSwitcherPresented"))
+        #expect(!source.contains("isActive: isBranchSwitcherPresented"))
         #expect(source.contains(".sheet(item: $pendingTopBarPushReference)"))
         #expect(source.contains("GitPushDialog("))
         #expect(source.contains("run-selected-run-configuration"))

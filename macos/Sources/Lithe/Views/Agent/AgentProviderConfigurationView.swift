@@ -35,11 +35,14 @@ struct AgentProviderConfigurationView: View {
                     Button { openEditor(source: source) } label: { Label("Add", systemImage: "plus") }
                         .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
                 } else {
-                    Menu {
-                        ForEach(sources) { kind in
-                            Button(kind.title) { openEditor(source: kind) }
+                    LitheMenu {
+                        for kind in sources {
+                            LitheContextMenuItem.action(kind.title) { openEditor(source: kind) }
                         }
-                    } label: { Label("Add", systemImage: "plus") }
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .buttonStyle(.litheNoPress)
                 }
             }
             if agentID == "codex-acp" { subscriptionRow }

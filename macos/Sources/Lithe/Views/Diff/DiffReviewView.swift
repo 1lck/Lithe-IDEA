@@ -128,25 +128,20 @@ struct DiffReviewView: View {
                     systemImage: usesSingleFileDiff ? "doc.text" : "rectangle.split.2x1"
                 )
 
-                Menu {
-                    ForEach(GitDiffWhitespaceMode.allCases) { mode in
-                        Button {
+                LitheMenu {
+                    for mode in GitDiffWhitespaceMode.allCases {
+                        LitheContextMenuItem.action(mode.title, checked: feature.gitDiffWhitespaceMode == mode) {
                             Task {
                                 selectedDifferenceIndex = 0
                                 await feature.reloadSelectedChangeDiff(whitespace: mode)
-                            }
-                        } label: {
-                            if feature.gitDiffWhitespaceMode == mode {
-                                Label(LocalizedStringKey(mode.title), systemImage: "checkmark")
-                            } else {
-                                Text(LocalizedStringKey(mode.title))
                             }
                         }
                     }
                 } label: {
                     toolbarLabel(feature.gitDiffWhitespaceMode.title, systemImage: "textformat")
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
+
                 .lithePointer()
                 .fixedSize()
                 .help("Whitespace comparison")

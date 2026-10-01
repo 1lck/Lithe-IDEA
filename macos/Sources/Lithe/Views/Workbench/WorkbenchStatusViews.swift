@@ -47,7 +47,7 @@ struct MemoryUsageStatusView: View {
                 "Lithe: \(memoryUsageMonitor.litheText) · LSP: \(memoryUsageMonitor.lspText) · Services: \(memoryUsageMonitor.serviceText)"
             )
         )
-        .popover(isPresented: $isMemoryUsagePopoverPresented, arrowEdge: .top) {
+        .litheDropdown(isPresented: $isMemoryUsagePopoverPresented, opensUpward: true) {
             memoryUsagePopover
         }
         .onChange(of: isMemoryUsagePopoverPresented) { isPresented in
@@ -117,8 +117,6 @@ struct MemoryUsageStatusView: View {
             .padding(12)
         }
         .frame(width: 280)
-        .background(LitheTheme.popupBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 
     private func memoryMetric(_ title: String, value: String) -> some View {

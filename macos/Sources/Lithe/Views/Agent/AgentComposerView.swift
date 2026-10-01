@@ -148,26 +148,21 @@ struct AgentComposerView: View {
     }
 
     private var agentMenu: some View {
-        Menu {
-            if agents.isEmpty { Text("No Agent is set up yet") }
-            ForEach(agents) { agent in
-                Button { onSelectAgent(agent.id) } label: {
-                    if agent.id == selectedAgent?.id {
-                        Label(agent.name, systemImage: "checkmark")
-                    } else {
-                        Text(agent.name)
-                    }
+        LitheMenu {
+            if agents.isEmpty { LitheContextMenuItem.heading("No Agent is set up yet") }
+            for agent in agents {
+                LitheContextMenuItem.action(agent.name, checked: agent.id == selectedAgent?.id) {
+                    onSelectAgent(agent.id)
                 }
             }
-            Divider()
-            Button("Agent Settings…", action: onOpenSettings)
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Agent Settings…", action: onOpenSettings)
         } label: {
             AgentBrandIcon(name: selectedAgent?.name, size: 16)
                 .foregroundStyle(AgentPanelStyle.secondary)
                 .frame(width: 28, height: 28)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.litheNoPress)
         .fixedSize()
         .help(selectedAgent?.name ?? String(localized: "Choose an Agent"))
         .accessibilityLabel("Switch Agent")

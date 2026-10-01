@@ -60,24 +60,6 @@ private extension EnvironmentValues {
     }
 }
 
-private enum WorkbenchPopoverLayoutMetrics {
-    static let leadingOverlap: CGFloat = 10
-    static let viewportMargin: CGFloat = 8
-    static let arrowWidth: CGFloat = 22
-    static let arrowHeight: CGFloat = 12
-}
-
-private struct WorkbenchPopoverArrow: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.closeSubpath()
-        return path
-    }
-}
-
 /// Owns observation of replacement visibility so the overlay can dismiss
 /// without reconstructing the complete workbench.
 private struct ProjectReplaceOverlay: View {
@@ -195,28 +177,6 @@ final class ProjectReplaceKeyMonitorView: NSView {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }
-    }
-}
-
-private struct ProjectSwitcherButtonBoundsPreferenceKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-
-    static func reduce(
-        value: inout Anchor<CGRect>?,
-        nextValue: () -> Anchor<CGRect>?
-    ) {
-        value = nextValue() ?? value
-    }
-}
-
-private struct BranchSwitcherButtonBoundsPreferenceKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-
-    static func reduce(
-        value: inout Anchor<CGRect>?,
-        nextValue: () -> Anchor<CGRect>?
-    ) {
-        value = nextValue() ?? value
     }
 }
 
@@ -495,26 +455,6 @@ struct WorkbenchView: View {
                     + "Git will refuse if it contains unmerged work."
             )
         }
-        .overlayPreferenceValue(ProjectSwitcherButtonBoundsPreferenceKey.self) { bounds in
-            GeometryReader { geometry in
-                if isProjectSwitcherPresented, let bounds {
-                    projectSwitcherOverlay(
-                        buttonFrame: geometry[bounds],
-                        viewportSize: geometry.size
-                    )
-                }
-            }
-        }
-        .overlayPreferenceValue(BranchSwitcherButtonBoundsPreferenceKey.self) { bounds in
-            GeometryReader { geometry in
-                if isBranchSwitcherPresented, let bounds {
-                    branchSwitcherOverlay(
-                        buttonFrame: geometry[bounds],
-                        viewportSize: geometry.size
-                    )
-                }
-            }
-        }
         .overlay(alignment: .bottomTrailing) {
             if !model.activeNotifications.isEmpty {
                 VStack(alignment: .trailing, spacing: 8) {
@@ -760,19 +700,12 @@ struct WorkbenchView: View {
                 .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
                 .padding(.trailing, 10)
                 .frame(height: 30)
-                .litheRowHover(
-                    isActive: isProjectSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+                .litheRowHover(cornerRadius: 6)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .anchorPreference(
-                key: ProjectSwitcherButtonBoundsPreferenceKey.self,
-                value: .bounds
-            ) { $0 }
+            .litheDropdown(isPresented: instantProjectSwitcherPresentation) { projectSwitcherContent }
 
             Button {
                 updateSwitcherPresentation(
@@ -797,18 +730,11 @@ struct WorkbenchView: View {
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 32)
-                .litheRowHover(
-                    isActive: isBranchSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+                .litheRowHover(cornerRadius: 6)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .anchorPreference(
-                key: BranchSwitcherButtonBoundsPreferenceKey.self,
-                value: .bounds
-            ) { $0 }
+            .litheDropdown(isPresented: instantBranchSwitcherPresentation) { branchSwitcherContent }
 
             Spacer(minLength: 22)
 
@@ -838,33 +764,7 @@ struct WorkbenchView: View {
         }
     }
 
-    private func projectSwitcherOverlay(
-        buttonFrame: CGRect,
-        viewportSize: CGSize
-    ) -> some View {
-        let popupMetrics = ProjectSwitcherLayoutMetrics.self
-        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
-        let placement = workbenchPopoverPlacement(
-            buttonFrame: buttonFrame,
-            viewportWidth: viewportSize.width,
-            popupWidth: popupMetrics.width
-        )
-
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { updateSwitcherPresentation(project: false) }
-
-            ZStack(alignment: .topLeading) {
-                WorkbenchPopoverArrow()
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        WorkbenchPopoverArrow()
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
-                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
-
+    private var projectSwitcherContent: some View {
                 ProjectSwitcherPopover(
                     isPresented: instantProjectSwitcherPresentation,
                     onNewProject: {
@@ -884,46 +784,13 @@ struct WorkbenchView: View {
                         model.openProject(project.url)
                     }
                 )
-                .environmentObject(model)
-                .lithePopupChrome()
-                .padding(.top, chromeMetrics.arrowHeight - 1)
-            }
-            .offset(x: placement.popupX, y: buttonFrame.maxY)
-        }
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
-        .onExitCommand { updateSwitcherPresentation(project: false) }
+        .environmentObject(model)
+        .environmentObject(projectSessions)
+        .environment(\.projectWindowScope, projectWindowScope)
     }
 
-    private func branchSwitcherOverlay(
-        buttonFrame: CGRect,
-        viewportSize: CGSize
-    ) -> some View {
-        let popupMetrics = BranchSwitcherPopover.Metrics.self
-        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
-        let placement = workbenchPopoverPlacement(
-            buttonFrame: buttonFrame,
-            viewportWidth: viewportSize.width,
-            popupWidth: popupMetrics.popupWidth
-        )
-
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { updateSwitcherPresentation(branch: false) }
-
-            ZStack(alignment: .topLeading) {
-                WorkbenchPopoverArrow()
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        WorkbenchPopoverArrow()
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
-                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
-
+    private var branchSwitcherContent: some View {
+        Group {
                 if let feature = model.gitFeatureIfActive {
                     BranchSwitcherPopover(
                         feature: feature,
@@ -962,21 +829,13 @@ struct WorkbenchView: View {
                             await model?.showComparison(from: $0, to: $1)
                         }
                     )
-                    .padding(.top, chromeMetrics.arrowHeight - 1)
+
                 } else {
                     ProgressView()
-                        .frame(width: popupMetrics.popupWidth, height: popupMetrics.branchListHeight)
-                        .lithePopupChrome()
-                        .padding(.top, chromeMetrics.arrowHeight - 1)
+                        .frame(width: BranchSwitcherPopover.Metrics.popupWidth, height: BranchSwitcherPopover.Metrics.branchListHeight)
+
                 }
-            }
-            .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
-        .onExitCommand { updateSwitcherPresentation(branch: false) }
         .task {
             let feature = await model.activateGitModule()
             guard !Task.isCancelled else { return }
@@ -986,25 +845,6 @@ struct WorkbenchView: View {
             }
             await feature.refreshGitHistory()
         }
-    }
-
-    private func workbenchPopoverPlacement(
-        buttonFrame: CGRect,
-        viewportWidth: CGFloat,
-        popupWidth: CGFloat
-    ) -> (popupX: CGFloat, arrowCenterX: CGFloat) {
-        let metrics = WorkbenchPopoverLayoutMetrics.self
-        let desiredX = buttonFrame.minX - metrics.leadingOverlap
-        let maximumX = max(
-            metrics.viewportMargin,
-            viewportWidth - popupWidth - metrics.viewportMargin
-        )
-        let popupX = min(max(desiredX, metrics.viewportMargin), maximumX)
-        let arrowCenterX = min(
-            max(buttonFrame.midX - popupX, metrics.arrowWidth),
-            popupWidth - metrics.arrowWidth
-        )
-        return (popupX, arrowCenterX)
     }
 
     private var instantProjectSwitcherPresentation: Binding<Bool> {
@@ -1172,7 +1012,7 @@ struct WorkbenchView: View {
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
-        .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isRunConfigurationPickerPresented) {
             runConfigurationSelectionPanel
         }
     }
@@ -1206,7 +1046,6 @@ struct WorkbenchView: View {
                             HStack(spacing: 10) {
                                 RunConfigurationIcon(kind: configuration.kind, size: 16)
                                 Text(configuration.name)
-                                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer(minLength: 12)
@@ -1215,22 +1054,19 @@ struct WorkbenchView: View {
                                     .opacity(isSelected ? 1 : 0)
                             }
                             .foregroundStyle(LitheTheme.primaryText)
-                            .padding(.horizontal, 10)
-                            .frame(height: 34)
+                            .frame(minHeight: LitheDropdownMetrics.rowHeight)
                             .contentShape(Rectangle())
-                            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
                         }
-                        .buttonStyle(.litheNoPress)
+                        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected))
                         .help(configuration.name)
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
             }
-            .frame(height: min(CGFloat(visibleConfigurations.count) * 37 + (services.isEmpty ? 0 : 28), 296))
+            .frame(height: min(CGFloat(visibleConfigurations.count) * (LitheDropdownMetrics.rowHeight + 3) + (services.isEmpty ? 0 : 28), 296))
         }
-        .padding(8)
+        .padding(LitheDropdownMetrics.popupPadding)
         .frame(width: 280)
-        .background(LitheTheme.editor)
     }
 
     private var backgroundPickerButton: some View {
@@ -1252,7 +1088,7 @@ struct WorkbenchView: View {
         .help("Change workbench background")
         .accessibilityLabel("Change workbench background")
         .accessibilityIdentifier("workbench-background-picker")
-        .popover(isPresented: $isBackgroundPickerPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isBackgroundPickerPresented) {
             WorkbenchBackgroundPicker {
                 isBackgroundPickerPresented = false
             }
@@ -1388,7 +1224,7 @@ struct WorkbenchView: View {
             )
             .workbenchHoverHelp(Text("Notifications"), placement: .leading)
             .accessibilityLabel("Notifications")
-            .popover(isPresented: $isNotificationCenterPresented, arrowEdge: .trailing) {
+            .litheDropdown(isPresented: $isNotificationCenterPresented) {
                 WorkbenchNotificationCenterView()
                     .environmentObject(model)
             }
@@ -1740,45 +1576,36 @@ struct WorkbenchView: View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             if let document = model.activeDocument, document.url.isFileURL {
-                Menu {
-                    Section("Reopen with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.reopenDocument(document, with: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.readEncoding == encoding {
-                                        Spacer()
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
+                LitheMenu {
+                    LitheContextMenuItem.heading("Reopen with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsRead) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.readEncoding == encoding
+                        ) {
+                            model.reopenDocument(document, with: encoding)
                         }
                     }
-                    Divider()
-                    Section("Save with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.saveDocument(document, encoding: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.saveEncoding == encoding {
-                                        Spacer()
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                            .disabled(document.isReadOnly)
+
+                    LitheContextMenuItem.separator
+
+                    LitheContextMenuItem.heading("Save with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsWrite) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.saveEncoding == encoding
+                        ) {
+                            model.saveDocument(document, encoding: encoding)
                         }
+                        .disabled(document.isReadOnly)
                     }
+
                 } label: {
                     Text(document.readEncoding.displayName)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
                 .fixedSize()
                 .help("File encoding")
             }
@@ -1931,7 +1758,6 @@ private struct WorkbenchNotificationCenterView: View {
             }
         }
         .frame(width: 340, height: 360)
-        .background(LitheTheme.raised)
         .onAppear {
             model.markAllNotificationsRead()
         }
@@ -2525,7 +2351,6 @@ struct WorkbenchBackgroundPicker: View {
         }
         .padding(14)
         .frame(width: 356)
-        .background(LitheTheme.popupBackground)
     }
 
     private func presetButton(_ preset: WorkbenchBackgroundPreset) -> some View {

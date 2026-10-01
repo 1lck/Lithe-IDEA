@@ -24,15 +24,13 @@ struct GitWorktreeCreateView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("New Worktree").font(LitheTheme.uiFont(size: 16, weight: .semibold))
-            Picker("Checkout", selection: $mode) {
-                Text("New branch").tag(GitWorktreeMode.newBranch)
-                Text("Existing local branch").tag(GitWorktreeMode.existingBranch)
-                Text("Detached HEAD").tag(GitWorktreeMode.detached)
+            LabeledContent("Checkout") {
+                LitheSettingsSelect(selection: $mode, options: [GitWorktreeMode.newBranch, .existingBranch, .detached], width: 300, accessibilityLabel: "Checkout", title: { $0 == .newBranch ? "New branch" : $0 == .existingBranch ? "Existing local branch" : "Detached HEAD" })
             }
             .disabled(isSubmitting)
             if !availableReferences.isEmpty {
-                Picker(LocalizedStringKey(mode == .existingBranch ? "Branch" : "Start from"), selection: $selectedReferenceID) {
-                    ForEach(availableReferences) { Text($0.shortName).tag($0.id) }
+                LabeledContent(mode == .existingBranch ? "Branch" : "Start from") {
+                    LitheSettingsSelect(selection: $selectedReferenceID, options: availableReferences.map(\.id), width: 300, accessibilityLabel: mode == .existingBranch ? "Branch" : "Start from", title: { id in availableReferences.first { $0.id == id }?.shortName ?? id })
                 }
                 .disabled(isSubmitting)
             } else if mode == .existingBranch {

@@ -579,19 +579,15 @@ struct DatabaseSQLWorkspaceView: View {
             .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
             .help(hasSQLSelection ? "Run selected SQL (Command-Return)" : "Run all SQL (Command-Return)")
 
-            Menu {
-                Button { runAllQuery() } label: {
-                    Label("Run All", systemImage: "play.fill")
-                }
-                Button { runSelectionQuery() } label: {
-                    Label("Run Selection", systemImage: "text.cursor")
-                }
-                .disabled(!hasSQLSelection)
+            LitheMenu {
+                LitheContextMenuItem.action("Run All", systemImage: "play.fill") { runAllQuery() }
+                LitheContextMenuItem.action("Run Selection", systemImage: "text.cursor") { runSelectionQuery() }
+                    .disabled(!hasSQLSelection)
             } label: {
                 Image(systemName: "chevron.down")
                     .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 18)
             .disabled(model.databaseFeature.selectedSQLTab?.isRunning == true || model.databaseFeature.selectedProfile == nil)
             .help("Choose SQL execution scope")
@@ -603,19 +599,21 @@ struct DatabaseSQLWorkspaceView: View {
             .disabled(model.databaseFeature.selectedSQLTab?.sql.isEmpty != false)
             .help("Format SQL")
 
-            Menu {
+            LitheMenu {
                 let history = historyForSelectedProfile
                 if history.isEmpty {
-                    Text("No query history")
+                    LitheContextMenuItem.heading("No query history")
                 } else {
-                    ForEach(history) { entry in
-                        Button(historyLabel(entry)) { model.databaseFeature.restoreSQLHistory(entry) }
+                    for entry in history {
+                        LitheContextMenuItem.action(historyLabel(entry)) {
+                            model.databaseFeature.restoreSQLHistory(entry)
+                        }
                     }
                 }
             } label: {
                 Image(systemName: "clock.arrow.circlepath")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 28)
             .help("Query history")
 
@@ -1037,14 +1035,7 @@ private struct DatabaseDiagnosticsView: View {
         let analysis = tab.map { model.databaseFeature.analysis(forSQLTab: $0.id) }
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                Picker("Diagnostic", selection: $diagnosticKind) {
-                    Text("Table size").tag("tableSize")
-                    Text("Locks").tag("locks")
-                    Text("Slow queries").tag("slowQueries")
-                    Text("Indexes").tag("indexes")
-                    Text("Data quality").tag("dataQuality")
-                    Text("Schema impact").tag("schemaImpact")
-                }
+                LitheSettingsSelect(selection: $diagnosticKind, options: ["tableSize", "locks", "slowQueries", "indexes", "dataQuality", "schemaImpact"], width: 170, accessibilityLabel: "Diagnostic", title: { ["tableSize": "Table size", "locks": "Locks", "slowQueries": "Slow queries", "indexes": "Indexes", "dataQuality": "Data quality", "schemaImpact": "Schema impact"][$0] ?? $0 })
                 .frame(width: 170)
                 Button { loadDiagnostics() } label: { Image(systemName: "arrow.clockwise") }.litheIconButton().help("Run diagnostic")
                 Button { if let profileID = model.databaseFeature.selectedProfileID { Task { _ = await model.databaseFeature.createBackup(profileID: profileID) } } } label: { Image(systemName: "archivebox") }.litheIconButton().help("Create database backup")

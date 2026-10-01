@@ -62,7 +62,7 @@ struct ProjectSwitcherPopover: View {
                     }
                 }
             }
-            .padding(8)
+            .padding(LitheDropdownMetrics.popupPadding)
         }
         .frame(width: ProjectSwitcherLayoutMetrics.width)
         .frame(maxHeight: ProjectSwitcherLayoutMetrics.maximumHeight)
@@ -90,17 +90,12 @@ struct ProjectSwitcherPopover: View {
                     .font(LitheTheme.uiFont(size: 16, weight: .regular))
                     .frame(width: 20)
                 Text(LocalizedStringKey(title))
-                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 30)
             .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 5)
         }
-        .buttonStyle(.litheNoPress)
+        .buttonStyle(LitheDropdownRowStyle())
         .lithePointer()
     }
 
@@ -117,13 +112,8 @@ struct ProjectSwitcherPopover: View {
                 isCurrent: isCurrent
             )
         }
-        .buttonStyle(.litheNoPress)
+        .buttonStyle(LitheDropdownRowStyle(isSelected: isCurrent))
         .lithePointer()
-        .litheRowHover(
-            isActive: isCurrent,
-            cornerRadius: 5,
-            activeBackground: LitheTheme.subtleSelection
-        )
     }
 
     private func recentProjectRow(_ project: RecentProject) -> some View {
@@ -140,10 +130,9 @@ struct ProjectSwitcherPopover: View {
                 isCurrent: false
             )
         }
-        .buttonStyle(.litheNoPress)
+        .buttonStyle(LitheDropdownRowStyle())
         .disabled(!exists)
         .lithePointer()
-        .litheRowHover(cornerRadius: 5)
     }
 
     private func projectRowContent(
@@ -176,7 +165,6 @@ struct ProjectSwitcherPopover: View {
                     .foregroundStyle(LitheTheme.accent)
             }
         }
-        .padding(.horizontal, 10)
         .frame(maxWidth: .infinity, minHeight: 46, alignment: .leading)
         .contentShape(Rectangle())
     }

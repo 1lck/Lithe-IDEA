@@ -55,15 +55,19 @@ struct LitheContextMenuItem: Identifiable {
     let title: String
     let systemImage: String?
     let iconKind: LitheIconKind?
+    var icon: AnyView? = nil
+    var isChecked = false
     let shortcut: String?
     let role: Role
-    let isEnabled: Bool
+    var isEnabled: Bool
     let action: () -> Void
 
     static func action(
         _ title: String,
         systemImage: String? = nil,
         iconKind: LitheIconKind? = nil,
+        icon: AnyView? = nil,
+        checked: Bool = false,
         shortcut: String? = nil,
         role: Role = .standard,
         isEnabled: Bool = true,
@@ -74,6 +78,8 @@ struct LitheContextMenuItem: Identifiable {
             title: title,
             systemImage: systemImage,
             iconKind: iconKind,
+            icon: icon,
+            isChecked: checked,
             shortcut: shortcut,
             role: role,
             isEnabled: isEnabled,
@@ -192,7 +198,7 @@ private struct LitheContextMenuContent: View {
     }
 
     private func menuColumn(_ items: [LitheContextMenuItem], width: CGFloat, isChild: Bool) -> some View {
-        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil }
+        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         return ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(spacing: 0) {
@@ -269,7 +275,9 @@ private struct LitheContextMenuRow: View {
             HStack(spacing: 9) {
                 if showsIcons {
                     Group {
-                        if let iconKind = item.iconKind {
+                        if let icon = item.icon {
+                            icon
+                        } else if let iconKind = item.iconKind {
                             LitheIcon(kind: iconKind, size: 16)
                         } else if let systemImage = item.systemImage {
                             Image(systemName: systemImage)
@@ -299,6 +307,10 @@ private struct LitheContextMenuRow: View {
                     Text(shortcut)
                         .font(Font(LitheDropdownMetrics.shortcutFont))
                         .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.tertiaryText)
+                } else if item.isChecked {
+                    Image(systemName: "checkmark")
+                        .font(LitheTheme.uiFont(size: 11))
+                        .foregroundStyle(LitheTheme.accent)
                 }
             }
         }
@@ -341,6 +353,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var visibleFrame: NSRect = .zero
     private var contentDismissed: (() -> Void)?
     private var contentAnchor: NSPoint?
+    private var contentOpensUpward = false
 
     func show(
         items: [LitheContextMenuItem],
@@ -349,6 +362,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         locale: Locale,
         opensUpward: Bool = false,
         anchored: Bool = false,
+        parentWindow: NSWindow? = nil,
         onDismiss: (() -> Void)? = nil
     ) {
         dismiss()
@@ -372,7 +386,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         let submenuHeight = min(submenuHeights.max() ?? 0, maximumHeight)
         let preferredOrigin = NSPoint(
             x: screenPoint.x - (anchored ? 0 : 6),
-            y: opensUpward ? screenPoint.y + 6 : screenPoint.y - menuHeight + (anchored ? 0 : 6)
+            y: opensUpward ? screenPoint.y + (anchored ? 0 : 6) : screenPoint.y - menuHeight + (anchored ? 0 : 6)
         )
         let origin = NSPoint(
             x: min(max(preferredOrigin.x, visibleFrame.minX + 6), visibleFrame.maxX - menuWidth - 6),
@@ -401,6 +415,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
 
         self.panel = panel
+        parentWindow?.addChildWindow(panel, ordered: .above)
         contentDismissed = onDismiss
         installEventMonitors()
         panel.orderFrontRegardless()
@@ -428,7 +443,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
     /// Searchable filters share the action-menu window and dismissal lifecycle.
     func show(contentController: NSViewController, at screenPoint: NSPoint,
-              appearance: NSAppearance?, onDismiss: @escaping () -> Void) {
+              appearance: NSAppearance?, opensUpward: Bool = false, parentWindow: NSWindow? = nil,
+              onDismiss: @escaping () -> Void) {
         dismiss()
         let panel = makePanel(contentController: contentController, appearance: appearance)
         panel.handleKey = { [weak self] event in
@@ -446,6 +462,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         }
         contentDismissed = onDismiss
         contentAnchor = screenPoint
+        contentOpensUpward = opensUpward
+        parentWindow?.addChildWindow(panel, ordered: .above)
         resize(contentController: contentController)
         installEventMonitors()
         panel.orderFrontRegardless()
@@ -464,7 +482,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         let size = NSSize(width: min(fitting.width, bounds.width),
                           height: min(fitting.height, bounds.height))
         let origin = NSPoint(x: min(max(point.x, bounds.minX), bounds.maxX - size.width),
-                             y: min(max(point.y - size.height, bounds.minY), bounds.maxY - size.height))
+                             y: min(max(contentOpensUpward ? point.y : point.y - size.height, bounds.minY), bounds.maxY - size.height))
         let frame = NSRect(origin: origin, size: size)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
     }
@@ -513,7 +531,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             }
             return max(width, menuItemWidth(item))
         }
-        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil }
+        let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         let chromeWidth = 2 * (LitheDropdownMetrics.itemHorizontalPadding + LitheDropdownMetrics.popupPadding)
             + 14 + 9 + (showsIcons ? 16 + 9 : 0)
         let contentWidth = ceil(widestItem + chromeWidth)
@@ -561,6 +579,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     }
 
     func windowDidResignKey(_ notification: Notification) {
+        guard panel?.childWindows?.contains(where: { $0.isVisible }) != true else { return }
         dismiss()
     }
 
@@ -569,10 +588,15 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             matching: [.leftMouseDown, .rightMouseDown, .keyDown]
         ) { [weak self] event in
             guard let self else { return event }
-            if event.type == .keyDown, self.panel?.handleKey?(event) == true {
+            if event.type == .keyDown, event.window === self.panel, self.panel?.handleKey?(event) == true {
                 return nil
             }
-            if event.type != .keyDown, event.window !== self.panel {
+            var eventWindow = event.window
+            while let window = eventWindow {
+                if window === self.panel { return event }
+                eventWindow = window.parent
+            }
+            if event.type != .keyDown {
                 self.dismiss()
                 // Let the same click reach another menu trigger or the underlying control.
                 return event

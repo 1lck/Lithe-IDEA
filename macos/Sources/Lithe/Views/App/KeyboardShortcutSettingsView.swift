@@ -68,8 +68,8 @@ struct KeyboardShortcutSettingsView: View {
                 accessibilityLabel: "Keymap",
                 title: { $0.title }
             )
-            Menu {
-                Button("Restore All Defaults") {
+            LitheMenu {
+                LitheContextMenuItem.action("Restore All Defaults") {
                     cancelEditing()
                     feature.resetAll()
                 }
@@ -77,8 +77,8 @@ struct KeyboardShortcutSettingsView: View {
                 LitheSystemIcon(systemImage: "gearshape", size: 16)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.litheNoPress)
+
             .tint(LitheTheme.secondaryText)
             .frame(width: 26)
             .accessibilityLabel("Restore All Defaults")
@@ -109,29 +109,35 @@ struct KeyboardShortcutSettingsView: View {
             .help("Collapse All")
             .accessibilityLabel("Collapse All")
 
-            Menu {
+            LitheMenu {
                 if let selectedCommandID,
-                   let command = LitheCommandCatalog.command(id: selectedCommandID) {
-                    Button("Add Shortcut") {
+                    let command = LitheCommandCatalog.command(id: selectedCommandID)
+                {
+                    LitheContextMenuItem.action("Add Shortcut") {
                         expandedGroups.insert(command.group)
                         beginEditing(commandID: selectedCommandID, bindingIndex: nil)
                     }
-                    ForEach(Array(feature.effectiveBindings(for: selectedCommandID).enumerated()), id: \.offset) { index, binding in
-                        Button("Remove \(binding.displayText)") {
+                    for (index, binding) in Array(
+                        feature.effectiveBindings(for: selectedCommandID).enumerated())
+                    {
+                        LitheContextMenuItem.action("Remove \(binding.displayText)") {
                             removeBinding(commandID: selectedCommandID, index: index)
                         }
                     }
                     if feature.isCustomized(selectedCommandID) {
-                        Button("Restore Default") {
+                        LitheContextMenuItem.action("Restore Default") {
                             cancelEditing()
                             feature.resetCommand(selectedCommandID)
                         }
                     }
                 }
             } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil", preservesOriginalColors: true)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil",
+                    preservesOriginalColors: true)
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
+
             .tint(LitheTheme.secondaryText)
             .disabled(selectedCommandID == nil)
             .help("Edit Shortcuts")

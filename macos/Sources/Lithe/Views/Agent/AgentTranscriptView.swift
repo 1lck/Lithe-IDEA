@@ -87,7 +87,7 @@ struct AgentTranscriptView: View {
                 AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
                     showsAgentPicker = true
                 }
-                .popover(isPresented: $showsAgentPicker, arrowEdge: .bottom) {
+                .litheDropdown(isPresented: $showsAgentPicker) {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(agents) { agent in
                             Button {
@@ -99,15 +99,13 @@ struct AgentTranscriptView: View {
                                     Spacer()
                                     if agent.name == agentName { Image(systemName: "checkmark") }
                                 }
-                                .padding(.horizontal, 10)
-                                .frame(height: 26)
+                                .frame(minHeight: LitheDropdownMetrics.rowHeight)
                                 .contentShape(Rectangle())
                             }
-                            .buttonStyle(.litheNoPress)
-                            .litheRowHover()
+                            .buttonStyle(LitheDropdownRowStyle(isSelected: agent.name == agentName))
                         }
                     }
-                    .padding(6)
+                    .padding(LitheDropdownMetrics.popupPadding)
                     .frame(width: 180)
                 }
             } else {

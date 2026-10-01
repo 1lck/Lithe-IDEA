@@ -198,11 +198,25 @@ the existing stack can reasonably avoid.
 
 ### macOS shared frontend controls
 
-- Project's dropdown is the single visual baseline for product dropdowns.
-  Reuse `LitheContextMenuPresenter` for actions/searchable content and
-  `LitheSettingsSelect` for value selection. Both must use
-  `litheContextMenuSurface` and `LitheDropdownMetrics`; callers supply content,
-  selection and actions, not their own background, radius, row metrics or animation.
+- The approved visual baseline is the shared style already used by the Git Log
+  Branch/User/Date/Paths dropdowns, the settings-window dropdowns, and the
+  Project/Dependencies dropdown in the Project sidebar. The top-bar project
+  switcher is a consumer of that style, never its visual reference.
+- Use exactly these entry points and owners:
+
+  | Purpose | Entry point | Owning source |
+  | --- | --- | --- |
+  | Action dropdowns, checked actions, toggles and submenus | `LitheMenu` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Searchable selectors and custom popup content | `litheDropdown(isPresented:opensUpward:content:)` / `LitheDropdownPopover` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Value selection, including settings forms | `LitheSettingsSelect` | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Action/custom dropdown windows, placement and dismissal | `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Value-select popup window and keyboard selection | `LitheSettingsSelectPopupPresenter` (private, through `LitheSettingsSelect`) | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Shared row metrics and highlight | `LitheDropdownMetrics` / `LitheDropdownRowStyle` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Shared outer background, 8pt radius, border and clipping | `litheContextMenuSurface` | `macos/Sources/Lithe/Theme/LitheTheme.swift` |
+
+  These are interaction entry points into one visual system. Callers supply
+  content, selection and actions; they must not define another dropdown
+  background, border, corner radius, row metrics or opening animation.
 - When adding or changing a product dropdown, do not use SwiftUI `Menu`,
   `Picker` with `.menu` style, SwiftUI `.popover`, `NSPopover`, or `NSPopUpButton`
   as its presentation. Shared dropdown panels use `animationBehavior = .none`:
@@ -210,9 +224,11 @@ the existing stack can reasonably avoid.
 - Anchor toolbar dropdowns to the triggering control's bottom-left edge, not
   the pointer position. Preserve screen-edge clamping, keyboard navigation,
   selected state, outside-click dismissal and focus behavior.
-- Existing native dropdowns in other modules are migration work, not examples
-  to copy. System dialogs, the macOS application menu, editor completion/caret
-  popups and hover documentation are separate interactions; this rule does not
+- All product menu/dropdown entry points now use the shared routes. Native
+  SwiftUI `Picker` is allowed only for explicit `.segmented` controls, which
+  have no dropdown. `ContextMenuCoverageTests` enforces these restrictions.
+  System dialogs, the macOS application menu, editor completion/caret popups
+  and hover documentation are separate interactions; this rule does not
   replace them with product dropdowns.
 - For search inputs use `LitheSearchTextField` and `litheSearchField`; preserve
   native IME composition and the I-beam cursor before focus. Do not patch each

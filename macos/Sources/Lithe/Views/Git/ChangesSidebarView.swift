@@ -488,17 +488,19 @@ struct ChangesSidebarView: View {
             }
 
             if feature.availableRepositoryRoots.count > 1 {
-                Menu {
-                    ForEach(feature.availableRepositoryRoots, id: \.self) { root in
-                        Button(root.path) {
+                LitheMenu {
+                    for root in feature.availableRepositoryRoots {
+                        LitheContextMenuItem.action(root.path) {
                             Task { await feature.selectRepository(root) }
                         }
                     }
                 } label: {
-                    Label(feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive")
-                        .lineLimit(1)
+                    Label(
+                        feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive"
+                    )
+                    .lineLimit(1)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
                 .help("Select repository for commits and branch operations")
             }
 

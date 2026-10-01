@@ -214,10 +214,10 @@ struct SearchSidebarView: View {
     }
 
     private var searchOptionsMenu: some View {
-        Menu {
-            Toggle("Match Case", isOn: $searchOptions.caseSensitive)
-            Toggle("Whole Words", isOn: $searchOptions.wholeWords)
-            Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+        LitheMenu {
+            LitheContextMenuItem.toggle("Match Case", isOn: $searchOptions.caseSensitive)
+            LitheContextMenuItem.toggle("Whole Words", isOn: $searchOptions.wholeWords)
+            LitheContextMenuItem.toggle("Regular Expression", isOn: $searchOptions.regularExpression)
         } label: {
             LitheIDEAIcon(
                 resourcePath: "expui/general/settings.svg",
@@ -225,16 +225,15 @@ struct SearchSidebarView: View {
                 fallbackSystemImage: "slider.horizontal.3",
                 preservesOriginalColors: false
             )
-                .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
-                .frame(
-                    width: LitheTheme.Metrics.toolbarIconButtonSize,
-                    height: LitheTheme.Metrics.toolbarIconButtonSize
-                )
-                .contentShape(Rectangle())
-                .litheRowHover()
+            .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
+            .frame(
+                width: LitheTheme.Metrics.toolbarIconButtonSize,
+                height: LitheTheme.Metrics.toolbarIconButtonSize
+            )
+            .contentShape(Rectangle())
+            .litheRowHover()
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.litheNoPress)
         .fixedSize()
         .help("Search options")
     }

@@ -1190,7 +1190,7 @@ struct SettingsView: View {
                 }
                 .buttonStyle(.litheNoPress)
                 .lithePointer()
-                .popover(isPresented: $viewState.isFormatPickerPresented, arrowEdge: .bottom) {
+                .litheDropdown(isPresented: $viewState.isFormatPickerPresented) {
                     formatPickerPopover
                 }
 

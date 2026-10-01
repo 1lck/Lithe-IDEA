@@ -240,18 +240,18 @@ struct GitHubPullRequestsSidebarView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer(minLength: 4)
-            Menu {
+            LitheMenu {
                 if let url = URL(string: user.url), !user.url.isEmpty {
-                    Button("Open GitHub profile") { model.platformUI.open(url) }
+                    LitheContextMenuItem.action("Open GitHub profile") { model.platformUI.open(url) }
                 }
-                Divider()
-                Button("Disconnect", role: .destructive) {
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Disconnect", role: .destructive) {
                     Task { await model.disconnectGitHub() }
                 }
             } label: {
                 Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 24)
         }
         .padding(.horizontal, 11)
@@ -502,23 +502,25 @@ struct GitHubPullRequestDetailView: View {
             } label: {
                 Label("GitHub", systemImage: "arrow.up.right.square")
             }
-            Menu {
-                Button("Edit title and description") { isEditPresented = true }
+            LitheMenu {
+                LitheContextMenuItem.action("Edit title and description") { isEditPresented = true }
                 if !request.isMerged {
-                    Button(LocalizedStringKey(request.state == "open" ? "Close pull request" : "Reopen pull request")) {
+                    LitheContextMenuItem.action(
+                        request.state == "open" ? "Close pull request" : "Reopen pull request"
+                    ) {
                         shouldConfirmClose = true
                     }
                 }
                 if request.state == "open", !request.isMerged, !request.isDraft {
-                    Divider()
-                    Button("Create a merge commit") { pendingMergeChoice = .merge }
-                    Button("Squash and merge") { pendingMergeChoice = .squash }
-                    Button("Rebase and merge") { pendingMergeChoice = .rebase }
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Create a merge commit") { pendingMergeChoice = .merge }
+                    LitheContextMenuItem.action("Squash and merge") { pendingMergeChoice = .squash }
+                    LitheContextMenuItem.action("Rebase and merge") { pendingMergeChoice = .rebase }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .frame(width: 26)
             .disabled(isOperationRunning)
         }
@@ -1911,7 +1913,7 @@ private struct GitHubBranchPicker: View {
         .buttonStyle(.litheNoPress)
         .accessibilityLabel(label)
         .accessibilityValue(selection.isEmpty ? Text("Select branch") : Text(selection))
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isPresented) {
             popoverContent
         }
     }
@@ -1925,7 +1927,6 @@ private struct GitHubBranchPicker: View {
         }
         .padding(12)
         .frame(width: 300, height: 340)
-        .background(LitheTheme.sidebar)
     }
 
     @ViewBuilder

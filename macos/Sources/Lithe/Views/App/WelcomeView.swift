@@ -208,14 +208,14 @@ struct WelcomeView: View {
 
             Spacer(minLength: 0)
 
-            Menu {
+            LitheMenu {
                 if exists {
-                    Button("Open") { model.openProject(project.url) }
-                    Button("Show in Finder") {
+                    LitheContextMenuItem.action("Open") { model.openProject(project.url) }
+                    LitheContextMenuItem.action("Show in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([project.url])
                     }
                 }
-                Button("Remove from Recent Projects", role: .destructive) {
+                LitheContextMenuItem.action("Remove from Recent Projects", role: .destructive) {
                     model.removeRecentProject(project)
                 }
             } label: {
@@ -232,8 +232,7 @@ struct WelcomeView: View {
                     hoveredProjectMenuID = isHovering ? project.id : nil
                 }
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.litheNoPress)
             .frame(width: 28, height: 28)
             .opacity(hoveredProjectID == project.id ? 1 : 0)
             .allowsHitTesting(hoveredProjectID == project.id)

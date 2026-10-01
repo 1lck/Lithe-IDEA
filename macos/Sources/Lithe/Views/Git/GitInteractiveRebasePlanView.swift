@@ -65,13 +65,9 @@ private struct GitInteractiveRebasePlanView: View {
                 ForEach(Array(editor.steps.enumerated()), id: \.element.hash) { index, step in
                     HStack(spacing: 8) {
                         Text("\(index + 1)").frame(width: 24, alignment: .trailing).foregroundStyle(LitheTheme.secondaryText)
-                        Picker("Action for \(step.hash.prefix(9))", selection: Binding(
+                        LitheSettingsSelect(selection: Binding(
                             get: { step.action }, set: { editor.setAction($0, for: step.hash) }
-                        )) {
-                            ForEach(GitRebaseAction.allCases, id: \.self) { action in
-                                Text(LocalizedStringKey(action.rawValue.capitalized)).tag(action)
-                            }
-                        }
+                        ), options: GitRebaseAction.allCases, width: 130, accessibilityLabel: "Rebase action", title: { $0.rawValue.capitalized })
                         .labelsHidden().frame(width: 130)
                         Text(String(step.hash.prefix(9))).font(LitheTheme.uiFont(size: 11, design: .monospaced))
                         Text(editor.subject(for: step.hash)).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)

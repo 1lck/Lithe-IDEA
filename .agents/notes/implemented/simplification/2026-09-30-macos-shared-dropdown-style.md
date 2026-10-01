@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-Project 标题下拉框是 macOS 操作菜单的唯一视觉基准。Git Log 设置、Terminal、欢迎页和右键菜单均使用同一个菜单呈现器（负责弹窗定位、键盘操作和关闭的组件），不再允许调用方选择另一套外观。设置页选择控件仍保留选择值、定位和关闭的交互逻辑，但复用相同外框和尺寸定义。
+项目侧边栏的 Project/Dependencies 标题下拉框，与 Git Log Branch/User/Date/Paths、设置窗口下拉框共同使用的样式，是 macOS 产品下拉框的唯一视觉基准。Git Log 设置、Terminal、欢迎页和右键菜单均使用同一个菜单呈现器（负责弹窗定位、键盘操作和关闭的组件），不再允许调用方选择另一套外观。设置页选择控件仍保留选择值、定位和关闭的交互逻辑，但复用相同外框和尺寸定义。
 
 ## 问题
 
@@ -29,21 +29,34 @@ Project 标题下拉框是 macOS 操作菜单的唯一视觉基准。Git Log 设
 
 共享菜单的外观只需要修改一处；原来的普通操作菜单和右键子菜单也会采用 Project 的紧凑行高。带图标的条目仍按需显示，菜单宽度按实际内容留白计算，长菜单继续滚动并限制在屏幕内。安装原生视图宿主后显式恢复计算好的弹窗尺寸，避免首次显示时暂时使用零尺寸。
 
-Git Log 四个筛选、Project 与设置选择器已经共享外框和尺寸，但设置选择器保留值选择的键盘和关闭职责。Debug、Database、Agent 等其他模块仍有历史内置 `Menu`；本次没有把这些入口全部迁移，不能将局部共享描述为全项目已经迁移完成。系统应用菜单、编辑器补全与悬停文档也不属于产品下拉框。
+视觉基准明确指 Git Log 的 Branch/User/Date/Paths、设置窗口和项目侧边栏 Project/Dependencies 共同使用的样式；顶部项目切换器是消费者，不能拿它原有的箭头气泡与圆角当基准。
+
+历史产品菜单已全部迁移：操作列表经 `LitheDropdown.swift` 的 `LitheMenu` 提交给同一个 `LitheContextMenuPresenter`；自定义搜索、选择及表单内容经 `litheDropdown` / `LitheDropdownPopover` 使用相同面板与 `litheContextMenuSurface`。设置选值仍用 `LitheSettingsSelect`，保留值选择的键盘和关闭职责，共用相同外框与尺寸。Debug 会话/线程/作用域/断点，Database 类型/排序/SQL/数据工具，Agent 切换/历史/供应商/模式/模型，以及 Git、GitHub、Search、编码选择、欢迎页和快捷键菜单都不再依赖系统菜单展开。
+
+面板内打开另一个动作菜单或 `LitheSettingsSelect` 选值下拉框时，使用当前面板的原生子窗口关系。父面板不因焦点移到可见子面板而关闭；父事件监视器不拦截子面板的键盘，不把子面板内的点击当作外部点击。每个锚点持有自己的呈现器，移出窗口或卸载时关闭面板并清理事件监视器。自定义内容完整继承原视图环境，包括语言、颜色模式、环境对象、项目窗口范围与主题。
+
+顶部项目/分支按钮只使用普通悬停背景，菜单打开状态不作为按钮选中状态。系统应用菜单、系统对话框、编辑器补全与悬停文档保留原生职责；显式 segmented 的原生 Picker 没有下拉框，也不属于本次迁移。
 
 ## 验证
+
+- `ContextMenuCoverageTests.contextMenusCannotSilentlyBypassSharedStyle` 阻止产品重新使用 SwiftUI `Menu`、`.popover`、`NSPopUpButton` 或非 segmented 的原生 `Picker`。
+- `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单不关闭父面板、按键只选择子菜单动作、两层独立关闭。
+- `sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches` 验证真实宿主继承环境对象和语言，锚点移出窗口立即关闭并清理。
+- `itemBuilderKeepsConditionalActionsDisabledChoicesAndSubmenus` 验证条件、动态条目、勾选、禁用、子菜单及危险动作类型保留。
+- `WorkbenchRenderingSafetyTests` 检查项目/分支使用共享入口，菜单打开状态不会染色原按钮。
 
 - `ContextMenuCoverageTests.projectAndActionDropdownsRenderTheSameChrome` 捕获真实原生菜单面板，检查 Project 与设置菜单在明暗主题下的背景、边框和高度。
 - `ContextMenuCoverageTests` 验证键盘跳过禁用条目、子菜单导航、长菜单可见范围和动作调用；`filterPopoverAnchorLeavesMouseEventsToItsButton` 验证定位锚点不截获按钮的鼠标命中。
 - `ContextMenuCoverageTests.searchableFilterContentCannotCoverSharedRoundedCorners` 在明暗主题渲染真实 Branch/User 内容，检查四个圆角透明、内部仍为不透明底色。
 - `ContextMenuCoverageTests.searchableDropdownUsesSharedWindowAndDismissal` 验证可搜索面板的透明无边框窗口、动态尺寸、Esc 关闭与关闭回调只执行一次。
 - `ContextMenuCoverageTests.anchoredActionAndSearchableDropdownsShareTopLeft` 验证相同锚点下 Date 操作菜单与可搜索内容的左上角一致、无动画、键盘关闭回调及屏幕边界限制。
-- `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界。
+- `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界；真实父/子面板验证 Database 一类表单弹窗内打开选值菜单时保留父面板，Esc 只关闭子菜单并解除窗口关系。
 - 执行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-service-boundaries.sh`、`./scripts/verify-runtime-bundle-immutability.sh` 和 `./scripts/verify-platform-feature-matrix.sh`。
 - 按用户要求不启动预览；最终鼠标视觉对比仍需在当前开发版本中确认。
 
 ## 适用范围
 
+- `macos/Sources/Lithe/Views/Components/LitheDropdown.swift`
 - `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift`
 - `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`
 - `macos/Sources/Lithe/Theme/LitheTheme.swift`

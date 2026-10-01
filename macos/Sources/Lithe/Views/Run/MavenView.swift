@@ -559,7 +559,7 @@ struct MavenView: View {
             }
             .buttonStyle(.litheNoPress)
             .help("Add profile")
-            .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
+            .litheDropdown(isPresented: $isAddProfilePresented) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Add Maven Profile")
                         .font(LitheTheme.uiFont(size: 13, weight: .semibold))

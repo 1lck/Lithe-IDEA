@@ -284,17 +284,18 @@ struct SearchEverywhereView: View {
     }
 
     private var searchOptionsMenu: some View {
-        Menu {
-            Toggle("Match Case", isOn: $searchOptions.caseSensitive)
-            Toggle("Whole Words", isOn: $searchOptions.wholeWords)
-            Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+        LitheMenu {
+            LitheContextMenuItem.toggle("Match Case", isOn: $searchOptions.caseSensitive)
+            LitheContextMenuItem.toggle("Whole Words", isOn: $searchOptions.wholeWords)
+            LitheContextMenuItem.toggle("Regular Expression", isOn: $searchOptions.regularExpression)
         } label: {
             Image(systemName: "slider.horizontal.3")
                 .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
                 .frame(width: 28, height: 28)
                 .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.litheNoPress)
+
         .lithePointer()
         .help("Search options")
     }

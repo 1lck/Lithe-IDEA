@@ -41,7 +41,7 @@ private struct ProjectPreparationContent: View {
             }
             .buttonStyle(.litheNoPress)
             .help(chinese ? "查看项目准备详情" : "View project preparation details")
-            .popover(isPresented: $showingDetails, arrowEdge: compact ? .bottom : .top) {
+            .litheDropdown(isPresented: $showingDetails, opensUpward: !compact) {
                 VStack(alignment: .leading, spacing: 12) {
                     Text(phaseTitle(snapshot.phase)).font(LitheTheme.uiFont(.headline))
                     ForEach(["starting", "importing", "configuring", "building"], id: \.self) { phase in

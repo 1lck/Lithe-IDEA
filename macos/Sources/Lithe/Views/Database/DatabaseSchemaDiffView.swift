@@ -13,23 +13,13 @@ struct DatabaseSchemaDiffView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Source", selection: $sourceID) {
-                    Text("Source connection").tag(Optional<UUID>.none)
-                    ForEach(model.databaseFeature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $sourceID, options: [UUID?.none] + model.databaseFeature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Source", title: { id in model.databaseFeature.profiles.first { $0.id == id }?.name ?? String(localized: "Source connection") })
                 .frame(maxWidth: 220)
 
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
 
-                Picker("Target", selection: $targetID) {
-                    Text("Target connection").tag(Optional<UUID>.none)
-                    ForEach(model.databaseFeature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $targetID, options: [UUID?.none] + model.databaseFeature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Target", title: { id in model.databaseFeature.profiles.first { $0.id == id }?.name ?? String(localized: "Target connection") })
                 .frame(maxWidth: 220)
 
                 Button { compare() } label: { Image(systemName: "arrow.triangle.2.circlepath") }

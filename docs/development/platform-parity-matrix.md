@@ -4,9 +4,9 @@
 
 - 最后复核：2026-09-29
 - 盘点状态：initial-static-inventory（根据 macOS Views/Application/Services、Windows features/extensions 和共享契约的代码入口进行初版盘点；未替代真实运行验收。）
-- 功能项：118
-- macOS：实现：✅ 104 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 107 待验证，— 11 不适用
-- Windows：实现：✅ 96 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 6 平台专属；验证：✔️ 0 已验证，🔍 107 待验证，— 11 不适用
+- 功能项：119
+- macOS：实现：✅ 105 已实现，🟡 3 部分实现，❌ 7 未实现，🧩 4 平台专属；验证：✔️ 0 已验证，🔍 108 待验证，— 11 不适用
+- Windows：实现：✅ 96 已实现，🟡 11 部分实现，❌ 5 未实现，🧩 7 平台专属；验证：✔️ 0 已验证，🔍 107 待验证，— 12 不适用
 
 ## 实现状态定义
 
@@ -299,11 +299,12 @@
 </details>
 
 <details>
-<summary><strong>界面</strong> · 1 个能力点</summary>
+<summary><strong>界面</strong> · 2 个能力点</summary>
 
 | 功能组 | 能力点 | macOS | Windows | 负责人 | 验证方式 | 备注 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 全局字体 | **macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显式等宽内容保留 JetBrains Mono 2.304，SwiftUI 与 AppKit 共用字体入口**<br><sub>macos-bundled-default-ui-font</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Theme/LitheTheme.swift`、`macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift`、`macos/Resources/Fonts`、`macos/Sources/Lithe/LitheApp.swift`、`macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift`、`macos/EditorFrontend/index.html`、`scripts/verify-macos-package.sh`、`macos/Tests/LitheTests/BundledUIFontTests.swift`</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`windows/tauri/src`</sub> | macOS UI | 在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端使用 JetBrains Mono，显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。Windows 本次不变。 |  |
+| 全局共享控件 | **macOS 全部产品操作菜单、选值下拉框与自定义弹窗使用 Git Log 筛选、设置和 Project 共同使用的共享外框及行尺寸，直接打开且无系统弹跳动画；顶部项目/分支按钮打开后不增加选中背景**<br><sub>macos-shared-product-dropdowns</sub> | ✅ 已实现<br><sub>🔍 待验证</sub><br><sub>`macos/Sources/Lithe/Views/Components/LitheDropdown.swift`、`macos/Sources/Lithe/Views/Components/LitheContextMenu.swift`、`macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift`、`macos/Sources/Lithe/Theme/LitheTheme.swift`、`macos/Sources/Lithe/Views/Git/GitLogView.swift`、`macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift`、`macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift`、`macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift`、`macos/Sources/Lithe/Views/Database/DatabaseTableView.swift`、`macos/Sources/Lithe/Views/Debug/GenericDebugView.swift`、`macos/Tests/LitheTests/ContextMenuCoverageTests.swift`、`macos/Tests/LitheTests/WorkbenchRenderingSafetyTests.swift`、`.agents/skills/develop-lithe/SKILL.md`、`.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`</sub> | 🧩 平台专属<br><sub>— 不适用</sub><br><sub>`windows/tauri/src/ui`</sub> | macOS UI | 按 PR 迁移清单逐项打开 Agent、App/设置、Database、Debug、Editor、Git、GitHub、Java、Search、Diff、Workbench 的菜单与选择面板，检查同一共享外框、圆角、边框、单行行高、字体和无弹跳展开；选中项、禁用条件、动作、动态列表、危险操作确认及键盘操作保持原语义。顶部项目/分支原按钮点击前后不增加选中背景。原生子菜单保留父面板并只接收自己的按键，Esc/外部点击按层关闭，所有方向保持屏幕边界，锚点卸载/移出窗口清理面板与监视器。真实 NSHostingView 回归验证环境对象/语言完整继承。保留系统应用菜单、系统对话框、编辑器补全/悬停文档与显式 segmented 选项；静态门禁禁止产品恢复 SwiftUI Menu、popover、NSPopUpButton 或非 segmented 的原生 Picker。完整人工视觉验收保持 pending，Windows 本次不改。 |  |
 
 </details>
 

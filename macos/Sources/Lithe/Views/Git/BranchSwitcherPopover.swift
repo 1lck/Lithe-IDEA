@@ -5,7 +5,7 @@ struct BranchSwitcherPopover: View {
     enum Metrics {
         static let popupWidth: CGFloat = 375
         static let searchBarHeight: CGFloat = 56
-        static let actionRowHeight: CGFloat = 30
+        static let actionRowHeight = LitheDropdownMetrics.rowHeight
         static let branchRowHeight: CGFloat = 28
         static let branchGroupHeaderHeight: CGFloat = 24
         static let branchListHeight: CGFloat = 240
@@ -36,14 +36,6 @@ struct BranchSwitcherPopover: View {
             branchList
         }
         .frame(width: Metrics.popupWidth, alignment: .leading)
-        .litheRoundedControlBackground(
-            LitheTheme.popupBackground,
-            cornerRadius: LitheTheme.Metrics.popupCornerRadius
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
-        }
         .onAppear { searchFocused = true }
     }
 
@@ -99,9 +91,7 @@ struct BranchSwitcherPopover: View {
         .padding(.trailing, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Metrics.searchBarHeight)
-        .background {
-            topRoundedSectionBackground(LitheTheme.toolHeader)
-        }
+
     }
 
     private var actions: some View {
@@ -207,9 +197,7 @@ struct BranchSwitcherPopover: View {
             .frame(height: Metrics.branchListHeight)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            bottomRoundedSectionBackground(LitheTheme.sidebar)
-        }
+
     }
 
     private func actionRow(
@@ -427,47 +415,44 @@ struct BranchSwitcherPopover: View {
     /// The per-reference action list, ordered like IDEA's branch menu: creation
     /// and comparison first, then checkout and integration, then destructive
     /// entries last.
-    @ViewBuilder
-    private func branchActionMenu(for reference: GitReference) -> some View {
-        Button("New Branch from '\(reference.shortName)'…") {
+    @LitheMenuItemsBuilder
+    private func branchActionMenu(for reference: GitReference) -> [LitheContextMenuItem] {
+        LitheContextMenuItem.action("New Branch from '\(reference.shortName)'…") {
             dismissAndRun { onNewBranch(reference) }
         }
 
-        Button("Show Diff with Working Tree") {
+        LitheContextMenuItem.action("Show Diff with Working Tree") {
             dismissAndRun { Task { await onCompareWithWorkingTree(reference) } }
         }
 
         if let current = feature.currentGitReference, current.id != reference.id {
-            Button("Compare with Current Branch") {
+            LitheContextMenuItem.action("Compare with Current Branch") {
                 dismissAndRun { Task { await onCompareReferences(reference, current) } }
             }
         }
 
         if !reference.isCurrent {
-            Divider()
-
-            Button("Checkout") {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Checkout") {
                 dismissAndRun { Task { await feature.checkoutReference(reference) } }
             }
         }
 
         if reference.kind == .local {
-            Divider()
-
-            Button("Update") {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Update") {
                 dismissAndRun { Task { await feature.updateCurrentBranch(reference) } }
             }
             .disabled(!reference.isCurrent)
 
-            Button("Push…") {
+            LitheContextMenuItem.action("Push…") {
                 dismissAndRun { onPush(reference) }
             }
         }
 
         if reference.kind == .local, !reference.isCurrent {
-            Divider()
-
-            Button("Delete", role: .destructive) {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Delete", role: .destructive) {
                 dismissAndRun { onDelete(reference) }
             }
         }
@@ -592,30 +577,10 @@ struct BranchSwitcherPopover: View {
         normalizedQuery.isEmpty || title.localizedCaseInsensitiveContains(normalizedQuery)
     }
 
-    private func topRoundedSectionBackground(_ color: Color) -> some View {
-        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-            .fill(color)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(color)
-                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
-            }
-    }
-
     private var popupDivider: some View {
         Rectangle()
             .fill(LitheTheme.divider.opacity(0.55))
             .frame(height: 1)
-    }
-
-    private func bottomRoundedSectionBackground(_ color: Color) -> some View {
-        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-            .fill(color)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(color)
-                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
-            }
     }
 
     private func referenceIcon(_ reference: GitReference, marksCurrent: Bool) -> String {
@@ -644,30 +609,22 @@ struct BranchSwitcherPopover: View {
     }
 }
 
-/// A branch row that surfaces its actions through a native pop-up menu rather
-/// than a direct checkout.
-///
-/// Using `SwiftUI.Menu` with `.menuStyle(.borderlessButton)` produces a native
-/// NSMenu, which works correctly inside the outer popover, positions itself to
-/// avoid screen edges, and provides the hover-safety path that IDEA exposes:
-/// once any row's menu is open, moving the cursor to another row opens that
-/// menu immediately without a click.
-private struct BranchActionMenuRow<Label: View, MenuContent: View>: View {
+/// A branch row opens its actions in the shared product dropdown.
+private struct BranchActionMenuRow<Label: View>: View {
     @ViewBuilder let label: () -> Label
-    @ViewBuilder let menuContent: () -> MenuContent
+    @LitheMenuItemsBuilder let menuContent: () -> [LitheContextMenuItem]
 
     @State private var isHovering = false
 
     var body: some View {
-        SwiftUI.Menu {
+        LitheMenu {
             menuContent()
         } label: {
             label()
                 .background(isHovering ? LitheTheme.subtleSelection : .clear)
                 .clipShape(RoundedRectangle(cornerRadius: 5))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.litheNoPress)
         // Constrain to the list width so the menu button does not stretch.
         .fixedSize(horizontal: false, vertical: true)
         .lithePointer()

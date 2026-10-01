@@ -78,22 +78,17 @@ struct DatabaseSidebarView: View {
                 Spacer()
                 if let selected = model.databaseFeature.selectedProfile,
                    selected.kind == .mysql || selected.kind == .mariadb {
-                    Menu {
-                        Button("Refresh databases") {
+                    LitheMenu {
+                        LitheContextMenuItem.action("Refresh databases") {
                             Task { await model.databaseFeature.refreshDatabases() }
                         }
-                        Divider()
+                        LitheContextMenuItem.separator
                         if model.databaseFeature.databaseOptions.isEmpty {
-                            Text("No databases loaded")
+                            LitheContextMenuItem.heading("No databases loaded")
                         } else {
-                            ForEach(model.databaseFeature.databaseOptions, id: \.self) { database in
-                                Button {
+                            for database in model.databaseFeature.databaseOptions {
+                                LitheContextMenuItem.action(database, checked: selected.database == database) {
                                     Task { await model.databaseFeature.selectDatabase(database, for: selected) }
-                                } label: {
-                                    HStack {
-                                        Text(database)
-                                        if selected.database == database { Image(systemName: "checkmark") }
-                                    }
                                 }
                             }
                         }
@@ -144,36 +139,34 @@ struct DatabaseSidebarView: View {
                 .frame(maxWidth: .infinity)
 
                 HStack(spacing: 0) {
-                    Menu {
-                        Button("All database types") { kindFilter = nil }
-                        Divider()
-                        ForEach(DatabaseKind.allCases, id: \.self) { kind in
-                            Button {
+                    LitheMenu {
+                        LitheContextMenuItem.action("All database types") { kindFilter = nil }
+                        LitheContextMenuItem.separator
+                        for kind in DatabaseKind.allCases {
+                            LitheContextMenuItem.action(
+                                kind.displayName, icon: AnyView(DatabaseBrandIcon(kind: kind, size: 13))
+                            ) {
                                 kindFilter = kind
-                            } label: {
-                                Label {
-                                    Text(kind.displayName)
-                                } icon: {
-                                    DatabaseBrandIcon(kind: kind, size: 13)
-                                }
                             }
                         }
                     } label: {
-                        Image(systemName: kindFilter == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
-                            .foregroundStyle(kindFilter == nil ? LitheTheme.secondaryText : LitheTheme.accent)
-                            .frame(width: 29, height: 31)
+                        Image(
+                            systemName: kindFilter == nil
+                                ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill"
+                        )
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+                        .foregroundStyle(kindFilter == nil ? LitheTheme.secondaryText : LitheTheme.accent)
+                        .frame(width: 29, height: 31)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .help("Filter database type")
 
                     Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 17)
 
-                    Menu {
-                        Picker("Sort connections", selection: $connectionSort) {
-                            ForEach(DatabaseConnectionSort.allCases) { mode in
-                                Text(mode.title).tag(mode)
+                    LitheMenu {
+                        for mode in DatabaseConnectionSort.allCases {
+                            LitheContextMenuItem.action(mode.menuTitle, checked: mode == connectionSort) {
+                                connectionSort = mode
                             }
                         }
                     } label: {
@@ -182,8 +175,7 @@ struct DatabaseSidebarView: View {
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 29, height: 31)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .help("Sort connections")
                 }
                 .background(LitheTheme.inputBackground.opacity(0.72))
@@ -1506,7 +1498,8 @@ private enum DatabaseConnectionSort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .name: "Name"
         case .databaseType: "Database type"
@@ -1743,17 +1736,10 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             Form {
                 TextField("Name", text: $name)
-                Picker("Engine", selection: $kind) {
-                    Text("MySQL").tag(DatabaseKind.mysql)
-                    Text("MariaDB").tag(DatabaseKind.mariadb)
-                    Text("PostgreSQL").tag(DatabaseKind.postgresql)
-                    Text("SQLite").tag(DatabaseKind.sqlite)
-                    Text("SQL Server").tag(DatabaseKind.sqlserver)
-                    Text("MongoDB").tag(DatabaseKind.mongodb)
-                    Text("Redis").tag(DatabaseKind.redis)
-                    Text("Nacos").tag(DatabaseKind.nacos)
+                LabeledContent("Engine") {
+                    LitheSettingsSelect(selection: $kind, options: DatabaseKind.allCases, width: 240, accessibilityLabel: "Engine", title: { $0.displayName })
                 }
-                    .pickerStyle(.menu)
+
                 if kind == .sqlite { TextField("Database file path", text: $path) }
                 else {
                     TextField(kind == .mongodb ? "Host or MongoDB URI" : "Host", text: $host)
@@ -1791,11 +1777,8 @@ struct DatabaseConnectionEditor: View {
                     Toggle("Use TLS", isOn: $ssl)
                 }
                 DisclosureGroup(isExpanded: $safetyExpanded) {
-                    Picker("Folder", selection: $folderID) {
-                        Text("No folder").tag(UUID?.none)
-                        ForEach(model.databaseFeature.folders) { folder in
-                            Text(folder.name).tag(UUID?.some(folder.id))
-                        }
+                    LabeledContent("Folder") {
+                        LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + model.databaseFeature.folders.map { Optional($0.id) }, width: 240, accessibilityLabel: "Folder", title: { id in model.databaseFeature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
                     }
                     TextField("Color hex (optional)", text: $colorHex)
                     Toggle("Read-only connection", isOn: $readOnly)

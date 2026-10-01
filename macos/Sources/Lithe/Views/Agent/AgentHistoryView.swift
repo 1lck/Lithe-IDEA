@@ -4,7 +4,8 @@ import LitheCoreContracts
 
 enum AgentHistoryFilter: String, CaseIterable {
     case all, favorites, removed
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .all: "All conversations"
         case .favorites: "Favorites"
@@ -146,20 +147,25 @@ struct AgentHistoryView: View {
                         selectedIDs = selected.count == sessions.count ? [] : Set(visibleIDs)
                     }.disabled(sessions.isEmpty)
                     Spacer(minLength: 0)
-                    Menu {
-                        Button("Export conversations") { history.export(selected) }
+                    LitheMenu {
+                        LitheContextMenuItem.action("Export conversations") { history.export(selected) }
                             .disabled(!history.canExport(selected))
-                        Button("Add to favorites") { history.setFavorite(selected, true) }
-                        Button("Remove from favorites") { history.setFavorite(selected, false) }
-                        Divider()
-                        Button(filter == .removed ? "Restore conversations" : "Remove from history") {
+                        LitheContextMenuItem.action("Add to favorites") { history.setFavorite(selected, true) }
+                        LitheContextMenuItem.action("Remove from favorites") { history.setFavorite(selected, false) }
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action(
+                            filter == .removed ? "Restore conversations" : "Remove from history"
+                        ) {
                             if filter == .removed {
                                 if history.setHidden(selected, false) { selectedIDs = [] }
                             } else {
                                 pendingRemovalIDs = selected
                             }
                         }
-                    } label: { Text("Manage selected") }
+                    } label: {
+                        Text("Manage selected")
+                    }
+                    .buttonStyle(.litheNoPress)
                         .disabled(selected.isEmpty)
                 }.font(LitheTheme.uiFont(size: 11)).buttonStyle(.litheNoPress)
             }
@@ -210,12 +216,15 @@ struct AgentHistoryView: View {
             .font(LitheTheme.uiFont(size: 12))
             .padding(.horizontal, 10).frame(height: 28)
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.border))
-            Menu {
-                Picker("History filter", selection: $filter) {
-                    ForEach(AgentHistoryFilter.allCases, id: \.self) { Text($0.title).tag($0) }
+            LitheMenu {
+                for mode in AgentHistoryFilter.allCases {
+                    LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
-            } label: { Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            } label: {
+                Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.litheNoPress)
+                .fixedSize()
                 .frame(width: 24).help(filter.title)
                 .accessibilityIdentifier("agent-history-filter")
         }.foregroundStyle(AgentPanelStyle.secondary)

@@ -209,34 +209,29 @@ struct GenericDebugView: View {
     }
 
     private var sessionPicker: some View {
-        Menu {
-            Section("Sessions") {
-                ForEach(feature.sessionSummaries) { summary in
-                    Button {
-                        _ = feature.selectSession(summary.id)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: summary.id == feature.activeSessionID
-                                ? "checkmark.circle.fill" : "circle")
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(sessionLabel(summary))
-                                Text(summary.state.title)
-                                    .font(LitheTheme.uiFont(size: 9))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                            }
-                        }
-                    }
+        LitheMenu {
+            LitheContextMenuItem.heading("Sessions")
+
+            for summary in feature.sessionSummaries {
+                LitheContextMenuItem.action(
+                    sessionLabel(summary) + " · " + summary.state.title,
+                    systemImage: summary.id == feature.activeSessionID
+                        ? "checkmark.circle.fill" : "circle"
+                ) {
+                    _ = feature.selectSession(summary.id)
                 }
             }
+
             if feature.sessionSummaries.count > 1 {
-                Divider()
-                Section("Close other sessions") {
-                    ForEach(feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) { summary in
-                        Button("Stop \(sessionLabel(summary))", role: .destructive) {
-                            feature.stopSession(summary.id)
-                        }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.heading("Close other sessions")
+
+                for summary in (feature.sessionSummaries.filter { $0.id != feature.activeSessionID }) {
+                    LitheContextMenuItem.action("Stop \(sessionLabel(summary))", role: .destructive) {
+                        feature.stopSession(summary.id)
                     }
                 }
+
             }
         } label: {
             LitheIDEAIcon(
@@ -266,25 +261,21 @@ struct GenericDebugView: View {
     /// debugger session rather than hiding it behind a second, unrelated
     /// launch flow.
     private var debugConfigurationPicker: some View {
-        Menu {
+        LitheMenu {
             if let runFeature = model.runFeatureIfActive,
-               !runFeature.configurations.isEmpty {
-                ForEach(runFeature.configurations) { configuration in
-                    Button {
+                !runFeature.configurations.isEmpty
+            {
+                for configuration in runFeature.configurations {
+                    LitheContextMenuItem.action(
+                        configuration.name,
+                        icon: AnyView(RunConfigurationIcon(kind: configuration.kind, size: 14)),
+                        checked: configuration.id == runFeature.selectedConfiguration?.id
+                    ) {
                         model.selectRunConfiguration(configuration)
-                    } label: {
-                        HStack(spacing: 7) {
-                            RunConfigurationIcon(kind: configuration.kind, size: 14)
-                            Text(configuration.name)
-                            if configuration.id == runFeature.selectedConfiguration?.id {
-                                Spacer(minLength: 8)
-                                Image(systemName: "checkmark")
-                            }
-                        }
                     }
                 }
             } else {
-                Button("Current File") {
+                LitheContextMenuItem.action("Current File") {
                     model.selectRunConfiguration(.currentFile)
                 }
             }
@@ -306,7 +297,7 @@ struct GenericDebugView: View {
             .background(RoundedRectangle(cornerRadius: 5).fill(LitheTheme.selection.opacity(0.72)))
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.litheNoPress)
         .fixedSize(horizontal: true, vertical: false)
         .help("Select the Run configuration used by Debug")
         .accessibilityLabel("Debug run configuration")
@@ -330,7 +321,7 @@ struct GenericDebugView: View {
             .frame(height: DebugToolbarPresentation.toolbarHeight)
         }
         .litheWorkbenchSurface(LitheTheme.toolHeader)
-        .popover(isPresented: $isSmartStepPickerPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isSmartStepPickerPresented) {
             smartStepPicker
         }
     }
@@ -520,25 +511,25 @@ struct GenericDebugView: View {
     }
 
     private var debugOptionsMenu: some View {
-        Menu {
+        LitheMenu {
             if feature.capabilities.supportsStepInTargetsRequest {
-                Button("Smart Step Into") { requestSmartStepInto() }
+                LitheContextMenuItem.action("Smart Step Into") { requestSmartStepInto() }
                     .disabled(feature.state != .paused || feature.selectedFrameID == nil)
             }
             if feature.capabilities.supportsStepBack {
-                Button("Step Back") { feature.execute(.stepBack) }
+                LitheContextMenuItem.action("Step Back") { feature.execute(.stepBack) }
                     .disabled(!feature.canStepBack)
             }
             if feature.javaSteppingFilters != nil {
-                Button("Java Stepping Filters…") {
+                LitheContextMenuItem.action("Java Stepping Filters…") {
                     isJavaSteppingSettingsPresented = true
                 }
                 .disabled(feature.isSessionActive)
             }
-            Divider()
-            Button("Connect to Running JVM…") { isJavaAttachPresented = true }
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Connect to Running JVM…") { isJavaAttachPresented = true }
                 .disabled(feature.isSessionActive)
-            Button("Clear Console") { feature.clearOutput() }
+            LitheContextMenuItem.action("Clear Console") { feature.clearOutput() }
                 .disabled(!feature.hasOutput)
         } label: {
             LitheIDEAIcon(
@@ -709,23 +700,22 @@ struct GenericDebugView: View {
     }
 
     private var threadPicker: some View {
-        Menu {
+        LitheMenu {
             if feature.threads.isEmpty {
-                Button("Load threads") { feature.inspectThreads() }
+                LitheContextMenuItem.action("Load threads") { feature.inspectThreads() }
             } else {
-                ForEach(feature.threads) { thread in
-                    Button {
-                        feature.selectThread(thread)
-                    } label: {
-                        HStack(spacing: 7) {
+                for thread in feature.threads {
+                    LitheContextMenuItem.action(
+                        thread.name,
+                        icon: AnyView(
                             LitheIDEAIcon(
                                 resourcePath: threadIconResourcePath(thread),
                                 size: 14,
                                 fallbackSystemImage: threadIcon(thread),
                                 preservesOriginalColors: true
-                            )
-                            Text(thread.name)
-                        }
+                            ))
+                    ) {
+                        feature.selectThread(thread)
                     }
                 }
             }
@@ -763,7 +753,8 @@ struct GenericDebugView: View {
             .frame(height: 28)
             .contentShape(Rectangle())
         }
-        .menuStyle(.borderlessButton)
+        .buttonStyle(.litheNoPress)
+
         .accessibilityLabel("Debugger thread")
         .litheContextMenu {
             var items: [LitheContextMenuItem] = []
@@ -947,17 +938,15 @@ struct GenericDebugView: View {
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer(minLength: 0)
             if !feature.scopes.isEmpty {
-                Menu {
-                    ForEach(feature.scopes) { scope in
-                        Button {
+                LitheMenu {
+                    for scope in feature.scopes {
+                        LitheContextMenuItem.action(
+                            scope.name,
+                            systemImage: feature.selectedScopeID == scope.id
+                                ? "checkmark"
+                                : "circle"
+                        ) {
                             feature.selectScope(scope)
-                        } label: {
-                            Label(
-                                scope.name,
-                                systemImage: feature.selectedScopeID == scope.id
-                                    ? "checkmark"
-                                    : "circle"
-                            )
                         }
                     }
                 } label: {
@@ -970,7 +959,8 @@ struct GenericDebugView: View {
                     .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
+
                 .accessibilityLabel("Variable scope")
             }
         }
@@ -1652,15 +1642,15 @@ struct DebugBreakpointManagerView: View {
             Text(String(feature.breakpoints.count))
                 .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
-            Menu {
-                Button(
+            LitheMenu {
+                LitheContextMenuItem.action(
                     feature.areBreakpointsMuted
                         ? "Unmute Line Breakpoints"
                         : "Mute Line Breakpoints"
                 ) {
                     feature.toggleBreakpointMute()
                 }
-                Button("Remove All", role: .destructive) {
+                LitheContextMenuItem.action("Remove All", role: .destructive) {
                     feature.removeAllBreakpoints()
                 }
                 .disabled(feature.breakpoints.isEmpty)
@@ -1675,7 +1665,7 @@ struct DebugBreakpointManagerView: View {
                     preservesOriginalColors: true
                 )
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .fixedSize()
             .help("Breakpoint actions")
             .accessibilityLabel("Line breakpoint actions")
@@ -1757,19 +1747,19 @@ struct DebugBreakpointManagerView: View {
             }
             .buttonStyle(.litheNoPress)
             .accessibilityLabel("Open \(breakpoint.title)")
-            Menu {
-                Button("Edit…") { editingBreakpoint = breakpoint }
-                Button(breakpoint.enabled ? "Disable" : "Enable") {
+            LitheMenu {
+                LitheContextMenuItem.action("Edit…") { editingBreakpoint = breakpoint }
+                LitheContextMenuItem.action(breakpoint.enabled ? "Disable" : "Enable") {
                     feature.setBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
                 }
-                Divider()
-                Button("Remove", role: .destructive) {
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Remove", role: .destructive) {
                     feature.removeBreakpoint(breakpoint)
                 }
             } label: {
                 Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .fixedSize()
             .accessibilityLabel("Actions for \(breakpoint.title)")
         }
@@ -1874,21 +1864,21 @@ struct DebugBreakpointManagerView: View {
             }
             .buttonStyle(.litheNoPress)
             .accessibilityLabel("Edit \(breakpoint.name) method breakpoint")
-            Menu {
-                Button("Edit…") {
+            LitheMenu {
+                LitheContextMenuItem.action("Edit…") {
                     functionBreakpointEditor = FunctionBreakpointEditorContext(breakpoint: breakpoint)
                 }
-                Button(breakpoint.enabled ? "Disable" : "Enable") {
+                LitheContextMenuItem.action(breakpoint.enabled ? "Disable" : "Enable") {
                     feature.setFunctionBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
                 }
-                Divider()
-                Button("Remove", role: .destructive) {
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Remove", role: .destructive) {
                     feature.removeFunctionBreakpoint(breakpoint)
                 }
             } label: {
                 Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .fixedSize()
             .accessibilityLabel("Actions for \(breakpoint.name) method breakpoint")
         }
@@ -1929,17 +1919,19 @@ struct DebugBreakpointManagerView: View {
             }
             .buttonStyle(.litheNoPress)
             .accessibilityLabel("Edit \(breakpoint.label) field breakpoint")
-            Menu {
-                Button("Edit…") { editingDataBreakpoint = breakpoint }
-                Button(breakpoint.enabled ? "Disable" : "Enable") {
+            LitheMenu {
+                LitheContextMenuItem.action("Edit…") { editingDataBreakpoint = breakpoint }
+                LitheContextMenuItem.action(breakpoint.enabled ? "Disable" : "Enable") {
                     feature.setDataBreakpointEnabled(breakpoint, enabled: !breakpoint.enabled)
                 }
-                Divider()
-                Button("Remove", role: .destructive) { feature.removeDataBreakpoint(breakpoint) }
+                LitheContextMenuItem.separator
+                LitheContextMenuItem.action("Remove", role: .destructive) {
+                    feature.removeDataBreakpoint(breakpoint)
+                }
             } label: {
                 Image(systemName: "ellipsis")
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
             .fixedSize()
             .accessibilityLabel("Actions for \(breakpoint.label) field breakpoint")
         }
@@ -2515,9 +2507,7 @@ private struct DataBreakpointEditorView: View {
                         Text("Access")
                             .font(LitheTheme.uiFont(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
-                        Picker("", selection: $accessType) {
-                            ForEach(breakpoint.accessTypes, id: \.self) { Text($0).tag($0) }
-                        }
+                        LitheSettingsSelect(selection: $accessType, options: breakpoint.accessTypes, width: 180, accessibilityLabel: "Access", title: { $0 })
                         .labelsHidden()
                     }
                 }

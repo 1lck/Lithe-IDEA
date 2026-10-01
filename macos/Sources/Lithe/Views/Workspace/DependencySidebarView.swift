@@ -177,12 +177,13 @@ private struct DependencyServiceSection: View {
             .lithePointer()
             .help("Configure dependency search paths")
             .accessibilityIdentifier("dependency-path-settings-\(service.id)")
-            .popover(isPresented: $isConfigurationPresented, arrowEdge: .trailing) {
+            .litheDropdown(isPresented: $isConfigurationPresented) {
                 DependencyPathConfigurationEditor(
                     serviceName: service.displayName,
                     workspaceURL: model.workspaceURL,
                     configuration: feature.dependencyPaths(for: service.id),
-                    saveError: feature.dependencyConfigurationSaveError
+                    saveError: feature.dependencyConfigurationSaveError,
+                    onDismiss: { isConfigurationPresented = false }
                 ) {
                     feature.updateDependencyPaths($0, serviceID: service.id)
                 }
@@ -437,7 +438,7 @@ private struct DependencyTreeNodeView: View {
 }
 
 private struct DependencyPathConfigurationEditor: View {
-    @Environment(\.dismiss) private var dismiss
+    let onDismiss: () -> Void
     let serviceName: String
     let workspaceURL: URL?
     let saveError: String?
@@ -455,11 +456,13 @@ private struct DependencyPathConfigurationEditor: View {
         workspaceURL: URL?,
         configuration: DependencyPathConfiguration,
         saveError: String?,
+        onDismiss: @escaping () -> Void,
         onSave: @escaping (DependencyPathConfiguration) -> Void
     ) {
         self.serviceName = serviceName
         self.workspaceURL = workspaceURL
         self.saveError = saveError
+        self.onDismiss = onDismiss
         self.onSave = onSave
         _sourcePaths = State(initialValue: configuration.sourcePaths.joined(separator: "\n"))
         _binaryPaths = State(initialValue: configuration.binaryPaths.joined(separator: "\n"))
@@ -554,7 +557,7 @@ private struct DependencyPathConfigurationEditor: View {
 
             HStack {
                 Spacer(minLength: 0)
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { onDismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     onSave(DependencyPathConfiguration(
@@ -564,7 +567,7 @@ private struct DependencyPathConfigurationEditor: View {
                         additionalSearchPaths: lines(additionalPaths),
                         excludedPaths: excludedPaths
                     ))
-                    dismiss()
+                    onDismiss()
                 }
                 .keyboardShortcut(.defaultAction)
             }

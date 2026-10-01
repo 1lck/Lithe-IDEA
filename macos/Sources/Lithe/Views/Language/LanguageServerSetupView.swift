@@ -123,13 +123,9 @@ struct LanguageServerSetupView: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle(copy.languageServer)
-            Picker(copy.languageServer, selection: $selectedProviderID) {
-                ForEach(providers) { descriptor in
-                    Text(descriptor.displayName).tag(descriptor.id)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
+            LitheSettingsSelect(selection: $selectedProviderID, options: providers.map(\.id), width: 200, accessibilityLabel: copy.languageServer, title: { id in providers.first { $0.id == id }?.displayName ?? id })
+
+
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

@@ -47,27 +47,26 @@ struct ProblemsView: View {
                     .foregroundStyle(LitheTheme.warning)
             }
 
-            Menu {
-                Button {
+            LitheMenu {
+                LitheContextMenuItem.action(
+                    "All severities",
+                    systemImage: severityFilter.count == DiagnosticSeverity.allCases.count
+                        ? "checkmark" : "circle"
+                ) {
                     severityFilter = Set(DiagnosticSeverity.allCases)
-                } label: {
-                    Label("All severities", systemImage: severityFilter.count == DiagnosticSeverity.allCases.count ? "checkmark" : "circle")
                 }
 
-                Divider()
+                LitheContextMenuItem.separator
 
-                ForEach(DiagnosticSeverity.allCases, id: \.self) { severity in
-                    Button {
+                for severity in DiagnosticSeverity.allCases {
+                    LitheContextMenuItem.action(
+                        severity.title, systemImage: severityFilter.contains(severity) ? "checkmark" : "circle"
+                    ) {
                         if severityFilter.contains(severity) {
                             severityFilter.remove(severity)
                         } else {
                             severityFilter.insert(severity)
                         }
-                    } label: {
-                        Label(
-                            severity.title,
-                            systemImage: severityFilter.contains(severity) ? "checkmark" : "circle"
-                        )
                     }
                 }
             } label: {

@@ -440,6 +440,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         self.onDismiss = onDismiss
         installEventMonitors()
         panel.setFrame(frame, display: true)
+        anchorWindow.addChildWindow(panel, ordered: .above)
         panel.orderFrontRegardless()
         panel.makeKey()
     }
@@ -454,6 +455,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         anchorFrame = nil
         let closingPanel = panel
         panel = nil
+        if let closingPanel { closingPanel.parent?.removeChildWindow(closingPanel) }
         closingPanel?.delegate = nil
         closingPanel?.orderOut(nil)
         closingPanel?.close()
