@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type DragEvent } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -8,7 +9,13 @@ import { FilePlusIcon, PaperPlaneTiltIcon, StopIcon, XIcon } from "@/ui/icons";
 import Select from "@/ui/select";
 import { Spinner } from "@/ui/spinner";
 import Textarea from "@/ui/textarea";
+import { cn } from "@/utils/cn";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
+import {
+  agentMentionQuery,
+  removeAgentMention,
+  type AgentMentionQuery,
+} from "../services/agent-composer-mentions";
 import { agentConnection } from "../stores/agent-connection-service";
 import { agentFileUri } from "../types/agent-file-uri";
 import {
@@ -64,6 +71,8 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
   const [composerError, setComposerError] = useState<string | null>(null);
   const [isPickingFile, setIsPickingFile] = useState(false);
   const [fileQuery, setFileQuery] = useState("");
+  const [isDropTargeted, setIsDropTargeted] = useState(false);
+  const [mention, setMention] = useState<AgentMentionQuery | null>(null);
 
   const isResponding = conversation?.isResponding === true;
   const isCancelling = conversation?.isCancelling === true;
@@ -79,6 +88,44 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
     }
   }, []);
 
+  const closePicker = useCallback(() => {
+    setIsPickingFile(false);
+    setMention(null);
+    setFileQuery("");
+  }, []);
+
+  const pickFile = useCallback(
+    (path: string) => {
+      attach([path]);
+      // The `@query` text that opened the picker is replaced by the reference.
+      if (mention !== null) setDraft((current) => removeAgentMention(current, mention));
+      closePicker();
+    },
+    [attach, closePicker, mention],
+  );
+
+  /** A dropped file is referenced by absolute path, exactly like a picked one. */
+  const handleDrop = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      event.preventDefault();
+      setIsDropTargeted(false);
+      attach(extractDroppedFilePaths(event.dataTransfer));
+    },
+    [attach],
+  );
+
+  const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    setIsDropTargeted(true);
+  }, []);
+
+  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
+    // Moving between children also fires dragleave on the container.
+    if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+    setIsDropTargeted(false);
+  }, []);
+
   const send = useCallback(() => {
     if (isResponding) return;
     const text = draft.trim();
@@ -87,11 +134,12 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
       agentConnection().send(text, files.map((file) => file.uri));
       setDraft("");
       setFiles([]);
+      closePicker();
       setComposerError(null);
     } catch (error) {
       setComposerError(error instanceof Error ? error.message : String(error));
     }
-  }, [draft, files, isResponding]);
+  }, [closePicker, draft, files, isResponding]);
 
   const matches = useMemo(() => {
     const query = fileQuery.trim().toLowerCase();
@@ -106,7 +154,18 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
   const options = conversation?.configOptions ?? [];
 
   return (
-    <div className="border-border/70 border-t p-2">
+    <div
+      className={cn("border-border/70 border-t p-2", isDropTargeted && "bg-accent/30")}
+      onDrop={handleDrop}
+      onDragOver={(event) => event.preventDefault()}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+    >
+      {isDropTargeted ? (
+        <div className="mb-1 text-subtle-foreground ui-text-caption">
+          {t("agent.composer.dropFiles")}
+        </div>
+      ) : null}
       {options.length === 0 ? null : (
         <div className="mb-1.5 flex flex-wrap gap-1">
           {options.map((option) => (
@@ -160,7 +219,7 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
             className="w-full border-border/70 border-b bg-transparent px-2 py-1 text-foreground outline-none ui-text-sm"
             onChange={(event) => setFileQuery(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === "Escape") setIsPickingFile(false);
+              if (event.key === "Escape") closePicker();
             }}
           />
           <div className="max-h-40 overflow-auto py-0.5">
@@ -174,11 +233,7 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
                   key={file.path}
                   type="button"
                   className="flex w-full items-center px-2 py-0.5 text-left hover:bg-accent ui-text-sm"
-                  onClick={() => {
-                    attach([file.path]);
-                    setIsPickingFile(false);
-                    setFileQuery("");
-                  }}
+                  onClick={() => pickFile(file.path)}
                 >
                   <span className="truncate text-foreground">{file.path}</span>
                 </button>
@@ -193,7 +248,17 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
         rows={3}
         value={draft}
         placeholder={t("agent.composer.placeholder")}
-        onChange={(event) => setDraft(event.target.value)}
+        onChange={(event) => {
+          const value = event.target.value;
+          setDraft(value);
+          // Typing `@` opens the picker on the unfinished reference at the caret.
+          const caret = event.target.selectionStart ?? value.length;
+          const opened = agentMentionQuery(value.slice(0, caret));
+          if (opened === null) return;
+          setMention(opened);
+          setFileQuery(opened.query);
+          setIsPickingFile(true);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
@@ -210,7 +275,15 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
             variant="ghost"
             tooltip={t("agent.composer.attachFile")}
             aria-label={t("agent.composer.attachFile")}
-            onClick={() => setIsPickingFile((value) => !value)}
+            onClick={() => {
+              if (isPickingFile) {
+                closePicker();
+                return;
+              }
+              setMention(null);
+              setFileQuery("");
+              setIsPickingFile(true);
+            }}
           >
             <FilePlusIcon className="size-3.5" />
           </Button>
