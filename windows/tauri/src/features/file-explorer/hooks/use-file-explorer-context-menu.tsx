@@ -67,7 +67,6 @@ import { showGitPushDialog } from "@/features/git/services/git-push-dialog-servi
 import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
 import { isGitRepositoryRoot } from "@/features/git/utils/git-repository-root";
-import { toggleSourceControlSidebar } from "@/features/keymaps/commands/view-command-actions";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import type { ContextMenuState } from "@/features/file-system/types/app.types";
 import { Button } from "@/ui/button";
@@ -411,7 +410,11 @@ export function useFileExplorerContextMenu({
             }
           }
           selectRepository(context.repoPath);
-          toggleSourceControlSidebar();
+          // Idempotent open: set visible before switching views so the persisted
+          // session snapshot records the open state (per review on PR #989).
+          const uiState = useUIState.getState();
+          uiState.setIsSidebarVisible(true);
+          uiState.setActiveView("git");
         } finally {
           setIsGitOperationRunning(false);
         }
@@ -423,7 +426,11 @@ export function useFileExplorerContextMenu({
   const showGitDirectoryDiff = useCallback(
     (repoPath: string) => {
       selectRepository(repoPath);
-      toggleSourceControlSidebar();
+      // Idempotent open: set visible before switching views so the persisted
+      // session snapshot records the open state (per review on PR #989).
+      const uiState = useUIState.getState();
+      uiState.setIsSidebarVisible(true);
+      uiState.setActiveView("git");
     },
     [selectRepository],
   );
