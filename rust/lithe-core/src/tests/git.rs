@@ -2994,6 +2994,67 @@ fn git_diff_and_apply_round_trip_a_patch() {
     fs::remove_dir_all(root).expect("temporary workspace should be removable");
 }
 
+/// Windows single-file reviews ask for Git's largest context so the renderer
+/// can reveal folded unchanged lines (#557). The snapshot diff must accept that
+/// value and return the complete file as one hunk.
+#[test]
+fn git_snapshot_diff_returns_the_whole_file_for_maximum_context() {
+    let root = temporary_root("git-full-context-diff");
+    fs::create_dir_all(&root).expect("temporary workspace should be creatable");
+    let run = |arguments: &[&str]| {
+        Command::new("git")
+            .args(arguments)
+            .current_dir(&root)
+            .output()
+            .expect("git should be available")
+    };
+    assert!(run(&["init", "-q"]).status.success());
+    assert!(run(&["config", "core.autocrlf", "false"]).status.success());
+    assert!(run(&["config", "user.email", "test@example.com"])
+        .status
+        .success());
+    assert!(run(&["config", "user.name", "Lithe Test"]).status.success());
+    let original = (1..=200)
+        .map(|line| format!("line {line}\n"))
+        .collect::<String>();
+    fs::write(root.join("long.txt"), &original).expect("file should be writable");
+    assert!(run(&["add", "long.txt"]).status.success());
+    assert!(run(&["commit", "-qm", "initial"]).status.success());
+    fs::write(
+        root.join("long.txt"),
+        original
+            .replace("line 10\n", "line ten\n")
+            .replace("line 190\n", "line one-ninety\n"),
+    )
+    .expect("file should be writable");
+
+    let request = serde_json::json!({
+        "id": "full-context-diff",
+        "command": "git.diff",
+        "payload": {
+            "root": root,
+            "pathspecs": ["long.txt"],
+            "worktreeSnapshot": true,
+            "contextLines": i32::MAX
+        }
+    });
+    let response: Value = serde_json::from_str(&execute_json(
+        &serde_json::to_string(&request).expect("diff request should encode"),
+    ))
+    .expect("diff response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+    let patch = response["data"]["patch"]
+        .as_str()
+        .expect("diff output should be text");
+    assert!(patch.contains("@@ -1,200 +1,200 @@"), "{patch}");
+    assert!(
+        patch.contains("\n line 100\n"),
+        "middle context missing: {patch}"
+    );
+    assert_eq!(response["data"]["hunks"].as_array().unwrap().len(), 1);
+    fs::remove_dir_all(root).expect("temporary workspace should be removable");
+}
+
 #[test]
 fn git_diff_resolves_the_empty_tree_for_a_sha256_repository() {
     let root = temporary_root("git-diff-sha256-empty-tree");

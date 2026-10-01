@@ -5,7 +5,7 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { showAlertDialog } from "@/ui/dialog";
 import {
   getCommitDiff,
-  getFileDiff,
+  getFullContextFileDiff,
   getRefDiff,
   getStashDiff,
   getTypedReferenceDiff,
@@ -165,12 +165,13 @@ export function useGitDiffActions({
           const bufferId = openDiffBuffer("diff://working-tree/all-files", title, loadingDiff);
           void (async () => {
             const diff = staged
-              ? await getFileDiff(fileRepoPath, relativePath, true)
+              ? await getFullContextFileDiff(fileRepoPath, relativePath, true)
               : await getWorkingTreePathDiff(
                   fileRepoPath,
                   relativePath,
                   untracked,
                   originalRelativePath,
+                  true,
                 );
             if (
               !latestFileDiffRequest.isCurrent(requestId) ||
@@ -196,7 +197,7 @@ export function useGitDiffActions({
           return;
         }
 
-        const diff = await getFileDiff(activeRepoPath, actualFilePath, staged);
+        const diff = await getFullContextFileDiff(activeRepoPath, actualFilePath, staged);
         if (
           !latestFileDiffRequest.isCurrent(requestId) ||
           activeRepoPathRef.current !== activeRepoPath

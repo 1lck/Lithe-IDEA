@@ -1,6 +1,6 @@
 import equal from "fast-deep-equal";
 import { normalizePath } from "@/utils/path-helpers";
-import { getFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
+import { getFullContextFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
 import { getGitStatus } from "../api/git-status-api";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
@@ -65,8 +65,8 @@ export async function refreshWorkingTreeFileDiff(
     loadStatus = getGitStatus,
     loadDiff = (root, path, untracked, originalPath, staged) =>
       staged
-        ? getFileDiff(root, path, true)
-        : getWorkingTreePathDiff(root, path, untracked, originalPath),
+        ? getFullContextFileDiff(root, path, true)
+        : getWorkingTreePathDiff(root, path, untracked, originalPath, true),
   }: WorkingTreeDiffRefreshDependencies,
 ): Promise<WorkingTreeDiffRefreshOutcome> {
   const startingDiff = buffers.read(bufferId);
