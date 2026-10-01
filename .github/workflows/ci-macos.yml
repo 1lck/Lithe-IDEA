@@ -326,6 +326,7 @@ jobs:
           ruby -c scripts/create-macos-update-manifest.rb
           ruby -c scripts/test-macos-update-manifest.rb
           ruby scripts/test-macos-update-manifest.rb
+          node --test scripts/test-wait-for-release-assets.mjs
           plutil -lint macos/Resources/Info.plist
 
       - name: Build and verify default universal package

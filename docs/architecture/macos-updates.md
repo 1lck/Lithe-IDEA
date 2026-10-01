@@ -78,6 +78,18 @@ Release ZIPs are the persistent baseline archive; retain them after publication.
 Sparkle may omit a delta if it cannot generate a useful patch. Missing baselines
 produce a full-only feed; API and download errors fail the workflow.
 
+Stable macOS and Windows publishers share the same GitHub Release. A new stable
+Release is created as a draft, and each platform uploads its own assets before
+waiting for the complete cross-platform set (`scripts/wait-for-release-assets.mjs`).
+That set includes both appcasts, both macOS archives and their checksums and
+signatures, both manifests, and the Windows installer, checksum, updater, and
+updater signature. The macOS workflow uploads its appcasts in a final upload
+step. Only after every required asset is present is the Release made public. A
+published Release is never reopened for asset replacement, because changing a
+ZIP after publication would invalidate future Sparkle delta baselines. If either
+platform fails, the draft remains unpublished and the next run can be
+investigated without exposing an appcast URL that returns 404.
+
 The first Sparkle-enabled version is a full update through the legacy manifest.
 Later versions can use deltas. Sparkle falls back to the full archive when a delta
 is unavailable or cannot be applied. `brew upgrade --cask lithe` continues to

@@ -271,6 +271,7 @@ jobs:
             --repo "$GITHUB_REPOSITORY"
             --target "$GITHUB_SHA"
             --title "Lithe $RELEASE_TAG"
+            --draft
           )
           edit_args=(
             "$RELEASE_TAG"
@@ -281,12 +282,17 @@ jobs:
           upload_args=(
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg"
             "dist/Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
+            "dist/Lithe-${LITHE_VERSION}-arm64.dmg.edsig"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg"
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
+            "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.edsig"
             "dist/latest-macos.json"
           )
           for architecture in arm64 x86_64; do
-            upload_args+=(dist/sparkle-"$architecture"/*)
+            upload_args+=("dist/sparkle-${architecture}/Lithe-${LITHE_VERSION}-${architecture}.zip")
+            for delta in dist/sparkle-"$architecture"/*.delta(N); do
+              upload_args+=("$delta")
+            done
             plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
             if [[ -e "$plugin_archive" ]]; then
               upload_args+=("$plugin_archive")
@@ -300,9 +306,55 @@ jobs:
             gh release create "${create_args[@]}" || \
               gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
           fi
+          is_draft=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          if [[ "$is_draft" != "true" ]]; then
+            echo "Release $RELEASE_TAG is already published; refusing to replace its update baseline."
+            exit 1
+          fi
           gh release edit "${edit_args[@]}"
           gh release upload "$RELEASE_TAG" "${upload_args[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber
+          appcast_args=(
+            "dist/sparkle-arm64/appcast-arm64.xml"
+            "dist/sparkle-x86_64/appcast-x86_64.xml"
+          )
+          gh release upload "$RELEASE_TAG" "${appcast_args[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+      - name: Wait for complete cross-platform Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          required_assets=(
+            "Lithe-${LITHE_VERSION}-arm64.dmg"
+            "Lithe-${LITHE_VERSION}-arm64.dmg.sha256"
+            "Lithe-${LITHE_VERSION}-arm64.dmg.edsig"
+            "Lithe-${LITHE_VERSION}-x86_64.dmg"
+            "Lithe-${LITHE_VERSION}-x86_64.dmg.sha256"
+            "Lithe-${LITHE_VERSION}-x86_64.dmg.edsig"
+            "Lithe-${LITHE_VERSION}-arm64.zip"
+            "Lithe-${LITHE_VERSION}-x86_64.zip"
+            "Lithe-${LITHE_VERSION}-windows-x64.exe"
+            "Lithe-${LITHE_VERSION}-windows-x64.exe.sha256"
+            "Lithe-${LITHE_VERSION}-windows-x64-updater.exe"
+            "Lithe-${LITHE_VERSION}-windows-x64-updater.exe.sig"
+            "latest-macos.json"
+            "latest.json"
+            "appcast-arm64.xml"
+            "appcast-x86_64.xml"
+          )
+          args=(
+            --repository "$GITHUB_REPOSITORY"
+            --tag "$RELEASE_TAG"
+            --timeout-seconds 1800
+          )
+          for asset in "${required_assets[@]}"; do
+            args+=(--required-asset "$asset")
+          done
+          node scripts/wait-for-release-assets.mjs "${args[@]}"
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
 
   update-cask:
     name: Update Homebrew Cask

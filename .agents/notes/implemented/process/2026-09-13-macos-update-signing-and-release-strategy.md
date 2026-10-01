@@ -41,6 +41,15 @@ stable 工作流继续发布 DMG + SHA-256 + `latest-macos.json` 供旧客户端
 feed，Sparkle 生成不出有效 patch 时也会省略该 delta 并回退到全量
 归档。GitHub Release 的 zip 是差分基线的持久化来源，发布后必须保留。
 
+Stable macOS 和 Windows 发布器共用草稿 Release 栅栏。两个平台先分别上传
+自己的附件，再由 `scripts/wait-for-release-assets.mjs` 检查两份 appcast、
+两份 macOS 压缩包及其 checksum/signature、两份更新 manifest、Windows
+安装器 checksum、updater 和 updater signature 都已经上传。macOS 发布器把
+appcast 放到最后上传。资产齐全后才公开 Release；已公开的 Release 不再重新
+打开并替换附件。这样
+`/releases/latest/download/appcast-*.xml` 不会在另一个平台仍构建时返回
+404，也不会在 Sparkle 已经使用 ZIP 作为基线后改变 ZIP 字节。
+
 ### Stable 与 Preview 完全隔离
 
 Preview 使用独立的 `LitheUpdateChannel=preview`、独立的
@@ -129,6 +138,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 ./scripts/verify-macos-package.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+node --test scripts/test-wait-for-release-assets.mjs
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
 ```
 
@@ -147,6 +157,8 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `scripts/prepare-sparkle-tools.sh`
 - `scripts/verify-macos-package.sh`
 - `scripts/test-sparkle-update.rb`
+- `scripts/wait-for-release-assets.mjs`
+- `scripts/test-wait-for-release-assets.mjs`
 - `scripts/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`

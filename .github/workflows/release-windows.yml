@@ -253,7 +253,8 @@ jobs:
             $env:RELEASE_TAG,
             "--repo", $env:GITHUB_REPOSITORY,
             "--target", $env:GITHUB_SHA,
-            "--title", "Lithe $env:RELEASE_TAG"
+            "--title", "Lithe $env:RELEASE_TAG",
+            "--draft"
           )
           $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -ne 0) {
@@ -263,6 +264,10 @@ jobs:
               $existing = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY 2>$null
               if ($LASTEXITCODE -ne 0) { throw "Could not create or find release $env:RELEASE_TAG" }
             }
+          }
+          $isDraft = gh release view $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --json isDraft --jq '.isDraft'
+          if ($LASTEXITCODE -ne 0 -or $isDraft -ne "true") {
+            throw "Release $env:RELEASE_TAG is already published; refusing to replace its update baseline."
           }
           gh release edit $env:RELEASE_TAG `
             --repo $env:GITHUB_REPOSITORY `
@@ -280,6 +285,45 @@ jobs:
           )
           gh release upload $env:RELEASE_TAG @assets `
             --repo $env:GITHUB_REPOSITORY --clobber
+
+      - name: Wait for complete cross-platform Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          LITHE_VERSION: ${{ steps.version.outputs.version }}
+        shell: pwsh
+        run: |
+          $requiredAssets = @(
+            "Lithe-$env:LITHE_VERSION-arm64.dmg",
+            "Lithe-$env:LITHE_VERSION-arm64.dmg.sha256",
+            "Lithe-$env:LITHE_VERSION-arm64.dmg.edsig",
+            "Lithe-$env:LITHE_VERSION-x86_64.dmg",
+            "Lithe-$env:LITHE_VERSION-x86_64.dmg.sha256",
+            "Lithe-$env:LITHE_VERSION-x86_64.dmg.edsig",
+            "Lithe-$env:LITHE_VERSION-arm64.zip",
+            "Lithe-$env:LITHE_VERSION-x86_64.zip",
+            "Lithe-$env:LITHE_VERSION-windows-x64.exe",
+            "Lithe-$env:LITHE_VERSION-windows-x64.exe.sha256",
+            "Lithe-$env:LITHE_VERSION-windows-x64-updater.exe",
+            "Lithe-$env:LITHE_VERSION-windows-x64-updater.exe.sig",
+            "latest-macos.json",
+            "latest.json",
+            "appcast-arm64.xml",
+            "appcast-x86_64.xml"
+          )
+          $arguments = @(
+            "scripts/wait-for-release-assets.mjs",
+            "--repository", $env:GITHUB_REPOSITORY,
+            "--tag", $env:RELEASE_TAG,
+            "--timeout-seconds", "1800"
+          )
+          foreach ($asset in $requiredAssets) {
+            $arguments += @("--required-asset", $asset)
+          }
+          node @arguments
+          if ($LASTEXITCODE -ne 0) { throw "Release assets did not become complete" }
+          gh release edit $env:RELEASE_TAG --repo $env:GITHUB_REPOSITORY --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw "Could not publish complete release" }
 
   sync-atomgit:
     name: Sync Windows release to AtomGit
