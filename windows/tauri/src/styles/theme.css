@@ -18,6 +18,11 @@
   --color-subtle-foreground: var(--subtle-foreground);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
+  /* IntelliJ-style form controls; themes that omit them reuse the generic borders. */
+  --color-control-border: var(--control-border, var(--border-strong));
+  --color-checkbox-border: var(--checkbox-border, var(--border-strong));
+  --color-checkbox-background: var(--checkbox-background, var(--background));
+  --color-tree-chevron: var(--tree-chevron, var(--subtle-foreground));
   --color-accent: var(--accent);
   --color-selected: var(--selected);
   --color-selection: var(--selection);
@@ -52,6 +57,9 @@
   --color-git-modified-staged: var(--git-modified-staged);
   --color-git-added: var(--git-added);
   --color-git-deleted: var(--git-deleted);
+  /* Deleted-file text (IntelliJ FileStatus.DELETED gray); git-deleted stays the
+     red used for removed diff lines. Themes without it fall back to git-deleted. */
+  --color-git-file-deleted: var(--git-file-deleted, var(--git-deleted));
   --color-git-untracked: var(--git-untracked);
   --color-git-renamed: var(--git-renamed);
 

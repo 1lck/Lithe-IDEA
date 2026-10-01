@@ -37,7 +37,7 @@ export function getFileTreeGitStatusDecoration(
     case "added":
       return { colorClassName: "text-git-added", label: "Added" };
     case "deleted":
-      return { colorClassName: "text-git-deleted", label: "Deleted" };
+      return { colorClassName: "text-git-file-deleted", label: "Deleted" };
     case "untracked":
       return { colorClassName: "text-git-untracked", label: "Untracked" };
     case "renamed":
