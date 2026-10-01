@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { GitDiff, GitFile } from "@/features/git/types/git.types";
 import {
   buildGitFileContextMenuItems,
-  buildGitFileDiffBuffer,
+  buildWorkingTreeDiffTarget,
   findGitStatusFileForPath,
   getExplorerGitFileMenuCapabilities,
   hasGitDiffContent,
@@ -131,27 +131,59 @@ describe("hasGitDiffContent", () => {
   });
 });
 
-describe("buildGitFileDiffBuffer", () => {
-  test("unstaged view matches the diff buffer path convention", () => {
-    expect(buildGitFileDiffBuffer(false, "src/main/java/App.java", "App.java")).toEqual({
-      virtualPath: "diff://unstaged/src%2Fmain%2Fjava%2FApp.java",
-      displayName: "App.java (unstaged)",
+describe("buildWorkingTreeDiffTarget", () => {
+  test("carries the owning repository so refreshes never guess the workspace root", () => {
+    const { target, fileKey } = buildWorkingTreeDiffTarget(
+      { repoPath: "C:/work/repo-b", repositoryRelativePath: "src/App.java", status: "modified" },
+      false,
+    );
+
+    expect(target).toEqual({
+      repoPath: "C:/work/repo-b",
+      filePath: "src/App.java",
+      untracked: false,
     });
+    expect(fileKey).toBe("unstaged:src/App.java");
   });
 
-  test("staged view switches the namespace and label", () => {
-    expect(buildGitFileDiffBuffer(true, "src/App.java", "App.java")).toEqual({
-      virtualPath: "diff://staged/src%2FApp.java",
-      displayName: "App.java (staged)",
-    });
+  test("marks staged view and the file key accordingly", () => {
+    const { target, fileKey } = buildWorkingTreeDiffTarget(
+      { repoPath: "C:/work/repo-b", repositoryRelativePath: "src/App.java", status: "modified" },
+      true,
+    );
+
+    expect(target.staged).toBe(true);
+    expect(fileKey).toBe("staged:src/App.java");
   });
 
-  test("encodes special characters so the path stays a single URI segment", () => {
-    const { virtualPath } = buildGitFileDiffBuffer(false, "docs/新建 文件.md", "新建 文件.md");
-    const encoded = virtualPath.slice("diff://unstaged/".length);
+  test("propagates untracked status and rename original path when present", () => {
+    const untracked = buildWorkingTreeDiffTarget(
+      { repoPath: "R", repositoryRelativePath: "New.txt", status: "untracked" },
+      false,
+    );
+    expect(untracked.target.untracked).toBe(true);
 
-    expect(encoded).not.toContain(" ");
-    expect(decodeURIComponent(encoded)).toBe("docs/新建 文件.md");
+    const renamed = buildWorkingTreeDiffTarget(
+      {
+        repoPath: "R",
+        repositoryRelativePath: "New.txt",
+        originalPath: "Old.txt",
+        status: "renamed",
+      },
+      false,
+    );
+    expect(renamed.target.originalPath).toBe("Old.txt");
+    expect(renamed.target.untracked).toBe(false);
+  });
+
+  test("omits optional fields instead of emitting undefined entries", () => {
+    const { target } = buildWorkingTreeDiffTarget(
+      { repoPath: "R", repositoryRelativePath: "A.java", status: "modified" },
+      false,
+    );
+
+    expect("originalPath" in target).toBe(false);
+    expect("staged" in target).toBe(false);
   });
 });
 

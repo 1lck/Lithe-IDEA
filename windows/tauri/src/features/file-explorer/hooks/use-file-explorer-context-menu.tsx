@@ -46,7 +46,7 @@ import { JavaClipboardPasteError } from "@/features/file-explorer/lib/paste-java
 import { buildGitRepositoryContextMenuItems } from "@/features/file-explorer/lib/file-context-menu-git-items";
 import {
   buildGitFileContextMenuItems,
-  buildGitFileDiffBuffer,
+  buildWorkingTreeDiffTarget,
   findGitStatusFileForPath,
   getExplorerGitFileMenuCapabilities,
   hasGitDiffContent,
@@ -67,6 +67,7 @@ import { showGitPushDialog } from "@/features/git/services/git-push-dialog-servi
 import { showGitPullDialog } from "@/features/git/services/git-pull-dialog-service";
 import { useRepositoryStore } from "@/features/git/stores/git-repository.store";
 import { isGitRepositoryRoot } from "@/features/git/utils/git-repository-root";
+import { createSingleFileWorkingTreeDiff } from "@/features/git/utils/working-tree-multi-diff";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import type { ContextMenuState } from "@/features/file-system/types/app.types";
 import { Button } from "@/ui/button";
@@ -349,23 +350,29 @@ export function useFileExplorerContextMenu({
             return;
           }
 
-          const buffer = buildGitFileDiffBuffer(
-            staged,
-            context.repositoryRelativePath,
-            getBaseName(context.absolutePath, ""),
-          );
+          // Open through the working-tree payload so the buffer carries the
+          // owning repository (workingTreeTargets); later refreshes then read
+          // target.repoPath instead of guessing the workspace root (per review
+          // on PR #989, same shape as the Git panel's single-file diff).
+          const { target, fileKey } = buildWorkingTreeDiffTarget(context, staged);
+          const multiDiff = createSingleFileWorkingTreeDiff({
+            repoPath: context.repoPath,
+            fileKey,
+            diff,
+            target,
+          });
           activateMainEditorPane();
           useBufferStore
             .getState()
             .actions.openBuffer(
-              buffer.virtualPath,
-              buffer.displayName,
+              "diff://working-tree/all-files",
+              t("git.diff.uncommitted"),
               "",
               false,
               undefined,
               true,
               true,
-              diff,
+              multiDiff,
             );
         } catch (error) {
           toast.error(t("git.contextMenu.diffFailed"), {

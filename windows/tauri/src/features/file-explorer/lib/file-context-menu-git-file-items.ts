@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { WorkingTreeDiffTarget } from "@/features/git/types/git-diff.types";
 import type { GitDiff, GitFile } from "@/features/git/types/git.types";
 import type { MenuItem } from "@/ui/dropdown";
 
@@ -58,25 +59,36 @@ export function hasGitDiffContent(diff: GitDiff | null): diff is GitDiff {
   return Boolean(diff && (diff.lines.length > 0 || diff.is_image || diff.is_binary));
 }
 
-export interface GitFileDiffBuffer {
-  virtualPath: string;
-  displayName: string;
+export interface GitFileDiffTarget {
+  target: WorkingTreeDiffTarget;
+  /** Key format shared with the working-tree diff stack refresh identity. */
+  fileKey: string;
 }
 
 /**
- * Builds the single-file diff buffer coordinates for `use-git-diff-data.ts`,
- * whose regexes recognize exactly `diff://<staged|unstaged>/<encoded path>`.
- * Changing either side silently breaks stage/unstage inside the diff view.
+ * Builds the working-tree diff target so the opened buffer carries the owning
+ * repository. Refreshes then re-read through target.repoPath instead of
+ * guessing the workspace root, which breaks in nested/multi-repo workspaces
+ * (per review on PR #989). Field shape mirrors use-git-diff-actions.ts.
  */
-export function buildGitFileDiffBuffer(
+export function buildWorkingTreeDiffTarget(
+  context: {
+    repoPath: string;
+    repositoryRelativePath: string;
+    originalPath?: string;
+    status: ExplorerGitFileMenuState["status"];
+  },
   staged: boolean,
-  repositoryRelativePath: string,
-  fileName: string,
-): GitFileDiffBuffer {
-  const viewType = staged ? "staged" : "unstaged";
+): GitFileDiffTarget {
   return {
-    virtualPath: `diff://${viewType}/${encodeURIComponent(repositoryRelativePath)}`,
-    displayName: `${fileName} (${viewType})`,
+    target: {
+      repoPath: context.repoPath,
+      filePath: context.repositoryRelativePath,
+      ...(context.originalPath ? { originalPath: context.originalPath } : {}),
+      untracked: context.status === "untracked",
+      ...(staged ? { staged: true } : {}),
+    },
+    fileKey: `${staged ? "staged" : "unstaged"}:${context.repositoryRelativePath}`,
   };
 }
 

@@ -754,7 +754,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "在文件树对修改、未跟踪、已暂存文件右键：Show Diff 打开该文件的工作区或暂存区 Diff；Add 将该文件加入暂存区并更新状态；Stage and Open Commit…（暂存并打开提交）暂存该文件并打开源代码管理提交面板，注意面板提交范围为当前暂存区的全部内容。目录右键 Show Diff 切换到所属仓库的变更面板。无变更的干净文件不显示 Git 子菜单。"
+      "verification": "在文件树对修改、未跟踪、已暂存文件右键：Show Diff 打开该文件的工作区或暂存区 Diff；Add 将该文件加入暂存区并更新状态；Stage and Open Commit…（暂存并打开提交）暂存该文件并打开源代码管理提交面板，注意面板提交范围为当前暂存区的全部内容。目录右键 Show Diff 切换到所属仓库的变更面板。无变更的干净文件不显示 Git 子菜单。多仓库工作区下打开嵌套仓库文件的 Diff 后修改该文件，刷新仍读所属仓库。"
     },
     {
       "id": "git-history",

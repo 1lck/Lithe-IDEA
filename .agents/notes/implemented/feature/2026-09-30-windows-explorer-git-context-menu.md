@@ -16,7 +16,7 @@ Issue #975 要右键直接比对和提交单个文件。Windows 端 Diff、暂�
 
 - 菜单纯逻辑放 `windows/tauri/src/features/file-explorer/lib/file-context-menu-git-file-items.ts`（能力判定 + 构建 + 虚拟路径契约），单测同目录。
 - 右键时异步解析所属仓库与状态（`resolveRepositoryForFile` + `getGitStatus`），支持嵌套仓库；干净文件不显示 Git 菜单，已暂存隐藏 Add。
-- Show Diff 打开 `diff://unstaged|staged/<路径>` 虚拟 buffer，与 `use-git-diff-data.ts` 的识别约定一致，不要单侧改动。Stage and Open Commit…（暂存并打开提交）先暂存该文件再打开源代码管理提交面板，复用现有提交流程；面板提交的是当前暂存区全部内容而非仅该文件，动作按此语义命名（PR #989 review 意见）。
+- Show Diff 以 `createSingleFileWorkingTreeDiff` 载荷打开 `diff://working-tree/all-files`，`workingTreeTargets` 显式携带所属仓库，后续刷新/切换按 target.repoPath 重读，不再拿工作区根猜仓库（多仓库安全，PR #989 review 意见③）。Stage and Open Commit…（暂存并打开提交）先暂存该文件再打开源代码管理提交面板，复用现有提交流程；面板提交的是当前暂存区全部内容而非仅该文件，动作按此语义命名（PR #989 review 意见①）。
 - 只准调 `@/features/git/api/*`；禁止为这些动作新增 Tauri command 或绕过 API 层直接 invoke。
 
 ## 考虑过的备选方案
