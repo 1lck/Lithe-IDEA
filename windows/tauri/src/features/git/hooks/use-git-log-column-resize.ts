@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import {
   startDocumentResizeSession,
   type DocumentResizeSession,
+  type DocumentResizeSessionOptions,
 } from "@/utils/document-resize-session";
 import { useGitLogPreferencesStore } from "../stores/git-log-preferences.store";
 import {
@@ -17,8 +18,13 @@ import {
  * Widths reach every row through CSS variables on the scroll container. While dragging, the
  * variable is written straight to the DOM (once per frame) so the virtualized rows are not
  * re-rendered; the final width is persisted once when the drag ends.
+ *
+ * `frameScheduler` replaces `requestAnimationFrame` so tests can flush frames deterministically.
  */
-export function useGitLogColumnResize(scrollRef: React.RefObject<HTMLElement | null>) {
+export function useGitLogColumnResize(
+  scrollRef: React.RefObject<HTMLElement | null>,
+  frameScheduler?: Pick<DocumentResizeSessionOptions, "scheduleFrame" | "cancelFrame">,
+) {
   const authorWidth = useGitLogPreferencesStore.use.authorColumnWidth();
   const dateWidth = useGitLogPreferencesStore.use.dateColumnWidth();
   const { setColumnWidth } = useGitLogPreferencesStore.use.actions();
@@ -48,9 +54,10 @@ export function useGitLogColumnResize(scrollRef: React.RefObject<HTMLElement | n
           sessionRef.current = null;
         },
         onActiveChange: (active) => setActiveColumn(active ? column : null),
+        ...frameScheduler,
       });
     },
-    [authorWidth, dateWidth, scrollRef, setColumnWidth],
+    [authorWidth, dateWidth, frameScheduler, scrollRef, setColumnWidth],
   );
 
   // Persist an in-flight drag if the table unmounts mid-gesture, and drop listeners and styles.

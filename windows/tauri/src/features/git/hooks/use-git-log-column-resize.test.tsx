@@ -9,11 +9,27 @@ import { GIT_LOG_COLUMN_DEFAULT_WIDTHS } from "../utils/git-log-columns";
 import { useGitLogColumnResize } from "./use-git-log-column-resize";
 
 let rowClicks = 0;
+// Manual animation-frame queue so live widths are applied deterministically, without real timers.
+let pendingFrames = new Map<number, FrameRequestCallback>();
+let nextFrameHandle = 1;
+const frameScheduler = {
+  scheduleFrame: (callback: FrameRequestCallback) => {
+    const handle = nextFrameHandle++;
+    pendingFrames.set(handle, callback);
+    return handle;
+  },
+  cancelFrame: (handle: number) => {
+    pendingFrames.delete(handle);
+  },
+};
 
 // Mirrors the table: one scroll container whose CSS variables drive every row's column widths.
 function Harness() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { columnStyle, activeColumn, startResize } = useGitLogColumnResize(scrollRef);
+  const { columnStyle, activeColumn, startResize } = useGitLogColumnResize(
+    scrollRef,
+    frameScheduler,
+  );
 
   return (
     <LocaleProvider language="en-US">
@@ -37,7 +53,11 @@ function pointerEvent(type: string, init: { clientX: number; button?: number }) 
   return Object.assign(event, { button: 0, ...init });
 }
 
-const nextFrame = () => new Promise((resolve) => setTimeout(resolve, 30));
+const flushFrames = () => {
+  const frames = [...pendingFrames.values()];
+  pendingFrames = new Map();
+  for (const frame of frames) frame(0);
+};
 
 let restoreDom: () => void;
 let container: HTMLElement;
@@ -50,6 +70,7 @@ beforeEach(async () => {
   previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
   actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
   rowClicks = 0;
+  pendingFrames = new Map();
   useGitLogPreferencesStore.setState({
     authorColumnWidth: GIT_LOG_COLUMN_DEFAULT_WIDTHS.author,
     dateColumnWidth: GIT_LOG_COLUMN_DEFAULT_WIDTHS.date,
@@ -86,7 +107,7 @@ test("dragging a column's left edge leftwards widens it live and persists once o
 
   await act(async () => {
     document.dispatchEvent(pointerEvent("pointermove", { clientX: 260 }));
-    await nextFrame();
+    flushFrames();
   });
   // The live width lands on the DOM, but nothing is written to the store mid-drag.
   expect(scroll.style.getPropertyValue("--git-log-author-width")).toBe("152px");
@@ -109,7 +130,7 @@ test("the date column resizes independently and respects its bounds", async () =
   });
   await act(async () => {
     document.dispatchEvent(pointerEvent("pointermove", { clientX: -5000 }));
-    await nextFrame();
+    flushFrames();
   });
   expect(scroll.style.getPropertyValue("--git-log-date-width")).toBe("280px");
 
