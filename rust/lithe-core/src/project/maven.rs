@@ -672,6 +672,10 @@ struct Descriptor {
     group_id: Option<String>,
     artifact_id: Option<String>,
     version: Option<String>,
+    /// `artifactId` of `<parent>`, recorded so a module can be matched back to
+    /// the reactor entry it inherits from. `relativePath` is not needed: the
+    /// reactor tree already places every parent above its children.
+    parent_artifact_id: Option<String>,
     packaging: String,
     build_directory: Option<String>,
     /// `<reportsDirectory>` values configured for Surefire or Failsafe, raw.
@@ -738,7 +742,7 @@ pub fn declared_modules(root: &Path) -> Result<Vec<DeclaredModule>, CoreError> {
     };
     let mut modules = Vec::new();
     let mut visited = vec![root.to_path_buf()];
-    collect_modules(root, root, root_descriptor, &mut modules, &mut visited);
+    collect_modules(root, root, root_descriptor, &mut modules, &mut visited, &[]);
     Ok(modules)
 }
 
@@ -752,6 +756,7 @@ fn collect_modules(
     current: Descriptor,
     modules: &mut Vec<DeclaredModule>,
     visited: &mut Vec<PathBuf>,
+    inherited_plugins: &[String],
 ) {
     let relative_path = directory
         .strip_prefix(root)
@@ -760,6 +765,20 @@ fn collect_modules(
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| ".".to_string());
     let current_source_roots = source_roots(Some(&current));
+    // Maven merges a parent's `<build><plugins>` into every child, so a boot
+    // plugin declared on an aggregator reaches the modules below it. Only the
+    // ancestor plugins already collected on the way down are merged: a child
+    // redeclaring the same `artifactId` is already present, which is the same
+    // answer either way because callers only ask whether a plugin is present.
+    // `<pluginManagement>` never reaches this set because `descriptor` collects
+    // `project/build/plugins` only, so a managed-but-unapplied plugin stays
+    // inert.
+    let mut effective_plugins = inherited_plugins.to_vec();
+    for plugin in &current.plugins {
+        if !effective_plugins.contains(plugin) {
+            effective_plugins.push(plugin.clone());
+        }
+    }
     modules.push(DeclaredModule {
         relative_path,
         artifact_id: current.artifact_id.unwrap_or_else(|| {
@@ -770,7 +789,7 @@ fn collect_modules(
                 .to_string()
         }),
         packaging: current.packaging,
-        plugins: current.plugins,
+        plugins: effective_plugins.clone(),
         source_roots: current_source_roots,
     });
     for raw_path in &current.module_paths {
@@ -785,7 +804,14 @@ fn collect_modules(
             continue;
         };
         visited.push(child.clone());
-        collect_modules(root, &child, child_descriptor, modules, visited);
+        collect_modules(
+            root,
+            &child,
+            child_descriptor,
+            modules,
+            visited,
+            &effective_plugins,
+        );
     }
 }
 
@@ -1904,6 +1930,12 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                         }
                     }
                     "project/artifactId" => value.artifact_id = non_empty(text.clone()),
+                    // `<parent><artifactId>` is what identifies the reactor entry a
+                    // module inherits from; without it a parent declared only in
+                    // `<build><plugins>` cannot be reached from the child.
+                    "project/parent/artifactId" => {
+                        value.parent_artifact_id = non_empty(text.clone())
+                    }
                     "project/version" | "project/parent/version" => {
                         if value.version.is_none() || path == "project/version" {
                             value.version = non_empty(text.clone());
