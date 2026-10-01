@@ -12,6 +12,9 @@
 //! deletes it after that execution exits. The returned text is Unicode; the
 //! host must encode it losslessly with the launcher's native platform encoding.
 //! JEP 400 does not make Windows launcher argument files UTF-8.
+//!
+//! JDK 8 has no argument files; [`super::plan_classpath_jar_launch`] covers
+//! that release with a manifest-only class-path JAR under the same budget.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -23,7 +26,7 @@ pub const WINDOWS_COMMAND_LINE_LIMIT: usize = 32_767;
 /// Headroom for the null terminator and for host quoting that this estimate
 /// does not model exactly. Shortening early costs nothing; shortening too late
 /// fails the launch.
-const COMMAND_LINE_MARGIN: usize = 2_048;
+pub(super) const COMMAND_LINE_MARGIN: usize = 2_048;
 
 /// Options whose value is a joined list of absolute paths. These carry
 /// practically all of an oversized command line, so moving them into the
@@ -226,7 +229,7 @@ pub fn plan_launch_command(
 /// Windows counts UTF-16 code units, and each argument containing whitespace or
 /// a quote is wrapped in quotes. The estimate never has to be exact because
 /// [`COMMAND_LINE_MARGIN`] absorbs the difference.
-fn command_line_length(executable: &str, arguments: &[String]) -> usize {
+pub(super) fn command_line_length(executable: &str, arguments: &[String]) -> usize {
     let mut length = quoted_length(executable);
     for argument in arguments {
         length += 1 + quoted_length(argument);

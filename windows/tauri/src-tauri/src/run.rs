@@ -676,7 +676,7 @@ pub fn run_start_process(app: AppHandle, args: StartProcessArgs) -> Result<(), S
 fn prepare_launch_arguments(
     args: &StartProcessArgs,
 ) -> Result<(Vec<String>, Option<launch_arguments::LaunchArgumentFile>), String> {
-    launch_arguments::prepare(&args.executable, &args.arguments)
+    launch_arguments::prepare(&args.executable, &args.arguments, &args.working_directory)
 }
 
 /// Explains a refused spawn with the detail the operating system reported.

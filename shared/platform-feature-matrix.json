@@ -1637,13 +1637,14 @@
       "windows": {
         "evidence": [
           "windows/tauri/src-tauri/src/run/launch_arguments.rs",
-          "rust/lithe-core/src/execution/launch_command.rs"
+          "rust/lithe-core/src/execution/launch_command.rs",
+          "rust/lithe-core/src/execution/classpath_jar.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Run",
-      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。"
+      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。 Windows 上分别用 JDK 8 和 JDK 17 运行同一个依赖很多、路径含空格和中文的项目 main：JDK 8 应在临时目录生成只含 META-INF/MANIFEST.MF 的 .classpath.jar 并以 -cp 引用，JDK 17 仍使用 @argfile；两者都能启动，进程退出或启动失败后临时文件被删除，安装目录与 JDK 目录不新增文件。"
     },
     {
       "id": "debug-breakpoints",
