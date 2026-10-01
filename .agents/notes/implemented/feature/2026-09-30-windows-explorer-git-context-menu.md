@@ -28,8 +28,8 @@ Issue #975 要右键直接比对和提交单个文件。Windows 端 Diff、暂�
 ## 后果
 
 - 收益：单文件比对/暂存一次右键完成，并可直达提交流程，多仓库可用。
-- 代价：Git 子菜单在菜单弹出后约一次 IPC 往返才出现。
-- macOS 端仍为 partial，对齐时按本笔记的复用路径做。
+- macOS 端已按 reviewer 邀请对齐（Git 子菜单装 Add 与 Stage and Open Commit…，Show Diff 复用既有独立菜单项不重复；可见性判定在 `GitFileContextMenuPlan`，多参考了既有 `canToggleStaging` 门禁）。
+- 代价：Git 子菜单在菜单弹出后约一次 IPC 往返才出现（Windows）。
 
 ## 验证
 
