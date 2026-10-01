@@ -342,7 +342,7 @@
       "capability": "项目树多选、范围选择及批量复制、重复和移到废纸篓",
       "macos": {
         "implementationStatus": "implemented",
-        "verificationStatus": "pending",
+        "verificationStatus": "verified",
         "evidence": [
           "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
           "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
