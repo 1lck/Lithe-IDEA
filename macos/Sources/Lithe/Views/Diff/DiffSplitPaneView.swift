@@ -57,8 +57,8 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     var body: some View {
         synchronization.configure(layout)
         let panes = DiffSplitWidths(width: viewportWidth, position: leftPaneWidth)
-        let leftStripeWidth = showsChangeMarkers ? min(DiffMapView.width, panes.leftCode) : 0
-        let rightStripeWidth = showsChangeMarkers ? min(DiffMapView.width, panes.rightCode) : 0
+        let leftStripeWidth = showsChangeMarkers ? min(LitheScrollBarStyle.editorThickness, panes.leftCode) : 0
+        let rightStripeWidth = showsChangeMarkers ? min(LitheScrollBarStyle.editorThickness, panes.rightCode) : 0
         let paneViewportWidth = panes.leftCode
         let rightPaneViewportWidth = panes.rightCode
         // Code storage has a stable width. Resizing only changes its clipping rectangle.

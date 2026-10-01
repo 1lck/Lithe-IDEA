@@ -9,6 +9,71 @@ import LitheGitModule
 @MainActor
 struct DiffAppearanceTests {
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func replacementWithAnExtraLineUsesOnePairedFragment(appearance: NSAppearance.Name) async throws {
+        let rows = [
+            DiffRow(oldLine: 77, newLine: 77, left: "before", right: nil, kind: .context, sequence: 0),
+            DiffRow(oldLine: 78, newLine: 78, left: "    \"tests::git::git_write_edits_a_local_commit_message_\"",
+                right: "    \"tests::git::git_write_edits_a_local_commit_message_\",", kind: .changed, sequence: 1),
+            DiffRow(oldLine: nil, newLine: 79, left: nil,
+                right: "    \"tests::git_patch_exchange::patch_metadata\"", kind: .addition, sequence: 2),
+            DiffRow(oldLine: 79, newLine: 80, left: ")) {", right: nil, kind: .context, sequence: 3)
+        ]
+        let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) },
+            kinds: rows.map(\.kind))
+        let fragment = try #require(layout.transitions.first)
+        #expect(layout.transitions.count == 1)
+        #expect(fragment.kind == .changed)
+        #expect(fragment.leftRange == 22...44 && fragment.rightRange == 22...66)
+        #expect(layout.rightItems.map(\.kind) == [.context, .changed, .changed, .context])
+        let state = DiffNativeColumnState()
+        state.prepare(identity: layout.identity, items: layout.rightItems, side: .right,
+            fileExtension: "ps1", highlightsWords: true, dark: true)
+        #expect(state.preparedText.string == rows.compactMap(\.rightText).joined(separator: "\n") + "\n")
+        #expect(state.lines.map(\.sourceNumber) == [77, 78, 79, 80])
+        // The extra line is an inline insertion inside a blue replacement,
+        // never a separate green gutter/connector with a misplaced anchor.
+        let inline = try #require(state.preparedText.attribute(.backgroundColor,
+            at: state.lines[2].range.location + 5, effectiveRange: nil) as? NSColor)
+        #expect(inline.usingColorSpace(.deviceRGB) == NSColor(LitheTheme.Diff.inserted).usingColorSpace(.deviceRGB))
+        let reversed = rows.map { row in DiffRow(oldLine: row.newLine, newLine: row.oldLine,
+            left: row.rightText, right: row.left, kind: row.kind == .addition ? .removal : row.kind,
+            sequence: row.id.sequence) }
+        let reverse = DiffSplitLayout.plan(displayRows: reversed.enumerated().map { .row($0.element, index: $0.offset) },
+            kinds: reversed.map(\.kind))
+        #expect(reverse.transitions.count == 1 && reverse.transitions[0].kind == .changed)
+        #expect(reverse.transitions[0].leftRange == 22...66 && reverse.transitions[0].rightRange == 22...44)
+        let dark = appearance == .darkAqua
+        let hosting = NSHostingView(rootView: DiffSplitPaneView(
+            displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) },
+            kinds: rows.map(\.kind), layout: layout, fileExtension: "ps1", contentWidth: 1_600,
+            viewportWidth: 1_200, onExpand: { _ in }).environment(\.colorScheme, dark ? .dark : .light))
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_200, height: 160)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.appearance = NSAppearance(named: appearance)
+        window.contentView = hosting
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
+        // Sample to the right of the glyphs: the added text has a green inline fill
+        // inside the muted blue line, while the paired gutter stays solid blue.
+        for (point, hex) in [(NSPoint(x: 1_180, y: 55), dark ? 0x25323E : 0xE6EFFA),
+                             (NSPoint(x: 600, y: 33), dark ? 0x385570 : 0xC2D8F2)] {
+            let color = try #require(bitmap.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
+            #expect(abs(color.redComponent - CGFloat((hex >> 16) & 255) / 255) < 0.03
+                && abs(color.greenComponent - CGFloat((hex >> 8) & 255) / 255) < 0.03
+                && abs(color.blueComponent - CGFloat(hex & 255) / 255) < 0.03,
+                "The extra source line and paired connector must render as one replacement: \(color)")
+        }
+        if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("paired-\(dark).png"))
+        }
+    }
+
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func rendersCentralSourceNumbersAndIDEAColors(appearance: NSAppearance.Name) async throws {
         let fontURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -69,7 +134,7 @@ struct DiffAppearanceTests {
         let modified = try color(880, 77)
         #expect(matches(background, dark ? 0x191A1C : 0xFFFFFF), "Background: \(background)")
         #expect(matches(inserted, dark ? 0x294436 : 0xBEE6BE), "Inserted: \(inserted)")
-        #expect(matches(deleted, dark ? 0x484A4A : 0xD6D6D6), "Deleted: \(deleted)")
+        #expect(matches(deleted, dark ? 0x25323E : 0xE6EFFA), "Replacement: \(deleted)")
         #expect(matches(modified, dark ? 0x25323E : 0xE6EFFA), "Modified: \(modified)")
         let paneWidth = (900 - DiffLayoutMetrics.centerGutterWidth) / 2
         // Both columns must actually draw source numbers in the central gutter.

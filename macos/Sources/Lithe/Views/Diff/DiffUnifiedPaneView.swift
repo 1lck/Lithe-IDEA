@@ -70,7 +70,7 @@ struct DiffUnifiedPaneView: View {
                         }.litheScrollViewChrome(hideHorizontal: false)
                     }.background { DiffScrollAttachment(synchronization: synchronization, side: .right) }
                 }
-                DiffErrorStripe(synchronization: synchronization, side: .right).frame(width: DiffMapView.width, height: geometry.size.height)
+                DiffErrorStripe(synchronization: synchronization, side: .right).frame(width: LitheScrollBarStyle.editorThickness, height: geometry.size.height)
             }
         }.background(LitheTheme.Diff.background)
     }

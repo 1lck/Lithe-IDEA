@@ -31,17 +31,12 @@ struct DiffHorizontalScroller: View {
                 : 0
 
             ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(LitheTheme.divider.opacity(isHovering || isDragging ? 0.55 : 0.28))
-                    .frame(height: 3)
-
-                Capsule()
-                    .fill(
-                        isDragging
-                            ? LitheTheme.accent.opacity(0.78)
-                            : LitheTheme.secondaryText.opacity(isHovering ? 0.72 : 0.48)
-                    )
-                    .frame(width: thumbWidth, height: isDragging ? 6 : 5)
+                LitheScrollBarPaint(knob: NSRect(x: thumbOffset, y: 0,
+                    width: thumbWidth, height: LitheScrollBarStyle.thickness),
+                    hover: isHovering || isDragging ? 1 : 0, role: .editor)
+                    .allowsHitTesting(false)
+                Color.clear
+                    .frame(width: thumbWidth, height: LitheScrollBarStyle.thickness)
                     .offset(x: thumbOffset)
                     .contentShape(Rectangle().inset(by: -4))
                     .gesture(
@@ -75,7 +70,7 @@ struct DiffHorizontalScroller: View {
             .contentShape(Rectangle())
             .onHover { isHovering = $0 }
         }
-        .frame(height: 10)
+        .frame(height: LitheScrollBarStyle.thickness)
         .background(LitheTheme.Diff.background)
         .opacity(maximumOffset > 0.5 ? 1 : 0)
         .allowsHitTesting(maximumOffset > 0.5)

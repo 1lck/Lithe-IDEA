@@ -304,6 +304,13 @@ the existing stack can reasonably avoid.
   existing bundled code font and remeasures after loading; no runtime download
   or write into bundled resources is allowed.
 
+- Native product scrollbars use `litheScrollViewChrome` → `LitheScrollBarStyle`
+  in `macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift`.
+  Diff uses its editor role through `DiffStripeScroller` / `LitheScrollBarPaint`;
+  callers retain scroll actions and proportions, not local thumb/rail colors.
+  Read `.agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md`
+  before changing that owner; editor overrides and ordinary product colors are distinct.
+
 When changing these shared owners, check their existing callers and run the
 affected native appearance/behavior tests in dark and light themes. Relevant
 checks are `ContextMenuCoverageTests`, `SettingsSelectPopupGeometryTests`,

@@ -53,17 +53,12 @@ struct DiffSplitLayout {
         standardRowHeight: CGFloat = DiffLayoutMetrics.rowHeight,
         informationRowHeight: CGFloat = 27
     ) -> DiffSplitLayout {
-        struct RunSignature: Equatable {
-            let kind: DiffRowKind
-            let hasLeft: Bool
-            let hasRight: Bool
-        }
-
         struct TransitionRun {
             let id: String
-            let signature: RunSignature
             let leftStart: CGFloat
             let rightStart: CGFloat
+            let leftIndex: Int
+            let rightIndex: Int
         }
 
         var leftItems: [Item] = []
@@ -80,10 +75,24 @@ struct DiffSplitLayout {
 
         func finishTransitionRun() {
             guard let run = activeRun else { return }
+            // IDEA's SimpleDiffChange classifies a line fragment by both source
+            // ranges, not the positional row pairs supplied by our Core adapter.
+            let kind: DiffRowKind = leftHeight == run.leftStart ? .addition
+                : rightHeight == run.rightStart ? .removal : .changed
+            for index in run.leftIndex..<leftItems.count {
+                let item = leftItems[index]
+                leftItems[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
+                    height: item.height, isScrollAnchor: item.isScrollAnchor)
+            }
+            for index in run.rightIndex..<rightItems.count {
+                let item = rightItems[index]
+                rightItems[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
+                    height: item.height, isScrollAnchor: item.isScrollAnchor)
+            }
             transitions.append(
                 Transition(
                     id: run.id,
-                    kind: run.signature.kind,
+                    kind: kind,
                     leftRange: run.leftStart...leftHeight,
                     rightRange: run.rightStart...rightHeight
                 )
@@ -122,16 +131,14 @@ struct DiffSplitLayout {
             case let .row(row, _):
                 let hasLeft = row.left != nil
                 let hasRight = row.rightText != nil
-                let signature = RunSignature(kind: kind, hasLeft: hasLeft, hasRight: hasRight)
-
                 if kind.isSplitDifference, hasLeft || hasRight {
-                    if activeRun?.signature != signature {
-                        finishTransitionRun()
+                    if activeRun == nil {
                         activeRun = TransitionRun(
                             id: "transition-\(displayRow.id)",
-                            signature: signature,
                             leftStart: leftHeight,
-                            rightStart: rightHeight
+                            rightStart: rightHeight,
+                            leftIndex: leftItems.count,
+                            rightIndex: rightItems.count
                         )
                     }
                 } else {

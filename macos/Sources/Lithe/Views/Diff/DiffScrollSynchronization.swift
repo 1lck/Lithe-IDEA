@@ -169,7 +169,7 @@ struct DiffErrorStripe: NSViewRepresentable {
     let synchronization: DiffScrollSynchronization
     let side: DiffSide
     func makeNSView(context: Context) -> DiffStripeScroller {
-        let view = DiffStripeScroller(frame: NSRect(x: 0, y: 0, width: DiffMapView.width, height: 100))
+        let view = DiffStripeScroller(frame: NSRect(x: 0, y: 0, width: LitheScrollBarStyle.editorThickness, height: 100))
         view.side = side; view.synchronization = synchronization
         view.setAccessibilityElement(true)
         view.setAccessibilityRole(.scrollBar)
@@ -187,7 +187,7 @@ struct DiffErrorStripe: NSViewRepresentable {
 /// Reuses the compact native thumb; marker geometry is relative to the entire source column.
 final class DiffStripeScroller: NSView {
     private let scroller = LitheScrollViewChrome.CompactScroller(frame:
-        NSRect(x: 0, y: 0, width: DiffMapView.width, height: 100))
+        NSRect(x: 0, y: 0, width: LitheScrollBarStyle.editorThickness, height: 100))
     override var isFlipped: Bool { true }
     var knobProportion: CGFloat {
         get { scroller.knobProportion }
@@ -201,13 +201,24 @@ final class DiffStripeScroller: NSView {
         super.init(frame: frame)
         // AppKit's layer-backed NSScroller paints its own track instead of draw(_:).
         // Retain native tracking but draw the existing compact thumb in this view.
+        scroller.role = .editor
+        scroller.onPaintChange = { [weak self] in self?.needsDisplay = true }
         scroller.alphaValue = 0
         scroller.scrollerStyle = .legacy
         scroller.target = self; scroller.action = #selector(scrollFromKnob)
         addSubview(scroller)
     }
     required init?(coder: NSCoder) { nil }
-    override func layout() { super.layout(); scroller.frame = bounds }
+    override func layout() { super.layout(); scroller.frame = bounds; scroller.mirrored = side == .left }
+    private var hoverTracking: NSTrackingArea?
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking { removeTrackingArea(hoverTracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area); hoverTracking = area
+    }
+    override func mouseEntered(with event: NSEvent) { scroller.setHovered(true); needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { scroller.setHovered(false); needsDisplay = true }
     override func hitTest(_ point: NSPoint) -> NSView? { super.hitTest(point) == nil ? nil : self }
     weak var synchronization: DiffScrollSynchronization?
     var side: DiffSide = .left
@@ -218,9 +229,13 @@ final class DiffStripeScroller: NSView {
 
     func markerRect(_ transition: DiffSplitLayout.Transition) -> NSRect {
         let range = side == .left ? transition.leftRange : transition.rightRange
-        let height = max(2, (range.upperBound - range.lowerBound) / sourceHeight * bounds.height)
-        return NSRect(x: 3, y: min(bounds.height - height, range.lowerBound / sourceHeight * bounds.height),
-                      width: max(0, bounds.width - 6), height: height)
+        // EditorMarkupModelImpl.offsetsToYPositions never stretches a short
+        // document's markers across the viewport; only long files are compressed.
+        let scale = min(1, bounds.height / max(1, sourceHeight))
+        let height = max(LitheScrollBarStyle.minimumMarkHeight, (range.upperBound - range.lowerBound) * scale)
+        return NSRect(x: side == .left ? bounds.width - LitheScrollBarStyle.minimumMarkHeight : 0,
+                      y: min(max(0, bounds.height - height), range.lowerBound * scale),
+                      width: LitheScrollBarStyle.minimumMarkHeight, height: height)
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -229,13 +244,13 @@ final class DiffStripeScroller: NSView {
         NSBezierPath(rect: bounds).addClip()
         NSColor(LitheTheme.Diff.background).setFill()
         dirtyRect.fill()
-        if knobProportion < 1 { scroller.drawKnob() }
         for transition in transitions {
             let color = transition.kind == .addition ? LitheTheme.Diff.insertedStripe
                 : transition.kind == .removal ? LitheTheme.Diff.deletedStripe : LitheTheme.Diff.modifiedStripe
             NSColor(color).setFill()
             markerRect(transition).fill()
         }
+        if knobProportion < 1 { scroller.drawKnob() }
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -67,7 +67,7 @@ final class DiffNativeColumnState: ObservableObject {
                 let source = sourceSide == .left ? row.left ?? "" : row.rightText ?? ""
                 let other = sourceSide == .left ? row.rightText : row.left
                 sourceNumber = sourceSide == .left ? row.oldLine : row.newLine
-                let styled = DiffSyntaxHighlighter.styled(source, comparing: other,
+                let styled = DiffSyntaxHighlighter.styled(source, comparing: item.kind == .changed ? other ?? "" : other,
                     fileExtension: fileExtension, side: sourceSide,
                     highlightsWords: highlightsWords && (item.kind == .changed || unified && row.kind == .changed))
                 for run in styled.runs {
@@ -342,16 +342,27 @@ final class DiffNativeTransitionsView: NSView {
             path.curve(to: NSPoint(x: rightX, y: transition.rightRange.lowerBound - rightOffset),
                 controlPoint1: NSPoint(x: c1, y: transition.leftRange.lowerBound - leftOffset),
                 controlPoint2: NSPoint(x: c2, y: transition.rightRange.lowerBound - rightOffset))
-            path.line(to: NSPoint(x: rightX, y: transition.rightRange.upperBound - rightOffset))
-            path.curve(to: NSPoint(x: leftX, y: transition.leftRange.upperBound - leftOffset),
-                controlPoint1: NSPoint(x: c2, y: transition.rightRange.upperBound - rightOffset),
-                controlPoint2: NSPoint(x: c1, y: transition.leftRange.upperBound - leftOffset))
+            path.line(to: NSPoint(x: rightX, y: transition.rightRange.upperBound - rightOffset + 1))
+            path.curve(to: NSPoint(x: leftX, y: transition.leftRange.upperBound - leftOffset + 1),
+                controlPoint1: NSPoint(x: c2, y: transition.rightRange.upperBound - rightOffset + 1),
+                controlPoint2: NSPoint(x: c1, y: transition.leftRange.upperBound - leftOffset + 1))
             path.close()
             NSColor(transition.isAddition ? LitheTheme.Diff.inserted : transition.isRemoval
                 ? LitheTheme.Diff.deleted : LitheTheme.Diff.modified).setFill()
             path.fill()
+            // DiffDrawUtil.drawCurveTrapezium keeps steep/empty-edge chunks at
+            // least one logical pixel thick, including the flattened state.
+            let center = NSBezierPath()
+            let leftY = (transition.leftRange.lowerBound + transition.leftRange.upperBound) / 2 - leftOffset
+            let rightY = (transition.rightRange.lowerBound + transition.rightRange.upperBound) / 2 - rightOffset
+            center.move(to: NSPoint(x: leftX, y: leftY))
+            center.curve(to: NSPoint(x: rightX, y: rightY),
+                controlPoint1: NSPoint(x: c1, y: leftY), controlPoint2: NSPoint(x: c2, y: rightY))
+            center.lineWidth = 1; NSColor(transition.isAddition ? LitheTheme.Diff.inserted
+                : transition.isRemoval ? LitheTheme.Diff.deleted : LitheTheme.Diff.modified).setStroke()
+            center.stroke()
             if transition.isAddition || transition.isRemoval {
-                NSColor(transition.isAddition ? LitheTheme.Diff.insertedStripe : LitheTheme.Diff.deletedStripe).setFill()
+                NSColor(transition.isAddition ? LitheTheme.Diff.inserted : LitheTheme.Diff.deleted).setFill()
                 NSRect(x: transition.isAddition ? 0 : rightX,
                     y: transition.isAddition ? transition.leftRange.lowerBound - leftOffset : transition.rightRange.lowerBound - rightOffset,
                     width: max(0, transition.isAddition ? leftX : bounds.width - rightX), height: 1).fill()

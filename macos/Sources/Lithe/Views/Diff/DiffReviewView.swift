@@ -1426,7 +1426,9 @@ enum DiffSyntaxHighlighter {
     ) -> AttributedString {
         let tokens = tokenize(text, fileExtension: fileExtension.lowercased())
         let highlightRange = highlightsWords ? changedRange(in: text, comparedTo: otherText) : nil
-        let highlightColor = LitheTheme.Diff.modifiedWord
+        let highlightColor = highlightRange != nil && changedRange(in: otherText ?? "", comparedTo: text) == nil
+            ? (side == .left ? LitheTheme.Diff.deleted : LitheTheme.Diff.inserted)
+            : LitheTheme.Diff.modifiedWord
         var result = AttributedString()
         var globalOffset = 0
 
