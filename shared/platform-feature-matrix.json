@@ -245,7 +245,7 @@
       "id": "agent-acp-conversation",
       "area": "AI",
       "group": "Agent 对话",
-      "capability": "可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理",
+      "capability": "可选 ACP Agent 对话：API Key 鉴权、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理",
       "macos": {
         "evidence": [
           "macos/Sources/LitheAgentConversationModule",
@@ -264,7 +264,86 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 端到端仍待验证；Claude API Key 鉴权与完整工具流程由独立能力行记录。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
+    },
+    {
+      "id": "agent-toolbar-brand-marks",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 品牌标志：Claude 橙色星芒、Codex 随主题变化的灰色结形图标，底栏切换入口、Agent 下拉菜单条目与模型入口保持清晰一致",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentPanelStyle.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：原生真实输入框的 Menu 像素测试通过四种品牌/深浅主题组合，共用模板图像保持不变；87 项相关 Agent 测试通过。打包预览应用的深色界面实际展开 Agent 与模型菜单，确认底栏图标居中、点击区域一致、模型小标志同步；Agent 菜单中 Claude 与 Codex 都带对应品牌图标，Claude 选中与切到 Codex 后的勾选均与品牌图标并列正确显示，模型与权限跟随所选 Agent。菜单验证前后 bundle 的 990 个文件清单及 SHA-256 一致，旧版应用与辅助进程已退出，仅保留用户新版主应用及项目正常运行的进程。Windows 对话 UI 和验收待完成。"
+    },
+    {
+      "id": "agent-connection-model-switching",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 与模型切换：所选连接即时同步，准备期间明确等待会话设置，确认后显示模型，来回切换保留各自会话",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentConversationView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Tests/LitheTests/AgentConversationSelectionTests.swift",
+          "rust/lithe-agent-host/tests/real_agent.rs"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：不触发 AppModel 通知或替换宿主根视图，切换 Claude/Codex，确认品牌、当前连接和模型列表立即同步；切到未准备的连接时保持会话设置加载提示，不闪现本地保存的默认模型；进程 ready 后继续等待会话确认，过期响应不解除等待；加载历史等待其配置，创建/加载/连接失败和不提供配置能力时退出加载，回车与发送按钮都禁止准备期间发送；已准备的连接来回切换不重复加载。选择模型后等待上游确认，重新展开检查勾选，来回切换确认模型和会话分别保留；搜索名称/ID与空结果，当前 Agent 移除后正确回退，实际模型切换后发送最小消息验证回复。Windows 对话 UI 与验收待完成。",
+      "notes": "2026-10-01 macOS：原生 SwiftUI 回归、真实 Claude Sonnet→Haiku 切换及回复通过；修复版真实窗口验证 Codex 初始化加载提示→确认后的 Astra/审批控件、Astra→Luna→Astra 切换与重新展开勾选、名称搜索/空结果、Claude/Codex 往返保留配置，并收到 Codex 最小消息回复。测试项目关闭后无 Agent 子进程，990 个 bundle 文件哈希不变。Windows 对话 UI 与验收仍待完成。"
+    },
+    {
+      "id": "agent-claude-api-key-authentication",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Claude API Key 鉴权：通过公开会话参数使用所选供应商，清除冲突占位 Bearer，新建与历史恢复保持地址、密钥和模型",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "rust/lithe-agent-host/src/session_routing.rs",
+          "rust/lithe-agent-host/src/tests.rs",
+          "rust/lithe-agent-host/tests/real_agent.rs",
+          "shared/fixtures/agent/acp-events-v1.json",
+          ".agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "partial",
+        "verificationStatus": "pending",
+        "evidence": [
+          "rust/lithe-agent-host/src/session_routing.rs",
+          "shared/contracts/rust-core-api.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "macOS：使用支持 Anthropic Messages 的供应商，在 Claude 新会话中验证正常和流式回复、读取临时文件、修改错误实现、执行两项 Node 断言并追问；验证停止、重连、历史加载后仍使用原供应商并记住上下文。用本地假服务观察同版原生 CLI 与固定 ACP 适配器请求仅含有效 x-api-key、没有占位 Bearer；新建与恢复共用 fixture 配置，环境与程序化 settings 都清除旧鉴权和路由；关闭项目后检查子进程退出与 bundle 哈希不变。Windows 共享 Host 已具备路由修复，对话 UI 与真实 Windows 验收仍待完成。"
     },
     {
       "id": "agent-tool-activity-timeline",

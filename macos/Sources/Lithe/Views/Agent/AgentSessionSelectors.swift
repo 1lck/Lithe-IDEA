@@ -74,6 +74,7 @@ struct AgentSessionSelectors: View {
                 .help(AgentSessionSelectorPresentation.localized(mode.name))
                 .accessibilityLabel(Text("Approval mode"))
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode))
+                .accessibilityIdentifier("agent-session-mode-selector")
                 .popover(isPresented: $showsModes, arrowEdge: .top) {
                     AgentModePopover(option: mode) { value in select(mode.id, value) }
                         .onExitCommand { showsModes = false }
@@ -82,7 +83,7 @@ struct AgentSessionSelectors: View {
             if let model {
                 Button { showsModels.toggle() } label: {
                     selectorLabel {
-                        AgentBrandIcon(name: agentName, size: 12)
+                        AgentBrandIcon(name: agentName, size: 12, style: .brand)
                         Text(modelSummary(model))
                     }
                 }
@@ -90,6 +91,7 @@ struct AgentSessionSelectors: View {
                 .help(model.currentLabel)
                 .accessibilityLabel(Text("Model"))
                 .accessibilityValue(model.currentLabel)
+                .accessibilityIdentifier("agent-session-model-selector")
                 .popover(isPresented: $showsModels, arrowEdge: .top) {
                     AgentModelPopover(option: model, settings: settings, agentName: agentName, onSelect: select)
                         .onExitCommand { showsModels = false }
@@ -210,7 +212,7 @@ struct AgentModelPopover: View {
                                     .padding(.horizontal, 12).padding(.vertical, 4)
                             }
                             AgentSelectorRow(isSelected: choice.id == option.currentValue, action: { onSelect(option.id, choice.id) }) {
-                                AgentBrandIcon(name: agentName, size: 16)
+                                AgentBrandIcon(name: agentName, size: 16, style: .brand)
                                 Text(choice.name).lineLimit(1).truncationMode(.middle)
                             }
                         }
