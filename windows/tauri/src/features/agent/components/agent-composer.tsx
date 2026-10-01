@@ -1,5 +1,9 @@
-import { useCallback, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import {
+  AGENT_FILE_DROP_EVENT,
+  type AgentFileDropDetail,
+} from "@/features/file-system/utils/file-system-drop-controller";
 import { extractDroppedFilePaths } from "@/features/file-system/utils/file-system-dropped-paths";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import type { FileEntry } from "@/features/file-system/types/app.types";
@@ -114,6 +118,18 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
     [attach],
   );
 
+  // OS drops in WebView2 and project-tree drags arrive as this event instead.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = rootRef.current;
+    if (root === null) return;
+    const handleRoutedDrop = (event: Event) => {
+      attach((event as CustomEvent<AgentFileDropDetail>).detail?.paths ?? []);
+    };
+    root.addEventListener(AGENT_FILE_DROP_EVENT, handleRoutedDrop);
+    return () => root.removeEventListener(AGENT_FILE_DROP_EVENT, handleRoutedDrop);
+  }, [attach]);
+
   const handleDragEnter = useCallback((event: DragEvent<HTMLDivElement>) => {
     if (!Array.from(event.dataTransfer.types).includes("Files")) return;
     event.preventDefault();
@@ -131,7 +147,10 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
     const text = draft.trim();
     if (text.length === 0 && files.length === 0) return;
     try {
-      agentConnection().send(text, files.map((file) => file.uri));
+      agentConnection().send(
+        text,
+        files.map((file) => file.uri),
+      );
       setDraft("");
       setFiles([]);
       closePicker();
@@ -155,6 +174,8 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
 
   return (
     <div
+      ref={rootRef}
+      data-agent-file-drop-target
       className={cn("border-border/70 border-t p-2", isDropTargeted && "bg-accent/30")}
       onDrop={handleDrop}
       onDragOver={(event) => event.preventDefault()}
@@ -288,7 +309,12 @@ export function AgentComposer({ conversation, canSend }: AgentComposerProps) {
             <FilePlusIcon className="size-3.5" />
           </Button>
           {activeFilePath === null ? null : (
-            <Button type="button" size="xs" variant="ghost" onClick={() => attach([activeFilePath])}>
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              onClick={() => attach([activeFilePath])}
+            >
               {t("agent.composer.attachActive")}
             </Button>
           )}

@@ -25,7 +25,12 @@
       "rust/lithe-agent-host/src/prompt.rs",
       "shared/fixtures/agent/acp-events-v1.json",
       "windows/tauri/src/features/agent/components/agent-composer.tsx",
-      "windows/tauri/src/features/agent/types/agent-file-uri.ts"
+      "windows/tauri/src/features/agent/types/agent-file-uri.ts",
+      "windows/tauri/src/features/agent/services/agent-composer-mentions.ts",
+      "windows/tauri/src/features/agent/services/agent-composer-mentions.test.ts",
+      "windows/tauri/src/features/file-system/utils/file-system-dropped-paths.ts",
+      "windows/tauri/src/features/file-system/utils/file-system-drop-controller.ts",
+      "windows/tauri/src/features/file-system/utils/file-system-drop-controller.test.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
