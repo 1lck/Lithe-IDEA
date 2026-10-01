@@ -332,7 +332,7 @@ export function GitCommitTable({
                         <GitLogColumnResizeHandle column="author" onStartResize={startResize} />
                       </div>
                       <div className="relative flex h-full w-(--git-log-date-width) shrink-0 items-center">
-                        <span className="min-w-0 flex-1 overflow-clip px-1 text-ellipsis whitespace-nowrap text-right text-foreground tabular-nums">
+                        <span className="min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-left text-foreground tabular-nums">
                           {formatGitLogDate(row.commit.date, t)}
                         </span>
                         <GitLogColumnResizeHandle column="date" onStartResize={startResize} />
