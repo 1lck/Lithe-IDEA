@@ -1,10 +1,49 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import Lithe
 
 @MainActor
 @Suite("Agent brand icon resources")
 struct AgentBrandIconResourceTests {
+    @Test(arguments: ["Claude", "Codex"], [false, true])
+    func composerBrandMarksStayVisibleInNativeMenus(name: String, isDark: Bool) throws {
+        let host = NSHostingView(rootView: AgentComposerView(
+            agents: [.init(id: "example-agent", name: name)],
+            selectedAgent: .init(id: "example-agent", name: name),
+            isResponding: false, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+            onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in }
+        ).environment(\.colorScheme, isDark ? .dark : .light))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 200),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: isDark ? .darkAqua : .aqua)
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+
+        // Crop the real native Menu label, excluding neighboring controls and
+        // the text-field caret. No visible window or image baseline is required.
+        let region = NSRect(x: 46, y: host.isFlipped ? host.bounds.height - 42 : 10, width: 28, height: 26)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: region))
+        host.cacheDisplay(in: region, to: bitmap)
+        var markPixels = 0
+        for y in 0..<bitmap.pixelsHigh {
+            for x in 0..<bitmap.pixelsWide {
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.sRGB) else { continue }
+                let red = color.redComponent, green = color.greenComponent, blue = color.blueComponent
+                if name == "Claude" {
+                    if red > 0.5, red > green * 1.3, green > blue * 1.1 { markPixels += 1 }
+                } else if abs(red - green) < 0.05, abs(green - blue) < 0.05 {
+                    if isDark ? min(red, green, blue) > 0.6 : max(red, green, blue) < 0.4 { markPixels += 1 }
+                }
+            }
+        }
+        #expect(markPixels > 10, "The native selector must show a visible orange Claude or contrasting Codex mark")
+        #expect(try #require(AgentBrandIconLoader.image(name: name, size: 18)).isTemplate,
+                "Coloring the toolbar must not mutate the shared template used by other views")
+    }
+
     @Test
     func installedAppLoadsBothMarksWithoutDevelopmentResources() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
