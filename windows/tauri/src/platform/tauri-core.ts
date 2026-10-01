@@ -201,7 +201,8 @@ function capabilityForCommand(command: string): BackendCapability | null {
     command === "agent.status" ||
     command === "agent.install" ||
     command === "agent.uninstall" ||
-    command === "agent.installCli"
+    command === "agent.installCli" ||
+    command === "agent.parseProviderConfiguration"
   ) {
     return "agent";
   }

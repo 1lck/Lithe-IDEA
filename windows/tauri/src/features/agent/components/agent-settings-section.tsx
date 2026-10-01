@@ -9,6 +9,12 @@ import Textarea from "@/ui/textarea";
 import type { AgentManagement } from "../hooks/use-agent-management";
 import { readAgentApiKey, storeAgentApiKey } from "../services/agent-launch";
 import {
+  agentProviderConfigSource,
+  importAgentProviderConfiguration,
+  importedProviderMatchesAgent,
+} from "../services/agent-provider-import";
+import {
+  CLAUDE_AGENT_ID,
   CODEX_AGENT_ID,
   CUSTOM_AGENT_ID,
   supportsCodexSubscription,
@@ -17,7 +23,7 @@ import {
 
 const FALLBACK_AGENTS = [
   { id: CODEX_AGENT_ID, name: "Codex" },
-  { id: "claude-acp", name: "Claude" },
+  { id: CLAUDE_AGENT_ID, name: "Claude" },
 ];
 
 interface AgentSettingsSectionProps {
@@ -42,8 +48,12 @@ export function AgentSettingsSection({
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [hasStoredKey, setHasStoredKey] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [importText, setImportText] = useState("");
+  const [importError, setImportError] = useState<string | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
   const isCustom = settings.agentId === CUSTOM_AGENT_ID;
   const isSubscription = settings.authentication === "codexSubscription";
+  const configSource = agentProviderConfigSource(settings.agentId);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +84,11 @@ export function AgentSettingsSection({
   const selectedAgent = management.status?.agents.find((agent) => agent.id === settings.agentId);
   const canInstall = selectedAgent !== undefined && !isCustom;
   const isBusy = management.busyAgentId === settings.agentId;
+  const cli = selectedAgent?.cli ?? null;
+  const cliUpdate = management.cliUpdates[settings.agentId] ?? null;
+  // A missing CLI is installed through its own vendor, and the host only offers
+  // an automatic update when it verified the installation owner.
+  const canInstallCli = canInstall && cli !== null && (cli.detected === null || cli.installation.canUpdate);
 
   const saveKey = async () => {
     try {
@@ -84,6 +99,32 @@ export function AgentSettingsSection({
       onReconnect();
     } catch (error) {
       setKeyError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const importConfiguration = async () => {
+    if (configSource === null) return;
+    setIsImporting(true);
+    try {
+      const provider = await importAgentProviderConfiguration(configSource, importText);
+      if (!importedProviderMatchesAgent(settings.agentId, provider)) {
+        setImportError(t("agent.settings.importProtocolMismatch"));
+        return;
+      }
+      onChange({
+        ...settings,
+        provider: {
+          ...settings.provider,
+          protocol: provider.protocol,
+          baseUrl: provider.baseUrl,
+          model: provider.model,
+        },
+      });
+      setImportError(null);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsImporting(false);
     }
   };
 
@@ -150,6 +191,55 @@ export function AgentSettingsSection({
           </Button>
         </div>
       ) : null}
+
+      {canInstall && cli !== null ? (
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0 text-subtle-foreground ui-text-caption">
+            {cli.detected === null
+              ? t("agent.settings.cliMissing", {
+                  name: cli.name,
+                  version: cli.minimumVersion,
+                })
+              : t("agent.settings.cliDetected", {
+                  name: cli.name,
+                  version: cli.detected.version,
+                })}
+          </div>
+          {canInstallCli ? (
+            <Button
+              type="button"
+              size="xs"
+              variant="ghost"
+              disabled={isBusy}
+              title={cli.installation.updateHint}
+              onClick={() => void management.installCli(settings.agentId)}
+            >
+              {isBusy
+                ? t("agent.settings.updatingCli")
+                : cli.detected === null
+                  ? t("agent.settings.installCli")
+                  : t("agent.settings.updateCli")}
+            </Button>
+          ) : null}
+        </div>
+      ) : null}
+
+      {canInstallCli || cli === null ? null : (
+        <div className="text-subtle-foreground ui-text-caption">{cli.installation.updateHint}</div>
+      )}
+
+      {cliUpdate === null ? null : (
+        <>
+          <div className="text-subtle-foreground ui-text-caption">
+            {t("agent.settings.cliUpdated", { version: cliUpdate.cliVersion })}
+          </div>
+          {cliUpdate.updaterWarning === null ? null : (
+            <div className="text-warning ui-text-caption">
+              {t("agent.settings.cliUpdateWarning", { warning: cliUpdate.updaterWarning })}
+            </div>
+          )}
+        </>
+      )}
 
       {selectedAgent === undefined || selectedAgent.issues.length === 0 ? null : (
         <ul className="space-y-0.5 text-subtle-foreground ui-text-caption">
@@ -310,6 +400,39 @@ export function AgentSettingsSection({
               {t("agent.settings.reconnect")}
             </Button>
           </div>
+          {configSource === null ? null : (
+            <div className="flex flex-col gap-1 border-border/70 border-t pt-2">
+              <span className="text-subtle-foreground">
+                {t("agent.settings.importConfiguration")}
+              </span>
+              <Textarea
+                size="sm"
+                rows={4}
+                className="font-mono"
+                value={importText}
+                onChange={(event) => setImportText(event.target.value)}
+              />
+              <div className="flex items-center justify-between gap-2">
+                <span className="min-w-0 text-subtle-foreground ui-text-caption">
+                  {t("agent.settings.importConfigurationHint")}
+                </span>
+                <Button
+                  type="button"
+                  size="xs"
+                  variant="ghost"
+                  disabled={isImporting || importText.trim().length === 0}
+                  onClick={() => void importConfiguration()}
+                >
+                  {isImporting
+                    ? t("agent.settings.importingConfiguration")
+                    : t("agent.settings.importConfigurationAction")}
+                </Button>
+              </div>
+              {importError === null ? null : (
+                <div className="text-warning ui-text-caption">{importError}</div>
+              )}
+            </div>
+          )}
         </>
       )}
       {keyError === null ? null : <div className="text-warning ui-text-caption">{keyError}</div>}

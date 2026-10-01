@@ -16,6 +16,9 @@ export const CUSTOM_AGENT_ID = "custom";
 
 export const CODEX_AGENT_ID = "codex-acp";
 
+/** Built-in adapter id for the Claude Code CLI. */
+export const CLAUDE_AGENT_ID = "claude-acp";
+
 export interface AgentProviderSettings {
   protocol: AgentProviderProtocol;
   /** Endpoint as configured, with or without the protocol's path suffix. */

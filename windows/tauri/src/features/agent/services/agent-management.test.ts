@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import fixture from "../../../../../../shared/fixtures/agent/agent-management-v1.json";
-import { installProgressEvent, parseAgentManagementStatus } from "./agent-management";
+import {
+  installProgressEvent,
+  parseAgentCliUpdateResult,
+  parseAgentManagementStatus,
+} from "./agent-management";
 
 const status = fixture.responses.status;
 
@@ -56,5 +60,29 @@ describe("Agent install progress", () => {
     expect(installProgressEvent({ kind: "gitExecution", progress: {} })).toBeNull();
     expect(installProgressEvent(fixture.events.downloading.progress)).toBeNull();
     expect(installProgressEvent(null)).toBeNull();
+  });
+});
+
+describe("Agent CLI update result", () => {
+  test("reads the verified version of a clean update", () => {
+    expect(parseAgentCliUpdateResult(fixture.responses.installCli)).toEqual({
+      cliVersion: "0.156.1",
+      updaterWarning: null,
+    });
+  });
+
+  test("keeps a recovered installer warning separate from the version", () => {
+    expect(parseAgentCliUpdateResult(fixture.responses.installCliRecovered)).toEqual({
+      cliVersion: "0.157.1",
+      updaterWarning: "Download failed; retry completed",
+    });
+  });
+
+  test("an unverified version is rejected instead of shown as success", () => {
+    expect(parseAgentCliUpdateResult({ updaterWarning: "x" })).toBeNull();
+    expect(parseAgentCliUpdateResult({ cliVersion: "" })).toBeNull();
+    expect(parseAgentCliUpdateResult({ cliVersion: 156 })).toBeNull();
+    expect(parseAgentCliUpdateResult("0.156.1")).toBeNull();
+    expect(parseAgentCliUpdateResult(null)).toBeNull();
   });
 });
