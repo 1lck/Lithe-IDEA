@@ -397,13 +397,15 @@
           "windows/tauri/src/features/agent/components/agent-settings-section.tsx",
           "windows/tauri/src/features/agent/services/agent-management.ts",
           "windows/tauri/src/features/agent/hooks/use-agent-management.ts",
-          "windows/tauri/src-tauri/src/platform.rs"
+          "windows/tauri/src-tauri/src/platform.rs",
+          "rust/lithe-agent-host/src/cli_update.rs",
+          "rust/lithe-agent-host/src/cli_update/launcher_tests.rs"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 面板已接入 Node.js/npm 检测、预检问题、适配器安装（含下载进度）与卸载；CLI 的安装与升级也已接入：只有 host 明确给出可更新来源（canUpdate）或完全没有检测到 CLI 时才显示按钮，升级后显示 host 验证过的版本，安装器报错但版本确实提升时单独一行展示警告，未知来源只显示手动指引；取消安装、预检清单与本机 CLI 配置文件的一键读取尚未接入。"
+      "verification": "在 macOS 打开 Agent 面板右上角的设置：确认显示 Node.js 与 npm 版本，Node 缺失或版本过低时只提示；一键安装、取消安装、更新与卸载 Codex 适配器；CLI 过旧时确认显示 npm/Homebrew/原生来源并通过原安装器升级，npm 环境不匹配或未知来源时只显示手动指引，升级后确认实际 PATH 中的版本达到要求；模拟安装器先下载失败再重试成功但返回非零，确认版本确实提升时显示成功与折叠警告日志，版本未变/仍旧/丢失、取消和超时继续按原语义处理；确认下载数据量、速度、耗时实时更新且未知总量不显示百分比，取消/失败/完成后进度清除；一键获取本机 Codex 配置后在 Agent 面板对话，且提交信息所用服务商不变；Windows 面板已接入 Node.js/npm 检测、预检问题、适配器安装（含下载进度）与卸载；CLI 的安装与升级也已接入：只有 host 明确给出可更新来源（canUpdate）或完全没有检测到 CLI 时才显示按钮，升级后显示 host 验证过的版本，安装器报错但版本确实提升时单独一行展示警告，未知来源只显示手动指引；npm 全局安装在 Windows 上是前缀目录的 .cmd 启动器，按同目录包清单识别为 npm 来源并可升级；取消安装、预检清单与本机 CLI 配置文件的一键读取尚未接入。"
     },
     {
       "id": "agent-provider-configuration",

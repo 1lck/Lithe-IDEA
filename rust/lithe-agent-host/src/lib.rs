@@ -281,7 +281,9 @@ fn resolve_with(
         if let Some(tool) = detected {
             env.push((
                 cli.path_env.to_owned(),
-                tool.path.to_string_lossy().into_owned(),
+                cli_update::launch_executable(cli, &tool.path)
+                    .to_string_lossy()
+                    .into_owned(),
             ));
         }
     }
