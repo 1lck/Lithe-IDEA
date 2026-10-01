@@ -1,49 +1,70 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
-import { Button } from "@/ui/button";
-import { GearIcon, PlusIcon, XIcon } from "@/ui/icons";
-import { Spinner } from "@/ui/spinner";
+import {
+  CaretLeftIcon,
+  ClockCounterClockwiseIcon,
+  GearIcon,
+  MagnifyingGlassIcon,
+  PlusIcon,
+  SparkleIcon,
+  SquareSplitHorizontalIcon,
+  UserCircleIcon,
+  WarningIcon,
+  XIcon,
+} from "@/ui/icons";
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/ui/resizable";
 import { joinPath } from "@/utils/path-helpers";
 import { useAgentManagement } from "../hooks/use-agent-management";
 import { useAgentSnapshot } from "../hooks/use-agent-connection";
 import { useAgentHistory } from "../hooks/use-agent-history";
-import {
-  AgentHistoryExportError,
-  saveHistoryMarkdown,
-} from "../services/agent-history-save";
-import {
-  historyMarkdown,
-  type AgentHistoryDocument,
-} from "../services/agent-history-export";
+import { AgentHistoryExportError, saveHistoryMarkdown } from "../services/agent-history-save";
+import { historyMarkdown, type AgentHistoryDocument } from "../services/agent-history-export";
 import { historyTitle } from "../services/agent-history-view";
+import { provisionalTabTitle } from "../services/agent-transcript-items";
 import {
   agentConnection,
   agentDataDirectory,
   closeAgentConnection,
   openAgentConnection,
 } from "../stores/agent-connection-service";
-import { currentPermission, provisionalTitle } from "../types/agent.types";
+import { CODEX_AGENT_ID, CLAUDE_AGENT_ID } from "../types/agent-settings.types";
+import { currentPermission, type AgentToolLocation } from "../types/agent.types";
 import { AgentComposer } from "./agent-composer";
 import { AgentConversationTabs } from "./agent-conversation-tabs";
 import { AgentHistoryList } from "./agent-history-list";
+import {
+  AgentEmptyState,
+  AgentInlineNotice,
+  AgentPanelHeader,
+  AgentToolbarButton,
+} from "./agent-panel-parts";
 import { AgentSettingsSection } from "./agent-settings-section";
-import { AgentTranscript } from "./agent-transcript";
+import { AgentHero, AgentActivitySummaryBar, AgentTranscript } from "./agent-transcript";
 
 /** How often a visible subscription panel asks the host for fresh quota. */
 const QUOTA_REFRESH_MILLISECONDS = 60_000;
+
+/** Display names of the built-in agents, as the macOS agent options show them. */
+const AGENT_NAMES: Record<string, string> = {
+  [CODEX_AGENT_ID]: "Codex",
+  [CLAUDE_AGENT_ID]: "Claude",
+};
+
+type AgentPanelPage = "conversation" | "settings" | "history";
 
 interface AgentPanelProps {
   onClose: () => void;
 }
 
 /**
- * The Agent sidebar, aligned with `AgentConversationView` on macOS.
+ * The Agent sidebar, matching `AgentConversationView` on macOS.
  *
- * It renders its whole layout even when the feature is off: the entry stays
- * discoverable, the body explains what to turn on, and no Agent process starts
- * until the panel is enabled and the project's adapter is configured.
+ * Settings and history replace the conversation as whole pages, the
+ * conversation always shows its full layout, and sending validates the setup
+ * instead of hiding the composer. No Agent process starts until the panel is
+ * enabled and the project's adapter is configured.
  */
 export function AgentPanel({ onClose }: AgentPanelProps) {
   const { t } = useTranslation();
@@ -52,18 +73,22 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const handleFileSelect = useFileSystemStore((state) => state.handleFileSelect);
   const settings = useSettingsStore((state) => state.settings.agentPanel);
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
-  // Annotations are scoped to the project and the configured Agent, so the
-  // panel reads them even before a connection exists.
   const history = useAgentHistory(rootFolderPath, settings.agentId);
   const [dataDirectory, setDataDirectory] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const management = useAgentManagement(dataDirectory, showSettings || !settings.enabled);
+  const [page, setPage] = useState<AgentPanelPage>("conversation");
+  const management = useAgentManagement(dataDirectory, page === "settings" || !settings.enabled);
+  const [showsSearch, setShowsSearch] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [showsTabs, setShowsTabs] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
 
   const status = snapshot.connectionState.status;
   const selected = snapshot.selectedSessionID;
   const conversation = selected === null ? null : (snapshot.conversations[selected] ?? null);
+  const agentName = AGENT_NAMES[settings.agentId] ?? snapshot.agentName;
+  const isConfigured = settings.enabled && rootFolderPath !== null;
 
-  const reconnect = useCallback(() => {
+  const connect = useCallback(() => {
     if (!settings.enabled) {
       // Turning the feature off stops the Agent processes; the panel stays open.
       void closeAgentConnection();
@@ -73,6 +98,13 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     void openAgentConnection(rootFolderPath, settings).catch(() => undefined);
   }, [rootFolderPath, settings]);
 
+  const reconnect = useCallback(() => {
+    void agentConnection()
+      .stop()
+      .then(connect)
+      .catch(() => undefined);
+  }, [connect]);
+
   useEffect(() => {
     void agentDataDirectory()
       .then(setDataDirectory)
@@ -81,50 +113,73 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
   // Connecting is idempotent, so settings edits simply re-ask for the project.
   useEffect(() => {
-    reconnect();
-  }, [reconnect]);
+    connect();
+  }, [connect]);
 
   useEffect(() => {
-    if (!snapshot.usesSubscription || status !== "ready") return;
+    if (status === "ready") agentConnection().prepareConversation();
+  }, [status]);
+
+  // Quota polls only while the conversation itself is visible, as on macOS.
+  useEffect(() => {
+    if (!snapshot.usesSubscription || status !== "ready" || page !== "conversation") return;
     const tick = () => {
       if (document.visibilityState === "visible") agentConnection().refreshQuota();
     };
     tick();
     const handle = setInterval(tick, QUOTA_REFRESH_MILLISECONDS);
     return () => clearInterval(handle);
-  }, [snapshot.usesSubscription, status]);
+  }, [page, snapshot.usesSubscription, status]);
 
-  const titles = useMemo(() => {
-    const map: Record<string, string | null> = {};
-    for (const [sessionID, entry] of Object.entries(snapshot.conversations)) {
-      const firstUserMessage = entry.messages.find((message) => message.role === "user");
-      map[sessionID] = firstUserMessage === undefined ? null : provisionalTitle(firstUserMessage.text);
-    }
-    return map;
-  }, [snapshot.conversations]);
+  const sessionTitle = useCallback(
+    (sessionID: string): string => {
+      const session = snapshot.sessions.find((entry) => entry.id === sessionID);
+      const title = session === undefined ? null : historyTitle(session, history.metadata);
+      return title !== null && title.trim().length > 0 ? title : t("agent.tabs.untitled");
+    },
+    [history.metadata, snapshot.sessions, t],
+  );
+
+  const headerTitle =
+    selected === null ? t("agent.actions.newConversation") : sessionTitle(selected);
+
+  const tabs = useMemo(
+    () =>
+      snapshot.openSessionIDs.map((id) => ({
+        id,
+        title: sessionTitle(id),
+        isSelected: id === selected,
+        isBusy: snapshot.conversations[id]?.isResponding === true,
+        needsAttention:
+          snapshot.conversations[id] !== undefined &&
+          currentPermission(snapshot.conversations[id]) !== null,
+      })),
+    [selected, sessionTitle, snapshot.conversations, snapshot.openSessionIDs],
+  );
+  const showsTabStrip =
+    showsTabs ||
+    snapshot.openSessionIDs.length > 1 ||
+    (selected === null && snapshot.openSessionIDs.length > 0);
 
   const openToolLocation = useCallback(
-    (path: string, line: number | null) => {
-      const isAbsolute = path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path);
+    (location: AgentToolLocation) => {
+      const isAbsolute = location.path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(location.path);
       const absolute =
-        isAbsolute || rootFolderPath === null ? path : joinPath(rootFolderPath, path);
-      void handleFileSelect(absolute, false, line ?? undefined, undefined);
+        isAbsolute || rootFolderPath === null
+          ? location.path
+          : joinPath(rootFolderPath, location.path);
+      void handleFileSelect(absolute, false, location.line ?? undefined, undefined);
     },
     [handleFileSelect, rootFolderPath],
   );
-
-  const answerPermission = useCallback((optionID: string | null) => {
-    agentConnection().answerPermission(optionID);
-  }, []);
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
   /**
-   * Replay every selected transcript, then write one Markdown file.
-   *
-   * Nothing is written until all transcripts are complete, so a session that
-   * cannot be replayed reports an error instead of leaving a partial export.
+   * Replay every selected transcript, then write one Markdown file. Nothing is
+   * written until all transcripts are complete, so a session that cannot be
+   * replayed reports an error instead of leaving a partial export.
    */
   const exportSessions = useCallback(
     async (sessionIDs: string[]) => {
@@ -148,8 +203,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           const session = listed.find((entry) => entry.id === sessionID);
           documents.push({
             id: sessionID,
-            title:
-              session === undefined ? null : historyTitle(session, history.metadata),
+            title: session === undefined ? null : historyTitle(session, history.metadata),
             messages,
           });
         }
@@ -179,239 +233,353 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     [history.metadata, isExporting, t],
   );
 
+  const openSettings = useCallback(() => setPage("settings"), []);
+
+  if (page === "settings") {
+    return (
+      <PanelFrame>
+        <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
+          <AgentToolbarButton
+            label={t("agent.settings.back")}
+            onClick={() => setPage("conversation")}
+          >
+            <CaretLeftIcon className="size-3" />
+          </AgentToolbarButton>
+          <span className="flex-1 font-semibold text-foreground ui-text-sm">
+            {t("agent.settings.title")}
+          </span>
+          <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
+            <XIcon className="size-3.5" />
+          </AgentToolbarButton>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <AgentSettingsSection
+            settings={settings}
+            management={management}
+            onChange={(next) => void updateSetting("agentPanel", next)}
+            onReconnect={reconnect}
+          />
+        </div>
+      </PanelFrame>
+    );
+  }
+
+  if (page === "history") {
+    return (
+      <PanelFrame>
+        <div className="flex h-[34px] shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
+          <AgentToolbarButton
+            label={t("agent.settings.back")}
+            onClick={() => setPage("conversation")}
+          >
+            <CaretLeftIcon className="size-3" />
+          </AgentToolbarButton>
+          <span className="flex-1 font-semibold text-foreground ui-text-sm">
+            {t("agent.actions.history")}
+          </span>
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto">
+          <AgentHistoryList
+            sessions={snapshot.sessions}
+            metadata={history.metadata}
+            conversations={snapshot.conversations}
+            isRefreshing={snapshot.isRefreshingSessions}
+            error={snapshot.historyError ?? history.error ?? exportError}
+            canRefresh={snapshot.canLoadSessions && status === "ready"}
+            onRefresh={() => agentConnection().refreshSessions()}
+            onSelect={(sessionID) => {
+              agentConnection().selectSession(sessionID);
+              setPage("conversation");
+            }}
+            onRename={history.rename}
+            onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
+            onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
+            isExporting={isExporting}
+            onExport={(sessionIDs) => void exportSessions(sessionIDs)}
+            canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
+          />
+        </div>
+      </PanelFrame>
+    );
+  }
+
+  const transcriptArea = (): ReactNode => {
+    if (!isConfigured) {
+      // The full layout stays visible; sending explains what is missing.
+      return (
+        <div className="flex h-full min-h-0 flex-col">
+          <AgentHero agentName={agentName} agentVersion={null} onSwitchAgent={openSettings} />
+          <AgentActivitySummaryBar messages={[]} />
+          {localError === null ? null : (
+            <AgentInlineNotice
+              text={localError}
+              action={{ label: t("agent.actions.openSettings"), onClick: openSettings }}
+            />
+          )}
+        </div>
+      );
+    }
+    switch (status) {
+      case "idle":
+      case "connecting":
+        return (
+          <AgentEmptyState
+            icon={<SparkleIcon />}
+            title={t("agent.state.starting")}
+            message={t("agent.state.startingMessage")}
+            isBusy
+          />
+        );
+      case "authenticationRequired":
+        return (
+          <AgentEmptyState
+            icon={<UserCircleIcon />}
+            title={t("agent.state.signIn")}
+            message={t("agent.state.signInMessage")}
+            action={{
+              label: t("agent.state.signInAction"),
+              onClick: () => agentConnection().authenticate(),
+            }}
+            secondaryAction={{ label: t("agent.actions.settings"), onClick: openSettings }}
+          />
+        );
+      case "authenticating":
+        return (
+          <AgentEmptyState
+            icon={<UserCircleIcon />}
+            title={t("agent.state.signingIn")}
+            message={t("agent.state.signingInMessage")}
+            isBusy
+            action={{
+              label: t("agent.state.cancel"),
+              onClick: () => void agentConnection().cancelAuthentication(),
+            }}
+          />
+        );
+      case "failed": {
+        const message =
+          snapshot.connectionState.status === "failed" ? snapshot.connectionState.message : "";
+        if (conversation !== null && conversation.messages.length > 0) {
+          return (
+            <div className="flex h-full min-h-0 flex-col">
+              <div className="min-h-0 flex-1">{transcript()}</div>
+              <AgentInlineNotice text={message} />
+              <div className="flex justify-center pb-2">
+                <button
+                  type="button"
+                  className="text-primary ui-text-sm hover:underline"
+                  onClick={reconnect}
+                >
+                  {t("agent.actions.reconnect")}
+                </button>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <AgentEmptyState
+            icon={<WarningIcon />}
+            title={t("agent.state.failed")}
+            message={message}
+            action={{ label: t("agent.status.retry"), onClick: reconnect }}
+            secondaryAction={{ label: t("agent.actions.settings"), onClick: openSettings }}
+          />
+        );
+      }
+      case "ready":
+        return transcript();
+    }
+  };
+
+  function transcript() {
+    return (
+      <AgentTranscript
+        conversation={conversation}
+        agentName={agentName}
+        agentVersion={snapshot.agentVersion}
+        pendingPrompt={selected === null ? snapshot.pendingNewConversationPrompt : null}
+        pendingStartedAt={snapshot.pendingNewConversationStartedAt}
+        isCreatingSession={snapshot.isCreatingSession}
+        searchText={searchText}
+        now={agentConnection().now}
+        onSwitchAgent={openSettings}
+        onOpenLocation={openToolLocation}
+        onAnswerPermission={(optionID) => agentConnection().answerPermission(optionID)}
+      />
+    );
+  }
+
+  const inlineError =
+    localError ??
+    conversation?.configurationError ??
+    conversation?.errorMessage ??
+    snapshot.errorMessage ??
+    exportError;
   const canSend =
+    isConfigured &&
     status === "ready" &&
-    (conversation === null ||
-      (!conversation.isResponding &&
-        !conversation.isLoading &&
-        conversation.pendingConfigToken === null &&
-        currentPermission(conversation) === null));
+    !snapshot.isCreatingSession &&
+    conversation?.isLoading !== true;
 
   return (
-    <section aria-label={t("agent.title")} className="flex h-full min-h-0 flex-col bg-background">
-      <header className="flex items-center gap-1.5 border-border/70 border-b px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-foreground ui-text-sm">
-          {snapshot.agentName ?? t("agent.title")}
-          {snapshot.agentVersion === null ? "" : ` ${snapshot.agentVersion}`}
-        </span>
-        {snapshot.usesSubscription ? (
-          <span className="max-w-32 truncate text-subtle-foreground ui-text-caption">
-            {snapshot.subscriptionEmail ?? snapshot.subscriptionPlan ?? t("agent.subscription.signedIn")}
-          </span>
+    <PanelFrame>
+      <AgentPanelHeader title={isConfigured ? headerTitle : t("agent.actions.newConversation")}>
+        {isConfigured ? (
+          <>
+            <AgentToolbarButton
+              label={t("agent.actions.search")}
+              active={showsSearch}
+              onClick={() => {
+                setShowsSearch((value) => !value);
+                setSearchText("");
+              }}
+            >
+              <MagnifyingGlassIcon className="size-3.5" />
+            </AgentToolbarButton>
+            <AgentToolbarButton
+              label={t("agent.actions.newConversation")}
+              disabled={selected === null}
+              onClick={() => agentConnection().startNewConversation()}
+            >
+              <PlusIcon className="size-3.5" />
+            </AgentToolbarButton>
+            <AgentToolbarButton
+              label={t("agent.actions.tabs")}
+              active={showsTabs}
+              onClick={() => setShowsTabs((value) => !value)}
+            >
+              <SquareSplitHorizontalIcon className="size-3.5" />
+            </AgentToolbarButton>
+            <AgentToolbarButton
+              label={t("agent.actions.history")}
+              onClick={() => setPage("history")}
+            >
+              <ClockCounterClockwiseIcon className="size-3.5" />
+            </AgentToolbarButton>
+          </>
         ) : null}
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          tooltip={t("agent.actions.newConversation")}
-          aria-label={t("agent.actions.newConversation")}
-          disabled={status !== "ready"}
-          onClick={() => agentConnection().startNewConversation()}
-        >
-          <PlusIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          active={showSettings}
-          tooltip={t("agent.actions.settings")}
-          aria-label={t("agent.actions.settings")}
-          onClick={() => setShowSettings((value) => !value)}
-        >
+        <AgentToolbarButton label={t("agent.actions.settings")} onClick={openSettings}>
           <GearIcon className="size-3.5" />
-        </Button>
-        <Button
-          type="button"
-          size="icon-xs"
-          variant="ghost"
-          tooltip={t("agent.actions.close")}
-          aria-label={t("agent.actions.close")}
-          onClick={onClose}
-        >
+        </AgentToolbarButton>
+        <AgentToolbarButton label={t("agent.actions.close")} onClick={onClose}>
           <XIcon className="size-3.5" />
-        </Button>
-      </header>
+        </AgentToolbarButton>
+      </AgentPanelHeader>
 
-      {showSettings ? (
-        <AgentSettingsSection
-          settings={settings}
-          management={management}
-          onChange={(next) => void updateSetting("agentPanel", next)}
-          onReconnect={reconnect}
+      {isConfigured && showsSearch ? (
+        <div className="flex h-[34px] shrink-0 items-center gap-1.5 bg-muted/60 pr-1.5 pl-3">
+          <MagnifyingGlassIcon className="size-3.5 text-subtle-foreground" />
+          <input
+            autoFocus
+            value={searchText}
+            placeholder={t("agent.actions.search")}
+            aria-label={t("agent.actions.search")}
+            className="min-w-0 flex-1 bg-transparent text-foreground outline-none ui-text-sm"
+            onChange={(event) => setSearchText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                setShowsSearch(false);
+                setSearchText("");
+              }
+            }}
+          />
+          <AgentToolbarButton
+            label={t("agent.actions.closeSearch")}
+            onClick={() => {
+              setShowsSearch(false);
+              setSearchText("");
+            }}
+          >
+            <XIcon className="size-3" />
+          </AgentToolbarButton>
+        </div>
+      ) : null}
+
+      {isConfigured && showsTabStrip ? (
+        <AgentConversationTabs
+          tabs={tabs}
+          showsNewTab={selected === null}
+          isNewTabBusy={snapshot.isCreatingSession}
+          newTabTitle={
+            snapshot.pendingNewConversationPrompt === null
+              ? null
+              : provisionalTabTitle(snapshot.pendingNewConversationPrompt)
+          }
+          onSelect={(sessionID) => agentConnection().selectSession(sessionID)}
+          onClose={(sessionID) => agentConnection().closeConversation(sessionID)}
+          onNew={() => agentConnection().startNewConversation()}
         />
       ) : null}
 
-      {snapshot.errorMessage === null ? null : (
-        <div className="border-border/70 border-b px-2 py-1 text-warning ui-text-caption">
-          {snapshot.errorMessage}
-        </div>
-      )}
-
-      <AgentConnectionStatus
-        status={status}
-        message={status === "failed" ? snapshot.connectionState.message : null}
-        usesSubscription={snapshot.usesSubscription}
-        enabled={settings.enabled}
-        canStart={rootFolderPath !== null}
-        onRetry={() => {
-          void agentConnection()
-            .stop()
-            .then(reconnect)
-            .catch(() => undefined);
-        }}
-        onEnable={() => void updateSetting("agentPanel", { ...settings, enabled: true })}
-        onOpenSettings={() => setShowSettings(true)}
-      />
-
-      <AgentHistoryList
-        sessions={snapshot.sessions}
-        metadata={history.metadata}
-        conversations={snapshot.conversations}
-        isRefreshing={snapshot.isRefreshingSessions}
-        error={snapshot.historyError ?? history.error ?? exportError}
-        canRefresh={snapshot.canLoadSessions && status === "ready"}
-        onRefresh={() => agentConnection().refreshSessions()}
-        onSelect={(sessionID) => agentConnection().selectSession(sessionID)}
-        onRename={history.rename}
-        onSetFavorite={(sessionIDs, favorite) => void history.setFavorite(sessionIDs, favorite)}
-        onSetHidden={(sessionIDs, hidden) => void history.setHidden(sessionIDs, hidden)}
-        isExporting={isExporting}
-        onExport={(sessionIDs) => void exportSessions(sessionIDs)}
-        canExportSession={(sessionID) => agentConnection().canExportTranscript(sessionID)}
-      />
-
-      <AgentConversationTabs
-        openSessionIDs={snapshot.openSessionIDs}
-        sessions={snapshot.sessions}
-        selectedSessionID={selected}
-        titles={titles}
-        onSelect={(sessionID) => agentConnection().selectSession(sessionID)}
-        onClose={(sessionID) => agentConnection().closeConversation(sessionID)}
-      />
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        {conversation === null ? (
-          <div className="p-3 text-subtle-foreground ui-text-sm">
-            {status === "ready" ? t("agent.transcript.pickSession") : null}
+      <AgentConversationLayout
+        transcript={
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1">{transcriptArea()}</div>
+            {isConfigured && inlineError !== null && inlineError !== undefined ? (
+              <AgentInlineNotice text={inlineError} />
+            ) : null}
           </div>
-        ) : (
-          <AgentTranscript
-            conversation={conversation}
-            onOpenToolLocation={openToolLocation}
-            onAnswerPermission={answerPermission}
+        }
+        composer={
+          <AgentComposer
+            conversation={isConfigured ? conversation : null}
+            agentName={agentName}
+            canSend={canSend}
+            onOpenSettings={openSettings}
+            onError={setLocalError}
+            blockedReason={
+              !settings.enabled
+                ? t("agent.error.disabled")
+                : rootFolderPath === null
+                  ? t("agent.setup.noProject")
+                  : status !== "ready"
+                    ? t("agent.error.notConnected")
+                    : t("agent.error.preparing")
+            }
           />
-        )}
-      </div>
+        }
+      />
+    </PanelFrame>
+  );
+}
 
-      {status === "ready" ? (
-        <AgentComposer conversation={conversation} canSend={canSend} />
-      ) : null}
+function PanelFrame({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
+  return (
+    <section aria-label={t("agent.title")} className="flex h-full min-h-0 flex-col bg-background">
+      {children}
     </section>
   );
 }
 
-interface AgentConnectionStatusProps {
-  status: string;
-  message: string | null;
-  usesSubscription: boolean;
-  enabled: boolean;
-  canStart: boolean;
-  onRetry: () => void;
-  onEnable: () => void;
-  onOpenSettings: () => void;
-}
-
-/** One line that explains the current state and offers the next action. */
-function AgentConnectionStatus({
-  status,
-  message,
-  usesSubscription,
-  enabled,
-  canStart,
-  onRetry,
-  onEnable,
-  onOpenSettings,
-}: AgentConnectionStatusProps) {
-  const { t } = useTranslation();
-
-  if (!enabled) {
-    return (
-      <div className="space-y-1.5 border-border/70 border-b p-2">
-        <div className="text-foreground ui-text-sm">{t("agent.setup.disabled")}</div>
-        <div className="flex gap-1.5">
-          <Button type="button" size="xs" variant="accent" onClick={onEnable}>
-            {t("agent.setup.enable")}
-          </Button>
-          <Button type="button" size="xs" variant="ghost" onClick={onOpenSettings}>
-            {t("agent.setup.openSettings")}
-          </Button>
+/**
+ * Transcript above a resizable composer, as `AgentConversationLayout` on macOS:
+ * the composer starts at min(210px, 30%), keeps at least min(120px, 40%) and at
+ * most 60% of the height. The resize state lives in the panel group, so
+ * dragging never re-renders the conversation.
+ */
+function AgentConversationLayout({
+  transcript,
+  composer,
+}: {
+  transcript: ReactNode;
+  composer: ReactNode;
+}) {
+  return (
+    <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+      <ResizablePanel id="agent-transcript" minSize="40">
+        {transcript}
+      </ResizablePanel>
+      <ResizableHandle className="bg-transparent after:h-2" />
+      <ResizablePanel id="agent-composer" defaultSize={210} minSize={120} maxSize="60">
+        <div className="relative h-full pt-2.5">
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1 left-1/2 h-[3px] w-[54px] -translate-x-1/2 rounded-full bg-subtle-foreground/40"
+          />
+          {composer}
         </div>
-      </div>
-    );
-  }
-  if (!canStart) {
-    return (
-      <div className="border-border/70 border-b p-2 text-subtle-foreground ui-text-sm">
-        {t("agent.setup.noProject")}
-      </div>
-    );
-  }
-  if (status === "connecting") {
-    return (
-      <div className="flex items-center gap-1.5 border-border/70 border-b p-2 text-subtle-foreground ui-text-sm">
-        <Spinner className="size-3.5" />
-        {t("agent.status.connecting")}
-      </div>
-    );
-  }
-  if (status === "authenticationRequired" && usesSubscription) {
-    return (
-      <div className="space-y-1.5 border-border/70 border-b p-2">
-        <div className="text-foreground ui-text-sm">{t("agent.subscription.required")}</div>
-        <Button
-          type="button"
-          size="xs"
-          variant="accent"
-          onClick={() => agentConnection().authenticate()}
-        >
-          {t("agent.subscription.signIn")}
-        </Button>
-      </div>
-    );
-  }
-  if (status === "authenticating") {
-    return (
-      <div className="flex items-center gap-1.5 border-border/70 border-b p-2">
-        <Spinner className="size-3.5" />
-        <span className="flex-1 text-subtle-foreground ui-text-sm">
-          {t("agent.subscription.authenticating")}
-        </span>
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          onClick={() => void agentConnection().cancelAuthentication()}
-        >
-          {t("agent.subscription.cancelSignIn")}
-        </Button>
-      </div>
-    );
-  }
-  if (status === "failed") {
-    return (
-      <div className="space-y-1.5 border-border/70 border-b p-2">
-        <div className="text-warning ui-text-sm">{message ?? t("agent.status.failed")}</div>
-        <div className="flex gap-1.5">
-          <Button type="button" size="xs" variant="ghost" onClick={onRetry}>
-            {t("agent.status.retry")}
-          </Button>
-          <Button type="button" size="xs" variant="ghost" onClick={onOpenSettings}>
-            {t("agent.setup.openSettings")}
-          </Button>
-        </div>
-      </div>
-    );
-  }
-  return null;
+      </ResizablePanel>
+    </ResizablePanelGroup>
+  );
 }

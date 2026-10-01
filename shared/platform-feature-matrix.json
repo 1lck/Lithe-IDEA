@@ -254,7 +254,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 面板在输入框底部显示占用量圆环与悬停 token，未知状态保持占位；压缩与会话隔离的实机验证待完成。"
+      "verification": "macOS：真实 Agent 对话后检查输入框顶部圆环百分比；分别悬停圆环与百分比，立即在上方显示已用/容量 token，移开或切换面板后关闭浮层，窄面板浮层不越界；首次、Agent 未上报或已上报零使用量时显示 0%，悬停仅显示“上下文: 0.0%”，内部缺失状态不伪造 token 或容量；切换会话/Agent、新建会话不串用量，压缩后用量可降低，不累加计费用量；模型确认切换和断连后清除旧容量，重新加载或上报后更新；窄宽面板及深浅主题检查布局和辅助功能。Windows 面板按 macOS 在输入框顶部上下文栏显示 12px 圆环与百分比，90% 起警告色、100% 起错误色，未知时显示 0% 并提示“上下文: 0.0%”，有用量时提示“x% · 12.3k / 200k 上下文 token”；压缩与会话隔离的实机验证待完成。"
     },
     {
       "id": "agent-acp-conversation",
@@ -275,16 +275,21 @@
         "evidence": [
           "rust/lithe-agent-host",
           "windows/tauri/src-tauri/src/agent.rs",
-          "windows/tauri/src/features/agent/components/agent-panel.tsx",
-          "windows/tauri/src/features/agent/components/agent-transcript.tsx",
           "windows/tauri/src/features/agent/components/agent-composer.tsx",
+          "windows/tauri/src/features/agent/components/agent-panel-parts.tsx",
+          "windows/tauri/src/features/agent/components/agent-panel.tsx",
+          "windows/tauri/src/features/agent/components/agent-session-selectors.tsx",
+          "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+          "windows/tauri/src/features/agent/components/brand/agent-brand-icon.tsx",
+          "windows/tauri/src/features/agent/services/agent-session-selectors.test.ts",
+          "windows/tauri/src/features/agent/services/agent-session-selectors.ts",
           "windows/tauri/src/features/agent/stores/agent-connection.model.ts"
         ],
         "implementationStatus": "partial",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 面板已覆盖消息流、工具证据与权限确认、会话创建与恢复、Agent 上报的配置选项和停止确认；可搜索模型/权限独立面板与本机默认模型同步尚未实现，Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 面板已覆盖消息流、工具证据与权限确认、会话创建与恢复、Agent 上报的配置选项和停止确认；面板结构已按 macOS 重做：会话标题头部与搜索/新对话/标签/历史/设置按钮、整页设置与历史、居中空状态与断线保留对话的重新连接、对话与输入框之间可拖动分隔（默认 min(210, 30%)，最小 min(120, 40%)，最大 60%）、Markdown 与代码块复制、右对齐用户气泡、可搜索模型面板（分组、品牌图标、思考强度与速度子面板）与带说明的权限模式面板、Agent 切换菜单与 Esc 停止；本机默认模型同步尚未实现，Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
     },
     {
       "id": "agent-tool-activity-timeline",
@@ -302,13 +307,15 @@
       },
       "windows": {
         "evidence": [
-          "windows/tauri/src/features"
+          "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+          "windows/tauri/src/features/agent/services/agent-transcript-items.test.ts",
+          "windows/tauri/src/features/agent/services/agent-transcript-items.ts"
         ],
-        "implementationStatus": "missing",
-        "verificationStatus": "not-applicable"
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Windows Agent 对话 UI 尚未实现。"
+      "verification": "macOS：让真实 Agent 连续列文件、读取文件、执行命令和编辑，确认相邻工具调用只显示一张默认折叠的时间线卡片；展开后每条状态、完整输入、输出和文件位置仍可查看，进行中、全部完成、失败和中断时汇总正确。用 Agent 文字说明和新一轮用户消息隔开工具调用，确认保留文字顺序且不会跨边界合并；搜索工具输入、输出或文件路径时自动展开匹配组；覆盖文件路径仅由 diff 内容上报、未出现在工具标题、输入输出或 locations 中的情况，历史恢复结果与实时流一致。在窄宽面板及深浅主题检查长标题截断、悬停全文、列表滚动和详情可读性。Windows 相邻工具调用按 macOS 合并为可折叠的“工具操作（N）”组，头部显示失败/中断/全部完成/已完成 n/N 摘要，失败组红框，行内状态点与证据展开（输入、内容、结果、文件位置），列表最多 4 行高；对话下方常驻任务/运行中/编辑统计条，搜索命中时自动展开；实机验证待完成。"
     },
     {
       "id": "agent-turn-statistics",
@@ -331,13 +338,17 @@
         "evidence": [
           "rust/lithe-agent-host/src/prompt.rs",
           "rust/lithe-agent-host/src/tests.rs",
-          "shared/fixtures/agent/acp-events-v1.json"
+          "shared/fixtures/agent/acp-events-v1.json",
+          "windows/tauri/src/features/agent/components/agent-transcript.tsx",
+          "windows/tauri/src/features/agent/stores/agent-connection.model.ts",
+          "windows/tauri/src/features/agent/stores/agent-turn-statistics.model.test.ts",
+          "windows/tauri/src/features/agent/types/agent-turn-statistics.ts"
         ],
-        "implementationStatus": "partial",
+        "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；上报 usage 时显示准确输入/输出并悬停查看总量、缓存和推理值，缺失时只显示耗时。历史回放不编造统计，上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage，对话 UI 尚未接入。"
+      "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；上报 usage 时显示准确输入/输出并悬停查看总量、缓存和推理值，缺失时只显示耗时。历史回放不编造统计，上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 按 macOS 用单调时钟从发送时计时（含会话准备、工具与权限等待），回复中显示“思考中…/正在停止…”与实时耗时，完成、失败或断开后在该轮最后一条消息后冻结“耗时/输入/输出”，悬停列出总、推理、缓存读写 token；历史回放不伪造统计；实机验证待完成。"
     },
     {
       "id": "agent-file-references",
@@ -498,7 +509,7 @@
         ]
       },
       "owner": "Agent",
-      "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows 面板在上下文用量右侧紧凑显示额度，文档可见时每分钟刷新，悬停列出各窗口与重置时间，过期快照灰显且 API Key 模式不查询；真实账号验证待完成。"
+      "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows 面板按 macOS 在上下文栏右侧显示“5h · 已用 x%”或“额度 —”，只在对话页可见时每分钟刷新，悬停列出账号、各窗口、重置时间与更新时间以及过期/账号变更/等待提示，过期快照灰显且 API Key 模式不查询；真实账号验证待完成。"
     },
     {
       "id": "workspace-open-switch",

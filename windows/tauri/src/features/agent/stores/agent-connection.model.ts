@@ -16,6 +16,7 @@ import {
   createConversation,
   currentPermission,
   enqueuePermission,
+  finishActiveTurn,
   interruptPendingTools,
   parseContextUsage,
   parseSessionConfigOptions,
@@ -33,6 +34,7 @@ import {
   type AgentSessionSummary,
   type AgentSubscriptionQuota,
 } from "../types/agent.types";
+import { parseTurnUsage, startTurn } from "../types/agent-turn-statistics";
 import type {
   AgentLaunchConfiguration,
   AgentTransport,
@@ -97,6 +99,8 @@ export interface AgentConnectionSnapshot {
   conversations: Record<string, AgentConversation>;
   openSessionIDs: string[];
   pendingNewConversationPrompt: string | null;
+  /** Monotonic submission time of that prompt, so its wait is timed too. */
+  pendingNewConversationStartedAt: number | null;
   canLoadSessions: boolean;
   isRefreshingSessions: boolean;
   historyError: string | null;
@@ -120,6 +124,7 @@ function emptySnapshot(): AgentConnectionSnapshot {
     conversations: {},
     openSessionIDs: [],
     pendingNewConversationPrompt: null,
+    pendingNewConversationStartedAt: null,
     canLoadSessions: false,
     isRefreshingSessions: false,
     historyError: null,
@@ -163,9 +168,17 @@ export class AgentConnectionModel {
   private stale = false;
   private snapshot: AgentConnectionSnapshot;
 
-  constructor(transport: AgentTransport, scheduler: AgentFlushScheduler = defaultScheduler()) {
+  /** Monotonic milliseconds; injected so turn timing is deterministic in tests. */
+  readonly now: () => number;
+
+  constructor(
+    transport: AgentTransport,
+    scheduler: AgentFlushScheduler = defaultScheduler(),
+    now: () => number = () => performance.now(),
+  ) {
     this.transport = transport;
     this.scheduler = scheduler;
+    this.now = now;
     this.snapshot = emptySnapshot();
   }
 
@@ -472,7 +485,11 @@ export class AgentConnectionModel {
 
   /** Queue one turn, waiting for a fresh or loading session when needed. */
   send(text: string, files: string[] = []): void {
-    const prompt: AgentPrompt = { text: text.trim(), files: addFileReferences([], files) };
+    const prompt: AgentPrompt = {
+      text: text.trim(),
+      files: addFileReferences([], files),
+      submittedAt: this.now(),
+    };
     if (prompt.text.length === 0 && prompt.files.length === 0) return;
     if (this.connection === null) throw new AgentConnectionBusyError("The Agent is not connected.");
 
@@ -482,7 +499,11 @@ export class AgentConnectionModel {
       const token = this.createToken;
       if (token === null) throw new AgentConnectionBusyError("The Agent is not connected.");
       this.queuedPrompts.set(token, prompt);
-      this.update({ pendingNewConversationPrompt: promptDisplayText(prompt), errorMessage: null });
+      this.update({
+        pendingNewConversationPrompt: promptDisplayText(prompt),
+        pendingNewConversationStartedAt: prompt.submittedAt,
+        errorMessage: null,
+      });
       return;
     }
 
@@ -702,8 +723,9 @@ export class AgentConnectionModel {
         if (sessionID === null) return;
         const stopReason = asString(event.stopReason);
         this.flushPendingText();
+        const usage = parseTurnUsage(event.usage);
         this.editConversation(sessionID, (current) => ({
-          ...interruptPendingTools(current),
+          ...interruptPendingTools(finishActiveTurn(current, this.now(), usage)),
           isResponding: false,
           isCancelling: false,
           pendingPermissions: [],
@@ -747,6 +769,7 @@ export class AgentConnectionModel {
     this.openTab(sessionID);
     this.update({
       pendingNewConversationPrompt: null,
+      pendingNewConversationStartedAt: null,
       isCreatingSession: false,
       selectedSessionID: this.snapshot.selectedSessionID ?? sessionID,
     });
@@ -774,7 +797,12 @@ export class AgentConnectionModel {
     if (token !== null && token === this.createToken) {
       this.queuedPrompts.delete(token);
       this.createToken = null;
-      this.update({ pendingNewConversationPrompt: null, isCreatingSession: false, errorMessage: message });
+      this.update({
+        pendingNewConversationPrompt: null,
+        pendingNewConversationStartedAt: null,
+        isCreatingSession: false,
+        errorMessage: message,
+      });
       return;
     }
     const loading = token === null ? undefined : this.loadTokens.get(token);
@@ -796,7 +824,7 @@ export class AgentConnectionModel {
     if (sessionID !== null && this.snapshot.conversations[sessionID] !== undefined) {
       this.flushPendingText();
       this.editConversation(sessionID, (current) => ({
-        ...interruptPendingTools(current),
+        ...interruptPendingTools(finishActiveTurn(current, this.now())),
         isResponding: false,
         isCancelling: false,
         pendingPermissions: [],
@@ -924,13 +952,15 @@ export class AgentConnectionModel {
     if (prompt.files.length > 0) command.files = prompt.files;
     if (!this.sendCommand(command)) return false;
     this.unpromptedSessionIDs.delete(sessionID);
-    this.editConversation(sessionID, (current) =>
-      appendMessage(
+    this.editConversation(sessionID, (current) => {
+      const next = appendMessage(
         { ...current, isResponding: true, errorMessage: null },
         "user",
         promptDisplayText(prompt),
-      ),
-    );
+      );
+      const message = next.messages[next.messages.length - 1];
+      return { ...next, activeTurn: startTurn(message.id, prompt.submittedAt) };
+    });
     return true;
   }
 
@@ -999,8 +1029,9 @@ export class AgentConnectionModel {
       if (conversation !== undefined && conversation.messages.length === 0) delete conversations[session];
     }
     this.unpromptedSessionIDs.clear();
+    const now = this.now();
     for (const id of Object.keys(conversations)) {
-      conversations[id] = { ...conversations[id], contextUsage: null };
+      conversations[id] = { ...finishActiveTurn(conversations[id], now), contextUsage: null };
     }
     this.createToken = null;
     this.update({
@@ -1013,6 +1044,7 @@ export class AgentConnectionModel {
       canLoadSessions: false,
       isRefreshingSessions: false,
       pendingNewConversationPrompt: null,
+      pendingNewConversationStartedAt: null,
       isCreatingSession: false,
     });
     return old;

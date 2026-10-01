@@ -45,16 +45,36 @@ describe("Subscription quota", () => {
   test("parses the account windows from the shared fixture", () => {
     const quota = parseSubscriptionQuota(quotaSnapshot);
     expect(quota?.windows).toEqual([
-      { id: "codex:primary", name: "codex", limitSeconds: 18000, usedPercent: 68, resetsAt: 1800003600 },
+      {
+        id: "codex:primary",
+        name: "codex",
+        limitSeconds: 18000,
+        usedPercent: 68,
+        resetsAt: 1800003600,
+      },
     ]);
     expect(mostUsedQuotaWindow(quota!)?.usedPercent).toBe(68);
   });
 
   test("rejects a snapshot that cannot be shown as usage", () => {
     expect(parseSubscriptionQuota({ windows: [], fetchedAt: 1 })).toBeNull();
-    expect(parseSubscriptionQuota({ windows: [{ id: "a", name: "a", limitSeconds: 0, usedPercent: 1, resetsAt: null }], fetchedAt: 1 })).toBeNull();
-    expect(parseSubscriptionQuota({ windows: [{ id: "a", name: "a", limitSeconds: 60, usedPercent: 101, resetsAt: null }], fetchedAt: 1 })).toBeNull();
-    expect(parseSubscriptionQuota({ windows: [{ id: "a", name: "a", limitSeconds: 60, usedPercent: null, resetsAt: null }] })).toBeNull();
+    expect(
+      parseSubscriptionQuota({
+        windows: [{ id: "a", name: "a", limitSeconds: 0, usedPercent: 1, resetsAt: null }],
+        fetchedAt: 1,
+      }),
+    ).toBeNull();
+    expect(
+      parseSubscriptionQuota({
+        windows: [{ id: "a", name: "a", limitSeconds: 60, usedPercent: 101, resetsAt: null }],
+        fetchedAt: 1,
+      }),
+    ).toBeNull();
+    expect(
+      parseSubscriptionQuota({
+        windows: [{ id: "a", name: "a", limitSeconds: 60, usedPercent: null, resetsAt: null }],
+      }),
+    ).toBeNull();
   });
 
   test("an old snapshot or a reset window is stale", () => {
@@ -72,7 +92,9 @@ describe("Session configuration", () => {
     const options = parseSessionConfigOptions(fixture.events.sessionConfigured.configOptions);
     expect(options.map((option) => option.id)).toEqual(["model", "mode", "reasoning_effort"]);
     expect(configOptionLabel(options[0])).toBe("Example Model");
-    expect(options[0].choices).toEqual([{ id: "example-model", name: "Example Model", group: null, description: null }]);
+    expect(options[0].choices).toEqual([
+      { id: "example-model", name: "Example Model", group: null, description: null },
+    ]);
   });
 
   test("keeps one level of grouping and ignores other widget types", () => {
@@ -83,7 +105,13 @@ describe("Session configuration", () => {
         type: "select",
         currentValue: "b",
         options: [
-          { name: "Fast", options: [{ value: "a", name: "A" }, { value: "b", name: "B" }] },
+          {
+            name: "Fast",
+            options: [
+              { value: "a", name: "A" },
+              { value: "b", name: "B" },
+            ],
+          },
           { value: "c", name: "C" },
         ],
       },
@@ -107,7 +135,11 @@ describe("Transcript reduction", () => {
   });
 
   test("a tool call keeps its identity while partial updates replace present fields", () => {
-    const started = upsertToolMessage(createConversation(), "call-1", fixture.events.toolCall.update);
+    const started = upsertToolMessage(
+      createConversation(),
+      "call-1",
+      fixture.events.toolCall.update,
+    );
     expect(started.messages[0].id).toBe("tool:call-1");
     expect(started.messages[0].toolStatus).toBe("pending");
     expect(started.messages[0].toolDetails.input).toContain("node --test");
@@ -122,7 +154,11 @@ describe("Transcript reduction", () => {
   });
 
   test("a turn that ends without a tool status interrupts it instead of leaving it running", () => {
-    const started = upsertToolMessage(createConversation(), "call-1", fixture.events.toolCall.update);
+    const started = upsertToolMessage(
+      createConversation(),
+      "call-1",
+      fixture.events.toolCall.update,
+    );
     expect(interruptPendingTools(started).messages[0].toolStatus).toBe("interrupted");
   });
 
@@ -134,7 +170,11 @@ describe("Transcript reduction", () => {
 
 describe("Permission prompts", () => {
   test("reuses the evidence already shown for the tool call", () => {
-    const withTool = upsertToolMessage(createConversation(), "call-1", fixture.events.toolCall.update);
+    const withTool = upsertToolMessage(
+      createConversation(),
+      "call-1",
+      fixture.events.toolCall.update,
+    );
     const prompt = permissionPrompt(withTool, "permission-1", fixture.events.permission.request);
     expect(prompt.title).toBe("Run tests");
     expect(prompt.choices.map((choice) => choice.id)).toEqual(["allow_once", "reject_once"]);
@@ -142,8 +182,16 @@ describe("Permission prompts", () => {
   });
 
   test("the queue keeps both prompts and answers the oldest first", () => {
-    const first = permissionPrompt(createConversation(), "permission-1", fixture.events.permission.request);
-    const second = permissionPrompt(createConversation(), "permission-2", fixture.events.permission.request);
+    const first = permissionPrompt(
+      createConversation(),
+      "permission-1",
+      fixture.events.permission.request,
+    );
+    const second = permissionPrompt(
+      createConversation(),
+      "permission-2",
+      fixture.events.permission.request,
+    );
     const queued = enqueuePermission(enqueuePermission(createConversation(), first), second);
     expect(currentPermission(queued)?.id).toBe("permission-1");
     const replaced = enqueuePermission(queued, { ...first, title: "Updated" });
@@ -155,16 +203,23 @@ describe("Permission prompts", () => {
 describe("Prompts and titles", () => {
   test("attached files are shown next to the text, never merged into it", () => {
     const files = addFileReferences([], [fixture.commands.promptWithFiles.files[0].uri]);
-    expect(promptDisplayText({ text: "Explain these files", files })).toBe(
+    expect(promptDisplayText({ text: "Explain these files", files, submittedAt: 0 })).toBe(
       "Explain these files\n\n📎 file:///example/project/Hello%20World.swift",
     );
   });
 
   test("only local file URLs are accepted, duplicates collapse, and the draft stays bounded", () => {
-    expect(() => addFileReferences([], ["https://example.test/a.md"])).toThrow(AgentFileReferenceError);
+    expect(() => addFileReferences([], ["https://example.test/a.md"])).toThrow(
+      AgentFileReferenceError,
+    );
     const once = addFileReferences([], [fixture.commands.promptWithFiles.files[0].uri]);
-    expect(addFileReferences(once, [fixture.commands.promptWithFiles.files[0].uri])).toHaveLength(1);
-    const allowed = Array.from({ length: AGENT_FILE_LIMIT }, (_, index) => `file:///example/${index}.md`);
+    expect(addFileReferences(once, [fixture.commands.promptWithFiles.files[0].uri])).toHaveLength(
+      1,
+    );
+    const allowed = Array.from(
+      { length: AGENT_FILE_LIMIT },
+      (_, index) => `file:///example/${index}.md`,
+    );
     expect(addFileReferences([], allowed)).toHaveLength(AGENT_FILE_LIMIT);
     const tooMany = [...allowed, `file:///example/${AGENT_FILE_LIMIT}.md`];
     expect(() => addFileReferences([], tooMany)).toThrow(/32 files/);

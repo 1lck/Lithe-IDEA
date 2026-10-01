@@ -230,7 +230,7 @@ jobs:
 
       - name: Test Agent panel and capability gate
         shell: pwsh
-        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/config/backend-capabilities.test.ts
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-agent.json -- src/features/agent src/config/backend-capabilities.test.ts src/features/file-system/utils/file-system-drop-controller.test.ts src/ui/icons.test.tsx
 
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
