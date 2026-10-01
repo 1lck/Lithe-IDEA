@@ -43,5 +43,6 @@ export function formatGitLogDate(dateString: string, t: Translate, now: Date = n
   if (dayDifference === 0) return t("git.log.dateToday", { time });
   if (dayDifference === 1) return t("git.log.dateYesterday", { time });
 
-  return `${match[1]}/${match[2]}/${match[3]} ${time}`;
+  // Field order is locale copy: English reads day/month/year, Chinese year/month/day.
+  return t("git.log.dateAbsolute", { year: match[1], month: match[2], day: match[3], time });
 }

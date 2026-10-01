@@ -38,8 +38,12 @@ describe("formatGitLogDate", () => {
   });
 
   test("shows the calendar date with a 12-hour time for older commits", () => {
-    expect(formatGitLogDate("2026/09/08 09:07", t, now)).toBe("2026/09/08 9:07 AM");
-    expect(formatGitLogDate("2025/12/31 21:45", t, now)).toBe("2025/12/31 9:45 PM");
+    expect(formatGitLogDate("2026/09/08 09:07", t, now)).toBe(
+      'git.log.dateAbsolute:{"year":"2026","month":"09","day":"08","time":"9:07 AM"}',
+    );
+    expect(formatGitLogDate("2025/12/31 21:45", t, now)).toBe(
+      'git.log.dateAbsolute:{"year":"2025","month":"12","day":"31","time":"9:45 PM"}',
+    );
   });
 
   test("measures Yesterday by calendar day, not by 24 elapsed hours", () => {

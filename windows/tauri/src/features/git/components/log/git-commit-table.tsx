@@ -318,10 +318,10 @@ export function GitCommitTable({
                       title={t("git.log.openDiffHint")}
                     >
                       <GitGraphRow row={row} showDecorations={showDecorations} />
-                      <span className="w-28 shrink-0 overflow-clip px-2 text-ellipsis whitespace-nowrap text-subtle-foreground">
+                      <span className="w-28 shrink-0 overflow-clip px-2 text-ellipsis whitespace-nowrap text-foreground">
                         {row.commit.author}
                       </span>
-                      <span className="w-36 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-subtle-foreground">
+                      <span className="w-36 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right text-foreground tabular-nums">
                         {formatGitLogDate(row.commit.date, t)}
                       </span>
                     </ContextMenuTrigger>
