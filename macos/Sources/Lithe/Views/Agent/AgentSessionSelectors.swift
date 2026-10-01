@@ -1,6 +1,11 @@
 import SwiftUI
 import LitheAgentConversationModule
 
+private enum AgentSelectorLayout {
+    static let choiceRowHeight: CGFloat = 26
+    static let modeRowHeight: CGFloat = 44
+}
+
 /// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
     static func filteredChoices(_ option: AgentSessionConfigOption, query: String) -> [AgentSessionConfigOption.Choice] {
@@ -22,7 +27,8 @@ enum AgentSessionSelectorPresentation {
             if choice.id == "off" { return String(localized: "Standard") }
             if choice.id == "on" { return String(localized: "Fast") }
         }
-        return option.category == "model" ? choice.name : localized(choice.name)
+        // Agent-owned model and mode labels can collide with unrelated app translations.
+        return option.category == "model" || option.category == "mode" ? choice.name : localized(choice.name)
     }
 
     static func currentTitle(_ option: AgentSessionConfigOption) -> String {
@@ -171,7 +177,7 @@ struct AgentModelPopover: View {
                             }
                         }
                     }
-                    .frame(height: min(240, CGFloat(setting.choices.count * 32)))
+                    .frame(height: min(240, CGFloat(setting.choices.count) * AgentSelectorLayout.choiceRowHeight))
                 }
                 .padding(.bottom, 5)
                 .frame(width: 180)
@@ -216,7 +222,7 @@ struct AgentModelPopover: View {
                         }
                     }
                 }
-                .frame(height: min(240, CGFloat(choices.count * 32 + choices.filter { $0.group != nil }.count * 20)))
+                .frame(height: min(240, CGFloat(choices.count) * AgentSelectorLayout.choiceRowHeight + CGFloat(choices.filter { $0.group != nil }.count * 20)))
             }
             if !settings.isEmpty {
                 Divider().overlay(AgentPanelStyle.border).padding(.vertical, 4)
@@ -266,9 +272,9 @@ private struct AgentModePopover: View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(option.choices) { choice in
-                    AgentSelectorRow(isSelected: choice.id == option.currentValue, minimumHeight: 64, action: { onSelect(choice.id) }) {
+                    AgentSelectorRow(isSelected: choice.id == option.currentValue, minimumHeight: AgentSelectorLayout.modeRowHeight, action: { onSelect(choice.id) }) {
                         Image(systemName: AgentSessionSelectorPresentation.modeIcon(choice.id)).frame(width: 16)
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: option)).lineLimit(1)
                             if let description = choice.description, !description.isEmpty {
                                 Text(AgentSessionSelectorPresentation.localized(description))
@@ -283,14 +289,14 @@ private struct AgentModePopover: View {
             }
         }
         .padding(.vertical, 5)
-        .frame(width: 350, height: min(330, CGFloat(option.choices.count * 64 + 10)))
+        .frame(width: 350, height: min(330, CGFloat(option.choices.count) * AgentSelectorLayout.modeRowHeight + 10))
         .background(AgentPanelStyle.header)
     }
 }
 
 private struct AgentSelectorRow<Content: View>: View {
     let isSelected: Bool
-    var minimumHeight: CGFloat = 32
+    var minimumHeight: CGFloat = AgentSelectorLayout.choiceRowHeight
     let action: () -> Void
     @ViewBuilder let content: Content
     @State private var isHovering = false
@@ -308,7 +314,7 @@ private struct AgentSelectorRow<Content: View>: View {
             .font(.system(size: 12))
             .foregroundStyle(AgentPanelStyle.text)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
             .background(isSelected ? AgentPanelStyle.selected : (isHovering ? AgentPanelStyle.context : .clear))
             .contentShape(Rectangle())
