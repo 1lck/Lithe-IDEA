@@ -68,6 +68,14 @@ Diff 的复制菜单复用 `LitheContextMenuPresenter` 和 IDEA 16pt 复制 SVG�
 拖动不重新生成文字。若未来统一到 Monaco，应先验证中央行号、单侧增删、折叠、
 源行号映射和现有差异块动作，而不是只替换截图中的颜色。
 
+### 项目标识的字母
+
+项目颜色标识的字母属于已有 `ProjectAvatarBadge`，不是普通界面标题。
+Community `AvatarUtils.getNewUiFont` 使用 JetBrains Mono DemiBold，字号按
+`13 × size / 20` 取整数。复用已打包的 SemiBold 字型及现有字体入口，20pt 标识用
+13pt；顶部、项目菜单与欢迎页同一处修正。保留项目颜色、标识大小及名称规则，
+不复制 JetBrains 产品标志，也不改变其他界面文字的字重。
+
 ## 考虑过的备选方案
 
 - 只给根视图加字体：改动少，但不能覆盖显式 SwiftUI 字体及原生文字控件。
@@ -86,6 +94,8 @@ Git Log 日期列按实际 UI 字体测量，避免换字体后宽度仍沿用�
 `BundledUIFontTests` 以临时 bundle 验证 34 个字型的注册来源、Inter/Mono 版本、重复注册、
 原生 UI/代码字体分工和 Regular/Medium/SemiBold/Bold/Black 的真实字型匹配、SwiftUI/AppKit 实际字宽，以及注册前后的文件清单和 SHA-256。
 同一测试覆盖网页资源 adapter 的字体请求和目录逃逸拒绝。
+项目徽标的白色字母像素与实际 JetBrains Mono SemiBold 13pt 文字对照，验证共享
+徽标不是 Inter Bold 或合成字重；明暗主题的原生项目菜单捕获也加载实际打包字体。
 
 ```bash
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh -- --filter BundledUIFontTests

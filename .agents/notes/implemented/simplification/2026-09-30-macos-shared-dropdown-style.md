@@ -51,7 +51,13 @@ Monaco 编辑区右键菜单由网页内部渲染，原来的 SwiftUI 菜单扫�
 字宽与实际绘制宽度不同而截断 `Copy Relative Path`；菜单行间距显式计算，
 并为快捷键、勾选和箭头按实际布局留足宽度。
 
-顶部项目/分支按钮只使用普通悬停背景，菜单打开状态不作为按钮选中状态。系统应用菜单、系统对话框、编辑器补全与悬停文档保留原生职责；显式 segmented 的原生 Picker 没有下拉框，也不属于本次迁移。
+顶部项目/分支按钮在菜单打开期间保持普通悬停背景，关闭后释放这项保持状态。
+原生面板获得焦点会使 SwiftUI 收到 hover 离开事件，因此仅依赖鼠标悬停会让
+已打开菜单的按钮变透明。复用 `litheRowHover` 的现有激活参数，将其背景明确设为
+`LitheTheme.hoverBackground`，保持点击前后同一种颜色，不使用菜单行的蓝色选中色。
+Community `ToolbarComboButtonUI.paintBackground` 同样在 combo model selected 时绘制
+已有 hover 背景。该行为只用于顶部两个触发按钮，不改变菜单行或设置值的选中状态。
+系统应用菜单、系统对话框、编辑器补全与悬停文档保留原生职责；显式 segmented 的原生 Picker 没有下拉框，也不属于本次迁移。
 
 ## 顶部项目和分支菜单的尺寸与内容
 
@@ -74,6 +80,10 @@ Lithe 的项目菜单按本地化命令、项目名称与显示路径测量，�
 名称用 13pt 常规字重，路径按 `JBFont.smallOrNewUiMedium` 使用 12pt。
 行内间距为 8pt；当前项目保持激活动作，不再被持续染成蓝色或显示额外勾选。
 项目颜色与名称徽标复用 `ProjectAvatarBadge`，不复制 JetBrains 产品标志。
+字母按 Community `platform/util/ui/src/com/intellij/util/ui/AvatarUtils.kt` 的
+New UI 规则使用 JetBrains Mono DemiBold（已打包的 SemiBold 字型），字号为
+`floor(13 × 标识尺寸 / 20)`；20pt 标识对应 13pt。原来 Inter Bold 的字形与粗细
+不符，修复放在同一共享徽标中，顶部、项目菜单和欢迎页都复用它。
 
 分支搜索使用 Git Log 已有的 `LitheSearchTextField` + `litheSearchField`，
 因此继承输入法占位文本、hover I-beam、背景和焦点边框修复。
@@ -87,6 +97,20 @@ Checkout Tag or Revision 没有图标，只留对齐位置。
 `dvcs/currentBranchLabel.svg`，没有依据当前状态虚构“收藏”。
 现有两个分支搜索栏动作仍执行各自原来的回调，没有新增 IDEA 的 fetch/resize 功能。
 
+## AI 开发约束的范围
+
+强制规则集中在 `develop-lithe` 的 `macOS shared frontend controls`，这篇 Note
+只记录原因和范围。规则覆盖已有产品下拉/右键菜单、菜单定位与宽度、搜索输入、
+工具栏图标按钮、树行和字体；每类都指明真实组件路径，修改样式要先检查共享所有者
+和调用方，再对照对应 Community 控件/动作/主题源码。不能根据截图猜一个新样式，
+也不能为对齐 IDEA 增加 Lithe 没有的功能。
+
+例如 Search 新输入用 `LitheSearchTextField` + `litheSearchField`，修改占位或焦点色
+要改共享组件；不要在 Search、Database、Git 各写一份背景和输入法判断。
+Project 菜单宽度由内容测量、Branch 使用已有基准，不能因为都叫“下拉框”就强制
+同宽。树行也不能代替多行项目菜单、表格或原生提交图谱。这样约束的代价是规则不
+覆盖尚未实现的共享控件，但不会让 AI 为满足规则自行新增一套控件或重写原生列表。
+
 ## 验证
 
 - `MonacoEditorContextMenuTests` 检查真实原生菜单面板在明暗主题下的共享尺寸、无动画、禁用跳过、选中/取消回复、官方 SVG 的 16×16 尺寸与资源可解析性，以及非法展示数据拒绝。
@@ -96,10 +120,11 @@ Checkout Tag or Revision 没有图标，只留对齐位置。
 - `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单不关闭父面板、按键只选择子菜单动作、两层独立关闭。
 - `sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches` 验证真实宿主继承环境对象和语言，锚点移出窗口立即关闭并清理。
 - `itemBuilderKeepsConditionalActionsDisabledChoicesAndSubmenus` 验证条件、动态条目、勾选、禁用、子菜单及危险动作类型保留。
-- `WorkbenchRenderingSafetyTests` 检查项目/分支使用共享入口，菜单打开状态不会染色原按钮。
+- `WorkbenchRenderingSafetyTests` 检查项目/分支使用共享入口，打开时保持 hover 色而不是菜单选中色。
 
 - `ContextMenuCoverageTests.projectPopupMeasuresContentInsteadOfKeepingA390PointWidth` 检查短路径自然宽度与长路径共享上限。
-- `ContextMenuCoverageTests.topbarDropdownsLeaveToolbarMarginAndRenderRealSharedContent` 渲染真实项目/分支菜单的明暗原生窗口，检查锚点槽位、无动画、宽度限制、卸载关闭，并可保存捕获图。
+- `ContextMenuCoverageTests.topbarDropdownsLeaveToolbarMarginAndRenderRealSharedContent` 渲染真实项目/分支菜单的明暗原生窗口，检查锚点槽位、无动画、宽度限制、打开时按钮保留 hover 底色、关闭后释放、卸载关闭，并可保存捕获图。
+- `BundledUIFontTests.packagedFontsRegisterAtProcessScopeAndRemainUnchanged` 用实际注册字体比较共享项目徽标与 JetBrains Mono SemiBold 13pt 的白色字母像素，防止回退到 Inter Bold；字体资源注册与清理沿用原测试所有权。
 - `ContextMenuCoverageTests.projectAndActionDropdownsRenderTheSameChrome` 捕获真实原生菜单面板，检查 Project 与设置菜单在明暗主题下的背景、边框和高度。
 - `ContextMenuCoverageTests.submenuStartsAtItsTriggerRowAndKeepsCopyTitlesVisible` 捕获真实明暗菜单，验证靠下的触发行、子菜单上方透明区、主菜单位置固定及完整复制标题的宽度。
 - `ContextMenuCoverageTests` 验证键盘跳过禁用条目、子菜单导航、长菜单可见范围和动作调用；`filterPopoverAnchorLeavesMouseEventsToItsButton` 验证定位锚点不截获按钮的鼠标命中。

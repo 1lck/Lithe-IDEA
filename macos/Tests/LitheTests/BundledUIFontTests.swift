@@ -63,6 +63,25 @@ struct BundledUIFontTests {
             #expect(font.fontName == "JetBrainsMono-\(face)")
             #expect(font.pointSize == 13)
         }
+        // Compare only the white letter pixels with the Community font, not
+        // the avatar gradient. This catches the old Inter Bold glyphs.
+        func whiteGlyphs<V: View>(_ view: V) throws -> [Bool] {
+            let renderer = ImageRenderer(content: view)
+            renderer.scale = 2
+            let bitmap = NSBitmapImageRep(cgImage: try #require(renderer.cgImage))
+            return try (0..<bitmap.pixelsHigh).flatMap { y in
+                try (0..<bitmap.pixelsWide).map { x in
+                    let color = try #require(bitmap.colorAt(x: x, y: y))
+                    return color.alphaComponent > 0.95 && color.redComponent > 0.95
+                        && color.greenComponent > 0.95 && color.blueComponent > 0.95
+                }
+            }
+        }
+        let avatar = try whiteGlyphs(ProjectAvatarBadge(name: "Lithe-IDEA", colorIndex: 5, size: 20))
+        let reference = try whiteGlyphs(Text("LI").font(Font(LitheTheme.editorFont(size: 13, weight: .semibold)))
+            .foregroundStyle(.white).frame(width: 20, height: 20))
+        #expect(avatar.contains(true))
+        #expect(avatar == reference)
         let uiFont = LitheTheme.uiNSFont(size: 13)
         #expect(uiFont.fontName == "Inter-Regular")
         for (weight, native, face) in [(Font.Weight.regular, NSFont.Weight.regular, "Regular"),

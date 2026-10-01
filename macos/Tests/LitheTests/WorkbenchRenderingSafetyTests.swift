@@ -53,8 +53,11 @@ struct WorkbenchRenderingSafetyTests {
 
         #expect(source.contains(".litheDropdown(isPresented: instantProjectSwitcherPresentation)"))
         #expect(source.contains(".litheDropdown(isPresented: instantBranchSwitcherPresentation)"))
-        #expect(!source.contains("isActive: isProjectSwitcherPresented"))
-        #expect(!source.contains("isActive: isBranchSwitcherPresented"))
+        // Native popup focus clears hover; its trigger must retain the same hover
+        // color while open, instead of becoming a blue selected control.
+        for state in ["isProjectSwitcherPresented", "isBranchSwitcherPresented"] {
+            #expect(source.contains(".litheRowHover(isActive: \(state), cornerRadius: 6,\n                               activeBackground: LitheTheme.hoverBackground)"))
+        }
         #expect(source.contains(".sheet(item: $pendingTopBarPushReference)"))
         #expect(source.contains("GitPushDialog("))
         #expect(source.contains("run-selected-run-configuration"))

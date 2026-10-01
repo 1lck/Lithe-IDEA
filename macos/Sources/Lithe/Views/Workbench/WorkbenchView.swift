@@ -700,7 +700,8 @@ struct WorkbenchView: View {
                 .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
                 .padding(.trailing, 10)
                 .frame(height: 30)
-                .litheRowHover(cornerRadius: 6)
+                .litheRowHover(isActive: isProjectSwitcherPresented, cornerRadius: 6,
+                               activeBackground: LitheTheme.hoverBackground)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
@@ -732,7 +733,8 @@ struct WorkbenchView: View {
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 32)
-                .litheRowHover(cornerRadius: 6)
+                .litheRowHover(isActive: isBranchSwitcherPresented, cornerRadius: 6,
+                               activeBackground: LitheTheme.hoverBackground)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()

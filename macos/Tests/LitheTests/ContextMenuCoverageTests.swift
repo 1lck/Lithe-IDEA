@@ -69,6 +69,14 @@ struct ContextMenuCoverageTests {
                 window.contentView = host
                 defer { window.contentView = nil; window.close() }
                 host.layoutSubtreeIfNeeded()
+                func triggerPixel() throws -> NSColor {
+                    host.layoutSubtreeIfNeeded()
+                    let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+                    return try #require(bitmap.colorAt(x: Int(30 * scale), y: Int(20 * scale)))
+                }
+                let closedColor = try triggerPixel()
                 probe.isPresented = true
                 let clock = ContinuousClock()
                 let deadline = clock.now.advanced(by: .seconds(2))
@@ -81,6 +89,15 @@ struct ContextMenuCoverageTests {
                 #expect((40 - buttonHeight) / 2 >= 4)
                 #expect(popup.animationBehavior == .none)
                 #expect(popup.frame.width <= (name == "branch" ? 375 : LitheDropdownMetrics.maximumWidth))
+                let openedColor = try triggerPixel()
+                #expect(abs(openedColor.redComponent - closedColor.redComponent) > 0.01,
+                        "An open native popup must retain its trigger's hover background")
+                if let directory = ProcessInfo.processInfo.environment["LITHE_TOPBAR_CAPTURE_DIR"] {
+                    let triggerBitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                    host.cacheDisplay(in: host.bounds, to: triggerBitmap)
+                    try #require(triggerBitmap.representation(using: .png, properties: [:])).write(to:
+                        URL(fileURLWithPath: directory).appendingPathComponent("\(name)-trigger-\(scheme == .dark ? "dark" : "light").png"))
+                }
                 popup.contentView?.layoutSubtreeIfNeeded()
                 let view = try #require(popup.contentView)
                 let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
@@ -90,6 +107,9 @@ struct ContextMenuCoverageTests {
                         URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png"))
                 }
                 probe.isPresented = false
+                await Task.yield()
+                let restoredColor = try triggerPixel()
+                #expect(abs(restoredColor.redComponent - closedColor.redComponent) < 0.01)
                 window.contentView = nil
                 #expect(!popup.isVisible)
             }
@@ -614,8 +634,12 @@ private struct TopbarDropdownHarness: View {
     let content: AnyView
 
     var body: some View {
-        Button("Anchor") {}.frame(height: buttonHeight)
+        Button("Anchor") {}.frame(width: 140, height: buttonHeight)
+            .litheRowHover(isActive: probe.isPresented, cornerRadius: 6,
+                           activeBackground: LitheTheme.hoverBackground)
+            .buttonStyle(.litheNoPress)
             .frame(height: LitheTheme.Metrics.toolbarHeight)
             .litheDropdown(isPresented: $probe.isPresented) { content }
+            .background(LitheTheme.raised)
     }
 }
