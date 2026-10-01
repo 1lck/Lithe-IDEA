@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod agent;
 mod ai_commit;
 mod core;
 mod debug;
@@ -102,6 +103,7 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if matches!(event, tauri::WindowEvent::Destroyed) {
+                agent::close_window_connections(window.label());
                 core::close_ide_hosts(window.label());
                 project_windows::release_window(window.app_handle(), window.label().to_owned());
                 if let Some(watcher) = window.try_state::<Arc<DocumentWatcher>>() {
@@ -117,6 +119,9 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            agent::agent_open,
+            agent::agent_send,
+            agent::agent_close,
             document::read_document_file,
             document::read_document_file_details,
             document::read_document_file_change,
@@ -218,6 +223,7 @@ fn main() {
         if matches!(event, tauri::RunEvent::Exit) {
             language_tools::shutdown();
             debug::shutdown();
+            agent::shutdown();
             if let Some(manager) = app.try_state::<Arc<logging::LogManager>>() {
                 manager.shutdown();
             }

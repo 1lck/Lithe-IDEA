@@ -11,6 +11,7 @@ import {
 } from "@/features/layout/config/item-order";
 import type { Settings } from "@/features/settings/types/settings.types";
 import { DEFAULT_COMMIT_AI } from "@/features/git/types/ai-commit";
+import { DEFAULT_AGENT_PANEL_SETTINGS } from "@/features/agent/types/agent-settings.types";
 
 export const DEFAULT_AI_PROVIDER_ID = "anthropic";
 export const DEFAULT_AI_MODEL_ID = "claude-sonnet-4-6";
@@ -128,6 +129,11 @@ export const defaultSettings: Settings = {
   v0DesignSystems: [],
   activeV0DesignSystemId: "",
   ollamaBaseUrl: "http://localhost:11434",
+  // Agent
+  agentPanel: {
+    ...DEFAULT_AGENT_PANEL_SETTINGS,
+    provider: { ...DEFAULT_AGENT_PANEL_SETTINGS.provider },
+  },
   // Layout
   activityRailExpanded: false,
   activityRailWidth: 180,
@@ -228,6 +234,10 @@ export function getDefaultSettingsSnapshot(): Settings {
     footerTrailingItemsOrder: [...defaultSettings.footerTrailingItemsOrder],
     aiSkills: defaultSettings.aiSkills.map((skill) => ({ ...skill })),
     v0DesignSystems: defaultSettings.v0DesignSystems.map((profile) => ({ ...profile })),
+    agentPanel: {
+      ...defaultSettings.agentPanel,
+      provider: { ...defaultSettings.agentPanel.provider },
+    },
     uiFontSize: normalizeUiFontSize(defaultSettings.uiFontSize),
   };
 }

@@ -161,7 +161,9 @@ pub(super) fn resolve(
         env: vec![
             (
                 cli.path_env.into(),
-                executable.to_string_lossy().into_owned(),
+                crate::cli_update::launch_executable(cli, &executable)
+                    .to_string_lossy()
+                    .into_owned(),
             ),
             ("MODEL_PROVIDER".into(), "openai".into()),
             (

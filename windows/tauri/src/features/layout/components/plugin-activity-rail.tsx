@@ -1,4 +1,5 @@
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
+import { AgentTrigger } from "@/features/agent/components/agent-trigger";
 import { toggleMavenPane } from "@/features/keymaps/commands/view-command-actions";
 import { MavenIcon } from "@/features/maven/components/maven-icon";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
@@ -48,6 +49,7 @@ export function PluginActivityRail() {
         <PuzzlePieceIcon className="size-4.5" />
       </Button>
       <NotificationsTrigger />
+      <AgentTrigger />
       {isMavenAvailable ? (
         <Button
           type="button"

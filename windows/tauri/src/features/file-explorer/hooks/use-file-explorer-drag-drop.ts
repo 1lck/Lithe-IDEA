@@ -2,6 +2,10 @@ import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { moveFile } from "@/features/file-system/controllers/platform";
 import type { FileEntry } from "@/features/file-system/types/app.types";
+import {
+  AGENT_DROP_TARGET_SELECTOR,
+  dispatchDroppedPathsToAgent,
+} from "@/features/file-system/utils/file-system-drop-controller";
 import { dispatchSidebarResourceDropOnAI } from "@/features/sidebar/utils/sidebar-resource-drag";
 import {
   setInternalTabDragHover,
@@ -197,6 +201,18 @@ export function useFileExplorerDragDrop(
       const isOverFileTree = elementUnder?.closest(".file-tree-container") !== null;
       const isOverAIContextDropTarget =
         elementUnder?.closest("[data-ai-context-drop-target]") !== null;
+
+      // A file released over the Agent composer becomes a file reference; it
+      // never falls through to a move inside the tree.
+      if (elementUnder?.closest(AGENT_DROP_TARGET_SELECTOR) && dragState.draggedItem) {
+        if (!dragState.draggedItem.isDir) {
+          dispatchDroppedPathsToAgent(elementUnder, [dragState.draggedItem.path]);
+        }
+        setDragState(initialDragState);
+        clearAutoExpand();
+        clearEditorDropHover();
+        return;
+      }
 
       if (isOverAIContextDropTarget && dragState.draggedItem) {
         dispatchSidebarResourceDropOnAI({

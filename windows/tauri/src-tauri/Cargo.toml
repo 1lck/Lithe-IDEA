@@ -14,12 +14,20 @@ name = "fake-dap-adapter"
 path = "src/bin/fake_dap_adapter.rs"
 required-features = ["test-support"]
 
+# The connection bridge's process-tree tests must run in the ordinary Windows
+# Rust suite, which never enables `test-support`, so this fixture is a regular
+# binary. `tauri.conf.json` packages only the application binary.
+[[bin]]
+name = "fake-acp-adapter"
+path = "src/bin/fake_acp_adapter.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+lithe-agent-host = { path = "../../../rust/lithe-agent-host" }
 lithe-git-host = { path = "../../../rust/lithe-git-host" }
 lithe-core = { path = "../../../rust/lithe-core" }
 lithe-project = { path = "../crates/project" }

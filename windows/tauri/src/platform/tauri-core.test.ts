@@ -84,6 +84,24 @@ test("a dispatcher rejection surfaces as an Error", async () => {
   expect((error as Error).message).toBe("Shared core task failed");
 });
 
+test("Agent connection commands route directly to the Tauri host", async () => {
+  const args = { connectionId: "fixture-connection", command: { authenticate: null } };
+
+  expect(isPlatformDispatcherCommand("agent_open")).toBe(false);
+  expect(isPlatformDispatcherCommand("agent_send")).toBe(false);
+  expect(isPlatformDispatcherCommand("agent_close")).toBe(false);
+
+  await invoke("agent_open", args);
+  await invoke("agent_close", { connectionId: "fixture-connection" });
+
+  expect(tauriInvoke).toHaveBeenCalledWith("agent_open", args, undefined);
+  expect(tauriInvoke).toHaveBeenCalledWith(
+    "agent_close",
+    { connectionId: "fixture-connection" },
+    undefined,
+  );
+});
+
 test("pure console projection bypasses execution events and Git settings", async () => {
   const args = { records: [], search: "" };
   await invoke("git.consolePresentation", args);

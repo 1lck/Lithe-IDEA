@@ -215,10 +215,16 @@ fn resolve(
             ));
         }
     }
-    let npm_owned = target.as_ref().is_some_and(|target| {
-        target.ancestors().any(|root| {
+    // The file the npm package declares: the link target on Unix, or the bin
+    // behind a Windows `.cmd` launcher, which does not resolve to it.
+    let package_bin = executable
+        .and_then(|executable| npm_launcher_bin(cli, executable))
+        .map(|(_, canonical)| canonical)
+        .or_else(|| target.clone());
+    let npm_owned = package_bin.as_ref().is_some_and(|package_bin| {
+        package_bin.ancestors().any(|root| {
             root.file_name().is_some_and(|name| name == "node_modules")
-                && owns_npm_bin(&root.join(cli.package), cli, target)
+                && owns_npm_bin(&root.join(cli.package), cli, package_bin)
         })
     });
     let source = if executable.is_none() {
@@ -257,7 +263,9 @@ fn resolve(
         if !package
             .canonicalize()
             .is_ok_and(|package| package.starts_with(&root))
-            || !owns_npm_bin(&package, cli, target)
+            || !package_bin
+                .as_ref()
+                .is_some_and(|package_bin| owns_npm_bin(&package, cli, package_bin))
             || bin.canonicalize().ok().as_ref() != Some(target)
         {
             return Ok(UpdatePlan::manual(CliSource::Npm,
@@ -283,33 +291,73 @@ fn resolve(
 }
 
 fn owns_npm_bin(package: &Path, cli: &AgentCli, target: &Path) -> bool {
+    npm_package_bin(package, cli).is_some_and(|(_, bin)| bin == target)
+}
+
+/// The CLI's bin declared by the npm package at `package`, as written and
+/// canonical. `None` unless the manifest names this CLI's package and the bin
+/// stays inside it, so a foreign package can never claim the command.
+fn npm_package_bin(package: &Path, cli: &AgentCli) -> Option<(PathBuf, PathBuf)> {
     let manifest = (|| {
         let file = std::fs::File::open(package.join("package.json")).ok()?;
         let mut bytes = Vec::new();
         file.take(64 * 1024).read_to_end(&mut bytes).ok()?;
         serde_json::from_slice::<serde_json::Value>(&bytes).ok()
-    })();
-    let Some(manifest) = manifest else {
-        return false;
-    };
+    })()?;
     if manifest["name"] != cli.package {
-        return false;
+        return None;
     }
-    let Some(bin) = manifest["bin"]
+    let bin = manifest["bin"]
         .get(cli.command)
         .unwrap_or(&manifest["bin"])
-        .as_str()
-    else {
-        return false;
-    };
-    let Ok(package_root) = package.canonicalize() else {
-        return false;
-    };
-    package
-        .join(bin)
-        .canonicalize()
-        .is_ok_and(|bin| bin.starts_with(package_root) && bin == target)
+        .as_str()?;
+    let package_root = package.canonicalize().ok()?;
+    let declared = package.join(bin);
+    let canonical = declared.canonicalize().ok()?;
+    canonical
+        .starts_with(package_root)
+        .then_some((declared, canonical))
+}
+
+/// Package bin behind an npm `<command>.cmd` launcher. npm on Windows writes a
+/// batch launcher into the global prefix instead of a symlink, so neither the
+/// launcher's path nor its canonical form leads to the package; its package is
+/// always `node_modules/<package>` next to it. Other platforms never select a
+/// `.cmd` file, so this is a no-op there.
+fn npm_launcher_bin(cli: &AgentCli, launcher: &Path) -> Option<(PathBuf, PathBuf)> {
+    let is_launcher = launcher
+        .extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("cmd"))
+        && launcher
+            .file_stem()
+            .is_some_and(|stem| stem.eq_ignore_ascii_case(cli.command));
+    if !is_launcher {
+        return None;
+    }
+    npm_package_bin(
+        &launcher.parent()?.join("node_modules").join(cli.package),
+        cli,
+    )
+}
+
+/// Executable an adapter should start for the detected CLI.
+///
+/// Adapters spawn this path without a shell, and Node.js refuses to start a
+/// `.cmd` file that way on Windows (`spawn EINVAL`). An npm launcher whose
+/// package ships a native executable is therefore replaced by that executable;
+/// script bins keep the launcher, which needs Node.js to run anyway.
+pub(crate) fn launch_executable(cli: &AgentCli, detected: &Path) -> PathBuf {
+    npm_launcher_bin(cli, detected)
+        .map(|(declared, _)| declared)
+        .filter(|bin| {
+            bin.extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        })
+        .unwrap_or_else(|| detected.to_path_buf())
 }
 
 #[cfg(all(test, unix))]
 mod tests;
+
+#[cfg(test)]
+mod launcher_tests;
