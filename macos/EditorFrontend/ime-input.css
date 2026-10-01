@@ -1,0 +1,10 @@
+/* Monaco draws the composing line in a textarea over the rendered document.
+   Its default IME background uses our translucent current-line highlight alone,
+   which lets the old glyphs show through. Composite the highlight over the editor
+   surface; the opaque widget surface also covers glyphs in wallpaper mode. */
+.monaco-editor .inputarea.ime-input {
+  background-color: var(--vscode-editorWidget-background) !important;
+  background-image:
+    linear-gradient(var(--vscode-editor-lineHighlightBackground, transparent), var(--vscode-editor-lineHighlightBackground, transparent)),
+    linear-gradient(var(--vscode-editor-background), var(--vscode-editor-background));
+}

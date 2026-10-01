@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {"name":"replacement", "body":{"changedClasses":["b.B","a.A","b.B"]}, "result":{"kind":"redefineClasses","changedClasses":["a.A","b.B"]}},
+    {"name":"no changes", "body":{"changedClasses":[]}, "result":{"kind":"redefineClasses","changedClasses":[]}},
+    {"name":"DAP success with JVM failure", "body":{"changedClasses":[],"errorMessage":"Schema change not supported"}, "failure":true},
+    {"name":"missing result", "body":{}, "failure":true},
+    {"name":"invalid class name", "body":{"changedClasses":[3]}, "failure":true}
+  ]
+}

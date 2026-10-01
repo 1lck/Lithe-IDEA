@@ -10,3 +10,7 @@ pub(crate) use breakpoint_relocation::*;
 pub(crate) use engine::*;
 pub(crate) use java_test::*;
 pub(crate) use types::*;
+
+/// Prevents DevTools from restarting the application while a debugger replaces classes.
+pub(crate) const JAVA_DEBUG_DISABLE_DEVTOOLS_RESTART: &str =
+    "-Dspring.devtools.restart.enabled=false";

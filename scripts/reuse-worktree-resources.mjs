@@ -366,8 +366,9 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Runtime snapshots (including credential-bearing JDT Maven settings)
-      // take this rejection route, never a content-hash reuse validator.
+      // Runtime snapshots, per-execution Java launch files and isolated plugin
+      // packages take this rejection route, never a content-hash validator.
+      // Identical bytes do not establish transferable execution ownership.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);
         throw new Error(`Resource ${identifier} is isolated (${excluded.locations.join(", ")}): ${excluded.reason}; it cannot be reused across worktrees`);

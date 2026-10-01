@@ -35,6 +35,7 @@ package final class MavenService: ObservableObject {
     @Published package private(set) var taskState: MavenTaskState = .idle
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
+    package private(set) var outputOperationID: String?
     @Published package private(set) var issues: [MavenBuildIssue] = []
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var selectedProfiles: Set<String> = []
@@ -138,6 +139,7 @@ package final class MavenService: ObservableObject {
     private var activeDependencyOutputFile: URL?
     private var dependencyTimedOut = false
     private var configurationRevision = 0
+    private var configurationSaveTask: Task<String?, Never>?
     private var configurationFingerprint: String?
     private var fingerprintRevision = 0
     private let maximumOutputCharacters = 500_000
@@ -578,6 +580,8 @@ package final class MavenService: ObservableObject {
     }
 
     package func reset() {
+        configurationRevision += 1
+        configurationSaveTask = nil
         projectLoadTask?.cancel()
         projectLoadTask = nil
         projectLoadInventory = nil
@@ -597,6 +601,7 @@ package final class MavenService: ObservableObject {
         acceptedProjectInventory = nil
         projectState = .idle
         taskState = .idle
+        outputOperationID = nil
         runningTitle = nil
         output = ""
         issues = []
@@ -629,6 +634,7 @@ package final class MavenService: ObservableObject {
         stop()
         resetOutput()
         let planID = UUID()
+        outputOperationID = "maven:" + planID.uuidString
         launchPlanID = planID
         runningTitle = title
         taskState = .running
@@ -996,6 +1002,21 @@ package final class MavenService: ObservableObject {
         }
     }
 
+    /// API callers must await the actual write before reporting that settings were saved.
+    package func saveConfiguration() async -> String? {
+        guard let workspaceURL, let reactorPath else {
+            return "No Maven project is loaded"
+        }
+        persistConfiguration()
+        let revision = configurationRevision
+        let error = await configurationSaveTask?.value
+        guard configurationRevision == revision,
+              self.workspaceURL == workspaceURL, self.reactorPath == reactorPath else {
+            return "Maven settings changed while saving. Inspect the current settings before retrying."
+        }
+        return error
+    }
+
     private func persistConfiguration() {
         guard let workspaceURL, let reactorPath else { return }
         configurationRevision += 1
@@ -1014,15 +1035,17 @@ package final class MavenService: ObservableObject {
             )
         )
         let writer = configurationWriter
-        Task { [weak self] in
+        configurationSaveTask = Task { [weak self] in
             let errorMessage = await writer.save(
                 revision: revision,
                 configuration: stored,
                 workspaceURL: workspaceURL,
                 reactorPath: reactorPath
             )
-            guard let self, self.configurationRevision == revision else { return }
-            self.configurationSaveError = errorMessage
+            if let self, self.configurationRevision == revision {
+                self.configurationSaveError = errorMessage
+            }
+            return errorMessage
         }
     }
 

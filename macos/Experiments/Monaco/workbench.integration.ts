@@ -13,6 +13,7 @@ import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
+import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -33,6 +34,7 @@ async function verify() {
     cases.push({ name, durationMs: performance.now() - started });
   }
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
+  for (const test of imeInputCases) await check(test.name, async () => test.run());
   await check("diff projections preserve sparse source lines and release read-only models", async () => {
     const before = monacoEditor.getModels().length;
     const container = document.createElement("div");
@@ -110,6 +112,45 @@ async function verify() {
       const next = review.editor.getModifiedEditor();
       assert(next.getVisibleRanges().some(range => range.startLineNumber <= 51 && range.endLineNumber >= 51),
         "search target stayed hidden inside collapsed context");
+    } finally {
+      if (deadline !== undefined) clearTimeout(deadline);
+      subscription?.dispose(); review.dispose(); container.remove();
+    }
+  });
+  // #557: the first text after the empty mount used to open with every
+  // unchanged region revealed, so a full-file review showed nothing to expand.
+  await check("first full-file diff folds unchanged regions and anchors hunk actions", async () => {
+    const container = document.createElement("div");
+    container.style.cssText = "position:absolute;inset:0;height:400px;width:1000px";
+    document.body.append(container);
+    const review = mountDiffReview(container);
+    const rows: ReviewRow[] = Array.from({ length: 120 }, (_, index) => ({
+      id: `full-${index}`, oldLine: index + 1, newLine: index + 1,
+      left: `value ${index}`, right: index === 4 ? "changed" : `value ${index}`,
+      kind: index === 4 ? "changed" : "context", hunkID: index < 8 ? "hunk-4" : null,
+      ...(index === 4 ? { actionAnchor: true } : {}),
+    }));
+    let subscription: { dispose(): void } | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const computed = new Promise<void>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Full-file diff computation exceeded 5 seconds")), 5000);
+        subscription = review.editor.onDidUpdateDiff(() => {
+          if (review.editor.getLineChanges()?.length) resolve();
+        });
+      });
+      await Promise.all([review.update({ rows, language: "plaintext", collapse: true,
+        actions: [{ id: "stage", title: "Stage" }] }), computed]);
+      const next = review.editor.getModifiedEditor();
+      // Content height, unlike the viewport, shrinks only when lines are folded.
+      const lineHeight = next.getOption(monacoEditor.EditorOption.lineHeight);
+      assert(next.getContentHeight() < lineHeight * 40,
+        "unchanged region opened revealed instead of folded");
+      assert(container.querySelectorAll(".lithe-review-actions button").length === 1,
+        "full-file hunk did not render exactly one action band");
+      review.select({ revealID: "full-60", searchIDs: ["full-60"] });
+      assert(next.getVisibleRanges().some(range => range.startLineNumber <= 61 && range.endLineNumber >= 61),
+        "folded source row could not be revealed");
     } finally {
       if (deadline !== undefined) clearTimeout(deadline);
       subscription?.dispose(); review.dispose(); container.remove();

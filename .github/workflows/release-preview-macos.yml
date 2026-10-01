@@ -94,6 +94,21 @@ jobs:
           jdk: "true"
           jdk-architecture: ${{ matrix.architecture }}
 
+      - name: Import Developer ID signing identity
+        env:
+          MACOS_SIGNING_CERTIFICATE: ${{ secrets.MACOS_SIGNING_CERTIFICATE }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+          LITHE_CODESIGN_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+        run: |
+          if [[ -n "$MACOS_SIGNING_CERTIFICATE" ]]; then
+            zsh scripts/import-macos-signing.sh
+          elif [[ -n "$MACOS_SIGNING_PASSWORD" || -n "$LITHE_CODESIGN_IDENTITY" ]]; then
+            echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
+            exit 1
+          else
+            echo "Developer ID is not configured; the preview app will be ad-hoc signed and no externally installable PHP plugin archive will be published."
+          fi
+
       - name: Build and package the preview app
         env:
           LITHE_ARCH: ${{ matrix.architecture }}
@@ -107,6 +122,19 @@ jobs:
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before publishing preview updates"; exit 1; }
           ./scripts/package-app.sh
+          if [[ -n "${LITHE_CODESIGN_IDENTITY:-}" ]]; then
+            plugin_root=$(LITHE_CODESIGN_IDENTITY="$LITHE_CODESIGN_IDENTITY" \
+              scripts/build-official-plugins.sh \
+              --configuration release \
+              --triple "${LITHE_ARCH}-apple-macosx" \
+              --plugin-id dev.lithe.plugin.php-support \
+              --output "dist/official-plugins/${LITHE_ARCH}")
+            ditto -c -k --sequesterRsrc --keepParent \
+              "$plugin_root/dev.lithe.plugin.php-support" \
+              "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
+          else
+            echo "Developer ID is not configured; skipping externally installable PHP plugin archive."
+          fi
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
@@ -151,6 +179,15 @@ jobs:
           compression-level: 0
           retention-days: 14
 
+      - name: Upload optional PHP plugin archive
+        if: ${{ hashFiles(format('dist/Lithe-PHP-Support-{0}-{1}.zip', env.PREVIEW_VERSION, matrix.architecture)) != '' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-php-plugin-${{ matrix.architecture }}
+          path: dist/Lithe-PHP-Support-${{ env.PREVIEW_VERSION }}-${{ matrix.architecture }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Add preview download link
         env:
           ARTIFACT_URL: ${{ steps.artifacts.outputs.artifact-url }}
@@ -166,6 +203,13 @@ jobs:
             echo ""
             echo "Requires GitHub sign-in; retained for 14 days. Available before the rolling Release finishes publishing."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove signing keychain
+        if: always()
+        run: |
+          if [[ -f "$RUNNER_TEMP/lithe-signing.keychain-db" ]]; then
+            security delete-keychain "$RUNNER_TEMP/lithe-signing.keychain-db"
+          fi
 
   publish:
     name: Publish rolling macOS preview
@@ -188,7 +232,7 @@ jobs:
       - name: Download preview artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: macos-preview-*
+          pattern: macos-*
           path: dist
           merge-multiple: true
 
@@ -235,6 +279,14 @@ jobs:
             "dist/Lithe-${LITHE_VERSION}-x86_64.dmg.sha256" \
             --repo "$GITHUB_REPOSITORY" \
             --clobber
+
+          for architecture in arm64 x86_64; do
+            plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
+            if [[ -e "$plugin_archive" ]]; then
+              gh release upload "$RELEASE_TAG" "$plugin_archive" \
+                --repo "$GITHUB_REPOSITORY" --clobber
+            fi
+          done
 
           # Publish every archive before replacing either feed. Retention protects
           # the current feed and the most recent 30 builds for cached clients.

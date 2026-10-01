@@ -64,6 +64,19 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("Java launch files are never listed or copied between worktrees", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("java-launch-temporaries"));
+    const refused = reuse(["--resource", "java-launch-temporaries"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /java-launch-temporaries.*classpath\.jar.*cannot be reused/);
+  });
+  await test("IDE MCP credentials and helpers cannot cross worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "ide-mcp"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /ide-mcp.*cannot be reused/);
+  });
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
@@ -81,6 +94,16 @@ try {
     const refused = reuse(["--resource", "jdt-maven-settings"]);
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /jdt-maven-settings.*cannot be reused/);
+  });
+  await test("PHP downloads and native plugin packages stay isolated in each worktree", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    for (const id of ["php-language-server-downloads", "official-plugin-packages"]) {
+      assert.ok(!listed.stdout.includes(id));
+      const refused = reuse(["--resource", id]);
+      assert.notEqual(refused.status, 0);
+      assert.match(diagnostics(refused), new RegExp(`${id}.*cannot be reused`));
+    }
   });
   await testFailedBackupPreservesDestination();
   await fs.mkdir(path.join(sourceRoot, "third_party", "jdtls"), { recursive: true });

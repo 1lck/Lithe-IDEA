@@ -23,6 +23,14 @@ function operations() {
     unstage: mock(async (_repo: string, _hunk: GitHunk) => true),
   };
 }
+const discardContext = { ...context, canDiscard: true };
+function rollbackOperations() {
+  return {
+    ...operations(),
+    discard: mock(async (_repo: string, _hunk: GitHunk) => true),
+    confirmDiscard: mock(async (_hunk: GitHunk) => true),
+  };
+}
 function deferred() {
   let resolve!: (value: boolean) => void;
   const promise = new Promise<boolean>(accept => { resolve = accept; });
@@ -113,6 +121,123 @@ describe("Windows Monaco diff hunk actions", () => {
       expect(await current.apply("hunk-0", "unstage")).toBe("ignored");
       expect(api.unstage).toHaveBeenCalledTimes(1);
     } finally { pending.resolve(false); current.dispose(); }
+  });
+
+  test("offers rollback only for refreshable unstaged reviews of worktree-only edits", () => {
+    const target = { repoPath: context.repoPath, filePath: "src/Sample.java", untracked: false };
+    const review = (targets: Record<string, typeof target & { staged?: boolean; hasStagedChanges?: boolean }>) =>
+      ({ commitHash: "working-tree", repoPath: context.repoPath, workingTreeTargets: targets });
+    expect(workingTreeStagingContext(review({ "unstaged:src/Sample.java": target }), "unstaged:src/Sample.java"))
+      .toEqual({ ...context, canDiscard: true });
+    for (const [targets, key] of [
+      // Multi-file reviews have no refresh target and would keep a stale patch.
+      [{}, "unstaged:src/Sample.java"],
+      [{ "staged:src/Sample.java": { ...target, staged: true } }, "staged:src/Sample.java"],
+      [{ "unstaged:src/Sample.java": { ...target, untracked: true } }, "unstaged:src/Sample.java"],
+      // A HEAD-to-worktree snapshot of an MM file also contains staged edits.
+      [{ "unstaged:src/Sample.java": { ...target, hasStagedChanges: true } }, "unstaged:src/Sample.java"],
+    ] as const) {
+      expect(workingTreeStagingContext(review(targets), key)?.canDiscard).toBeUndefined();
+    }
+  });
+
+  test("routes a confirmed rollback to the original hunk and owning repository", async () => {
+    const api = rollbackOperations();
+    const owner = createMonacoDiffHunkActions(diff, discardContext, api);
+    expect(owner.actions).toEqual(["stage", "discard"]);
+    expect(await owner.apply("hunk-4", "discard")).toBe("applied");
+    const hunk = { file_path: "src/Sample.java", lines: diff.lines.slice(4) };
+    expect(api.confirmDiscard).toHaveBeenCalledWith(hunk);
+    expect(api.discard).toHaveBeenCalledWith(context.repoPath, hunk);
+    expect(api.stage).not.toHaveBeenCalled();
+    // The patch is stale until the Git change event replaces it.
+    expect(await owner.apply("hunk-0", "discard")).toBe("ignored");
+    expect(await owner.apply("hunk-0", "stage")).toBe("ignored");
+    expect(api.discard).toHaveBeenCalledTimes(1);
+    owner.dispose();
+  });
+
+  test("rolls back a block re-derived from a full-context patch, not the whole file", async () => {
+    const full: GitDiff = {
+      ...diff,
+      is_full_context: true,
+      lines: [
+        { line_type: "header", content: "@@ -1,12 +1,12 @@" },
+        ...Array.from({ length: 12 }, (_, index) => index === 9
+          ? [{ line_type: "removed" as const, content: "old 10", old_line_number: 10 },
+            { line_type: "added" as const, content: "new 10", new_line_number: 10 }]
+          : [{ line_type: "context" as const, content: `line ${index + 1}`,
+            old_line_number: index + 1, new_line_number: index + 1 }]).flat(),
+      ],
+    };
+    const api = rollbackOperations();
+    const owner = createMonacoDiffHunkActions(full, discardContext, api);
+    const anchor = monacoDiffRows(full).find(row => row.actionAnchor)!;
+    expect(await owner.apply(anchor.hunkID!, "discard")).toBe("applied");
+    expect(api.discard).toHaveBeenCalledWith(context.repoPath, {
+      file_path: "src/Sample.java",
+      lines: [{ line_type: "header", content: "@@ -7,6 +7,6 @@" }, ...full.lines.slice(7, 14)],
+    });
+    owner.dispose();
+  });
+
+  test("a cancelled confirmation writes nothing and leaves the block actionable", async () => {
+    const api = rollbackOperations();
+    api.confirmDiscard.mockResolvedValueOnce(false);
+    const owner = createMonacoDiffHunkActions(diff, discardContext, api);
+    expect(await owner.apply("hunk-0", "discard")).toBe("cancelled");
+    expect(api.discard).not.toHaveBeenCalled();
+    expect(await owner.apply("hunk-0", "discard")).toBe("applied");
+    expect(api.discard).toHaveBeenCalledTimes(1);
+    owner.dispose();
+  });
+
+  test("rejects clicks while the confirmation is open and ignores answers for a replaced patch", async () => {
+    const api = rollbackOperations();
+    const answer = deferred();
+    api.confirmDiscard.mockImplementationOnce(() => answer.promise);
+    const owner = createMonacoDiffHunkActions(diff, discardContext, api);
+    const first = owner.apply("hunk-0", "discard");
+    try {
+      expect(await owner.apply("hunk-4", "discard")).toBe("ignored");
+      expect(await owner.apply("hunk-4", "stage")).toBe("ignored");
+      owner.dispose();
+      answer.resolve(true);
+      expect(await first).toBe("ignored");
+      expect(api.discard).not.toHaveBeenCalled();
+      expect(api.stage).not.toHaveBeenCalled();
+    } finally { answer.resolve(false); owner.dispose(); }
+  });
+
+  test("a failed rollback can be retried", async () => {
+    const api = rollbackOperations();
+    api.discard.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("patch does not apply"));
+    const owner = createMonacoDiffHunkActions(diff, discardContext, api);
+    expect(await owner.apply("hunk-0", "discard")).toBe("failed");
+    expect(await owner.apply("hunk-0", "discard")).toBe("failed");
+    expect(await owner.apply("hunk-0", "discard")).toBe("applied");
+    expect(api.discard).toHaveBeenCalledTimes(3);
+    owner.dispose();
+  });
+
+  test("withholds rollback from staged, truncated, new, deleted and binary reviews", async () => {
+    const api = rollbackOperations();
+    for (const disabled of [
+      createMonacoDiffHunkActions(diff, { ...discardContext, isStaged: true }, api),
+      createMonacoDiffHunkActions(diff, context, api),
+      createMonacoDiffHunkActions(diff, discardContext, { stage: api.stage, unstage: api.unstage }),
+      createMonacoDiffHunkActions({ ...diff, is_truncated: true }, discardContext, api),
+      createMonacoDiffHunkActions({ ...diff, is_new: true }, discardContext, api),
+      createMonacoDiffHunkActions({ ...diff, is_deleted: true }, discardContext, api),
+      createMonacoDiffHunkActions({ ...diff, is_renamed: true }, discardContext, api),
+      createMonacoDiffHunkActions({ ...diff, is_binary: true }, discardContext, api),
+    ]) {
+      expect(disabled.actions).not.toContain("discard");
+      expect(await disabled.apply("hunk-0", "discard")).toBe("ignored");
+      disabled.dispose();
+    }
+    expect(api.confirmDiscard).not.toHaveBeenCalled();
+    expect(api.discard).not.toHaveBeenCalled();
   });
 
   test("rejects unknown identities, wrong actions, incomplete patches and read-only reviews", async () => {

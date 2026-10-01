@@ -73,6 +73,52 @@ function standaloneDependencies(overrides: Partial<RunStoreDependencies> = {}): 
 }
 
 describe("Standalone Java compile-then-run", () => {
+  test("service update keeps its launch target and blocks duplicate updates", async () => {
+    const target = {
+      mainClass: "example.Main",
+      projectName: "app",
+      modulePaths: [],
+      classPaths: ["D:/work/classes", "D:/repo/spring-boot-devtools-3.5.0.jar"],
+    };
+    let release: () => void = () => {};
+    const buildGate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const build = mock(async () => { await buildGate; });
+    const { dependencies } = standaloneDependencies({
+      prepareJavaRunLaunch: async () => ({ kind: "ready", target }),
+      buildJavaServiceUpdate: build,
+    });
+    const store = createRunStore("workspace-hcr", dependencies);
+    store.setState({
+      root: "D:/work",
+      configurations: [{ ...configuration, sourcePath: "src/Main.java" }],
+      diagnostics: [],
+    });
+    await store.getState().actions.runConfiguration(configuration.id);
+    const update = store.getState().actions.updateService(configuration.id);
+    try {
+      // save() resolves in one known microtask; compilation then waits on our gate.
+      await Promise.resolve();
+      store.setState({ configurations: [{ ...configuration, sourcePath: "src/Other.java" }] });
+      await store.getState().actions.updateService(configuration.id);
+      expect(build).toHaveBeenCalledTimes(1);
+      expect(build).toHaveBeenCalledWith(
+        "D:/work",
+        expect.objectContaining({ sourcePath: "src/Main.java", target }),
+      );
+      // A stop releases the visible session without waiting for the compiler.
+      await store.getState().actions.stop(configuration.id);
+    } finally {
+      release();
+      await update;
+      await store.getState().actions.stop(configuration.id);
+    }
+    expect(store.getState().serviceUpdates[configuration.id].message).not.toContain(
+      "Compilation finished",
+    );
+    expect(store.getState().serviceUpdates[configuration.id].pending).toBe(false);
+  });
   test("passes JDT launch metadata to Core and joins classpath and module-path", async () => {
     const javaLaunch = {
       mainClass: "example.Main",
@@ -117,6 +163,7 @@ describe("Standalone Java compile-then-run", () => {
     );
     expect(startRunProcess).toHaveBeenCalledWith(
       expect.objectContaining({
+        executionId: store.getState().sessions[0].executionId,
         arguments: [
           "--module-path",
           "D:/work/app/target/modules",
@@ -126,6 +173,7 @@ describe("Standalone Java compile-then-run", () => {
         ],
       }),
     );
+    expect(store.getState().sessions[0].executionId).toEqual(expect.any(String));
   });
 
   test("compiles with javac, then launches by class name with -cp", async () => {
@@ -342,6 +390,9 @@ describe("Java project launch preparation feedback", () => {
 
     await store.getState().actions.runConfiguration(application.id);
 
+    expect(store.getState().primaryExecutionId).toEqual(expect.any(String));
+    expect(store.getState().primaryConfigurationId).toBe(application.id);
+    expect(store.getState().primaryPreparing).toBe(false);
     expect(primaryWhilePreparing?.title).toBe("ruoyi-admin");
     expect(primaryWhilePreparing?.output).toContain("waiting for the Java language service");
     expect(store.getState().primaryOutput).toStartWith("$ java.exe");
@@ -499,6 +550,7 @@ describe("Java project launch preparation feedback", () => {
 
     expect(startRunProcess).not.toHaveBeenCalled();
     expect(store.getState().sessions[0].isRunning).toBe(false);
+    expect(store.getState().sessions[0].isPreparing).toBe(false);
   });
 
   test("rebuild index cancels the pending launch and clears only this workspace", async () => {

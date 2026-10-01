@@ -70,7 +70,6 @@ import {
   FilesIcon,
   FolderIcon,
   FolderOpenIcon,
-  GearIcon,
   GitBranchIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
@@ -121,7 +120,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const isSidebarVisible = useUIState((state) => state.isSidebarVisible);
   const activeSidebarView = useUIState((state) => state.activeSidebarView);
   const setIsProjectPickerVisible = useUIState((state) => state.setIsProjectPickerVisible);
-  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
@@ -193,7 +191,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
       ],
       ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
-      ["settings", { id: "settings", label: t("workbench.settings"), icon: <GearIcon /> }],
     ]);
     return sidebarActivityVisibilityItemIds(coreFeatures).map((id) => items.get(id)!);
   }, [coreFeatures.diagnostics, coreFeatures.git, coreFeatures.search, coreFeatures.terminal, t]);
@@ -290,7 +287,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
 
       isResizingRef.current = true;
       setIsActivityRailResizing(true);
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
 
       const finishResize = (clientX: number) => {
@@ -623,7 +620,6 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
                   }
                   onGitLogClick={() => toggleGitLogPane()}
                   isGitLogActive={isBottomPaneVisible && bottomPaneActiveTab === "gitLog"}
-                  onSettingsClick={() => openSettingsDialog()}
                   onTerminalClick={() => toggleTerminalPane()}
                   isTerminalActive={isBottomPaneVisible && bottomPaneActiveTab === "terminal"}
                   onDiagnosticsClick={() => toggleDiagnosticsPane()}
@@ -679,13 +675,11 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
             role="separator"
             aria-label={t("layout.resizeActivityRail")}
             aria-orientation="vertical"
-            className="group absolute top-0 right-0 z-20 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center hover:bg-primary/8"
+            className="absolute top-0 right-0 z-20 flex h-full w-(--lithe-workbench-gap) cursor-ew-resize items-center justify-center"
             onMouseDown={handleResizeMouseDown}
-          >
-            <div className="h-full w-px bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary" />
-          </div>
+          />
         ) : null}
-        {isActivityRailResizing ? <div className="fixed inset-0 z-40 cursor-col-resize" /> : null}
+        {isActivityRailResizing ? <div className="fixed inset-0 z-40 cursor-ew-resize" /> : null}
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-56">
         <ContextMenuGroup>

@@ -38,6 +38,18 @@ quoted values, since the native argument-file parser processes bytes.
 Every execution owns an exclusively created temporary file; partial writes and
 spawn failures clean it up, while successful launches retain it until that exact
 process exits. A replacement execution never shares its predecessor's file.
+For a known JDK older than 9, Rust hosts call
+`lithe_core::execution::plan_classpath_jar_launch` instead. Under the same
+command-line budget it replaces the effective `-cp`/`-classpath` value with a
+host-owned JAR path and returns the ASCII `META-INF/MANIFEST.MF` text: the
+`Class-Path` header lists every entry, in order, as an absolute percent-encoded
+UTF-8 `file:` URL (directories end in `/`), wrapped at 72 bytes. The host
+answers whether each entry is a directory and writes the manifest-only JAR with
+the same exclusive temporary-file lifecycle. Wildcard entries, drive-relative
+Windows entries, `-jar` launches, and unknown JDK versions stay direct. This is
+a Rust API only; there is no JSON command yet because the macOS process
+argument limit (`ARG_MAX`) is far above the Windows cap, so a direct JDK 8
+launch already succeeds there.
 Strings returned by the core are UTF-8 JSON allocated by Rust. The caller must
 release response strings with `lithe_core_free_string`.
 
@@ -156,6 +168,23 @@ after compaction; these values are not cumulative billing tokens. Missing or
 invalid data and a zero capacity represent unknown usage, not an empty window.
 The macOS indicator clears stale capacity on disconnect or confirmed model
 changes and waits for a new report; it does not infer limits from model names.
+
+`turnFinished` optionally includes the ACP prompt response's `usage` object:
+required unsigned `totalTokens`, `inputTokens`, `outputTokens`, and optional
+`thoughtTokens`, `cachedReadTokens`, `cachedWriteTokens`. The pinned SDK's
+`unstable_end_turn_token_usage` feature preserves these counters; absent, null
+or invalid usage is omitted without preventing completion. Zero is a reported
+value. Counters are Agent-owned: consumers must not infer a per-turn aggregate,
+session delta or billing amount, because the adapters' accounting scopes differ.
+They must not derive these counters from context occupancy or subscription quota.
+`acp-events-v1.json` covers completion both with and without usage.
+
+macOS keeps local turn statistics in memory. Elapsed time uses a monotonic clock
+from user submission (including queued session creation/loading, tools and
+permission waits) until completion, request failure or disconnect. Cancellation
+continues timing until acknowledged. Each observed turn keeps a frozen footer
+before the next user message; tab switches do not reset it. Replayed history
+does not fabricate timing or token measurements absent from the Agent's records.
 
 Tool updates preserve ACP `kind`, `locations`, `rawInput`, `rawOutput`, and
 `content` (including diffs). Partial updates replace only fields supplied by
@@ -367,6 +396,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `java.structure` | Parse Java editor folds, inlay hints, and portable syntax roles |
 | `spring.index` | Build a deterministic Spring configuration, bean, injection, and endpoint index |
 | `mybatis.index` | Build a deterministic MyBatis mapper-interface and XML statement index |
+| `runConfig.selectJava` | Select a project-compatible automatic JDK from platform-probed candidates |
 | `runConfig.inspect` | Inspect `.lithe` run documents, versions, and staleness without writing files |
 | `runConfig.generate` | Generate deterministic Java/Maven configurations and toolchain requirements |
 | `runConfig.resolve` | Merge generated, project, and local layers and return diagnostics |
@@ -400,10 +430,10 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, and an opaque continuation cursor |
+| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
-| `git.commit` | Return one structured commit by revision |
+| `git.commit` | Return one structured commit by revision with its full message body |
 | `git.commitFiles` | Return files changed by one commit |
 | `git.comparison` | Return files changed between a reference and the working tree |
 | `git.stashes` | Return structured stash references and messages |
@@ -1132,7 +1162,13 @@ For compatibility, a request that explicitly contains the deprecated numeric
 `offset`; repository size does not select
 between the two protocols.
 
-`git.commit` accepts `root` and a revision, returning one `commit` object.
+`git.commit` accepts `root` and a revision, returning one `commit` object with
+the same fields as a history page entry and a `body` string. `body` is the
+message after the subject paragraph (Git `%b`), keeps internal line breaks and
+indentation, has trailing whitespace removed, and is empty for a subject-only
+message. History pages carry only `subject`; a commit detail view reads the
+body on demand with `git.commit`. See
+`shared/fixtures/git/commit-lookup-response-v1.json`.
 `git.blame` accepts `root` and a workspace-relative `path`; its line numbers
 are one-based and author timestamps are Unix seconds.
 
@@ -1812,6 +1848,27 @@ the response preserves the path text, uses one-based line and column values,
 and normalizes severity to `error` or `warning`. Duplicate issue lines are
 removed deterministically.
 
+`runConfig.selectJava` reads only the existing workspace
+`.lithe/toolchains/requirements.json` document. Its request contains optional
+`root`, `candidates` (`id`, probed `version`, numeric source `priority`), and
+`fallbackId`. IDs are opaque machine-local identities, never persisted or opened
+by this operation. Lower priority wins; equal-priority candidates use descending
+numeric Java versions (including legacy `1.8`), then ascending ID.
+
+When `project-jdk.minimumVersion` exists, selection first filters using the same
+Java version comparison as run-configuration diagnostics. The response is
+`{ id, warning }`: the compatible candidate, or the supplied usable fallback
+with an actionable warning if none qualifies. Missing requirements retain the
+platform's unconstrained choice; malformed/unsupported documents return the
+existing parse/version error. Explicit configured paths bypass automatic
+selection. The operation never generates requirements or probes executables.
+The cross-platform examples are in
+`shared/fixtures/run-configuration/automatic-java-selection.json`.
+
+Windows `run_resolve_toolchains` includes an optional `warning` on resolved
+JDKs, including inherited Maven JDKs. This warning remains visible even when no
+run configuration exists to carry a scoped `toolchainVersionMismatch` diagnostic.
+
 `runConfig.inspect` also returns the local document-level `toolchain`, including
 when no generated configuration exists (`status: "missing"`). Settings,
 toolchain-only callers, and initial run-panel presentation may send
@@ -2254,3 +2311,33 @@ is plain text and may use a null pointer. Nonzero input must point to at least
 `length` readable bytes and `length` must not exceed `isize::MAX`. The Swift
 bridge exposes the same lifetime and result contract. Fixtures live in
 `shared/fixtures/editor/text-content-v1.json` and exercise both entry points.
+
+## Local IDE capability broker
+
+`ideHost.control` accepts `{action, arguments}` and delegates to the native
+`lithe-ide-host` adapter. This local host command is not remotely exposed. See
+[IDE API v1](ide-api/v1.md) for the allowlisted plugin/MCP capabilities, connection
+ownership, authorization, output cursors and shutdown semantics.
+
+### Java service hot replacement
+
+`debug.inspect` accepts the Java-provider extension `kind: "redefineClasses"`
+with a caller-owned `operationId`. Unlike the inspection kinds, this operation
+**mutates the running debuggee**; it requires a running or paused Java session,
+but no selected thread. Platforms save documents and complete a successful JDT
+`vscode.java.buildWorkspace` before submitting it. They must retain the original
+launch target and compare its runtime paths with JDT before compiling; changed
+paths require a restart instead of applying to a different output directory.
+
+The terminal result is `{ kind: "redefineClasses", changedClasses: [...] }`,
+sorted and deduplicated. Empty means no classes were replaced. Java Debug Server's
+`errorMessage` inside a successful DAP response becomes `operationFailed` with
+`adapterRejected`; the debug session remains usable. Malformed replacement
+results also fail only the operation. Replacement does not imply continue.
+The fixture is `shared/fixtures/debug/hot-code-replace-v1.json`.
+
+Java debug launches append `-Dspring.devtools.restart.enabled=false` (also for
+Core-planned direct JDT JDWP launches) so DevTools cannot restart the classloader during
+HotSwap. Attach to independently launched JVMs does not change their options.
+The Windows host maps `redefineClasses` to this operation and `cancelOperation`
+to `debug.cancelOperation` with a `timedOut` reason for its bounded result wait.

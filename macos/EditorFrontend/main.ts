@@ -10,6 +10,7 @@ import { mountWorkbench } from "@lithe/editor/workbench";
 import { KeyCode, KeyMod } from "monaco-editor/esm/vs/editor/editor.api.js";
 import palette from "../Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json";
 import { installWebKitMouseInput } from "./mouse-input";
+import "./ime-input.css";
 
 declare global { interface Window { webkit: any; MonacoEnvironment: any; lithe: any; } }
 

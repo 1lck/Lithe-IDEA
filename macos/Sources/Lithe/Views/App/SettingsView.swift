@@ -156,6 +156,7 @@ struct SettingsView: View {
                     categoryButton(.keymap)
                     categoryButton(.editor)
                     categoryButton(.plugins)
+                    categoryButton(.mcp)
                     categoryGroup("Version Control", categories: [.git])
                     categoryGroup("Build, Execution, Deployment", categories: [.project, .run])
                     categoryGroup("Languages & Frameworks", categories: [.lsp])
@@ -255,7 +256,7 @@ struct SettingsView: View {
         case .project, .run: expandedSidebarGroups.insert("Build, Execution, Deployment")
         case .lsp: expandedSidebarGroups.insert("Languages & Frameworks")
         case .terminal, .ai, .providers, .diagnostics: expandedSidebarGroups.insert("Tools")
-        case .keymap, .editor, .plugins: break
+        case .keymap, .editor, .plugins, .mcp: break
         }
     }
 
@@ -299,6 +300,8 @@ struct SettingsView: View {
             ["Diagnostics", "Diagnostics bundle", "Export logs", "Bug report"]
         case .plugins:
             ["Plugins", "Installed", "Marketplace", "Language support"]
+        case .mcp:
+            ["MCP Configuration", "MCP", "Agent", "AI tool connections (MCP)", "Copy agent configuration", "Permissions"]
         }
     }
 
@@ -350,6 +353,7 @@ struct SettingsView: View {
         case .updates: ["Appearance & Behavior", "Updates"]
         case .diagnostics: ["Tools", "Diagnostics"]
         case .plugins: ["Plugins"]
+        case .mcp: ["MCP Configuration"]
         }
     }
 
@@ -388,6 +392,17 @@ struct SettingsView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     switch viewState.selection {
+                    case .mcp:
+                        if let workspaceURL = model.workspaceURL {
+                            Text(workspaceURL.path)
+                                .font(LitheTheme.smallFont)
+                                .foregroundStyle(LitheTheme.secondaryText)
+                                .textSelection(.enabled)
+                            McpSettingsView(feature: model.ideCapabilities)
+                        } else {
+                            Text("Open a project to configure MCP access for agents.")
+                                .foregroundStyle(LitheTheme.secondaryText)
+                        }
                     case .general: generalSettings
                     case .editor: editorSettings
                     case .keymap: EmptyView()

@@ -20,6 +20,7 @@ package final class RunService: ObservableObject {
     @Published package private(set) var isRunning = false
     @Published package private(set) var runningTitle: String?
     @Published package private(set) var output = ""
+    package private(set) var primaryExecutionID: String?
     @Published package private(set) var lastExitCode: Int32?
     @Published package private(set) var optionsByConfigurationID: [String: RunOptions] = [:]
     @Published package private(set) var projectToolchain = ProjectToolchainSelection()
@@ -835,6 +836,7 @@ package final class RunService: ObservableObject {
         stop()
         output = ""
         lastExitCode = nil
+        primaryExecutionID = UUID().uuidString
         lastRunConfiguration = configuration
         lastCurrentFileURL = currentFileURL
         let mavenContext = mavenContext(for: configuration)
@@ -1100,6 +1102,7 @@ package final class RunService: ObservableObject {
         output = ""
         lastExitCode = nil
         lastRunConfiguration = nil
+        primaryExecutionID = nil
         lastCurrentFileURL = nil
     }
 
@@ -1703,7 +1706,7 @@ package final class RunService: ObservableObject {
         )
         let workingDirectory = resolvedWorkingDirectory(plan.workingDirectory, fallback: projectURL)
 
-        let session = RunSession(
+        var session = RunSession(
             id: configuration.id,
             configurationID: configuration.id,
             title: configuration.name,
@@ -1714,6 +1717,10 @@ package final class RunService: ObservableObject {
             isRunning: true,
             exitCode: nil
         )
+        session.javaUpdateTarget = javaLaunch
+        if let sourcePath = configuration.sourcePath {
+            session.javaUpdateSource = projectURL.appendingPathComponent(sourcePath)
+        }
         moduleSessions.append(session)
 
         let operationID = UUID().uuidString

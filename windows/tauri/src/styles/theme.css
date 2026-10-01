@@ -123,6 +123,8 @@
     --lithe-tab-max-width: 12.5rem;
     --lithe-sidebar-header-height: 2rem;
     --lithe-workbench-gap: 4px;
+    /* Wider seam between the left sidebar and the editor than between other panels. */
+    --lithe-sidebar-gap: 6px;
     --lithe-chrome-control-height: 1.5rem;
     --lithe-chrome-hit-target: 1.75rem;
     --lithe-chrome-line-height: 1rem;

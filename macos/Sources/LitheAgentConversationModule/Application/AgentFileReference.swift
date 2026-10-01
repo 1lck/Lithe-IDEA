@@ -46,6 +46,7 @@ public enum AgentFileReferenceError: LocalizedError {
 struct AgentPrompt {
     let text: String
     let files: [AgentFileReference]
+    let submittedAt: ContinuousClock.Instant
     var isEmpty: Bool { text.isEmpty && files.isEmpty }
     var displayText: String {
         ([text].filter { !$0.isEmpty } + files.map { "📎 \($0.url.path)" }).joined(separator: "\n\n")

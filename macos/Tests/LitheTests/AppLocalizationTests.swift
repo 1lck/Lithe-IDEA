@@ -208,6 +208,9 @@ struct AppLocalizationTests {
 
         #expect(translations["PHP Support"] == "PHP 支持")
         #expect(translations["Installed (%lld of %lld enabled)"] == "已安装（%lld / %lld 个已启用）")
+        #expect(translations["Download and Install"] == "下载并安装")
+        #expect(translations["Reinstall"] == "重新安装")
+        #expect(translations["Open Plugin Management"] == "打开插件管理")
     }
 
     @Test

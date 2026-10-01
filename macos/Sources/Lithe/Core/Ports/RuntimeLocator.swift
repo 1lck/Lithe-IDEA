@@ -68,7 +68,11 @@ struct DefaultRuntimeToolDiscovery: RuntimeToolDiscovery {
 protocol RuntimeLocator: Sendable {
     func environment() -> [String: String]
     func discover() -> RuntimeDiscoveryResult
+    /// Java-only probing for launch paths; never runs Maven or other tools.
+    func discoverJavaRuntimes() -> [JavaRuntimeCandidate]
     func validJavaHome(path: String) -> URL?
+    /// Returns the candidate reached by PATH, resolving platform symlinks.
+    func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL?
     func javaRuntime(at homeURL: URL) -> JavaRuntimeCandidate?
     func isExecutable(at url: URL) -> Bool
     func systemMavenExecutable() -> URL?
@@ -81,7 +85,26 @@ protocol RuntimeLocator: Sendable {
 }
 
 extension RuntimeLocator {
+    func discoverJavaRuntimes() -> [JavaRuntimeCandidate] { discover().javaRuntimes }
+    func javaHomeOnPath(in candidates: [JavaRuntimeCandidate]) -> URL? { nil }
     // Default implementation for test stubs and non-macOS locators that do
     // not ship a bundled JDK.
     func bundledJdkHome() -> URL? { nil }
+}
+
+/// Shared selection policy; platform locators still own executable validation
+/// and version probing. Requirements are read through Core's existing document.
+protocol JavaRuntimeSelecting: Sendable {
+    func selectJavaRuntime(at root: URL?, candidates: [AutomaticJavaCandidate], fallbackID: String?) -> Result<AutomaticJavaSelection, RustCoreBridge.CoreCallError>
+}
+
+struct AutomaticJavaCandidate: Codable, Sendable {
+    let id: String
+    let version: String
+    let priority: UInt32
+}
+
+struct AutomaticJavaSelection: Decodable, Sendable {
+    let id: String?
+    let warning: String?
 }

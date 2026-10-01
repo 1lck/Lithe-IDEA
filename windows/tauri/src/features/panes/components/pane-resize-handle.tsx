@@ -47,7 +47,7 @@ export function PaneResizeHandle({
       availableSizeRef.current =
         typeof containerSize === "number" ? containerSize - handleSize * resizeHandleCount : 0;
 
-      document.body.style.cursor = isHorizontal ? "col-resize" : "row-resize";
+      document.body.style.cursor = isHorizontal ? "ew-resize" : "ns-resize";
       document.body.style.userSelect = "none";
     },
     [isHorizontal, initialSizes, resizeHandleCount],
@@ -142,10 +142,10 @@ export function PaneResizeHandle({
   return (
     <div
       ref={containerRef}
-      className={`group relative flex shrink-0 items-center justify-center ${
+      className={`relative flex shrink-0 items-center justify-center ${
         isHorizontal
-          ? "h-full w-(--lithe-workbench-gap) cursor-col-resize"
-          : "h-(--lithe-workbench-gap) w-full cursor-row-resize"
+          ? "h-full w-(--lithe-workbench-gap) cursor-ew-resize"
+          : "h-(--lithe-workbench-gap) w-full cursor-ns-resize"
       }`}
       onDoubleClick={onReset}
       onMouseDown={handleMouseDown}
@@ -157,15 +157,10 @@ export function PaneResizeHandle({
       aria-valuemax={100 - MIN_PANE_SIZE}
       tabIndex={0}
     >
-      <div
-        className={`bg-transparent transition-colors ${
-          isDragging ? "bg-primary" : "group-hover:bg-primary"
-        } ${isHorizontal ? "h-full w-px" : "h-px w-full"}`}
-      />
       {isDragging && (
         <div
           className={`fixed inset-0 z-50 ${
-            isHorizontal ? "cursor-col-resize" : "cursor-row-resize"
+            isHorizontal ? "cursor-ew-resize" : "cursor-ns-resize"
           }`}
         />
       )}

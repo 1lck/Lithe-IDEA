@@ -1,3 +1,4 @@
+import { JavaServiceUpdate } from "./java-service-update";
 import {
   ArrowDownIcon as StepIntoIcon,
   ArrowUpIcon as StepOutIcon,
@@ -364,6 +365,7 @@ export default function DebuggerView() {
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium ui-text-sm">{t("debugger.runAndDebug")}</div>
         </div>
+        {activeSession?.javaRun ? <JavaServiceUpdate key={activeSession.id} session={activeSession} /> : null}
         <div className="flex shrink-0 items-center gap-0.5 border-border/60 border-l pl-2">
           <Button
             variant="ghost"

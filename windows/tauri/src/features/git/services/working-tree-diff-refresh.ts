@@ -1,6 +1,6 @@
 import equal from "fast-deep-equal";
 import { normalizePath } from "@/utils/path-helpers";
-import { getFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
+import { getFullContextFileDiff, getWorkingTreePathDiff } from "../api/git-diff-api";
 import { getGitStatus } from "../api/git-status-api";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
@@ -65,8 +65,8 @@ export async function refreshWorkingTreeFileDiff(
     loadStatus = getGitStatus,
     loadDiff = (root, path, untracked, originalPath, staged) =>
       staged
-        ? getFileDiff(root, path, true)
-        : getWorkingTreePathDiff(root, path, untracked, originalPath),
+        ? getFullContextFileDiff(root, path, true)
+        : getWorkingTreePathDiff(root, path, untracked, originalPath, true),
   }: WorkingTreeDiffRefreshDependencies,
 ): Promise<WorkingTreeDiffRefreshOutcome> {
   const startingDiff = buffers.read(bufferId);
@@ -93,6 +93,9 @@ export async function refreshWorkingTreeFileDiff(
     ...(originalPath ? { originalPath } : {}),
     untracked: statusFile.status === "untracked",
     ...(target.staged ? { staged: true } : {}),
+    // Staging a block from an unstaged review turns the file into MM; the
+    // review keeps its key, so discard eligibility must follow live status.
+    ...(!target.staged && statusFile.staged ? { hasStagedChanges: true } : {}),
   };
   const diff = await loadDiff(
     nextTarget.repoPath,
