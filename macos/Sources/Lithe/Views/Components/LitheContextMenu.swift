@@ -347,7 +347,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         at screenPoint: NSPoint,
         appearance: NSAppearance?,
         locale: Locale,
-        opensUpward: Bool = false
+        opensUpward: Bool = false,
+        anchored: Bool = false,
+        onDismiss: (() -> Void)? = nil
     ) {
         dismiss()
         guard !items.isEmpty else { return }
@@ -369,8 +371,8 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         let submenuWidth = submenuWidths.max() ?? 0
         let submenuHeight = min(submenuHeights.max() ?? 0, maximumHeight)
         let preferredOrigin = NSPoint(
-            x: screenPoint.x - 6,
-            y: opensUpward ? screenPoint.y + 6 : screenPoint.y - menuHeight + 6
+            x: screenPoint.x - (anchored ? 0 : 6),
+            y: opensUpward ? screenPoint.y + 6 : screenPoint.y - menuHeight + (anchored ? 0 : 6)
         )
         let origin = NSPoint(
             x: min(max(preferredOrigin.x, visibleFrame.minX + 6), visibleFrame.maxX - menuWidth - 6),
@@ -399,6 +401,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
 
         self.panel = panel
+        contentDismissed = onDismiss
         installEventMonitors()
         panel.orderFrontRegardless()
         panel.makeKey()

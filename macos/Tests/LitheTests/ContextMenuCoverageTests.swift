@@ -49,6 +49,43 @@ struct ContextMenuCoverageTests {
     }
 
     @Test
+    func anchoredActionAndSearchableDropdownsShareTopLeft() throws {
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        let screen = try #require(NSScreen.main).visibleFrame
+        for point in [NSPoint(x: screen.midX, y: floor(screen.midY)),
+                      NSPoint(x: screen.maxX - 10, y: screen.minY + 10)] {
+            var dismissals = 0
+            presenter.show(items: [.action("Any Time", systemImage: "checkmark") {}],
+                           at: point, appearance: NSAppearance(named: .darkAqua),
+                           locale: Locale(identifier: "en"), anchored: true) { dismissals += 1 }
+            let window = try #require(NSApp.windows.first {
+                $0.isVisible && String(describing: type(of: $0)).contains("LitheContextMenuPanel")
+            })
+            let actionFrame = window.frame
+            #expect(window.animationBehavior == .none)
+            #expect(screen.contains(actionFrame))
+            if point.x == screen.midX {
+                #expect(actionFrame.minX == point.x)
+                #expect(actionFrame.maxY == point.y)
+            }
+            try sendKey(53, to: window)
+            #expect(dismissals == 1)
+            let controller = LitheDropdownHostingController(rootView: AnyView(
+                Text("Search branches").frame(width: actionFrame.width, height: actionFrame.height)
+                    .litheContextMenuSurface()
+            ))
+            presenter.show(contentController: controller, at: point,
+                           appearance: NSAppearance(named: .darkAqua)) { dismissals += 1 }
+            let searchableWindow = try #require(controller.view.window)
+            #expect(searchableWindow.frame == actionFrame)
+            #expect(searchableWindow.animationBehavior == .none)
+            presenter.dismiss()
+            #expect(dismissals == 2)
+        }
+    }
+
+    @Test
     func searchableDropdownUsesSharedWindowAndDismissal() throws {
         let presenter = LitheContextMenuPresenter()
         defer { presenter.dismiss() }

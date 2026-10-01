@@ -50,6 +50,7 @@ struct GitLogView: View {
     @State private var gitLogPathFilter = ""
     @State private var gitLogPathDraft = ""
     @State private var showsGitLogPathPopover = false
+    @State private var showsGitLogDatePopover = false
     @State private var gitCommitFileLoadTask: Task<Void, Never>?
     @State private var showsGitLogBranchFilterPopover = false
     @State private var showsFetchOptions = false
@@ -1709,16 +1710,19 @@ struct GitLogView: View {
 
             HStack(spacing: 3) {
                 Button {
-                    showGitLogMenu(GitLogDatePreset.allCases.map { preset in
-                        .action(preset.menuTitle,
-                                systemImage: selectedGitLogDatePreset == preset ? "checkmark" : nil) {
-                            selectedGitLogDatePreset = preset
-                        }
-                    })
+                    showsGitLogDatePopover = true
                 } label: {
                     gitLogFilterLabel(title: "Date", selection: selectedGitLogDatePreset.filterTitle, localizeSelection: true)
                 }
                 .buttonStyle(.litheNoPress)
+                .overlay {
+                    GitLogInstantPopover(isPresented: $showsGitLogDatePopover, items: GitLogDatePreset.allCases.map { preset in
+                        .action(preset.menuTitle,
+                                systemImage: selectedGitLogDatePreset == preset ? "checkmark" : nil) {
+                            selectedGitLogDatePreset = preset
+                        }
+                    }) { EmptyView() }
+                }
                 if selectedGitLogDatePreset != .anyTime {
                     gitLogFilterClearButton(help: "Clear date filter") {
                         selectedGitLogDatePreset = .anyTime
@@ -2058,6 +2062,7 @@ final class GitLogPopoverAnchorView: NSView {
 private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
     @Environment(\.locale) private var locale
     @Binding var isPresented: Bool
+    var items: [LitheContextMenuItem]? = nil
     let content: () -> Content
 
     func makeCoordinator() -> Coordinator {
@@ -2072,6 +2077,7 @@ private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
 
     func updateNSView(_ nsView: NSView, context: Context) {
         context.coordinator.content = content
+        context.coordinator.items = items
         context.coordinator.locale = locale
         guard isPresented, let window = nsView.window else {
             if !isPresented { context.coordinator.dismiss() }
@@ -2089,6 +2095,8 @@ private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
         var isPresented: Binding<Bool>
         var content: () -> Content
         var locale = Locale.current
+        var items: [LitheContextMenuItem]?
+        private var menuIsPresented = false
         private var hostingController: LitheDropdownHostingController?
 
         init(isPresented: Binding<Bool>, content: @escaping () -> Content) {
@@ -2097,6 +2105,21 @@ private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
         }
 
         func present(relativeTo anchor: NSView, in window: NSWindow) {
+            let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+            let point = NSPoint(x: rect.minX, y: rect.minY)
+            if let items {
+                guard !menuIsPresented else { return }
+                menuIsPresented = true
+                LitheContextMenuPresenter.shared.show(
+                    items: items, at: point, appearance: anchor.effectiveAppearance,
+                    locale: locale, anchored: true
+                ) { [weak self] in
+                    guard let self else { return }
+                    self.menuIsPresented = false
+                    self.isPresented.wrappedValue = false
+                }
+                return
+            }
             let root = AnyView(content().environment(\.locale, locale))
             if let hostingController {
                 hostingController.rootView = root
@@ -2105,9 +2128,8 @@ private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
             }
             let controller = LitheDropdownHostingController(rootView: root)
             hostingController = controller
-            let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
             LitheContextMenuPresenter.shared.show(
-                contentController: controller, at: NSPoint(x: rect.minX, y: rect.minY),
+                contentController: controller, at: point,
                 appearance: anchor.effectiveAppearance
             ) { [weak self] in
                 guard let self else { return }
@@ -2117,6 +2139,7 @@ private struct GitLogInstantPopover<Content: View>: NSViewRepresentable {
         }
 
         func dismiss() {
+            if menuIsPresented { LitheContextMenuPresenter.shared.dismiss() }
             guard let hostingController else { return }
             LitheContextMenuPresenter.shared.dismiss(contentController: hostingController)
             self.hostingController = nil

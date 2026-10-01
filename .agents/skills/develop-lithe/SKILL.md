@@ -196,6 +196,31 @@ the existing stack can reasonably avoid.
 - Keep platform-specific types from leaking through shared or application
   interfaces.
 
+### macOS shared frontend controls
+
+- Project's dropdown is the single visual baseline for product dropdowns.
+  Reuse `LitheContextMenuPresenter` for actions/searchable content and
+  `LitheSettingsSelect` for value selection. Both must use
+  `litheContextMenuSurface` and `LitheDropdownMetrics`; callers supply content,
+  selection and actions, not their own background, radius, row metrics or animation.
+- When adding or changing a product dropdown, do not use SwiftUI `Menu`,
+  `Picker` with `.menu` style, SwiftUI `.popover`, `NSPopover`, or `NSPopUpButton`
+  as its presentation. Shared dropdown panels use `animationBehavior = .none`:
+  open directly without the system popup/bounce animation or a spring/scale transition.
+- Anchor toolbar dropdowns to the triggering control's bottom-left edge, not
+  the pointer position. Preserve screen-edge clamping, keyboard navigation,
+  selected state, outside-click dismissal and focus behavior.
+- Existing native dropdowns in other modules are migration work, not examples
+  to copy. System dialogs, the macOS application menu, editor completion/caret
+  popups and hover documentation are separate interactions; this rule does not
+  replace them with product dropdowns.
+- For search inputs use `LitheSearchTextField` and `litheSearchField`; preserve
+  native IME composition and the I-beam cursor before focus. Do not patch each
+  feature's placeholder, border or hover cursor separately.
+
+The decision and owning components are recorded in
+`.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`.
+
 ### Rust
 
 - Run `cargo fmt` and follow existing crate and module conventions.

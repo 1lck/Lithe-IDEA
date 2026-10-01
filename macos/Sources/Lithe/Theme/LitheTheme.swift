@@ -878,6 +878,7 @@ private final class LithePointerCursor {
 /// Keep native editing, but draw the prompt ourselves: macOS TextField ignores
 /// prompt text attributes and substitutes its own brighter, heavier placeholder.
 struct LitheSearchTextField: View {
+    @Environment(\.isEnabled) private var isEnabled
     let title: LocalizedStringKey
     @Binding var text: String
     @State private var hasEditingText = false
@@ -890,6 +891,10 @@ struct LitheSearchTextField: View {
     var body: some View {
         TextField(title, text: $text, prompt: Text(""))
             .textFieldStyle(.plain)
+            .onContinuousHover { phase in
+                if case .active = phase, isEnabled { NSCursor.iBeam.set() }
+                else { NSCursor.arrow.set() }
+            }
             .background(LitheTextFieldEditingObserver { hasEditingText = $0 })
             .overlay(alignment: .leading) {
                 if text.isEmpty && !hasEditingText {
