@@ -12,14 +12,14 @@ struct DiffSplitWidths {
     let rightNumbers: CGFloat
     let rightCode: CGFloat
 
-    init(width: CGFloat, position: CGFloat?) {
+    init(width: CGFloat, position: CGFloat?, gutterWidth: CGFloat = DiffLayoutMetrics.lineNumberGutterWidth) {
         let width = max(0, width)
         self.position = min(max(position ?? width / 2, 0), width)
         divider = min(DiffLayoutMetrics.dividerWidth, self.position * 2, (width - self.position) * 2)
         let left = max(0, self.position - divider / 2)
         let right = max(0, width - self.position - divider / 2)
-        leftNumbers = min(left, DiffLayoutMetrics.lineNumberGutterWidth)
-        rightNumbers = min(right, DiffLayoutMetrics.lineNumberGutterWidth)
+        leftNumbers = min(left, gutterWidth)
+        rightNumbers = min(right, gutterWidth)
         leftCode = max(0, left - leftNumbers)
         rightCode = max(0, right - rightNumbers)
     }
@@ -266,6 +266,7 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
 struct DiffNativeLineNumbers: NSViewRepresentable {
     let state: DiffNativeColumnState
     var showsBothNumbers = false
+    var mirrored = false
     func makeNSView(context: Context) -> DiffNativeGutterView {
         let view = DiffNativeGutterView()
         view.column = state
@@ -274,12 +275,14 @@ struct DiffNativeLineNumbers: NSViewRepresentable {
     }
     func updateNSView(_ view: DiffNativeGutterView, context: Context) {
         view.showsBothNumbers = showsBothNumbers
+        view.mirrored = mirrored
         view.needsDisplay = true
     }
 }
 
 final class DiffNativeGutterView: NSView {
     var showsBothNumbers = false
+    var mirrored = false
     var column: DiffNativeColumnState?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -287,13 +290,24 @@ final class DiffNativeGutterView: NSView {
         guard let column else { return }
         NSColor(LitheTheme.Diff.background).setFill()
         dirtyRect.fill()
+        // New UI's whitespace separator is 3pt inside the code edge. Diff
+        // line markers paint over it and use editor-mode color in that edge.
+        let edgeWidth = DiffLayoutMetrics.gutterCodeEdgeWidth
+        let separatorX = mirrored ? edgeWidth - 1 : bounds.width - edgeWidth
+        NSColor(LitheTheme.Diff.separator).setFill()
+        NSRect(x: separatorX, y: dirtyRect.minY, width: 1, height: dirtyRect.height).fill()
         let first = column.firstVisibleLine(at: dirtyRect.minY)
         let font = LitheTheme.editorFont(size: DiffLayoutMetrics.textFontSize)
         for index in first..<column.lines.count {
             let line = column.lines[index]
             guard line.item.top < dirtyRect.maxY else { break }
-            column.background(line.item, muted: false).setFill()
-            NSRect(x: 0, y: line.item.top, width: bounds.width, height: line.item.height).fill()
+            if line.item.kind.isSplitDifference {
+                column.background(line.item, muted: false).setFill()
+                NSRect(x: 0, y: line.item.top, width: bounds.width, height: line.item.height).fill()
+                column.background(line.item, muted: true).setFill()
+                NSRect(x: mirrored ? 0 : bounds.width - edgeWidth, y: line.item.top,
+                       width: edgeWidth, height: line.item.height).fill()
+            }
             let numbers: [Int?]
             if showsBothNumbers, case let .row(row, _) = line.item.displayRow {
                 numbers = [line.item.kind == .addition ? nil : row.oldLine,
@@ -305,7 +319,9 @@ final class DiffNativeGutterView: NSView {
                     .foregroundColor: NSColor(column.hasCaret && index == column.caretLine
                         ? LitheTheme.Diff.caretLineNumber : LitheTheme.Diff.lineNumber)])
                 let size = text.size()
-                let rightEdge = showsBothNumbers ? CGFloat(columnIndex + 1) * bounds.width / 2 : bounds.width
+                let rightEdge = showsBothNumbers ? CGFloat(columnIndex + 1) * bounds.width / 2
+                    : mirrored ? bounds.width : bounds.width - DiffLayoutMetrics.lineNumberChromeWidth
+                        + 2 * DiffLayoutMetrics.lineNumberTrailingPadding
                 text.draw(at: NSPoint(x: rightEdge - DiffLayoutMetrics.lineNumberTrailingPadding - size.width,
                     y: line.item.top + (line.item.height - size.height) / 2))
             }

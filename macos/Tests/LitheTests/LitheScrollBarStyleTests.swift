@@ -52,7 +52,7 @@ struct LitheScrollBarStyleTests {
     }
 
     @Test
-    func editorRailKeepsMarkersOutsideTheMirroredThumb() {
+    func editorRailUsesWideDiffMarkersAndMirroredThumb() {
         let bounds = NSRect(x: 0, y: 0, width: LitheScrollBarStyle.editorThickness, height: 200)
         let knob = NSRect(x: 0, y: 30, width: bounds.width, height: 80)
         let right = LitheScrollBarStyle.thumbRect(in: bounds, knob: knob, role: .editor, hover: 0)
@@ -67,11 +67,16 @@ struct LitheScrollBarStyleTests {
         stripe.side = .right; stripe.sourceHeight = 100
         let change = DiffSplitLayout.Transition(id: "paired", kind: .changed,
             leftRange: 22...44, rightRange: 22...66)
-        #expect(stripe.markerRect(change).minY == 22 && stripe.markerRect(change).height == 44,
+        #expect(stripe.markerRect(change).minY == 22 && stripe.markerRect(change).height == 22,
             "A short file retains actual source Y positions instead of stretching marks")
+        #expect(stripe.markerRect(change).width == 14 && stripe.markerRect(change).minX == 4)
+        stripe.side = .left
+        #expect(stripe.markerRect(change).minX == 0 && stripe.markerRect(change).height == 2,
+            "Single-line replacements use the minimum-height wide error stripe")
+        stripe.side = .right
         stripe.sourceHeight = 1_000
-        #expect(abs(stripe.markerRect(change).minY - 4.4) < 0.01
-            && abs(stripe.markerRect(change).height - 8.8) < 0.01)
+        #expect(stripe.markerRect(change).minY == 4
+            && stripe.markerRect(change).height == 4)
     }
 
 }

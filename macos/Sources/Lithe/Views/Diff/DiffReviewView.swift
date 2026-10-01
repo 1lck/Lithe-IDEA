@@ -337,7 +337,7 @@ struct DiffReviewView: View {
             }
         }
 
-        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds)
+        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: feature.diffRows))
         let measuredHeight = usesSingleFileDiff ? DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds) : 0
         return GeometryReader { geometry in
             let contentWidth = max(geometry.size.width, measuredWidth)
@@ -1018,14 +1018,29 @@ struct DiffRowView: View {
 enum DiffLayoutMetrics {
     static let rowHeight: CGFloat = 22
     static let informationRowHeight: CGFloat = 27
-    static let dividerWidth: CGFloat = 34
-    static var lineNumberGutterWidth: CGFloat { lineNumberColumnWidth + lineNumberTrailingPadding }
+    // Community registry diff.divider.width; DiffSplitter uses this logical width.
+    static let dividerWidth: CGFloat = 24
+    static var lineNumberGutterWidth: CGFloat { lineNumberGutterWidth(maximumLine: 999) }
+    static func lineNumberGutterWidth(rows: [DiffRow]) -> CGFloat {
+        lineNumberGutterWidth(maximumLine: rows.reduce(1) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) })
+    }
+    static func lineNumberGutterWidth(maximumLine: Int) -> CGFloat {
+        // EditorGutterLayout New UI: empty annotations 4, pre-number gap 4,
+        // number area (at least the 16pt breakpoint slot), post-number gap 4,
+        // folding anchor 9 + 2, extra painter 8 + separator 1. Diff gutters
+        // share the maximum source-number width; no action icon area is reserved.
+        let number = ceil(NSAttributedString(string: String(maximumLine),
+            attributes: [.font: LitheTheme.editorFont(size: textFontSize)]).size().width)
+        return max(16, number) + lineNumberChromeWidth
+    }
     static var centerGutterWidth: CGFloat { lineNumberGutterWidth * 2 + dividerWidth }
 
     /// Line numbers are pinned on both sides of the central divider; only
     /// text insets scroll with each source pane.
     static let lineNumberColumnWidth: CGFloat = 47
     static let lineNumberTrailingPadding: CGFloat = 8
+    static let lineNumberChromeWidth: CGFloat = 32
+    static let gutterCodeEdgeWidth: CGFloat = 3
     static let changeMarkerWidth: CGFloat = 3
     static let textHorizontalPadding: CGFloat = 8
     static let textFontSize: CGFloat = 13
@@ -1090,7 +1105,7 @@ enum DiffLayoutMetrics {
         let panes = CGFloat(max(1, paneCount))
         let textWidth = CGFloat(longestLineLength(rows: rows)) * characterWidth
         let chrome = paneCount > 1 ? paneChromeWidth : singlePaneChromeWidth
-        let gutter = paneCount > 1 ? centerGutterWidth : 0
+        let gutter = paneCount > 1 ? lineNumberGutterWidth(rows: rows) * 2 + dividerWidth : 0
         let measured = (chrome + textWidth) * panes + gutter
         return max(minimumWidth, viewportWidth, measured)
     }

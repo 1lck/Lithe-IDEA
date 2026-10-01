@@ -2591,7 +2591,7 @@ struct LitheCoreLogicTests {
 
         let expectedText = CGFloat(400) * DiffLayoutMetrics.characterWidth
         let expected = (DiffLayoutMetrics.paneChromeWidth + expectedText) * 2
-            + DiffLayoutMetrics.centerGutterWidth
+            + DiffLayoutMetrics.lineNumberGutterWidth(rows: rows) * 2 + DiffLayoutMetrics.dividerWidth
         #expect(abs(width - expected) < 0.5)
 
         // Short content still fills the viewport rather than collapsing.

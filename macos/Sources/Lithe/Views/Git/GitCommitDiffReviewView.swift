@@ -7,10 +7,14 @@ import LitheGitModule
 struct GitCommitDiffReviewView: View {
     @ObservedObject var feature: GitFeatureModel
     let context: GitCommitDiffContext
+    let onOpenFile: () -> Void
+    let onOpenCommitDiff: (GitCommitFile) -> Void
 
     @State private var unified = false
     @State private var highlightsWords = true
     @State private var selectedDifferenceIndex = 0
+    @State private var collapsesUnchangedRegions = false
+    @State private var expandedRegionIDs: Set<String> = []
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -43,8 +47,9 @@ struct GitCommitDiffReviewView: View {
             }
         }
         .litheWorkbenchSurface(LitheTheme.Diff.background)
-        .onChange(of: feature.diffRows.count) { _ in
+        .onChange(of: context.id) { _ in
             selectedDifferenceIndex = 0
+            expandedRegionIDs = []
         }
     }
 
@@ -58,8 +63,37 @@ struct GitCommitDiffReviewView: View {
             Button { navigateDifference(by: 1, proxy: proxy) } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/down", size: 16, preservesOriginalColors: true)
             }.litheToolbarIconButton(isEnabled: !differenceStarts.isEmpty).accessibilityLabel("Next difference").workbenchHoverHelp(Text("Next difference"))
+            toolbarDivider
+            Button {
+                onOpenFile()
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/edit", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: context.kind != .deleted)
+                .accessibilityLabel("Open in editor").workbenchHoverHelp(Text("Open in editor"))
+            toolbarDivider
+            Button { navigateFile(by: -1) } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/left", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: fileIndex.map { $0 > 0 } ?? false)
+                .accessibilityLabel("Previous file").workbenchHoverHelp(Text("Previous file"))
+            Text(files.count == 1 ? "1 file" : "\(files.count) files")
+                .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.Diff.pathForeground)
+            Button { navigateFile(by: 1) } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/right", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: fileIndex.map { $0 + 1 < files.count } ?? false)
+                .accessibilityLabel("Next file").workbenchHoverHelp(Text("Next file"))
+            toolbarDivider
+            Button {
+                collapsesUnchangedRegions.toggle()
+                expandedRegionIDs = []
+            } label: {
+                LitheIDEAIcon(resourcePath: "expui/general/collapseAll", size: 16, preservesOriginalColors: true)
+            }.litheToolbarIconButton(isEnabled: !feature.diffRows.isEmpty)
+                .litheRowHover(isActive: collapsesUnchangedRegions, activeBackground: LitheTheme.hoverBackground)
+                .accessibilityLabel("Collapse unchanged fragments")
+                .accessibilityValue(collapsesUnchangedRegions ? "On" : "Off")
+                .workbenchHoverHelp(Text("Collapse unchanged fragments"))
             Spacer()
-            Text("\(differenceStarts.count) differences")
+            Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
                 .font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
                 .padding(.trailing, 8)
             HStack(spacing: 0) {
@@ -96,6 +130,23 @@ struct GitCommitDiffReviewView: View {
         .overlay { RoundedRectangle(cornerRadius: LitheTheme.Diff.toolbarRadius).stroke(LitheTheme.Diff.toolbarBorder, lineWidth: 1) }
         .padding(.horizontal, LitheTheme.Diff.toolbarHorizontalInset)
         .padding(.top, LitheTheme.Diff.toolbarTopInset)
+    }
+
+    private var toolbarDivider: some View {
+        Rectangle().fill(LitheTheme.Diff.viewerBorder).frame(width: 1, height: 20).padding(.horizontal, 3)
+    }
+
+    private var files: [GitCommitFile] {
+        guard feature.selectedGitCommit?.hash == context.commit.hash,
+              feature.selectedGitCommitFiles.contains(where: { $0.id == context.file.id }) else { return [context.file] }
+        return feature.selectedGitCommitFiles
+    }
+
+    private var fileIndex: Int? { files.firstIndex { $0.id == context.file.id } }
+
+    private func navigateFile(by offset: Int) {
+        guard let index = fileIndex, files.indices.contains(index + offset) else { return }
+        onOpenCommitDiff(files[index + offset])
     }
 
     private func viewerButton(unified target: Bool) -> some View {
@@ -151,17 +202,20 @@ struct GitCommitDiffReviewView: View {
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         // Patch hunk headers are metadata. Preserve source row IDs for existing navigation.
         let rows = feature.diffRows.filter { $0.kind != .information }
-        let displayRows = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
-        let kinds = rows.map(\.kind)
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
-        let unifiedLayout = DiffUnifiedLayout(rows: rows)
+        let displayRows = collapsesUnchangedRegions
+            ? DiffCollapse.plan(rows: rows, expandedRegionIDs: expandedRegionIDs)
+            : rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        let kinds = displayRows.map { $0.layoutRow.kind }
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows))
+        let unifiedLayout = DiffUnifiedLayout(rows: rows, displayRows: displayRows)
         let measuredWidth = DiffLayoutMetrics.contentWidth(rows: rows, viewportWidth: 0,
             minimumWidth: usesUnifiedPane ? 680 : 980, paneCount: usesUnifiedPane ? 1 : 2)
         let selectedIDs = Set(differenceIndexByRow.compactMap { $0.value == selectedDifferenceIndex ? $0.key : nil })
         return GeometryReader { geometry in
             if usesUnifiedPane {
                 DiffUnifiedPaneView(layout: unifiedLayout, fileExtension: context.url.pathExtension,
-                    contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs)
+                    contentWidth: measuredWidth, highlightsWords: highlightsWords, selectedRowIDs: selectedIDs,
+                    onExpand: { expandedRegionIDs.insert($0.id) })
             } else {
                 DiffSplitPaneView(displayRows: displayRows, kinds: kinds, layout: layout,
                     fileExtension: context.url.pathExtension, contentWidth: max(geometry.size.width, measuredWidth),
@@ -174,7 +228,7 @@ struct GitCommitDiffReviewView: View {
                          .background(LitheTheme.Diff.background)
                          .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.titleSeparator).frame(height: 1) }
                     ) },
-                    selectedRowIDs: selectedIDs, onExpand: { _ in })
+                    selectedRowIDs: selectedIDs, onExpand: { expandedRegionIDs.insert($0.id) })
             }
         }.background(LitheTheme.Diff.background)
     }

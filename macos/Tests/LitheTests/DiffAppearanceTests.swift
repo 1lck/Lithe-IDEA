@@ -8,6 +8,16 @@ import LitheGitModule
 @Suite("Native Diff appearance", .serialized)
 @MainActor
 struct DiffAppearanceTests {
+    @Test
+    func sourceNumberWidthRemainsStableWhenTheLargestNumberIsFolded() {
+        let rows = (1...1_005).map { DiffRow(oldLine: $0, newLine: $0, left: "same", right: nil, kind: .context, sequence: $0) }
+        let width = DiffLayoutMetrics.lineNumberGutterWidth(rows: rows)
+        let display = DiffCollapse.plan(rows: rows)
+        let layout = DiffSplitLayout.plan(displayRows: display, kinds: display.map { $0.layoutRow.kind }, gutterWidth: width)
+        #expect(width > DiffLayoutMetrics.lineNumberGutterWidth(maximumLine: 999))
+        #expect(layout.lineNumberGutterWidth == width, "Collapsing the whole file must not shrink its source-number gutter")
+    }
+
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func replacementWithAnExtraLineUsesOnePairedFragment(appearance: NSAppearance.Name) async throws {
         let rows = [
@@ -136,11 +146,11 @@ struct DiffAppearanceTests {
         #expect(matches(inserted, dark ? 0x294436 : 0xBEE6BE), "Inserted: \(inserted)")
         #expect(matches(deleted, dark ? 0x25323E : 0xE6EFFA), "Replacement: \(deleted)")
         #expect(matches(modified, dark ? 0x25323E : 0xE6EFFA), "Modified: \(modified)")
-        let paneWidth = (900 - DiffLayoutMetrics.centerGutterWidth) / 2
+        let paneWidth = (900 - layout.lineNumberGutterWidth * 2 - DiffLayoutMetrics.dividerWidth) / 2
         // Both columns must actually draw source numbers in the central gutter.
-        for start in [paneWidth, paneWidth + DiffLayoutMetrics.lineNumberGutterWidth + DiffLayoutMetrics.dividerWidth] {
+        for start in [paneWidth, paneWidth + layout.lineNumberGutterWidth + DiffLayoutMetrics.dividerWidth] {
             var numberPixels = 0
-            for x in Int(start + 10)..<Int(start + DiffLayoutMetrics.lineNumberGutterWidth - 5) {
+            for x in Int(start + 10)..<Int(start + layout.lineNumberGutterWidth - 5) {
                 for y in 3..<20 {
                     if matches(try color(CGFloat(x), CGFloat(y)), dark ? 0x4B5059 : 0xAEB3C2, tolerance: 0.04) {
                         numberPixels += 1
@@ -198,7 +208,8 @@ struct DiffAppearanceTests {
         #expect(brightNumberPixels > 5, "Only the active caret row uses IDEA's bright source-number color")
         // Move all the way to each boundary, then reopen the editors. Native
         // text storage and its multi-line selection must survive every move.
-        for target in [72.0, 0.0, 900.0, 450.0] {
+        let gutterOnlyPosition = layout.lineNumberGutterWidth + DiffLayoutMetrics.dividerWidth / 2
+        for target in [gutterOnlyPosition, 0.0, 900.0, 450.0] {
             let handlePoint = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
             let delta = CGFloat(target) - handlePoint.x
             func dragEvent(_ type: NSEvent.EventType, _ dx: CGFloat) throws -> NSEvent {
@@ -214,14 +225,14 @@ struct DiffAppearanceTests {
             hosting.layoutSubtreeIfNeeded()
             #expect(column.revision == revision, "Dragging must not tokenize or replace text storage")
             #expect(editor.selectedRange().length > column.lines[1].range.length)
-            let widths = DiffSplitWidths(width: 900, position: CGFloat(target))
+            let widths = DiffSplitWidths(width: 900, position: CGFloat(target), gutterWidth: layout.lineNumberGutterWidth)
             #expect(abs(widths.leftCode + widths.leftNumbers + widths.divider + widths.rightNumbers + widths.rightCode - 900) < 0.001)
-            if target == 72 { #expect(widths.leftCode == 0); #expect(widths.leftNumbers == 55) }
+            if target == gutterOnlyPosition { #expect(widths.leftCode == 0); #expect(widths.leftNumbers == layout.lineNumberGutterWidth) }
             if target == 0 { #expect(widths.leftNumbers == 0); #expect(widths.divider == 0) }
             if target == 900 { #expect(widths.rightNumbers == 0); #expect(widths.divider == 0) }
             let clipped = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
             hosting.cacheDisplay(in: hosting.bounds, to: clipped)
-            if target == 0 || target == 72 || target == 900 {
+            if target == 0 || target == gutterOnlyPosition || target == 900 {
                 let x: CGFloat = target == 900 ? 860 : 10
                 let pixel = try #require(clipped.colorAt(x: Int(x * scale), y: Int(28 * scale)))
                 #expect(matches(pixel, target == 0 ? (dark ? 0x294436 : 0xBEE6BE)

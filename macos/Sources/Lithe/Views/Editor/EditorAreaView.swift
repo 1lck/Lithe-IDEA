@@ -123,7 +123,11 @@ struct EditorAreaView: View {
                     )
                 } else if let feature = model.gitFeatureIfActive,
                           let commitDiff = feature.selectedGitCommitDiffContext {
-                    GitCommitDiffReviewView(feature: feature, context: commitDiff)
+                    GitCommitDiffReviewView(feature: feature, context: commitDiff,
+                        onOpenFile: {
+                            model.closeGitCommitDiff()
+                            model.openFile(commitDiff.url)
+                        }, onOpenCommitDiff: { model.showGitCommitDiff(for: $0) })
                 } else if let feature = model.gitFeatureIfActive,
                           let selectedChange = feature.selectedChange {
                     DiffReviewView(feature: feature, change: selectedChange)

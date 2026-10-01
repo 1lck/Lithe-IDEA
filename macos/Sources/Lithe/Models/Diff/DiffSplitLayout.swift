@@ -46,10 +46,12 @@ struct DiffSplitLayout {
     let rightHeight: CGFloat
 
     var contentHeight: CGFloat { max(leftHeight, rightHeight) }
+    let lineNumberGutterWidth: CGFloat
 
     static func plan(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
+        gutterWidth: CGFloat? = nil,
         standardRowHeight: CGFloat = DiffLayoutMetrics.rowHeight,
         informationRowHeight: CGFloat = 27
     ) -> DiffSplitLayout {
@@ -179,7 +181,9 @@ struct DiffSplitLayout {
             rightItems: rightItems,
             transitions: transitions,
             leftHeight: leftHeight,
-            rightHeight: rightHeight
+            rightHeight: rightHeight,
+            lineNumberGutterWidth: gutterWidth ?? DiffLayoutMetrics.lineNumberGutterWidth(maximumLine:
+                displayRows.reduce(1) { max($0, $1.layoutRow.oldLine ?? 0, $1.layoutRow.newLine ?? 0) })
         )
     }
 }

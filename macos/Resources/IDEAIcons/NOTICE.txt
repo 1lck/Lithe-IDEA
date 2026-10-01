@@ -61,3 +61,8 @@ settings, vcs, fetch, chevron and dvcs/currentBranchLabel resources are reused.
 The historical commit Diff toolbar uses unmodified expui/general/{up,down,locked}
 and expui/diff/{sideBySide,unified} light/dark SVGs from Community revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Up/down follow PlatformIconMappings action mappings.
+
+Commit Diff file navigation reuses Community expui/general/{left,right} SVGs
+(and their _dark variants), mapped from Actions.Back/Forward by
+PlatformIconMappings.json at c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+Open in Editor and Collapse Unchanged Fragments reuse edit/collapseAll.

@@ -25,14 +25,18 @@ macOS 已使用 `litheScrollViewChrome` 的滚动区默认共用 IDEA 滚动条�
   #00000033/#00000080，深色普通区为 #80808059/#8080808C。
   持久轨道的普通/hover 底色透明，浮层轨道 hover 为 #8080801A；底层表面归宿主所有。
 - `EditorMarkupModelImpl.MyErrorPanel` 覆盖编辑器轨道绘制，保留编辑器背景。
-  rail 为 14pt 加 2pt gap、2pt 最小标记区；Diff 左 rail 镜像，2pt 变更标记在靠代码一侧。
+  rail 为 14pt 加 2pt gap、2pt 最小标记区，Diff 左 rail 镜像。
+  `DiffDrawUtil.DiffStripeMarkerTextAttributes` 没有启用 thin：Diff 使用 14pt 宽标记，
+  右侧 x=4、左侧 x=0；之前把它画成靠代码的 2pt 细条是错误的。
+  标记对应末个修改行的 Y，不包含下一行；单行/空范围至少 2pt。
   overlay thumb 7→10pt 经 Buttonless 的扩展和 painter 内边距深色得到 9→12pt 胶囊；浅色 fill 与 border 相同，上游省略边框并 inset 2pt，得到 7→10pt。
   `IslandSchemeDark.xml` 覆盖滑块为 #FFFFFF26/#FFFFFF4D；不能套用普通滚动区的灰色。
 - `LitheScrollViewChrome.CompactScroller` 绘制原生普通入口；
   `LitheScrollBarPaint` 是同一 owner 的绘制适配器，用于保留 Diff 横向拖动动作。
   双栏和单栏的 `DiffStripeScroller` 保留原生 knob 跟踪，先绘制标记再画滑块。
   标记遵循 `offsetsToYPositions`：短文件保留实际 Y 坐标，长文件才压缩到轨道长度，
-  避免没有滚动溢出时将一行修改拉伸成很长的标记。
+  避免没有滚动溢出时将一行修改拉伸成很长的标记。宽标记在滑块下面绘制，
+  滑块覆盖时颜色自然混合，不另加轮廓、间隔或圆角。
   hover 重绘仅在原生控件内，不发布滚动状态到父级，也不重建正文缓存。
 
 共享调用者包括 Project/Dependencies 树、Settings、Keyboard Shortcuts、Project Runtime、

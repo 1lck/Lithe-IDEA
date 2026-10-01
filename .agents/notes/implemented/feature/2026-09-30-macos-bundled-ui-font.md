@@ -75,7 +75,11 @@ Diff 的复制菜单复用 `LitheContextMenuPresenter` 和 IDEA 16pt 复制 SVG�
 路径并从中间省略，标题跟随各自面板宽度和收起状态。单栏模式把版本信息上下排列，将已有修改前/修改后的文本依次
 显示；双栏维持两个紧凑代码流。`@@` 是补丁元数据，只在历史提交页隐藏；工作区
 Diff 的区块动作、搜索、折叠与只读/暂存语义保留。高亮词语和关闭操作进入已有
-共享 `LitheMenu` 设置入口，不增加截图里 Lithe 尚未实现的操作。
+共享 `LitheMenu` 设置入口。用户明确要求补上工具栏中漏掉的已有能力后，
+增加打开工作区文件到编辑器、上一/下一提交文件及文件总数、折叠未修改区域入口；
+分别复用 AppModel 的打开/提交 Diff 动作和 DiffCollapse，文件列表必须属于当前提交，
+不跨提交使用已缓存列表。单文件与首尾文件禁用对应箭头；删除文件禁用打开入口。
+折叠开关对双栏/单栏均生效，区域仍可单独展开，切换文件清除区域展开状态。
 
 依据同一 Community 版本的 `DiffHeaderToolbarPanel`、`DiffUtil.getContentTitleBorderInsets`、
 `DiffToolChooser`、`SegmentedButtonComponent` 与 `FilePathDiffTitleCustomizer`。
@@ -104,7 +108,7 @@ Diff 的区块动作、搜索、折叠与只读/暂存语义保留。高亮词�
 两侧滚动条通过 `LitheScrollBarStyle` 使用编辑器用途的共享绘制和 `LitheTheme.Diff`
 标记色；具体全局入口与普通滚动区的区别见
 [macOS 共享滚动条](2026-10-02-macos-shared-scrollbar.md)。相对位置依据各自完整代码流高度，至少 2pt，点击把变更置于视口约三分之一
-处；单侧增删的另一侧仍有对应细标记。AppKit 对 layer-backed NSScroller 有自身轨道
+处；单侧增删的空范围仍有对应最小高度标记。AppKit 对 layer-backed NSScroller 有自身轨道
 绘制，故原生跟踪与既有滑块绘制放在有明确裁剪的视图内，避免系统浅色轨道和越界
 绘制盖住代码。原生双栏消费者不再另外显示旧概览条；工作区新增/删除的旧单栏仍用
 原概览入口。未改 Windows、Monaco 或后端比较结果。
@@ -122,6 +126,25 @@ Lithe 的 Core 返回逐行配对；前端将相邻差异行组成一段，直�
 类型着色，不因为整块为蓝色就将只新增的字符也画成蓝色。连接带复用
 `DiffDrawUtil.drawCurveTrapezium` 的 0.3/0.7 控制点和 1pt 最小厚度；空范围对应
 的横线使用差异背景色，不能取较亮的滚动标记色。
+
+### 连接带坐标与行号区域
+
+版本标题必须占真实布局高度。原先使用 `safeAreaInset`，SwiftUI 对原生滚动区
+施加 29pt 内容 inset，却没有对连接带做同样的坐标转换；滚动偏移检查通过，
+连接带仍比代码行低 29pt。现在标题与正文使用普通垂直布局，代码、行号和连接带
+共用正文坐标，原生检查直接将代码行边缘转换到连接带视图比较，覆盖初始和滚动状态。
+不能用额外减去 29 的常量修补：标题变化或没有标题的调用者会再错位。
+
+Community 的 `DiffSplitter` 从 registry 读取 24pt 中央宽度，旧 34pt 并无对应来源。
+`EditorGutterLayout` New UI 和 `EditorGutterComponentImpl` 根据真实源行号测量 number area，
+至少 16pt；两个 gutter 取较大的源行号宽度。本页保留现有数字/折叠用途的 32pt chrome
+（空注释 4、数字前 4、数字后 4、9pt 折叠 anchor 加 2、末侧 painter 8 加 1pt 线），
+不预留没有的动作 icon area。宽度在规划变化时算一次，拖动不扫描所有行。
+左 gutter 镜像后数字靠连接带，右 gutter 数字在距边缘 8pt 的区域右对齐，
+不能让两个 gutter 都以总宽度减 8 对齐，后者会把右数字移入折叠空白区。
+行号区分隔线在靠代码侧向内 3pt；差异行背景覆盖分隔线，最靠代码的 3pt
+使用正文差异底色，其余行号区使用 gutter 差异色。不能在 SwiftUI 外层再叠加一条
+永远可见的边框，否则差异块与连接带之间会留下 IDEA 没有的竖线。
 
 ### 项目标识的字母
 

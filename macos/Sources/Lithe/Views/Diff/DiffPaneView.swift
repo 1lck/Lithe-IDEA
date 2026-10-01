@@ -33,7 +33,7 @@ struct DiffPaneView: View {
             case .collapsed: DiffRowKind.information
             }
         }
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
+        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: rows))
         return GeometryReader { geometry in
             let contentWidth = max(geometry.size.width, measuredWidth)
 

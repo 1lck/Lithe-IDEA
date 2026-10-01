@@ -61,7 +61,20 @@ struct DiffScrollSynchronizationTests {
         let editors = descendants(hosting).compactMap { $0 as? DiffNativeTextView }
         #expect(editors.count == 2)
         let revisions = editors.map(\.appliedRevision)
+        func checkConnectorCoordinates() throws {
+            for side in [DiffSide.left, .right] {
+                let editor = try #require(editors.first { $0.accessibilityLabel() == (side == .left ? "Original diff code" : "Modified diff code") })
+                let edge = try #require(ribbon.transitions.first { $0.kind == .changed })
+                let sourceY = side == .left ? edge.leftRange.lowerBound : edge.rightRange.lowerBound
+                let offset = side == .left ? ribbon.leftOffset : ribbon.rightOffset
+                let nativeY = ribbon.convert(NSPoint(x: 0, y: sourceY), from: editor).y
+                #expect(abs(nativeY - (sourceY - offset)) < 0.5,
+                    "Connector must touch the actual code row, including version header layout: native=\(nativeY), ribbon=\(sourceY - offset)")
+            }
+        }
+        try checkConnectorCoordinates()
         sync.scroll(.left, to: 1_650)
+        try checkConnectorCoordinates()
         #expect(abs(oldClip.bounds.minY - newClip.bounds.minY) < 0.1)
         sync.scroll(.left, to: 1_700)
         #expect(abs(newClip.bounds.minY - oldClip.bounds.minY - 66) < 0.1)
@@ -93,7 +106,7 @@ struct DiffScrollSynchronizationTests {
                                  (.changed, NSColor(LitheTheme.Diff.modifiedStripe))] {
             let transition = try #require(right.transitions.first { $0.kind == kind })
             let rect = right.markerRect(transition)
-            let point = hosting.convert(NSPoint(x: rect.midX, y: rect.midY), from: right)
+            let point = hosting.convert(NSPoint(x: rect.minX + 0.5, y: rect.midY), from: right)
             let pixel = try #require(bitmap.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
             let color = try #require(expected.usingColorSpace(.deviceRGB))
             #expect(abs(pixel.redComponent - color.redComponent) < 0.04
@@ -160,7 +173,7 @@ struct DiffScrollSynchronizationTests {
         let model = AppModel(settings: settings, services:
             MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
-            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
+            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
             hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
             let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting
@@ -231,10 +244,111 @@ struct DiffScrollSynchronizationTests {
         await model.shutdownProjectSession()
     }
 
+    @Test(.enabled(if: RustCoreBridge().isAvailable, "Requires the linked Rust Core integration library"))
+    func commitToolbarRoutesExistingActionsAndFoldsBothViewers() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-diff-actions-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        @discardableResult
+        func git(_ arguments: [String]) async throws -> String {
+            let result = try await TestProcess.run(executableURL: URL(fileURLWithPath: "/usr/bin/git"),
+                arguments: arguments, currentDirectoryURL: root)
+            try #require(result.terminationStatus == 0)
+            return String(decoding: result.output, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        try await git(["init", "--template=", "-q"])
+        let original = (1...40).map { "let value\($0) = \($0)" }.joined(separator: "\n") + "\n"
+        for name in ["a.swift", "b.swift"] { try Data(original.utf8).write(to: root.appendingPathComponent(name)) }
+        try await git(["add", "."])
+        let commitArguments = ["-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgSign=false", "commit", "-qm"]
+        try await git(commitArguments + ["base"])
+        let parent = try await git(["rev-parse", "HEAD"])
+        for name in ["a.swift", "b.swift"] { try Data((original + "added()\n").utf8).write(to: root.appendingPathComponent(name)) }
+        try await git(["add", "."])
+        try await git(commitArguments + ["change"])
+        let hash = try await git(["rev-parse", "HEAD"])
+        let commit = GitCommit(hash: hash, shortHash: String(hash.prefix(8)), parentHashes: [parent],
+            authorName: "Test", authorEmail: "test@example.invalid", date: "", subject: "change", decorations: "")
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        await feature.refreshGit()
+        await feature.selectGitCommit(commit)
+        let files = feature.selectedGitCommitFiles
+        try #require(files.count == 2)
+        await feature.showGitCommitDiff(for: files[0])
+        var context = try #require(feature.selectedGitCommitDiffContext)
+        try #require(feature.diffRows.count > 30)
+        var openedFile = false
+        var requestedFile: GitCommitFile?
+        let suite = "lithe-diff-actions-" + UUID().uuidString
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        func content() -> AnyView {
+            AnyView(GitCommitDiffReviewView(feature: feature, context: context,
+                onOpenFile: { openedFile = true }, onOpenCommitDiff: { requestedFile = $0 }).environmentObject(model))
+        }
+        let host = NSHostingView(rootView: content())
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 280)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        do {
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            func press(x: CGFloat) throws {
+                let point = host.convert(NSPoint(x: x, y: 22), to: nil)
+                for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                    let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                        timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                        eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                    window.sendEvent(event)
+                }
+            }
+            // Real pointer events hit the shared 22pt toolbar slots. At the
+            // first file Previous must not invoke navigation; Next requests b.
+            try press(x: 123)
+            #expect(requestedFile == nil)
+            try press(x: 86)
+            #expect(openedFile)
+            try press(x: 191)
+            #expect(requestedFile?.id == files[1].id)
+            let originalCount = descendants(host).compactMap { $0 as? DiffNativeTextView }.first?.column?.lines.count
+            try press(x: 231)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            let folded = try #require(descendants(host).compactMap { $0 as? DiffNativeTextView }.first?.column)
+            #expect(folded.lines.count < (originalCount ?? 0))
+            #expect(folded.lines.contains { if case .collapsed = $0.item.displayRow { return true }; return false })
+            try press(x: 835)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            let unified = try #require(descendants(host).compactMap { $0 as? DiffNativeTextView }.first?.column)
+            #expect(unified.lines.contains { if case .collapsed = $0.item.displayRow { return true }; return false })
+            try press(x: 231)
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            #expect(!unified.lines.contains { if case .collapsed = $0.item.displayRow { return true }; return false })
+            await feature.showGitCommitDiff(for: try #require(requestedFile))
+            context = try #require(feature.selectedGitCommitDiffContext)
+            host.rootView = content()
+            await Task.yield(); host.layoutSubtreeIfNeeded()
+            requestedFile = nil
+            try press(x: 191)
+            #expect(requestedFile == nil, "Next is disabled at the final file")
+            try press(x: 123)
+            #expect(requestedFile?.id == files[0].id)
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["LITHE_VERIFY_IDEA_RESOURCES"] == "1"))
     func bundledToolbarAssetsResolveWithAndWithoutSVGExtension() throws {
         for path in ["expui/general/up", "expui/general/down", "expui/general/locked",
-                     "expui/general/settings", "expui/diff/sideBySide", "expui/diff/unified"] {
+                     "expui/general/settings", "expui/general/edit", "expui/general/left",
+                     "expui/general/right", "expui/general/collapseAll", "expui/diff/sideBySide", "expui/diff/unified"] {
             #expect(try #require(LitheIcons.ideaImage(resourcePath: path)).size ==
                     #require(LitheIcons.ideaImage(resourcePath: path + ".svg")).size)
             #expect(LitheIcons.ideaImage(resourcePath: LitheIcons.darkIdeaAssetPath(for: path)) != nil)

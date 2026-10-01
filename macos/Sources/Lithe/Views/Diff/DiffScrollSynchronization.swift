@@ -232,10 +232,14 @@ final class DiffStripeScroller: NSView {
         // EditorMarkupModelImpl.offsetsToYPositions never stretches a short
         // document's markers across the viewport; only long files are compressed.
         let scale = min(1, bounds.height / max(1, sourceHeight))
-        let height = max(LitheScrollBarStyle.minimumMarkHeight, (range.upperBound - range.lowerBound) * scale)
-        return NSRect(x: side == .left ? bounds.width - LitheScrollBarStyle.minimumMarkHeight : 0,
-                      y: min(max(0, bounds.height - height), range.lowerBound * scale),
-                      width: LitheScrollBarStyle.minimumMarkHeight, height: height)
+        // DiffDrawUtil uses a wide error stripe, not the thin VCS stripe. The
+        // highlighter ends on the final changed line, not the following line.
+        let start = floor(range.lowerBound * scale)
+        let end = floor(max(range.lowerBound, range.upperBound - DiffLayoutMetrics.rowHeight) * scale)
+        let height = max(LitheScrollBarStyle.minimumMarkHeight, end - start)
+        return NSRect(x: side == .left ? 0 : LitheScrollBarStyle.editorThickness - LitheScrollBarStyle.thickness,
+                      y: min(max(0, bounds.height - height), start),
+                      width: LitheScrollBarStyle.thickness, height: height)
     }
 
     override func draw(_ dirtyRect: NSRect) {
