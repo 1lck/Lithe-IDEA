@@ -24,6 +24,25 @@ export function countCommitFileTreeLeaves(node: PathTreeNode<GitCommitFile>): nu
   return node.children.reduce((count, child) => count + countCommitFileTreeLeaves(child), 0);
 }
 
+/** Path of the first file in the order the tree renders, so previews match what the user sees. */
+export function getFirstCommitFilePath(files: readonly GitCommitFile[]): string | null {
+  const firstLeaf = (nodes: readonly PathTreeNode<GitCommitFile>[]): string | null => {
+    for (const node of nodes) {
+      if (node.type === "leaf") return node.path;
+      const nested = firstLeaf(node.children);
+      if (nested) return nested;
+    }
+    return null;
+  };
+
+  return firstLeaf(
+    buildPathTree([...files], {
+      getPath: (file) => file.path,
+      getKey: (file) => file.path,
+    }),
+  );
+}
+
 function FileNode({
   node,
   depth,

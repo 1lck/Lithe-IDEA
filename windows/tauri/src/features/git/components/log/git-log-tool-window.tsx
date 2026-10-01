@@ -112,6 +112,7 @@ export function GitLogToolWindow() {
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
+  const [previewRequest, setPreviewRequest] = useState(0);
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const [showFetchOptions, setShowFetchOptions] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
@@ -199,6 +200,7 @@ export function GitLogToolWindow() {
   const {
     isLoadingCommitDiff,
     viewCommitDiff,
+    previewCommitFileDiff,
     viewCommitRangeDiff,
     viewCommitSelectionDiff,
     viewBranchDiff,
@@ -230,6 +232,7 @@ export function GitLogToolWindow() {
       ? commit.hash
       : visibleCommitHashes.find((hash) => result.selected.has(hash));
     setSelectedCommit(activeHash ? (commitByHash.get(activeHash) ?? null) : null);
+    setPreviewRequest((request) => request + 1);
   };
 
   const selectCommitForContextMenu = (commit: GitCommit) => {
@@ -735,6 +738,8 @@ export function GitLogToolWindow() {
               repoPath={repoPath}
               commit={activeSelectedCommit}
               commits={selectedCommits}
+              previewRequest={previewRequest}
+              onPreviewFile={previewCommitFileDiff}
               onOpenDiff={openDiff}
               onOpenRangeDiff={(range, filePath) => {
                 if (isLoadingCommitDiff) return;

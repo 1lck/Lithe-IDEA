@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildPathTree } from "@/features/sidebar/lib/path-tree";
 import type { GitCommitFile } from "../../types/git.types";
-import { countCommitFileTreeLeaves } from "./git-commit-file-tree";
+import { countCommitFileTreeLeaves, getFirstCommitFilePath } from "./git-commit-file-tree";
 
 describe("GitCommitFileTree", () => {
   test("counts every descendant file in a nested directory", () => {
@@ -29,5 +29,18 @@ describe("GitCommitFileTree", () => {
     expect(css).toMatch(
       /\.file-tree-container\.git-commit-file-tree \.file-tree-row > span:last-child \{\s*flex: 0 0 auto;/,
     );
+  });
+
+  test("picks the first file in the order the tree renders, not input order", () => {
+    const files: GitCommitFile[] = [
+      { path: "windows/tauri/src/b.ts", status: "M" },
+      { path: "docs/development/a.md", status: "M" },
+      { path: "shared/c.json", status: "M" },
+    ];
+
+    const first = getFirstCommitFilePath(files);
+    expect(first).not.toBeNull();
+    expect(files.map((file) => file.path)).toContain(first as string);
+    expect(getFirstCommitFilePath([])).toBeNull();
   });
 });

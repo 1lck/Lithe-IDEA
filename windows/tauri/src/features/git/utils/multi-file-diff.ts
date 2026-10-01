@@ -87,3 +87,48 @@ export function createCommitDiffBuffer({
     diffData,
   };
 }
+
+/** Stable path so every commit-file preview reuses one editor tab instead of opening a new one. */
+export const COMMIT_FILE_PREVIEW_PATH = "diff://commit-file-preview";
+
+/** Returns the diff whose displayed or original path matches the commit file row path. */
+export function findCommitFileDiff(diffs: readonly GitDiff[], filePath: string): GitDiff | null {
+  return (
+    diffs.find((diff) =>
+      [diff.new_path, diff.file_path, diff.old_path].some((path) => path === filePath),
+    ) ?? null
+  );
+}
+
+/**
+ * Builds a single-file diff for the commit-files preview. Unlike the commit diff buffer it carries
+ * no commit message metadata: the preview shows only the selected file's changes.
+ */
+export function createCommitFileDiffPreview({
+  repoPath,
+  commitHash,
+  diff,
+  label,
+}: {
+  repoPath: string;
+  commitHash: string;
+  diff: GitDiff;
+  /** Short revision label shown next to the file name in the tab title. */
+  label: string;
+}) {
+  const fileName = (diff.new_path || diff.file_path).split("/").pop() ?? diff.file_path;
+  const diffData = createMultiFileDiff({
+    title: fileName,
+    repoPath,
+    commitHash,
+    diffs: [diff],
+    initialFilePath: diff.new_path || diff.file_path,
+  });
+  diffData.hideFileList = true;
+
+  return {
+    virtualPath: COMMIT_FILE_PREVIEW_PATH,
+    displayName: `${fileName} (${label})`,
+    diffData,
+  };
+}

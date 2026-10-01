@@ -340,6 +340,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
   const [isFileTreeVisible, setIsFileTreeVisible] = useState(true);
   const [fileNavigatorViewMode, setFileNavigatorViewMode] = useState<FileNavigatorViewMode>("tree");
   const isWorkingTree = multiDiff.commitHash === "working-tree";
+  const showsFileList = !isWorkingTree && !multiDiff.hideFileList;
   const isWorkingTreeBuffer = activeBuffer?.path === "diff://working-tree/all-files";
   const isActiveMultiDiff = activeBuffer?.type === "diff" && activeBuffer.diffData === multiDiff;
   const isRefreshingRef = useRef(false);
@@ -798,7 +799,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
             >
               <Search />
             </BreadcrumbActionButton>
-            {!isWorkingTree ? (
+            {showsFileList ? (
               <BreadcrumbActionButton
                 type="button"
                 active={isFileTreeVisible}
@@ -1097,7 +1098,7 @@ const GitDiffEditorStack = memo(function GitDiffEditorStack({
 
       {isIndexingDiffs && multiDiff.files.length === 0 ? null : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
-          {!isWorkingTree && isFileTreeVisible ? (
+          {showsFileList && isFileTreeVisible ? (
             <FileNavigatorSidebar
               items={diffFileItems}
               selectedKey={selectedFileKey}
