@@ -254,6 +254,10 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
 
+      - name: Test Git commit messages and asynchronous diff ownership
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-commit-messages.json -- src/features/git/api/git-commits-api.test.ts src/features/git/components/log/git-commit-details.test.tsx src/features/git/hooks/use-git-diff-actions.test.tsx
+
       - name: Test Git query recovery and isolation
         shell: pwsh
         timeout-minutes: 5

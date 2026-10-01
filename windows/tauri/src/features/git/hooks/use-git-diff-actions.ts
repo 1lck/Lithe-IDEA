@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-sync";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
@@ -93,6 +93,14 @@ export function useGitDiffActions({
       ? latestFileDiffRequestRef.current
       : createRequestGeneration();
   latestFileDiffRequestRef.current = latestFileDiffRequest;
+  const commitDiffRequests = useRef(createRequestGeneration()).current;
+  useEffect(() => {
+    setIsLoadingCommitDiff(false);
+    // Invalidate on repository changes (including A -> B -> A) and unmount.
+    return () => {
+      commitDiffRequests.begin();
+    };
+  }, [activeRepoPath, commitDiffRequests]);
   const activeRepoPathRef = useRef(activeRepoPath);
   activeRepoPathRef.current = activeRepoPath;
 
@@ -297,9 +305,13 @@ export function useGitDiffActions({
     async (commitHash: string, filePath?: string) => {
       if (!activeRepoPath) return;
 
+      const request = commitDiffRequests.begin();
+      const isCurrent = () =>
+        commitDiffRequests.isCurrent(request) && activeRepoPathRef.current === activeRepoPath;
       setIsLoadingCommitDiff(true);
       try {
         const diffs = await getCommitDiff(activeRepoPath, commitHash);
+        if (!isCurrent()) return;
         if (!diffs?.length) {
           await showAlertDialog(
             filePath
@@ -314,6 +326,7 @@ export function useGitDiffActions({
         const commit = listedCommit
           ? await withCommitDescription(activeRepoPath, listedCommit)
           : undefined;
+        if (!isCurrent()) return;
         const buffer = createCommitDiffBuffer({
           repoPath: activeRepoPath,
           commitHash,
@@ -323,6 +336,7 @@ export function useGitDiffActions({
         });
         openDiffBuffer(buffer.virtualPath, buffer.displayName, buffer.diffData);
       } catch (error) {
+        if (!isCurrent()) return;
         console.error("Error getting commit diff:", error);
         await showAlertDialog(
           t("git.diff.getCommitDiffFailed", {
@@ -332,10 +346,10 @@ export function useGitDiffActions({
           t("git.diff.title"),
         );
       } finally {
-        setIsLoadingCommitDiff(false);
+        if (isCurrent()) setIsLoadingCommitDiff(false);
       }
     },
-    [activeRepoPath, commitByHash, t],
+    [activeRepoPath, commitByHash, commitDiffRequests, t],
   );
 
   const viewCommitRangeDiff = useCallback(

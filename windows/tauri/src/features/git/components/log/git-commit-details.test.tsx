@@ -49,6 +49,8 @@ afterEach(async () => {
   for (const spy of spies.splice(0)) spy.mockRestore();
   await act(async () => {
     root.unmount();
+    for (const resolve of descriptionResolvers.values()) resolve(null);
+    descriptionResolvers.clear();
     await Promise.resolve();
   });
   container.remove();
