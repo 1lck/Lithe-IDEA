@@ -96,7 +96,7 @@ export function GitWorkspaceCommitReview({
             {t("common.cancel")}
           </Button>
           <Button onClick={onConfirm} disabled={busy}>
-            {t(plan.push ? "git.commitAndPush" : "git.commit")}
+            {t(plan.amend ? "git.amendCommit" : plan.push ? "git.commitAndPush" : "git.commit")}
           </Button>
         </DialogFooter>
       </DialogContent>

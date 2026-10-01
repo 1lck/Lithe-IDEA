@@ -70,7 +70,7 @@ import {
   FilesIcon,
   FolderIcon,
   FolderOpenIcon,
-  GitBranchIcon,
+  GitCommitIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
   TerminalWindowIcon,
@@ -179,7 +179,7 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       { id: SidebarActivityItemId; label: string; icon: ReactNode }
     >([
       ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
-      ["git", { id: "git", label: t("workbench.changes"), icon: <GitBranchIcon /> }],
+      ["git", { id: "git", label: t("workbench.commit"), icon: <GitCommitIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
       ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
       [

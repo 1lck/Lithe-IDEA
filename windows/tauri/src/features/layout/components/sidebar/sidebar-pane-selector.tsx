@@ -14,7 +14,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  GitBranchIcon,
+  GitCommitIcon,
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
@@ -144,13 +144,13 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "git",
-              label: showLabels ? t("workbench.changes") : undefined,
-              icon: <GitBranchIcon className={iconClassName} />,
+              label: showLabels ? t("workbench.commit") : undefined,
+              icon: <GitCommitIcon className={iconClassName} />,
               isActive: isPrimarySidebarItemActive && isGitViewActive,
               onClick: () => onViewChange("git"),
-              ariaLabel: t("workbench.changes"),
+              ariaLabel: t("workbench.commit"),
               tooltip: {
-                content: t("workbench.changes"),
+                content: t("workbench.commit"),
                 shortcut: "Mod+Shift+G",
                 side: tooltipSide,
               },

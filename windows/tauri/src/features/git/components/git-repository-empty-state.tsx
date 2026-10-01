@@ -37,9 +37,6 @@ export function GitRepositoryEmptyState({
     const ui = useUIState.getState();
     ui.setIsSidebarVisible(true);
     ui.setActiveView("git");
-    window.dispatchEvent(new CustomEvent("lithe:git-palette-action", {
-      detail: { type: "show-tab", tab: "changes" },
-    }));
   }
 
   useEffect(() => {

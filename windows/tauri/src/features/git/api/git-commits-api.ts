@@ -256,9 +256,36 @@ export const getCommitFiles = async (
 };
 
 interface GitCommitLookupResult {
-  commit?: { hash?: string };
+  commit?: { hash?: string; subject?: string };
   body?: string;
 }
+
+/**
+ * Reads the full message of the checked-out HEAD for amending. History pages
+ * list every reference and carry only subjects, so they cannot stand in for it.
+ * Returns null when HEAD has no commit yet or cannot be read.
+ */
+export const getHeadCommitMessage = async (repoPath: string): Promise<string | null> => {
+  try {
+    const resolvedRepoPath = await resolveRepositoryPath(repoPath);
+    if (!resolvedRepoPath) return null;
+    const result = await runGitRead(resolvedRepoPath, "head-commit-message", () =>
+      tauriInvoke<GitCommitLookupResult>("git.commit", {
+        repoPath: resolvedRepoPath,
+        commit: "HEAD",
+      }),
+    );
+    const subject = result?.commit?.subject ?? "";
+    if (!result?.commit?.hash) return null;
+    const body = typeof result.body === "string" ? result.body : "";
+    return body ? `${subject}\n\n${body}` : subject;
+  } catch (error) {
+    if (!isNotGitRepositoryError(error)) {
+      console.error("Failed to read HEAD commit message:", error);
+    }
+    return null;
+  }
+};
 
 /**
  * History pages carry only the subject so paging stays compact; the message

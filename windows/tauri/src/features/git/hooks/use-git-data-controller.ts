@@ -3,7 +3,6 @@ import { normalizeWorkspaceFolders } from "@/features/file-system/controllers/wo
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { getBranches } from "../api/git-branches-api";
-import { getGitHistory } from "../api/git-commits-api";
 import { getOperationState } from "../api/git-integration-api";
 import { clearRepositoryDiscoveryCache } from "../api/git-repo-api";
 import { getStashes } from "../api/git-stash-api";
@@ -40,14 +39,10 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     useRepositoryStore.use.actions();
   const gitActions = useGitStore((state) => state.actions);
   const gitStatus = useGitStore((state) => state.gitStatus);
-  const loadedCommitCount = useGitStore((state) => state.commits.length);
   const autoRefreshGitStatus = useSettingsStore((state) => state.settings.autoRefreshGitStatus);
   const workspaceFolders = useFileSystemStore((state) => state.workspaceFolders);
   const [failedRepoPath, setFailedRepoPath] = useState<string | null>(null);
-  const [failedHistoryRepoPath, setFailedHistoryRepoPath] = useState<string | null>(null);
   const hasLoadError = activeRepoPath !== null && failedRepoPath === activeRepoPath;
-  const hasHistoryLoadError =
-    activeRepoPath !== null && failedHistoryRepoPath === activeRepoPath;
   const requestIdRef = useRef(0);
   const refreshQueueRef = useRef(createGitRefreshQueue());
   const changeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -88,9 +83,11 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         repoPath,
       });
 
+      // Commit history is not read here: the Commit panel no longer lists it, the
+      // Git Log tool window pages its own history, and the compare-with-commit
+      // picker loads commits when it opens.
       try {
-        const [history, branches, stashes, operationStateResult] = await Promise.all([
-          getGitHistory(repoPath, 50),
+        const [branches, stashes, operationStateResult] = await Promise.all([
           getBranches(repoPath),
           getStashes(repoPath),
           getOperationState(repoPath)
@@ -108,15 +105,9 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
           return;
         }
 
-        // History can fail independently (for example before the first commit).
-        // Keep its last snapshot while still allowing working-tree status to load.
-        const previous = useGitStore.getState();
-        setFailedHistoryRepoPath(history ? null : repoPath);
         gitActions.refreshGitData({
           gitStatus: status,
           workingTreeVersion,
-          commits: history?.commits ?? previous.commits,
-          hasMoreCommits: history?.hasMore ?? previous.hasMoreCommits,
           branches,
           operationState: operationStateResult.ok ? operationStateResult.value : null,
           repoPath,
@@ -124,16 +115,12 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         gitActions.setStashes(stashes);
       } catch (error) {
         if (requestId === requestIdRef.current) {
-          setFailedHistoryRepoPath(repoPath);
           console.error("Failed to load optional initial Git data:", error);
         }
       }
     } catch (error) {
       if (requestId === requestIdRef.current) {
         setFailedRepoPath(repoPath);
-        // Optional metadata has not been requested yet. A status-only recovery
-        // must leave the history retry visible until a history query succeeds.
-        setFailedHistoryRepoPath(repoPath);
         console.error("Failed to load initial Git status:", error);
       }
     } finally {
@@ -160,20 +147,16 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         const workingTreeVersion = gitActions.beginWorkingTreeRefresh();
         try {
           const refreshAll = !scopes?.length;
-          const shouldRefreshHistory = refreshAll || scopes.includes("history");
           const shouldRefreshRefs =
             refreshAll || scopes.includes("refs") || scopes.includes("repository");
           const shouldRefreshStashes =
             refreshAll || scopes.includes("stashes") || scopes.includes("repository");
           const repoPaths = useRepositoryStore.getState().availableRepoPaths;
           const statusRepoPaths = repoPaths.length > 0 ? repoPaths : [repoPath];
-          const [status, branches, stashes, history, operationStateResult] = await Promise.all([
+          const [status, branches, stashes, operationStateResult] = await Promise.all([
             getWorkspaceGitStatus(statusRepoPaths, repoPath, source),
             shouldRefreshRefs ? getBranches(repoPath, source) : Promise.resolve(undefined),
             shouldRefreshStashes ? getStashes(repoPath, source) : Promise.resolve(undefined),
-            shouldRefreshHistory
-              ? getGitHistory(repoPath, Math.max(loadedCommitCount, 50), undefined, source)
-              : Promise.resolve(undefined),
             // Operation state rides along on every refresh: staging a file or
             // an external Git command can end a conflict at any moment.
             getOperationState(repoPath, source)
@@ -193,14 +176,10 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
 
           if (!status) throw new Error("Git status query returned no snapshot");
           setFailedRepoPath(null);
-          // A working-tree-only refresh cannot recover a failed history query.
-          if (shouldRefreshHistory) setFailedHistoryRepoPath(history ? null : repoPath);
           gitActions.refreshGitData({
             gitStatus: status,
             workingTreeVersion,
             branches,
-            commits: history?.commits,
-            hasMoreCommits: history?.hasMore,
             operationState: operationStateResult.ok ? operationStateResult.value : undefined,
             repoPath,
           });
@@ -215,7 +194,6 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         } catch (error) {
           if (requestId === requestIdRef.current) {
             setFailedRepoPath(repoPath);
-            if (!scopes?.length || scopes.includes("history")) setFailedHistoryRepoPath(repoPath);
             console.error("Failed to refresh git data:", error);
           }
           throw error;
@@ -224,7 +202,7 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
         if (throwOnError) throw error;
       });
     },
-    [activeRepoPath, availableRepoPaths, gitActions, loadedCommitCount, workspaceId],
+    [activeRepoPath, availableRepoPaths, gitActions, workspaceId],
   );
 
   const refreshWorkingTree = useCallback(async () => {
@@ -265,7 +243,6 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
     requestIdRef.current += 1;
     refreshQueueRef.current.clear();
     setFailedRepoPath(null);
-    setFailedHistoryRepoPath(null);
     void loadInitialGitData();
 
     return () => {
@@ -317,7 +294,6 @@ export function useGitDataController({ workspacePath, isActive }: GitDataControl
   return {
     activeRepoPath,
     hasLoadError,
-    hasHistoryLoadError,
     refreshGitData,
     refreshWorkingTree,
     refresh,
