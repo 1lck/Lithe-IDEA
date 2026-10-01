@@ -1439,11 +1439,17 @@ enum DiffSyntaxHighlighter {
         side: DiffSide,
         highlightsWords: Bool
     ) -> AttributedString {
+        let pair = highlightsWords && otherText != nil
+            ? DiffSplitLayout.InlineHighlight.compare(side == .left ? text : otherText!, side == .left ? otherText! : text)
+            : (left: nil, right: nil)
+        return styled(text, fileExtension: fileExtension, highlight: side == .left ? pair.left : pair.right)
+    }
+
+    static func styled(_ text: String, fileExtension: String, highlight: DiffSplitLayout.InlineHighlight?) -> AttributedString {
         let tokens = tokenize(text, fileExtension: fileExtension.lowercased())
-        let highlightRange = highlightsWords ? changedRange(in: text, comparedTo: otherText) : nil
-        let highlightColor = highlightRange != nil && changedRange(in: otherText ?? "", comparedTo: text) == nil
-            ? (side == .left ? LitheTheme.Diff.deleted : LitheTheme.Diff.inserted)
-            : LitheTheme.Diff.modifiedWord
+        let highlightRange = highlight?.range
+        let highlightColor = highlight?.kind == .addition ? LitheTheme.Diff.inserted
+            : highlight?.kind == .removal ? LitheTheme.Diff.deleted : LitheTheme.Diff.modifiedWord
         var result = AttributedString()
         var globalOffset = 0
 
@@ -1487,27 +1493,6 @@ enum DiffSyntaxHighlighter {
             segment.backgroundColor = background
         }
         result += segment
-    }
-
-    private static func changedRange(in text: String, comparedTo otherText: String?) -> Range<Int>? {
-        guard let otherText else { return nil }
-        let source = Array(text)
-        let comparison = Array(otherText)
-        var prefix = 0
-        let sharedCount = min(source.count, comparison.count)
-        while prefix < sharedCount, source[prefix] == comparison[prefix] {
-            prefix += 1
-        }
-
-        var suffix = 0
-        while suffix < sharedCount - prefix,
-              source[source.count - suffix - 1] == comparison[comparison.count - suffix - 1] {
-            suffix += 1
-        }
-
-        let end = source.count - suffix
-        guard prefix < end else { return nil }
-        return prefix..<end
     }
 
     private static func tokenize(_ text: String, fileExtension: String) -> [Token] {

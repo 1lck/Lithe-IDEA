@@ -184,7 +184,7 @@ struct DiffErrorStripe: NSViewRepresentable {
     }
 }
 
-/// Reuses the compact native thumb; marker geometry is relative to the entire source column.
+/// Reuses compact scroller geometry/paint; this visible view owns pointer tracking.
 final class DiffStripeScroller: NSView {
     private let scroller = LitheScrollViewChrome.CompactScroller(frame:
         NSRect(x: 0, y: 0, width: LitheScrollBarStyle.editorThickness, height: 100))
@@ -200,12 +200,12 @@ final class DiffStripeScroller: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         // AppKit's layer-backed NSScroller paints its own track instead of draw(_:).
-        // Retain native tracking but draw the existing compact thumb in this view.
+        // Use its geometry/paint, but never forward mouseDown into an invisible
+        // child: that child cannot own subsequent events delivered to this view.
         scroller.role = .editor
         scroller.onPaintChange = { [weak self] in self?.needsDisplay = true }
         scroller.alphaValue = 0
         scroller.scrollerStyle = .legacy
-        scroller.target = self; scroller.action = #selector(scrollFromKnob)
         addSubview(scroller)
     }
     required init?(coder: NSCoder) { nil }
@@ -226,6 +226,9 @@ final class DiffStripeScroller: NSView {
     var sourceHeight: CGFloat = 1
     var contentHeight: CGFloat = 1
     var viewportHeight: CGFloat = 0
+    private var dragStart: (windowY: CGFloat, value: Double, travel: CGFloat)?
+    var knobRect: NSRect { side == .right && knobProportion < 1 ? scroller.rect(for: .knob) : .zero }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     func markerRect(_ transition: DiffSplitLayout.Transition) -> NSRect {
         let range = side == .left ? transition.leftRange : transition.rightRange
@@ -254,17 +257,43 @@ final class DiffStripeScroller: NSView {
             NSColor(color).setFill()
             markerRect(transition).fill()
         }
-        if knobProportion < 1 { scroller.drawKnob() }
+        if !knobRect.isEmpty { scroller.drawKnob() }
     }
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
-        if let marker = transitions.min(by: {
+        if !knobRect.isEmpty, knobRect.contains(point) {
+            dragStart = (event.locationInWindow.y, doubleValue,
+                max(0, scroller.rect(for: .knobSlot).height - knobRect.height))
+            scroller.setHovered(true, animated: false)
+        } else if let marker = transitions.min(by: {
             abs(markerRect($0).midY - point.y) < abs(markerRect($1).midY - point.y)
         }), markerRect(marker).insetBy(dx: -3, dy: -3).contains(point) {
             let range = side == .left ? marker.leftRange : marker.rightRange
             synchronization?.scroll(side, to: range.lowerBound - viewportHeight / 3)
-        } else { scroller.mouseDown(with: event) }
+        } else if side == .right, let scroll = synchronization?.scrollView(side) {
+            let direction: CGFloat = point.y < knobRect.minY ? -1 : 1
+            synchronization?.scroll(side, to: scroll.contentView.bounds.minY + direction * viewportHeight * 0.9)
+        }
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard let dragStart, dragStart.travel > 0 else { return }
+        let value = min(max(dragStart.value + (dragStart.windowY - event.locationInWindow.y) / dragStart.travel, 0), 1)
+        synchronization?.scroll(side, to: value * max(0, contentHeight - viewportHeight))
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        mouseDragged(with: event)
+        dragStart = nil
+        scroller.setHovered(bounds.contains(convert(event.locationInWindow, from: nil)))
+    }
+
+    override func scrollWheel(with event: NSEvent) { synchronization?.scrollView(side)?.scrollWheel(with: event) }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { dragStart = nil }
     }
 
     override func accessibilityValue() -> Any? { doubleValue }
@@ -283,18 +312,4 @@ final class DiffStripeScroller: NSView {
         return true
     }
 
-    @objc func scrollFromKnob() {
-        guard let scroll = synchronization?.scrollView(side) else { return }
-        let offset = scroll.contentView.bounds.minY
-        let page = viewportHeight * 0.9
-        let y: CGFloat
-        switch scroller.hitPart {
-        case .decrementPage: y = offset - page
-        case .incrementPage: y = offset + page
-        case .decrementLine: y = offset - DiffLayoutMetrics.rowHeight
-        case .incrementLine: y = offset + DiffLayoutMetrics.rowHeight
-        default: y = CGFloat(doubleValue) * max(0, contentHeight - viewportHeight)
-        }
-        synchronization?.scroll(side, to: y)
-    }
 }

@@ -42,7 +42,6 @@ final class DiffNativeColumnState: ObservableObject {
     private(set) var lines: [Line] = []
     private(set) var preparedText = NSAttributedString()
     private(set) var revision = 0
-    var selectedIDs: Set<DiffRowID> = []
     var currentSearchID: DiffRowID?
     var caretLine: Int?
     var hasCaret = false
@@ -67,9 +66,11 @@ final class DiffNativeColumnState: ObservableObject {
                 let source = sourceSide == .left ? row.left ?? "" : row.rightText ?? ""
                 let other = sourceSide == .left ? row.rightText : row.left
                 sourceNumber = sourceSide == .left ? row.oldLine : row.newLine
-                let styled = DiffSyntaxHighlighter.styled(source, comparing: item.kind == .changed ? other ?? "" : other,
-                    fileExtension: fileExtension, side: sourceSide,
-                    highlightsWords: highlightsWords && (item.kind == .changed || unified && row.kind == .changed))
+                let styled = unified
+                    ? DiffSyntaxHighlighter.styled(source, comparing: other, fileExtension: fileExtension,
+                        side: sourceSide, highlightsWords: highlightsWords && row.kind == .changed)
+                    : DiffSyntaxHighlighter.styled(source, fileExtension: fileExtension,
+                        highlight: highlightsWords ? item.inlineHighlight : nil)
                 for run in styled.runs {
                     var attributes: [NSAttributedString.Key: Any] = [:]
                     if let color = run.foregroundColor { attributes[.foregroundColor] = NSColor(color) }
@@ -171,7 +172,6 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
         state.prepare(identity: layoutIdentity, items: items, side: side,
             fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark, unified: unified)
-        state.selectedIDs = selectedRowIDs
         state.currentSearchID = currentSearchMatchID
         view.selectedTextAttributes = [.backgroundColor: NSColor(LitheTheme.Diff.selection)]
         if view.appliedRevision != state.revision {
@@ -214,10 +214,6 @@ final class DiffNativeTextView: NSTextView, NSTextViewDelegate {
             column.background(item, muted: true).setFill()
             NSRect(x: dirtyRect.minX, y: item.top, width: dirtyRect.width, height: item.height).fill()
             if case let .row(row, _) = item.displayRow {
-                if column.selectedIDs.contains(row.id) {
-                    NSColor(LitheTheme.accent).setFill()
-                    NSRect(x: 0, y: item.top, width: 2, height: item.height).fill()
-                }
                 if column.currentSearchID == row.id {
                     NSColor.systemYellow.setStroke()
                     NSBezierPath(rect: NSRect(x: 0.5, y: item.top + 0.5,
@@ -340,6 +336,10 @@ final class DiffNativeTransitionsView: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
+        NSGraphicsContext.saveGraphicsState()
+        defer { NSGraphicsContext.restoreGraphicsState() }
+        NSBezierPath(rect: bounds).addClip()
+        guard rightX > leftX else { return }
         var low = 0, high = transitions.count
         while low < high {
             let mid = (low + high) / 2
@@ -354,14 +354,21 @@ final class DiffNativeTransitionsView: NSView {
             let path = NSBezierPath()
             let c1 = leftX + (rightX - leftX) * 0.3
             let c2 = leftX + (rightX - leftX) * 0.7
-            path.move(to: NSPoint(x: leftX, y: transition.leftRange.lowerBound - leftOffset))
-            path.curve(to: NSPoint(x: rightX, y: transition.rightRange.lowerBound - rightOffset),
-                controlPoint1: NSPoint(x: c1, y: transition.leftRange.lowerBound - leftOffset),
-                controlPoint2: NSPoint(x: c2, y: transition.rightRange.lowerBound - rightOffset))
-            path.line(to: NSPoint(x: rightX, y: transition.rightRange.upperBound - rightOffset + 1))
-            path.curve(to: NSPoint(x: leftX, y: transition.leftRange.upperBound - leftOffset + 1),
-                controlPoint1: NSPoint(x: c2, y: transition.rightRange.upperBound - rightOffset + 1),
-                controlPoint2: NSPoint(x: c1, y: transition.leftRange.upperBound - leftOffset + 1))
+            // DividerPolygon converts exclusive line ends to inclusive pixels
+            // before drawCurveTrapezium adds one back. Nonempty edges must stop
+            // exactly at the adjacent gutter's row boundary.
+            let leftEmpty = transition.leftRange.lowerBound == transition.leftRange.upperBound
+            let rightEmpty = transition.rightRange.lowerBound == transition.rightRange.upperBound
+            let leftTop = transition.leftRange.lowerBound - leftOffset - (leftEmpty ? 1 : 0)
+            let rightTop = transition.rightRange.lowerBound - rightOffset - (rightEmpty ? 1 : 0)
+            let leftBottom = transition.leftRange.upperBound - leftOffset + (leftEmpty ? 1 : 0)
+            let rightBottom = transition.rightRange.upperBound - rightOffset + (rightEmpty ? 1 : 0)
+            path.move(to: NSPoint(x: leftX, y: leftTop))
+            path.curve(to: NSPoint(x: rightX, y: rightTop),
+                controlPoint1: NSPoint(x: c1, y: leftTop), controlPoint2: NSPoint(x: c2, y: rightTop))
+            path.line(to: NSPoint(x: rightX, y: rightBottom))
+            path.curve(to: NSPoint(x: leftX, y: leftBottom),
+                controlPoint1: NSPoint(x: c2, y: rightBottom), controlPoint2: NSPoint(x: c1, y: leftBottom))
             path.close()
             NSColor(transition.isAddition ? LitheTheme.Diff.inserted : transition.isRemoval
                 ? LitheTheme.Diff.deleted : LitheTheme.Diff.modified).setFill()

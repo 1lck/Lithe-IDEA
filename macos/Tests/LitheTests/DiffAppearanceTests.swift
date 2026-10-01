@@ -9,6 +9,56 @@ import LitheGitModule
 @MainActor
 struct DiffAppearanceTests {
     @Test
+    func multilineReplacementKeepsOneInlineColorAcrossReflowedRows() async throws {
+        let old = [".padding(.horizontal, 10)", ".frame(height: 30)",
+                   ".background(tab == selectedTab ? LitheTheme.subtleSelection : .clear)",
+                   ".clipShape(RoundedRectangle(cornerRadius: 5))"]
+        let new = [".padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)",
+                   ".padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)", ".litheRowHover(",
+                   "    isActive: tab == selectedTab,", "    cornerRadius: LitheTheme.Metrics.cornerRadius,",
+                   "    activeBackground: LitheTheme.subtleSelection,", "    hoverBackground: LitheTheme.hoverBackground",
+                   ")"]
+        var rows = new.enumerated().map { index, text in
+            DiffRow(oldLine: index < old.count ? index + 156 : nil, newLine: index + 156,
+                left: index < old.count ? old[index] : nil, right: text,
+                kind: index < old.count ? .changed : .addition, sequence: index)
+        }
+        rows.append(DiffRow(oldLine: 160, newLine: 164, left: ".buttonStyle(.plain)", right: nil, kind: .context, sequence: 8))
+        rows.append(DiffRow(oldLine: 161, newLine: nil, left: ".lithePointer()", right: nil, kind: .removal, sequence: 9))
+        let layout = DiffSplitLayout.plan(displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind))
+        #expect(layout.transitions.map(\.kind) == [.changed, .removal])
+        #expect(layout.leftItems.prefix(old.count).allSatisfy { $0.inlineHighlight?.kind == .changed })
+        #expect(layout.rightItems.prefix(new.count - 1).allSatisfy { $0.inlineHighlight?.kind == .changed },
+            "Extra rows in a rewritten call must use the whole fragment comparison, not compare against an empty row")
+        let state = DiffNativeColumnState()
+        state.prepare(identity: layout.identity, items: layout.rightItems, side: .right,
+            fileExtension: "swift", highlightsWords: true, dark: true)
+        for line in state.lines.prefix(new.count - 1) {
+            let range = try #require(line.item.inlineHighlight?.range)
+            let background = try #require(state.preparedText.attribute(.backgroundColor,
+                at: line.range.location + range.lowerBound, effectiveRange: nil) as? NSColor)
+            #expect(background.usingColorSpace(.deviceRGB) == NSColor(LitheTheme.Diff.modifiedWord).usingColorSpace(.deviceRGB))
+        }
+        let hosting = NSHostingView(rootView: DiffSplitPaneView(
+            displayRows: rows.enumerated().map { .row($0.element, index: $0.offset) }, kinds: rows.map(\.kind),
+            layout: layout, fileExtension: "swift", contentWidth: 1_800, viewportWidth: 1_200,
+            onExpand: { _ in }).environment(\.colorScheme, .dark))
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_200, height: 300)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = hosting
+        window.appearance = NSAppearance(named: .darkAqua)
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+            try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+            let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                URL(fileURLWithPath: directory).appendingPathComponent("multiline-replacement.png"))
+        }
+    }
+
+    @Test
     func sourceNumberWidthRemainsStableWhenTheLargestNumberIsFolded() {
         let rows = (1...1_005).map { DiffRow(oldLine: $0, newLine: $0, left: "same", right: nil, kind: .context, sequence: $0) }
         let width = DiffLayoutMetrics.lineNumberGutterWidth(rows: rows)
@@ -113,7 +163,7 @@ struct DiffAppearanceTests {
         let dark = appearance == .darkAqua
         let view = DiffSplitPaneView(displayRows: display, kinds: rows.map(\.kind), layout: layout,
             fileExtension: "swift", contentWidth: 1_600, viewportWidth: 900,
-            onExpand: { _ in }).environment(\.colorScheme, dark ? .dark : .light)
+            selectedRowIDs: [rows[1].id], onExpand: { _ in }).environment(\.colorScheme, dark ? .dark : .light)
         let hosting = NSHostingView(rootView: view)
         hosting.sizingOptions = []
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 160),
@@ -146,6 +196,11 @@ struct DiffAppearanceTests {
         #expect(matches(inserted, dark ? 0x294436 : 0xBEE6BE), "Inserted: \(inserted)")
         #expect(matches(deleted, dark ? 0x25323E : 0xE6EFFA), "Replacement: \(deleted)")
         #expect(matches(modified, dark ? 0x25323E : 0xE6EFFA), "Modified: \(modified)")
+        #expect(matches(try color(450, 88.5), dark ? 0x191A1C : 0xFFFFFF),
+            "A flat connector must stop at the same exclusive row boundary as both gutters")
+        let rightCodeStart = 450 + DiffLayoutMetrics.dividerWidth / 2 + layout.lineNumberGutterWidth
+        #expect(matches(try color(rightCodeStart + 0.5, 33), dark ? 0x294436 : 0xBEE6BE),
+            "Navigating a difference must not add a blue selection stripe at the code edge")
         let paneWidth = (900 - layout.lineNumberGutterWidth * 2 - DiffLayoutMetrics.dividerWidth) / 2
         // Both columns must actually draw source numbers in the central gutter.
         for start in [paneWidth, paneWidth + layout.lineNumberGutterWidth + DiffLayoutMetrics.dividerWidth] {
@@ -211,7 +266,8 @@ struct DiffAppearanceTests {
         let gutterOnlyPosition = layout.lineNumberGutterWidth + DiffLayoutMetrics.dividerWidth / 2
         for target in [gutterOnlyPosition, 0.0, 900.0, 450.0] {
             let handlePoint = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
-            let delta = CGFloat(target) - handlePoint.x
+            let connector = try #require(descendants(hosting).compactMap { $0 as? DiffNativeTransitionsView }.first)
+            let delta = CGFloat(target) - (connector.leftX + connector.rightX) / 2
             func dragEvent(_ type: NSEvent.EventType, _ dx: CGFloat) throws -> NSEvent {
                 try #require(NSEvent.mouseEvent(with: type,
                     location: NSPoint(x: handlePoint.x + dx, y: handlePoint.y), modifierFlags: [],
@@ -236,7 +292,7 @@ struct DiffAppearanceTests {
                 let x: CGFloat = target == 900 ? 860 : 10
                 let pixel = try #require(clipped.colorAt(x: Int(x * scale), y: Int(28 * scale)))
                 #expect(matches(pixel, target == 0 ? (dark ? 0x294436 : 0xBEE6BE)
-                    : (dark ? 0x191A1C : 0xFFFFFF)), "The old gutter persists before complete collapse; the new gutter starts at the edge afterward")
+                    : (dark ? 0x191A1C : 0xFFFFFF)), "The old gutter persists before complete collapse; the new gutter starts at the edge afterward: target=\(target)")
                 if dark, let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
                     try #require(clipped.representation(using: .png, properties: [:])).write(to:
                         URL(fileURLWithPath: directory).appendingPathComponent("collapse-\(Int(target)).png"))

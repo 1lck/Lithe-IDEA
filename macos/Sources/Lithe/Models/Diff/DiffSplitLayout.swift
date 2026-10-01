@@ -10,6 +10,23 @@ import LitheGitModule
 /// visualizes the resulting offset. This plan is the shared geometry behind
 /// that behavior.
 struct DiffSplitLayout {
+    struct InlineHighlight {
+        let range: Range<Int>
+        let kind: DiffRowKind
+
+        static func compare(_ left: String, _ right: String) -> (left: Self?, right: Self?) {
+            let old = Array(left), new = Array(right)
+            var prefix = 0, suffix = 0
+            let sharedCount = min(old.count, new.count)
+            while prefix < sharedCount, old[prefix] == new[prefix] { prefix += 1 }
+            while suffix < sharedCount - prefix,
+                  old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+            let oldEnd = old.count - suffix, newEnd = new.count - suffix
+            let kind: DiffRowKind = prefix == oldEnd ? .addition : prefix == newEnd ? .removal : .changed
+            return (prefix < oldEnd ? Self(range: prefix..<oldEnd, kind: kind) : nil,
+                    prefix < newEnd ? Self(range: prefix..<newEnd, kind: kind) : nil)
+        }
+    }
     /// Presentation identity: frame changes reuse the same prepared text storage.
     let identity = UUID()
     struct Item: Identifiable {
@@ -18,6 +35,7 @@ struct DiffSplitLayout {
         let top: CGFloat
         let height: CGFloat
         let isScrollAnchor: Bool
+        var inlineHighlight: InlineHighlight? = nil
 
         var id: String { displayRow.id }
     }
@@ -81,16 +99,34 @@ struct DiffSplitLayout {
             // ranges, not the positional row pairs supplied by our Core adapter.
             let kind: DiffRowKind = leftHeight == run.leftStart ? .addition
                 : rightHeight == run.rightStart ? .removal : .changed
-            for index in run.leftIndex..<leftItems.count {
-                let item = leftItems[index]
-                leftItems[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
-                    height: item.height, isScrollAnchor: item.isScrollAnchor)
+            func source(_ item: Item, side: DiffSide) -> String {
+                let row = item.displayRow.layoutRow
+                return side == .left ? row.left ?? "" : row.rightText ?? ""
             }
-            for index in run.rightIndex..<rightItems.count {
-                let item = rightItems[index]
-                rightItems[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
-                    height: item.height, isScrollAnchor: item.isScrollAnchor)
+            // Preserve the existing prefix/suffix highlighter, but compare the
+            // complete replacement, never positional row pairs. A reflowed
+            // method call is one modification, not alternating insert/delete.
+            // ponytail: one inner span per fragment; use provider-owned inner
+            // fragments if disjoint word edits need finer highlighting.
+            let highlight = InlineHighlight.compare(
+                leftItems[run.leftIndex...].map { source($0, side: .left) }.joined(separator: "\n"),
+                rightItems[run.rightIndex...].map { source($0, side: .right) }.joined(separator: "\n"))
+            func apply(_ items: inout [Item], start: Int, side: DiffSide, highlight: InlineHighlight?) {
+                var offset = 0
+                for index in start..<items.count {
+                    let item = items[index]
+                    let length = source(item, side: side).count
+                    let lower = max(offset, highlight?.range.lowerBound ?? offset)
+                    let upper = min(offset + length, highlight?.range.upperBound ?? offset)
+                    items[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
+                        height: item.height, isScrollAnchor: item.isScrollAnchor,
+                        inlineHighlight: kind == .changed && lower < upper
+                            ? InlineHighlight(range: (lower - offset)..<(upper - offset), kind: highlight!.kind) : nil)
+                    offset += length + 1
+                }
             }
+            apply(&leftItems, start: run.leftIndex, side: .left, highlight: highlight.left)
+            apply(&rightItems, start: run.rightIndex, side: .right, highlight: highlight.right)
             transitions.append(
                 Transition(
                     id: run.id,

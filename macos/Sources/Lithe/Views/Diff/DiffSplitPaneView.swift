@@ -125,12 +125,19 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
                             leftPaneWidth = min(max(paneDragStart + translation, 0), viewportWidth)
                         }
                     )
-                    .offset(x: min(max(panes.position - SplitHandleView.thickness / 2, 0), max(0, viewportWidth - SplitHandleView.thickness)))
+                    // Keep the entire native hit surface inside this viewer,
+                    // including at zero-width panes next to workbench splitters.
+                    .offset(x: min(max(panes.position, SplitHandleView.hitThickness / 2),
+                        max(SplitHandleView.hitThickness / 2, viewportWidth - SplitHandleView.hitThickness / 2))
+                        - SplitHandleView.thickness / 2)
                     .frame(height: geometry.size.height)
                 }
                 .frame(width: viewportWidth, height: geometry.size.height, alignment: .topLeading)
+                .clipped()
             }
         }
+        .frame(width: viewportWidth)
+        .clipped()
     }
 
     private func sideViewport<Column: View>(
@@ -236,7 +243,7 @@ private struct DiffHorizontalOffsetLayer<Content: View>: View {
                 offset: $horizontalOffset,
                 viewportWidth: viewportWidth,
                 contentWidth: contentWidth
-            )
+            ).frame(height: LitheScrollBarStyle.thickness)
         }
         .background {
             DiffHorizontalScrollWheelMonitor { delta in

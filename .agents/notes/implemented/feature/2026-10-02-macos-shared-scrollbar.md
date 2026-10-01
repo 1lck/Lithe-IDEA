@@ -33,7 +33,15 @@ macOS 已使用 `litheScrollViewChrome` 的滚动区默认共用 IDEA 滚动条�
   `IslandSchemeDark.xml` 覆盖滑块为 #FFFFFF26/#FFFFFF4D；不能套用普通滚动区的灰色。
 - `LitheScrollViewChrome.CompactScroller` 绘制原生普通入口；
   `LitheScrollBarPaint` 是同一 owner 的绘制适配器，用于保留 Diff 横向拖动动作。
-  双栏和单栏的 `DiffStripeScroller` 保留原生 knob 跟踪，先绘制标记再画滑块。
+  双栏和单栏的 `DiffStripeScroller` 复用原生 knob 几何与共享绘制，先绘制标记再画滑块。
+  用户要求 Diff 只保留右侧拖动滑块，左侧仍显示可点击的差异标记；这是 Lithe
+  的选择，并非 IDEA 默认隐藏左侧滑块。可见轨道自己接收完整按下/拖动/松开事件，
+  按原生 knobSlot 的有效行程映射正文位置。不能把按下转发给 alpha=0 的子 scroller，
+  否则后续事件不属于该控件，出现滑块可见但拖不动。命中 thumb 优先开始拖动，
+  其余区域再判断差异标记或翻页，保留无障碍滚动与轨道滚轮行为。
+  底部横向滑块也使用原生命中视图，避免透明 SwiftUI 手势层被 NSTextView 截获；
+  保留原有尺寸、两侧同步偏移、共享绘制和事件合并。两个方向都要验证真实窗口
+  拖动导致正文位置变化，不能用直接调用滚动方法代替。
   标记遵循 `offsetsToYPositions`：短文件保留实际 Y 坐标，长文件才压缩到轨道长度，
   避免没有滚动溢出时将一行修改拉伸成很长的标记。宽标记在滑块下面绘制，
   滑块覆盖时颜色自然混合，不另加轮廓、间隔或圆角。
@@ -55,7 +63,8 @@ LSP Control Center/Language Server Setup、Git Log/Console/Worktrees，以及 Di
 
 共享入口修正会影响列出的调用者，颜色不再依赖各页面的文字或分隔线 token。
 代价是需要维护 product/editor 两种用途；它们来自上游的实际覆盖，不能合成一个颜色。
-自绘轨道仍依赖 AppKit 原生跟踪，验证必须捕获实际 NSScrollView 而不只调用绘制函数。
+自绘 Diff 轨道复用 AppKit 几何并自己跟踪事件，普通滚动条仍依赖原生跟踪；验证必须
+通过真实窗口发送拖动事件并检查 NSScrollView 偏移，不能只调用绘制函数或滚动方法。
 
 ## 验证
 

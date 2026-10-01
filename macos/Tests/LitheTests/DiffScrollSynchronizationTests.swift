@@ -83,8 +83,24 @@ struct DiffScrollSynchronizationTests {
             - (change.rightRange.lowerBound - ribbon.rightOffset)) < 0.1,
             "Matched changes flatten after the insertion passes the one-third viewport anchor")
         #expect(left.knobProportion > 0 && left.knobProportion < 1)
+        #expect(left.knobRect.isEmpty, "The left rail retains markers without a duplicate thumb")
         #expect(left.transitions.contains { $0.kind == .addition })
         #expect(right.transitions.contains { $0.kind == .changed })
+        sync.scroll(.right, to: 0)
+        window.orderFront(nil)
+        let knob = right.knobRect
+        #expect(!knob.isEmpty)
+        let knobPoint = right.convert(NSPoint(x: knob.midX, y: knob.midY), to: nil)
+        #expect(hosting.hitTest(hosting.convert(knobPoint, from: nil)) === right)
+        for (type, delta) in [(NSEvent.EventType.leftMouseDown, CGFloat(0)), (.leftMouseDragged, 40), (.leftMouseUp, 40)] {
+            let event = try #require(NSEvent.mouseEvent(with: type,
+                location: NSPoint(x: knobPoint.x, y: knobPoint.y - delta), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseUp ? 0 : 1))
+            window.sendEvent(event)
+        }
+        #expect(newClip.bounds.minY > 100, "Dragging the visible thumb must move the native document")
+        #expect(oldClip.bounds.minY > 100, "The other source column follows thumb scrolling")
         sync.scroll(.right, to: 0)
         #expect(right.isAccessibilityElement() && right.accessibilityRole() == .scrollBar)
         #expect(right.accessibilityPerformIncrement())
@@ -121,6 +137,83 @@ struct DiffScrollSynchronizationTests {
         }
         window.contentView = nil
         #expect(sync.scrollView(.left) == nil && sync.scrollView(.right) == nil, "Unmounting removes clip observers")
+    }
+
+    @Test
+    func collapsedDiffHandleKeepsEventsInsideWorkbenchAndCanReopen() async throws {
+        let rows = rows()
+        let display = rows.enumerated().map { DiffDisplayRow.row($0.element, index: $0.offset) }
+        let layout = DiffSplitLayout.plan(displayRows: display, kinds: rows.map(\.kind))
+        var outerDrags = 0
+        let hosting = NSHostingView(rootView: HStack(spacing: 0) {
+            Color(red: 1, green: 0, blue: 0).frame(width: 80)
+            SplitHandleView(axis: .horizontal, onDragStarted: { outerDrags += 1 }, onDragChanged: { _ in }, onDragEnded: { _ in })
+            DiffSplitPaneView(displayRows: display, kinds: rows.map(\.kind), layout: layout,
+                fileExtension: "swift", contentWidth: 1_600, viewportWidth: 900,
+                header: { _ in AnyView(Color(red: 1, green: 0, blue: 0).frame(height: 29)) }, onExpand: { _ in }).frame(width: 900)
+            SplitHandleView(axis: .horizontal, onDragStarted: { outerDrags += 1 }, onDragChanged: { _ in }, onDragEnded: { _ in })
+            Color(red: 1, green: 0, blue: 0).frame(width: 80)
+        })
+        hosting.frame = NSRect(x: 0, y: 0, width: 1_070, height: 250)
+        let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = hosting; window.orderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        let handles = descendants(hosting).compactMap { $0 as? SplitHandleInteractionView }
+            .sorted { $0.convert(.zero, to: hosting).x < $1.convert(.zero, to: hosting).x }
+        #expect(handles.count == 3)
+        let handle = try #require(handles.dropFirst().first)
+        let ribbon = try #require(descendants(hosting).compactMap { $0 as? DiffNativeTransitionsView }.first)
+        let stripe = try #require(descendants(hosting).compactMap { $0 as? DiffStripeScroller }.first)
+        stripe.synchronization?.scroll(.right, to: 1_900)
+        let before = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: before)
+        let sentinel = try #require(before.colorAt(x: 20, y: 20))
+        for target in [CGFloat(-100), 300, 1_000, 450] {
+            let origin = handle.convert(NSPoint(x: handle.bounds.midX, y: handle.bounds.midY), to: nil)
+            #expect(hosting.hitTest(hosting.convert(origin, from: nil)) === handle,
+                "At a collapsed edge the actual hit must still belong to Diff, not its adjacent workbench handle")
+            let diffOrigin = ribbon.convert(.zero, to: nil).x
+            for (type, x) in [(NSEvent.EventType.leftMouseDown, origin.x), (.leftMouseDragged, diffOrigin + target), (.leftMouseUp, diffOrigin + target)] {
+                window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: NSPoint(x: x, y: origin.y), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .leftMouseUp ? 0 : 1)))
+            }
+            await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            #expect(outerDrags == 0)
+            let rect = handle.convert(handle.bounds, to: ribbon)
+            #expect(rect.minX >= -0.5 && rect.maxX <= 900.5, "The complete native hit surface stays in Diff")
+            let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+            hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+            if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
+                try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: directory).appendingPathComponent("workbench-edge-\(Int(target)).png"))
+            }
+            let scale = CGFloat(bitmap.pixelsWide) / hosting.bounds.width
+            for point in [NSPoint(x: 90, y: 12), NSPoint(x: 535, y: 12), NSPoint(x: 980, y: 12),
+                          NSPoint(x: 50, y: 120), NSPoint(x: 1_020, y: 120)] {
+                let pixel = try #require(bitmap.colorAt(x: Int(point.x * scale), y: Int(point.y * scale)))
+                #expect(abs(pixel.redComponent - sentinel.redComponent) < 0.01
+                    && abs(pixel.greenComponent - sentinel.greenComponent) < 0.01
+                    && abs(pixel.blueComponent - sentinel.blueComponent) < 0.01,
+                    "Offscreen ribbons and collapsed content cannot paint the title or neighboring sidebar: \(point), \(pixel)")
+            }
+        }
+        let editors = descendants(hosting).compactMap { $0 as? DiffNativeTextView }
+        let initialX = editors.map { $0.convert(.zero, to: hosting).x }
+        for (type, x) in [(NSEvent.EventType.leftMouseDown, CGFloat(165)), (.leftMouseDragged, 265), (.leftMouseUp, 265)] {
+            let point = hosting.convert(NSPoint(x: x, y: 243), to: nil)
+            window.sendEvent(try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1,
+                pressure: type == .leftMouseUp ? 0 : 1)))
+            await Task.yield(); hosting.layoutSubtreeIfNeeded()
+        }
+        for (index, editor) in editors.enumerated() {
+            #expect(editor.convert(.zero, to: hosting).x < initialX[index] - 10,
+                "Dragging the horizontal thumb scrolls both code surfaces")
+        }
+        #expect(outerDrags == 0)
     }
 
     @Test
