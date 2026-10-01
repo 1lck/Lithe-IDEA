@@ -27,6 +27,7 @@ import {
 import { Button } from "@/ui/button";
 import { cn } from "@/utils/cn";
 import { useTranslation } from "@/i18n/locale-provider";
+import { useGitLogColumnResize } from "../../hooks/use-git-log-column-resize";
 import {
   type GitLogFilterScope,
   useGitLogPreferencesStore,
@@ -39,6 +40,8 @@ import {
   selectedCommitsInHistoryOrder,
 } from "../../utils/git-history-selection";
 import { GitGraphRow } from "./git-graph-row";
+import { GitLogColumnResizeHandle } from "./git-log-column-resize-handle";
+import { GitLogDateCell } from "./git-log-date-cell";
 import { isGitHeadCommit } from "../../utils/git-history-message";
 
 const ROW_HEIGHT = 30;
@@ -121,6 +124,7 @@ export function GitCommitTable({
     estimateSize: () => ROW_HEIGHT,
     overscan: 14,
   });
+  const { columnStyle, activeColumn, startResize } = useGitLogColumnResize(scrollRef);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
@@ -202,7 +206,7 @@ export function GitCommitTable({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background font-sans ui-text-sm select-none">
-      <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-surface px-2">
+      <div className="flex h-8 shrink-0 items-center gap-2 border-border border-b bg-background px-2">
         <div className="flex h-6 min-w-36 max-w-72 flex-1 items-center gap-1.5 rounded border border-border bg-background px-2 focus-within:border-border-strong">
           <Search className="size-3.5 shrink-0 text-subtle-foreground" />
           <input
@@ -257,16 +261,11 @@ export function GitCommitTable({
         </span>
       </div>
 
-      <div className="flex h-6 shrink-0 items-center border-border border-b bg-surface/70 px-2 text-subtle-foreground">
-        <span className="min-w-0 flex-1">{t("git.log.commit")}</span>
-        <span className="w-28 shrink-0">{t("git.log.author")}</span>
-        <span className="w-32 shrink-0 text-right">{t("git.log.date")}</span>
-      </div>
-
       <div
         ref={scrollRef}
         data-scroll-container=""
         className="min-h-0 flex-1 overflow-auto [overflow-anchor:none]"
+        style={columnStyle}
       >
         {visibleRows.length === 0 ? (
           commits.length === 0 && emptyState ? (
@@ -278,7 +277,10 @@ export function GitCommitTable({
           )
         ) : (
           <>
-            <div className="relative min-w-130" style={{ height: virtualizer.getTotalSize() }}>
+            <div
+              className="relative"
+              style={{ height: virtualizer.getTotalSize(), minWidth: "var(--git-log-row-min-width)" }}
+            >
               {virtualizer.getVirtualItems().map((virtualRow) => {
                 const row = visibleRows[virtualRow.index];
                 const isSelected = selectedCommitHashes.has(row.commit.hash);
@@ -323,12 +325,19 @@ export function GitCommitTable({
                       title={t("git.log.openDiffHint")}
                     >
                       <GitGraphRow row={row} showDecorations={showDecorations} />
-                      <span className="w-28 shrink-0 overflow-clip px-2 text-ellipsis whitespace-nowrap text-subtle-foreground">
-                        {row.commit.author}
-                      </span>
-                      <span className="w-32 shrink-0 overflow-clip text-ellipsis whitespace-nowrap text-right font-mono text-[11px] text-subtle-foreground">
-                        {row.commit.date}
-                      </span>
+                      <div className="relative flex h-full w-(--git-log-author-width) shrink-0 items-center">
+                        <span className="min-w-0 flex-1 overflow-clip px-2 text-ellipsis whitespace-nowrap text-foreground">
+                          {row.commit.author}
+                        </span>
+                        <GitLogColumnResizeHandle column="author" onStartResize={startResize} />
+                      </div>
+                      <div className="relative flex h-full w-(--git-log-date-width) shrink-0 items-center">
+                        <GitLogDateCell
+                          date={row.commit.date}
+                          utcOffsetMinutes={row.commit.dateUtcOffsetMinutes}
+                        />
+                        <GitLogColumnResizeHandle column="date" onStartResize={startResize} />
+                      </div>
                     </ContextMenuTrigger>
                     <ContextMenuContent>
                       {hasMultipleContextCommits ? (
@@ -460,6 +469,8 @@ export function GitCommitTable({
           </>
         )}
       </div>
+      {/* Shields the rows from hover and the trailing click while a column is being dragged. */}
+      {activeColumn ? <div className="fixed inset-0 z-40 cursor-ew-resize" /> : null}
     </div>
   );
 }

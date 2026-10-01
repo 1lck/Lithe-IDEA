@@ -6,6 +6,7 @@
     "authorName": "Lithe Test",
     "authorEmail": "test@example.invalid",
     "date": "2026/08/30 12:00",
+    "dateUtcOffsetMinutes": 480,
     "subject": "Fix commit details",
     "decorations": "HEAD -> feature/recent"
   },

@@ -29,6 +29,7 @@ import {
 import {
   FilesIcon,
   FolderOpenIcon,
+  GearIcon,
   ListIcon,
   MagnifyingGlassIcon,
   PlayIcon,
@@ -65,6 +66,7 @@ export const TitleBar = ({
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
   const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
+  const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const branchItem = useFooterGitBranchItem();
 
   const [menuBarActiveMenu, setMenuBarActiveMenu] = useState<string | null>(null);
@@ -284,6 +286,20 @@ export const TitleBar = ({
     </Button>
   );
 
+  const settingsAction = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      tooltip={t("workbench.settings")}
+      tooltipSide="bottom"
+      onClick={() => openSettingsDialog()}
+      aria-label={t("workbench.settings")}
+    >
+      <GearIcon />
+    </Button>
+  );
+
   const workbenchActions = (
     <ChromeGroup gap="tight" className="pointer-events-auto">
       <Tooltip content={BACKEND_UNAVAILABLE_TOOLTIP} side="bottom">
@@ -383,6 +399,7 @@ export const TitleBar = ({
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
           {quickOpenAction}
+          {settingsAction}
           {isWindows ? <TitleBarUpdateControl visible={showUpdateControl} /> : null}
 
           {showAppWindowControls && (

@@ -94,6 +94,7 @@ export function GitLogToolWindow() {
     if (!rootFolderPath || availableRepoPaths.length > 0) return;
     void syncWorkspaceRepositories(rootFolderPath);
   }, [availableRepoPaths.length, rootFolderPath, syncWorkspaceRepositories]);
+  const isBottomPaneVisible = useUIState((state) => state.isBottomPaneVisible);
   const setIsBottomPaneVisible = useUIState((state) => state.setIsBottomPaneVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const pendingReferenceSelectionRef = useRef<GitReference | null>(null);
@@ -113,6 +114,7 @@ export function GitLogToolWindow() {
   const pullWorkflow = useGitPullWorkflow({ repoPath: repoPath ?? "", refresh });
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [selectedCommitHashes, setSelectedCommitHashes] = useState<Set<string>>(new Set());
+  const [previewRequest, setPreviewRequest] = useState(0);
   const [isReferenceOperating, setIsReferenceOperating] = useState(false);
   const [showFetchOptions, setShowFetchOptions] = useState(false);
   const [showRemoteManager, setShowRemoteManager] = useState(false);
@@ -200,12 +202,17 @@ export function GitLogToolWindow() {
   const {
     isLoadingCommitDiff,
     viewCommitDiff,
+    previewCommitFileDiff,
     viewCommitRangeDiff,
     viewCommitSelectionDiff,
     viewBranchDiff,
     viewReferenceWorkingTreeDiff,
   } = useGitDiffActions({
     activeRepoPath: repoPath,
+    commitPreviewScope:
+      isBottomPaneVisible && panel === "log" && selectedCommits.length > 0
+        ? JSON.stringify(selectedCommits.map((commit) => commit.hash))
+        : null,
     gitFileByPath: emptyGitFileByPath,
     workingTreeDiffEntriesByScope: emptyWorkingTreeEntries,
     commitByHash,
@@ -231,6 +238,7 @@ export function GitLogToolWindow() {
       ? commit.hash
       : visibleCommitHashes.find((hash) => result.selected.has(hash));
     setSelectedCommit(activeHash ? (commitByHash.get(activeHash) ?? null) : null);
+    setPreviewRequest((request) => request + 1);
   };
 
   const selectCommitForContextMenu = (commit: GitCommit) => {
@@ -741,6 +749,8 @@ export function GitLogToolWindow() {
               repoPath={repoPath}
               commit={activeSelectedCommit}
               commits={selectedCommits}
+              previewRequest={previewRequest}
+              onPreviewFile={previewCommitFileDiff}
               onOpenDiff={openDiff}
               onOpenRangeDiff={(range, filePath) => {
                 if (isLoadingCommitDiff) return;
