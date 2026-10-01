@@ -13,6 +13,7 @@ import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
+import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
 // bounded native probe host. No DOM-based imitation of Monaco input.
@@ -33,6 +34,7 @@ async function verify() {
     cases.push({ name, durationMs: performance.now() - started });
   }
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
+  for (const test of imeInputCases) await check(test.name, async () => test.run());
   await check("diff projections preserve sparse source lines and release read-only models", async () => {
     const before = monacoEditor.getModels().length;
     const container = document.createElement("div");
