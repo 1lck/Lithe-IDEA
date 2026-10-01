@@ -110,6 +110,12 @@ struct ProjectSidebarView: View {
                         .onChange(of: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths).map { $0.url.path }) { paths in
                             selection.retain(visiblePaths: paths)
                         }
+                        .onChange(of: model.activeDocument?.url.standardizedFileURL.path) { path in
+                            // A single selection follows the editor, as it did before
+                            // multi-selection; an explicit group stays until changed.
+                            guard let path, selection.paths.count <= 1 else { return }
+                            selection.select(path, visiblePaths: [], extending: false, toggling: false)
+                        }
                         .scrollContentBackground(.hidden)
                         .litheScrollViewChrome(usesCompactScrollers: true)
                         .task(
@@ -428,7 +434,6 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
             && lhs.selectionSnapshot == rhs.selectionSnapshot
-            && lhs.visibleNodes == rhs.visibleNodes
     }
 
     var body: some View {
@@ -558,7 +563,6 @@ private struct FileNodeRow: View {
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
-            capturesControlClick: false,
             onRightClick: {
                 selection.selectForContextMenu(node.url.path)
                 contextMenuPath = node.url.standardizedFileURL.path
@@ -611,7 +615,6 @@ private struct FileNodeRow: View {
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + fileContextMenuItems },
-            capturesControlClick: false,
             onRightClick: {
                 selection.selectForContextMenu(node.url.path)
                 contextMenuPath = node.url.standardizedFileURL.path
@@ -635,10 +638,11 @@ private struct FileNodeRow: View {
     }
 
     /// Modified clicks update selection without opening files or folding directories.
+    /// Control-click stays the macOS secondary click and opens the context menu.
     private func selectRow() -> Bool {
         let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
         let extending = flags.contains(.shift)
-        let toggling = flags.contains(.command) || flags.contains(.control)
+        let toggling = flags.contains(.command)
         selection.select(node.url.path, visiblePaths: visibleNodes.map { $0.url.path }, extending: extending, toggling: toggling)
         return !extending && !toggling
     }
@@ -662,7 +666,7 @@ private struct FileNodeRow: View {
         let urls = selectedItemURLs
         let destination = node.isDirectory ? node.url : node.url.deletingLastPathComponent()
         return [
-            .action("Copy", systemImage: "doc.on.doc", shortcut: "⌘C", isEnabled: !urls.isEmpty) {
+            .action("Copy Files", systemImage: "doc.on.doc", shortcut: "⌘C", isEnabled: !urls.isEmpty) {
                 actions.copyFiles(urls)
             },
             .action("Paste", shortcut: "⌘V") { actions.pasteFiles(in: destination) }

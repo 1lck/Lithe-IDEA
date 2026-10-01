@@ -706,9 +706,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
         guard !isPerformingProjectItemOperation else { return }
         let sources = topLevelProjectItems(urls)
         guard let first = sources.first else { return }
-        guard documentsProvider?().contains(where: { document in
-            document.isDirty && sources.contains { urlContains($0, child: document.url) }
-        }) != true else {
+        guard !sources.contains(where: hasDirtyDocument(in:)) else {
             notify?("Save or discard unsaved files before deleting this item")
             return
         }
@@ -742,10 +740,17 @@ package final class WorkspaceFeatureModel: ObservableObject {
             let generation = workspaceGeneration
             var first = request
             first.additionalItems = []
-            for item in [first] + request.additionalItems {
+            let items = [first] + request.additionalItems
+            for (index, item) in items.enumerated() {
                 guard workspaceGeneration == generation else { return }
                 await confirmProjectItemDeletion(item)
-                if fileOperations.fileExists(at: item.url) { return }
+                guard workspaceGeneration == generation else { return }
+                if fileOperations.fileExists(at: item.url) {
+                    // Each item reports its own failure; also say that the rest
+                    // of the batch was intentionally left in place.
+                    if index < items.count - 1 { notify?("Stopped moving the remaining items to Trash") }
+                    return
+                }
             }
             return
         }
@@ -753,6 +758,12 @@ package final class WorkspaceFeatureModel: ObservableObject {
               isWorkspaceURL(request.url),
               request.url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
         guard let operationWorkspaceURL = workspaceURL else { return }
+        // Editors stay usable while the dialog is open and while earlier batch
+        // items wait for the Trash, so the request-time check can be stale.
+        guard !hasDirtyDocument(in: request.url) else {
+            notify?("Save or discard unsaved files before deleting this item")
+            return
+        }
         let operationWorkspaceGeneration = workspaceGeneration
         let operationDirectoryMarks = directoryMarks
         isPerformingProjectItemOperation = true
@@ -802,7 +813,16 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         guard workspaceURL == operationWorkspaceURL,
               workspaceGeneration == operationWorkspaceGeneration else { return }
-        closeDocuments?(request.url)
+        if hasDirtyDocument(in: request.url) {
+            // Edits made while the Trash operation ran exist only in memory.
+            // Keep those documents open so the user can still save them.
+            for document in documentsProvider?() ?? []
+            where !document.isDirty && urlContains(request.url, child: document.url) {
+                closeDocuments?(document.url)
+            }
+        } else {
+            closeDocuments?(request.url)
+        }
         notify?("Moved \(request.url.lastPathComponent) to Trash")
         await refreshCurrent()
     }
@@ -1145,6 +1165,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let parentPath = parent.standardizedFileURL.path
         let childPath = child.standardizedFileURL.path
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
+    }
+
+    private func hasDirtyDocument(in url: URL) -> Bool {
+        documentsProvider?().contains { $0.isDirty && urlContains(url, child: $0.url) } == true
     }
 
     private func removeProjectItemFromSnapshot(_ targetURL: URL) {

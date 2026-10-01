@@ -2556,6 +2556,10 @@
 "Paste" = "粘贴";
 "Copied files" = "已复制文件";
 "Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
+"Copy Files" = "拷贝";
+"Choose a directory inside the project" = "请选择项目内的目录";
+"Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";
+"Stopped moving the remaining items to Trash" = "已停止将剩余项目移到废纸篓";
 "%llds" = "%lld秒";
 "%lldm %llds" = "%lld分 %lld秒";
 "%lldh %lldm %llds" = "%lld小时 %lld分 %lld秒";

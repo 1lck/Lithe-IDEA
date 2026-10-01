@@ -509,12 +509,14 @@
       "capability": "项目树多选、范围选择及批量复制、重复和移到废纸篓",
       "macos": {
         "implementationStatus": "implemented",
-        "verificationStatus": "verified",
+        "verificationStatus": "pending",
         "evidence": [
           "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
           "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
           "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
-          "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift"
+          "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift",
+          "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift",
+          "macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift"
         ]
       },
       "windows": {
@@ -525,7 +527,7 @@
         ]
       },
       "owner": "Workspace",
-      "verification": "macOS 项目树中使用 ⌘/Ctrl 点击增减选择、Shift 点击正反向连续选择，右键已选项保持集合；复制并粘贴到目标目录、批量 Duplicate 和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；点击编辑器后 ⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。"
+      "verification": "macOS 项目树中使用 ⌘ 点击增减选择、Shift 点击正反向连续选择，Control 点击仍打开右键菜单，右键已选项保持集合；打开文件后单选高亮跟随编辑器；拷贝并粘贴到目标目录、批量创建副本和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；确认删除后、废纸篓操作完成前修改的文件不会被删除或关闭，失败时提示剩余项目未移动；点击编辑器或在点击项目树后用快捷键打开全局搜索时，⌘A/⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。"
     },
     {
       "id": "workspace-document-sync",

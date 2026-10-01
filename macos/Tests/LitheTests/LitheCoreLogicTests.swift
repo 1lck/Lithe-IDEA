@@ -4432,6 +4432,111 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func batchTrashKeepsLaterItemEditedWhileEarlierItemIsTrashed() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-trash-dirty")
+        let folder = workspace.appendingPathComponent("a-folder")
+        let child = folder.appendingPathComponent("child.txt")
+        let edited = workspace.appendingPathComponent("b.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [child, edited], directories: [workspace, folder], pausesFirstTrash: true
+        )
+        defer { operations.releaseFirstTrash() }
+        let childDocument = EditorDocument(url: child, text: "child", modificationDate: nil)
+        let editedDocument = EditorDocument(url: edited, text: "saved", modificationDate: nil)
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            documentsProvider: { [childDocument, editedDocument] },
+            notify: { recorder.messages.append($0) },
+            closeDocuments: { recorder.closedURLs.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItems([edited, folder])
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        // Order: the folder's Trash call starts, b.txt becomes dirty in the
+        // editor, then the folder finishes and the batch reaches b.txt.
+        let deletion = Task { await model.confirmProjectItemDeletion(request) }
+        #expect(await operations.waitUntilFirstTrashStarted())
+        editedDocument.text = "unsaved edit"
+        operations.releaseFirstTrash()
+        await deletion.value
+
+        #expect(operations.trashedURLs == [folder])
+        #expect(operations.fileExists(at: edited))
+        #expect(recorder.closedURLs == [folder])
+        #expect(editedDocument.text == "unsaved edit")
+        // b.txt is the last item, so only the unsaved-file reason is reported.
+        #expect(recorder.messages.last == "Save or discard unsaved files before deleting this item")
+    }
+
+    @Test
+    @MainActor
+    func trashKeepsDocumentEditedWhileItsTrashOperationRuns() async throws {
+        let workspace = URL(fileURLWithPath: "/trash-edit-race")
+        let folder = workspace.appendingPathComponent("folder")
+        let clean = folder.appendingPathComponent("clean.txt")
+        let edited = folder.appendingPathComponent("edited.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [clean, edited], directories: [workspace, folder], pausesFirstTrash: true
+        )
+        defer { operations.releaseFirstTrash() }
+        let cleanDocument = EditorDocument(url: clean, text: "clean", modificationDate: nil)
+        let editedDocument = EditorDocument(url: edited, text: "saved", modificationDate: nil)
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            documentsProvider: { [cleanDocument, editedDocument] },
+            closeDocuments: { recorder.closedURLs.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItem(at: folder, isDirectory: true)
+        let request = try #require(model.pendingProjectItemDeletion)
+
+        let deletion = Task { await model.confirmProjectItemDeletion(request) }
+        #expect(await operations.waitUntilFirstTrashStarted())
+        editedDocument.text = "unsaved edit"
+        operations.releaseFirstTrash()
+        await deletion.value
+
+        // The edit exists only in memory now, so its tab must stay open.
+        #expect(operations.trashedURLs == [folder])
+        #expect(recorder.closedURLs == [clean])
+    }
+
+    @Test
+    @MainActor
+    func batchTrashReportsSkippedItemsAfterFailure() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-trash-failure")
+        let first = workspace.appendingPathComponent("a.txt")
+        let blocked = workspace.appendingPathComponent("b.txt")
+        let last = workspace.appendingPathComponent("c.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [first, blocked, last], directories: [workspace], failingTrashURLs: [blocked]
+        )
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            notify: { recorder.messages.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        model.requestDeleteProjectItems([last, blocked, first])
+        let request = try #require(model.pendingProjectItemDeletion)
+        await model.confirmProjectItemDeletion(request)
+
+        #expect(operations.trashedURLs == [first])
+        #expect(operations.fileExists(at: last))
+        #expect(recorder.messages.last == "Stopped moving the remaining items to Trash")
+    }
+
+    @Test
+    @MainActor
     func deletingDirectoryRemovesItsMarkAndDescendantMarks() async throws {
         let workspace = URL(fileURLWithPath: "/tmp/directory-mark-delete")
         let target = workspace.appendingPathComponent("generated", isDirectory: true)
@@ -6225,7 +6330,10 @@ private func makeWorkspaceObservationUnitModel(
     reloadProjectServices: @escaping @MainActor () async -> Void = {},
     recordHistory: @escaping @MainActor (URL, LocalHistoryReason) async -> Void = { _, _ in },
     directoryMarkStore: any WorkspaceDirectoryMarkStoring = EmptyWorkspaceDirectoryMarkStore(),
-    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil
+    observationDelay: (@Sendable (Duration) async throws -> Void)? = nil,
+    documentsProvider: @escaping @MainActor @Sendable () -> [EditorDocument] = { [] },
+    notify: @escaping @MainActor @Sendable (String) -> Void = { _ in },
+    closeDocuments: @escaping @MainActor @Sendable (URL) -> Void = { _ in }
 ) -> WorkspaceFeatureModel {
     let model = WorkspaceFeatureModel(
         operations: operations,
@@ -6238,17 +6346,17 @@ private func makeWorkspaceObservationUnitModel(
         observationDelay: observationDelay
     )
     model.configure(
-        documentsProvider: { [] },
+        documentsProvider: documentsProvider,
         activeDocumentProvider: { nil },
         selectedSidebarProvider: { "project" },
         setSelectedSidebar: { _ in },
         restoreSession: { _, _ in },
         openFile: { _ in },
-        notify: { _ in },
+        notify: notify,
         recordHistory: recordHistory,
         relocateHistory: { _, _ in },
         relocateOpenDocuments: { _, _ in },
-        closeDocuments: { _ in },
+        closeDocuments: closeDocuments,
         processExternalChanges: processExternalChanges,
         notifyWorkspaceFileChanges: notifyWorkspaceFileChanges,
         reloadProjectServices: reloadProjectServices,
@@ -7429,6 +7537,13 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
     }
 }
 
+/// Records workspace callbacks, which always run on the main actor.
+@MainActor
+private final class WorkspaceCallbackRecorder {
+    var messages: [String] = []
+    var closedURLs: [URL] = []
+}
+
 /// Mutable fake filesystem state is shared only under the lock.
 private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations, @unchecked Sendable {
     private let lock = NSLock()
@@ -7436,11 +7551,21 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     private let directories: Set<URL>
     private var copies: [URL] = []
     private var trash: [URL] = []
+    private let firstTrashStarted = TestGate()
+    private let firstTrashRelease: TestGate?
+    private let failingTrashURLs: Set<URL>
 
-    init(files: [URL], directories: [URL]) {
+    /// `pausesFirstTrash` holds the first Trash call on the production worker
+    /// thread until `releaseFirstTrash()` so a test can act mid-batch.
+    init(files: [URL], directories: [URL], pausesFirstTrash: Bool = false, failingTrashURLs: Set<URL> = []) {
         self.files = Set(files)
         self.directories = Set(directories)
+        firstTrashRelease = pausesFirstTrash ? TestGate() : nil
+        self.failingTrashURLs = failingTrashURLs
     }
+
+    func waitUntilFirstTrashStarted() async -> Bool { await firstTrashStarted.waitUntilOpen() }
+    func releaseFirstTrash() { firstTrashRelease?.open() }
 
     var copiedDestinations: [URL] { lock.withLock { copies } }
     var trashedURLs: [URL] { lock.withLock { trash } }
@@ -7457,6 +7582,11 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
         }
     }
     func trashItem(at url: URL) throws {
+        if !firstTrashStarted.isOpen {
+            firstTrashStarted.open()
+            if let firstTrashRelease, !firstTrashRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
+        if failingTrashURLs.contains(url) { throw CocoaError(.fileWriteNoPermission) }
         lock.withLock {
             files = files.filter { $0 != url && !$0.path.hasPrefix(url.path + "/") }
             trash.append(url)

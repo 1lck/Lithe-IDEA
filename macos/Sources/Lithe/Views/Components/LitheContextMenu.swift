@@ -539,7 +539,6 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
     @Environment(\.locale) private var locale
     let items: () -> [LitheContextMenuItem]
     let onRightClick: () -> Void
-    let capturesControlClick: Bool
 
     func makeNSView(context: Context) -> LitheRightClickCaptureView {
         let view = LitheRightClickCaptureView()
@@ -552,7 +551,6 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
     }
 
     private func update(_ view: LitheRightClickCaptureView) {
-        view.capturesControlClick = capturesControlClick
         view.onRightClick = { screenPoint, appearance in
             onRightClick()
             LitheContextMenuPresenter.shared.show(
@@ -567,13 +565,12 @@ private struct LitheContextMenuTrigger: NSViewRepresentable {
 
 @MainActor
 private final class LitheRightClickCaptureView: NSView {
-    var capturesControlClick = true
     var onRightClick: (@MainActor (NSPoint, NSAppearance?) -> Void)?
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard let event = NSApp.currentEvent,
               event.type == .rightMouseDown
-                || (capturesControlClick && event.type == .leftMouseDown && event.modifierFlags.contains(.control)) else { return nil }
+                || (event.type == .leftMouseDown && event.modifierFlags.contains(.control)) else { return nil }
         return super.hitTest(point)
     }
 
@@ -594,11 +591,10 @@ private final class LitheRightClickCaptureView: NSView {
 extension View {
     func litheContextMenu(
         items: @escaping () -> [LitheContextMenuItem],
-        capturesControlClick: Bool = true,
         onRightClick: @escaping () -> Void = {}
     ) -> some View {
         overlay {
-            LitheContextMenuTrigger(items: items, onRightClick: onRightClick, capturesControlClick: capturesControlClick)
+            LitheContextMenuTrigger(items: items, onRightClick: onRightClick)
         }
     }
 }
