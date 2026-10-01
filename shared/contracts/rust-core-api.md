@@ -430,7 +430,7 @@ package manager owns the download and Lithe does not infer bytes from logs.
 | `git.apply` | Apply or check a patch in `stage`, `unstage`, `discard`, or Shelf restore mode |
 | `git.history` | Return the legacy combined reference snapshot and first bounded commit page |
 | `git.references` | Return deterministic refs, recent local branches, ahead/behind state, and effective Git identity without scanning commit history |
-| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, and an opaque continuation cursor |
+| `git.historyPage` | Return one bounded commit page, parent hashes, decorations, author dates with their UTC offset (`dateUtcOffsetMinutes`, east positive, `null` when unknown), and an opaque continuation cursor |
 | `git.historyCursorClose` | Release an unfinished incremental history cursor and its Git process |
 | `git.pushPreview` | Resolve a local branch push destination and the bounded commits not present on that remote base |
 | `git.commit` | Return one structured commit by revision |

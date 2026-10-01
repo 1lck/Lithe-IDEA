@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { GitDiff } from "../types/git.types";
-import { createCommitDiffBuffer, createMultiFileDiff } from "./multi-file-diff";
+import {
+  COMMIT_FILE_PREVIEW_PATH,
+  createCommitDiffBuffer,
+  createCommitFileDiffPreview,
+  createMultiFileDiff,
+} from "./multi-file-diff";
 
 const diff = (filePath: string, additions: number, deletions: number): GitDiff => ({
   file_path: filePath,
@@ -49,12 +54,53 @@ describe("commit diff buffers", () => {
     });
 
     expect(multiDiff.files).toBe(diffs);
-    expect(multiDiff.fileKeys).toEqual([
-      "newest:src/shared.ts",
-      "oldest:src/shared.ts",
-    ]);
+    expect(multiDiff.fileKeys).toEqual(["newest:src/shared.ts", "oldest:src/shared.ts"]);
     expect(multiDiff.fileLabels).toEqual(["newest", "oldest"]);
     expect(multiDiff.initiallyExpandedFileKey).toBe("newest:src/shared.ts");
     expect(multiDiff.initiallySelectedFileKey).toBe("newest:src/shared.ts");
+  });
+});
+
+describe("commit file preview", () => {
+  test("shows only the selected file without commit metadata in a reusable tab", () => {
+    const selected = diff("src/feature.ts", 4, 3);
+    const preview = createCommitFileDiffPreview({
+      repoPath: "C:/repo",
+      commitHash: "1234567890abcdef",
+      diffs: [selected],
+      filePath: selected.file_path,
+      label: "1234567",
+    });
+
+    if (!preview) throw new Error("Expected file preview");
+    expect(preview.virtualPath).toBe(COMMIT_FILE_PREVIEW_PATH);
+    expect(preview.displayName).toBe("feature.ts (1234567)");
+    expect(preview.diffData.files).toEqual([selected]);
+    expect(preview.diffData.totalFiles).toBe(1);
+    expect(preview.diffData.commitMessage).toBeUndefined();
+    expect(preview.diffData.hideFileList).toBe(true);
+    expect(preview.diffData.initiallySelectedFileKey).toBe("src/feature.ts:0");
+  });
+
+  test("finds a diff by its new, current or original path", () => {
+    const renamed: GitDiff = {
+      ...diff("src/new.ts", 1, 1),
+      old_path: "src/old.ts",
+      new_path: "src/new.ts",
+      is_renamed: true,
+    };
+    const diffs = [diff("src/main.ts", 2, 1), renamed];
+
+    const preview = (filePath: string) =>
+      createCommitFileDiffPreview({
+        repoPath: "C:/repo",
+        commitHash: "abc",
+        diffs,
+        filePath,
+        label: "abc",
+      });
+    expect(preview("src/new.ts")?.diffData.files).toEqual([renamed]);
+    expect(preview("src/old.ts")?.diffData.files).toEqual([renamed]);
+    expect(preview("src/missing.ts")).toBeNull();
   });
 });
