@@ -200,7 +200,9 @@ fn absolute_entry(entry: &str, working_directory: &str, style: ClasspathStyle) -
             }
         }
         ClasspathStyle::Windows => {
-            let entry = entry.replace('/', "\\");
+            let entry = strip_verbatim_prefix(&entry.replace('/', "\\"))?;
+            let working_directory = strip_verbatim_prefix(&working_directory.replace('/', "\\"))?;
+            let working_directory = working_directory.as_str();
             let path = if windows_root(&entry).is_some() {
                 entry
             } else if entry.starts_with('\\') {
@@ -223,6 +225,29 @@ fn absolute_entry(entry: &str, working_directory: &str, style: ClasspathStyle) -
             Some(normalize_windows_path(&path))
         }
     }
+}
+
+/// Rewrites `\\?\C:\x` to `C:\x` and `\\?\UNC\host\share` to `\\host\share`.
+///
+/// Other `\\?\` and `\\.\` device paths have no `file:` URL form, so they
+/// return `None` and keep the launch direct instead of becoming a bogus UNC
+/// host named `?` or `.`.
+fn strip_verbatim_prefix(entry: &str) -> Option<String> {
+    if let Some(rest) = entry.strip_prefix("\\\\?\\UNC\\") {
+        return Some(format!("\\\\{rest}"));
+    }
+    if let Some(rest) = entry.strip_prefix("\\\\?\\") {
+        let bytes = rest.as_bytes();
+        let drive = bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && bytes[2] == b'\\';
+        return drive.then(|| rest.to_string());
+    }
+    if entry.starts_with("\\\\.\\") {
+        return None;
+    }
+    Some(entry.to_string())
 }
 
 /// Returns the root prefix of an absolute Windows path: `C:\` or `\\host\share`.
@@ -458,7 +483,7 @@ mod tests {
     #[test]
     fn directories_relative_unc_and_empty_entries_become_absolute_urls() {
         let entries = format!(
-            "target\\classes;..\\shared\\lib.jar;\\tools\\x.jar;\\\\server\\share\\dep.jar;;{}",
+            "target\\classes;..\\shared\\lib.jar;\\tools\\x.jar;\\\\server\\share\\dep.jar;;\\\\?\\C:\\long\\v.jar;\\\\?\\UNC\\server\\share\\w.jar;{}",
             classpath(500)
         );
         let arguments = vec!["-cp".into(), entries, "Main".into()];
@@ -477,6 +502,9 @@ mod tests {
         assert_eq!(urls[3], "file:////server/share/dep.jar");
         // An empty element means the working directory to the launcher.
         assert_eq!(urls[4], "file:/C:/work/demo/");
+        // Verbatim paths from canonicalized tooling keep their real target.
+        assert_eq!(urls[5], "file:/C:/long/v.jar");
+        assert_eq!(urls[6], "file:////server/share/w.jar");
     }
 
     #[test]
@@ -493,6 +521,19 @@ mod tests {
             plan_classpath_jar_launch(request(&short, Some(8)), no_directories),
             ClasspathJarPlan::Direct
         );
+        let relative = vec![
+            "-cp".into(),
+            format!("classes;{}", classpath(500)),
+            "Main".into(),
+        ];
+        let mut verbatim = request(&relative, Some(8));
+        verbatim.working_directory = "\\\\?\\C:\\work\\demo";
+        let ClasspathJarPlan::ClasspathJar { manifest, .. } =
+            plan_classpath_jar_launch(verbatim, no_directories)
+        else {
+            panic!("a verbatim working directory still resolves relative entries");
+        };
+        assert_eq!(class_path_urls(&manifest)[0], "file:/C:/work/demo/classes");
         let mut node = request(&long, Some(8));
         node.executable = "node.exe";
         assert_eq!(
@@ -506,6 +547,7 @@ mod tests {
         for (entries, target) in [
             (format!("lib\\*;{}", classpath(500)), "Main"),
             (format!("C:lib\\a.jar;{}", classpath(500)), "Main"),
+            (format!("\\\\.\\pipe\\x;{}", classpath(500)), "Main"),
             (classpath(500), "-jar"),
         ] {
             let arguments = vec!["-cp".into(), entries, target.into(), "app.jar".into()];
