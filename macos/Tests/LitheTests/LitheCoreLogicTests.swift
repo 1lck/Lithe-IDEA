@@ -2637,14 +2637,14 @@ struct LitheCoreLogicTests {
 
         // The old side advances directly from `before` to `after`; it does not
         // receive three synthetic blank rows to match the new side.
-        #expect(insertion.leftItems.map(\.top) == [0, 24])
-        #expect(insertion.rightItems.map(\.top) == [0, 24, 48, 72, 96])
-        #expect(insertion.leftHeight == 48)
-        #expect(insertion.rightHeight == 120)
+        #expect(insertion.leftItems.map(\.top) == [0, 22])
+        #expect(insertion.rightItems.map(\.top) == [0, 22, 44, 66, 88])
+        #expect(insertion.leftHeight == 44)
+        #expect(insertion.rightHeight == 110)
         #expect(insertion.transitions.count == 1)
         #expect(insertion.transitions[0].isAddition)
-        #expect(insertion.transitions[0].leftRange == 24...24)
-        #expect(insertion.transitions[0].rightRange == 24...96)
+        #expect(insertion.transitions[0].leftRange == 22...22)
+        #expect(insertion.transitions[0].rightRange == 22...88)
 
         let removalRows = insertionRows.map { row in
             switch row.kind {
@@ -2668,12 +2668,12 @@ struct LitheCoreLogicTests {
             kinds: removalRows.map(\.kind)
         )
 
-        #expect(removal.leftItems.map(\.top) == [0, 24, 48, 72, 96])
-        #expect(removal.rightItems.map(\.top) == [0, 24])
+        #expect(removal.leftItems.map(\.top) == [0, 22, 44, 66, 88])
+        #expect(removal.rightItems.map(\.top) == [0, 22])
         #expect(removal.transitions.count == 1)
         #expect(removal.transitions[0].isRemoval)
-        #expect(removal.transitions[0].leftRange == 24...96)
-        #expect(removal.transitions[0].rightRange == 24...24)
+        #expect(removal.transitions[0].leftRange == 22...88)
+        #expect(removal.transitions[0].rightRange == 22...22)
     }
 
     @Test

@@ -241,6 +241,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var loadingInterval: LitheSignpost.State?
     private struct DocumentReference { weak var value: EditorDocument? }
     private var webView: WKWebView?
+    private let contextMenu = MonacoEditorContextMenu()
     private weak var model: AppModel?
     private var documentReferences: [String: DocumentReference] = [:]
     private var documents: [String: EditorDocument] { documentReferences.compactMapValues(\.value) }
@@ -325,10 +326,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         guard let selected, let container = mounts[selected]?.container else {
             viewOwnerID = nil; latestUpdate = nil
             markdownScrollBinding = nil; markdownScrollID = nil; markdownScrollRevision = nil
+            contextMenu.dismiss()
             webView?.removeFromSuperview()
             return
         }
         if viewOwnerID != selected {
+            contextMenu.dismiss()
             let isPreview = mounts[selected]?.isPreview == true
             if isPreview && !currentMountIsPreview && ready { call("window.lithe.suspendMain()") }
             if !isPreview && currentMountIsPreview { needsMainRestore = true }
@@ -909,6 +912,14 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             reply(["ok": true], nil); return
         }
+        if type == "contextMenu" {
+            guard !failed, let webView, webView.window != nil else { reply(["selected": NSNull()], nil); return }
+            do {
+                let request = try MonacoEditorContextMenu.Request.decode(body)
+                contextMenu.show(request, in: webView) { key in reply(["selected": key as Any? ?? NSNull()], nil) }
+            } catch { reply(nil, "Invalid editor context menu") }
+            return
+        }
         if type == "failure" { fail(body["message"] as? String ?? "Editor failed"); reply(["ok": true], nil); return }
         // Import completion may arrive after its document has closed. The
         // notification still explains where the already saved asset went.
@@ -1406,6 +1417,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
 
     private func fail(_ message: String) {
         failed = true
+        contextMenu.dismiss()
         model?.showNotification("Editor: \(message)")
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -1415,6 +1427,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
 
     isolated deinit {
+        contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }
         webView?.stopLoading()

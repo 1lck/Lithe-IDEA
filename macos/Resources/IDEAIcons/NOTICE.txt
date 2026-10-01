@@ -45,3 +45,15 @@ The Git Log commit details preview uses expui/general/previewVertically
 light/dark assets from Community revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade. PlatformIconMappings maps the
 legacy actions/previewDetails.svg to this resource.
+
+The Monaco editor context menu uses unmodified expui/general/{cut,copy,paste}
+and expui/actions/reformatCode light/dark SVG assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Their action mappings come from
+intellij.platform.ide.impl.actions.xml, intellij.platform.lang.impl.actions.xml
+and platform/icons/src/PlatformIconMappings.json.
+
+The top-bar Project and Branch dropdowns use unmodified 16pt light/dark
+expui/general/open, expui/vcs/{commit,push} and
+expui/nodes/folder SVG assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Existing add, search, closeSmall,
+settings, vcs, fetch, chevron and dvcs/currentBranchLabel resources are reused.

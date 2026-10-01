@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import LitheGitModule
 
@@ -9,6 +10,8 @@ import LitheGitModule
 /// visualizes the resulting offset. This plan is the shared geometry behind
 /// that behavior.
 struct DiffSplitLayout {
+    /// Presentation identity: frame changes reuse the same prepared text storage.
+    let identity = UUID()
     struct Item: Identifiable {
         let displayRow: DiffDisplayRow
         let kind: DiffRowKind
@@ -47,7 +50,7 @@ struct DiffSplitLayout {
     static func plan(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
-        standardRowHeight: CGFloat = 24,
+        standardRowHeight: CGFloat = DiffLayoutMetrics.rowHeight,
         informationRowHeight: CGFloat = 27
     ) -> DiffSplitLayout {
         struct RunSignature: Equatable {

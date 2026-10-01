@@ -3,9 +3,12 @@ import SwiftUI
 
 enum LitheDropdownMetrics {
     static let minimumRootWidth: CGFloat = 156
+    // GitBranchesPopupBase New UI minimum; Project uses measured content width.
+    static let branchMinimumWidth: CGFloat = 375
+    static let iconSize: CGFloat = 16
+    static let projectAvatarSize: CGFloat = 20
     static let maximumWidth: CGFloat = 360
     static let fontSize: CGFloat = 12.5
-    static var itemFont: NSFont { LitheTheme.uiNSFont(size: fontSize) }
     static let itemHorizontalPadding: CGFloat = 8
     static let popupPadding: CGFloat = 6
     static let rowCornerRadius: CGFloat = 4
@@ -26,7 +29,8 @@ struct LitheDropdownRowStyle: ButtonStyle {
         let highlighted = isEnabled && (isSelected || isHovered)
         return configuration.label
             .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
-            .foregroundStyle(highlighted ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
+            .foregroundStyle(highlighted ? LitheTheme.settingsSelectionText : LitheTheme.primaryText,
+                             highlighted ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
             .padding(.horizontal, LitheDropdownMetrics.itemHorizontalPadding)
             .frame(maxWidth: .infinity, minHeight: LitheDropdownMetrics.rowHeight, alignment: .leading)
             .background {
@@ -126,7 +130,9 @@ private final class LitheContextMenuSelection: ObservableObject {
     var inSubmenu = false
     let items: [LitheContextMenuItem]
     let dismiss: () -> Void
-    var submenuChanged: ((Bool) -> Void)?
+    @Published var submenuOffset: CGFloat = 0
+    private var rowFrames: [UUID: CGRect] = [:]
+    var layoutSubmenu: ((CGFloat?) -> CGFloat)?
 
     init(items: [LitheContextMenuItem], dismiss: @escaping () -> Void) {
         self.items = items
@@ -143,7 +149,21 @@ private final class LitheContextMenuSelection: ObservableObject {
         openSubmenuID = id
         childID = nil
         inSubmenu = false
-        submenuChanged?(id != nil)
+        updateSubmenuPlacement()
+    }
+
+    func updateRowFrames(_ frames: [UUID: CGRect]) {
+        guard rowFrames != frames else { return }
+        rowFrames = frames
+        if children != nil { updateSubmenuPlacement() }
+    }
+
+    private func updateSubmenuPlacement() {
+        let offset = openSubmenuID.flatMap { rowFrames[$0] }.map {
+            $0.minY - LitheDropdownMetrics.popupPadding
+        }
+        let next = layoutSubmenu?(children == nil ? nil : offset ?? 0) ?? 0
+        if submenuOffset != next { submenuOffset = next }
     }
 
     func handle(_ event: NSEvent) -> Bool {
@@ -178,6 +198,13 @@ private final class LitheContextMenuSelection: ObservableObject {
     }
 }
 
+private struct LitheContextMenuRowFrames: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, latest in latest })
+    }
+}
+
 private struct LitheContextMenuContent: View {
     @ObservedObject var selection: LitheContextMenuSelection
     let width: CGFloat
@@ -186,15 +213,21 @@ private struct LitheContextMenuContent: View {
     let maximumHeight: CGFloat
 
     var body: some View {
-        HStack(alignment: .top, spacing: LitheDropdownMetrics.submenuSpacing) {
+        let topInset = max(0, -selection.submenuOffset)
+        return HStack(alignment: .top, spacing: LitheDropdownMetrics.submenuSpacing) {
             if submenuOnLeft, let children = selection.children {
                 menuColumn(children, width: submenuWidth, isChild: true)
+                    .padding(.top, selection.submenuOffset + topInset)
             }
             menuColumn(selection.items, width: width, isChild: false)
+                .coordinateSpace(name: "LitheRootMenu")
+                .padding(.top, topInset)
             if !submenuOnLeft, let children = selection.children {
                 menuColumn(children, width: submenuWidth, isChild: true)
+                    .padding(.top, selection.submenuOffset + topInset)
             }
         }
+        .onPreferenceChange(LitheContextMenuRowFrames.self) { selection.updateRowFrames($0) }
     }
 
     private func menuColumn(_ items: [LitheContextMenuItem], width: CGFloat, isChild: Bool) -> some View {
@@ -227,6 +260,14 @@ private struct LitheContextMenuContent: View {
                                 }
                             )
                             .id(item.id)
+                            .background {
+                                if !isChild {
+                                    GeometryReader { geometry in
+                                        Color.clear.preference(key: LitheContextMenuRowFrames.self,
+                                            value: [item.id: geometry.frame(in: .named("LitheRootMenu"))])
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -272,7 +313,7 @@ private struct LitheContextMenuRow: View {
         Button {
             action?()
         } label: {
-            HStack(spacing: 9) {
+            HStack(spacing: 0) {
                 if showsIcons {
                     Group {
                         if let icon = item.icon {
@@ -287,6 +328,7 @@ private struct LitheContextMenuRow: View {
                         }
                     }
                     .frame(width: 16, height: 16)
+                    .padding(.trailing, 9)
                     .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
                 }
 
@@ -296,20 +338,26 @@ private struct LitheContextMenuRow: View {
                                      ? LitheTheme.settingsSelectionText
                                      : LitheTheme.primaryText)
                     .lineLimit(1)
+                    .padding(.trailing, 9)
 
                 Spacer(minLength: 14)
 
                 if submenuItems != nil {
                     Image(systemName: "chevron.right")
                         .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                        .frame(width: 16)
+                        .padding(.leading, 9)
                         .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
                 } else if let shortcut = item.shortcut {
                     Text(shortcut)
                         .font(Font(LitheDropdownMetrics.shortcutFont))
+                        .padding(.leading, 9)
                         .foregroundStyle(isHovering ? LitheTheme.settingsSelectionText.opacity(0.78) : LitheTheme.tertiaryText)
                 } else if item.isChecked {
                     Image(systemName: "checkmark")
                         .font(LitheTheme.uiFont(size: 11))
+                        .frame(width: 16)
+                        .padding(.leading, 9)
                         .foregroundStyle(LitheTheme.accent)
                 }
             }
@@ -368,7 +416,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         dismiss()
         guard !items.isEmpty else { return }
 
-        let menuWidth = Self.menuWidth(for: items)
+        let menuWidth = Self.menuWidth(for: items, locale: locale)
         let visibleFrame = NSScreen.screens.first(where: { $0.frame.contains(screenPoint) })?.visibleFrame
             ?? NSScreen.main?.visibleFrame ?? .zero
         self.visibleFrame = visibleFrame.insetBy(dx: 6, dy: 6)
@@ -376,14 +424,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         let menuHeight = min(Self.menuHeight(for: items), maximumHeight)
         let submenuWidths = items.compactMap { item -> CGFloat? in
             guard case .submenu(let submenuItems) = item.kind else { return nil }
-            return Self.menuWidth(for: submenuItems)
-        }
-        let submenuHeights = items.compactMap { item -> CGFloat? in
-            guard case .submenu(let submenuItems) = item.kind else { return nil }
-            return Self.menuHeight(for: submenuItems)
+            return Self.menuWidth(for: submenuItems, locale: locale)
         }
         let submenuWidth = submenuWidths.max() ?? 0
-        let submenuHeight = min(submenuHeights.max() ?? 0, maximumHeight)
         let preferredOrigin = NSPoint(
             x: screenPoint.x - (anchored ? 0 : 6),
             y: opensUpward ? screenPoint.y + (anchored ? 0 : 6) : screenPoint.y - menuHeight + (anchored ? 0 : 6)
@@ -396,11 +439,13 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             && origin.x + menuWidth + submenuWidth + LitheDropdownMetrics.submenuSpacing > visibleFrame.maxX - 6
             && origin.x - submenuWidth - LitheDropdownMetrics.submenuSpacing >= visibleFrame.minX + 6
         let selection = LitheContextMenuSelection(items: items, dismiss: { [weak self] in self?.dismiss() })
-        selection.submenuChanged = { [weak self] isVisible in
+        selection.layoutSubmenu = { [weak self, weak selection] offset in
             self?.resizeMenu(
-                isSubmenuVisible: isVisible, rootWidth: menuWidth, rootHeight: menuHeight,
-                submenuWidth: submenuWidth, submenuHeight: submenuHeight, submenuOnLeft: submenuOnLeft
-            )
+                offset: offset, rootFrame: NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)),
+                submenuWidth: submenuWidth,
+                submenuHeight: min(Self.menuHeight(for: selection?.children ?? []), maximumHeight),
+                submenuOnLeft: submenuOnLeft
+            ) ?? 0
         }
         let content = LitheContextMenuContent(
             selection: selection, width: menuWidth, submenuWidth: submenuWidth,
@@ -492,44 +537,42 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         dismiss()
     }
 
+    /// Keep the root fixed. Clamp only the flyout's row-relative offset when
+    /// the screen edge prevents alignment, including tall scrollable submenus.
     private func resizeMenu(
-        isSubmenuVisible: Bool,
-        rootWidth: CGFloat,
-        rootHeight: CGFloat,
+        offset: CGFloat?,
+        rootFrame: NSRect,
         submenuWidth: CGFloat,
         submenuHeight: CGFloat,
         submenuOnLeft: Bool
-    ) {
-        guard let panel else { return }
-        let width = rootWidth + (
-            isSubmenuVisible
-                ? submenuWidth + LitheDropdownMetrics.submenuSpacing
-                : 0
+    ) -> CGFloat {
+        guard let panel else { return 0 }
+        let childOffset = offset.map {
+            min(max($0, rootFrame.maxY - visibleFrame.maxY),
+                rootFrame.maxY - visibleFrame.minY - submenuHeight)
+        } ?? 0
+        let topInset = max(0, -childOffset)
+        let width = rootFrame.width + (offset == nil ? 0 : submenuWidth + LitheDropdownMetrics.submenuSpacing)
+        let height = max(rootFrame.height, offset == nil ? 0 : childOffset + submenuHeight) + topInset
+        var frame = NSRect(
+            x: rootFrame.minX - (offset != nil && submenuOnLeft ? submenuWidth + LitheDropdownMetrics.submenuSpacing : 0),
+            y: rootFrame.maxY + topInset - height, width: width, height: height
         )
-        let height = max(rootHeight, isSubmenuVisible ? submenuHeight : 0)
-        var frame = panel.frame
-        let wasSubmenuVisible = frame.width > rootWidth
-        if submenuOnLeft, isSubmenuVisible != wasSubmenuVisible {
-            frame.origin.x += isSubmenuVisible
-                ? -(submenuWidth + LitheDropdownMetrics.submenuSpacing)
-                : submenuWidth + LitheDropdownMetrics.submenuSpacing
-        }
-        frame.origin.y += frame.height - height
-        frame.size = NSSize(width: width, height: height)
-        frame.origin.y = min(max(frame.minY, visibleFrame.minY), visibleFrame.maxY - frame.height)
+        // When neither side has room, keep the combined panel inside the screen.
         frame.origin.x = min(max(frame.minX, visibleFrame.minX), visibleFrame.maxX - frame.width)
-        panel.setFrame(frame, display: true)
+        if panel.frame != frame { panel.setFrame(frame, display: true) }
+        return childOffset
     }
 
-    fileprivate static func menuWidth(
-        for items: [LitheContextMenuItem]
+    static func menuWidth(
+        for items: [LitheContextMenuItem], locale: Locale
     ) -> CGFloat {
         let widestItem = items.reduce(CGFloat.zero) { width, item in
             guard case .action = item.kind else {
                 guard case .submenu = item.kind else { return width }
-                return max(width, menuItemWidth(item))
+                return max(width, menuItemWidth(item, locale: locale))
             }
-            return max(width, menuItemWidth(item))
+            return max(width, menuItemWidth(item, locale: locale))
         }
         let showsIcons = items.contains { $0.systemImage != nil || $0.iconKind != nil || $0.icon != nil }
         let chromeWidth = 2 * (LitheDropdownMetrics.itemHorizontalPadding + LitheDropdownMetrics.popupPadding)
@@ -552,10 +595,15 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         }
     }
 
-    private static func menuItemWidth(_ item: LitheContextMenuItem) -> CGFloat {
-        let titleWidth = (item.title as NSString).size(
-            withAttributes: [.font: LitheDropdownMetrics.itemFont]
-        ).width
+    private static func menuItemWidth(_ item: LitheContextMenuItem, locale: Locale) -> CGFloat {
+        // Measure the same localized SwiftUI font that the row renders. Native
+        // font advances differ at fractional sizes and caused ordinary titles
+        // to truncate. render supplies layout size; no bitmap needs drawing.
+        let renderer = ImageRenderer(content: Text(LocalizedStringKey(item.title))
+            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+            .environment(\.locale, locale).fixedSize())
+        var titleWidth: CGFloat = 0
+        renderer.render { size, _ in titleWidth = size.width }
         let shortcutWidth = item.shortcut.map {
             ($0 as NSString).size(
                 withAttributes: [.font: LitheDropdownMetrics.shortcutFont]
@@ -563,6 +611,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         } ?? 0
         let trailingWidth: CGFloat
         if case .submenu = item.kind { trailingWidth = 16 + 9 }
+        else if item.isChecked { trailingWidth = 16 + 9 }
         else { trailingWidth = item.shortcut == nil ? 0 : shortcutWidth + 9 }
         return titleWidth + trailingWidth
     }

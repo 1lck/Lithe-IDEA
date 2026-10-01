@@ -10,6 +10,9 @@ import { mountWorkbench } from "@lithe/editor/workbench";
 import { KeyCode, KeyMod, editor as monacoEditor } from "monaco-editor/esm/vs/editor/editor.api.js";
 import palette from "../Sources/Lithe/Resources/SyntaxHighlighting/color-mappings.json";
 import { installWebKitMouseInput } from "./mouse-input";
+import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
+import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
+import { installNativeContextMenu, type MenuHandler } from "./context-menu";
 
 declare global { interface Window { webkit: any; MonacoEnvironment: any; lithe: any; } }
 
@@ -31,5 +34,9 @@ const workbench = mountWorkbench({
     { command: "editor.action.moveLinesDownAction", label: "Move Line Down", keybinding: KeyMod.Alt | KeyMod.Shift | KeyCode.DownArrow },
   ],
 });
+const menus = installNativeContextMenu(
+  (StandaloneServices.get(IContextMenuService) as unknown as { contextMenuHandler: MenuHandler }).contextMenuHandler,
+  payload => window.webkit.messageHandlers.litheEditor.postMessage(payload), document);
+window.addEventListener("beforeunload", () => menus.dispose(), { once: true });
 window.lithe = workbench.api;
 export const ready = workbench.ready;

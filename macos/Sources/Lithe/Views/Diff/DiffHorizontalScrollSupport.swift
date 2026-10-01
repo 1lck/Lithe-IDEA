@@ -76,7 +76,7 @@ struct DiffHorizontalScroller: View {
             .onHover { isHovering = $0 }
         }
         .frame(height: 10)
-        .background(LitheTheme.window.opacity(isHovering || isDragging ? 0.82 : 0.48))
+        .background(LitheTheme.Diff.background)
         .opacity(maximumOffset > 0.5 ? 1 : 0)
         .allowsHitTesting(maximumOffset > 0.5)
         .accessibilityLabel("Synchronized diff horizontal scroll")

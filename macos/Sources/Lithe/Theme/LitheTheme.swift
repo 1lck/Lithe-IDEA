@@ -418,6 +418,26 @@ enum LitheTheme {
                                     : Color(red: 233/255, green: 234/255, blue: 238/255)
     }
 
+    /// IDEA Islands editor scheme and inherited Darcula/Default diff attributes.
+    /// Source: platform/platform-resources/src/themes/islands/IslandSchemeDark.xml
+    /// and DefaultColorSchemesManager.xml at c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+    enum Diff {
+        static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x191A1C) }
+        static var separator: Color { controlColor(light: 0xE4E6EB, dark: 0x2B2D30) }
+        static var lineNumber: Color { controlColor(light: 0xAEB3C2, dark: 0x4B5059) }
+        static var inserted: Color { controlColor(light: 0xBEE6BE, dark: 0x294436) }
+        static var deleted: Color { controlColor(light: 0xD6D6D6, dark: 0x484A4A) }
+        static var modified: Color { controlColor(light: 0xC2D8F2, dark: 0x385570) }
+        static var insertedStripe: Color { controlColor(light: 0xAADEAA, dark: 0x447152) }
+        static var deletedStripe: Color { controlColor(light: 0xC8C8C8, dark: 0x656E76) }
+        static var modifiedStripe: Color { controlColor(light: 0xB8CBF5, dark: 0x43698D) }
+        static var modifiedWord: Color { modified }
+        static var caretLineNumber: Color { controlColor(light: 0x767A8A, dark: 0xA1A3AB) }
+        static var selection: Color { controlColor(light: 0xA6D2FF, dark: 0x214283) }
+        // IDEA TextDiffTypeFactory mixes 60% editor background into an ignored line.
+        static var modifiedLine: Color { controlColor(light: 0xE6EFFA, dark: 0x25323E) }
+    }
+
     // MARK: - 输入控件
     static var inputBackground: Color { adaptive(\.inputBackground) }
     static var inputBorder: Color { adaptive(\.inputBorder) }

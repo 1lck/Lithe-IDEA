@@ -34,7 +34,7 @@ struct DiffReviewView: View {
                 }
             }
         }
-        .litheWorkbenchSurface(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.Diff.background)
         .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
@@ -368,7 +368,7 @@ struct DiffReviewView: View {
                     .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             } else {
                 DiffSplitPaneView(
                     displayRows: displayRows,
@@ -395,7 +395,7 @@ struct DiffReviewView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             }
         }
     }
@@ -705,23 +705,23 @@ struct SingleFileDiffRowView: View {
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(LitheTheme.diffInformationBackground.opacity(isSearchMatch ? 0.92 : 1))
+            .background(LitheTheme.Diff.separator)
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
-                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
-                    .foregroundStyle(changeColor.opacity(0.82))
+                    .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                    .foregroundStyle(LitheTheme.Diff.lineNumber)
                     .frame(
                         width: DiffLayoutMetrics.singlePaneLineNumberColumnWidth,
                         alignment: .trailing
                     )
                     .padding(.trailing, DiffLayoutMetrics.singlePaneLineNumberTrailingPadding)
                     .frame(maxHeight: .infinity)
-                    .background(changeColor.opacity(0.13))
+                    .background(changeColor)
 
                 Rectangle()
-                    .fill(changeColor.opacity(0.82))
+                    .fill(isAddition ? LitheTheme.Diff.insertedStripe : LitheTheme.Diff.deletedStripe)
                     .frame(width: DiffLayoutMetrics.changeMarkerWidth)
 
                 Text(
@@ -738,9 +738,9 @@ struct SingleFileDiffRowView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DiffLayoutMetrics.singlePaneTextHorizontalPadding)
             }
-            .frame(height: 24)
+            .frame(height: DiffLayoutMetrics.rowHeight)
             .frame(maxWidth: .infinity)
-            .background(changeColor.opacity(isSelectedDifference ? 0.31 : 0.25 + (isSearchMatch ? 0.06 : 0)))
+            .background(changeColor)
             .overlay(alignment: .leading) {
                 if isSelectedDifference {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)
@@ -767,7 +767,7 @@ struct SingleFileDiffRowView: View {
     }
 
     private var changeColor: Color {
-        isAddition ? LitheTheme.success : LitheTheme.error
+        isAddition ? LitheTheme.Diff.inserted : LitheTheme.Diff.deleted
     }
 }
 
@@ -1014,21 +1014,22 @@ struct DiffRowView: View {
 }
 
 enum DiffLayoutMetrics {
-    static let rowHeight: CGFloat = 24
+    static let rowHeight: CGFloat = 22
     static let informationRowHeight: CGFloat = 27
-    static let centerGutterWidth: CGFloat = 34
+    static let dividerWidth: CGFloat = 34
+    static var lineNumberGutterWidth: CGFloat { lineNumberColumnWidth + lineNumberTrailingPadding }
+    static var centerGutterWidth: CGFloat { lineNumberGutterWidth * 2 + dividerWidth }
 
-    /// Fixed chrome ahead of the text in a single pane: line-number column,
-    /// its trailing padding, the change marker bar, and the text insets.
+    /// Line numbers are pinned on both sides of the central divider; only
+    /// text insets scroll with each source pane.
     static let lineNumberColumnWidth: CGFloat = 47
     static let lineNumberTrailingPadding: CGFloat = 8
     static let changeMarkerWidth: CGFloat = 3
     static let textHorizontalPadding: CGFloat = 8
-    static let textFontSize: CGFloat = 12.5
+    static let textFontSize: CGFloat = 13
 
     static var paneChromeWidth: CGFloat {
-        lineNumberColumnWidth + lineNumberTrailingPadding + changeMarkerWidth
-            + textHorizontalPadding * 2
+        textHorizontalPadding * 2
     }
 
     /// `SingleFileDiffRowView` uses a wider line-number column and text inset
@@ -1387,13 +1388,24 @@ enum DiffSyntaxHighlighter {
         let color: Color
     }
 
-    private static var keywordColor: Color { LitheTheme.skill }
-    private static var typeColor: Color { LitheTheme.accent }
-    private static var stringColor: Color { LitheTheme.success }
-    private static var numberColor: Color { LitheTheme.warning }
-    private static var commentColor: Color { LitheTheme.secondaryText }
-    private static var tagColor: Color { LitheTheme.warning }
-    private static var baseColor: Color { LitheTheme.primaryText }
+    // Reuse the editor's configured syntax colors instead of UI status colors.
+    private static func syntaxColor(_ keyPath: KeyPath<SyntaxHighlightingPalette, NSColor>) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let base = CodeEditorPalette(isDark: dark, theme: LitheTheme.activeTheme)
+            return SyntaxHighlightingColorConfiguration.bundled.palette(formatID: nil, base: base)[keyPath: keyPath]
+        })
+    }
+    private static let keywordColor = syntaxColor(\.keyword)
+    private static let typeColor = syntaxColor(\.type)
+    private static let stringColor = syntaxColor(\.string)
+    private static let numberColor = syntaxColor(\.number)
+    private static let commentColor = syntaxColor(\.comment)
+    private static let tagColor = syntaxColor(\.annotation)
+    private static let baseColor = Color(nsColor: NSColor(name: nil) { appearance in
+        CodeEditorPalette(isDark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+                          theme: LitheTheme.activeTheme).text
+    })
 
     private static let keywords: Set<String> = [
         "class", "struct", "enum", "protocol", "extension", "func", "let", "var", "if", "else",
@@ -1412,7 +1424,7 @@ enum DiffSyntaxHighlighter {
     ) -> AttributedString {
         let tokens = tokenize(text, fileExtension: fileExtension.lowercased())
         let highlightRange = highlightsWords ? changedRange(in: text, comparedTo: otherText) : nil
-        let highlightColor = side == .left ? Color.red.opacity(0.38) : Color.green.opacity(0.34)
+        let highlightColor = LitheTheme.Diff.modifiedWord
         var result = AttributedString()
         var globalOffset = 0
 

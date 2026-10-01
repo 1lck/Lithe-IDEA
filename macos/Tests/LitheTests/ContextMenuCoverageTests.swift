@@ -1,12 +1,105 @@
 import AppKit
+import CoreText
 import Testing
 import SwiftUI
 import LitheGitModule
 @testable import Lithe
 
-@Suite("Unified context menus")
+@Suite("Unified context menus", .serialized)
 @MainActor
 struct ContextMenuCoverageTests {
+    @Test
+    func projectPopupMeasuresContentInsteadOfKeepingA390PointWidth() {
+        let short = ProjectSwitcherLayoutMetrics.width(projects: [("Lithe-IDEA", "~/Documents/Lithe-IDEA")],
+                                                       locale: Locale(identifier: "en"))
+        let long = ProjectSwitcherLayoutMetrics.width(projects: [("Project", String(repeating: "long-directory/", count: 20))],
+                                                      locale: Locale(identifier: "en"))
+        #expect(short < 300)
+        #expect(short >= LitheDropdownMetrics.minimumRootWidth)
+        #expect(long == LitheDropdownMetrics.maximumWidth)
+        #expect(BranchSwitcherPopover.Metrics.popupWidth == 375)
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
+    func topbarDropdownsLeaveToolbarMarginAndRenderRealSharedContent(scheme: ColorScheme) async throws {
+        MacBundledFontRegistry.registerFonts()
+        let iconRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources/IDEAIcons")
+        for path in ["expui/general/add.svg", "expui/general/open.svg", "expui/general/vcs.svg",
+                     "expui/vcs/update.svg", "expui/vcs/commit.svg", "expui/vcs/push.svg",
+                     "expui/vcs/fetch.svg", "expui/general/settings.svg", "expui/nodes/folder.svg",
+                     "dvcs/currentBranchLabel.svg", "expui/general/search.svg", "expui/general/chevronRight.svg"] {
+            for asset in [path, LitheIcons.darkIdeaAssetPath(for: path)] {
+                let image = try #require(NSImage(contentsOf: iconRoot.appendingPathComponent(asset)))
+                #expect(image.size == NSSize(width: 16, height: 16))
+            }
+        }
+        let domain = "lithe.topbar-popup-test.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: domain))
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = MacUserDefaultsStore(defaults: defaults)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("lithe-popup-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        _ = RecentProjectsStore(store: store).record(root, in: [])
+        let settings = AppSettings(store: store)
+        let services = MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services
+        let model = AppModel(settings: settings, services: services)
+        let sessions = ProjectSessionManager(settings: settings, modelFactory: { model })
+        do {
+            let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+            let menus: [(String, CGFloat, AnyView)] = [
+                ("project", 30, AnyView(ProjectSwitcherPopover(isPresented: .constant(true),
+                    onNewProject: {}, onOpenProject: {}, onCloneRepository: {}, onOpenRecentProject: { _ in })
+                    .environmentObject(model).environmentObject(sessions))),
+                ("branch", 32, AnyView(BranchSwitcherPopover(feature: feature, isPresented: .constant(true),
+                    onCommit: {}, onPush: { _ in }, onDelete: { _ in }, onNewBranch: { _ in },
+                    onCheckoutRevision: {}, onManageBranches: {}, onCompareWithWorkingTree: { _ in },
+                    onCompareReferences: { _, _ in })))
+            ]
+            for (name, buttonHeight, content) in menus {
+                let probe = DropdownEnvironmentProbe()
+                let host = NSHostingView(rootView: TopbarDropdownHarness(probe: probe, buttonHeight: buttonHeight,
+                    content: content).environment(\.colorScheme, scheme))
+                let screen = try #require(NSScreen.main).visibleFrame
+                let window = NSWindow(contentRect: NSRect(x: floor(screen.midX), y: floor(screen.midY), width: 180, height: 40),
+                                      styleMask: [.borderless], backing: .buffered, defer: false)
+                window.isReleasedWhenClosed = false
+                window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                window.contentView = host
+                defer { window.contentView = nil; window.close() }
+                host.layoutSubtreeIfNeeded()
+                probe.isPresented = true
+                let clock = ContinuousClock()
+                let deadline = clock.now.advanced(by: .seconds(2))
+                while window.childWindows?.isEmpty != false, clock.now < deadline {
+                    host.layoutSubtreeIfNeeded()
+                    await Task.yield()
+                }
+                let popup = try #require(window.childWindows?.first)
+                #expect(abs(popup.frame.maxY - window.frame.minY) < 1)
+                #expect((40 - buttonHeight) / 2 >= 4)
+                #expect(popup.animationBehavior == .none)
+                #expect(popup.frame.width <= (name == "branch" ? 375 : LitheDropdownMetrics.maximumWidth))
+                popup.contentView?.layoutSubtreeIfNeeded()
+                let view = try #require(popup.contentView)
+                let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                view.cacheDisplay(in: view.bounds, to: bitmap)
+                if let directory = ProcessInfo.processInfo.environment["LITHE_TOPBAR_CAPTURE_DIR"] {
+                    try #require(bitmap.representation(using: .png, properties: [:])).write(to:
+                        URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png"))
+                }
+                probe.isPresented = false
+                window.contentView = nil
+                #expect(!popup.isVisible)
+            }
+        } catch {
+            await model.shutdownProjectSession()
+            throw error
+        }
+        await model.shutdownProjectSession()
+    }
+
     @Test
     func sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches() async throws {
         let probe = DropdownEnvironmentProbe()
@@ -381,6 +474,63 @@ struct ContextMenuCoverageTests {
         }
     }
 
+    @Test(arguments: [false, true])
+    func submenuStartsAtItsTriggerRowAndKeepsCopyTitlesVisible(isDark: Bool) async throws {
+        let fontURL = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("Resources/Fonts/Inter-Regular.otf")
+        let ownsFont = NSFont(name: "Inter-Regular", size: 12.5) == nil
+        if ownsFont { #expect(CTFontManagerRegisterFontsForURL(fontURL as CFURL, .process, nil)) }
+        defer { if ownsFont { CTFontManagerUnregisterFontsForURL(fontURL as CFURL, .process, nil) } }
+        let screen = try #require(NSScreen.main).visibleFrame
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        let items = (0..<8).map { LitheContextMenuItem.action("Close tab \($0)") {} }
+            + [.separator, .submenu("Copy Path / Reference", items: [
+                .action("Copy Path") {}, .action("Copy Relative Path") {}
+            ]), .action("Show in Finder") {}]
+        presenter.show(items: items, at: NSPoint(x: screen.midX, y: screen.maxY - 60),
+                       appearance: NSAppearance(named: isDark ? .darkAqua : .aqua), locale: Locale(identifier: "en"))
+        let window = try #require(NSApp.windows.first {
+            $0.isVisible && String(describing: type(of: $0)).contains("LitheContextMenuPanel")
+        })
+        let rootFrame = window.frame
+        let host = try #require(window.contentView)
+        host.layoutSubtreeIfNeeded()
+        // Select the ninth enabled item; separators do not consume keyboard steps.
+        for _ in 0..<9 { try sendKey(125, to: window) }
+        try sendKey(124, to: window)
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        await Task.yield()
+        host.layoutSubtreeIfNeeded()
+        #expect(window.frame.minX == rootFrame.minX)
+        #expect(window.frame.maxY == rootFrame.maxY)
+        #expect(window.frame.height == rootFrame.height)
+        #expect(screen.contains(window.frame))
+        let childWidth = window.frame.width - rootFrame.width - LitheDropdownMetrics.submenuSpacing
+        let text = ImageRenderer(content: Text("Copy Relative Path")
+            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize)).fixedSize())
+        let renderedTitle = try #require(text.cgImage)
+        #expect(childWidth >= CGFloat(renderedTitle.width)
+            + 2 * (LitheDropdownMetrics.popupPadding + LitheDropdownMetrics.itemHorizontalPadding) + 14 + 9)
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
+        let childX = rootFrame.width + LitheDropdownMetrics.submenuSpacing + childWidth / 2
+        let rowOffset = 8 * LitheDropdownMetrics.rowHeight + LitheDropdownMetrics.separatorHeight
+        let aboveChild = try #require(bitmap.colorAt(x: Int(childX * scale), y: Int(20 * scale)))
+        #expect(aboveChild.alphaComponent < 0.01, "A late submenu must not start at the root menu's top")
+        let childRow = try #require(bitmap.colorAt(x: Int(childX * scale), y: Int((rowOffset + 10) * scale)))
+        #expect(childRow.alphaComponent > 0.99, "The flyout must occupy its trigger row")
+        if let directory = ProcessInfo.processInfo.environment["LITHE_SUBMENU_CAPTURE_DIR"] {
+            let destination = URL(fileURLWithPath: directory)
+            try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:]))
+                .write(to: destination.appendingPathComponent(isDark ? "submenu-dark.png" : "submenu-light.png"))
+        }
+    }
+
     @Test
     func longSubmenusStayOnScreenAndLastItemCanExecute() throws {
         let screen = try #require(NSScreen.main).visibleFrame
@@ -455,5 +605,17 @@ private struct DropdownEnvironmentContent: View {
     var body: some View {
         Text("Inherited environment").frame(width: 180, height: 48)
             .onAppear { probe.renderedLocale = locale.identifier }
+    }
+}
+
+private struct TopbarDropdownHarness: View {
+    @ObservedObject var probe: DropdownEnvironmentProbe
+    let buttonHeight: CGFloat
+    let content: AnyView
+
+    var body: some View {
+        Button("Anchor") {}.frame(height: buttonHeight)
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
+            .litheDropdown(isPresented: $probe.isPresented) { content }
     }
 }

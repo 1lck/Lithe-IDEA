@@ -705,6 +705,8 @@ struct WorkbenchView: View {
             .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
+            // Anchor at the full toolbar slot, leaving its margin below the painted button.
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
             .litheDropdown(isPresented: instantProjectSwitcherPresentation) { projectSwitcherContent }
 
             Button {
@@ -734,6 +736,7 @@ struct WorkbenchView: View {
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
             .litheDropdown(isPresented: instantBranchSwitcherPresentation) { branchSwitcherContent }
 
             Spacer(minLength: 22)

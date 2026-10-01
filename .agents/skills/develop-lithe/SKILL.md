@@ -211,6 +211,7 @@ the existing stack can reasonably avoid.
   | Value selection, including settings forms | `LitheSettingsSelect` | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
   | Action/custom dropdown windows, placement and dismissal | `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
   | Value-select popup window and keyboard selection | `LitheSettingsSelectPopupPresenter` (private, through `LitheSettingsSelect`) | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Monaco/WebKit editor context menus (existing resolved actions only) | `installNativeContextMenu` → `MonacoEditorContextMenu` → `LitheContextMenuPresenter` | `macos/EditorFrontend/context-menu.ts` / `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift` |
   | Shared row metrics and highlight | `LitheDropdownMetrics` / `LitheDropdownRowStyle` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
   | Shared outer background, 8pt radius, border and clipping | `litheContextMenuSurface` | `macos/Sources/Lithe/Theme/LitheTheme.swift` |
 
@@ -224,7 +225,22 @@ the existing stack can reasonably avoid.
 - Anchor toolbar dropdowns to the triggering control's bottom-left edge, not
   the pointer position. Preserve screen-edge clamping, keyboard navigation,
   selected state, outside-click dismissal and focus behavior.
-- All product menu/dropdown entry points now use the shared routes. Native
+  The main-toolbar Project/Branch switches anchor their full toolbar slot,
+  leaving its existing margin below the painted button. Use the shared width
+  bounds in `LitheDropdownMetrics`; Project measures content width and Branch
+  uses the Community New UI 375pt baseline. Do not copy the top-bar Project
+  switcher's previous fixed width or create another search-field style:
+  searchable popup inputs use `LitheSearchTextField` + `litheSearchField` in
+  `macos/Sources/Lithe/Theme/LitheTheme.swift`, as Git Log does.
+- Monaco editor context menus must also use the native shared presenter.
+  Preserve Monaco's resolved actions, order, context keys, disabled states,
+  shortcuts and action runner; do not invent IDEA-only functionality or duplicate
+  the shared style in web CSS. Use only mapped IDEA SVG icons at their original
+  16pt size, with original colors and dark/light variants; an unassigned action
+  keeps an empty icon slot. The macOS adapter hooks the pinned Monaco 0.55.1
+  context-menu renderer after upstream menu resolution; verify the real WebKit
+  probe whenever changing this hook or upgrading Monaco.
+- Product menu/dropdown entry points use the shared routes. Native
   SwiftUI `Picker` is allowed only for explicit `.segmented` controls, which
   have no dropdown. `ContextMenuCoverageTests` enforces these restrictions.
   System dialogs, the macOS application menu, editor completion/caret popups

@@ -24,7 +24,7 @@ struct DiffPaneView: View {
         HStack(spacing: 0) {
             diffSurface
             if showsDiffMap, !rows.isEmpty {
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
+                Rectangle().fill(LitheTheme.Diff.separator).frame(width: 1)
                 DiffMapView(rows: rows) { rowID in
                     // A tick can point into a fold, so force that region open
                     // before asking the list to scroll there.

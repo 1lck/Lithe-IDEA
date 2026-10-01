@@ -43,7 +43,7 @@ struct GitCommitDiffReviewView: View {
                 }
             }
         }
-        .litheWorkbenchSurface(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.Diff.background)
         .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
         }
@@ -229,7 +229,7 @@ struct GitCommitDiffReviewView: View {
                     .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             } else {
                 DiffSplitPaneView(
                     displayRows: displayRows,
@@ -243,7 +243,7 @@ struct GitCommitDiffReviewView: View {
                     onExpand: { _ in }
                 )
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             }
         }
     }
