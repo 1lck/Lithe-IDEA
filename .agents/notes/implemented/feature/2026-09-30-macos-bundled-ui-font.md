@@ -80,8 +80,26 @@ Diff 的区块动作、搜索、折叠与只读/暂存语义保留。高亮词�
 依据同一 Community 版本的 `DiffHeaderToolbarPanel`、`DiffUtil.getContentTitleBorderInsets`、
 `DiffToolChooser`、`SegmentedButtonComponent` 与 `FilePathDiffTitleCustomizer`。
 上一处/下一处、只读锁、双栏/单栏使用原始明暗 SVG；普通工具按钮复用
-`litheToolbarIconButton`、共享 hover/提示和界面字体；布局选择复用现有行 hover，
-保持 IDEA 分段按钮的独立选中边框，不能套用设置页的蓝色文字分段选择样式。
+`litheToolbarIconButton`、共享 hover/提示和界面字体。Islands 主题不是 DiffUtil 的
+默认平面外观：`DiffToolbarIslandPanelUI` 在编辑器背景上画独立圆角工具栏，40pt
+内容高度、上 2pt / 左右 6pt 外侧留白、6pt 圆角；背景/边框来自
+`Editor.SearchField.background/borderColor`。移除原先贯穿整页的工具栏底边，
+不能拿普通 toolHeader 背景代替这层表面。
+
+版本标题遵循 `ManyIslands{Dark,Light}.theme.json` 对 `Diff.ContentTitle.insets`
+的四边 6pt 覆盖值，不使用 `DiffUtil` 的 2/4/0/4 默认值；16pt 标题内容加内边距和
+1pt 底边，共 29pt。单栏标题在同一边框内用 6pt 间距堆叠。底边来自编辑器
+`TEARLINE_COLOR`：深色继承 Darcula 的 #555555，浅色继承 Light 的 #D4D4D4，
+与中央竖线是不同的 token。路径继承普通 13pt Regular 标签字体及
+`UIUtil.getContextHelpForeground` → `Label.infoForeground`（#73767C），和提交文字
+之间保留 8pt；不能用较小字体或通用 secondaryText 代替。
+
+双栏/单栏选择复用现有行 hover。按 `SegmentedButtonComponent/Toolbar`，父容器
+只画一个外框，然后覆盖被选中的子项边框；未选项不再单独画框。每项 48×26pt，
+来源是 16pt 图标 + ActionButtonWithText 两边 4pt margin + DSL 两边 12pt gap；
+外围保留 Darcula 的 2pt focus width 和 1pt line width，外框圆角半径为 Button.arc/2
+（4pt）。描边画在边界内，颜色使用 Button/SegmentedButton 主题 token，不通过
+文字颜色透明度猜测。不能套用设置页的蓝色文字分段选择样式，也不改变选项动作。
 
 两侧滚动条复用 `DiffMapView.width`、共享 compact 原生滑块绘制和 `LitheTheme.Diff`
 标记色。相对位置依据各自完整代码流高度，至少 2pt，点击把变更置于视口约三分之一
@@ -129,14 +147,17 @@ node scripts/test-reuse-worktree-resources.mjs
 完整安装包由 `scripts/verify-macos-package.sh` 检查全部字型及许可信息。
 本次字体注册/字重与明暗弹窗圆角渲染测试通过；按用户要求不启动预览，当前运行界面的视觉验收尚未完成。Windows 原生界面不在本次验证范围内。
 
-此次 Diff 主测试目标 1,379 项 / 178 个 suite 通过，49.363 秒；普通 SwiftPM
-不包含应用 SVG 资源时跳过专用资源检查，另用实际资源 helper 跑 9 项 / 两个 suite
-通过（1.125 秒），包括明暗位图、原生点击布局切换、标题预留高度、标记颜色和定位、卸载、连续
-选择、滚动条无障碍增减及两种 SVG 路径写法。最后滚动条无障碍调整另由 8 项
-实际执行的聚焦检查通过（1.189 秒，普通 SwiftPM 跳过资源专用检查）。1,200 行 / 60 帧组件调整与截图检查文字重建为零，
-p95 为 10.26ms；该测量包含组件布局和截图，不能证明完整应用的实际滚动帧延迟。
-所有任务窗口/进程退出；按用户要求没有启动完整预览应用。HTML 报告分别在
-`.artifacts/diff-validation/full/index.html` 与 `native/index.html`。
+此次标题/工具栏修正的主 `LitheTests` 目标报告 1,379 项 / 178 个 suite 成功，
+51.296 秒（1,368 项实际执行通过，11 项按条件跳过）；最后把颜色检查取样点从
+真实箭头所在位置移到工具栏空白处后，聚焦 8 项实际执行通过，1.240 秒，实际
+字体/SVG helper 的 9 项 / 两个 suite 通过，1.201 秒。原生标题检查以深浅主题的
+实际像素验证工具栏外侧留白、独立背景、29pt 标题行、1pt 底边、路径提示色和
+分段控件单外框，点击后核对双栏/堆叠版本的位置。普通 SwiftPM 不含应用 SVG，
+资源专用检查由该 helper 单独执行。标题检查耗时 112ms；1,200 行 / 60 帧组件
+调整和截图检查文字重建为零，p95 9.94ms，这不能证明完整应用的实际滚动帧延迟。
+任务拥有的窗口和进程均退出；没有启动完整预览应用。HTML 报告在
+`.artifacts/diff-header-validation/full/index.html`、`focused/index.html` 和
+`native/index.html`，完整工作区视觉验收继续 pending。
 
 ## 适用范围
 

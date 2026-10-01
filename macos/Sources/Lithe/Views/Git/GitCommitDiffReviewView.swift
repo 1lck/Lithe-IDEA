@@ -16,10 +16,8 @@ struct GitCommitDiffReviewView: View {
         ScrollViewReader { proxy in
             VStack(spacing: 0) {
                 toolbar(proxy: proxy)
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 if usesUnifiedPane || feature.isLoadingDiff || feature.diffRows.isEmpty {
                     versionHeader
-                    Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 }
 
                 if feature.isLoadingDiff {
@@ -68,6 +66,22 @@ struct GitCommitDiffReviewView: View {
                 viewerButton(unified: false)
                 viewerButton(unified: true)
             }
+            .padding(LitheTheme.Diff.viewerFocusInset + LitheTheme.Diff.viewerBorderWidth)
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.Diff.viewerRadius)
+                    .strokeBorder(LitheTheme.Diff.viewerBorder, lineWidth: LitheTheme.Diff.viewerBorderWidth)
+                    .padding(LitheTheme.Diff.viewerFocusInset)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .leading) {
+                // The parent paints only the selected segment, over the single shared outer border.
+                RoundedRectangle(cornerRadius: LitheTheme.Diff.viewerRadius)
+                    .strokeBorder(LitheTheme.Diff.viewerSelectedBorder, lineWidth: LitheTheme.Diff.viewerBorderWidth)
+                    .frame(width: LitheTheme.Diff.viewerButtonWidth + 2 * LitheTheme.Diff.viewerBorderWidth,
+                           height: LitheTheme.Diff.viewerButtonHeight + 2 * LitheTheme.Diff.viewerBorderWidth)
+                    .offset(x: LitheTheme.Diff.viewerFocusInset + (usesUnifiedPane ? LitheTheme.Diff.viewerButtonWidth : 0))
+                    .allowsHitTesting(false)
+            }
             LitheMenu {
                 LitheContextMenuItem.toggle("Highlight words", isOn: $highlightsWords)
                 LitheContextMenuItem.separator
@@ -76,22 +90,24 @@ struct GitCommitDiffReviewView: View {
                 LitheIDEAIcon(resourcePath: "expui/general/settings", size: 16, preservesOriginalColors: true)
             }.litheToolbarIconButton().accessibilityLabel("Diff settings").workbenchHoverHelp(Text("Diff settings"))
         }
-        .padding(.horizontal, 6).frame(height: 38)
-        .litheWorkbenchSurface(LitheTheme.toolHeader)
+        .padding(.horizontal, LitheTheme.Diff.toolbarHorizontalInset)
+        .frame(height: LitheTheme.Diff.toolbarHeight)
+        .background(RoundedRectangle(cornerRadius: LitheTheme.Diff.toolbarRadius).fill(LitheTheme.Diff.toolbarBackground))
+        .overlay { RoundedRectangle(cornerRadius: LitheTheme.Diff.toolbarRadius).stroke(LitheTheme.Diff.toolbarBorder, lineWidth: 1) }
+        .padding(.horizontal, LitheTheme.Diff.toolbarHorizontalInset)
+        .padding(.top, LitheTheme.Diff.toolbarTopInset)
     }
 
     private func viewerButton(unified target: Bool) -> some View {
         Button { unified = target } label: {
             LitheIDEAIcon(resourcePath: target ? "expui/diff/unified" : "expui/diff/sideBySide",
                 size: 16, preservesOriginalColors: true)
-                .frame(width: 48, height: 28)
+                .frame(width: LitheTheme.Diff.viewerButtonWidth, height: LitheTheme.Diff.viewerButtonHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)
-        .litheRowHover(isActive: usesUnifiedPane == target, cornerRadius: 3,
-                       activeBackground: LitheTheme.hoverBackground)
-        .overlay { RoundedRectangle(cornerRadius: 3).stroke(
-            usesUnifiedPane == target ? LitheTheme.secondaryText.opacity(0.5) : LitheTheme.divider, lineWidth: 1) }
+        .litheRowHover(isActive: usesUnifiedPane == target, cornerRadius: LitheTheme.Diff.viewerRadius,
+                       activeBackground: LitheTheme.Diff.viewerSelectedBackground)
         .accessibilityLabel(target ? "Unified view" : "Side-by-side view")
         .accessibilityValue(usesUnifiedPane == target ? "Selected" : "Not selected")
         .workbenchHoverHelp(Text(target ? "Unified view" : "Side-by-side view"))
@@ -100,7 +116,7 @@ struct GitCommitDiffReviewView: View {
     private var versionHeader: some View {
         Group {
             if usesUnifiedPane {
-                VStack(spacing: 0) {
+                VStack(spacing: LitheTheme.Diff.titleGap) {
                     versionLabel(parentHash, path: context.path)
                     versionLabel(context.commit.shortHash, path: nil)
                 }
@@ -110,21 +126,26 @@ struct GitCommitDiffReviewView: View {
                     versionLabel(context.commit.shortHash, path: nil)
                 }
             }
-        }.background(LitheTheme.Diff.background)
+        }.padding(.vertical, LitheTheme.Diff.titleInset)
+         .padding(.bottom, 1)
+         .background(LitheTheme.Diff.background)
+         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.titleSeparator).frame(height: 1) }
     }
 
     private var parentHash: String { context.commit.parentHashes.first.map { String($0.prefix(8)) } ?? "Empty" }
 
     private func versionLabel(_ hash: String, path: String?) -> some View {
-        HStack(spacing: 4) {
-            LitheIDEAIcon(resourcePath: "expui/general/locked", size: 16, preservesOriginalColors: true)
-            Text(hash).font(LitheTheme.uiFont(size: 13)).foregroundStyle(LitheTheme.primaryText)
+        HStack(spacing: 0) {
+            LitheIDEAIcon(resourcePath: "expui/general/locked", size: LitheTheme.Diff.titleIconSize, preservesOriginalColors: true)
+            Text(hash).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.titleForeground)
+                .fixedSize()
             if let path {
-                Text(path).font(LitheTheme.uiFont(size: 12)).foregroundStyle(LitheTheme.secondaryText)
-                    .lineLimit(1).truncationMode(.middle).padding(.leading, 6)
+                Text(path).font(LitheTheme.uiFont(size: 13, weight: .regular)).foregroundStyle(LitheTheme.Diff.pathForeground)
+                    .lineLimit(1).truncationMode(.middle).padding(.leading, 8)
             }
             Spacer(minLength: 4)
-        }.padding(.horizontal, 4).frame(maxWidth: .infinity).frame(height: 22)
+        }.padding(.horizontal, LitheTheme.Diff.titleInset)
+         .frame(maxWidth: .infinity).frame(minHeight: LitheTheme.Diff.titleIconSize)
     }
 
     private func diffContent(proxy: ScrollViewProxy) -> some View {
@@ -149,8 +170,9 @@ struct GitCommitDiffReviewView: View {
                         HStack(spacing: 0) {
                             versionLabel(parentHash, path: context.path).frame(width: position).clipped()
                             versionLabel(context.commit.shortHash, path: nil)
-                        }.background(LitheTheme.Diff.background)
-                         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.separator).frame(height: 1) }
+                        }.padding(.vertical, LitheTheme.Diff.titleInset).padding(.bottom, 1)
+                         .background(LitheTheme.Diff.background)
+                         .overlay(alignment: .bottom) { Rectangle().fill(LitheTheme.Diff.titleSeparator).frame(height: 1) }
                     ) },
                     selectedRowIDs: selectedIDs, onExpand: { _ in })
             }

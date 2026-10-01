@@ -42,7 +42,7 @@ struct DiffScrollSynchronizationTests {
         let hosting = NSHostingView(rootView: ScrollViewReader { _ in
             DiffSplitPaneView(displayRows: display, kinds: rows.map(\.kind), layout: layout,
                 fileExtension: "swift", contentWidth: 1_100, viewportWidth: 900,
-                header: { _ in AnyView(Color.clear.frame(height: 22)) }, onExpand: { _ in })
+                header: { _ in AnyView(Color.clear.frame(height: LitheTheme.Diff.titleHeight)) }, onExpand: { _ in })
         })
         hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
         let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -52,7 +52,8 @@ struct DiffScrollSynchronizationTests {
         let stripes = descendants(hosting).compactMap { $0 as? DiffStripeScroller }
         let left = try #require(stripes.first { $0.side == .left })
         let right = try #require(stripes.first { $0.side == .right })
-        #expect(left.bounds.height == 228 && right.bounds.height == 228, "Version headers reserve space above the native scroll viewports")
+        #expect(left.bounds.height == 250 - LitheTheme.Diff.titleHeight && right.bounds.height == left.bounds.height,
+                "Version headers reserve space above the native scroll viewports")
         let sync = try #require(left.synchronization)
         let oldClip = try #require(sync.scrollView(.left)?.contentView)
         let newClip = try #require(sync.scrollView(.right)?.contentView)
@@ -144,8 +145,8 @@ struct DiffScrollSynchronizationTests {
         }
     }
 
-    @Test
-    func commitHeadersSwitchBetweenTwoColumnsAndStackedVersions() async throws {
+    @Test(arguments: [true, false])
+    func commitHeadersSwitchBetweenTwoColumnsAndStackedVersions(dark: Bool) async throws {
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
         let context = GitCommitDiffContext(repositoryRoot: FileManager.default.temporaryDirectory,
             commit: GitCommit(hash: "3162dee9", shortHash: "3162dee9", parentHashes: ["8e12be9b"],
@@ -159,11 +160,11 @@ struct DiffScrollSynchronizationTests {
         let model = AppModel(settings: settings, services:
             MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
-            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context).environmentObject(model).environment(\.colorScheme, .dark))
+            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
             hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
             let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting
-            window.appearance = NSAppearance(named: .darkAqua)
+            window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             window.orderFront(nil)
             defer { window.contentView = nil; window.close() }
             hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
@@ -176,12 +177,34 @@ struct DiffScrollSynchronizationTests {
                 let scale = CGFloat(bitmap.pixelsWide) / 900
                 return x.reduce(0) { count, x in count + y.filter { y in
                     guard let color = bitmap.colorAt(x: Int(CGFloat(x) * scale), y: Int(CGFloat(y) * scale)) else { return false }
-                    return color.redComponent > 0.6 && color.greenComponent > 0.6 && color.blueComponent > 0.6
+                    return dark ? color.redComponent > 0.6 && color.greenComponent > 0.6 && color.blueComponent > 0.6
+                                : color.redComponent < 0.4 && color.greenComponent < 0.4 && color.blueComponent < 0.4
                 }.count }
             }
+            func matches(_ bitmap: NSBitmapImageRep, x: Int, y: Int, rgb: UInt32) throws -> Bool {
+                let scale = CGFloat(bitmap.pixelsWide) / 900
+                let color = try #require(bitmap.colorAt(x: Int(CGFloat(x) * scale), y: Int(CGFloat(y) * scale)))
+                return abs(color.redComponent - CGFloat((rgb >> 16) & 255) / 255) < 0.02
+                    && abs(color.greenComponent - CGFloat((rgb >> 8) & 255) / 255) < 0.02
+                    && abs(color.blueComponent - CGFloat(rgb & 255) / 255) < 0.02
+            }
+            let toolbarBottom = Int(LitheTheme.Diff.toolbarHeight + LitheTheme.Diff.toolbarTopInset)
+            let titleBottom = toolbarBottom + Int(LitheTheme.Diff.titleHeight)
             let before = try snapshot()
-            #expect(ink(before, x: 474..<545, y: 42..<60) > 20, "Current commit is in the right version column")
-            let point = hosting.convert(NSPoint(x: 844, y: 19), to: nil)
+            #expect(try matches(before, x: 0, y: 20, rgb: dark ? 0x191A1C : 0xFFFFFF), "The toolbar leaves editor background at the outer inset")
+            #expect(try matches(before, x: 200, y: 20, rgb: dark ? 0x212326 : 0xF7F8F9), "The toolbar paints its own island layer")
+            #expect(try matches(before, x: 200, y: titleBottom - 1, rgb: dark ? 0x555555 : 0xD4D4D4), "Version titles use the inherited editor tearline")
+            #expect(try matches(before, x: 200, y: titleBottom, rgb: dark ? 0x191A1C : 0xFFFFFF), "The tearline is one point, not a second header border")
+            #expect(try matches(before, x: 820, y: 8, rgb: dark ? 0x40434A : 0xD1D3D9), "One parent outline surrounds both viewer buttons")
+            #expect(try matches(before, x: 820, y: 9, rgb: dark ? 0x212326 : 0xF7F8F9), "The unselected outline does not paint a second inner stroke")
+            let pathPixels = try (100..<400).reduce(0) { count, x in
+                count + (try ((toolbarBottom + 6)..<(toolbarBottom + 22)).filter { y in
+                    try matches(before, x: x, y: y, rgb: 0x73767C)
+                }).count
+            }
+            #expect(pathPixels > 20, "The path uses ContextHelp/Label.infoForeground, not the generic secondary text palette")
+            #expect(ink(before, x: 472..<545, y: (toolbarBottom + 6)..<(toolbarBottom + 22)) > 20, "Current commit is in the right version column")
+            let point = hosting.convert(NSPoint(x: 835, y: 22), to: nil)
             for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
                 let event = try #require(NSEvent.mouseEvent(with: type, location: point,
                     modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
@@ -190,14 +213,16 @@ struct DiffScrollSynchronizationTests {
             }
             await Task.yield(); hosting.layoutSubtreeIfNeeded()
             let after = try snapshot()
-            #expect(ink(after, x: 474..<545, y: 42..<60) == 0, "Unified mode clears the right version column")
-            #expect(ink(after, x: 24..<95, y: 64..<82) > 20, "Current commit is the second stacked version")
+            #expect(ink(after, x: 472..<545, y: (toolbarBottom + 6)..<(toolbarBottom + 22)) == 0, "Unified mode clears the right version column")
+            #expect(ink(after, x: 22..<95, y: (toolbarBottom + 28)..<(toolbarBottom + 44)) > 20, "Current commit is the second stacked version")
             if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
                 let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
                 hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
                 try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
                 try #require(bitmap.representation(using: .png, properties: [:])).write(to:
-                    URL(fileURLWithPath: directory).appendingPathComponent("diff-toolbar-unified.png"))
+                    URL(fileURLWithPath: directory).appendingPathComponent(dark ? "diff-toolbar-unified.png" : "diff-toolbar-unified-light.png"))
+                try #require(before.representation(using: .png, properties: [:])).write(to:
+                    URL(fileURLWithPath: directory).appendingPathComponent(dark ? "diff-toolbar-split.png" : "diff-toolbar-split-light.png"))
             }
         } catch {
             await model.shutdownProjectSession()

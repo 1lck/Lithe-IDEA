@@ -424,6 +424,30 @@ enum LitheTheme {
     enum Diff {
         static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x191A1C) }
         static var separator: Color { controlColor(light: 0xE4E6EB, dark: 0x2B2D30) }
+        // Islands overrides Diff.ContentTitle.insets; the fallback in DiffUtil is for plain UI.
+        static let titleInset: CGFloat = 6
+        static let titleGap: CGFloat = 6
+        static let titleIconSize: CGFloat = 16
+        static let titleHeight: CGFloat = titleIconSize + titleInset * 2 + 1
+        static var titleSeparator: Color { controlColor(light: 0xD4D4D4, dark: 0x555555) }
+        static var titleForeground: Color { controlColor(light: 0x080808, dark: 0xBCBEC4) }
+        static var pathForeground: Color { controlColor(light: 0x73767C, dark: 0x73767C) }
+        // DiffToolbarIslandPanelUI and ManyIslands{Dark,Light}.theme.json.
+        static let toolbarHeight: CGFloat = 40
+        static let toolbarTopInset: CGFloat = 2
+        static let toolbarHorizontalInset: CGFloat = 6
+        static let toolbarRadius: CGFloat = 6
+        static var toolbarBackground: Color { controlColor(light: 0xF7F8F9, dark: 0x212326) }
+        static var toolbarBorder: Color { controlColor(light: 0xE9EAEE, dark: 0x26282C) }
+        // Icon 16 + ActionButtonWithText margins 8 + IntelliJSpacingConfiguration gaps 24.
+        static let viewerButtonWidth: CGFloat = 48
+        static let viewerButtonHeight: CGFloat = 26
+        static let viewerFocusInset: CGFloat = 2
+        static let viewerBorderWidth: CGFloat = 1
+        static let viewerRadius: CGFloat = 4
+        static var viewerBorder: Color { controlColor(light: 0xD1D3D9, dark: 0x40434A) }
+        static var viewerSelectedBorder: Color { controlColor(light: 0xB5B7BD, dark: 0x5F6269) }
+        static var viewerSelectedBackground: Color { controlColor(light: 0xFFFFFF, dark: 0x26282C) }
         static var lineNumber: Color { controlColor(light: 0xAEB3C2, dark: 0x4B5059) }
         static var inserted: Color { controlColor(light: 0xBEE6BE, dark: 0x294436) }
         static var deleted: Color { controlColor(light: 0xD6D6D6, dark: 0x484A4A) }
