@@ -1318,6 +1318,14 @@
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
 
+"Paste" = "Paste";
+"Copied files" = "Copied files";
+"Move %lld items to Trash?" = "Move %lld items to Trash?";
+"Pasted files" = "Pasted files";
+"Copy Files" = "Copy";
+"Choose a directory inside the project" = "Choose a directory inside the project";
+"Cannot copy a directory into itself" = "Cannot copy a directory into itself";
+"Stopped moving the remaining items to Trash" = "Stopped moving the remaining items to Trash";
 "AI tool connections (MCP)" = "AI tool connections (MCP)";
 "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
 "Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";

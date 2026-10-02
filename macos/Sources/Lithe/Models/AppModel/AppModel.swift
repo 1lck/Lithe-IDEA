@@ -1046,6 +1046,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.duplicateProjectItem(at: sourceURL)
     }
 
+    func duplicateProjectItems(_ urls: [URL]) async {
+        await workspaceFeature.duplicateProjectItems(urls)
+    }
+
+    func requestDeleteProjectItems(_ urls: [URL]) {
+        workspaceFeature.requestDeleteProjectItems(urls)
+    }
+
     func requestDeleteProjectItem(at url: URL, isDirectory: Bool) {
         workspaceFeature.requestDeleteProjectItem(at: url, isDirectory: isDirectory)
     }
@@ -1060,6 +1068,14 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
 
     func revealProjectItemInFinder(_ url: URL) {
         platformUI.revealInFileBrowser(url)
+    }
+
+    func copyProjectItems(_ urls: [URL]) {
+        if platformUI.copyFilesToClipboard(urls) { showNotification("Copied files") }
+    }
+
+    func pasteProjectItems(in directory: URL) async {
+        await workspaceFeature.pasteProjectItems(platformUI.fileURLsFromClipboard(), in: directory)
     }
 
     func copyProjectItemPath(_ url: URL, relative: Bool) {
