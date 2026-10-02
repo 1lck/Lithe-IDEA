@@ -202,6 +202,10 @@ export function adaptCoreResult<T>(
               author: commit.authorName,
               email: commit.authorEmail,
               date: commit.date,
+              dateUtcOffsetMinutes:
+                typeof commit.dateUtcOffsetMinutes === "number"
+                  ? commit.dateUtcOffsetMinutes
+                  : undefined,
               decorations: commit.decorations ?? "",
             }))
           : [],
@@ -245,6 +249,10 @@ export function adaptCoreResult<T>(
               author: commit.authorName,
               email: commit.authorEmail,
               date: commit.date,
+              dateUtcOffsetMinutes:
+                typeof commit.dateUtcOffsetMinutes === "number"
+                  ? commit.dateUtcOffsetMinutes
+                  : undefined,
               decorations: commit.decorations ?? "",
             }))
           : [],

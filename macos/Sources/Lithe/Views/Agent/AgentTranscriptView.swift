@@ -76,12 +76,18 @@ struct AgentTranscriptView: View {
     var searchText = ""
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
     @State private var showsAgentPicker = false
+    // A filtered-out row can be destroyed. Keep its preference in the owning
+    // transcript view, isolated by session and message, until the actual data goes away.
+    @State private var thoughtExpansions: [String: [String: AgentThoughtExpansion]] = [:]
 
     var body: some View {
         let conversation = feature.selectedConversation
         let messages = conversation?.messages ?? []
         let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
             .filter { $0.matches(searchText) }
+        // Only reasoning that is still streaming opens by default.
+        let liveThoughtID = conversation?.isResponding == true && messages.last?.role == .thought
+            ? messages.last?.id : nil
         VStack(spacing: 0) {
             if conversation?.isLoading != true && messages.isEmpty && feature.pendingNewConversationPrompt == nil {
                 AgentHeroView(agentName: agentName, agentVersion: agentVersion) {
@@ -126,7 +132,13 @@ struct AgentTranscriptView: View {
                                 Group {
                                     switch item {
                                     case .message(let message):
-                                        AgentMessageRow(message: message, onOpenFile: onOpenFile)
+                                        AgentMessageRow(
+                                            message: message,
+                                            isStreamingThought: liveThoughtID == message.id,
+                                            isSearching: !searchText.isEmpty,
+                                            thoughtExpansion: thoughtExpansion(for: message.id),
+                                            onOpenFile: onOpenFile
+                                        )
                                     case .toolGroup(let tools):
                                         AgentToolGroupView(messages: tools, searchText: searchText, onOpenFile: onOpenFile)
                                     case .turnSummary(let turn):
@@ -142,7 +154,8 @@ struct AgentTranscriptView: View {
                             if conversation?.isResponding == true || feature.isCreatingSession {
                                 AgentThinkingRow(
                                     isCancelling: conversation?.isCancelling == true,
-                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt
+                                    startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
+                                    hasStreamingThought: liveThoughtID != nil
                                 ).id("responding")
                             }
                         }
@@ -167,8 +180,29 @@ struct AgentTranscriptView: View {
             if let permission = conversation?.permission {
                 AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
             }
+            if let plan = conversation?.plan {
+                AgentPlanView(plan: plan, isResponding: conversation?.isResponding == true)
+                    .id(feature.selectedSessionID)
+            }
             AgentActivitySummaryBar(messages: messages)
         }
+        .onChange(of: feature.openSessionIDs) { sessionIDs in
+            thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
+        }
+        .onChange(of: messages.map(\.id)) { messageIDs in
+            // Use unfiltered messages: changing the search must never discard preferences.
+            guard let sessionID = feature.selectedSessionID, let preferences = thoughtExpansions[sessionID] else { return }
+            let retainedIDs = Set(messageIDs)
+            thoughtExpansions[sessionID] = preferences.filter { retainedIDs.contains($0.key) }
+        }
+    }
+
+    private func thoughtExpansion(for messageID: String) -> Binding<AgentThoughtExpansion> {
+        guard let sessionID = feature.selectedSessionID else { return .constant(AgentThoughtExpansion()) }
+        return Binding(
+            get: { thoughtExpansions[sessionID]?[messageID] ?? AgentThoughtExpansion() },
+            set: { thoughtExpansions[sessionID, default: [:]][messageID] = $0 }
+        )
     }
 }
 
@@ -308,6 +342,9 @@ private struct AgentPermissionCard: View {
 
 private struct AgentMessageRow: View {
     let message: AgentConversationMessage
+    var isStreamingThought = false
+    var isSearching = false
+    var thoughtExpansion: Binding<AgentThoughtExpansion> = .constant(AgentThoughtExpansion())
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
 
     var body: some View {
@@ -325,6 +362,9 @@ private struct AgentMessageRow: View {
         case .agent:
             AgentMarkdownMessage(text: message.text)
                 .frame(maxWidth: .infinity, alignment: .leading)
+        case .thought:
+            AgentThoughtRow(text: message.text, isStreaming: isStreamingThought, isSearching: isSearching,
+                            expansion: thoughtExpansion)
         case .tool:
             AgentToolGroupView(messages: [message], searchText: "", onOpenFile: onOpenFile)
         }

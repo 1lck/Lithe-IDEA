@@ -1,3 +1,8 @@
+import { invokeLsp } from "@/platform/lsp-core-adapter";
+import { applyJavaCodeChanges } from "@/features/debugger/services/debug-adapter-service";
+import { useDebuggerStore } from "@/features/debugger/stores/debugger.store";
+import { supportsDevToolsUpdate, updateJavaService } from "../services/java-service-update";
+import type { JavaServiceUpdateContext } from "../types/run.types";
 import { createStore } from "zustand/vanilla";
 import { saveWorkspaceBeforeLaunch } from "@/features/editor/services/save-workspace-before-launch";
 import { createWorkspaceScopedStore } from "@/features/workspace/stores/create-workspace-scoped-store";
@@ -122,6 +127,10 @@ interface RunState {
   editingConfigurationId: string | null;
   generationNotice: string | null;
   javaLaunchDecisions: Record<string, JavaLaunchDecision>;
+  serviceUpdates: Record<
+    string,
+    { executionId: string; context: JavaServiceUpdateContext; pending: boolean; message?: string; failed?: boolean }
+  >;
   discoveredJava: JavaRuntime[];
   discoveredMaven: MavenRuntime[];
   discoveredRuntimes: GenericRuntime[];
@@ -146,6 +155,7 @@ interface RunState {
     continueJavaLaunch: (sessionId: string, decisionId: string, remember: boolean) => void;
     cancelJavaLaunch: (sessionId: string, decisionId?: string) => void;
     rebuildJavaIndex: (sessionId: string, decisionId: string) => Promise<void>;
+    updateService: (sessionId: string, debugSessionId?: string) => Promise<void>;
     stop: (sessionId?: string, executionId?: string) => Promise<void>;
     clearOutput: (sessionId?: string) => void;
     saveEditorChanges: (
@@ -171,6 +181,7 @@ export interface RunStoreDependencies {
   seedMavenLocalConfiguration: (workspaceId: string, settings: Partial<MavenSettings>) => void;
   startRunProcess: typeof startRunProcess;
   stopRunProcess: typeof stopRunProcess;
+  buildJavaServiceUpdate?: (root: string, context: JavaServiceUpdateContext) => Promise<void>;
   prepareJavaRunLaunch: typeof prepareJavaRunLaunch;
   rebuildJavaIndexForWorkspace?: typeof rebuildJavaIndexForWorkspace;
   javaBuildFailurePolicyForWorkspace?: typeof javaBuildFailurePolicyForWorkspace;
@@ -518,6 +529,7 @@ export const createRunStore = (
     editingConfigurationId: null,
     generationNotice: null,
     javaLaunchDecisions: {},
+    serviceUpdates: {},
     discoveredJava: [],
     discoveredMaven: [],
     discoveredRuntimes: [],
@@ -558,6 +570,7 @@ export const createRunStore = (
             ? {}
             : {
                 javaLaunchDecisions: {},
+                serviceUpdates: {},
                 primaryExecutionId: null,
                 primaryConfigurationId: null,
                 primaryPreparing: false,
@@ -939,6 +952,24 @@ export const createRunStore = (
             environment: mergeLaunchEnvironment(configuration.env, plan),
           });
           if (!isCurrent()) return null;
+          if (javaLaunch && configuration.sourcePath) {
+            set((current) => ({
+              serviceUpdates: {
+                ...current.serviceUpdates,
+                [sessionId]: {
+                  executionId,
+                  pending: false,
+                  context: { target: javaLaunch, sourcePath: configuration.sourcePath!, debugPort },
+                },
+              },
+            }));
+          } else {
+            set((current) => {
+              const serviceUpdates = { ...current.serviceUpdates };
+              delete serviceUpdates[sessionId];
+              return { serviceUpdates };
+            });
+          }
           const mainArguments = withJavaPaths(plan.arguments, plan.classpath, plan.modulepath);
           const commandLine = `$ ${resolved.executable.split(/[\\/]/).pop()} ${mainArguments.join(" ")}\n\n`;
           if (sessionId === PRIMARY_SESSION_ID) {
@@ -1176,6 +1207,59 @@ export const createRunStore = (
                 : session,
             ),
           }));
+        }
+      },
+
+      updateService: async (sessionId, debugSessionId) => {
+        const entry = get().serviceUpdates[sessionId];
+        const root = get().root;
+        if (!entry || !root || entry.pending) return;
+        const isCurrent = () => {
+          const state = get();
+          const running =
+            sessionId === PRIMARY_SESSION_ID
+              ? state.primaryRunning
+              : state.sessions.some((session) => session.id === sessionId && session.isRunning);
+          const debug = useDebuggerStore.getState().activeSession;
+          return (
+            state.root === root &&
+            executions.get(sessionId) === entry.executionId &&
+            running &&
+            (!debugSessionId ||
+              (debug?.id === debugSessionId &&
+                debug.status !== "idle" &&
+                debug.javaRun?.executionId === entry.executionId &&
+                debug.javaRun?.workspaceId === workspaceId))
+          );
+        };
+        if (!isCurrent() || (!debugSessionId && !supportsDevToolsUpdate(entry.context))) return;
+        const change = (values: { pending?: boolean; message?: string; failed?: boolean }) => {
+          if (get().serviceUpdates[sessionId]?.executionId !== entry.executionId) return;
+          set((state) => ({
+            serviceUpdates: {
+              ...state.serviceUpdates,
+              [sessionId]: { ...state.serviceUpdates[sessionId], ...values },
+            },
+          }));
+        };
+        change({ pending: true, message: undefined, failed: false });
+        try {
+          await updateJavaService({
+            isCurrent,
+            save: () => dependencies.saveWorkspaceBeforeLaunch(workspaceId),
+            build: () =>
+              dependencies.buildJavaServiceUpdate
+                ? dependencies.buildJavaServiceUpdate(root, entry.context)
+                : invokeLsp<void>("java_build_service_update", {
+                    workspacePath: root,
+                    sourcePath: `${root}/${entry.context.sourcePath}`,
+                    target: entry.context.target,
+                  }),
+            apply: debugSessionId ? () => applyJavaCodeChanges(debugSessionId) : undefined,
+            report: (message, failed = false) => change({ message, failed }),
+          });
+        } finally {
+          change({ pending: false });
         }
       },
 

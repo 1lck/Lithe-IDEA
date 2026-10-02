@@ -47,7 +47,8 @@ fi
 if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="$BUILD_DIR/OfficialPlugins"
 fi
-SDK_PATH=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+# Match the host build's explicit SDK when multiple SDKs are installed.
+SDK_PATH="${SDKROOT:-$(/usr/bin/xcrun --sdk macosx --show-sdk-path)}"
 if ! SWIFT_COMPILER=$(command -v swiftc); then
     print -u2 -- "Swift compiler is not available on PATH"
     exit 1
@@ -87,6 +88,14 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     rm -rf "$package_dir"
     mkdir -p "$executable_dir"
     cp "$manifest" "$package_dir/plugin.json"
+    if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
+        language_server_manifest="$plugin_source/language-server.json"
+        [[ -f "$language_server_manifest" ]] || {
+            print -u2 -- "PHP Support is missing its language-server manifest: $language_server_manifest"
+            exit 1
+        }
+        cp "$language_server_manifest" "$package_dir/language-server.json"
+    fi
     cp "$info_plist" "$bundle_dir/Contents/Info.plist"
 
     "$SWIFT_COMPILER" \
@@ -101,6 +110,12 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         -Xlinker dynamic_lookup \
         "${source_files[@]}" \
         -o "$executable_dir/$executable_name"
+
+    if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
+        "$ROOT_DIR/scripts/prepare-php-language-server.sh" \
+            --manifest "$plugin_source/language-server.json" \
+            --output "$bundle_dir/Contents/Resources/LanguageServers/php" >&2
+    fi
 
     /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"
 done

@@ -12,6 +12,8 @@
 "Installed (%lld of %lld enabled)" = "Installed (%lld of %lld enabled)";
 "Install Plugin from Disk…" = "Install Plugin from Disk…";
 "Install PHP Support from a signed plugin package." = "Install PHP Support from a signed plugin package.";
+"Download PHP Support from the official plugin release." = "Download PHP Support from the official plugin release.";
+"Download and Install" = "Download and Install";
 "Install PHP Support Plugin" = "Install PHP Support Plugin";
 "Select a PHP Support plugin package." = "Select a PHP Support plugin package.";
 "Plugin marketplace is not available" = "Plugin marketplace is not available";
@@ -30,8 +32,12 @@
 "Pending confirmation" = "Pending confirmation";
 "Pending plugin changes: %lld" = "Pending plugin changes: %lld";
 "Uninstall" = "Uninstall";
+"Reinstall" = "Reinstall";
+"Uninstall PHP Support?" = "Uninstall PHP Support?";
+"PHP language support will be removed after restarting Lithe." = "PHP language support will be removed after restarting Lithe.";
 "Overview" = "Overview";
 "No Plugins" = "No Plugins";
+"Open Plugin Management" = "Open Plugin Management";
 "Database" = "Database";
 "Enabled" = "Enabled";
 "Disabled" = "Disabled";
@@ -1149,12 +1155,19 @@
 "Search models" = "Search models";
 "No matching models" = "No matching models";
 "Thinking level" = "Thinking level";
+"Responding…" = "Responding…";
+"Plan %lld/%lld" = "Plan %lld/%lld";
 "Speed" = "Speed";
 "Fast" = "Fast";
 "Approval mode" = "Approval mode";
 "Ask for approval" = "Ask for approval";
 "Approve for me" = "Approve for me";
 "Full access" = "Full access";
+"Always ask before making changes" = "Ask before making changes or running actions that require approval.";
+"Automatically accept all file edits" = "Automatically approve file edits; other actions follow permission rules.";
+"Create a plan before making changes" = "Read and plan without modifying files.";
+"Claude handles permission decisions" = "Claude evaluates and approves actions automatically.";
+"Accepts all permissions" = "Skip routine approval prompts; environment and managed policies still apply.";
 "Always ask to edit external files and use the internet" = "Always ask to edit external files and use the internet";
 "Only ask for actions detected as potentially unsafe" = "Only ask for actions detected as potentially unsafe";
 "Unrestricted access to the internet and any file on your computer" = "Unrestricted access to the internet and any file on your computer";
@@ -1276,6 +1289,7 @@
 "Repository needs attention" = "Repository needs attention";
 
 "Codex subscription" = "Codex subscription";
+"Loading session settings…" = "Loading session settings…";
 
 "Use your local ChatGPT account. No API key or URL is needed." = "Use your local ChatGPT account. No API key or URL is needed.";
 
@@ -1308,6 +1322,14 @@
 "Could not open HTML in browser" = "Could not open HTML in browser";
 "Choose a default web browser in System Settings, then retry." = "Choose a default web browser in System Settings, then retry.";
 
+"Paste" = "Paste";
+"Copied files" = "Copied files";
+"Move %lld items to Trash?" = "Move %lld items to Trash?";
+"Pasted files" = "Pasted files";
+"Copy Files" = "Copy";
+"Choose a directory inside the project" = "Choose a directory inside the project";
+"Cannot copy a directory into itself" = "Cannot copy a directory into itself";
+"Stopped moving the remaining items to Trash" = "Stopped moving the remaining items to Trash";
 "AI tool connections (MCP)" = "AI tool connections (MCP)";
 "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes." = "Authorize this project to expose environment, Maven, run configurations and output to connected agents. Output may contain sensitive project data. Access ends when this project or Lithe closes.";
 "Allow project environment and Maven configuration changes" = "Allow project environment and Maven configuration changes";

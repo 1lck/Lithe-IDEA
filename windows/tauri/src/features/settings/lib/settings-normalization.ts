@@ -461,8 +461,6 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.gitFetchSubmodules = ["inherit", "no", "onDemand", "yes"].includes(settings.gitFetchSubmodules) ? settings.gitFetchSubmodules : "inherit";
   normalizedSettings.gitFetchTags = ["inherit", "all", "none", "prune"].includes(settings.gitFetchTags) ? settings.gitFetchTags : "inherit";
   if (normalizedSettings.gitFetchTags === "prune") normalizedSettings.gitFetchPrune = true;
-  const persistedGitPanelMode = (normalizedSettings as { gitLastPanelMode?: string })
-    .gitLastPanelMode;
 
   normalizedSettings.coreFeatures = {
     ...defaultSettings.coreFeatures,
@@ -470,19 +468,6 @@ export function normalizeSettings(settings: Settings): Settings {
   };
   delete (normalizedSettings.coreFeatures as { litheEditorEngine?: unknown }).litheEditorEngine;
   delete (normalizedSettings.coreFeatures as { energyEdge?: unknown }).energyEdge;
-
-  if (
-    persistedGitPanelMode === "none" ||
-    (persistedGitPanelMode && !["changes", "history"].includes(persistedGitPanelMode))
-  ) {
-    normalizedSettings.gitLastPanelMode = "changes";
-  }
-  normalizedSettings.gitSidebarTabOrder = normalizedSettings.gitSidebarTabOrder.filter(
-    (item): item is "changes" | "history" => item === "changes" || item === "history",
-  );
-  if (normalizedSettings.gitSidebarTabOrder.length === 0) {
-    normalizedSettings.gitSidebarTabOrder = ["changes", "history"];
-  }
 
   if (
     normalizedSettings.uiFontFamily === LEGACY_DEFAULT_UI_FONT_FAMILY &&

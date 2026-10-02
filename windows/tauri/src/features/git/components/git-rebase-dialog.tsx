@@ -473,7 +473,7 @@ function GitRebaseDialog({
             </p>
           ) : null}
           {command?.warnings?.map((warning, index) => (
-            <p key={`${warning.code}:${index}`} className="whitespace-pre-wrap text-git-modified">
+            <p key={`${warning.code}:${index}`} className="whitespace-pre-wrap text-warning">
               {warning.message}
               {warning.details ? `\n${warning.details}` : ""}
             </p>

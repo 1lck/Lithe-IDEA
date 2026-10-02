@@ -26,6 +26,12 @@ struct RunView: View {
         VStack(spacing: 0) {
             toolWindowHeader
             ProjectPreparationStatusView()
+            if feature.serviceUpdateSessionID == selectedModuleSession?.id,
+               feature.serviceUpdateExecutionID == selectedModuleSession?.executionID,
+               selectedModuleSession?.isRunning == true,
+               let message = feature.serviceUpdateMessage {
+                Text(message).font(.caption).textSelection(.enabled).padding(8)
+            }
 
             if !feature.portConflicts.isEmpty {
                 portConflictBanner
@@ -336,6 +342,16 @@ struct RunView: View {
                 ? selectedModuleSession == nil
                 : feature.runningTitle == nil && feature.lastExitCode == nil)
             .help("Restart run")
+
+            if let session = selectedModuleSession, feature.canUpdateService(session) {
+                Button { model.updateRunningService(session) } label: {
+                    Image(systemName: "bolt.fill")
+                }
+                .litheIconButton()
+                .disabled(feature.updatingServiceExecutionID != nil)
+                .help("Compile changes for Spring Boot DevTools. The application context may restart.")
+                .accessibilityLabel("Update running service")
+            }
 
             Button {
                 feature.requestRunConfigurationGeneration()

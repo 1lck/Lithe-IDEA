@@ -787,6 +787,59 @@ describe("Rust Core LSP adapter failures", () => {
     ).toEqual(["javaEntrypoints", "vscode.java.buildWorkspace", "vscode.java.resolveClasspath"]);
   });
 
+  test("service update validates original paths before building the original target", async () => {
+    scenario = "semantic-request";
+    const target = {
+      mainClass: "example.Main",
+      projectName: "service",
+      modulePaths: [],
+      classPaths: ["C:/work/classes"],
+    };
+    semanticRequestResults = [{ value: [[], target.classPaths] }, { value: 1 }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await invokeLsp("java_build_service_update", {
+      workspacePath: "C:/work",
+      sourcePath: "C:/work/src/Main.java",
+      target,
+    });
+    expect(
+      requestPayloads.slice(-2).map((payload) => (payload.command as { command: string }).command),
+    ).toEqual(["vscode.java.resolveClasspath", "vscode.java.buildWorkspace"]);
+    const build = requestPayloads[requestPayloads.length - 1]!.command as { arguments: string[] };
+    expect(JSON.parse(build.arguments[0])).toEqual({
+      mainClass: "example.Main",
+      projectName: "service",
+      filePath: "C:/work/src/Main.java",
+      isFullBuild: false,
+    });
+  });
+
+  test("service update refuses changed runtime paths before compiling", async () => {
+    scenario = "semantic-request";
+    semanticRequestResults = [{ value: [[], ["C:/work/new-classes"]] }];
+    await invokeLsp("lsp_start", {
+      workspacePath: "C:/work",
+      languageId: "java",
+      providerId: "java",
+      serverPath: "C:/Lithe/jdtls.bat",
+    });
+    await expect(
+      invokeLsp("java_build_service_update", {
+        workspacePath: "C:/work",
+        sourcePath: "C:/work/src/Main.java",
+        target: { mainClass: "example.Main", modulePaths: [], classPaths: ["C:/work/classes"] },
+      }),
+    ).rejects.toThrow("Runtime paths changed");
+    expect(
+      (requestPayloads[requestPayloads.length - 1]!.command as { command: string }).command,
+    ).toBe("vscode.java.resolveClasspath");
+  });
+
   test("picks the launch target by source path when two modules share a class", async () => {
     // Maven reactors often repeat `demo.App`; only the source path tells the
     // modules apart, and Windows paths compare without regard to case.

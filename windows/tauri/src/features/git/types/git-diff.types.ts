@@ -111,6 +111,12 @@ export interface WorkingTreeDiffTarget {
   /** Repository-relative source path for renames. */
   originalPath?: string;
   untracked: boolean;
+  /**
+   * The index differs from HEAD for this path. Unstaged reviews are
+   * HEAD-to-worktree snapshots, so their blocks then include staged edits and
+   * must not be reverse-applied to the worktree.
+   */
+  hasStagedChanges?: boolean;
 }
 
 export interface MultiFileDiff {
@@ -129,6 +135,8 @@ export interface MultiFileDiff {
   fileLabels?: string[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
+  /** Hides the changed-files navigator, e.g. for a single-file commit preview. */
+  hideFileList?: boolean;
   /** Working-tree refresh identities keyed by file key. */
   workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
   isLoading?: boolean;

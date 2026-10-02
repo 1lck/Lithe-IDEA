@@ -13,6 +13,7 @@ import { installWebKitMouseInput } from "./mouse-input";
 import { StandaloneServices } from "monaco-editor/esm/vs/editor/standalone/browser/standaloneServices.js";
 import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
 import { installNativeContextMenu, type MenuHandler } from "./context-menu";
+import "./ime-input.css";
 
 declare global { interface Window { webkit: any; MonacoEnvironment: any; lithe: any; } }
 

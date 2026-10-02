@@ -55,7 +55,7 @@ export type ToolchainSource =
   | "projectJdk";
 
 export type ToolchainResolution =
-  | { status: "resolved"; path: string; version: string; vendor: string; source: ToolchainSource }
+  | { status: "resolved"; path: string; version: string; vendor: string; source: ToolchainSource; warning?: string }
   | { status: "notFound"; message: string | null }
   | { status: "invalid"; message: string };
 

@@ -74,17 +74,25 @@ struct GitGraphPerformanceBaselineTests {
         #expect(benchmark.viewportDrawReductionPercent == 97.5)
     }
 
-    @Test("The native graph view frame sample stays within the test budget")
+    @Test("The native graph view samples only a visible viewport", arguments: [0, 480, 960])
     @MainActor
-    func nativeGraphViewFrameSample() {
-        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: 1_000)
+    func nativeGraphViewFrameSample(startRow: Int) throws {
+        let rowCount = 1_000
+        let viewportRowCount = 40
+        let rowHeight = GitGraphGeometry.rowHeight
+        let commits = SyntheticGitGraphFixture.mergeHeavy(commitCount: rowCount)
         let layout = GitGraphLayoutService.layout(commits: commits)
-        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: 1_000 * 30))
-        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: 30)
-        let bitmap = NSBitmapImageRep(
+        let view = GitGraphNSView(frame: NSRect(x: 0, y: 0, width: 120, height: CGFloat(rowCount) * rowHeight))
+        view.update(snapshot: GitGraphLayoutService.routingSnapshot(for: layout), width: 120, rowHeight: rowHeight)
+        // Keep the complete history, but draw a viewport as AppKit does while
+        // scrolling. Repainting all 1,000 rows 220 times measures bulk raster
+        // work rather than a frame and can exceed the unchanged CI test budget.
+        let viewport = NSRect(x: 0, y: CGFloat(startRow) * rowHeight,
+                              width: 120, height: CGFloat(viewportRowCount) * rowHeight)
+        let bitmap = try #require(NSBitmapImageRep(
             bitmapDataPlanes: nil,
             pixelsWide: 120,
-            pixelsHigh: 1_000 * 30,
+            pixelsHigh: Int(viewport.height),
             bitsPerSample: 8,
             samplesPerPixel: 4,
             hasAlpha: true,
@@ -93,26 +101,38 @@ struct GitGraphPerformanceBaselineTests {
             bitmapFormat: [],
             bytesPerRow: 0,
             bitsPerPixel: 0
-        )!
-        let context = NSGraphicsContext(bitmapImageRep: bitmap)!
+        ))
+        let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+        context.cgContext.clear(NSRect(origin: .zero, size: viewport.size))
+        // Mid-history view coordinates must land inside the viewport bitmap;
+        // otherwise clipping would make an empty render look artificially fast.
+        context.cgContext.translateBy(x: 0, y: -viewport.minY)
         let clock = ContinuousClock()
         var samples: [Double] = []
         samples.reserveCapacity(10)
 
         for _ in 0..<1 {
-            _ = sampleFrame(view: view, context: context, clock: clock)
+            _ = sampleFrame(view: view, dirtyRect: viewport, context: context, clock: clock)
         }
         for _ in 0..<10 {
-            samples.append(sampleFrame(view: view, context: context, clock: clock))
+            samples.append(sampleFrame(view: view, dirtyRect: viewport, context: context, clock: clock))
         }
 
         let sorted = samples.sorted()
         let median = sorted[sorted.count / 2]
         let p95 = sorted[Int(ceil(Double(sorted.count) * 0.95)) - 1]
         let maximum = sorted.last ?? 0
-        print("GitGraph frame sample: rows=1000, samples=10, median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms, max=\(String(format: "%.3f", maximum))ms")
+        print("GitGraph frame sample: rows=\(rowCount), viewportRows=\(viewportRowCount), startRow=\(startRow), samples=10, median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms, max=\(String(format: "%.3f", maximum))ms")
         #expect(samples.count == 10)
         #expect(median < 100)
+        let bytes = try #require(bitmap.bitmapData)
+        // Only inspect pixel alpha, never uninitialized row-padding bytes.
+        let didPaint = (0..<bitmap.pixelsHigh).contains { y in
+            (0..<bitmap.pixelsWide).contains { x in
+                bytes[y * bitmap.bytesPerRow + x * bitmap.samplesPerPixel + 3] != 0
+            }
+        }
+        #expect(didPaint, "Every viewport must paint actual graph pixels")
     }
 
     @Test("The routing snapshot preserves layout topology and ordering")
@@ -990,6 +1010,7 @@ private func appendVisibleFileTreeItems(
 @MainActor
 private func sampleFrame(
     view: NSView,
+    dirtyRect: NSRect,
     context: NSGraphicsContext,
     clock: ContinuousClock
 ) -> Double {
@@ -997,7 +1018,7 @@ private func sampleFrame(
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = context
     for _ in 0..<20 {
-        view.draw(view.bounds)
+        view.draw(dirtyRect)
     }
     NSGraphicsContext.restoreGraphicsState()
     return milliseconds(clock.now - start) / 20

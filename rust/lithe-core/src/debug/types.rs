@@ -364,6 +364,8 @@ pub enum DebugInspectKind {
     ExceptionInfo,
     StepInTargets,
     GotoTargets,
+    /// Java Debug Server hot replacement; mutates classes in the debuggee.
+    RedefineClasses,
 }
 
 impl DebugInspectKind {
@@ -377,6 +379,7 @@ impl DebugInspectKind {
             Self::ExceptionInfo => "exceptionInfo",
             Self::StepInTargets => "stepInTargets",
             Self::GotoTargets => "gotoTargets",
+            Self::RedefineClasses => "redefineClasses",
         }
     }
 }
@@ -605,6 +608,10 @@ pub enum DebugOperationFailureCode {
 )]
 /// Typed terminal data for one caller-owned debug operation.
 pub enum DebugOperationResult {
+    /// Classes actually replaced by Java Debug Server (empty means no changes).
+    RedefineClasses {
+        changed_classes: Vec<String>,
+    },
     Acknowledged {
         command: String,
     },

@@ -5,6 +5,19 @@ import Testing
 @Suite("macOS runtime discovery")
 struct MacRuntimeDiscoveryTests {
     @Test
+    func resolvesJavaHomeFromPathSymlinkWithoutLaunchingIt() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let home = root.appendingPathComponent("custom-jdk", isDirectory: true)
+        try createExecutableJava(at: home)
+        let bin = root.appendingPathComponent("path-bin", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: bin.appendingPathComponent("java"), withDestinationURL: home.appendingPathComponent("bin/java"))
+        let environment = ["PATH": bin.path]
+        #expect(MacRuntimeDiscovery.javaHomeOnPath(environment: environment)?.resolvingSymlinksInPath().path == home.resolvingSymlinksInPath().path)
+    }
+
+    @Test
     func discoversSDKMANJavaCandidatesFromDefaultDirectory() throws {
         let testRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-sdkman-runtime-\(UUID().uuidString)", isDirectory: true)

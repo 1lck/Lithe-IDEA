@@ -197,14 +197,13 @@ export interface Settings {
   showGitStatusInFileTree: boolean;
   compactGitStatusBadges: boolean;
   collapseEmptyGitSections: boolean;
-  rememberLastGitPanelMode: boolean;
   gitExecutable: string;
   gitUseCredentialHelper: boolean;
   gitFetchPrune: boolean;
   gitFetchSubmodules: "inherit" | "no" | "onDemand" | "yes";
   gitFetchTags: "inherit" | "all" | "none" | "prune";
-  gitLastPanelMode: "changes" | "history";
-  gitSidebarTabOrder: Array<"changes" | "history">;
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
+  /** Git change markers in the editor gutter; clicking one opens its inline review. */
+  enableGitGutter: boolean;
 }

@@ -313,6 +313,22 @@ struct GenericDebugView: View {
                         toolbarDivider
                     }
                 }
+                if feature.canUpdateJavaService {
+                    Button { model.applyDebugServiceUpdate() } label: {
+                        Image(systemName: "bolt.fill")
+                    }
+                    .litheIconButton()
+                    .disabled(feature.updatingServiceSessionID != nil)
+                    .help("Apply code changes to this service")
+                    .accessibilityLabel("Apply code changes")
+                }
+                if feature.serviceUpdateFailed && feature.canUpdateJavaService {
+                    Button("Restart service") { model.restartUpdatedDebugService() }
+                        .disabled(feature.updatingServiceSessionID != nil)
+                }
+                if let message = feature.serviceUpdateMessage {
+                    Text(message).font(.caption).lineLimit(1).help(message)
+                }
                 debugOptionsMenu
                 debugExecutionStatus
                 Spacer(minLength: 8)

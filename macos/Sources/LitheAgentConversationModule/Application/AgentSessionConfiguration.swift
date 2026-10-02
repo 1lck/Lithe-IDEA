@@ -81,16 +81,17 @@ public struct AgentToolDetails: Equatable, Sendable {
                 case "content":
                     guard let block = item["content"] as? [String: Any] else { return nil }
                     if let text = block["text"] as? String {
-                        return Content(title: "Output", text: Self.bounded(text))
+                        return Content(title: String(localized: "Output"), text: Self.bounded(text))
                     }
-                    return Content(title: "Content", text: block["type"] as? String ?? "Unsupported content")
+                    return Content(title: String(localized: "Content"),
+                                   text: block["type"] as? String ?? String(localized: "Unsupported content"))
                 case "diff":
                     let old = item["oldText"] as? String ?? ""
                     let new = item["newText"] as? String ?? ""
-                    return Content(title: item["path"] as? String ?? "Diff",
+                    return Content(title: item["path"] as? String ?? String(localized: "Diff"),
                                    text: Self.bounded("---\n" + old + "\n+++\n" + new))
                 case "terminal":
-                    return Content(title: "Terminal", text: item["terminalId"] as? String ?? "")
+                    return Content(title: String(localized: "Terminal"), text: item["terminalId"] as? String ?? "")
                 default: return nil
                 }
             }

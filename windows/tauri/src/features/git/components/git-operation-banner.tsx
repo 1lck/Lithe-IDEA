@@ -74,7 +74,7 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
       data-testid="git-operation-banner"
     >
       <div className="flex items-center gap-2">
-        <WarningIcon className="size-3.5 shrink-0 text-git-modified" />
+        <WarningIcon className="size-3.5 shrink-0 text-warning" />
         <span className="text-xs font-semibold">{inProgressTitles[operation.kind]}</span>
         {operation.reference ? (
           <span className="truncate text-xs text-subtle-foreground">

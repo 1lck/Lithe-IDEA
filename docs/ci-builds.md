@@ -97,7 +97,10 @@ change should be evaluated separately if queueing continues to dominate.
 
 普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
 默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
-离屏绘制和其他性能回归验证。真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+离屏绘制和其他性能回归验证。图形离屏帧采样保留完整 1,000 行历史，分别在
+开头、中间、末尾采样 40 行可见区域，并检查位图确实绘制了图形。完整图的
+结构和 Release 基线仍覆盖 1,000/5,000 行；单帧与测试总耗时上限保持不变。
+真实窗口采样需要 macOS 14+ 和可用的桌面显示；
 只在专门测量滚动帧率时显式开启：
 
 ```bash
@@ -168,8 +171,18 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `.swift-version` 和 `.lithe-integrity.json` 校验。
 - `.artifacts/bun-cache/`：Bun 下载缓存；按 `bun.lock`、Bun 版本和缓存完整性
   清单校验。
+  Windows 的每次依赖安装在独立 worker 中执行；worker 在启动 Bun 前加入
+  Job Object（Windows 用于管理整棵子进程树的对象），退出时终止残留安装脚本。
+  每次安装默认有 300 秒本地期限，超时终止 worker 及其子进程；
+  安装失败后先释放子进程，再清理部分依赖与缓存，并只进行一次冷安装重试；
+  文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
+  `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
+  worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
+- `.artifacts/php-language-server-downloads/`：按
+  `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
+  Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
 `macos/Resources/Fonts`。它们与平台架构和工具链无关，随工作树检出，不从另一个
@@ -180,6 +193,14 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 不影响 Sparkle delta 的发布基线。
 
 以下目录不应直接复制或跨工作树共享：
+
+- Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
+  和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
+  执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
+  或工具链 identity stamp。准备失败、准备完成前已取消、启动失败或进程退出后由
+  所有者删除；系统临时目录由平台解析，不写安装包或 JDK，不影响签名或增量更新。
+  `excludedResources.java-launch-temporaries` 经复用脚本的排除路由直接拒绝，任何
+  复制阶段都不得共享；内容哈希相同也不能转移进程所有权。
 
 - Agent CLI 的用户级安装与下载缓存：npm 的 global prefix/cache、Homebrew 的
   Cellar/Caskroom/cache、用户目录下 `.local/share/claude/versions`。它们由运行时
@@ -200,7 +221,8 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。应用缓存下 `language-tools/<language>/<tool>` 是插件拥有的可变运行时资源，随插件卸载清理，不是构建缓存。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
+PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+`<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。
 生成资源只有在构建流程写入可验证的源码、配置、平台、架构和工具链 identity

@@ -39,12 +39,18 @@ enum AgentTurnStatisticsPresentation {
 struct AgentThinkingRow: View {
     var isCancelling = false
     var startedAt: ContinuousClock.Instant?
+    var hasStreamingThought = false
+
+    var status: String {
+        if isCancelling { return String(localized: "Stopping…") }
+        return hasStreamingThought ? String(localized: "Responding…") : String(localized: "Thinking…")
+    }
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { _ in
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text(isCancelling ? "Stopping…" : "Thinking…")
+                Text(status)
                 if let startedAt {
                     let elapsed = AgentTurnStatistics(id: "waiting", startedAt: startedAt).elapsed(at: .now)
                     Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()

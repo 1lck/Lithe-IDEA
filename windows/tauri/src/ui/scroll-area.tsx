@@ -129,9 +129,11 @@ function ScrollBar({
       )}
       {...props}
     >
+      {/* Base UI sizes the thumb with --scroll-area-thumb-height/width; a flex-grow
+          class would stretch it over the whole track and hide how much is scrollable. */}
       <ScrollAreaPrimitive.Thumb
         data-slot="scroll-area-thumb"
-        className="relative flex-1 rounded-full bg-(--app-scrollbar-thumb) hover:bg-(--app-scrollbar-thumb-hover) data-[orientation=horizontal]:h-1.5 data-[orientation=vertical]:w-1.5"
+        className="relative shrink-0 rounded-full bg-(--app-scrollbar-thumb) hover:bg-(--app-scrollbar-thumb-hover) data-[orientation=horizontal]:h-1.5 data-[orientation=vertical]:w-1.5"
       />
     </ScrollAreaPrimitive.Scrollbar>
   );

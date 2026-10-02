@@ -3848,3 +3848,78 @@ fn working_directory_override_must_name_an_existing_project_directory() {
         serde_json::from_str(updated["data"]["document"].as_str().unwrap()).unwrap();
     assert_eq!(document["configurations"][0]["cwd"], "backend");
 }
+
+#[test]
+fn automatic_java_selection_uses_shared_fixture_and_current_requirements() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../shared/fixtures/run-configuration/automatic-java-selection.json"
+    ))
+    .unwrap();
+    let root = temporary_root("automatic-java-selection");
+    fs::create_dir_all(root.join(".lithe/toolchains")).unwrap();
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).expect("remove selection fixture");
+        }
+    }
+    let _cleanup = Cleanup(root.clone());
+    let requirements = root.join(".lithe/toolchains/requirements.json");
+    for case in fixture["cases"].as_array().unwrap() {
+        let document = serde_json::json!({"version":1,"toolchains":{"project-jdk":{
+            "type":"java", "minimumVersion":case["minimum"]
+        }}});
+        fs::write(&requirements, document.to_string()).unwrap();
+        // Reverse enumeration order too: tie-breaking is not filesystem order.
+        for reverse in [false, true] {
+            let mut candidates = case["candidates"].as_array().unwrap().clone();
+            if reverse {
+                candidates.reverse();
+            }
+            let response: Value = serde_json::from_str(&execute_json(
+                &serde_json::json!({
+                    "id":"selection", "command":"runConfig.selectJava", "payload":{
+                        "root":root, "candidates":candidates, "fallbackId":case["fallbackId"]
+                    }
+                })
+                .to_string(),
+            ))
+            .unwrap();
+            assert_eq!(response["ok"], true, "{response}");
+            assert_eq!(
+                response["data"]["id"],
+                fixture["expected"][case["name"].as_str().unwrap()]["id"],
+                "{}",
+                case["name"]
+            );
+            assert_eq!(
+                !response["data"]["warning"].is_null(),
+                fixture["expected"][case["name"].as_str().unwrap()]["warning"]
+                    .as_bool()
+                    .unwrap()
+            );
+        }
+        assert_eq!(
+            fs::read_to_string(&requirements).unwrap(),
+            document.to_string()
+        );
+    }
+    // Missing documents preserve fallback; malformed or future documents must
+    // not silently launch a potentially incompatible JDK.
+    for contents in [None, Some("{"), Some(r#"{"version":999,"toolchains":{}}"#)] {
+        if let Some(contents) = contents {
+            fs::write(&requirements, contents).unwrap();
+        } else {
+            fs::remove_file(&requirements).unwrap();
+        }
+        let response: Value = serde_json::from_str(&execute_json(&serde_json::json!({
+            "id":"selection", "command":"runConfig.selectJava", "payload":{
+                "root":root, "candidates":[{"id":"env","version":"1.8.0_402","priority":0}], "fallbackId":"env"
+            }
+        }).to_string())).unwrap();
+        assert_eq!(response["ok"], contents.is_none(), "{response}");
+        if contents.is_none() {
+            assert_eq!(response["data"]["id"], "env");
+        }
+    }
+}

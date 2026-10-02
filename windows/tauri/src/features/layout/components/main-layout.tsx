@@ -304,56 +304,65 @@ export function MainLayout() {
               className="flex flex-1 flex-row overflow-hidden"
               style={{ minHeight: 0 }}
             >
+              {/* Both activity rails stay outside the middle column so they span the full
+                  workbench height; the full-width bottom pane only stretches between them. */}
               <SidebarActivityRail expanded={false} />
-              <ResizablePane
-                position="left"
-                widthKey="sidebarWidth"
-                hidden={!isSidebarVisible}
-                reservedWidth={leftPaneReservedWidth}
-              >
-                <MainSidebar />
-              </ResizablePane>
 
               <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-                <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl border-border border-l bg-background">
-                  <WorkbenchErrorBoundary>
-                    <CachedWorkspaceSplitViews />
-                  </WorkbenchErrorBoundary>
+                <div
+                  className="flex flex-1 flex-row overflow-hidden"
+                  style={{ minHeight: 0 }}
+                >
+                  <ResizablePane
+                    position="left"
+                    widthKey="sidebarWidth"
+                    hidden={!isSidebarVisible}
+                    reservedWidth={leftPaneReservedWidth}
+                  >
+                    <MainSidebar />
+                  </ResizablePane>
+
+                  <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <div className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl bg-background">
+                      <WorkbenchErrorBoundary>
+                        <CachedWorkspaceSplitViews />
+                      </WorkbenchErrorBoundary>
+                    </div>
+                    {terminalWidthMode === "editor" && deferredSurfacesReady && (
+                      <Suspense fallback={null}>
+                        <BottomPane />
+                      </Suspense>
+                    )}
+                  </div>
+
+                  <ResizablePane
+                    position="right"
+                    widthKey="rightToolWindowWidth"
+                    hidden={!isRightToolWindowVisible}
+                    outerEdge={false}
+                    reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
+                  >
+                    <NotificationsToolWindow
+                      isVisible={isNotificationsVisible}
+                      onClose={closeNotificationsToolWindow}
+                    />
+                    {isMavenSelected ? (
+                      <Suspense fallback={null}>
+                        <MavenPane onClose={closeMavenToolWindow} />
+                      </Suspense>
+                    ) : null}
+                  </ResizablePane>
                 </div>
-                {terminalWidthMode === "editor" && deferredSurfacesReady && (
+
+                {terminalWidthMode === "full" && deferredSurfacesReady && (
                   <Suspense fallback={null}>
                     <BottomPane />
                   </Suspense>
                 )}
               </div>
 
-              <ResizablePane
-                position="right"
-                widthKey="rightToolWindowWidth"
-                hidden={!isRightToolWindowVisible}
-                outerEdge={false}
-                reservedWidth={leftPaneReservedWidth + COLLAPSED_ACTIVITY_RAIL_WIDTH}
-              >
-                <NotificationsToolWindow
-                  isVisible={isNotificationsVisible}
-                  onClose={closeNotificationsToolWindow}
-                />
-                {isMavenSelected ? (
-                  <Suspense fallback={null}>
-                    <MavenPane onClose={closeMavenToolWindow} />
-                  </Suspense>
-                ) : null}
-              </ResizablePane>
               <PluginActivityRail />
             </div>
-
-            {terminalWidthMode === "full" && deferredSurfacesReady && (
-              <div className="px-(--lithe-workbench-gap)">
-                <Suspense fallback={null}>
-                  <BottomPane />
-                </Suspense>
-              </div>
-            )}
           </div>
 
           {showStatusBar ? <Footer /> : null}

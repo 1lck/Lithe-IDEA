@@ -200,16 +200,14 @@ export const defaultSettings: Settings = {
   showGitStatusInFileTree: true,
   compactGitStatusBadges: false,
   collapseEmptyGitSections: false,
-  rememberLastGitPanelMode: false,
   gitExecutable: "",
   gitUseCredentialHelper: true,
   gitFetchPrune: true,
   gitFetchSubmodules: "inherit",
   gitFetchTags: "inherit",
-  gitLastPanelMode: "changes",
-  gitSidebarTabOrder: ["changes", "history"],
   githubSidebarSectionOrder: ["pull-requests", "issues", "actions"],
   enableInlineGitBlame: true,
+  enableGitGutter: true,
 };
 
 export const getDefaultSetting = <K extends keyof Settings>(key: K): Settings[K] =>

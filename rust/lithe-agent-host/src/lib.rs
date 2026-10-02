@@ -12,6 +12,7 @@ pub mod environment;
 pub mod install;
 mod prompt;
 mod session_defaults;
+mod session_routing;
 mod subscription;
 
 pub use catalog::{ModelDelivery, ProviderProtocol};
@@ -52,7 +53,7 @@ const MAX_SESSION_LIST_PAGES: usize = 50;
 const STDERR_TAIL_BYTES: usize = 16 * 1024;
 const STDERR_TAIL_LINES: usize = 20;
 /// Auth method id and `_meta` key of the ACP custom model gateway extension.
-/// API-key mode uses this method and never falls back to account login.
+/// Responses API-key mode uses this method and never falls back to account login.
 const GATEWAY_AUTH_METHOD: &str = "gateway";
 
 /// Launch configuration supplied by the owning desktop product.
@@ -150,13 +151,15 @@ impl std::fmt::Debug for ProviderCredentials {
     }
 }
 
-/// Gateway sign-in sent in ACP `authenticate`.
+/// API-key routing sent over ACP stdio, using each adapter's supported interface.
 #[derive(Clone)]
 struct GatewaySignIn {
+    protocol: ProviderProtocol,
     base_url: String,
     /// Authentication headers in the dialect of the provider's protocol.
     headers: Vec<(String, String)>,
     provider_name: Option<String>,
+    model: Option<String>,
 }
 
 /// A validated launch: what to run and how the key reaches the agent.
@@ -164,7 +167,7 @@ struct ResolvedLaunch {
     command: PathBuf,
     args: Vec<String>,
     cwd: PathBuf,
-    /// Extra environment, used only by adapters that accept no other key input.
+    /// Non-secret CLI paths and model defaults for the native adapters.
     env: Vec<(String, String)>,
     gateway: Option<GatewaySignIn>,
     /// Key to redact from diagnostics.
@@ -205,8 +208,8 @@ fn resolve_with(
     if !launch.cwd.is_absolute() {
         return Err("The workspace path must be absolute".into());
     }
-    // Every adapter signs in through the ACP `gateway` method; the key travels
-    // over stdio in the header its protocol expects.
+    // Credentials travel over ACP stdio. Claude uses its public session options
+    // because its gateway mode adds a conflicting placeholder Bearer token.
     let gateway = |provider: &ProviderCredentials| -> Result<GatewaySignIn, String> {
         let (base_url, header) = match provider.protocol {
             ProviderProtocol::AnthropicMessages => (
@@ -222,9 +225,11 @@ fn resolve_with(
             ),
         };
         Ok(GatewaySignIn {
+            protocol: provider.protocol,
             base_url,
             headers: vec![header],
             provider_name: provider.name.clone(),
+            model: provider.model.clone(),
         })
     };
     let Some(agent_id) = launch.agent_id else {
@@ -829,6 +834,7 @@ where
     OB: futures::io::AsyncWrite + Send + 'static,
     IB: futures::io::AsyncRead + Send + 'static,
 {
+    let session_meta = session_routing::metadata(gateway.as_ref())?;
     let (auth_tx, mut auth_rx) = tokio::sync::watch::channel(None::<subscription::AuthStatus>);
     let turns: RunningTurns = Arc::new(Mutex::new(HashMap::new()));
     let updates = emit.clone();
@@ -945,7 +951,7 @@ where
             .await
             .map_err(|_| internal("The Agent did not finish initialization in time"))??;
             // API-key routing is explicit and never falls back to account login.
-            if let Some(gateway) = &gateway {
+            if let Some(gateway) = gateway.as_ref().filter(|route| route.protocol != ProviderProtocol::AnthropicMessages) {
                 if !initialized
                     .auth_methods
                     .iter()
@@ -1046,10 +1052,13 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
+                        let session_meta = session_meta.clone();
                         tasks.spawn(async move {
+                            let mut request = agent_client_protocol::schema::v1::NewSessionRequest::new(cwd);
+                            request.meta = session_meta;
                             let result = request_with_timeout(
                                 SESSION_REQUEST_TIMEOUT,
-                                session_defaults::new_session(&connection, cwd),
+                                session_defaults::new_session(&connection, request),
                             )
                             .await;
                             emit(match result {
@@ -1066,11 +1075,14 @@ where
                         let connection = connection.clone();
                         let emit = emit.clone();
                         let cwd = cwd.clone();
+                        let session_meta = session_meta.clone();
                         tasks.spawn(async move {
+                            let mut request = LoadSessionRequest::new(session_id.clone(), cwd);
+                            request.meta = session_meta;
                             let result = request_with_timeout(
                                 LOAD_SESSION_TIMEOUT,
                                 connection
-                                    .send_request(LoadSessionRequest::new(session_id.clone(), cwd))
+                                    .send_request(request)
                                     .block_task(),
                             )
                             .await;

@@ -3,6 +3,9 @@ description: Suggest an improvement or a new capability / 建议改进现有能�
 title: "[Feature] "
 labels:
   - enhancement
+  # Marks issues created from this form; .github/workflows/lithe-issue-form-gate.yml
+  # closes non-maintainer issues without an issue-form:* label.
+  - issue-form:feature
 body:
   - type: markdown
     attributes:

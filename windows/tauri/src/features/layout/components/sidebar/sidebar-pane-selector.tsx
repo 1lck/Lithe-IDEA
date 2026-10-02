@@ -9,18 +9,17 @@ import {
   SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
-import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
 import {
-  GearIcon,
-  GitBranchIcon,
+  GitCommitIcon,
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
+  ProblemsToolWindowIcon,
+  RunToolWindowIcon,
   TerminalWindowIcon,
-  WarningIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -63,7 +62,6 @@ interface SidebarPaneSelectorProps {
   isSearchActive?: boolean;
   onGitLogClick?: () => void;
   isGitLogActive?: boolean;
-  onSettingsClick?: () => void;
   onTerminalClick?: () => void;
   isTerminalActive?: boolean;
   onDiagnosticsClick?: () => void;
@@ -85,7 +83,6 @@ export const SidebarPaneSelector = ({
   isSearchActive = false,
   onGitLogClick,
   isGitLogActive = false,
-  onSettingsClick,
   onTerminalClick,
   isTerminalActive = false,
   onDiagnosticsClick,
@@ -147,13 +144,13 @@ export const SidebarPaneSelector = ({
         ? [
             {
               id: "git",
-              label: showLabels ? t("workbench.changes") : undefined,
-              icon: <GitBranchIcon className={iconClassName} />,
+              label: showLabels ? t("workbench.commit") : undefined,
+              icon: <GitCommitIcon className={iconClassName} />,
               isActive: isPrimarySidebarItemActive && isGitViewActive,
               onClick: () => onViewChange("git"),
-              ariaLabel: t("workbench.changes"),
+              ariaLabel: t("workbench.commit"),
               tooltip: {
-                content: t("workbench.changes"),
+                content: t("workbench.commit"),
                 shortcut: "Mod+Shift+G",
                 side: tooltipSide,
               },
@@ -202,7 +199,7 @@ export const SidebarPaneSelector = ({
             {
               id: "diagnostics",
               label: showLabels ? t("workbench.diagnostics") : undefined,
-              icon: <WarningIcon className={iconClassName} />,
+              icon: <ProblemsToolWindowIcon className={iconClassName} />,
               isActive: isDiagnosticsActive,
               onClick: onDiagnosticsClick,
               ariaLabel: t("workbench.diagnostics"),
@@ -219,28 +216,13 @@ export const SidebarPaneSelector = ({
             {
               id: "run",
               label: showLabels ? t("workbench.run") : undefined,
-              icon: <RunIcon className={iconClassName} />,
+              icon: <RunToolWindowIcon className={iconClassName} />,
               isActive: isRunActive,
               onClick: onRunClick,
               ariaLabel: t("workbench.run"),
               tooltip: {
                 content: t("workbench.run"),
                 shortcut: "Shift+F10",
-                side: tooltipSide,
-              },
-            } satisfies SidebarPaneItem,
-          ]
-        : []),
-      ...(onSettingsClick
-        ? [
-            {
-              id: "settings",
-              label: showLabels ? t("workbench.settings") : undefined,
-              icon: <GearIcon className={iconClassName} />,
-              onClick: onSettingsClick,
-              ariaLabel: t("workbench.settings"),
-              tooltip: {
-                content: t("workbench.settings"),
                 side: tooltipSide,
               },
             } satisfies SidebarPaneItem,
@@ -265,7 +247,6 @@ export const SidebarPaneSelector = ({
       onDiagnosticsClick,
       isDiagnosticsActive,
       onRunClick,
-      onSettingsClick,
       isRunActive,
       onViewChange,
       showLabels,

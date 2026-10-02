@@ -35,7 +35,7 @@ Missing usage and unmeasured replayed history remain unknown. See the
 | Git | workspace commit plans, dependency ordering, guarded steps and partial-success retry, changes, commits, branches, diffs, reviewed history actions and recovery, worktree listing and safe management, worktree-aware PR publication context, validation, and mutation results | Git executable discovery, credentials, process environment, opening checkout paths |
 | GitHub | remote parsing, trusted request plans, normalized branch comparisons and pull requests/reviews/comments, deterministic ordering, and stable errors | OAuth configuration, HTTPS, browser opening, and operating-system credential storage |
 | [AI commit messages](ai-commit.md) | provider configuration parsing, commit rules, bounded diff evidence, request plans, and response text | local configuration discovery, credentials, HTTP, cancellation, and draft UI |
-| Agent conversation (ACP) | supported-agent catalog, Node.js/npm detection, adapter install with the user's npm and numbers-only live download progress, CLI provenance and owner-preserving updates, per-agent API-key and model delivery, explicit Codex subscription authentication via the installed CLI, bounded official App Server quota reads with account checks, ACP v1 connection per workspace and agent, agent-owned session history (list/load), session config options, user-selected file references as ACP resource links, streamed tool evidence, permission decisions, acknowledged cancellation with bounded recovery, and process-tree lifecycle in the shared Rust host | provider and agent settings, API-key storage, credential-independent local default-model reading through AI configuration ports, data directory, workspace selection, module enablement, conversation UI and compact subscription quota presentation, workspace/Agent-scoped local history annotations (favorites, title overrides and recoverable hidden rows), and user-selected Markdown export destinations |
+| Agent conversation (ACP) | supported-agent catalog, Node.js/npm detection, adapter install with the user's npm and numbers-only live download progress, CLI provenance and owner-preserving updates, per-agent API-key and model delivery over ACP stdio (Codex gateway authentication; Claude public session options), explicit Codex subscription authentication via the installed CLI, bounded official App Server quota reads with account checks, ACP v1 connection per workspace and agent, agent-owned session history (list/load), session config options, user-selected file references as ACP resource links, streamed tool evidence, permission decisions, acknowledged cancellation with bounded recovery, and process-tree lifecycle in the shared Rust host | provider and agent settings, API-key storage, credential-independent local default-model reading through AI configuration ports, data directory, workspace selection, module enablement, conversation UI and compact subscription quota presentation, workspace/Agent-scoped local history annotations (favorites, title overrides and recoverable hidden rows), and user-selected Markdown export destinations |
 | [IDE capability API / MCP](ide-api/v1.md) | tool catalog, permission/argument validation, stable execution IDs, bounded output cursors and errors | explicit project authorization, live environment/Maven/Run application actions, helper discovery and writable connection storage |
 | Runtime | Java/Maven requirements, normalized candidates, and effective toolchain references | JDK/Maven probing and executable paths |
 | Language tooling | provider catalog, local fallback results, complete LSP process/session runtime, capabilities, diagnostics, UTF-16 edits, and normalized feature results | executable/environment discovery and UI provider routing |
@@ -538,3 +538,20 @@ is presentation only: no grammar or language server is required to open plain
 text. Register bundled contributions in `frontend/editor`, not in a separate
 platform-specific tokenizer. Text fixtures are shared under
 `shared/fixtures/editor/text-content-v1.json`.
+
+### Updating a running Java service
+
+Run/Debug presentation owns an explicit update action bound to an execution ID,
+not the latest Run configuration or focused editor. Platform workflows save the
+workspace, reuse the live JDT session to verify the original runtime paths, and
+compile with the existing Core build coordinator. Build failures cannot be
+bypassed for updates. Core owns Java Debug Server response normalization; hosts
+own deadlines, stale-result rejection, UI progress and explicit restart actions.
+
+Run offers compilation for executions whose launch classpath includes Spring
+Boot DevTools. Compilation completion does not establish restart or readiness;
+the UI directs users to service output, and respects a project-configured trigger
+file. Debug uses HotSwap with DevTools automatic restart disabled at JVM launch.
+Remote attach and non-JDT launches have no update action in this first version.
+No installed resources or new runtime caches are written: output remains in
+JDT-owned workspace build paths and the existing platform-owned JDT state.

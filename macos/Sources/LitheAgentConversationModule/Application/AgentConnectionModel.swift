@@ -54,7 +54,9 @@ public final class AgentConnectionModel: ObservableObject {
     /// session ID being loaded.
     private var queuedPrompts: [String: AgentPrompt] = [:]
     private var loadTokens: [String: String] = [:]
-    private var pendingText: [String: String] = [:]
+    /// Streamed text not yet shown, per session. One buffer holds one role so
+    /// interleaved reasoning and reply chunks become separate messages.
+    private var pendingText: [String: (role: AgentConversationMessage.Role, text: String)] = [:]
     private var flushTask: Task<Void, Never>?
     private var needsAttention = false
     @Published private var createToken: String?
@@ -252,6 +254,9 @@ public final class AgentConnectionModel: ObservableObject {
         queuedPrompts[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = openSessionIDs.last
+            // Closing the final tab does not change connectionState or make
+            // the view appear again, so start its replacement settings here.
+            if selectedSessionID == nil { prepareConversation() }
         }
     }
 
@@ -400,7 +405,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.errorMessage = stopReasonMessage(event["stopReason"] as? String)
             updateAttention()
         case "requestFailed":
-            requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? "The Agent request failed.")
+            requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? String(localized: "The Agent request failed."))
         case "stopped":
             let old = detachConnection(failure: event["message"] as? String)
             if let old {
@@ -494,8 +499,24 @@ public final class AgentConnectionModel: ObservableObject {
             applyConfiguration(update["configOptions"], to: sessionID)
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
-            pendingText[sessionID, default: ""] += text
-            scheduleFlush()
+            buffer(text, role: .agent, in: sessionID)
+        case "agent_thought_chunk":
+            guard let text = Self.text(of: update) else { return }
+            buffer(text, role: .thought, in: sessionID)
+        case "plan":
+            guard let plan = AgentPlan.parse(update) else { return }
+            conversations[sessionID, default: AgentConversation()].plan = plan.entries.isEmpty ? nil : plan
+        case "available_commands_update":
+            guard let commands = AgentCommand.parse(update) else { return }
+            conversations[sessionID, default: AgentConversation()].availableCommands = commands
+        case "current_mode_update":
+            // Agents that expose modes as a config option may switch on their own,
+            // e.g. leaving plan mode; keep the selector on the reported mode.
+            guard let modeID = update["currentModeId"] as? String,
+                  let index = conversations[sessionID]?.configOptions.firstIndex(where: {
+                      $0.category == "mode" && $0.choices.contains { $0.id == modeID }
+                  }) else { return }
+            conversations[sessionID]?.configOptions[index].currentValue = modeID
         case "user_message_chunk":
             guard let text = Self.text(of: update) else { return }
             flushPendingText()
@@ -549,7 +570,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversation.messages.append(AgentConversationMessage(
                 id: id,
                 role: .tool,
-                text: title ?? "Tool call",
+                text: title ?? String(localized: "Tool call"),
                 toolStatus: status ?? .pending
             ))
             conversation.messages[conversation.messages.count - 1].toolDetails.merge(update)
@@ -565,7 +586,7 @@ public final class AgentConnectionModel: ObservableObject {
         }
         var prompt = AgentPermissionPrompt(
             id: requestID,
-            title: tool?["title"] as? String ?? "Allow the Agent to continue?",
+            title: tool?["title"] as? String ?? String(localized: "Allow the Agent to continue?"),
             choices: options
         )
         if let tool {
@@ -606,7 +627,7 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.isLoading = true
         conversations[sessionID] = conversation
         if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {
-            requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? "The Agent request failed.")
+            requestFailed(token: token, sessionID: sessionID, message: errorMessage ?? String(localized: "The Agent request failed."))
         }
     }
 
@@ -662,6 +683,7 @@ public final class AgentConnectionModel: ObservableObject {
         for id in conversations.keys {
             conversations[id]?.finishTurn(at: now())
             conversations[id]?.contextUsage = nil
+            conversations[id]?.availableCommands = []
             conversations[id]?.isResponding = false
             conversations[id]?.interruptPendingTools()
             conversations[id]?.isCancelling = false
@@ -713,19 +735,25 @@ public final class AgentConnectionModel: ObservableObject {
         }
     }
 
+    private func buffer(_ text: String, role: AgentConversationMessage.Role, in sessionID: String) {
+        if let pending = pendingText[sessionID], pending.role != role { flushPendingText() }
+        pendingText[sessionID, default: (role, "")].text += text
+        scheduleFlush()
+    }
+
     private func flushPendingText() {
         let pending = pendingText
         pendingText.removeAll()
-        for (sessionID, text) in pending where !text.isEmpty {
-            append(text, role: .agent, to: sessionID)
+        for (sessionID, chunk) in pending where !chunk.text.isEmpty {
+            append(chunk.text, role: chunk.role, to: sessionID)
         }
     }
 
     private func stopReasonMessage(_ reason: String?) -> String? {
         switch reason {
-        case "max_tokens": "The response stopped at the model's token limit."
-        case "max_turn_requests": "The Agent stopped after reaching its request limit for this turn."
-        case "refusal": "The Agent declined to continue."
+        case "max_tokens": String(localized: "The response stopped at the model's token limit.")
+        case "max_turn_requests": String(localized: "The Agent stopped after reaching its request limit for this turn.")
+        case "refusal": String(localized: "The Agent declined to continue.")
         default: nil
         }
     }

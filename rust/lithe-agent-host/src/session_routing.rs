@@ -1,0 +1,57 @@
+//! Claude API-key routing through the upstream adapter's public session options.
+//!
+//! Credentials reach the adapter over ACP stdio, never through host launch
+//! arguments, environment, or files. The adapter and Claude SDK own their native
+//! credential conversion; Lithe does not patch installed third-party packages.
+
+use serde_json::{json, Map, Value};
+
+use crate::{GatewaySignIn, ProviderProtocol};
+
+/// Apply the same explicit route when creating or restoring a Claude session.
+pub(crate) fn metadata(
+    route: Option<&GatewaySignIn>,
+) -> Result<Option<Map<String, Value>>, String> {
+    let Some(route) = route.filter(|route| route.protocol == ProviderProtocol::AnthropicMessages)
+    else {
+        return Ok(None);
+    };
+    let key = route
+        .headers
+        .iter()
+        .find(|(name, value)| name == "x-api-key" && !value.trim().is_empty())
+        .ok_or("The Claude API key route is missing its credential")?;
+    // Gateway mode injects `Bearer acp-proxy`, even with a real x-api-key. Native
+    // API-key options avoid that token and retain the complete upstream agent.
+    let env = json!({
+        "ANTHROPIC_BASE_URL": route.base_url,
+        "ANTHROPIC_API_KEY": key.1,
+        "ANTHROPIC_AUTH_TOKEN": "",
+        "ANTHROPIC_CUSTOM_HEADERS": "",
+        "CLAUDE_CODE_OAUTH_TOKEN": "",
+        "CLAUDE_CODE_USE_BEDROCK": "0",
+        "CLAUDE_CODE_USE_VERTEX": "0",
+        "CLAUDE_CODE_USE_FOUNDRY": "0",
+        "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0",
+        "ANTHROPIC_BEDROCK_BASE_URL": "",
+        "ANTHROPIC_VERTEX_BASE_URL": ""
+    });
+    let mut options = json!({
+        "env": env,
+        // Claude loads settings after subprocess env. Both public SDK tiers
+        // must carry the selected route so user/project settings cannot replace it.
+        "settings": {"apiKeyHelper": "", "env": env}
+    });
+    if let Some(model) = route
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        options["model"] = json!(model);
+    }
+    Ok(Some(Map::from_iter([(
+        "claudeCode".into(),
+        json!({"options": options}),
+    )])))
+}

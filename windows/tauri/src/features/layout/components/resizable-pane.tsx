@@ -141,7 +141,7 @@ export function ResizablePane({
 
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
-      document.body.style.cursor = "col-resize";
+      document.body.style.cursor = "ew-resize";
       document.body.style.userSelect = "none";
     },
     [width, position, widthKey, updateSetting, clampWidth],
@@ -154,12 +154,12 @@ export function ResizablePane({
       onMouseDown={handleMouseDown}
       style={
         position === "left"
-          ? { right: "calc(var(--lithe-workbench-gap) * -1)" }
+          ? { right: "calc(var(--lithe-sidebar-gap) * -1)" }
           : { left: "calc(var(--lithe-workbench-gap) * -1)" }
       }
       className={cn(
-        "group absolute top-0 z-30 flex h-full w-(--lithe-workbench-gap) cursor-col-resize items-center justify-center",
-        "transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) hover:bg-primary/8",
+        "absolute top-0 z-30 flex h-full cursor-ew-resize items-center justify-center",
+        position === "left" ? "w-(--lithe-sidebar-gap)" : "w-(--lithe-workbench-gap)",
       )}
       role="separator"
       aria-orientation="vertical"
@@ -168,14 +168,7 @@ export function ResizablePane({
       aria-valuemin={Math.round(getMinWidth())}
       aria-valuemax={Math.round(getMaxWidth())}
       tabIndex={0}
-    >
-      <div
-        className={cn(
-          "h-full w-px bg-transparent transition-colors duration-(--app-duration-fast) ease-(--app-ease-smooth) group-hover:bg-primary",
-          isResizing && "bg-primary",
-        )}
-      />
-    </div>
+    />
   ) : null;
 
   return (
@@ -185,14 +178,14 @@ export function ResizablePane({
       className={cn(
         "lithe-resizable-pane relative flex h-full min-w-0 shrink-0 overflow-visible bg-transparent",
         hidden && "pointer-events-none",
-        !hidden && position === "left" && "mr-(--lithe-workbench-gap)",
+        !hidden && position === "left" && "mr-(--lithe-sidebar-gap)",
         !hidden && position === "right" && "ml-(--lithe-workbench-gap)",
         className,
       )}
       aria-hidden={hidden}
     >
       {position === "right" ? resizeHandle : null}
-      {isResizing && <div className="fixed inset-0 z-40 cursor-col-resize" />}
+      {isResizing && <div className="fixed inset-0 z-40 cursor-ew-resize" />}
       <div
         ref={contentRef}
         style={{ width: hidden ? "0px" : `${width}px` }}
@@ -201,8 +194,8 @@ export function ResizablePane({
         <div
           className={cn(
             "lithe-glass-island flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
-            !hidden && "rounded-xl border-border border-x",
-            position === "right" && !outerEdge && "rounded-r-none border-r-0",
+            !hidden && "rounded-xl",
+            position === "right" && !outerEdge && "rounded-r-none",
           )}
         >
           {children}
