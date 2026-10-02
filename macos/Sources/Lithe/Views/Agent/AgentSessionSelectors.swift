@@ -17,29 +17,35 @@ enum AgentSessionSelectorPresentation {
         return localized(option.name)
     }
 
-    static func choiceTitle(_ choice: AgentSessionConfigOption.Choice, in option: AgentSessionConfigOption) -> String {
+    static func choiceTitle(_ choice: AgentSessionConfigOption.Choice, in option: AgentSessionConfigOption, bundle: Bundle = .main) -> String {
         if option.id == "fast-mode" {
-            if choice.id == "off" { return String(localized: "Standard") }
-            if choice.id == "on" { return String(localized: "Fast") }
+            if choice.id == "off" { return localized("Standard", bundle: bundle) }
+            if choice.id == "on" { return localized("Fast", bundle: bundle) }
         }
-        return option.category == "model" ? choice.name : localized(choice.name)
+        // Agent-owned names must not collide with translations used elsewhere in the app.
+        if option.category == "model" || option.category == "mode" || option.category == "thought_level" {
+            return choice.name
+        }
+        return localized(choice.name, bundle: bundle)
     }
 
-    static func currentTitle(_ option: AgentSessionConfigOption) -> String {
-        option.choices.first { $0.id == option.currentValue }.map { choiceTitle($0, in: option) } ?? option.currentValue
+    static func currentTitle(_ option: AgentSessionConfigOption, bundle: Bundle = .main) -> String {
+        option.choices.first { $0.id == option.currentValue }.map { choiceTitle($0, in: option, bundle: bundle) } ?? option.currentValue
     }
 
     static func modeIcon(_ id: String) -> String {
         switch id {
-        case "read-only": "bubble.left.and.bubble.right"
-        case "agent": "checkmark.shield"
-        case "agent-full-access": "bolt"
+        case "read-only", "default", "manual": "bubble.left.and.bubble.right"
+        case "agent", "auto": "checkmark.shield"
+        case "agent-full-access", "bypassPermissions": "bolt"
+        case "acceptEdits": "pencil"
+        case "plan": "list.bullet.rectangle"
         default: "slider.horizontal.3"
         }
     }
 
-    static func localized(_ text: String) -> String {
-        String(localized: String.LocalizationValue(text))
+    static func localized(_ text: String, bundle: Bundle = .main) -> String {
+        String(localized: String.LocalizationValue(text), bundle: bundle)
     }
 }
 
@@ -116,7 +122,7 @@ struct AgentSessionSelectors: View {
 
     private func modelSummary(_ model: AgentSessionConfigOption) -> String {
         let effort = options.first { $0.category == "thought_level" }
-        return [model.currentLabel, effort.map(AgentSessionSelectorPresentation.currentTitle)].compactMap { $0 }.joined(separator: " ")
+        return [model.currentLabel, effort.map { AgentSessionSelectorPresentation.currentTitle($0) }].compactMap { $0 }.joined(separator: " ")
     }
 
     private func selectorLabel<Content: View>(@ViewBuilder content: () -> Content) -> some View {
