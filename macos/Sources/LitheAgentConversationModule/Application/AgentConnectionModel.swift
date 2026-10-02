@@ -252,6 +252,9 @@ public final class AgentConnectionModel: ObservableObject {
         queuedPrompts[sessionID] = nil
         if selectedSessionID == sessionID {
             selectedSessionID = openSessionIDs.last
+            // Closing the final tab does not change connectionState or make
+            // the view appear again, so start its replacement settings here.
+            if selectedSessionID == nil { prepareConversation() }
         }
     }
 

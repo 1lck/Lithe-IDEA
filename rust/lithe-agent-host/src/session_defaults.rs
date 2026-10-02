@@ -4,8 +4,6 @@
 //! Its legacy model state excludes that choice, and its versioned AIR extension
 //! supplies the actual recommended model. Neither fact is guessed from a name.
 
-use std::path::PathBuf;
-
 use agent_client_protocol::schema::v1::{
     NewSessionRequest, NewSessionResponse, SessionConfigKind, SessionConfigOptionCategory,
     SessionConfigSelectOptions, SetSessionConfigOptionRequest,
@@ -103,12 +101,10 @@ fn replacement(response: &CatalogSessionResponse) -> Option<(String, String)> {
 /// request deadline covers both requests; history and global CLI files stay intact.
 pub(crate) async fn new_session(
     connection: &ConnectionTo<Agent>,
-    cwd: PathBuf,
+    request: NewSessionRequest,
 ) -> Result<NewSessionResponse, agent_client_protocol::Error> {
     let mut response = connection
-        .send_request(CatalogSessionRequest {
-            request: NewSessionRequest::new(cwd),
-        })
+        .send_request(CatalogSessionRequest { request })
         .block_task()
         .await?;
     if let Some((id, model)) = replacement(&response) {

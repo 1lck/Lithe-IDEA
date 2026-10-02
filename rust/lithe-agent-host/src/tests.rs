@@ -26,10 +26,25 @@ fn provider() -> ProviderCredentials {
 
 fn gateway() -> Option<GatewaySignIn> {
     Some(GatewaySignIn {
+        protocol: ProviderProtocol::Responses,
         base_url: "https://gateway.example.com/v1".into(),
         headers: vec![("Authorization".into(), "Bearer test-key-123".into())],
         provider_name: Some("Example".into()),
+        model: None,
     })
+}
+
+fn claude_route() -> GatewaySignIn {
+    let provider: ProviderCredentials =
+        serde_json::from_value(fixture()["upstream"]["claudeSessionRouting"]["provider"].clone())
+            .expect("Claude provider fixture");
+    GatewaySignIn {
+        protocol: provider.protocol,
+        base_url: provider.anthropic_base_url().expect("valid endpoint"),
+        headers: vec![("x-api-key".into(), provider.api_key)],
+        provider_name: provider.name,
+        model: provider.model,
+    }
 }
 
 fn custom_launch(command: &str, provider: ProviderCredentials) -> AgentLaunch {
@@ -116,6 +131,10 @@ impl Harness {
     }
 
     fn start_with(subscription: bool) -> Self {
+        Self::start_with_route(subscription, if subscription { None } else { gateway() })
+    }
+
+    fn start_with_route(subscription: bool, route: Option<GatewaySignIn>) -> Self {
         let (client, peer) = tokio::io::duplex(64 * 1024);
         let (client_reader, client_writer) = tokio::io::split(client);
         let (peer_reader, peer_writer) = tokio::io::split(peer);
@@ -125,7 +144,7 @@ impl Harness {
         let connection = tokio::spawn(run_connection(
             ByteStreams::new(client_writer.compat_write(), client_reader.compat()),
             std::env::temp_dir(),
-            if subscription { None } else { gateway() },
+            route,
             subscription.then(|| PathBuf::from("/fixture/codex")),
             receiver,
             permissions.clone(),
@@ -443,6 +462,78 @@ async fn handshake_signs_in_through_the_gateway_with_the_user_key() {
         }
         other => panic!("expected ready, got {other:?}"),
     }
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
+#[test]
+fn claude_session_routing_clears_conflicting_credentials_and_preserves_sdk_options() {
+    let mut route = claude_route();
+    let meta = session_routing::metadata(Some(&route)).unwrap().unwrap();
+    assert_eq!(
+        json!(meta),
+        fixture()["upstream"]["claudeSessionRouting"]["meta"]
+    );
+    let options = &meta["claudeCode"]["options"];
+    assert!(options.get("permissionMode").is_none());
+    assert!(options.get("tools").is_none());
+    // No explicit model keeps the upstream default rather than inventing one.
+    route.model = Some("  ".into());
+    let meta = session_routing::metadata(Some(&route)).unwrap().unwrap();
+    assert!(meta["claudeCode"]["options"].get("model").is_none());
+    assert!(session_routing::metadata(gateway().as_ref())
+        .unwrap()
+        .is_none());
+    assert!(session_routing::metadata(None).unwrap().is_none());
+}
+
+#[test]
+fn claude_session_routing_rejects_missing_credentials_without_native_account_fallback() {
+    let mut route = claude_route();
+    route.headers.clear();
+    assert!(session_routing::metadata(Some(&route)).is_err());
+    route.headers.push(("x-api-key".into(), " ".into()));
+    assert!(session_routing::metadata(Some(&route)).is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn claude_new_and_restored_sessions_receive_credentials_over_stdio_without_gateway_login() {
+    let mut harness = Harness::start_with_route(false, Some(claude_route()));
+    let initialize = harness.agent.expect("initialize").await;
+    harness
+        .agent
+        .reply(
+            &initialize,
+            json!({
+                "protocolVersion": 1,
+                "agentInfo": {"name": "claude-acp", "version": "fixture"},
+                "agentCapabilities": {"loadSession": true},
+                "authMethods": []
+            }),
+        )
+        .await;
+    assert!(matches!(harness.event().await, AgentEvent::Ready { .. }));
+    let expected = fixture()["upstream"]["claudeSessionRouting"]["meta"].clone();
+    harness.send(json!({"kind": "newSession", "token": "new-claude"}));
+    // The very next request must be session/new, never gateway authenticate.
+    let created = harness.agent.expect("session/new").await;
+    assert_eq!(created["params"]["_meta"], expected);
+    harness
+        .agent
+        .reply(&created, json!({"sessionId": "claude-1"}))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::SessionCreated { .. }
+    ));
+    harness.send(json!({"kind": "loadSession", "token": "load-claude", "sessionId": "claude-1"}));
+    let loaded = harness.agent.expect("session/load").await;
+    assert_eq!(loaded["params"]["_meta"], expected);
+    assert_eq!(loaded["params"]["sessionId"], "claude-1");
+    harness.agent.reply(&loaded, json!({})).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::SessionLoaded { .. }
+    ));
     assert_eq!(harness.stop().await, Ok(()));
 }
 
@@ -1139,8 +1230,8 @@ fn catalog_agents_resolve_to_their_install_and_key_delivery() {
         },
     ))
     .unwrap();
-    // Claude signs in through the gateway too, in the Anthropic dialect; the
-    // key never enters the adapter's environment.
+    // Claude uses ACP session options; the key never enters the adapter's
+    // launch environment or arguments.
     let sign_in = claude.gateway.expect("gateway sign-in");
     assert_eq!(sign_in.base_url, "https://api.example");
     assert_eq!(

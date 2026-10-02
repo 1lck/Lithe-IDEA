@@ -101,6 +101,21 @@
     "stopped": { "kind": "stopped", "message": "The Agent connection closed unexpectedly" }
   },
   "upstream": {
+    "claudeSessionRouting": {
+      "provider": {"protocol": "anthropicMessages", "baseUrl": "https://gateway.example.com/v1/messages", "apiKey": "test-key-123", "name": "Example Claude", "model": "model-configured"},
+      "meta": {
+        "claudeCode": {
+          "options": {
+            "model": "model-configured",
+            "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""},
+            "settings": {
+              "apiKeyHelper": "",
+              "env": {"ANTHROPIC_BASE_URL": "https://gateway.example.com", "ANTHROPIC_API_KEY": "test-key-123", "ANTHROPIC_AUTH_TOKEN": "", "ANTHROPIC_CUSTOM_HEADERS": "", "CLAUDE_CODE_OAUTH_TOKEN": "", "CLAUDE_CODE_USE_BEDROCK": "0", "CLAUDE_CODE_USE_VERTEX": "0", "CLAUDE_CODE_USE_FOUNDRY": "0", "CLAUDE_CODE_USE_ANTHROPIC_AWS": "0", "ANTHROPIC_BEDROCK_BASE_URL": "", "ANTHROPIC_VERTEX_BASE_URL": ""}
+            }
+          }
+        }
+      }
+    },
     "promptResponseWithUsage": { "stopReason": "end_turn", "usage": { "totalTokens": 25000, "inputTokens": 18000, "outputTokens": 2000, "thoughtTokens": 1000, "cachedReadTokens": 3000, "cachedWriteTokens": 1000 } },
     "staleModelSession": {
       "sessionId": "session-repaired",

@@ -15,6 +15,7 @@ struct AgentComposerView: View {
     let onError: (String?) -> Void
     var configOptions: [AgentSessionConfigOption] = []
     var sessionID: String?
+    var isPreparingSession = false
     var isConfiguring = false
     var isCancelling = false
     var contextUsage: AgentContextUsage?
@@ -108,7 +109,14 @@ struct AgentComposerView: View {
                 .buttonStyle(AgentToolbarButtonStyle())
                 .help("Agent Settings")
             agentMenu
-            if !configOptions.isEmpty {
+            if isPreparingSession {
+                Label("Loading session settings…", systemImage: "hourglass")
+                    .font(.system(size: 11))
+                    .foregroundStyle(AgentPanelStyle.secondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .accessibilityIdentifier("agent-session-settings-loading")
+            } else if !configOptions.isEmpty {
                 AgentSessionSelectors(
                     options: configOptions,
                     agentName: selectedAgent?.name,
@@ -117,10 +125,9 @@ struct AgentComposerView: View {
                 )
                 .id(sessionID ?? selectedAgent?.id)
                 if isConfiguring { ProgressView().controlSize(.mini) }
-            }
-            if configOptions.isEmpty, let model = selectedAgent?.modelName, !model.isEmpty {
+            } else if let model = selectedAgent?.modelName, !model.isEmpty {
                 HStack(spacing: 5) {
-                    AgentBrandIcon(name: selectedAgent?.name, size: 12)
+                    AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
                     Text(model).lineLimit(1).truncationMode(.middle)
                 }
                 .font(.system(size: 11))
@@ -138,7 +145,7 @@ struct AgentComposerView: View {
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isConfiguring)))
+            .disabled(isCancelling || (!isResponding && (!hasContent || isBlocked || isPreparingSession || isConfiguring)))
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
         }
         .padding(.horizontal, 5)
@@ -149,20 +156,31 @@ struct AgentComposerView: View {
 
     private var agentMenu: some View {
         Menu {
-            if agents.isEmpty { Text("No Agent is set up yet") }
-            ForEach(agents) { agent in
-                Button { onSelectAgent(agent.id) } label: {
-                    if agent.id == selectedAgent?.id {
-                        Label(agent.name, systemImage: "checkmark")
-                    } else {
-                        Text(agent.name)
+            if agents.isEmpty {
+                Text("No Agent is set up yet")
+            } else {
+                // The native picker owns the selection checkmark separately
+                // from each item's brand image.
+                Picker("Choose an Agent", selection: Binding(
+                    get: { selectedAgent?.id },
+                    set: { if let id = $0 { onSelectAgent(id) } }
+                )) {
+                    ForEach(agents) { agent in
+                        Label {
+                            Text(agent.name)
+                        } icon: {
+                            AgentBrandIcon(name: agent.name, size: 16, style: .brand)
+                        }
+                        .tag(Optional(agent.id))
                     }
                 }
+                .pickerStyle(.inline)
+                .labelsHidden()
             }
             Divider()
             Button("Agent Settings…", action: onOpenSettings)
         } label: {
-            AgentBrandIcon(name: selectedAgent?.name, size: 16)
+            AgentBrandIcon(name: selectedAgent?.name, size: 18, style: .brand)
                 .foregroundStyle(AgentPanelStyle.secondary)
                 .frame(width: 28, height: 28)
         }
@@ -171,6 +189,7 @@ struct AgentComposerView: View {
         .fixedSize()
         .help(selectedAgent?.name ?? String(localized: "Choose an Agent"))
         .accessibilityLabel("Switch Agent")
+        .accessibilityIdentifier("agent-composer-agent-selector")
     }
 
     private func addFiles(_ urls: [URL]) -> Bool {
@@ -188,7 +207,7 @@ struct AgentComposerView: View {
 
     private func send() {
         guard hasContent, !isResponding else { return }
-        if isBlocked {
+        if isBlocked || isPreparingSession {
             onError(String(localized: "The conversation is still being prepared. Try again in a moment."))
             return
         }

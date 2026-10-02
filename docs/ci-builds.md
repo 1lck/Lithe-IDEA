@@ -97,7 +97,10 @@ change should be evaluated separately if queueing continues to dominate.
 
 普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
 默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
-离屏绘制和其他性能回归验证。真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+离屏绘制和其他性能回归验证。图形离屏帧采样保留完整 1,000 行历史，分别在
+开头、中间、末尾采样 40 行可见区域，并检查位图确实绘制了图形。完整图的
+结构和 Release 基线仍覆盖 1,000/5,000 行；单帧与测试总耗时上限保持不变。
+真实窗口采样需要 macOS 14+ 和可用的桌面显示；
 只在专门测量滚动帧率时显式开启：
 
 ```bash
