@@ -99,7 +99,7 @@ struct EditorTabOrderFeatureModelTests {
             let hosting = NSHostingView(rootView: EditorAreaView().environmentObject(model).environmentObject(settings).environmentObject(model.editorChrome))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 220),
                 styleMask: [.borderless], backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false; window.contentView = hosting
+            window.isReleasedWhenClosed = false; window.contentView = hosting; window.orderFront(nil)
             defer { window.contentView = nil; window.close() }
             hosting.layoutSubtreeIfNeeded(); await Task.yield(); hosting.layoutSubtreeIfNeeded()
             if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"] {
@@ -109,7 +109,39 @@ struct EditorTabOrderFeatureModelTests {
                 try #require(bitmap.representation(using: .png, properties: [:])).write(to:
                     URL(fileURLWithPath: directory).appendingPathComponent("repository-diff-tabs.png"))
             }
-            #expect(model.requestCloseActiveWorkbenchItem())
+            // Drag the file icon across the Diff tab and another file using window events.
+            for (index, x) in [20.0, 40.0, 220.0, 460.0, 460.0].enumerated() {
+                let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == 4 ? .leftMouseUp : .leftMouseDragged
+                window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: hosting.convert(NSPoint(x: x, y: 18), to: nil), modifierFlags: [],
+                    timestamp: Double(index), windowNumber: window.windowNumber, context: nil,
+                    eventNumber: index, clickCount: 1, pressure: index == 4 ? 0 : 1)))
+                await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            }
+            #expect(model.editorTabItems == [.repositoryDiff, .document(second.id), .document(first.id)])
+            #expect(model.activeDocumentID == first.id)
+            model.moveEditorTab(.document(first.id), before: .repositoryDiff)
+            model.selectRepositoryDiffTab()
+            await Task.yield(); hosting.layoutSubtreeIfNeeded()
+            // Close through the production settings menu, not only AppModel's tab command.
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(with: type,
+                    location: hosting.convert(NSPoint(x: 880, y: 59), to: nil), modifierFlags: [],
+                    timestamp: 0, windowNumber: window.windowNumber, context: nil,
+                    eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+                window.sendEvent(event)
+            }
+            let deadline = ContinuousClock.now.advanced(by: .seconds(1))
+            while window.childWindows?.isEmpty != false, ContinuousClock.now < deadline {
+                hosting.layoutSubtreeIfNeeded(); await Task.yield()
+            }
+            let menu = try #require(window.childWindows?.first)
+            for key: UInt16 in [125, 125, 36] {
+                menu.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                    modifierFlags: [], timestamp: 0, windowNumber: menu.windowNumber, context: nil,
+                    characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: key)))
+            }
+
             #expect(feature.selectedGitCommitDiffContext == nil)
             #expect(model.editorTabItems == [.document(first.id), .document(second.id)])
             #expect(model.activeDocumentID == first.id)
@@ -120,6 +152,53 @@ struct EditorTabOrderFeatureModelTests {
             #expect(!model.editorTabItems.contains(.repositoryDiff))
             #expect(model.editorTabOrderFeature.repositoryDiffRequestID == nil)
             #expect(model.activeDocumentID == first.id)
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
+    @Test(arguments: [EditorTabLayoutMode.singleLine, .multipleRows], [true, false])
+    func fileAndDiffTabsCanReorder(layout: EditorTabLayoutMode, dragDiff: Bool) async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        settings.editorTabLayoutMode = layout
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/.gitignore")!, text: ".DS_Store", displayPath: nil)
+        do {
+            let document = try #require(model.openDocuments.first)
+            if dragDiff {
+                model.editorTabOrderFeature.moveToEnd(.repositoryDiff)
+                model.selectRepositoryDiffTab()
+            } else {
+                model.editorTabOrderFeature.move(.repositoryDiff, before: .document(document.id))
+            }
+            let host = NSHostingView(rootView: EditorAreaView().environmentObject(model)
+                .environmentObject(settings).environmentObject(model.editorChrome)
+                .transaction { $0.disablesAnimations = true })
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: layout == .singleLine ? 500 : 250, height: 220),
+                styleMask: [.borderless], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+            defer { window.contentView = nil; window.close() }
+            host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+            let points: [NSPoint] = layout == .singleLine
+                ? [NSPoint(x: dragDiff ? 150 : 180, y: 18), NSPoint(x: dragDiff ? 120 : 160, y: 18), NSPoint(x: 80, y: 18), NSPoint(x: 10, y: 18), NSPoint(x: 10, y: 18)]
+                : [NSPoint(x: 20, y: 58), NSPoint(x: 20, y: 48), NSPoint(x: 20, y: 30), NSPoint(x: 10, y: 18), NSPoint(x: 10, y: 18)]
+            var eventNumber = 0
+            func drag(_ points: [NSPoint]) async throws {
+                for (index, point) in points.enumerated() {
+                    let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == points.count - 1 ? .leftMouseUp : .leftMouseDragged
+                    window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                        location: host.convert(point, to: nil), modifierFlags: [],
+                        timestamp: Double(eventNumber), windowNumber: window.windowNumber, context: nil,
+                        eventNumber: eventNumber, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
+                    eventNumber += 1
+                    await Task.yield(); host.layoutSubtreeIfNeeded()
+                }
+            }
+            try await drag(points)
+            #expect(model.editorTabItems == (dragDiff
+                ? [.repositoryDiff, .document(document.id)] : [.document(document.id), .repositoryDiff]))
+            #expect(model.isRepositoryDiffSelected == dragDiff)
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
     }

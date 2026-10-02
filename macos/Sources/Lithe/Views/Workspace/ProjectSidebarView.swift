@@ -30,7 +30,6 @@ private enum ProjectSidebarContent: String, CaseIterable, Identifiable {
 
 struct ProjectSidebarView: View {
     @EnvironmentObject private var model: AppModel
-    @Environment(\.locale) private var locale
     let rowHeight: CGFloat
     @State private var expandedDirectoryPaths: Set<String> = []
     @State private var expandedTreeRootPath: String?
@@ -190,8 +189,10 @@ struct ProjectSidebarView: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
-            Button {
-                showProjectViewMenu()
+            LitheMenu {
+                ProjectSidebarContent.allCases.map { content in
+                    LitheContextMenuItem.action(content.title) { selectedContent = content }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(selectedContent.title))
@@ -277,25 +278,6 @@ struct ProjectSidebarView: View {
         .contentShape(Rectangle())
         .onHover { isHeaderHovered = $0 }
         .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
-    }
-
-    private func showProjectViewMenu() {
-        guard let window = NSApp.keyWindow else { return }
-        let screenPoint = NSApp.currentEvent.flatMap { event in
-            event.window === window ? window.convertPoint(toScreen: event.locationInWindow) : nil
-        } ?? NSPoint(x: window.frame.minX + 28, y: window.frame.maxY - 60)
-        let items = ProjectSidebarContent.allCases.map { content in
-            LitheContextMenuItem.action(
-                content.title,
-                action: { selectedContent = content }
-            )
-        }
-        LitheContextMenuPresenter.shared.show(
-            items: items,
-            at: screenPoint,
-            appearance: window.effectiveAppearance,
-            locale: locale
-        )
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {

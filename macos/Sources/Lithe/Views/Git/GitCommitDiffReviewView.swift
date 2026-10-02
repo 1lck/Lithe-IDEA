@@ -7,6 +7,7 @@ import LitheGitModule
 struct GitCommitDiffReviewView: View {
     @ObservedObject var feature: GitFeatureModel
     let context: GitCommitDiffContext
+    let onClose: () -> Void
     let onOpenFile: () -> Void
     let onOpenCommitDiff: (GitCommitFile) -> Void
 
@@ -119,7 +120,7 @@ struct GitCommitDiffReviewView: View {
             LitheMenu {
                 LitheContextMenuItem.toggle("Highlight words", isOn: $highlightsWords)
                 LitheContextMenuItem.separator
-                LitheContextMenuItem.action("Close diff") { feature.closeGitCommitDiff() }
+                LitheContextMenuItem.action("Close diff") { onClose() }
             } label: {
                 LitheIDEAIcon(resourcePath: "expui/general/settings", size: 16, preservesOriginalColors: true)
             }.litheToolbarIconButton().accessibilityLabel("Diff settings").workbenchHoverHelp(Text("Diff settings"))

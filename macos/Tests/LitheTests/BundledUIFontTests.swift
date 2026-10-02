@@ -141,6 +141,16 @@ struct BundledUIFontTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: resources.path).sorted() == fonts.map(\.lastPathComponent).sorted())
     }
 
+    @Test func textStylePreservesRequestedFontDesign() {
+        let size = NSFont.preferredFont(forTextStyle: .caption1).pointSize
+        #expect(LitheTheme.uiFont(.caption, design: .monospaced) ==
+                LitheTheme.uiFont(size: size, design: .monospaced))
+        #expect(LitheTheme.uiFont(.caption) == LitheTheme.uiFont(size: size))
+        #expect(LitheTheme.uiFont(.headline, design: .monospaced) ==
+                LitheTheme.uiFont(size: NSFont.preferredFont(forTextStyle: .headline).pointSize,
+                                  weight: .bold, design: .monospaced))
+    }
+
     @Test func embeddedEditorReadsOnlyBundledFontDirectory() throws {
         let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let editor = temporary.appendingPathComponent("MonacoEditor")

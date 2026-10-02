@@ -577,7 +577,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 macOS 验证 Git Log Repository Diff 与文件/媒体/终端标签共用排序，切换保留 Diff、关闭命令关闭选中内容，标题按当前文件变化；共享 Islands 圆角标签在编辑区/工具窗口鼠标、键盘和窗口失活间呈现蓝色活动或灰色失焦状态，卸载移除焦点观察器。完整工作区视觉验收 pending。"
+      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 macOS 验证 Git Log Repository Diff 与文件/媒体/终端标签共用排序，切换保留 Diff、关闭命令关闭选中内容，标题按当前文件变化；共享 Islands 圆角标签在编辑区/工具窗口鼠标、键盘和窗口失活间呈现蓝色活动或灰色失焦状态，卸载移除焦点观察器。完整工作区视觉验收 pending。 从 Diff 设置菜单关闭时也清理混合标签槽并恢复原文档；通过原生窗口鼠标拖动检查普通文件跨 Repository Diff 重排。"
     },
     {
       "id": "editor-pointer-selection",
@@ -689,7 +689,8 @@
       "capability": "多行标签与标签导航",
       "macos": {
         "evidence": [
-          "macos/Sources/Lithe/Views/Editor"
+          "macos/Sources/Lithe/Views/Editor",
+          "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -702,7 +703,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。"
+      "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 单行和多行文件、媒体与 Repository Diff 复用全局坐标手势，原生窗口按下/移动/松开检查 .gitignore 与 Diff 双向跨行重排；终端跨工具窗口仍使用原生载荷。"
     },
     {
       "id": "search-quick-open",
@@ -3079,7 +3080,7 @@
         ]
       },
       "owner": "macOS UI",
-      "verification": "在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端使用 JetBrains Mono，显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。Windows 本次不变。"
+      "verification": "在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端使用 JetBrains Mono，显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。Windows 本次不变。 TextStyle 字体入口须保留显式 monospaced design，caption 与 headline 均验证等宽字型。"
     },
     {
       "id": "macos-shared-product-dropdowns",
@@ -3122,7 +3123,7 @@
         ]
       },
       "owner": "macOS UI",
-      "verification": "按 PR 迁移清单逐项打开 Agent、App/设置、Database、Debug、Editor、Git、GitHub、Java、Search、Diff、Workbench 的菜单与选择面板，检查同一共享外框、圆角、边框、单行行高、字体和无弹跳展开；选中项、禁用条件、动作、动态列表、危险操作确认及键盘操作保持原语义。顶部项目/分支按钮打开期间保持原hover底色，移入菜单后仍保留，关闭后释放；不使用蓝色菜单选中色。原生子菜单保留父面板并只接收自己的按键，Esc/外部点击按层关闭，所有方向保持屏幕边界，锚点卸载/移出窗口清理面板与监视器。真实 NSHostingView 回归验证环境对象/语言完整继承。保留系统应用菜单、系统对话框、编辑器补全/悬停文档与显式 segmented 选项；静态门禁禁止产品恢复 SwiftUI Menu、popover、NSPopUpButton 或非 segmented 的原生 Picker。完整人工视觉验收保持 pending，Windows 本次不改。 Monaco 编辑区保留既有条目与命令，剪切/复制/粘贴/格式化使用 IDEA 官方 16pt 明暗 SVG，无图标的 action 留空并对齐；确认主编辑区、分屏和 diff 的右键菜单取消/关闭、焦点与现有动作正常；执行 scripts/probe-macos-monaco.sh --workbench-tests 验证正式前端的菜单桥接和命令事件。 右键编辑器标签的 Copy Path / Reference 子菜单从触发行旁展开；父菜单有分隔线或滚动时仍对齐可见行。打开/关闭/切换子菜单固定主菜单，屏幕边缘允许子菜单上移或向左展开；Copy Relative Path 完整显示，带快捷键、勾选和图标的宽度计算保持一致。 顶部项目菜单确认随名称/路径宽度自然变化、长路径受共享边界限制，项目徽标20pt；两个入口按钮与菜单留出工具栏槽位内的4/5pt间距。分支输入框复用 Git Log 全局样式，输入法未提交时隐藏占位并在hover显示I-beam，官方16pt图标和共享蓝色hover正常。 项目徽标字母使用共享ProjectAvatarBadge，20pt标识对应13pt JetBrains Mono SemiBold；核对顶部、项目菜单和欢迎页，颜色与大小保留。 共享 LitheIcons 资源入口兼容省略 .svg 的调用，明暗兄弟路径使用正确后缀；实际打包资源检查直接路径/显式后缀解析一致，不再因后缀缺失显示空图标或错误回退。"
+      "verification": "按 PR 迁移清单逐项打开 Agent、App/设置、Database、Debug、Editor、Git、GitHub、Java、Search、Diff、Workbench 的菜单与选择面板，检查同一共享外框、圆角、边框、单行行高、字体和无弹跳展开；选中项、禁用条件、动作、动态列表、危险操作确认及键盘操作保持原语义。顶部项目/分支按钮打开期间保持原hover底色，移入菜单后仍保留，关闭后释放；不使用蓝色菜单选中色。原生子菜单保留父面板并只接收自己的按键，Esc/外部点击按层关闭，所有方向保持屏幕边界，锚点卸载/移出窗口清理面板与监视器。真实 NSHostingView 回归验证环境对象/语言完整继承。保留系统应用菜单、系统对话框、编辑器补全/悬停文档与显式 segmented 选项；静态门禁禁止产品恢复 SwiftUI Menu、popover、NSPopUpButton 或非 segmented 的原生 Picker。完整人工视觉验收保持 pending，Windows 本次不改。 Monaco 编辑区保留既有条目与命令，剪切/复制/粘贴/格式化使用 IDEA 官方 16pt 明暗 SVG，无图标的 action 留空并对齐；确认主编辑区、分屏和 diff 的右键菜单取消/关闭、焦点与现有动作正常；执行 scripts/probe-macos-monaco.sh --workbench-tests 验证正式前端的菜单桥接和命令事件。 右键编辑器标签的 Copy Path / Reference 子菜单从触发行旁展开；父菜单有分隔线或滚动时仍对齐可见行。打开/关闭/切换子菜单固定主菜单，屏幕边缘允许子菜单上移或向左展开；Copy Relative Path 完整显示，带快捷键、勾选和图标的宽度计算保持一致。 顶部项目菜单确认随名称/路径宽度自然变化、长路径受共享边界限制，项目徽标20pt；两个入口按钮与菜单留出工具栏槽位内的4/5pt间距。分支输入框复用 Git Log 全局样式，输入法未提交时隐藏占位并在hover显示I-beam，官方16pt图标和共享蓝色hover正常。 项目徽标字母使用共享ProjectAvatarBadge，20pt标识对应13pt JetBrains Mono SemiBold；核对顶部、项目菜单和欢迎页，颜色与大小保留。 共享 LitheIcons 资源入口兼容省略 .svg 的调用，明暗兄弟路径使用正确后缀；实际打包资源检查直接路径/显式后缀解析一致，不再因后缀缺失显示空图标或错误回退。 Project/Dependencies、Terminal shell 和动作菜单均按触发控件边界定位，鼠标点击位置和键盘触发不改变锚点。"
     },
     {
       "id": "macos-shared-scrollbar-style",

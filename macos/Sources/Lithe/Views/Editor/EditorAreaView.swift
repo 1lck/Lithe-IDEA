@@ -89,7 +89,7 @@ struct EditorAreaView: View {
     @State private var tabDragState = EditorTabDragState.idle
     @State private var tabFrameStore = EditorTabFrameStore()
     @State private var tabDragStartFrames: [EditorTabItem: CGRect] = [:]
-    @State private var tabDragOffsetX: CGFloat = 0
+    @State private var tabDragOffset: CGSize = .zero
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var splitDocumentID: UUID?
@@ -335,7 +335,7 @@ struct EditorAreaView: View {
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.selectRepositoryDiffTab() }
-            .highPriorityGesture(horizontalTabDragGesture(for: .repositoryDiff))
+            .highPriorityGesture(editorTabDragGesture(for: .repositoryDiff))
             LitheToolWindowTabCloseButton { model.closeGitCommitDiff() }
                 .opacity(selected || hoveredTabItem == .repositoryDiff ? 1 : 0)
                 .allowsHitTesting(selected || hoveredTabItem == .repositoryDiff)
@@ -345,8 +345,13 @@ struct EditorAreaView: View {
         .padding(.horizontal, 4).padding(.vertical, 4)
         .onHover { updateHoveredTab(.repositoryDiff, isHovering: $0) }
         .help(title)
+        .overlay(alignment: tabReorderTarget?.side == .before ? .leading : .trailing) {
+            if tabReorderTarget?.item == .repositoryDiff {
+                tabDropInsertionIndicator.padding(.vertical, 5).allowsHitTesting(false)
+            }
+        }
         .background { editorTabFrameReader(for: .repositoryDiff) }
-        .offset(x: tabDragState.draggedItem == .repositoryDiff ? tabDragOffsetX : 0)
+        .offset(tabDragState.draggedItem == .repositoryDiff ? tabDragOffset : .zero)
         .zIndex(tabDragState.draggedItem == .repositoryDiff ? 1 : 0)
     }
 
@@ -462,7 +467,7 @@ struct EditorAreaView: View {
         }
         .opacity(isDragged ? 0.92 : 1)
         .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .offset(isDragged ? tabDragOffset : .zero)
         .zIndex(isDragged ? 1 : 0)
         .animation(tabAnimation, value: isDragged)
     }
@@ -492,7 +497,7 @@ struct EditorAreaView: View {
             .accessibilityLabel(media.displayName)
             .accessibilityAddTraits(.isButton)
             .accessibilityAction { model.selectMediaDocument(media) }
-            .gesture(horizontalTabDragGesture(for: tabItem))
+            .gesture(editorTabDragGesture(for: tabItem))
 
             LitheToolWindowTabCloseButton { model.closeMediaDocument(media) }
             .opacity(isActive || hoveredTabItem == tabItem ? 1 : 0)
@@ -518,7 +523,7 @@ struct EditorAreaView: View {
         .background { editorTabFrameReader(for: tabItem) }
         .opacity(isDragged ? 0.92 : 1)
         .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .offset(isDragged ? tabDragOffset : .zero)
         .zIndex(isDragged ? 1 : 0)
         .animation(tabAnimation, value: isDragged)
     }
@@ -646,7 +651,7 @@ struct EditorAreaView: View {
         }
         .opacity(isDragged ? 0.92 : 1)
         .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(x: isDragged ? tabDragOffsetX : 0)
+        .offset(isDragged ? tabDragOffset : .zero)
         .zIndex(isDragged ? 1 : 0)
         .animation(tabAnimation, value: isDragged)
     }
@@ -707,27 +712,9 @@ struct EditorAreaView: View {
             model.selectEditorDocument(document)
         }
 
-        if settings.editorTabLayoutMode == .multipleRows {
-            // Native dragging carries the tab between flow-layout rows. The
-            // custom single-line gesture intentionally remains horizontal.
-            label
-                .contentShape(
-                    .dragPreview,
-                    RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius)
-                )
-                .onDrag {
-                    beginTabDrag(.document(document.id))
-                    return EditorTabDragPayload.provider(for: document.id)
-                } preview: {
-                    editorTabDragPreview(document)
-                }
-        } else {
-            // Keep the drag source on a plain view. On macOS a nested Button
-            // can win the mouse gesture before a parent drag gesture starts.
-            label.highPriorityGesture(
-                horizontalTabDragGesture(for: .document(document.id))
-            )
-        }
+        // File, media and Diff tabs share the same gesture in either layout.
+        // A native onDrag source here could not drop onto a Diff tab.
+        label.highPriorityGesture(editorTabDragGesture(for: .document(document.id)))
     }
 
     @ViewBuilder
@@ -753,33 +740,6 @@ struct EditorAreaView: View {
             .transition(.opacity.combined(with: .scale))
     }
 
-    private func editorTabDragPreview(_ document: EditorDocument) -> some View {
-        HStack(spacing: 7) {
-            EditorDocumentTabIcon(document: document, size: 16)
-                .foregroundStyle(LitheTheme.accent)
-
-            Text(document.displayName)
-                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: 240, alignment: .leading)
-
-            if document.isDirty {
-                Circle()
-                    .fill(LitheTheme.primaryText)
-                    .frame(width: 6, height: 6)
-            }
-        }
-        .padding(.leading, 8)
-        .padding(.trailing, 9)
-        .fixedSize(horizontal: true, vertical: false)
-        .frame(height: LitheTheme.Metrics.tabHeight, alignment: .leading)
-        .background(LitheTheme.activeTabBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.cornerRadius))
-        .shadow(color: .black.opacity(0.42), radius: 10, y: 6)
-        .compositingGroup()
-    }
 
     private var tabAnimation: Animation? {
         accessibilityReduceMotion
@@ -822,53 +782,53 @@ struct EditorAreaView: View {
         }
     }
 
-    private func horizontalTabDragGesture(for item: EditorTabItem) -> some Gesture {
+    private func editorTabDragGesture(for item: EditorTabItem) -> some Gesture {
         DragGesture(
             minimumDistance: 8,
-            coordinateSpace: .named(editorTabCoordinateSpaceName)
+            coordinateSpace: .global
         )
         .onChanged { value in
             if tabDragState.draggedItem != item {
                 beginTabDrag(item)
             }
-            updateHorizontalTabDrag(item, translationX: value.translation.width)
+            updateTabDrag(item, translation: value.translation)
         }
         .onEnded { value in
-            finishHorizontalTabDrag(item, translationX: value.translation.width)
+            finishTabReorder(item, translation: value.translation)
         }
     }
 
     private func beginTabDrag(_ item: EditorTabItem) {
         tabDragStartFrames = tabFrameStore.frames
-        tabDragOffsetX = 0
+        tabDragOffset = .zero
         tabReorderTarget = nil
         withAnimation(tabAnimation) {
             tabDragState.begin(item: item)
         }
     }
 
-    private func updateHorizontalTabDrag(
+    private func updateTabDrag(
         _ item: EditorTabItem,
-        translationX: CGFloat
+        translation: CGSize
     ) {
         guard tabDragState.draggedItem == item,
-              let plan = horizontalTabDragPlan(for: item, translationX: translationX) else { return }
-        tabDragOffsetX = plan.offset
+              let plan = tabDragPlan(for: item, translation: translation) else { return }
+        tabDragOffset = plan.offset
         guard tabReorderTarget != plan.target else { return }
         withAnimation(tabAnimation) {
             tabReorderTarget = plan.target
         }
     }
 
-    private func finishHorizontalTabDrag(
+    private func finishTabReorder(
         _ item: EditorTabItem,
-        translationX: CGFloat
+        translation: CGSize
     ) {
         guard tabDragState.draggedItem == item else {
             finishTabDrag()
             return
         }
-        let target = horizontalTabDragPlan(for: item, translationX: translationX)?.target
+        let target = tabDragPlan(for: item, translation: translation)?.target
         withAnimation(tabAnimation) {
             if let target {
                 if target.side == .after {
@@ -877,26 +837,41 @@ struct EditorAreaView: View {
                     model.moveEditorTab(item, before: target.item)
                 }
             }
-            tabDragOffsetX = 0
+            tabDragOffset = .zero
             tabReorderTarget = nil
             tabDragState.finish()
         }
         tabDragStartFrames = [:]
     }
 
-    private func horizontalTabDragPlan(
+    private func tabDragPlan(
         for item: EditorTabItem,
-        translationX: CGFloat
-    ) -> (offset: CGFloat, target: EditorTabReorderTarget?)? {
+        translation: CGSize
+    ) -> (offset: CGSize, target: EditorTabReorderTarget?)? {
         guard let sourceFrame = tabDragStartFrames[item] else { return nil }
+        let wraps = settings.editorTabLayoutMode == .multipleRows
+        let minY = tabDragStartFrames.values.map(\.minY).min() ?? sourceFrame.minY
+        let maxY = tabDragStartFrames.values.map(\.maxY).max() ?? sourceFrame.maxY
+        let offsetY = wraps ? min(max(translation.height, minY - sourceFrame.minY), maxY - sourceFrame.maxY) : 0
+        let centerY = sourceFrame.midY + offsetY
+        let rowAnchor = tabDragStartFrames.values.min { abs($0.midY - centerY) < abs($1.midY - centerY) } ?? sourceFrame
         let rowFrames = tabDragStartFrames.filter { _, frame in
-            frame.maxY > sourceFrame.minY && frame.minY < sourceFrame.maxY
+            frame.maxY > rowAnchor.minY && frame.minY < rowAnchor.maxY
+        }
+        // Across rows, resolve insertion against the destination row's tab centers.
+        if wraps, !rowFrames.keys.contains(item), !rowFrames.isEmpty {
+            let leadingX = sourceFrame.minX + translation.width
+            let ordered = rowFrames.sorted { $0.value.minX < $1.value.minX }
+            let before = ordered.first { leadingX < $0.value.midX }
+            let target = before ?? ordered[ordered.count - 1]
+            return (CGSize(width: translation.width, height: offsetY),
+                    EditorTabReorderTarget(item: target.key, side: before == nil ? .after : .before))
         }
         guard let rowMinX = rowFrames.values.map(\.minX).min(),
               let rowMaxX = rowFrames.values.map(\.maxX).max() else { return nil }
 
         let offset = min(
-            max(translationX, rowMinX - sourceFrame.minX),
+            max(translation.width, rowMinX - sourceFrame.minX),
             rowMaxX - sourceFrame.maxX
         )
         let candidates = rowFrames.filter { $0.key != item }
@@ -926,7 +901,7 @@ struct EditorAreaView: View {
             target = nil
         }
 
-        return (offset, target)
+        return (CGSize(width: offset, height: offsetY), target)
     }
 
     private func updateTerminalTabBarDropTarget(at location: CGPoint) {
@@ -1015,9 +990,9 @@ struct EditorAreaView: View {
     private func finishTabDrag() {
         guard tabDragState != .idle
             || tabReorderTarget != nil
-            || tabDragOffsetX != 0 else { return }
+            || tabDragOffset != .zero else { return }
         withAnimation(tabAnimation) {
-            tabDragOffsetX = 0
+            tabDragOffset = .zero
             tabReorderTarget = nil
             tabDragState.finish()
         }
@@ -1104,6 +1079,7 @@ struct EditorAreaView: View {
             if model.isRepositoryDiffSelected {
                 if let feature = model.gitFeatureIfActive, let context = feature.selectedGitCommitDiffContext {
                     GitCommitDiffReviewView(feature: feature, context: context,
+                        onClose: { model.closeGitCommitDiff() },
                         onOpenFile: { model.openFile(context.url) },
                         onOpenCommitDiff: { model.showGitCommitDiff(for: $0) })
                 } else {

@@ -266,7 +266,7 @@ struct DiffScrollSynchronizationTests {
         let model = AppModel(settings: settings, services:
             MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         do {
-            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
+            let hosting = NSHostingView(rootView: GitCommitDiffReviewView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() }, onOpenFile: {}, onOpenCommitDiff: { _ in }).environmentObject(model).environment(\.colorScheme, dark ? .dark : .light))
             hosting.frame = NSRect(x: 0, y: 0, width: 900, height: 250)
             let window = NSWindow(contentRect: hosting.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = hosting
@@ -381,7 +381,7 @@ struct DiffScrollSynchronizationTests {
         let settings = AppSettings(store: store)
         let model = AppModel(settings: settings, services: MacServiceContainer(store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         func content() -> AnyView {
-            AnyView(GitCommitDiffReviewView(feature: feature, context: context,
+            AnyView(GitCommitDiffReviewView(feature: feature, context: context, onClose: { model.closeGitCommitDiff() },
                 onOpenFile: { openedFile = true }, onOpenCommitDiff: { requestedFile = $0 }).environmentObject(model))
         }
         let host = NSHostingView(rootView: content())

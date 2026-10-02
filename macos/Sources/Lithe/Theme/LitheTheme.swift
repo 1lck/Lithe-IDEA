@@ -602,7 +602,7 @@ enum LitheTheme {
         default: nativeStyle = .body
         }
         return uiFont(size: NSFont.preferredFont(forTextStyle: nativeStyle).pointSize,
-                      weight: style == .headline ? .bold : .regular)
+                      weight: style == .headline ? .bold : .regular, design: design)
     }
 
     /// VcsLogGraphTable + FilterComponent, IDEA Community c7f91397.

@@ -36,6 +36,8 @@ Monaco 网页通过现有只读资源 adapter 加载同一字体目录。资源 
 所需的发行基线。工作树通过 Git 获取源文件，资源复用脚本拒绝从另一份产物
 或已签名安装包复制字体。
 
+字体的 TextStyle 重载必须透传 design；显式等宽 caption/headline 与按字号指定的 JetBrains Mono 保持一致。Git 文件树性能检查按当前行高和脏矩形计算可绘制行数上限，避免全局行高调整后仍锁死旧行数。
+
 ### 原生 Diff 的编辑器字体与中央行号
 
 普通 Monaco 编辑器默认已经是 JetBrains Mono Regular 13pt。原生 Diff 曾固定
@@ -243,6 +245,7 @@ Git Log 历史 Diff 进入已有 `EditorTabItem`/`EditorTabOrderFeatureModel` �
 仍存在的标签，关闭后台 Diff 不改当前选择。切换普通文件、媒体、编辑器终端时
 隐藏但保留 Diff；重新点标签恢复。关闭 Diff 清理原 Git 上下文，关闭命令按当前
 活动内容执行；项目关闭/切换时移除槽；Git Log 改选提交但尚未选文件时保留空预览标题。
+Diff 设置菜单也必须调用 AppModel 的关闭入口，不能仅清空 Git feature 而留下空标签。
 加载前即显示可关闭标签，请求身份阻止关闭/替换后的旧激活回调重新打开预览。
 
 `IslandsTabPainter` 对编辑器与工具窗口复用相同 selected active/inactive token；
@@ -258,3 +261,12 @@ ManyIslands 明暗主题的 EditorTabs 也指向 `tab-selected-*`。因此编辑
 使用已有非活动样式。观察器随原生视图卸载移除；不启动轮询和定时器。
 验证涵盖混合排序、普通文件往返不丢 Diff、关闭恢复文档，以及原生焦点往返和卸载。
 完整工作区逐项视觉验收保持 pending；Windows 标签实现未修改。
+
+标签拖动参考同一 Community revision 的 `platform/platform-api/src/com/intellij/ui/tabs/impl/DragHelper.java`：
+普通文件与 Diff 以统一标签身份定位，拖动坐标独立于正在移动的标签，目标定位包含横纵两个方向。
+Lithe 原先单行使用 DragGesture，多行文件使用 onDrag；新增 Diff 没有对应的原生 drop 接收，
+因此多行路径中无法把文件拖到 Diff 前后。现在文件、媒体和 Diff 在两种布局中统一使用同一个
+全局坐标手势，跨行按目标行定位，松开时通过已有 AppModel 入口提交混合顺序；Diff 也显示插入提示。
+终端跨容器移动仍使用已有原生载荷和接收器，不把只在编辑区内重排的文件伪装成终端会话。
+原生窗口事件覆盖 .gitignore 与 Diff 双向交换（单行及跨行）、普通文件跨 Diff 重排以及菜单关闭恢复。
+这些组件检查不宣称复刻上游拖出独立窗口或拖动期间实时重排全部邻居的能力。
