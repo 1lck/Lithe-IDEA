@@ -48,6 +48,42 @@ IDEA 的 `AbstractPopup` / `WindowRoundedCornersManager` 将 macOS 深色 toolti
 `WorkbenchHoverTooltipTests.sharedTooltipPalette` 检查深浅实际渲染像素；原有
 四周定位、窄窗换行和窗口隔离检查继续保留。
 
+### 全局通知与右侧底部动作
+
+全局短通知由 `WorkbenchNotificationBanner` 统一呈现，外框归
+`LitheTheme.Notification` / `litheNotificationSurface`，不让各个业务消息
+重新指定背景和边框。依据同一 Community 版本的 `NotificationsManagerImpl`、
+`BalloonLayoutConfiguration`、`NotificationBalloonRoundShadowBorderProvider` 和
+Islands 主题：深色背景/边框 `#33353B`、文字 `#D1D3D9`；浅色白底、
+`#D1D3D9` 边框、黑字。`Notification.arc=12` 是 Java 圆角直径，对应半径 6。
+阴影按 `ShadowJava2DPainter` 的 5pt 线性边缘渐变绘制，不把阴影留白误当模糊半径。
+内容采用 13pt 常规文字，保留短通知的上/下留白。长消息默认显示两行，
+用官方上下箭头展开/收起；展开内容最多显示十行，超出的正文在气泡内滚动。
+360pt 卡片宽度沿用 Lithe 的现有上限，并非 IDEA 的固定宽度。
+信息和关闭图标使用 `PlatformIconMappings.json` 指向的官方 16pt 明暗 SVG。
+普通通知的显示逻辑也由原通知模型统一负责：依据 `NotificationsManagerImpl`
+把停留时间改为 10 秒，应用不活跃时暂停；依据 `BalloonImpl` 按单条通知暂停
+hover 计时，恢复时只用剩余时间，不能悬停一条就延长其他消息。
+`ActionCenterBalloonLayout` 最多展示三条 timeline 气泡，旧消息保持在下方，
+新消息向上排布。第四条到达时，把最旧气泡折叠到剩余最旧条的历史入口，
+并保留每条消息的历史记录；点击入口打开通知中心并关闭临时气泡。
+关闭或超时只移除气泡，不删除历史。Lithe 仍保留原有 100 条历史上限，
+折叠计数不能超过可打开的历史条数。当前消息 API 只有正文，沿用普通
+timeline 类型，不通过猜测消息内容创建警告、建议或 sticky 通知。
+气泡外沿距离工作区右边及状态栏上缘 10pt，阴影属于外绘制范围。
+
+检查更新和背景选择放到右侧活动栏底部，使用同一
+`LitheActivityBarButtonStyle`，在 37×40pt 槽位中居中绘制 30pt 按钮。
+更新入口为纯图标，但保留随状态变化的可访问名称和共享悬停提示；
+检查、下载、安装期间显示忙碌状态，已有详情和重试动作继续可用。
+背景选择面板向上展开，以免底部锚点把内容推到屏幕外。
+
+主工具栏的运行配置、Run、Debug 保留 `ExecutionActions.xml` 中
+`NewUiRunWidget` 位于 `MainToolbarRight` 第一项的顺序；其后按
+`PlatformActions.xml` 放置 Search Everywhere 和 Settings，调用 Lithe 已有
+全局搜索和设置入口。不能把“右侧组第一项”误写成整个窗口最右侧，也不能
+凭截图把运行组件移到源码中的 Center 组（该组用于 Filename）。
+
 ## 考虑过的备选方案
 
 - 为 Monaco 复制一份相同 CSS：拒绝，因为网页和原生菜单会各自持有圆角、行高和颜色，后续共享样式修改无法自动覆盖编辑区。
@@ -66,6 +102,11 @@ Monaco 的动作系统保留原有语义，macOS 菜单外观只有一个持有�
 SwiftUI 产品菜单已迁移：操作列表经 `LitheDropdown.swift` 的 `LitheMenu` 提交给同一个 `LitheContextMenuPresenter`；自定义搜索、选择及表单内容经 `litheDropdown` / `LitheDropdownPopover` 使用相同面板与 `litheContextMenuSurface`。设置选值仍用 `LitheSettingsSelect`，保留值选择的键盘和关闭职责，共用相同外框与尺寸。Debug 会话/线程/作用域/断点，Database 类型/排序/SQL/数据工具，Agent 切换/历史/供应商/模式/模型，以及 Git、GitHub、Search、编码选择、欢迎页和快捷键菜单都不再依赖系统菜单展开。
 
 面板内打开另一个动作菜单或 `LitheSettingsSelect` 选值下拉框时，使用当前面板的原生子窗口关系。父面板不因焦点移到可见子面板而关闭；父事件监视器不拦截子面板的键盘，不把子面板内的点击当作外部点击。每个锚点持有自己的呈现器，移出窗口或卸载时关闭面板并清理事件监视器。自定义内容完整继承原视图环境，包括语言、颜色模式、环境对象、项目窗口范围与主题。
+
+共享下拉锚点显式观察 `colorScheme`，原生面板也使用同一明暗外观；
+整个共享外框与内容一起应用环境。不能只读取锚点 NSView 的旧外观，或在
+内容外另套未继承环境的边框，否则应用选择浅色而系统保持深色时会出现白色
+面板内的黑色输入框和浅色文字。原生弹窗测试刻意使用相反的宿主窗口外观。
 
 Monaco 编辑区右键菜单由网页内部渲染，原来的 SwiftUI 菜单扫描无法覆盖这个入口。macOS 现在通过 `macos/EditorFrontend/context-menu.ts` 的 `installNativeContextMenu` 替换 Monaco 0.55.1 的菜单渲染器，把已生成的条目交给 `MonacoEditorContextMenu` 和共享 `LitheContextMenuPresenter`。Monaco 仍然负责上下文条件、分组顺序、快捷键和动作执行；这里只传菜单展示信息与选中条目，不调用 Rust 或新增 IDEA 独有动作。取消、替换与卸载必须结束原来的菜单回调，旧响应不得执行动作。
 
@@ -124,6 +165,22 @@ Checkout Tag or Revision 没有图标，只留对齐位置。
 `dvcs/currentBranchLabel.svg`，没有依据当前状态虚构“收藏”。
 现有两个分支搜索栏动作仍执行各自原来的回调，没有新增 IDEA 的 fetch/resize 功能。
 
+Recent、Local、Remote、Tags 是同一个滚动区域内的可点击分组，
+不是带装饰箭头的静态标题。依据 `GitBranchesPopupBase` 的单击展开树，
+Recent 也按分支命名空间分组。搜索覆盖全部引用；清空搜索后恢复当前弹窗内
+各组的折叠状态。搜索框复用 Git Log 的输入和焦点外框；
+`GitBranchesPopupBase` 给同一 `SearchFieldWithExtension` 显式传入
+`Popup.BACKGROUND`，所以共享样式允许背景参数，分支弹窗使用弹窗底色，
+Git Log 保留原输入底色。打开菜单不强制搜索框获得焦点；点击输入后才显示
+共享蓝色焦点边框。原生面板通过 `searchOnTyping` 保持初始焦点在菜单；
+开始键入或 Cmd+F 时交给原生输入框继续处理同一个事件，保留 IME，
+避免 AppKit 自动把第一个输入框染成蓝色，也避免去掉自动焦点后破坏直接搜索。
+不能仅因为复用了同名组件就忽略上游传入的背景和焦点状态。
+分支动作经 `LitheMenu(opensToSide: true)` 把实际行位置交给共享呈现器，
+从父弹窗右侧打开，第一条动作对齐触发行；右侧空间不足时才向左展开。
+分支行在子菜单打开期间保留选中色，Esc 先关闭子菜单，再关闭父弹窗。
+不能在分支调用方按鼠标位置增加偏移或另建菜单窗口。
+
 ## AI 开发约束的范围
 
 强制规则集中在 `develop-lithe` 的 `macOS shared frontend controls`，这篇 Note
@@ -173,7 +230,9 @@ Profiles 上游为 17×16，其余本次资源为 16×16；`LitheIDEAIcon.width`
 - `./scripts/probe-macos-monaco.sh --workbench-tests` 使用正式 macOS 前端入口，验证真实 Monaco 菜单经过原生桥接而不产生网页菜单，同时保留既有菜单事件。`context-menu.integration.ts` 验证动态条目、分组、快捷键、实例前缀映射、动作上下文、原 action runner、取消/失败/替换和卸载后的旧响应。
 
 - `ContextMenuCoverageTests.contextMenusCannotSilentlyBypassSharedStyle` 阻止产品重新使用 SwiftUI `Menu`、`.popover`、`NSPopUpButton` 或非 segmented 的原生 `Picker`。
-- `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单不关闭父面板、按键只选择子菜单动作、两层独立关闭。
+- `nestedDropdownKeepsParentAndRoutesKeysToChild` 验证子菜单右侧对齐、靠右边缘时向左打开、不关闭父面板、按键只选择子菜单动作、两层独立关闭。
+- `WorkbenchNotificationTests.balloonUsesSourceColorsAndWrapsLongMessages` 捕获深浅主题的真实通知组件，检查背景、边框、图标资源、短通知尺寸和长消息换行；原有模型测试继续检查队列、关闭和历史状态。
+- `WorkbenchNotificationTests.notificationTimersPauseIndividuallyAndWhileTheApplicationIsInactive` 使用可推进时间和有界信号检查 10 秒超时、单条 hover、后台暂停以及剩余时间恢复；`overflowCollapsesIntoHistoryAndClosingBalloonsPreservesMessages` 检查三条上限、折叠计数和历史保留。
 - `sharedContentInheritsEnvironmentAndClosesWhenAnchorDetaches` 验证真实宿主继承环境对象和语言，锚点移出窗口立即关闭并清理。
 - `itemBuilderKeepsConditionalActionsDisabledChoicesAndSubmenus` 验证条件、动态条目、勾选、禁用、子菜单及危险动作类型保留。
 - `WorkbenchRenderingSafetyTests` 检查项目/分支使用共享入口，打开时保持 hover 色而不是菜单选中色。
@@ -189,7 +248,8 @@ Profiles 上游为 17×16，其余本次资源为 16×16；`LitheIDEAIcon.width`
 - `ContextMenuCoverageTests.anchoredActionAndSearchableDropdownsShareTopLeft` 验证相同锚点下 Date 操作菜单与可搜索内容的左上角一致、无动画、键盘关闭回调及屏幕边界限制。
 - `SettingsSelectPopupGeometryTests` 验证设置选择控件定位边界；真实父/子面板验证 Database 一类表单弹窗内打开选值菜单时保留父面板，Esc 只关闭子菜单并解除窗口关系。
 - 执行 `./scripts/verify-agent-notes.sh`、`./scripts/verify-service-boundaries.sh`、`./scripts/verify-runtime-bundle-immutability.sh` 和 `./scripts/verify-platform-feature-matrix.sh`。
-- 按用户要求不启动预览；最终鼠标视觉对比仍需在当前开发版本中确认。
+- 组件检查不能替代 `./scripts/preview.sh` 的完整应用检查；实际预览还需确认
+  分组开合、原生侧向子菜单、搜索焦点与输入、通知历史入口以及主工具栏动作。
 
 ## 适用范围
 

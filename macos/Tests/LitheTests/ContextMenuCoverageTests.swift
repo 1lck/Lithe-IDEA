@@ -59,13 +59,15 @@ struct ContextMenuCoverageTests {
             ]
             for (name, buttonHeight, content) in menus {
                 let probe = DropdownEnvironmentProbe()
-                let host = NSHostingView(rootView: TopbarDropdownHarness(probe: probe, buttonHeight: buttonHeight,
+                let host = NSHostingView(rootView: TopbarDropdownHarness(probe: probe, buttonHeight: buttonHeight, searchOnTyping: name == "branch",
                     content: content).environment(\.colorScheme, scheme))
                 let screen = try #require(NSScreen.main).visibleFrame
                 let window = NSWindow(contentRect: NSRect(x: floor(screen.midX), y: floor(screen.midY), width: 180, height: 40),
                                       styleMask: [.borderless], backing: .buffered, defer: false)
                 window.isReleasedWhenClosed = false
-                window.appearance = NSAppearance(named: scheme == .dark ? .darkAqua : .aqua)
+                // The app may override the system/window appearance. The popup
+                // must follow the trigger's SwiftUI theme, including its content.
+                window.appearance = NSAppearance(named: scheme == .dark ? .aqua : .darkAqua)
                 window.contentView = host
                 defer { window.contentView = nil; window.close() }
                 host.layoutSubtreeIfNeeded()
@@ -85,6 +87,12 @@ struct ContextMenuCoverageTests {
                     await Task.yield()
                 }
                 let popup = try #require(window.childWindows?.first)
+                #expect(popup.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == (scheme == .dark ? .darkAqua : .aqua))
+                if name == "branch" {
+                    let focusDeadline = clock.now.advanced(by: .seconds(1))
+                    while popup.firstResponder is NSTextView, clock.now < focusDeadline { await Task.yield() }
+                    #expect(!(popup.firstResponder is NSTextView), "Opening the branch tree must not focus the search editor")
+                }
                 #expect(abs(popup.frame.maxY - window.frame.minY) < 1)
                 #expect((40 - buttonHeight) / 2 >= 4)
                 #expect(popup.animationBehavior == .none)
@@ -105,6 +113,21 @@ struct ContextMenuCoverageTests {
                 if let directory = ProcessInfo.processInfo.environment["LITHE_TOPBAR_CAPTURE_DIR"] {
                     try #require(bitmap.representation(using: .png, properties: [:])).write(to:
                         URL(fileURLWithPath: directory).appendingPathComponent("\(name)-\(scheme == .dark ? "dark" : "light").png"))
+                }
+                if name == "branch" {
+                    let scale = CGFloat(bitmap.pixelsWide) / view.bounds.width
+                    // Compare rendered components: cacheDisplay labels this bitmap
+                    // calibrated RGB, so converting it again changes the samples.
+                    let fieldColor = try #require(bitmap.colorAt(x: Int(280 * scale), y: Int(20 * scale)))
+                    let expected = LitheTheme.nsColor(.popupBackground, isDark: scheme == .dark)
+                    #expect(abs(fieldColor.redComponent - expected.redComponent) < 0.01)
+                    #expect(abs(fieldColor.greenComponent - expected.greenComponent) < 0.01)
+                    #expect(abs(fieldColor.blueComponent - expected.blueComponent) < 0.01)
+                    let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero,
+                        modifierFlags: [], timestamp: 0, windowNumber: popup.windowNumber, context: nil,
+                        characters: "x", charactersIgnoringModifiers: "x", isARepeat: false, keyCode: 7))
+                    popup.sendEvent(event)
+                    #expect(try #require(popup.firstResponder as? NSTextView).string == "x")
                 }
                 probe.isPresented = false
                 await Task.yield()
@@ -152,8 +175,8 @@ struct ContextMenuCoverageTests {
         #expect(!probe.isPresented)
     }
 
-    @Test
-    func nestedDropdownKeepsParentAndRoutesKeysToChild() throws {
+    @Test(arguments: [false, true])
+    func nestedDropdownKeepsParentAndRoutesKeysToChild(atRightEdge: Bool) throws {
         let parent = LitheContextMenuPresenter()
         let child = LitheContextMenuPresenter()
         defer { child.dismiss(); parent.dismiss() }
@@ -162,16 +185,24 @@ struct ContextMenuCoverageTests {
             Text("Branches").frame(width: 300, height: 180).litheContextMenuSurface()
         ))
         var parentDismissals = 0
-        parent.show(contentController: controller, at: NSPoint(x: screen.midX, y: screen.midY),
+        parent.show(contentController: controller, at: NSPoint(x: atRightEdge ? screen.maxX - 306 : screen.minX + 40, y: screen.midY),
                     appearance: NSAppearance(named: .darkAqua)) { parentDismissals += 1 }
         let parentWindow = try #require(controller.view.window)
         var chosen = false
         var childDismissals = 0
+        let row = NSRect(x: parentWindow.frame.minX, y: parentWindow.frame.maxY - 80,
+                         width: parentWindow.frame.width, height: LitheDropdownMetrics.rowHeight)
         child.show(items: [.action("Checkout") { chosen = true }],
                    at: NSPoint(x: parentWindow.frame.maxX, y: parentWindow.frame.maxY),
                    appearance: parentWindow.effectiveAppearance, locale: Locale(identifier: "en"),
-                   anchored: true, parentWindow: parentWindow) { childDismissals += 1 }
+                   anchored: true, adjacentTo: row, parentWindow: parentWindow) { childDismissals += 1 }
         let childWindow = try #require(parentWindow.childWindows?.first)
+        #expect(abs(childWindow.frame.maxY - row.maxY - LitheDropdownMetrics.popupPadding) < 1)
+        if atRightEdge {
+            #expect(abs(childWindow.frame.maxX - parentWindow.frame.minX + LitheDropdownMetrics.submenuSpacing) < 1)
+        } else {
+            #expect(abs(childWindow.frame.minX - parentWindow.frame.maxX - LitheDropdownMetrics.submenuSpacing) < 1)
+        }
         #expect(childWindow.isVisible)
         #expect(parentWindow.isVisible)
         #expect(parentDismissals == 0)
@@ -631,6 +662,7 @@ private struct DropdownEnvironmentContent: View {
 private struct TopbarDropdownHarness: View {
     @ObservedObject var probe: DropdownEnvironmentProbe
     let buttonHeight: CGFloat
+    let searchOnTyping: Bool
     let content: AnyView
 
     var body: some View {
@@ -639,7 +671,7 @@ private struct TopbarDropdownHarness: View {
                            activeBackground: LitheTheme.hoverBackground)
             .buttonStyle(.litheNoPress)
             .frame(height: LitheTheme.Metrics.toolbarHeight)
-            .litheDropdown(isPresented: $probe.isPresented) { content }
+            .litheDropdown(isPresented: $probe.isPresented, searchOnTyping: searchOnTyping) { content }
             .background(LitheTheme.raised)
     }
 }

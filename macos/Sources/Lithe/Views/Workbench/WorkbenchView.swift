@@ -8,7 +8,7 @@ enum WorkbenchLayoutMetrics {
     static let workspaceTrailingInset = rightActivityBarWidth
 }
 
-private enum ActivityBarMetrics {
+enum ActivityBarMetrics {
     static let width: CGFloat = 40
     static let rightWidth = WorkbenchLayoutMetrics.rightActivityBarWidth
     static let buttonWidth: CGFloat = 30
@@ -17,6 +17,20 @@ private enum ActivityBarMetrics {
     static let slotWidth: CGFloat = 37
     static let slotHeight: CGFloat = 40
     static let toolViewportHeight: CGFloat = 280
+}
+
+/// Shared 30pt paint area centered in the activity rail's 37×40pt slot.
+struct LitheActivityBarButtonStyle: ButtonStyle {
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.selection)
+            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+            .contentShape(Rectangle())
+            .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+    }
 }
 
 private enum WorkbenchWorkspaceMetrics {
@@ -277,6 +291,19 @@ struct WorkbenchView: View {
         }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
+            model.setNotificationsApplicationActive(NSApplication.shared.isActive)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.setNotificationsApplicationActive(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            model.setNotificationsApplicationActive(false)
+        }
+        .onChange(of: isNotificationCenterPresented) { isPresented in
+            if isPresented {
+                model.dismissNotificationBalloons()
+                model.markAllNotificationsRead()
+            }
         }
         .onReceive(model.workbenchBackgroundFeature.$imageData) { data in
             updateWorkbenchBackgroundImage(data)
@@ -457,42 +484,19 @@ struct WorkbenchView: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if !model.activeNotifications.isEmpty {
-                VStack(alignment: .trailing, spacing: 8) {
-                    ForEach(model.activeNotifications) { notification in
-                        HStack(alignment: .center, spacing: 10) {
-                            Image(systemName: "info.circle.fill")
-                                .font(LitheTheme.uiFont(size: 14))
-                                .foregroundStyle(LitheTheme.accent)
-                            Text(LocalizedStringKey(notification.message))
-                                .font(LitheTheme.uiFont(size: 12, weight: .medium))
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            Button {
-                                model.dismissNotification(notification.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(LitheTheme.uiFont(size: 10, weight: .semibold))
-                                    .foregroundStyle(LitheTheme.tertiaryText)
-                            }
-                            .buttonStyle(.litheNoPress)
-                            .frame(width: 16, height: 16)
-                            .contentShape(Rectangle())
-                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
-                            .accessibilityLabel("Dismiss notification")
+                VStack(alignment: .trailing, spacing: 2 * LitheTheme.Notification.shadowInset) {
+                    // IDEA keeps the oldest balloon at the bottom; new messages grow upward.
+                    ForEach(model.activeNotifications.reversed()) { notification in
+                        WorkbenchNotificationBanner(message: notification.message,
+                            collapsedCount: notification.collapsedCount,
+                            showHistory: { isNotificationCenterPresented = true }) {
+                            model.dismissNotification(notification.id)
                         }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 6)
-                        .padding(.vertical, 10)
-                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
-                        .background(LitheTheme.notificationBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                        .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
                     }
                 }
-                .onHover { model.setNotificationStackHovered($0) }
-                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
-                .padding(.bottom, 38)
+                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + LitheTheme.Notification.edgeInset)
+                .padding(.bottom, LitheTheme.Metrics.statusBarHeight + LitheTheme.Notification.edgeInset)
             }
         }
         .overlay {
@@ -739,7 +743,7 @@ struct WorkbenchView: View {
             .buttonStyle(.litheNoPress)
             .lithePointer()
             .frame(height: LitheTheme.Metrics.toolbarHeight)
-            .litheDropdown(isPresented: instantBranchSwitcherPresentation) { branchSwitcherContent }
+            .litheDropdown(isPresented: instantBranchSwitcherPresentation, searchOnTyping: true) { branchSwitcherContent }
 
             Spacer(minLength: 22)
 
@@ -751,12 +755,23 @@ struct WorkbenchView: View {
                     stopExecutionButton
                 }
             }
-
+            // ExecutionActions inserts RunWidget first in MainToolbarRight;
+            // PlatformActions keeps SearchEverywhere and Settings after it.
             HStack(spacing: 0) {
-                UpdateControl(compact: true)
-                backgroundPickerButton
+                Button { model.toggleSearchEverywhere() } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.MainToolbar.iconSize)
+                }
+                .accessibilityLabel("Search Everywhere")
+                .accessibilityIdentifier("main-toolbar-search")
+                .workbenchHoverHelp(Text("Search Everywhere"), placement: .below)
+                Button { model.showSettings() } label: {
+                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheTheme.MainToolbar.iconSize)
+                }
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("main-toolbar-settings")
+                .workbenchHoverHelp(Text("Settings"), placement: .below)
             }
-
+            .buttonStyle(LitheMainToolbarButtonStyle())
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .padding(.trailing, 10)
@@ -1066,17 +1081,16 @@ struct WorkbenchView: View {
     }
 
     private var backgroundPickerButton: some View {
-        Button {
+        activityToolButton(
+            ideaAssetPath: "expui/actions/viewAsImage.svg",
+            help: "Change workbench background",
+            tooltipPlacement: .leading,
+            isSelected: isBackgroundPickerPresented
+        ) {
             isBackgroundPickerPresented.toggle()
-        } label: {
-            LitheIDEAIcon(resourcePath: "expui/actions/viewAsImage.svg", size: 20, fallbackSystemImage: "photo")
-                .foregroundStyle(LitheTheme.MainToolbar.icon)
         }
-        .buttonStyle(LitheMainToolbarButtonStyle(isActive: isBackgroundPickerPresented))
-        .help("Change workbench background")
-        .accessibilityLabel("Change workbench background")
         .accessibilityIdentifier("workbench-background-picker")
-        .litheDropdown(isPresented: $isBackgroundPickerPresented) {
+        .litheDropdown(isPresented: $isBackgroundPickerPresented, opensUpward: true) {
             WorkbenchBackgroundPicker {
                 isBackgroundPickerPresented = false
             }
@@ -1177,9 +1191,6 @@ struct WorkbenchView: View {
         VStack(spacing: 0) {
             Button {
                 isNotificationCenterPresented.toggle()
-                if isNotificationCenterPresented {
-                    model.markAllNotificationsRead()
-                }
             } label: {
                 ZStack(alignment: .topTrailing) {
                     LitheIDEAIcon(
@@ -1239,6 +1250,8 @@ struct WorkbenchView: View {
                 }
             }
             Spacer()
+            UpdateControl(compact: true)
+            backgroundPickerButton
         }
         .frame(width: ActivityBarMetrics.rightWidth)
         .background(frameChromeBackground)
@@ -1310,20 +1323,8 @@ struct WorkbenchView: View {
                 resourcePath: ideaAssetPath,
                 size: ActivityBarMetrics.iconSize
             )
-            .frame(
-                width: ActivityBarMetrics.buttonWidth,
-                height: ActivityBarMetrics.buttonHeight
-            )
-            .litheRowHover(
-                isActive: isSelected,
-                cornerRadius: 6,
-                activeBackground: LitheTheme.selection
-            )
-            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+        .buttonStyle(LitheActivityBarButtonStyle(isSelected: isSelected))
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }

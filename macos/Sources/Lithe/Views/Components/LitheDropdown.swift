@@ -33,29 +33,36 @@ extension LitheContextMenuItem {
 
 struct LitheMenu<Label: View>: View {
     @State private var isPresented = false
+    let opensToSide: Bool
     let items: () -> [LitheContextMenuItem]
     let label: () -> Label
 
-    init(@LitheMenuItemsBuilder content: @escaping () -> [LitheContextMenuItem],
+    init(opensToSide: Bool = false, @LitheMenuItemsBuilder content: @escaping () -> [LitheContextMenuItem],
          @ViewBuilder label: @escaping () -> Label) {
+        self.opensToSide = opensToSide
         items = content
         self.label = label
     }
 
     var body: some View {
         let menuItems = items()
-        Button { isPresented.toggle() } label: { label() }
+        let button = Button { isPresented.toggle() } label: { label() }
             .overlay {
-                LitheDropdownPopover(isPresented: $isPresented, items: menuItems) { EmptyView() }
+                LitheDropdownPopover(opensToSide: opensToSide, isPresented: $isPresented, items: menuItems) { EmptyView() }
             }
             .disabled(menuItems.isEmpty)
+        if opensToSide {
+            button.buttonStyle(LitheDropdownRowStyle(isSelected: isPresented))
+        } else {
+            button
+        }
     }
 }
 
 extension View {
-    func litheDropdown<Content: View>(isPresented: Binding<Bool>, opensUpward: Bool = false,
+    func litheDropdown<Content: View>(isPresented: Binding<Bool>, opensUpward: Bool = false, searchOnTyping: Bool = false,
                                       @ViewBuilder content: @escaping () -> Content) -> some View {
-        overlay { LitheDropdownPopover(opensUpward: opensUpward, isPresented: isPresented, content: content) }
+        overlay { LitheDropdownPopover(opensUpward: opensUpward, searchOnTyping: searchOnTyping, isPresented: isPresented, content: content) }
     }
 }
 
@@ -72,7 +79,10 @@ final class LitheDropdownAnchorView: NSView {
 /// Position searchable filters using the same borderless host as Project menus.
 struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
+    @Environment(\.colorScheme) private var colorScheme
     var opensUpward = false
+    var opensToSide = false
+    var searchOnTyping = false
     @Binding var isPresented: Bool
     var items: [LitheContextMenuItem]? = nil
     let content: () -> Content
@@ -92,7 +102,10 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         context.coordinator.content = content
         context.coordinator.items = items
         context.coordinator.environment = environment
+        context.coordinator.environment.colorScheme = colorScheme
         context.coordinator.opensUpward = opensUpward
+        context.coordinator.opensToSide = opensToSide
+        context.coordinator.searchOnTyping = searchOnTyping
         context.coordinator.isPresented = $isPresented
         guard isPresented, let window = nsView.window else {
             if !isPresented { context.coordinator.dismiss() }
@@ -112,6 +125,8 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         var content: () -> Content
         var environment = EnvironmentValues()
         var opensUpward = false
+        var opensToSide = false
+        var searchOnTyping = false
         private let presenter = LitheContextMenuPresenter()
         var items: [LitheContextMenuItem]?
         private var menuIsPresented = false
@@ -125,12 +140,15 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
         func present(relativeTo anchor: NSView, in window: NSWindow) {
             let rect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
             let point = NSPoint(x: rect.minX, y: opensUpward ? rect.maxY : rect.minY)
+            let appearance = NSAppearance(named: environment.colorScheme == .dark ? .darkAqua : .aqua)
             if let items {
                 guard !menuIsPresented else { return }
                 menuIsPresented = true
                 presenter.show(
-                    items: items, at: point, appearance: anchor.effectiveAppearance,
-                    locale: environment.locale, opensUpward: opensUpward, anchored: true, parentWindow: window
+                    items: items, at: point, appearance: appearance,
+                    locale: environment.locale, opensUpward: opensUpward, anchored: true,
+                    adjacentTo: opensToSide ? NSRect(x: window.frame.minX, y: rect.minY,
+                        width: window.frame.width, height: rect.height) : nil, parentWindow: window
                 ) { [weak self] in
                     guard let self else { return }
                     self.menuIsPresented = false
@@ -138,7 +156,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
                 }
                 return
             }
-            let root = AnyView(content().environment(\.self, environment).litheContextMenuSurface())
+            let root = AnyView(content().litheContextMenuSurface().environment(\.self, environment))
             if let hostingController {
                 hostingController.rootView = root
                 presenter.resize(contentController: hostingController)
@@ -148,7 +166,8 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
             hostingController = controller
             presenter.show(
                 contentController: controller, at: point,
-                appearance: anchor.effectiveAppearance, opensUpward: opensUpward, parentWindow: window
+                appearance: appearance, opensUpward: opensUpward,
+                searchOnTyping: searchOnTyping, parentWindow: window
             ) { [weak self] in
                 guard let self else { return }
                 self.hostingController = nil

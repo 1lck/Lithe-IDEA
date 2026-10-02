@@ -1319,3 +1319,14 @@
 
 "MCP Configuration" = "MCP Configuration";
 "Open a project to configure MCP access for agents." = "Open a project to configure MCP access for agents.";
+
+"%lld more notifications" = "%lld more notifications";
+"1 more notification" = "1 more notification";
+
+"Open notification history" = "Open notification history";
+
+"Dismiss notification" = "Dismiss notification";
+
+"Collapse notification" = "Collapse notification";
+
+"Expand notification" = "Expand notification";

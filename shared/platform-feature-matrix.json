@@ -2396,7 +2396,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；macOS 主工作区窗口不再被固定的 980×640 内容下限阻止缩小，侧栏、右侧工具窗、编辑区和底部工具窗按 IDEA 主分隔器默认 30pt 下限与实时可用空间调整，无固定 520/760pt 上限，极窄窗口不产生负尺寸或越界，恢复窗口后保留原先保存的面板宽度；拖动右侧 Maven 工具窗时保留当前 Commit 侧栏宽度并由编辑区承受剩余空间变化，底部 Git Log 与终端始终横跨 Project、编辑区及右侧 Maven 所在的整行，向上拖动时上半行按共享 30pt 主分隔器下限收缩，Commit 不设专属高度下限；未打开文件时，将编辑区缩窄或缩矮，空状态提示保持原始文字尺寸、不换行或缩字，超出内容在编辑区内裁剪，恢复尺寸后完整显示；编辑区和左右工具窗共用按可见尺寸布局的面板容器，在 30pt 高度下 Project、Commit、Search 及右侧 Maven 标题仍贴顶且四角圆角保持可见；macOS Project、Commit、Search、Database 和 Pull Requests 侧栏标题右端使用 IDEA 明暗收起图标与共用悬停样式，点击后收起侧栏并保留活动栏和编辑区，再点击对应活动栏图标恢复侧栏及原宽度；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏运行配置使用 16pt 图标与 13pt Regular 文字、内容自然宽度和 6pt 图文间距；运行与调试使用 Community 描边资源、34×40pt 槽位及 30×30pt 悬停区域，运行、调试、更新和背景按钮悬停保持默认箭头，检查深浅主题、菜单开合、窄窗口和原动作；顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。"
+      "verification": "打开、关闭、移动和调整面板，验证布局持久化及高频拖动稳定性；macOS 主工作区窗口不再被固定的 980×640 内容下限阻止缩小，侧栏、右侧工具窗、编辑区和底部工具窗按 IDEA 主分隔器默认 30pt 下限与实时可用空间调整，无固定 520/760pt 上限，极窄窗口不产生负尺寸或越界，恢复窗口后保留原先保存的面板宽度；拖动右侧 Maven 工具窗时保留当前 Commit 侧栏宽度并由编辑区承受剩余空间变化，底部 Git Log 与终端始终横跨 Project、编辑区及右侧 Maven 所在的整行，向上拖动时上半行按共享 30pt 主分隔器下限收缩，Commit 不设专属高度下限；未打开文件时，将编辑区缩窄或缩矮，空状态提示保持原始文字尺寸、不换行或缩字，超出内容在编辑区内裁剪，恢复尺寸后完整显示；编辑区和左右工具窗共用按可见尺寸布局的面板容器，在 30pt 高度下 Project、Commit、Search 及右侧 Maven 标题仍贴顶且四角圆角保持可见；macOS Project、Commit、Search、Database 和 Pull Requests 侧栏标题右端使用 IDEA 明暗收起图标与共用悬停样式，点击后收起侧栏并保留活动栏和编辑区，再点击对应活动栏图标恢复侧栏及原宽度；在 macOS 启用背景图后检查项目栏、编辑器、底部及右侧工具窗之间是否仍有清晰的分割区间；将 macOS 左侧工具窗缩至 30pt 并确认目录树始终贴左、不随宽度向右移动、内容不溢出、右上和右下圆角仍可见，关闭并重新打开项目后仍保持窄侧栏及其他布局尺寸，重新展开后布局正常；在 Maven 项目产生构建输出时确认左侧模块按钮可滚动、设置按钮始终完整显示；在亮色主题且有未读通知时确认未打开的铃铛图标清晰可见、打开通知面板后白色图标与蓝色背景成对出现；在深色 Lithe 主题下对照外框渐变、面板对比度、背景图片回退、左右工具窗的 40pt 按钮槽、30pt 选中块及 IDEA Community 图标对比度，悬停工具窗按钮时确认箭头光标，检查项目栏标题颜色和弹窗主按钮主题色；检查 macOS 40pt 顶栏 Logo 与系统窗口按钮垂直居中，项目切换器使用 20pt 项目字母头像和 30pt 悬停块，项目与分支切换块悬停保持箭头光标，红绿灯右侧留白与 IDEA 接近，项目头像、欢迎列表及切换菜单按标准化项目路径共享稳定颜色（超过 9 个项目、移除后重开仍一致），顶栏运行配置使用 16pt 图标与 13pt Regular 文字、内容自然宽度和 6pt 图文间距；运行与调试使用 Community 描边资源、34×40pt 槽位及 30×30pt 悬停区域，运行、调试、更新和背景按钮悬停保持默认箭头，检查深浅主题、菜单开合、窄窗口和原动作；顶栏使用 IDEA Islands 主题项目色并按 85% 混色、600pt 水平和 300pt 垂直范围渐变，深色窗口分隔条四角与底栏缺口无浅色亮斑，缩放窗口及从欢迎页进入工作区再返回后仍对齐。 macOS 主工具栏对照 ExecutionActions.xml/PlatformActions.xml：右侧组先显示运行配置、Run、Debug，再显示 Search Everywhere 和 Settings，确认搜索和设置复用既有入口且原运行/调试动作正常。"
     },
     {
       "id": "project-sidebar-header-icons",
@@ -2496,7 +2496,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。"
+      "verification": "打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。 macOS 右侧底部的检查更新与背景选择是居中的纯图标按钮，复用其他活动栏按钮的槽位、背景和 hover 提示；背景面板向上展开。"
     },
     {
       "id": "embedded-viewers",
@@ -2603,7 +2603,9 @@
       "capability": "操作通知、错误提示与自动消失",
       "macos": {
         "evidence": [
-          "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift"
+          "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift",
+          "macos/Sources/Lithe/Views/Workbench/WorkbenchNotificationBanner.swift",
+          "macos/Tests/LitheTests/WorkbenchNotificationTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -2616,7 +2618,8 @@
         "verificationStatus": "pending"
       },
       "owner": "Workbench",
-      "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。"
+      "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。macOS 深浅主题检查共享卡片、官方图标、圆角边框、两行长消息与展开/收起。验证三条上限、旧消息折叠及历史入口；单条悬停不暂停其他通知，应用后台暂停全部、回到前台按剩余时间关闭；关闭与超时保留历史，清空历史关闭所有气泡。确定性时间测试覆盖计时与折叠，实际工作台检查叠放、关闭和通知中心。",
+      "notes": "macOS 通知外观使用 Community Islands 主题，颜色/边框/6pt 圆角/5pt 线性阴影由 LitheTheme.Notification 统一提供。普通 timeline 通知显示 10 秒，单条悬停和应用后台暂停剩余计时；最多显示三条，新通知向上叠放，溢出的旧通知折叠为历史入口。关闭气泡保留历史，打开通知中心关闭气泡并标为已读；沿用 100 条历史上限。长正文默认两行，可展开，超过十行在气泡内滚动。"
     },
     {
       "id": "memory-monitor",
@@ -2667,7 +2670,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Release",
-      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只在标题栏提示。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。"
+      "verification": "使用 preview 更新清单验证检查、下载、校验、安装和重启；从应用菜单或欢迎页左下角齿轮菜单手动检查到新版本时直接弹出更新详情并可一键安装，设置页检查到新版本时在检查按钮旁显示安装按钮，启动时的自动检查只更新已有更新入口状态；macOS 更新入口位于右侧活动栏底部，显示图标、忙碌状态和对应悬停说明。 Windows 未检查、正在检查、跳过版本和失败时不得显示已是最新版；菜单通知明确指 Lithe 主程序，不代表语言扩展状态。"
     },
     {
       "id": "updates-failure-rollback",
@@ -3134,7 +3137,8 @@
         ]
       },
       "owner": "macOS UI",
-      "verification": "按 PR 迁移清单逐项打开 Agent、App/设置、Database、Debug、Editor、Git、GitHub、Java、Search、Diff、Workbench 的菜单与选择面板，检查同一共享外框、圆角、边框、单行行高、字体和无弹跳展开；选中项、禁用条件、动作、动态列表、危险操作确认及键盘操作保持原语义。顶部项目/分支按钮打开期间保持原hover底色，移入菜单后仍保留，关闭后释放；不使用蓝色菜单选中色。原生子菜单保留父面板并只接收自己的按键，Esc/外部点击按层关闭，所有方向保持屏幕边界，锚点卸载/移出窗口清理面板与监视器。真实 NSHostingView 回归验证环境对象/语言完整继承。保留系统应用菜单、系统对话框、编辑器补全/悬停文档与显式 segmented 选项；静态门禁禁止产品恢复 SwiftUI Menu、popover、NSPopUpButton 或非 segmented 的原生 Picker。完整人工视觉验收保持 pending，Windows 本次不改。 Monaco 编辑区保留既有条目与命令，剪切/复制/粘贴/格式化使用 IDEA 官方 16pt 明暗 SVG，无图标的 action 留空并对齐；确认主编辑区、分屏和 diff 的右键菜单取消/关闭、焦点与现有动作正常；执行 scripts/probe-macos-monaco.sh --workbench-tests 验证正式前端的菜单桥接和命令事件。 右键编辑器标签的 Copy Path / Reference 子菜单从触发行旁展开；父菜单有分隔线或滚动时仍对齐可见行。打开/关闭/切换子菜单固定主菜单，屏幕边缘允许子菜单上移或向左展开；Copy Relative Path 完整显示，带快捷键、勾选和图标的宽度计算保持一致。 顶部项目菜单确认随名称/路径宽度自然变化、长路径受共享边界限制，项目徽标20pt；两个入口按钮与菜单留出工具栏槽位内的4/5pt间距。分支输入框复用 Git Log 全局样式，输入法未提交时隐藏占位并在hover显示I-beam，官方16pt图标和共享蓝色hover正常。 项目徽标字母使用共享ProjectAvatarBadge，20pt标识对应13pt JetBrains Mono SemiBold；核对顶部、项目菜单和欢迎页，颜色与大小保留。 共享 LitheIcons 资源入口兼容省略 .svg 的调用，明暗兄弟路径使用正确后缀；实际打包资源检查直接路径/显式后缀解析一致，不再因后缀缺失显示空图标或错误回退。 Project/Dependencies、Terminal shell 和动作菜单均按触发控件边界定位，鼠标点击位置和键盘触发不改变锚点。 Agent 主画布与编辑器共用 editor 背景，标题、上下文区和边框读取共享主题 token；明暗及应用配色切换后不得残留局部固定灰色。 从原生菜单执行剪切、复制、粘贴时恢复 WebKit 焦点并使用原生编辑命令，避免异步菜单回调丢失 DOM 用户手势；桥接返回 handled 防止 Monaco 重复执行，其他命令仍由 Monaco 运行。实际 WKWebView 剪贴板与前端 workbench 集成检查覆盖该路径。"
+      "verification": "按 PR 迁移清单逐项打开 Agent、App/设置、Database、Debug、Editor、Git、GitHub、Java、Search、Diff、Workbench 的菜单与选择面板，检查同一共享外框、圆角、边框、单行行高、字体和无弹跳展开；选中项、禁用条件、动作、动态列表、危险操作确认及键盘操作保持原语义。顶部项目/分支按钮打开期间保持原hover底色，移入菜单后仍保留，关闭后释放；不使用蓝色菜单选中色。原生子菜单保留父面板并只接收自己的按键，Esc/外部点击按层关闭，所有方向保持屏幕边界，锚点卸载/移出窗口清理面板与监视器。真实 NSHostingView 回归验证环境对象/语言完整继承。保留系统应用菜单、系统对话框、编辑器补全/悬停文档与显式 segmented 选项；静态门禁禁止产品恢复 SwiftUI Menu、popover、NSPopUpButton 或非 segmented 的原生 Picker。完整人工视觉验收保持 pending，Windows 本次不改。 Monaco 编辑区保留既有条目与命令，剪切/复制/粘贴/格式化使用 IDEA 官方 16pt 明暗 SVG，无图标的 action 留空并对齐；确认主编辑区、分屏和 diff 的右键菜单取消/关闭、焦点与现有动作正常；执行 scripts/probe-macos-monaco.sh --workbench-tests 验证正式前端的菜单桥接和命令事件。 右键编辑器标签的 Copy Path / Reference 子菜单从触发行旁展开；父菜单有分隔线或滚动时仍对齐可见行。打开/关闭/切换子菜单固定主菜单，屏幕边缘允许子菜单上移或向左展开；Copy Relative Path 完整显示，带快捷键、勾选和图标的宽度计算保持一致。 顶部项目菜单确认随名称/路径宽度自然变化、长路径受共享边界限制，项目徽标20pt；两个入口按钮与菜单留出工具栏槽位内的4/5pt间距。分支输入框复用 Git Log 全局样式，输入法未提交时隐藏占位并在hover显示I-beam，官方16pt图标和共享蓝色hover正常。 项目徽标字母使用共享ProjectAvatarBadge，20pt标识对应13pt JetBrains Mono SemiBold；核对顶部、项目菜单和欢迎页，颜色与大小保留。 共享 LitheIcons 资源入口兼容省略 .svg 的调用，明暗兄弟路径使用正确后缀；实际打包资源检查直接路径/显式后缀解析一致，不再因后缀缺失显示空图标或错误回退。 Project/Dependencies、Terminal shell 和动作菜单均按触发控件边界定位，鼠标点击位置和键盘触发不改变锚点。 Agent 主画布与编辑器共用 editor 背景，标题、上下文区和边框读取共享主题 token；明暗及应用配色切换后不得残留局部固定灰色。 从原生菜单执行剪切、复制、粘贴时恢复 WebKit 焦点并使用原生编辑命令，避免异步菜单回调丢失 DOM 用户手势；桥接返回 handled 防止 Monaco 重复执行，其他命令仍由 Monaco 运行。实际 WKWebView 剪贴板与前端 workbench 集成检查覆盖该路径。 另检查分组折叠/恢复、搜索焦点与 Git Log 共享外框、子菜单横向定位及两层 Esc 关闭。",
+      "notes": "顶部分支菜单的 Recent/Local/Remote/Tags 支持点击折叠，Recent 按命名空间分组；搜索覆盖全部引用，清空后保留各组折叠状态。分支动作在右侧按触发行对齐，屏幕边缘自动向左展开。 搜索框共用 Git Log 的控件尺寸、占位、IME 和焦点外框，按上游 SearchFieldWithExtension 显式使用弹窗背景；弹出时焦点留在面板，直接输入或 ⌘F 才进入编辑器。 共享弹窗显式观察应用 colorScheme，内容与外框继承同一环境，原生面板同步明暗外观；应用外观与系统外观不同时不再出现黑色搜索框和浅色文字。"
     },
     {
       "id": "macos-shared-hover-tooltip-style",

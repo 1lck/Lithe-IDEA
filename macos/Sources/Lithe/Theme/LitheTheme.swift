@@ -505,9 +505,10 @@ enum LitheTheme {
     static var searchFieldText: Color {
         activeTheme == .lithe ? controlColor(light: 0x000000, dark: 0xD1D3D9) : primaryText
     }
-    private static func controlColor(light: UInt32, dark: UInt32) -> Color {
+    private static func controlColor(light: UInt32, dark: UInt32, lightAlpha: CGFloat = 1, darkAlpha: CGFloat = 1) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
-            RGBA(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light).nsColor
+            let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return RGBA(isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha).nsColor
         })
     }
 
@@ -518,6 +519,24 @@ enum LitheTheme {
         static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x33353B) }
         static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
         static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+    }
+
+    /// Notification / BalloonLayoutConfiguration / round border, Community c7f91397.
+    enum Notification {
+        static let width: CGFloat = 360
+        static let edgeInset: CGFloat = 10
+        // Java RoundRectangle2D's Notification.arc=12 is a diameter.
+        static let cornerRadius: CGFloat = 6
+        static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x33353B) }
+        static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
+        static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+        static var moreBackground: Color { controlColor(light: 0xF7F8F9, dark: 0x191A1C) }
+        static var moreForeground: Color { controlColor(light: 0x5F6269, dark: 0x9FA2A8) }
+        static var iconHover: Color {
+            controlColor(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 18.0 / 255, darkAlpha: 23.0 / 255)
+        }
+        static let shadowInset: CGFloat = 5
+        static var shadow: Color { controlColor(light: 0x808080, dark: 0x000000).opacity(16.0 / 255) }
     }
 
     // MARK: - 浮层
@@ -775,6 +794,45 @@ extension View {
     /// hovered. The push/pop pair is balanced even when a view disappears.
     func lithePointer() -> some View {
         modifier(LithePointerModifier())
+    }
+
+    func litheNotificationSurface() -> some View {
+        background(LitheTheme.Notification.background,
+                   in: RoundedRectangle(cornerRadius: LitheTheme.Notification.cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.Notification.cornerRadius)
+                    .strokeBorder(LitheTheme.Notification.border, lineWidth: 1)
+            }
+            .background {
+                // ShadowJava2DPainter uses linear 5pt edge/corner gradients,
+                // not a blurred shadow whose radius equals the shadow inset.
+                Canvas { context, size in
+                    let inset = LitheTheme.Notification.shadowInset
+                    let inner = CGRect(origin: .zero, size: size).insetBy(dx: inset, dy: inset)
+                    let color = LitheTheme.Notification.shadow
+                    let gradient = Gradient(colors: [color.opacity(0), color])
+                    let edges: [(CGRect, CGPoint, CGPoint)] = [
+                        (CGRect(x: inner.minX, y: 0, width: inner.width, height: inset), CGPoint(x: 0, y: 0), CGPoint(x: 0, y: inset)),
+                        (CGRect(x: inner.minX, y: inner.maxY, width: inner.width, height: inset), CGPoint(x: 0, y: size.height), CGPoint(x: 0, y: inner.maxY)),
+                        (CGRect(x: 0, y: inner.minY, width: inset, height: inner.height), .zero, CGPoint(x: inset, y: 0)),
+                        (CGRect(x: inner.maxX, y: inner.minY, width: inset, height: inner.height), CGPoint(x: size.width, y: 0), CGPoint(x: inner.maxX, y: 0))
+                    ]
+                    for (rect, start, end) in edges {
+                        context.fill(Path(rect), with: .linearGradient(gradient, startPoint: start, endPoint: end))
+                    }
+                    for x in [CGFloat.zero, inner.maxX] {
+                        for y in [CGFloat.zero, inner.maxY] {
+                            let corner = CGRect(x: x, y: y, width: inset, height: inset)
+                            let end = CGPoint(x: x == 0 ? inner.minX : inner.maxX, y: y == 0 ? inner.minY : inner.maxY)
+                            context.fill(Path(corner), with: .linearGradient(gradient,
+                                startPoint: CGPoint(x: corner.midX, y: corner.midY), endPoint: end))
+                        }
+                    }
+                    context.fill(Path(inner), with: .color(color))
+                }
+                .padding(-LitheTheme.Notification.shadowInset)
+                .allowsHitTesting(false)
+            }
     }
 
     func litheHoverTooltipSurface() -> some View {
@@ -1125,6 +1183,7 @@ private final class LitheTextFieldEditingView: NSView {
 /// Source: IntelliJ Community c7f91397, Component.arc=8 (a 4pt radius), LW=1, BW=2.
 struct LitheSearchFieldStyle: ViewModifier {
     var isFocused: Bool
+    var background: Color? = nil
 
     // SearchTextField uses 15 columns; its UI measures 'm', adds margins and icon space.
     static let preferredWidth = ceil(("m" as NSString).size(withAttributes: [
@@ -1142,7 +1201,7 @@ struct LitheSearchFieldStyle: ViewModifier {
             .padding(.horizontal, 10)
             .frame(height: 36)
             .background(
-                shape.fill(LitheTheme.searchFieldBackground)
+                shape.fill(background ?? LitheTheme.searchFieldBackground)
                     .padding(3.5)
             )
             .overlay {
@@ -1153,8 +1212,8 @@ struct LitheSearchFieldStyle: ViewModifier {
 }
 
 extension View {
-    func litheSearchField(isFocused: Bool = false) -> some View {
-        modifier(LitheSearchFieldStyle(isFocused: isFocused))
+    func litheSearchField(isFocused: Bool = false, background: Color? = nil) -> some View {
+        modifier(LitheSearchFieldStyle(isFocused: isFocused, background: background))
     }
 
     /// Paints rounded control chrome without clipping AppKit-backed content.

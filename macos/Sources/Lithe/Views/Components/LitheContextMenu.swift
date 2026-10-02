@@ -410,6 +410,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         locale: Locale,
         opensUpward: Bool = false,
         anchored: Bool = false,
+        adjacentTo row: NSRect? = nil,
         parentWindow: NSWindow? = nil,
         onDismiss: (() -> Void)? = nil
     ) {
@@ -427,10 +428,22 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             return Self.menuWidth(for: submenuItems, locale: locale)
         }
         let submenuWidth = submenuWidths.max() ?? 0
-        let preferredOrigin = NSPoint(
-            x: screenPoint.x - (anchored ? 0 : 6),
-            y: opensUpward ? screenPoint.y + (anchored ? 0 : 6) : screenPoint.y - menuHeight + (anchored ? 0 : 6)
-        )
+        let preferredOrigin: NSPoint
+        if let row {
+            // IDEA's branch tree opens actions beside its parent popup, with the
+            // first action aligned to the triggering row. Flip only at a screen edge.
+            let right = row.maxX + LitheDropdownMetrics.submenuSpacing
+            let left = row.minX - menuWidth - LitheDropdownMetrics.submenuSpacing
+            preferredOrigin = NSPoint(
+                x: right + menuWidth > visibleFrame.maxX - 6 && left >= visibleFrame.minX + 6 ? left : right,
+                y: row.maxY + LitheDropdownMetrics.popupPadding - menuHeight
+            )
+        } else {
+            preferredOrigin = NSPoint(
+                x: screenPoint.x - (anchored ? 0 : 6),
+                y: opensUpward ? screenPoint.y + (anchored ? 0 : 6) : screenPoint.y - menuHeight + (anchored ? 0 : 6)
+            )
+        }
         let origin = NSPoint(
             x: min(max(preferredOrigin.x, visibleFrame.minX + 6), visibleFrame.maxX - menuWidth - 6),
             y: min(max(preferredOrigin.y, visibleFrame.minY + 6), visibleFrame.maxY - menuHeight - 6)
@@ -488,14 +501,30 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
     /// Searchable filters share the action-menu window and dismissal lifecycle.
     func show(contentController: NSViewController, at screenPoint: NSPoint,
-              appearance: NSAppearance?, opensUpward: Bool = false, parentWindow: NSWindow? = nil,
+              appearance: NSAppearance?, opensUpward: Bool = false, searchOnTyping: Bool = false,
+              parentWindow: NSWindow? = nil,
               onDismiss: @escaping () -> Void) {
         dismiss()
         let panel = makePanel(contentController: contentController, appearance: appearance)
-        panel.handleKey = { [weak self] event in
-            guard event.keyCode == 53 else { return false }
-            self?.dismiss()
-            return true
+        panel.handleKey = { [weak self, weak panel] event in
+            if event.keyCode == 53 {
+                self?.dismiss()
+                return true
+            }
+            guard searchOnTyping, let panel else { return false }
+            let find = event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers == "f"
+            let typing = event.modifierFlags.intersection([.command, .control, .function]).isEmpty
+                && event.characters?.unicodeScalars.contains { !CharacterSet.controlCharacters.contains($0) } == true
+            guard find || (panel.firstResponder === panel && typing) else { return false }
+            func searchField(in view: NSView) -> NSTextField? {
+                if let field = view as? NSTextField, field.isEditable, field.isEnabled { return field }
+                return view.subviews.lazy.compactMap { searchField(in: $0) }.first
+            }
+            if let content = panel.contentView, let field = searchField(in: content) {
+                panel.makeFirstResponder(field)
+            }
+            // Forward the original event to the field editor, preserving native IME.
+            return find
         }
         self.panel = panel
         if let hosting = contentController as? LitheDropdownHostingController {
@@ -513,6 +542,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         installEventMonitors()
         panel.orderFrontRegardless()
         panel.makeKey()
+        if searchOnTyping { panel.makeFirstResponder(panel) }
     }
 
     func resize(contentController: NSViewController) {

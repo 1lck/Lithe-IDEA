@@ -22,6 +22,8 @@ struct BranchSwitcherPopover: View {
     let onCompareReferences: (GitReference, GitReference) async -> Void
 
     @State private var searchQuery = ""
+    @State private var collapsedSections: Set<String> = []
+    @State private var expandedRecentGroups: Set<String> = []
     @State private var expandedLocalGroups: Set<String> = []
     @State private var expandedRemoteGroups: Set<String> = []
     @FocusState private var searchFocused: Bool
@@ -34,7 +36,9 @@ struct BranchSwitcherPopover: View {
             branchList
         }
         .frame(width: Metrics.popupWidth, alignment: .leading)
-        .onAppear { searchFocused = true }
+        .task {
+            expandedRecentGroups = Set(recentNamespaceGroups.map(\.id))
+        }
     }
 
     private var searchBar: some View {
@@ -50,10 +54,14 @@ struct BranchSwitcherPopover: View {
                                       preservesOriginalColors: true)
                     }
                     .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                    .padding(.leading, 1)
                     .accessibilityLabel("Clear search")
                 }
             }
-            .litheSearchField(isFocused: searchFocused)
+            // GitBranchesPopupBase passes Popup.BACKGROUND to the same search
+            // wrapper used by Git Log; opening the tree doesn't focus its editor.
+            .litheSearchField(isFocused: searchFocused, background: LitheTheme.popupBackground)
+            .accessibilityIdentifier("branch-popup-search")
 
             Button(action: onManageBranches) {
                 LitheIDEAIcon(resourcePath: "expui/vcs/fetch.svg", size: LitheDropdownMetrics.iconSize,
@@ -131,55 +139,43 @@ struct BranchSwitcherPopover: View {
     }
 
     private var branchList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 7) {
-                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheDropdownMetrics.iconSize,
-                              preservesOriginalColors: true)
-                Text(LocalizedStringKey(searchQuery.isEmpty ? "Recent" : "Branches"))
-                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
-                Spacer()
-                if feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 14)
-            .frame(height: Metrics.branchGroupHeaderHeight)
-
-            Group {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if filteredReferences.isEmpty {
                     Text(LocalizedStringKey(feature.isLoadingGitHistory ? "Loading branches…" : "No matching branches"))
                         .font(LitheTheme.uiFont)
                         .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if searchQuery.isEmpty {
-                                ForEach(recentReferenceRows) { row in
-                                    branchRow(row.reference, indented: false, presentation: .recent)
-                                }
-
-                                if !recentReferences.isEmpty && !filteredReferences.isEmpty {
-                                    popupDivider.padding(.vertical, 6)
-                                }
-
-                                groupedBranchRows
-                            } else {
-                                ForEach(searchResultRows) { row in
-                                    branchRow(row.reference, indented: false, presentation: .searchResult)
+                        .frame(maxWidth: .infinity, minHeight: Metrics.branchRowHeight)
+                } else if normalizedQuery.isEmpty {
+                    if !recentReferences.isEmpty {
+                        branchSectionHeader("Recent")
+                        if !collapsedSections.contains("Recent") {
+                            ForEach(recentReferenceRows.filter { localNamespace(for: $0.reference) == nil }) { row in
+                                branchRow(row.reference, indented: true, presentation: .recent)
+                            }
+                            ForEach(recentNamespaceGroups) { group in
+                                namespaceRow(group, expandedGroups: $expandedRecentGroups)
+                                if expandedRecentGroups.contains(group.id) {
+                                    ForEach(group.rows) { row in
+                                        branchRow(row.reference, indented: true, presentation: .namespaceChild)
+                                    }
                                 }
                             }
                         }
-                        .padding(.horizontal, LitheDropdownMetrics.popupPadding)
-                        .padding(.bottom, 8)
+                    }
+                    groupedBranchRows
+                } else {
+                    // Filtering searches every section without losing its expansion state.
+                    ForEach(searchResultRows) { row in
+                        branchRow(row.reference, indented: false, presentation: .searchResult)
                     }
                 }
             }
-            .frame(height: Metrics.branchListHeight)
+            .padding(.horizontal, LitheDropdownMetrics.popupPadding)
+            .padding(.vertical, LitheDropdownMetrics.popupPadding)
         }
+        .frame(height: Metrics.branchListHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-
     }
 
     private func actionRow(
@@ -206,117 +202,97 @@ struct BranchSwitcherPopover: View {
             }
         }
         .buttonStyle(LitheDropdownRowStyle())
-        .lithePointer()
     }
 
     @ViewBuilder
     private var groupedBranchRows: some View {
         if !localReferences.isEmpty {
             branchSectionHeader("Local")
-
-            ForEach(localRootRows) { row in
-                branchRow(row.reference, indented: true, presentation: .grouped)
-            }
-
-            ForEach(localNamespaceGroups) { group in
-                localNamespaceRow(group)
-                if expandedLocalGroups.contains(group.id) {
-                    ForEach(group.rows) { row in
-                        branchRow(row.reference, indented: true, presentation: .namespaceChild)
+            if !collapsedSections.contains("Local") {
+                ForEach(localRootRows) { row in
+                    branchRow(row.reference, indented: true, presentation: .grouped)
+                }
+                ForEach(localNamespaceGroups) { group in
+                    namespaceRow(group, expandedGroups: $expandedLocalGroups)
+                    if expandedLocalGroups.contains(group.id) {
+                        ForEach(group.rows) { row in
+                            branchRow(row.reference, indented: true, presentation: .namespaceChild)
+                        }
                     }
                 }
             }
         }
-
         if !remoteRootGroups.isEmpty {
             branchSectionHeader("Remote")
-
-            ForEach(remoteRootGroups) { group in
-                remoteRootRow(group)
-                if expandedRemoteGroups.contains(group.id) {
-                    ForEach(remoteRows(in: group)) { row in
-                        branchRow(row.reference, indented: true, presentation: .remoteChild)
+            if !collapsedSections.contains("Remote") {
+                ForEach(remoteRootGroups) { group in
+                    namespaceRow(group, expandedGroups: $expandedRemoteGroups)
+                    if expandedRemoteGroups.contains(group.id) {
+                        ForEach(remoteRows(in: group)) { row in
+                            branchRow(row.reference, indented: true, presentation: .remoteChild)
+                        }
                     }
                 }
             }
         }
-
         if !tagRows.isEmpty {
             branchSectionHeader("Tags")
-            ForEach(tagRows) { row in
-                branchRow(row.reference, indented: true, presentation: .grouped)
+            if !collapsedSections.contains("Tags") {
+                ForEach(tagRows) { row in
+                    branchRow(row.reference, indented: true, presentation: .grouped)
+                }
             }
         }
     }
 
     private func branchSectionHeader(_ title: String) -> some View {
-        HStack(spacing: 7) {
-            LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: LitheDropdownMetrics.iconSize,
-                          preservesOriginalColors: true)
-            Text(LocalizedStringKey(title))
-                .font(LitheTheme.uiFont(size: 12, weight: .medium))
+        let collapsed = collapsedSections.contains(title)
+        return Button {
+            if collapsed { collapsedSections.remove(title) }
+            else { collapsedSections.insert(title) }
+        } label: {
+            HStack(spacing: 7) {
+                LitheIDEAIcon(resourcePath: collapsed ? "expui/general/chevronRight.svg" : "expui/general/chevronDown.svg",
+                              size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)
+                Text(LocalizedStringKey(title))
+                Spacer()
+                if title == "Recent", feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
+                    ProgressView().controlSize(.mini)
+                }
+            }
+            .frame(height: Metrics.branchGroupHeaderHeight)
         }
-        .foregroundStyle(LitheTheme.secondaryText)
-        .padding(.horizontal, 14)
-        .frame(height: Metrics.branchGroupHeaderHeight)
+        .buttonStyle(LitheDropdownRowStyle())
+        .accessibilityIdentifier("branch-section-" + title)
+        .accessibilityValue(Text(collapsed ? "Collapsed" : "Expanded"))
     }
 
-    private func localNamespaceRow(_ group: BranchPopupGroup) -> some View {
-        return Button {
-            if expandedLocalGroups.contains(group.id) {
-                expandedLocalGroups.remove(group.id)
+    private func namespaceRow(_ group: BranchPopupGroup, expandedGroups: Binding<Set<String>>) -> some View {
+        Button {
+            if expandedGroups.wrappedValue.contains(group.id) {
+                expandedGroups.wrappedValue.remove(group.id)
             } else {
-                expandedLocalGroups.insert(group.id)
+                expandedGroups.wrappedValue.insert(group.id)
             }
         } label: {
             HStack(spacing: 8) {
-                LitheIDEAIcon(resourcePath: expandedLocalGroups.contains(group.id)
+                LitheIDEAIcon(resourcePath: expandedGroups.wrappedValue.contains(group.id)
                               ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
                               size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)
                 LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: LitheDropdownMetrics.iconSize,
                               preservesOriginalColors: true)
                 Text(group.title)
-                    .font(LitheTheme.uiFont(size: 12.5))
+                    .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
             }
-            .padding(.trailing, 1)
+            .padding(.leading, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: Metrics.branchRowHeight)
             .contentShape(Rectangle())
         }
         .buttonStyle(LitheDropdownRowStyle())
-        .lithePointer()
-    }
-
-    private func remoteRootRow(_ group: BranchPopupGroup) -> some View {
-        return Button {
-            if expandedRemoteGroups.contains(group.id) {
-                expandedRemoteGroups.remove(group.id)
-            } else {
-                expandedRemoteGroups.insert(group.id)
-            }
-        } label: {
-            HStack(spacing: 8) {
-                LitheIDEAIcon(resourcePath: expandedRemoteGroups.contains(group.id)
-                              ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
-                              size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)
-                LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: LitheDropdownMetrics.iconSize,
-                              preservesOriginalColors: true)
-                Text(group.title)
-                    .font(LitheTheme.uiFont(size: 12.5))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-            .padding(.trailing, 1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: Metrics.branchRowHeight)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(LitheDropdownRowStyle())
-        .lithePointer()
     }
 
     /// A branch line. Clicking it opens the reference's action menu instead of
@@ -463,8 +439,12 @@ struct BranchSwitcherPopover: View {
             }
     }
 
-    private var localNamespaceGroups: [BranchPopupGroup] {
-        let grouped = Dictionary(grouping: localReferences.compactMap { reference -> (String, GitReference)? in
+    private var localNamespaceGroups: [BranchPopupGroup] { namespaceGroups(in: localReferences) }
+
+    private var recentNamespaceGroups: [BranchPopupGroup] { namespaceGroups(in: recentReferences) }
+
+    private func namespaceGroups(in references: [GitReference]) -> [BranchPopupGroup] {
+        let grouped = Dictionary(grouping: references.compactMap { reference -> (String, GitReference)? in
             guard let namespace = localNamespace(for: reference) else { return nil }
             return (namespace, reference)
         }) { $0.0 }
@@ -568,7 +548,7 @@ private struct BranchActionMenuRow<Label: View>: View {
     @LitheMenuItemsBuilder let menuContent: () -> [LitheContextMenuItem]
 
     var body: some View {
-        LitheMenu {
+        LitheMenu(opensToSide: true) {
             menuContent()
         } label: {
             label()
@@ -576,7 +556,6 @@ private struct BranchActionMenuRow<Label: View>: View {
         .buttonStyle(LitheDropdownRowStyle())
         // Constrain to the list width so the menu button does not stretch.
         .fixedSize(horizontal: false, vertical: true)
-        .lithePointer()
     }
 }
 

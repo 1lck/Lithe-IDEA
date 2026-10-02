@@ -91,3 +91,10 @@ The expui/actions/viewAsImage.svg and viewAsImage_dark.svg pair comes from the
 same revision and provides the workbench background image action.
 The fileTypes/text.svg and text_dark.svg pair comes from expui/fileTypes at
 the same revision; the earlier single asset contained only the dark palette.
+
+Notification balloons use unmodified expui/status/info and expui/general/close
+light/dark SVG assets from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+PlatformIconMappings maps General.BalloonInformation and Ide.Notification.Close
+to these resources. Notification layout/theme tokens follow the same revision.
+The expui/general/chevronUp.svg and chevronUp_dark.svg pair is from that same
+revision and supplies the notification content collapse action.

@@ -7,6 +7,26 @@ import Testing
 @Suite("Shared search field chrome", .serialized)
 struct LitheSearchFieldStyleTests {
     @Test(arguments: [ColorScheme.dark, .light])
+    func popupSearchUsesItsSurfaceWithoutChangingSharedGeometry(scheme: ColorScheme) throws {
+        let host = NSHostingView(rootView: HStack(spacing: 0) {
+            LitheSearchTextField("Search", text: .constant(""))
+                .litheSearchField(background: LitheTheme.popupBackground).frame(width: 220)
+            Color.clear.frame(width: 20, height: 36)
+        }.background(LitheTheme.popupBackground).environment(\.colorScheme, scheme))
+        host.frame = NSRect(x: 0, y: 0, width: 240, height: 36)
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        let scale = CGFloat(bitmap.pixelsWide) / 240
+        let field = try #require(bitmap.colorAt(x: Int(195 * scale), y: Int(18 * scale)))
+        let surface = try #require(bitmap.colorAt(x: Int(230 * scale), y: Int(18 * scale)))
+        #expect(abs(field.redComponent - surface.redComponent) < 0.01)
+        #expect(abs(field.greenComponent - surface.greenComponent) < 0.01)
+        #expect(abs(field.blueComponent - surface.blueComponent) < 0.01)
+        #expect(host.fittingSize.height == 36)
+    }
+
+    @Test(arguments: [ColorScheme.dark, .light])
     func uncommittedIMETextHidesOnlyItsOwnPlaceholder(scheme: ColorScheme) async throws {
         // A constant binding deliberately stays empty until commit: the prompt
         // must follow the visible field editor, not wait for the bound value.

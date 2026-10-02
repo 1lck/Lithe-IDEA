@@ -11,10 +11,7 @@ struct UpdateControl: View {
 
     var body: some View {
         if compact {
-            statusContent
-                .font(LitheTheme.MainToolbar.font)
-                .foregroundStyle(LitheTheme.MainToolbar.foreground)
-                .buttonStyle(LitheMainToolbarButtonStyle())
+            compactButton
         } else {
             Group {
                 switch updateChecker.status {
@@ -26,6 +23,55 @@ struct UpdateControl: View {
             }
             .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
             .lithePointer()
+        }
+    }
+
+    private var compactButton: some View {
+        Button {
+            switch updateChecker.status {
+            case .available:
+                updateChecker.presentDetails()
+            case .waitingForTermination:
+                Task { await updateChecker.retryInstallation() }
+            case .failed:
+                if updateChecker.updateInfo != nil { updateChecker.presentDetails() }
+                else { checkForUpdates() }
+            case .idle, .upToDate:
+                checkForUpdates()
+            case .checking, .downloading, .installing:
+                break
+            }
+        } label: {
+            if isBusy {
+                ProgressView().controlSize(.small)
+                    .frame(width: ActivityBarMetrics.iconSize, height: ActivityBarMetrics.iconSize)
+            } else {
+                LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: ActivityBarMetrics.iconSize)
+            }
+        }
+        .buttonStyle(LitheActivityBarButtonStyle())
+        .disabled(isBusy)
+        .workbenchHoverHelp(Text(compactTitle), placement: .leading)
+        .accessibilityLabel(Text(compactTitle))
+        .accessibilityIdentifier("workbench-update")
+    }
+
+    private var isBusy: Bool {
+        switch updateChecker.status {
+        case .checking, .downloading, .installing: true
+        default: false
+        }
+    }
+
+    private var compactTitle: LocalizedStringKey {
+        switch updateChecker.status {
+        case .available(let version, _): "Update to \(version)"
+        case .checking: "Checking for updates…"
+        case .downloading(let version, _): "Downloading \(version)…"
+        case .waitingForTermination: "Continue Installation"
+        case .installing: "Installing update…"
+        case .failed: "Retry update"
+        case .idle, .upToDate: "Check for Updates"
         }
     }
 
