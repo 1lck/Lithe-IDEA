@@ -137,7 +137,7 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
         if [[ -z "$signer_binary" ]]; then
             swift build \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
-                --product LithePluginPackageSigner
+                --product LithePluginPackageSigner >&2
             signer_bin_dir=$(swift build \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
                 --show-bin-path)
