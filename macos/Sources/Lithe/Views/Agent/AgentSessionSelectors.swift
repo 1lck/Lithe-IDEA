@@ -1,6 +1,13 @@
 import SwiftUI
 import LitheAgentConversationModule
 
+private enum AgentSelectorLayout {
+    static let choiceRowHeight: CGFloat = 26
+    static let modeRowHeight: CGFloat = 44
+    static let modeViewportHeight: CGFloat = 320
+    static let modeVerticalPadding: CGFloat = 5
+}
+
 /// Search and presentation only; the Agent still owns IDs, choices and confirmed values.
 enum AgentSessionSelectorPresentation {
     static func filteredChoices(_ option: AgentSessionConfigOption, query: String) -> [AgentSessionConfigOption.Choice] {
@@ -171,7 +178,7 @@ struct AgentModelPopover: View {
                             }
                         }
                     }
-                    .frame(height: min(240, CGFloat(setting.choices.count * 32)))
+                    .frame(height: min(240, CGFloat(setting.choices.count) * AgentSelectorLayout.choiceRowHeight))
                 }
                 .padding(.bottom, 5)
                 .frame(width: 180)
@@ -216,7 +223,7 @@ struct AgentModelPopover: View {
                         }
                     }
                 }
-                .frame(height: min(240, CGFloat(choices.count * 32 + choices.filter { $0.group != nil }.count * 20)))
+                .frame(height: min(240, CGFloat(choices.count) * AgentSelectorLayout.choiceRowHeight + CGFloat(choices.filter { $0.group != nil }.count * 20)))
             }
             if !settings.isEmpty {
                 Divider().overlay(AgentPanelStyle.border).padding(.vertical, 4)
@@ -258,17 +265,18 @@ private struct AgentModelSettingRow: View {
     }
 }
 
-private struct AgentModePopover: View {
+struct AgentModePopover: View {
     let option: AgentSessionConfigOption
     let onSelect: (String) -> Void
+    @State private var contentHeight: CGFloat = 0
 
     var body: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 ForEach(option.choices) { choice in
-                    AgentSelectorRow(isSelected: choice.id == option.currentValue, minimumHeight: 64, action: { onSelect(choice.id) }) {
+                    AgentSelectorRow(isSelected: choice.id == option.currentValue, minimumHeight: AgentSelectorLayout.modeRowHeight, action: { onSelect(choice.id) }) {
                         Image(systemName: AgentSessionSelectorPresentation.modeIcon(choice.id)).frame(width: 16)
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: option)).lineLimit(1)
                             if let description = choice.description, !description.isEmpty {
                                 Text(AgentSessionSelectorPresentation.localized(description))
@@ -281,16 +289,33 @@ private struct AgentModePopover: View {
                     }
                 }
             }
+            .background {
+                GeometryReader { geometry in
+                    // Cap the measurement so scrolling a long lazy list cannot keep resizing the popover.
+                    Color.clear.preference(key: AgentModeContentHeightKey.self,
+                                           value: min(AgentSelectorLayout.modeViewportHeight, geometry.size.height))
+                }
+            }
         }
-        .padding(.vertical, 5)
-        .frame(width: 350, height: min(330, CGFloat(option.choices.count * 64 + 10)))
+        .onPreferenceChange(AgentModeContentHeightKey.self) { height in
+            if abs(height - contentHeight) > 0.5 { contentHeight = height }
+        }
+        .padding(.vertical, AgentSelectorLayout.modeVerticalPadding)
+        .frame(width: 350, height: min(AgentSelectorLayout.modeViewportHeight,
+                                     max(CGFloat(option.choices.count) * AgentSelectorLayout.modeRowHeight, contentHeight))
+               + 2 * AgentSelectorLayout.modeVerticalPadding)
         .background(AgentPanelStyle.header)
     }
 }
 
+private struct AgentModeContentHeightKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = max(value, nextValue()) }
+}
+
 private struct AgentSelectorRow<Content: View>: View {
     let isSelected: Bool
-    var minimumHeight: CGFloat = 32
+    var minimumHeight: CGFloat = AgentSelectorLayout.choiceRowHeight
     let action: () -> Void
     @ViewBuilder let content: Content
     @State private var isHovering = false
@@ -308,7 +333,7 @@ private struct AgentSelectorRow<Content: View>: View {
             .font(.system(size: 12))
             .foregroundStyle(AgentPanelStyle.text)
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity, minHeight: minimumHeight, alignment: .leading)
             .background(isSelected ? AgentPanelStyle.selected : (isHovering ? AgentPanelStyle.context : .clear))
             .contentShape(Rectangle())
