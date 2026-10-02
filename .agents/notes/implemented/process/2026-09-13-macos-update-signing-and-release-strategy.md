@@ -41,7 +41,8 @@ PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 
 再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
 
 stable 和 preview 工作流都必须配置同一 repository secret
-`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`；私钥只在构建 runner 的标准输入中使用，不能写入
+`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
+Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
 仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
 secret 并重新生成包，不能只替换 GitHub secret。
 
@@ -135,8 +136,10 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。
 - 独立插件包的安装安全性同样依赖客户端内置的 publisher 公钥；没有匹配 secret
-  的构建会在 release workflow 中失败，而 debug 构建可以生成供模块验证器使用的
-  未发布包，但不能绕过正式安装器的包签名要求。
+  的 release 构建会失败，普通 debug 构建会跳过需要 publisher 签名的 PHP 包，
+  指定单个 PHP 包构建时也会失败。这样构建目录中不会留下缺少
+  `lithe-plugin-signature.json` 的伪成功包；只有提供私钥的构建才会生成可交给
+  包级验签路径的产物。
 - 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
   逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
   "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。

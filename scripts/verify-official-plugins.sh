@@ -25,6 +25,7 @@ PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
     --configuration debug \
     --triple "$TRIPLE")
 plugins=("$PLUGIN_ROOT"/*(/N))
+package_signer_binary=""
 for plugin in "${plugins[@]}"; do
     swift run "${SWIFT_BUILD_ARGS[@]}" --skip-build LitheOfficialPluginVerifier "$plugin"
     if [[ "$plugin:t" == "dev.lithe.plugin.php-support" ]]; then
@@ -38,6 +39,16 @@ for plugin in "${plugins[@]}"; do
             exit 1
         }
         /usr/bin/codesign --verify --deep --strict "$plugin/PhpSupport.bundle"
+        if [[ -z "$package_signer_binary" ]]; then
+            swift build "${SWIFT_BUILD_ARGS[@]}" --product LithePluginPackageSigner
+            signer_bin_dir=$(swift build "${SWIFT_BUILD_ARGS[@]}" --show-bin-path)
+            package_signer_binary="$signer_bin_dir/LithePluginPackageSigner"
+            [[ -x "$package_signer_binary" ]] || {
+                print -u2 -- "Plugin package signer was not built: $package_signer_binary"
+                exit 1
+            }
+        fi
+        "$package_signer_binary" --verify "$plugin"
     fi
 done
-print "Verified ${#plugins[@]} released official native plugin package(s)"
+print "Verified ${#plugins[@]} official native plugin package(s)"

@@ -76,6 +76,15 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     if [[ "$BUNDLED_ONLY" == true ]] && ! node "$ROOT_DIR/scripts/official-plugin-distribution.mjs" "$package_id"; then
         continue
     fi
+    signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
+    if [[ "$signature_requirement" == "publisherPackage" && -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+        if [[ "$CONFIGURATION" == "release" ]]; then
+            print -u2 -- "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY for publisher-signed plugin packages"
+            exit 1
+        fi
+        print -u2 -- "Skipping publisher-signed debug plugin package $package_id; set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY to build it"
+        continue
+    fi
     matched=$((matched + 1))
     module_suffix="${plugin_source:t}"
     source_dir="$plugin_source/Sources/Lithe${module_suffix}Module"
@@ -86,7 +95,6 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     fi
     bundle_name=$(/usr/bin/plutil -extract entrypoint.bundlePath raw "$manifest")
     executable_name=$(/usr/bin/plutil -extract CFBundleExecutable raw "$info_plist")
-    signature_requirement=$(/usr/bin/plutil -extract vendor.signatureRequirement raw "$manifest")
     package_dir="$OUTPUT_DIR/$package_id"
     bundle_dir="$package_dir/$bundle_name"
     executable_dir="$bundle_dir/Contents/MacOS"
@@ -126,14 +134,6 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     /usr/bin/codesign --force --sign "$SIGNING_IDENTITY" "$bundle_dir"
 
     if [[ "$signature_requirement" == "publisherPackage" ]]; then
-        if [[ -z "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
-            if [[ "$CONFIGURATION" == "release" ]]; then
-                print -u2 -- "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY for publisher-signed plugin packages"
-                exit 1
-            fi
-            print -u2 -- "Skipping publisher signature for debug plugin package $package_id"
-            continue
-        fi
         if [[ -z "$signer_binary" ]]; then
             swift build \
                 "${SWIFT_LAYOUT_ARGS[@]}" \
