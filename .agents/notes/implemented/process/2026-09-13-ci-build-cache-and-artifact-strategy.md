@@ -69,6 +69,22 @@ PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中�
 并发缓存主要缩短串行等待和反馈时间，不承诺减少总 runner 分钟；队列等待
 和可用 runner 数量属于 CI 基础设施因素，不能与编译优化混为一谈。
 
+Windows 安装器失败时，Bun 可能已经退出，但并行的生命周期脚本仍在运行，
+继续占用依赖目录；直接删除目录会让原本可以重试的下载故障变成文件锁错误。
+每次安装现在由独立 PowerShell worker 拥有：启动 Bun 前把 worker 加入
+Job Object（Windows 用于管理整棵子进程树的对象），设置最后一个句柄关闭时
+终止成员进程。句柄不继承给子进程，由 worker 的进程生命周期持有；worker
+正常结束、失败或被取消时，系统释放句柄并终止残留脚本；每次安装还有默认
+300 秒的 worker 内部期限，超时退出码为 124，不能只依赖 CI 总超时。父安装器再清理
+部分缓存和依赖。文件系统释放锁可能稍晚，删除重试有单调计时的 10 秒期限，
+超时明确失败，不无限等待。缓存清理后撤销旧 verified 标记，冷安装成功才
+重新生成完整性清单。只重试一次，不把永久安装错误隐藏成成功。
+
+正确做法：worker 拥有 Bun 及其脚本，结束后再清理当前工作树生成目录；
+不要按进程名结束所有 Node/Bun，因为用户其他工作树或应用可能正在使用它们。
+这些句柄和安装目录属于本次安装，不新增可复用资源；只有经过锁文件、Bun
+版本与完整性清单校验的下载缓存可以跨工作树复制，安装包仍只读。
+
 ## 考虑过的备选方案
 
 ### 在旧 runner 上用 Swiftly 安装独立编译器
@@ -87,6 +103,13 @@ PR 的测试合并提交必须在构建摘要中可追溯。被分类器选中�
 
 能减少网络等待，但无法覆盖 Rust Core 和数据库辅助 crate 的主要编译成本，
 因此扩展为缓存 Cargo 的中间输出和 build script 结果。
+
+### 失败后仅限制安装并发或等待固定时间
+
+不采用。相同 Bun 版本的本地生命周期探针表明，串行选项也不能保证失败后
+没有残留脚本；固定等待则无法证明进程结束。直接结束全部 Node 还会影响
+其他任务。Windows Job Object 提供系统级所有权和取消清理，代价是每次安装
+多启动一个 PowerShell worker，安装路径的回归测试需要在 Windows 上运行。
 
 ### 只构建一个 macOS 架构
 
@@ -132,6 +155,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `./scripts/build-official-plugins.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/verify-rust-core.sh`
 - `./scripts/verify-windows-boundaries.sh`
+- `node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts`：Windows 无网络夹具用 IPC 确认子进程占用目录，再让安装失败，验证清理后冷重试成功、永久失败仍报错、成功退出也不留子进程、超时触发本地期限，且不清除有效缓存。
 - `gh run download <run-id> --repo 1lck/Lithe-IDEA --pattern 'Lithe-macos-*'`
 - `gh workflow run release-preview-windows.yml -f source_branch=<branch>`
 
@@ -144,6 +168,9 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 - `.github/workflows/ci-macos.yml`
 - `.github/workflows/ci-windows.yml`
 - `scripts/classify-ci-changes.sh`
+- `scripts/install-windows-frontend-dependencies.ps1`
+- `scripts/invoke-windows-bun-install.ps1`
+- `scripts/windows-frontend-install.test.ts`
 - `scripts/test-classify-ci-changes.sh`
 - `scripts/build-macos.sh`
 - `scripts/build-official-plugins.sh`
