@@ -1,33 +1,3 @@
-import { forwardRef } from "react";
-import type { IconProps } from "@/ui/icons";
-
-export const RunIcon = forwardRef<SVGSVGElement, IconProps>(function RunIcon(
-  { size = "1em", className, title, ...props },
-  ref,
-) {
-  return (
-    <svg
-      ref={ref}
-      width={size}
-      height={size}
-      viewBox="0 0 16 16"
-      fill="none"
-      className={className}
-      aria-hidden={title ? undefined : true}
-      {...props}
-    >
-      {title ? <title>{title}</title> : null}
-      <path
-        d="M5.15 3.35 12.7 8 5.15 12.65Z"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-});
-
 export function JavaCupIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" width="14" height="14" fill="none" className={className} aria-hidden>

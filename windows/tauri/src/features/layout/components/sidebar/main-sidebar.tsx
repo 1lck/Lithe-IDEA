@@ -35,7 +35,6 @@ import {
   openGlobalSearchSidebar,
   toggleDiagnosticsPane,
 } from "@/features/layout/actions/workbench-tool-window-actions";
-import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import {
   toggleGitLogPane,
@@ -73,8 +72,9 @@ import {
   GitCommitIcon,
   GitGraphIcon,
   MagnifyingGlassIcon,
+  ProblemsToolWindowIcon,
+  RunToolWindowIcon,
   TerminalWindowIcon,
-  WarningIcon,
 } from "@/ui/icons";
 
 interface MainSidebarProps {
@@ -181,14 +181,14 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
       ["files", { id: "files", label: t("workbench.project"), icon: <FilesIcon /> }],
       ["git", { id: "git", label: t("workbench.commit"), icon: <GitCommitIcon /> }],
       ["search", { id: "search", label: t("workbench.search"), icon: <MagnifyingGlassIcon /> }],
-      ["run", { id: "run", label: t("workbench.run"), icon: <RunIcon /> }],
+      ["run", { id: "run", label: t("workbench.run"), icon: <RunToolWindowIcon /> }],
       [
         "terminal",
         { id: "terminal", label: t("workbench.terminal"), icon: <TerminalWindowIcon /> },
       ],
       [
         "diagnostics",
-        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <WarningIcon /> },
+        { id: "diagnostics", label: t("workbench.diagnostics"), icon: <ProblemsToolWindowIcon /> },
       ],
       ["gitLog", { id: "gitLog", label: t("workbench.gitLog"), icon: <GitGraphIcon /> }],
     ]);

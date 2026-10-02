@@ -18,6 +18,12 @@ import { dirname, join, resolve } from "node:path";
 interface MappingEntry {
   icon: string;
   source: string | null;
+  /**
+   * Repo-relative path under src/ui/icons/idea to copy to, for assets that
+   * live outside platform/icons/src (for example the terminal glyph that only
+   * ships in the Jewel showcase resources). Defaults to `source`.
+   */
+  destination?: string;
   note?: string;
 }
 
@@ -65,9 +71,19 @@ const iconsTsx = readFileSync(ICONS_TSX_PATH, "utf8");
 
 interface PlannedIcon {
   icon: string;
-  source: string;
+  /** Light/dark paths relative to --source. */
+  lightSource: string;
+  darkSource: string | null;
+  /** Light/dark paths relative to src/ui/icons/idea. */
   light: string;
   dark: string | null;
+}
+
+/** [destination relative to ASSETS_DIR, source relative to --source] per variant. */
+function assetPairs(p: PlannedIcon): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [[p.light, p.lightSource]];
+  if (p.dark && p.darkSource) pairs.push([p.dark, p.darkSource]);
+  return pairs;
 }
 
 const planned: PlannedIcon[] = [];
@@ -94,11 +110,14 @@ for (const entry of mapping.icons) {
   }
   const darkRel = entry.source.replace(/\.svg$/, "_dark.svg");
   const darkAbs = join(sourceRoot, darkRel);
+  const hasDark = existsSync(darkAbs);
+  const destination = entry.destination ?? entry.source;
   planned.push({
     icon: entry.icon,
-    source: entry.source,
-    light: entry.source,
-    dark: existsSync(darkAbs) ? darkRel : null,
+    lightSource: entry.source,
+    darkSource: hasDark ? darkRel : null,
+    light: destination,
+    dark: hasDark ? destination.replace(/\.svg$/, "_dark.svg") : null,
   });
 }
 
@@ -139,12 +158,11 @@ if (check) {
     problems.push("src/ui/icons/idea-assets.generated.ts is out of date; rerun the generator");
   }
   for (const p of planned) {
-    const pairs = p.dark ? [p.light, p.dark] : [p.light];
-    for (const rel of pairs) {
+    for (const [rel, src] of assetPairs(p)) {
       const copied = join(ASSETS_DIR, rel);
       if (!existsSync(copied)) {
         problems.push(`missing copied asset: src/ui/icons/idea/${rel}`);
-      } else if (sha(readFileSync(copied)) !== sha(readFileSync(join(sourceRoot, rel)))) {
+      } else if (sha(readFileSync(copied)) !== sha(readFileSync(join(sourceRoot, src)))) {
         problems.push(`copied asset differs from source: src/ui/icons/idea/${rel}`);
       }
     }
@@ -158,11 +176,10 @@ if (check) {
 }
 
 for (const p of planned) {
-  const pairs = p.dark ? [p.light, p.dark] : [p.light];
-  for (const rel of pairs) {
+  for (const [rel, src] of assetPairs(p)) {
     const dest = join(ASSETS_DIR, rel);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, readFileSync(join(sourceRoot, rel)));
+    writeFileSync(dest, readFileSync(join(sourceRoot, src)));
   }
 }
 writeFileSync(GENERATED_TS_PATH, generated);

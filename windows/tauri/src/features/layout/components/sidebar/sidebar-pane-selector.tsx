@@ -9,7 +9,6 @@ import {
   SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS,
   normalizeItemOrder,
 } from "@/features/layout/config/item-order";
-import { RunIcon } from "@/features/run/components/run-icon";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { SidebarListItem } from "@/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/ui/tabs";
@@ -18,8 +17,9 @@ import {
   GitGraphIcon,
   FilesIcon,
   MagnifyingGlassIcon,
+  ProblemsToolWindowIcon,
+  RunToolWindowIcon,
   TerminalWindowIcon,
-  WarningIcon,
 } from "@/ui/icons";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
@@ -199,7 +199,7 @@ export const SidebarPaneSelector = ({
             {
               id: "diagnostics",
               label: showLabels ? t("workbench.diagnostics") : undefined,
-              icon: <WarningIcon className={iconClassName} />,
+              icon: <ProblemsToolWindowIcon className={iconClassName} />,
               isActive: isDiagnosticsActive,
               onClick: onDiagnosticsClick,
               ariaLabel: t("workbench.diagnostics"),
@@ -216,7 +216,7 @@ export const SidebarPaneSelector = ({
             {
               id: "run",
               label: showLabels ? t("workbench.run") : undefined,
-              icon: <RunIcon className={iconClassName} />,
+              icon: <RunToolWindowIcon className={iconClassName} />,
               isActive: isRunActive,
               onClick: onRunClick,
               ariaLabel: t("workbench.run"),
