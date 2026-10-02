@@ -78,11 +78,9 @@ timeline 类型，不通过猜测消息内容创建警告、建议或 sticky 通
 检查、下载、安装期间显示忙碌状态，已有详情和重试动作继续可用。
 背景选择面板向上展开，以免底部锚点把内容推到屏幕外。
 
-主工具栏的运行配置、Run、Debug 保留 `ExecutionActions.xml` 中
-`NewUiRunWidget` 位于 `MainToolbarRight` 第一项的顺序；其后按
-`PlatformActions.xml` 放置 Search Everywhere 和 Settings，调用 Lithe 已有
-全局搜索和设置入口。不能把“右侧组第一项”误写成整个窗口最右侧，也不能
-凭截图把运行组件移到源码中的 Center 组（该组用于 Filename）。
+主工具栏保留运行配置、Run、Debug 及执行中的 Stop。用户指定的布局不包含
+右上角 Search Everywhere 和 Settings 按钮，不能因为参考 IDEA 的排列就增加
+产品入口。全局搜索和设置继续使用既有快捷键、应用菜单及活动栏入口。
 
 ## 考虑过的备选方案
 

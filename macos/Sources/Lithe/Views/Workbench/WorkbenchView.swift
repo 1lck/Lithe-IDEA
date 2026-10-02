@@ -755,23 +755,6 @@ struct WorkbenchView: View {
                     stopExecutionButton
                 }
             }
-            // ExecutionActions inserts RunWidget first in MainToolbarRight;
-            // PlatformActions keeps SearchEverywhere and Settings after it.
-            HStack(spacing: 0) {
-                Button { model.toggleSearchEverywhere() } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheTheme.MainToolbar.iconSize)
-                }
-                .accessibilityLabel("Search Everywhere")
-                .accessibilityIdentifier("main-toolbar-search")
-                .workbenchHoverHelp(Text("Search Everywhere"), placement: .below)
-                Button { model.showSettings() } label: {
-                    LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheTheme.MainToolbar.iconSize)
-                }
-                .accessibilityLabel("Settings")
-                .accessibilityIdentifier("main-toolbar-settings")
-                .workbenchHoverHelp(Text("Settings"), placement: .below)
-            }
-            .buttonStyle(LitheMainToolbarButtonStyle())
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .padding(.trailing, 10)
