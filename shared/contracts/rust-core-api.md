@@ -62,9 +62,26 @@ per workspace and agent; one connection carries many conversation sessions.
 "baseUrl": string, "apiKey": string, "name"?: string, "model"?: string,
 "allowInsecureHttp"?: bool } }`. With `agentId`, the host starts the adapter
 installed by `agent.install` under `dataDirectory`. Omitted `authentication`
-defaults to `apiKey`, which requires `provider` and signs in through
-the ACP `gateway` method over stdio: Responses providers send
-`Authorization: Bearer <key>` and Anthropic providers send `x-api-key`. The
+defaults to `apiKey`, which requires `provider`. Credentials travel over ACP
+stdio, never in Lithe's adapter launch arguments, environment, or files.
+This guarantee covers Lithe launching the ACP adapter, not the entire child
+process tree. The pinned Claude SDK serializes object-valued `options.settings`
+into the Claude Code CLI's `--settings` argument. Consequently,
+`settings.env.ANTHROPIC_API_KEY` is visible in that child process's arguments;
+SDK debug output may also record those arguments. This route does not eliminate
+that upstream exposure. Moving the key solely to `options.env` requires separate
+validation of precedence against user/project settings to preserve the selected
+provider's credentials.
+Responses providers use `gateway` authentication with `Authorization: Bearer
+<key>`. Claude uses the pinned adapter's public `_meta.claudeCode.options` on
+both `session/new` and `session/load`: its native API-key route is supplied in
+SDK `env` and programmatic `settings.env`, with `apiKeyHelper` and competing
+Bearer/OAuth/custom-header/cloud routes cleared. This avoids the adapter's
+gateway placeholder Bearer token overriding a valid `x-api-key`; it does not
+patch the adapter or change native CLI configuration files. Missing Claude
+credentials fail before session creation instead of falling back to an account.
+The route fixture is `shared/fixtures/agent/acp-events-v1.json`'s
+`upstream.claudeSessionRouting`. The
 user's own CLI is passed as `CODEX_PATH` or `CLAUDE_CODE_EXECUTABLE`, and a
 non-empty `model` as `CODEX_CONFIG` or `ANTHROPIC_MODEL`. Without `agentId`, `command` runs
 a user-provided agent that must support gateway sign-in with a Responses
