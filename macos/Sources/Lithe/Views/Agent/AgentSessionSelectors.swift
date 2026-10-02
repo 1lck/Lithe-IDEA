@@ -3,7 +3,7 @@ import LitheAgentConversationModule
 
 private enum AgentSelectorLayout {
     static let choiceRowHeight: CGFloat = 26
-    static let modeRowHeight: CGFloat = 44
+    static let modeRowHeight: CGFloat = 48
     static let modeViewportHeight: CGFloat = 320
     static let modeVerticalPadding: CGFloat = 5
 }

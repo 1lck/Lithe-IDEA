@@ -82,8 +82,12 @@ struct ContextMenuCoverageTests {
                 probe.isPresented = true
                 let clock = ContinuousClock()
                 let deadline = clock.now.advanced(by: .seconds(2))
-                while window.childWindows?.isEmpty != false, clock.now < deadline {
+                while clock.now < deadline {
                     host.layoutSubtreeIfNeeded()
+                    if let popup = window.childWindows?.first,
+                       abs(popup.frame.maxY - window.frame.minY) < 1 {
+                        break
+                    }
                     await Task.yield()
                 }
                 let popup = try #require(window.childWindows?.first)
