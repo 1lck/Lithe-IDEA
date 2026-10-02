@@ -320,6 +320,38 @@ struct ContextMenuCoverageTests {
     }
 
     @Test
+    func anchoredSearchableDropdownStaysVisibleAndUsesAvailableSide() throws {
+        let presenter = LitheContextMenuPresenter()
+        defer { presenter.dismiss() }
+        let screen = try #require(NSScreen.main).visibleFrame
+        let content = LitheDropdownHostingController(rootView: AnyView(
+            Text("Search branches").frame(width: 180, height: 160)
+                .litheContextMenuSurface()
+        ))
+        let parent = NSWindow(contentRect: NSRect(x: screen.midX, y: screen.midY,
+                                                   width: 180, height: 40),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        parent.isReleasedWhenClosed = false
+        parent.orderFront(nil)
+        defer { parent.close() }
+
+        let centeredPoint = NSPoint(x: screen.midX, y: screen.midY)
+        presenter.show(contentController: content, at: centeredPoint,
+                       appearance: NSAppearance(named: .darkAqua), parentWindow: parent) {}
+        let centered = try #require(content.view.window)
+        #expect(abs(centered.frame.maxY - centeredPoint.y) < 1,
+                "A dropdown with room below stays attached to its lower edge")
+        presenter.dismiss()
+
+        let edgePoint = NSPoint(x: screen.midX, y: screen.minY + 12)
+        presenter.show(contentController: content, at: edgePoint,
+                       appearance: NSAppearance(named: .darkAqua), parentWindow: parent) {}
+        let edge = try #require(content.view.window)
+        #expect(screen.insetBy(dx: 6, dy: 6).contains(edge.frame),
+                "A dropdown near the screen edge remains fully visible")
+    }
+
+    @Test
     func searchableDropdownUsesSharedWindowAndDismissal() throws {
         let presenter = LitheContextMenuPresenter()
         defer { presenter.dismiss() }

@@ -558,12 +558,18 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             ? preferred : contentController.view.fittingSize
         let size = NSSize(width: min(fitting.width, bounds.width),
                           height: min(fitting.height, bounds.height))
-        // Keep app-owned dropdowns attached to their trigger while SwiftUI
-        // content settles. Standalone presenters retain screen-edge clamping.
-        let y = contentOpensUpward ? point.y : point.y - size.height
-        let yOrigin = contentIsAnchored
-            ? y
-            : min(max(y, bounds.minY), bounds.maxY - size.height)
+        // Keep app-owned dropdowns attached while there is room, then flip to
+        // the other side before finally clamping an oversized panel on screen.
+        let spaceBelow = point.y - bounds.minY
+        let spaceAbove = bounds.maxY - point.y
+        let fitsBelow = size.height <= spaceBelow
+        let fitsAbove = size.height <= spaceAbove
+        let opensAbove = contentIsAnchored
+            ? (contentOpensUpward ? (!fitsAbove && fitsBelow ? false : true)
+                                   : (!fitsBelow && fitsAbove))
+            : contentOpensUpward
+        let y = opensAbove ? point.y : point.y - size.height
+        let yOrigin = min(max(y, bounds.minY), bounds.maxY - size.height)
         let origin = NSPoint(x: min(max(point.x, bounds.minX), bounds.maxX - size.width),
                              y: yOrigin)
         let frame = NSRect(origin: origin, size: size)
