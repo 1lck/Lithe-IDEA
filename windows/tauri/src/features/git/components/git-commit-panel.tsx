@@ -15,14 +15,10 @@ import type { TranslationKey } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
-import { Checkbox } from "@/ui/checkbox";
 import { SidebarComposerBody } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
-import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
-import { normalizePath } from "@/utils/path-helpers";
-import { getHeadCommitMessage } from "../api/git-commits-api";
-import { IDEA_BUTTON_CLASS_NAME, IDEA_CHECKBOX_CLASS_NAME } from "../utils/idea-control-styles";
+import { IDEA_BUTTON_CLASS_NAME } from "../utils/idea-control-styles";
 import {
   commitAIError,
   collectCommitFiles,
@@ -40,11 +36,6 @@ import {
 } from "@/features/workspace/stores/create-workspace-scoped-store";
 import type { GitFile } from "../types/git.types";
 import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
-
-/** Case-insensitive, separator-agnostic identity for comparing repository roots. */
-function repositoryRootKey(root: string): string {
-  return normalizePath(root).replace(/\/+$/, "").toLowerCase();
-}
 
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
@@ -161,60 +152,8 @@ const GitCommitPanel = ({
   const [commitHint, setCommitHint] = useState<{ noChanges: boolean; noMessage: boolean } | null>(
     null,
   );
-  const [amend, setAmend] = useState(false);
-  const [isLoadingAmendMessage, setIsLoadingAmendMessage] = useState(false);
-  // Identifies the latest amend toggle so a slow HEAD read cannot apply after
-  // the user unchecked, switched repositories, or toggled again.
-  const amendRequestRef = useRef(0);
-  // Mirrors IntelliJ's AmendData: remember the draft replaced by the amend
-  // message so unchecking restores it while the user has not edited the text.
-  const amendDraftRef = useRef<{ before: string; loaded: string } | null>(null);
-  // The repository and HEAD the amend message was read from. Core refuses the amend when
-  // another repository is staged by then or HEAD has moved, instead of trusting this view.
-  const amendSourceRef = useRef<{ root: string; head: string } | null>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
-
-  // The commit workflow rewrites exactly the repositories that have staged files, which
-  // are not necessarily the active one. Amend therefore targets the staged repositories:
-  // one repository reads its own HEAD, several have no single message that fits them all.
-  const amendTarget = useMemo(() => {
-    const roots = new Map<string, string>();
-    for (const file of selectedFiles) {
-      const root = file.repositoryPath ?? repoPath;
-      if (root) roots.set(repositoryRootKey(root), root);
-    }
-    if (roots.size === 0) return { root: repoPath ?? null, ambiguous: false };
-    if (roots.size === 1) return { root: [...roots.values()][0]!, ambiguous: false };
-    return { root: null, ambiguous: true };
-  }, [repoPath, selectedFiles]);
-  const amendTargetKey = amendTarget.root ? repositoryRootKey(amendTarget.root) : "";
-
-  const resetAmend = () => {
-    amendRequestRef.current += 1;
-    amendDraftRef.current = null;
-    amendSourceRef.current = null;
-    setAmend(false);
-    setIsLoadingAmendMessage(false);
-  };
-
-  // Drops the amend state and gives back the draft it replaced while the loaded message is
-  // still untouched, so one repository's message never stays behind for another.
-  const cancelAmend = () => {
-    const draft = amendDraftRef.current;
-    const live = currentDraft.current;
-    if (draft && live.message.trim() === draft.loaded.trim()) live.apply(draft.before);
-    resetAmend();
-  };
-
-  useEffect(() => {
-    cancelAmend();
-  }, [amendTargetKey]);
-
-  useEffect(() => {
-    if (!batch.session?.succeeded) return;
-    resetAmend();
-  }, [batch.session]);
 
   useEffect(() => {
     if (focusRequest <= 0) return;
@@ -252,53 +191,8 @@ const GitCommitPanel = ({
     }
   };
 
-  const handleAmendChange = async (checked: boolean) => {
-    if (!checked) {
-      // Restores the pre-amend draft only while the loaded message is untouched.
-      cancelAmend();
-      return;
-    }
-    const targetRoot = amendTarget.root;
-    if (!targetRoot) return;
-
-    const requestId = ++amendRequestRef.current;
-    setError(null);
-    setIsLoadingAmendMessage(true);
-    const headCommit = await getHeadCommitMessage(targetRoot);
-    if (requestId !== amendRequestRef.current) return;
-    setIsLoadingAmendMessage(false);
-    if (headCommit === null) {
-      setError(t("git.amendNoHeadCommit"));
-      return;
-    }
-    const loaded = headCommit.message;
-    amendSourceRef.current = { root: targetRoot, head: headCommit.hash };
-
-    // Follow IntelliJ: never clobber a user-typed message, only fill an empty draft.
-    // Read the live draft because the user may have typed while HEAD was loading.
-    const draft = currentDraft.current;
-    if (!draft.message.trim()) {
-      amendDraftRef.current = { before: draft.message, loaded };
-      draft.apply(loaded);
-    } else {
-      amendDraftRef.current = null;
-    }
-    setAmend(true);
-  };
-
-  // Names the amend repository by its workspace identity, the way Core addresses it.
-  const resolveAmendTarget = (repositories: ReturnType<typeof workspaceCommitBindings>) => {
-    const source = amendSourceRef.current;
-    if (!source) return undefined;
-    const sourceKey = repositoryRootKey(source.root);
-    const binding = repositories.find((candidate) => repositoryRootKey(candidate.root) === sourceKey);
-    return binding ? { repositoryId: binding.id, expectedHead: source.head } : undefined;
-  };
-
   const handleCommit = async (pushAfterCommit = false) => {
     if (
-      // Pushing a rewritten commit needs a force push, which this flow never does.
-      (amend && pushAfterCommit) ||
       !isCurrentWorkspace ||
       isStaging ||
       batch.busy ||
@@ -314,20 +208,13 @@ const GitCommitPanel = ({
       return;
     }
     if (!repoPath) return;
-    const repositories = workspaceCommitBindings(workspacePath, repositoryPaths);
-    const amendTarget = amend ? resolveAmendTarget(repositories) : undefined;
-    if (amend && !amendTarget) {
-      setError(t("git.amendTargetUnverified"));
-      return;
-    }
     setCommitHint(null);
     setDraftOwner(repoPath);
     setError(null);
     await workflow.prepare({
-      repositories,
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
       message: commitMessage.trim(),
-      amend,
-      amendTarget,
+      amend: false,
       push: pushAfterCommit,
       includeParentReferences: true,
     });
@@ -341,9 +228,6 @@ const GitCommitPanel = ({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
       message: previous.plan.message,
       amend: previous.plan.amend,
-      // No amend target here: Core keeps the repository recorded in the previous plan
-      // (`amendRepositoryId`). Deriving it again from this view or from the current index
-      // would miss that a parent now holds a staged submodule pointer.
       push: previous.plan.push,
       includeParentReferences: previous.plan.includeParentReferences,
       previous,
@@ -384,7 +268,7 @@ const GitCommitPanel = ({
   const isRemoteActionLoading = remoteAction !== null;
   const composerButtonClassName =
     "h-6 rounded-md border-transparent bg-transparent px-1.5 ui-text-sm leading-none text-subtle-foreground shadow-none hover:bg-accent/80 hover:text-foreground focus-visible:ring-1 focus-visible:ring-border-strong/35 [&_svg]:size-3";
-  const isCommitAndPushDisabled = isCommitDisabled || amend || isRemoteActionLoading || isPulling;
+  const isCommitAndPushDisabled = isCommitDisabled || isRemoteActionLoading || isPulling;
 
   const hasNoChanges = selectedFilesCount === 0;
   const hasNoMessage = !commitMessage.trim();
@@ -406,35 +290,14 @@ const GitCommitPanel = ({
       )
     : null;
   const hasError = Boolean(error || batch.error || visibleCommitHint?.noMessage);
-  const canAmend = Boolean(amendTarget.root) && !isCommitting && !isLoadingAmendMessage;
   const commitLegend = useMemo(() => buildCommitLegend(selectedFiles), [selectedFiles]);
 
   return (
-    // IntelliJ NonModalCommitPanel order: status row (Amend toggle + legend),
-    // commit message, then commit actions with the options button pushed right.
+    // IntelliJ NonModalCommitPanel order: status row (legend), commit message, then
+    // commit actions with the options button pushed right.
     <div className="group/commit-panel flex flex-col gap-1.5 px-2 pt-2 pb-1">
-      <div className="flex min-h-6 items-center gap-2">
-        <Tooltip
-          content={amendTarget.ambiguous ? t("git.amendMultipleRepositories") : t("git.amendTooltip")}
-          side="top"
-        >
-          <label
-            className={cn(
-              "flex shrink-0 cursor-pointer select-none items-center gap-1.5 ui-text-sm text-foreground",
-              !canAmend && "cursor-not-allowed opacity-60",
-            )}
-          >
-            <Checkbox
-              className={IDEA_CHECKBOX_CLASS_NAME}
-              checked={amend}
-              onCheckedChange={(checked) => void handleAmendChange(checked === true)}
-              disabled={!canAmend}
-              aria-label={t("git.amend")}
-            />
-            {t("git.amend")}
-          </label>
-        </Tooltip>
-        {commitLegend.length > 0 ? (
+      {commitLegend.length > 0 ? (
+        <div className="flex min-h-6 items-center gap-2">
           <span
             className="ml-auto flex min-w-0 flex-wrap justify-end gap-x-3 ui-text-sm"
             data-testid="git-commit-legend"
@@ -445,8 +308,8 @@ const GitCommitPanel = ({
               </span>
             ))}
           </span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       <SidebarComposerBody
         variant="plain"
@@ -574,7 +437,7 @@ const GitCommitPanel = ({
           )}
           data-commit-default-button=""
         >
-          {isCommitting ? t("git.committing") : amend ? t("git.amendCommit") : t("git.commit")}
+          {isCommitting ? t("git.committing") : t("git.commit")}
         </Button>
         <Button
           type="button"
@@ -582,7 +445,6 @@ const GitCommitPanel = ({
           onClick={() => void handleCommit(true)}
           disabled={isCommitAndPushDisabled}
           className={IDEA_BUTTON_CLASS_NAME}
-          tooltip={amend ? t("git.commitAndPushAmendDisabled") : undefined}
         >
           {t("git.commitAndPushEllipsis")}
         </Button>

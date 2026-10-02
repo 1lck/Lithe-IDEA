@@ -20,8 +20,6 @@ export interface WorkspaceCommitPlan {
   repositories: WorkspaceRepositoryBinding[];
   message: string;
   amend: boolean;
-  /** The one repository an amend rewrites; Core carries it through retries unchanged. */
-  amendRepositoryId?: string;
   push: boolean;
   includeParentReferences: boolean;
   isRetry: boolean;
@@ -43,16 +41,10 @@ export interface WorkspaceCommitSession {
   succeeded: boolean;
   canRetry: boolean;
 }
-/** The repository and HEAD an amend message was loaded from; Core rejects any other target. */
-export interface WorkspaceAmendTarget {
-  repositoryId: string;
-  expectedHead: string;
-}
 export interface WorkspaceCommitRequest {
   repositories: WorkspaceRepositoryBinding[];
   message: string;
   amend: boolean;
-  amendTarget?: WorkspaceAmendTarget;
   push: boolean;
   includeParentReferences: boolean;
   previous?: WorkspaceCommitSession;

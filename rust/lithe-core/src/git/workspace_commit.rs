@@ -35,14 +35,6 @@ pub struct Plan {
     pub repositories: Vec<RepositoryBinding>,
     pub message: String,
     pub amend: bool,
-    /// The only repository whose commit is rewritten when `amend` is set; every other
-    /// repository in the plan receives a regular commit. Fixed when the plan is first
-    /// built and carried through retries so a later staged state (for example the
-    /// submodule pointer staged in a parent) cannot turn a regular commit into an
-    /// amend. Absent for plans from clients that drop unknown fields; execution then
-    /// falls back to amending the repository that has staged paths.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub amend_repository_id: Option<String>,
     pub push: bool,
     pub include_parent_references: bool,
     pub is_retry: bool,
@@ -84,16 +76,6 @@ pub struct Session {
     pub can_retry: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-/// The repository and HEAD whose message the client loaded for an amend.
-pub struct AmendTarget {
-    /// Workspace-relative identity of the repository that will be rewritten.
-    pub repository_id: String,
-    /// Full HEAD object ID the client read the message from.
-    pub expected_head: String,
-}
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Builds a fresh plan; retry and reviewed snapshots are optional continuations.
@@ -102,10 +84,6 @@ pub struct PrepareRequest {
     pub message: String,
     #[serde(default)]
     pub amend: bool,
-    /// Optional precondition for `amend`. Clients that omit it still get the
-    /// single-repository rule, but not the HEAD check.
-    #[serde(default)]
-    pub amend_target: Option<AmendTarget>,
     #[serde(default)]
     pub push: bool,
     pub include_parent_references: bool,
@@ -269,7 +247,6 @@ fn build_plan(
     if selected.is_empty() {
         return Err(invalid("Stage at least one change before committing"));
     }
-    let amend_repository_id = resolve_amend_repository(&request, &states, &selected, &committed)?;
     let propagation: Vec<_> = relations
         .iter()
         .filter(|r| {
@@ -322,7 +299,6 @@ fn build_plan(
         repositories: request.repositories,
         message,
         amend: request.amend,
-        amend_repository_id,
         push: request.push,
         include_parent_references: request.include_parent_references,
         is_retry: previous.is_some(),
@@ -368,115 +344,6 @@ fn build_plan(
         review_changed,
         requires_confirmation,
     })
-}
-
-/// Repositories that would be committed with staged changes, and so amended.
-/// Parent repositories pulled in only to record a submodule pointer have no
-/// staged paths of their own and receive a regular commit.
-fn amended_candidates<'a>(
-    states: &'a BTreeMap<String, GitCommitState>,
-    selected: &'a BTreeSet<String>,
-    committed: &'a BTreeSet<String>,
-) -> impl Iterator<Item = &'a String> {
-    selected.iter().filter(move |id| {
-        !committed.contains(*id)
-            && states
-                .get(*id)
-                .is_some_and(|state| !state.staged_paths.is_empty())
-    })
-}
-
-/// Decides which repository an amend rewrites. An amend rewrites a commit that the
-/// client showed the user, so it must be bound to one repository. Core re-reads every
-/// repository when it prepares, so a repository staged outside the UI after the message
-/// was loaded would otherwise be rewritten with another repository's message.
-///
-/// A retry keeps the repository chosen by the first plan. Re-deriving it from the
-/// current index would be wrong: after a child amend succeeds and the parent's commit
-/// fails, the parent holds a staged submodule pointer and would be amended instead of
-/// receiving the new commit the user confirmed.
-fn resolve_amend_repository(
-    request: &PrepareRequest,
-    states: &BTreeMap<String, GitCommitState>,
-    selected: &BTreeSet<String>,
-    committed: &BTreeSet<String>,
-) -> Result<Option<String>, CoreError> {
-    if !request.amend {
-        return Ok(None);
-    }
-    let multiple = || {
-        invalid(
-            "Amend rewrites one repository at a time. Unstage the other repositories or turn Amend off.",
-        )
-    };
-    let carried = request
-        .previous
-        .as_ref()
-        .filter(|previous| previous.plan.amend)
-        .and_then(|previous| previous.plan.amend_repository_id.clone());
-    let requested = request.amend_target.as_ref();
-    if let (Some(carried), Some(requested)) = (&carried, requested) {
-        if carried != &requested.repository_id {
-            return Err(invalid(
-                "The repository to amend changed since the first attempt. Dismiss the previous batch and start again.",
-            ));
-        }
-    }
-    let target = carried.or_else(|| requested.map(|r| r.repository_id.clone()));
-    if let Some(target) = &target {
-        let state = states.get(target).ok_or_else(|| {
-            invalid("The repository to amend is not part of this workspace commit")
-        })?;
-        // A retry after the amend itself succeeded sees the rewritten HEAD. Without an
-        // expected HEAD (a retry) the unfinished-HEAD check in `build_plan` applies.
-        if let Some(requested) = requested {
-            if !committed.contains(target)
-                && state.head.as_deref() != Some(requested.expected_head.as_str())
-            {
-                return Err(invalid(
-                    "The commit to amend changed after its message was loaded. Reload the message and try again.",
-                ));
-            }
-        }
-    }
-    // The scope check applies to a plan that has not fixed its repository yet. A
-    // continuing plan amends only its recorded repository, so other repositories with
-    // staged paths simply receive regular commits.
-    let continuing = request
-        .previous
-        .as_ref()
-        .is_some_and(|previous| previous.plan.amend && previous.plan.amend_repository_id.is_some());
-    let mut candidates = amended_candidates(states, selected, committed);
-    if continuing {
-        return Ok(target);
-    }
-    match target {
-        Some(target) => {
-            if candidates.any(|id| id != &target) {
-                return Err(multiple());
-            }
-            Ok(Some(target))
-        }
-        None => {
-            let first = candidates.next().cloned();
-            if candidates.next().is_some() {
-                return Err(multiple());
-            }
-            Ok(first)
-        }
-    }
-}
-
-/// Whether the commit step for `id` is an amend. The recorded repository decides when
-/// the plan has one; plans without it keep amending the repository that has staged
-/// paths, which `validate_session` limits to one.
-fn amends_repository(plan: &Plan, id: &str, expected: &GitCommitState) -> bool {
-    plan.amend
-        && !expected.staged_paths.is_empty()
-        && plan
-            .amend_repository_id
-            .as_deref()
-            .is_none_or(|recorded| recorded == id)
 }
 
 fn relations(
@@ -679,21 +546,6 @@ fn validate_session(session: &Session) -> Result<(), CoreError> {
     {
         return Err(invalid("Invalid workspace commit continuation"));
     }
-    if let Some(recorded) = &session.plan.amend_repository_id {
-        if !session.plan.amend || !ids.contains(recorded) {
-            return Err(invalid("Invalid workspace commit continuation"));
-        }
-    }
-    // Without a recorded repository, step amends every repository with staged changes,
-    // so a continuation that spans several of them must not have been planned as an amend.
-    let planned: BTreeSet<_> = session.plan.ordered_ids.iter().cloned().collect();
-    if session.plan.amend
-        && session.plan.amend_repository_id.is_none()
-        && amended_candidates(&session.plan.states, &planned, &session.plan.committed_ids).count()
-            > 1
-    {
-        return Err(invalid("Invalid workspace commit continuation"));
-    }
     if commit_order(
         session.plan.ordered_ids.clone(),
         &session.plan.dependency_relations,
@@ -757,7 +609,7 @@ fn prepare_step(
         }
         request.operation = "commit".into();
         request.message = Some(session.plan.message.clone());
-        request.amend = amends_repository(&session.plan, id, expected);
+        request.amend = session.plan.amend && !expected.staged_paths.is_empty();
     } else if session.plan.push && !session.results[id].pushed {
         request.operation = "push".into();
         request.reference = Some(expected.branch.clone().ok_or_else(|| {

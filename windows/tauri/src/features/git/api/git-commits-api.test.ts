@@ -34,7 +34,6 @@ const {
   commitSelectedChanges,
   getCommitDescription,
   getGitHistoryPage,
-  getHeadCommitMessage,
   getGitReferences,
   getGitReferencesAtRoot,
   resetToCommit,
@@ -209,20 +208,5 @@ describe("Git commit history mutations", () => {
       scopes: ["working-tree", "history", "refs"],
       source: "cherry-pick-commit",
     });
-  });
-});
-
-describe("getHeadCommitMessage", () => {
-  test("returns the full message together with the HEAD it was read from", async () => {
-    commitLookupResult = { commit: { hash: "a".repeat(40), subject: "Title" }, body: "Body" };
-    expect(await getHeadCommitMessage("C:/repo")).toEqual({
-      message: "Title\n\nBody",
-      hash: "a".repeat(40),
-    });
-  });
-
-  test("returns null while HEAD has no commit", async () => {
-    commitLookupResult = { commit: {} };
-    expect(await getHeadCommitMessage("C:/repo")).toBeNull();
   });
 });
