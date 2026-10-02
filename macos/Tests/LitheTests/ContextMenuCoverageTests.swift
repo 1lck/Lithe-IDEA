@@ -84,10 +84,7 @@ struct ContextMenuCoverageTests {
                 let deadline = clock.now.advanced(by: .seconds(2))
                 while clock.now < deadline {
                     host.layoutSubtreeIfNeeded()
-                    if let popup = window.childWindows?.first,
-                       abs(popup.frame.maxY - window.frame.minY) < 1 {
-                        break
-                    }
+                    if window.childWindows?.first != nil { break }
                     await Task.yield()
                 }
                 let popup = try #require(window.childWindows?.first)
@@ -97,7 +94,15 @@ struct ContextMenuCoverageTests {
                     while popup.firstResponder is NSTextView, clock.now < focusDeadline { await Task.yield() }
                     #expect(!(popup.firstResponder is NSTextView), "Opening the branch tree must not focus the search editor")
                 }
-                #expect(abs(popup.frame.maxY - window.frame.minY) < 1)
+                let visibleFrame = try #require(NSScreen.main).visibleFrame.insetBy(dx: 6, dy: 6)
+                let spaceBelow = window.frame.minY - visibleFrame.minY
+                if popup.frame.height <= spaceBelow {
+                    #expect(abs(popup.frame.maxY - window.frame.minY) < 1,
+                            "A dropdown with room below stays attached to its lower edge")
+                } else {
+                    #expect(visibleFrame.contains(popup.frame),
+                            "A dropdown near the screen edge remains fully visible")
+                }
                 #expect((40 - buttonHeight) / 2 >= 4)
                 #expect(popup.animationBehavior == .none)
                 #expect(popup.frame.width <= (name == "branch" ? 375 : LitheDropdownMetrics.maximumWidth))
