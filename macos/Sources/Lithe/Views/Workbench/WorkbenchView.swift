@@ -743,7 +743,7 @@ struct WorkbenchView: View {
 
             Spacer(minLength: 22)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 runConfigurationPicker
                 runLaunchButton
                 debugLaunchButton
@@ -752,8 +752,10 @@ struct WorkbenchView: View {
                 }
             }
 
-            UpdateControl(compact: true)
-            backgroundPickerButton
+            HStack(spacing: 0) {
+                UpdateControl(compact: true)
+                backgroundPickerButton
+            }
 
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
@@ -914,19 +916,16 @@ struct WorkbenchView: View {
         } label: {
             LitheIDEAIcon(
                 resourcePath: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
-                    ? "debugger/rerun.svg"
-                    : "debugger/run.svg",
+                    ? "expui/run/rerun_stroke.svg"
+                    : "expui/run/run_stroke.svg",
                 size: 16,
                 fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "arrow.clockwise"
-                    : "play.fill",
-                preservesOriginalColors: true
+                    : "play.fill"
             )
-                .frame(width: 28, height: 28)
-                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+                .foregroundStyle(LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
@@ -938,17 +937,14 @@ struct WorkbenchView: View {
         } label: {
             LitheIDEAIcon(
                 resourcePath: isDebugSessionActive
-                    ? "debugger/restartDebug.svg"
-                    : "debugger/debug.svg",
+                    ? "expui/run/restartDebug_stroke.svg"
+                    : "expui/run/debug_stroke.svg",
                 size: 16,
-                fallbackSystemImage: "ladybug.fill",
-                preservesOriginalColors: true
+                fallbackSystemImage: "ladybug.fill"
             )
-            .frame(width: 28, height: 28)
-            .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+            .foregroundStyle(LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
@@ -990,30 +986,25 @@ struct WorkbenchView: View {
         Button {
             isRunConfigurationPickerPresented.toggle()
         } label: {
-            HStack(spacing: 8) {
-                RunConfigurationIcon(
-                    kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
-                    size: 14
-                )
-                Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 2) {
+                HStack(spacing: 6) {
+                    RunConfigurationIcon(
+                        kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                        size: LitheTheme.MainToolbar.iconSize
+                    )
+                    Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                        .font(LitheTheme.MainToolbar.font)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16)
+                    .foregroundStyle(LitheTheme.MainToolbar.icon)
             }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 4)
-            .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
-            .frame(height: 30)
-            .contentShape(Rectangle())
+            .foregroundStyle(LitheTheme.MainToolbar.foreground)
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
         }
-        .buttonStyle(.litheNoPress)
-        .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
-        .frame(height: 30)
-        .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
@@ -1078,18 +1069,10 @@ struct WorkbenchView: View {
         Button {
             isBackgroundPickerPresented.toggle()
         } label: {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(LitheTheme.uiFont(size: 13, weight: .medium))
-                .frame(width: 30, height: 30)
-                .litheRowHover(
-                    isActive: isBackgroundPickerPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+            LitheIDEAIcon(resourcePath: "expui/actions/viewAsImage.svg", size: 20, fallbackSystemImage: "photo")
+                .foregroundStyle(LitheTheme.MainToolbar.icon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .foregroundStyle(LitheTheme.secondaryText)
+        .buttonStyle(LitheMainToolbarButtonStyle(isActive: isBackgroundPickerPresented))
         .help("Change workbench background")
         .accessibilityLabel("Change workbench background")
         .accessibilityIdentifier("workbench-background-picker")

@@ -81,3 +81,13 @@ c7f91397daa3a961b4e78bc634fe467a0a7d9ade, including dark variants:
 - platform/external-system-impl/resources/icons/newui/task.svg
   (stored as maven/task.svg)
 Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+The main-toolbar expui/run/*_stroke.svg and expui/general/chevronDown.svg assets
+come from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, under
+platform/icons/src/. Stroke variants are template-tinted with RunWidget tokens
+instead of recoloring the filled debugger assets. These upstream stroke assets
+are shared by light and dark themes.
+The expui/actions/viewAsImage.svg and viewAsImage_dark.svg pair comes from the
+same revision and provides the workbench background image action.
+The fileTypes/text.svg and text_dark.svg pair comes from expui/fileTypes at
+the same revision; the earlier single asset contained only the dark palette.

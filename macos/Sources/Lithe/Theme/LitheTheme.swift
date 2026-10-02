@@ -536,6 +536,28 @@ enum LitheTheme {
     // 语义化别名，便于 AppKit 装饰代码与设计稿 token 同名。
     static var linkColor: Color { link }
 
+    /// IDEA Community c7f91397: RunWidget / MainToolbar with Islands theme overrides.
+    enum MainToolbar {
+        static let iconSize: CGFloat = 16
+        static let buttonSize: CGFloat = 30
+        static let runInsets = EdgeInsets(top: 6, leading: 2, bottom: 4, trailing: 2)
+        static let actionInsets = EdgeInsets(top: 6, leading: 5, bottom: 4, trailing: 5)
+        static let font = LitheTheme.uiFont(size: 13, weight: .regular)
+        static let foreground = color(dark: 0xDFE1E5, light: 0x000000)
+        static let icon = color(dark: 0xC3C5CB, light: 0x73767C)
+        // Light inherits RunWidget.runIconColor = Green5 from ExperimentalLightWithLightHeader.
+        static let runIcon = color(dark: 0x4E9D6C, light: 0x369650)
+        static let hover = color(dark: 0xFFFFFF, light: 0x000000, darkAlpha: 23.0 / 255, lightAlpha: 18.0 / 255)
+        static let pressed = color(dark: 0xFFFFFF, light: 0x000000, darkAlpha: 41.0 / 255, lightAlpha: 32.0 / 255)
+
+        private static func color(dark: UInt32, light: UInt32, darkAlpha: CGFloat = 1, lightAlpha: CGFloat = 1) -> Color {
+            Color(nsColor: NSColor(name: nil) { appearance in
+                let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                return RGBA(isDark ? dark : light, alpha: isDark ? darkAlpha : lightAlpha).nsColor
+            })
+        }
+    }
+
     // MARK: - 编辑器缩进竖线
     static var guide: Color { adaptive(\.guide) }
     static var activeGuide: Color { adaptive(\.activeGuide) }
@@ -799,6 +821,31 @@ struct LitheIconButtonStyle: ButtonStyle {
                     )
             )
             .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+    }
+}
+
+/// Main-toolbar insets are outside the painted 30pt surface, as in HeaderToolbarButtonLook.
+struct LitheMainToolbarButtonStyle: ButtonStyle {
+    var insets = LitheTheme.MainToolbar.actionInsets
+    var isActive = false
+    @State private var isHovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(LitheTheme.MainToolbar.font)
+            .frame(minWidth: LitheTheme.MainToolbar.buttonSize)
+            .frame(height: LitheTheme.MainToolbar.buttonSize)
+            .background {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isEnabled && (configuration.isPressed || isActive)
+                          ? LitheTheme.MainToolbar.pressed
+                          : (isEnabled && isHovering ? LitheTheme.MainToolbar.hover : .clear))
+            }
+            .padding(insets)
+            .contentShape(Rectangle())
+            .opacity(isEnabled ? 1 : 0.3)
             .onHover { isHovering = $0 }
     }
 }

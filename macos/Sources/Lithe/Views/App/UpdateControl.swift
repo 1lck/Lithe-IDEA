@@ -10,6 +10,26 @@ struct UpdateControl: View {
     }
 
     var body: some View {
+        if compact {
+            statusContent
+                .font(LitheTheme.MainToolbar.font)
+                .foregroundStyle(LitheTheme.MainToolbar.foreground)
+                .buttonStyle(LitheMainToolbarButtonStyle())
+        } else {
+            Group {
+                switch updateChecker.status {
+                case .available, .waitingForTermination:
+                    statusContent.buttonStyle(LitheSecondaryButtonStyle())
+                default:
+                    statusContent.buttonStyle(.litheNoPress)
+                }
+            }
+            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+            .lithePointer()
+        }
+    }
+
+    private var statusContent: some View {
         Group {
             switch updateChecker.status {
             case .available(let version, _):
@@ -23,14 +43,13 @@ struct UpdateControl: View {
                               systemImage: "arrow.down.circle.fill")
                     }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
             case .checking:
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Checking for updates…")
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .downloading(let version, let progress):
                 // The title bar has room for a single row; the Welcome sidebar does
                 // not, so the version text wraps onto its own line below the bar.
@@ -51,21 +70,20 @@ struct UpdateControl: View {
                         Text("Downloading \(version)…")
                     }
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .waitingForTermination:
                 Button {
                     Task { await updateChecker.retryInstallation() }
                 } label: {
                     Label("Continue Installation", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
             case .installing(let version):
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.small)
                     Text(compact ? "Installing…" : "Installing update \(version)…")
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .failed(_, let message):
                 Button {
                     if updateChecker.updateInfo != nil {
@@ -76,21 +94,21 @@ struct UpdateControl: View {
                 } label: {
                     Label(compact ? "Update failed" : "Retry update", systemImage: "exclamationmark.triangle")
                 }
-                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.warning)
                 .help(message)
             case .idle, .upToDate:
                 Button {
                     checkForUpdates()
                 } label: {
-                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                    HStack(spacing: 6) {
+                        LitheIDEAIcon(resourcePath: "actions/refresh.svg", size: 16, fallbackSystemImage: "arrow.clockwise")
+                        Text("Check for Updates")
+                    }
+                    .padding(.horizontal, compact ? 6 : 0)
                 }
-                .buttonStyle(.litheNoPress)
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             }
         }
-        .font(LitheTheme.uiFont(size: compact ? 11.5 : 10.5, weight: .medium))
-        .lithePointer()
     }
 
     private func checkForUpdates() {
