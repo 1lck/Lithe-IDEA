@@ -2554,7 +2554,7 @@
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
 
 "Paste" = "粘贴";
-"Copied files" = "已复制文件";
+"Copied files" = "已拷贝文件";
 "Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
 "Pasted files" = "已粘贴文件";
 "Copy Files" = "拷贝";

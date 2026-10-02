@@ -4432,6 +4432,48 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func batchFileOperationsHoldTheOperationUntilTheWholeBatchFinishes() async throws {
+        let workspace = URL(fileURLWithPath: "/batch-ownership")
+        let first = workspace.appendingPathComponent("a/x.txt")
+        let second = workspace.appendingPathComponent("b/y.txt")
+        let other = workspace.appendingPathComponent("z.txt")
+        let operations = RecordingBatchProjectFileOperations(
+            files: [first, second, other],
+            // Duplicate targets each source's parent URL as returned by Foundation.
+            directories: [workspace, first.deletingLastPathComponent(), second.deletingLastPathComponent()],
+            pausesFirstCopy: true
+        )
+        defer { operations.releaseFirstCopy() }
+        let scans = BatchProgressScanOperations(files: operations)
+        let model = makeWorkspaceObservationUnitModel(
+            operations: scans, fileOperations: operations, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+
+        let duplicate = Task { await model.duplicateProjectItems([first, second]) }
+        #expect(await operations.waitUntilFirstCopyStarted())
+        // Another file operation cannot start in the middle of the batch.
+        #expect(model.isPerformingProjectItemOperation)
+        await model.pasteProjectItems([other], in: second.deletingLastPathComponent())
+        operations.releaseFirstCopy()
+        await duplicate.value
+        #expect(operations.copiedDestinations == [
+            workspace.appendingPathComponent("a/x copy.txt"), workspace.appendingPathComponent("b/y copy.txt")
+        ])
+        #expect(!model.isPerformingProjectItemOperation)
+
+        // Trash moves both items before the single refresh, too.
+        model.requestDeleteProjectItems([first, second])
+        await model.confirmProjectItemDeletion(try #require(model.pendingProjectItemDeletion))
+        #expect(Set(operations.trashedURLs) == [first, second])
+        // Each batch rescans once, after its last item instead of between items.
+        #expect(scans.progressAtScans == [[2, 0], [2, 2]])
+    }
+
+    @Test
+    @MainActor
     func batchTrashKeepsLaterItemEditedWhileEarlierItemIsTrashed() async throws {
         let workspace = URL(fileURLWithPath: "/batch-trash-dirty")
         let folder = workspace.appendingPathComponent("a-folder")
@@ -7537,6 +7579,29 @@ private struct PreviewExternalChangeLifecycleDecider: DocumentLifecycleDeciding 
     }
 }
 
+/// Records how many copies and Trash moves had finished each time the tree
+/// was rescanned, to show when a batch refreshes the project tree.
+private final class BatchProgressScanOperations: WorkspaceOperations, @unchecked Sendable {
+    private let files: RecordingBatchProjectFileOperations
+    private let lock = NSLock()
+    private var progress: [[Int]] = []
+
+    init(files: RecordingBatchProjectFileOperations) { self.files = files }
+
+    var progressAtScans: [[Int]] { lock.withLock { progress } }
+
+    func snapshot(at rootURL: URL, visibilityRules: FileVisibilityRules) -> WorkspaceSnapshot? {
+        let current = [files.copiedDestinations.count, files.trashedURLs.count]
+        lock.withLock { progress.append(current) }
+        return nil
+    }
+    func warmSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    func updateSearchIndex(at rootURL: URL, changedPaths: [String], visibilityRules: FileVisibilityRules) {}
+    func invalidateSearchIndex(at rootURL: URL, visibilityRules: FileVisibilityRules) {}
+    func readFile(at rootURL: URL, relativePath: String) -> String? { nil }
+    func writeFile(_ text: String, at rootURL: URL, relativePath: String) -> Bool { false }
+}
+
 /// Records workspace callbacks, which always run on the main actor.
 @MainActor
 private final class WorkspaceCallbackRecorder {
@@ -7553,19 +7618,27 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     private var trash: [URL] = []
     private let firstTrashStarted = TestGate()
     private let firstTrashRelease: TestGate?
+    private let firstCopyStarted = TestGate()
+    private let firstCopyRelease: TestGate?
     private let failingTrashURLs: Set<URL>
 
-    /// `pausesFirstTrash` holds the first Trash call on the production worker
-    /// thread until `releaseFirstTrash()` so a test can act mid-batch.
-    init(files: [URL], directories: [URL], pausesFirstTrash: Bool = false, failingTrashURLs: Set<URL> = []) {
+    /// `pausesFirstTrash` / `pausesFirstCopy` hold the first such call on the
+    /// production worker thread until released so a test can act mid-batch.
+    init(
+        files: [URL], directories: [URL], pausesFirstTrash: Bool = false, pausesFirstCopy: Bool = false,
+        failingTrashURLs: Set<URL> = []
+    ) {
         self.files = Set(files)
         self.directories = Set(directories)
         firstTrashRelease = pausesFirstTrash ? TestGate() : nil
+        firstCopyRelease = pausesFirstCopy ? TestGate() : nil
         self.failingTrashURLs = failingTrashURLs
     }
 
     func waitUntilFirstTrashStarted() async -> Bool { await firstTrashStarted.waitUntilOpen() }
     func releaseFirstTrash() { firstTrashRelease?.open() }
+    func waitUntilFirstCopyStarted() async -> Bool { await firstCopyStarted.waitUntilOpen() }
+    func releaseFirstCopy() { firstCopyRelease?.open() }
 
     var copiedDestinations: [URL] { lock.withLock { copies } }
     var trashedURLs: [URL] { lock.withLock { trash } }
@@ -7574,6 +7647,10 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     }
     func isDirectory(at url: URL) -> Bool { directories.contains(url) }
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws {
+        if !firstCopyStarted.isOpen {
+            firstCopyStarted.open()
+            if let firstCopyRelease, !firstCopyRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
         try lock.withLock {
             guard !files.contains(destinationURL), !directories.contains(destinationURL) else { throw CocoaError(.fileWriteFileExists) }
             guard files.contains(sourceURL) || directories.contains(sourceURL) else { throw CocoaError(.fileReadNoSuchFile) }
