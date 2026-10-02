@@ -19,7 +19,7 @@ let messageChanges: string[] = [];
 let currentMessage = "";
 let selectedFiles: GitFile[] = [];
 const HEAD_MESSAGE = "Previous commit title\n\nPrevious commit body";
-const getHeadCommitMessage = mock(async (): Promise<string | null> => HEAD_MESSAGE);
+const getHeadCommitMessage = mock(async (_repoPath: string): Promise<string | null> => HEAD_MESSAGE);
 let headMessageSpy: { mockRestore: () => void };
 
 beforeEach(() => {
@@ -80,6 +80,9 @@ const stagedFile: GitFile = {
 interface RenderOptions {
   message?: string;
   files?: GitFile[];
+  /** Active repository; staged files may belong to another repository of the workspace. */
+  repoPath?: string;
+  repositoryPaths?: string[];
 }
 
 // Mirror the real owner: commit message updates re-render the panel with the
@@ -91,16 +94,19 @@ const applyMessage = (message: string) => {
   rerender();
 };
 
+let activeRepoPath = "C:/workspace/A";
+let repositoryPaths = ["C:/workspace/A"];
+
 const rerender = () => {
   root.render(
     <LocaleProvider language="en-US">
       <GitCommitPanel
         selectedFiles={selectedFiles}
         workspacePath="C:/workspace/A"
-        repositoryPaths={["C:/workspace/A"]}
+        repositoryPaths={repositoryPaths}
         commitMessage={currentMessage}
         onCommitMessageChange={applyMessage}
-        repoPath="C:/workspace/A"
+        repoPath={activeRepoPath}
         currentBranch="main"
       />
     </LocaleProvider>,
@@ -111,6 +117,8 @@ const renderPanel = async (options: RenderOptions = {}) => {
   useGitStore.getStore("A").setState({ commits: [otherBranchCommit] });
   currentMessage = options.message ?? "";
   selectedFiles = options.files ?? [stagedFile];
+  activeRepoPath = options.repoPath ?? "C:/workspace/A";
+  repositoryPaths = options.repositoryPaths ?? ["C:/workspace/A"];
   await act(async () => rerender());
 };
 
@@ -278,4 +286,67 @@ test("Commit with files but no message asks for a commit message", async () => {
   );
   await act(async () => applyMessage("Done"));
   expect(container.querySelector('[data-testid="git-commit-hint"]')).toBeNull();
+});
+
+const stagedFileInB: GitFile = {
+  ...stagedFile,
+  path: "src/b.ts",
+  repositoryPath: "C:/workspace/B",
+  repositoryRelativePath: "src/b.ts",
+};
+const MESSAGE_A = "Message of A";
+const MESSAGE_B = "Message of B";
+const headMessageByRepository = (messages: Record<string, string | null>) =>
+  getHeadCommitMessage.mockImplementation(async (repo: string) => messages[repo] ?? null);
+
+test("amend reads HEAD from the repository that has the staged files, not the active one", async () => {
+  headMessageByRepository({ "C:/workspace/A": MESSAGE_A, "C:/workspace/B": MESSAGE_B });
+  await renderPanel({
+    files: [stagedFileInB],
+    repoPath: "C:/workspace/A",
+    repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+  });
+  await act(async () => toggleAmend());
+  expect(getHeadCommitMessage).toHaveBeenCalledTimes(1);
+  expect(getHeadCommitMessage).toHaveBeenCalledWith("C:/workspace/B");
+  expect(messageChanges).toEqual([MESSAGE_B]);
+});
+
+test("amend loads the staged repository's message when the active repository has no commit", async () => {
+  headMessageByRepository({ "C:/workspace/A": null, "C:/workspace/B": MESSAGE_B });
+  await renderPanel({
+    files: [stagedFileInB],
+    repoPath: "C:/workspace/A",
+    repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+  });
+  await act(async () => toggleAmend());
+  expect(messageChanges).toEqual([MESSAGE_B]);
+  expect(container.textContent).not.toContain("There is no commit to amend yet.");
+});
+
+test("amend is unavailable while several repositories have staged files", async () => {
+  await renderPanel({
+    files: [stagedFile, stagedFileInB],
+    repoPath: "C:/workspace/A",
+    repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+  });
+  expect(amendCheckbox()?.hasAttribute("data-disabled")).toBe(true);
+  await act(async () => toggleAmend());
+  expect(getHeadCommitMessage).not.toHaveBeenCalled();
+  expect(messageChanges).toEqual([]);
+});
+
+test("staging another repository after checking amend drops the loaded message", async () => {
+  headMessageByRepository({ "C:/workspace/A": MESSAGE_A, "C:/workspace/B": MESSAGE_B });
+  const repositories = ["C:/workspace/A", "C:/workspace/B"];
+  await renderPanel({ files: [stagedFile], repositoryPaths: repositories });
+  await act(async () => toggleAmend());
+  expect(messageChanges).toEqual([MESSAGE_A]);
+  expect(commitButton()?.textContent).toBe("Amend Commit");
+
+  // Staging a file of B means a commit would rewrite both A and B.
+  selectedFiles = [stagedFile, stagedFileInB];
+  await act(async () => rerender());
+  expect(messageChanges).toEqual([MESSAGE_A, ""]);
+  expect(commitButton()?.textContent).toBe("Commit");
 });

@@ -20,6 +20,7 @@ import { SidebarComposerBody } from "@/ui/sidebar";
 import Textarea from "@/ui/textarea";
 import Tooltip from "@/ui/tooltip";
 import { cn } from "@/utils/cn";
+import { normalizePath } from "@/utils/path-helpers";
 import { getHeadCommitMessage } from "../api/git-commits-api";
 import { IDEA_BUTTON_CLASS_NAME, IDEA_CHECKBOX_CLASS_NAME } from "../utils/idea-control-styles";
 import {
@@ -38,6 +39,7 @@ import {
   useWorkspaceStoreScopeId,
 } from "@/features/workspace/stores/create-workspace-scoped-store";
 import type { GitFile } from "../types/git.types";
+import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
 
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
@@ -165,6 +167,23 @@ const GitCommitPanel = ({
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
 
+  // The commit workflow rewrites exactly the repositories that have staged files, which
+  // are not necessarily the active one. Amend therefore targets the staged repositories:
+  // one repository reads its own HEAD, several have no single message that fits them all.
+  const amendTarget = useMemo(() => {
+    const roots = new Map<string, string>();
+    for (const file of selectedFiles) {
+      const root = file.repositoryPath ?? repoPath;
+      if (root) roots.set(normalizePath(root).replace(/\/+$/, "").toLowerCase(), root);
+    }
+    if (roots.size === 0) return { root: repoPath ?? null, ambiguous: false };
+    if (roots.size === 1) return { root: [...roots.values()][0]!, ambiguous: false };
+    return { root: null, ambiguous: true };
+  }, [repoPath, selectedFiles]);
+  const amendTargetKey = amendTarget.root
+    ? normalizePath(amendTarget.root).replace(/\/+$/, "").toLowerCase()
+    : "";
+
   const resetAmend = () => {
     amendRequestRef.current += 1;
     amendDraftRef.current = null;
@@ -172,9 +191,18 @@ const GitCommitPanel = ({
     setIsLoadingAmendMessage(false);
   };
 
-  useEffect(() => {
+  // Drops the amend state and gives back the draft it replaced while the loaded message is
+  // still untouched, so one repository's message never stays behind for another.
+  const cancelAmend = () => {
+    const draft = amendDraftRef.current;
+    const live = currentDraft.current;
+    if (draft && live.message.trim() === draft.loaded.trim()) live.apply(draft.before);
     resetAmend();
-  }, [repoPath]);
+  };
+
+  useEffect(() => {
+    cancelAmend();
+  }, [amendTargetKey]);
 
   useEffect(() => {
     if (!batch.session?.succeeded) return;
@@ -219,20 +247,17 @@ const GitCommitPanel = ({
 
   const handleAmendChange = async (checked: boolean) => {
     if (!checked) {
-      const draft = amendDraftRef.current;
-      // Restore the pre-amend draft only while the loaded message is untouched.
-      if (draft && commitMessage.trim() === draft.loaded.trim()) {
-        onCommitMessageChange(draft.before);
-      }
-      resetAmend();
+      // Restores the pre-amend draft only while the loaded message is untouched.
+      cancelAmend();
       return;
     }
-    if (!repoPath) return;
+    const targetRoot = amendTarget.root;
+    if (!targetRoot) return;
 
     const requestId = ++amendRequestRef.current;
     setError(null);
     setIsLoadingAmendMessage(true);
-    const loaded = await getHeadCommitMessage(repoPath);
+    const loaded = await getHeadCommitMessage(targetRoot);
     if (requestId !== amendRequestRef.current) return;
     setIsLoadingAmendMessage(false);
     if (loaded === null) {
@@ -353,7 +378,7 @@ const GitCommitPanel = ({
       )
     : null;
   const hasError = Boolean(error || batch.error || visibleCommitHint?.noMessage);
-  const canAmend = Boolean(repoPath) && !isCommitting && !isLoadingAmendMessage;
+  const canAmend = Boolean(amendTarget.root) && !isCommitting && !isLoadingAmendMessage;
   const commitLegend = useMemo(() => buildCommitLegend(selectedFiles), [selectedFiles]);
 
   return (
@@ -361,7 +386,10 @@ const GitCommitPanel = ({
     // commit message, then commit actions with the options button pushed right.
     <div className="group/commit-panel flex flex-col gap-1.5 px-2 pt-2 pb-1">
       <div className="flex min-h-6 items-center gap-2">
-        <Tooltip content={t("git.amendTooltip")} side="top">
+        <Tooltip
+          content={amendTarget.ambiguous ? t("git.amendMultipleRepositories") : t("git.amendTooltip")}
+          side="top"
+        >
           <label
             className={cn(
               "flex shrink-0 cursor-pointer select-none items-center gap-1.5 ui-text-sm text-foreground",
@@ -485,7 +513,9 @@ const GitCommitPanel = ({
           )}
           // The height follows the divider above the commit area (see
           // useGitCommitAreaResize); the cap keeps a short window usable.
-          style={{ height: "min(var(--git-commit-message-height, 72px), 60vh)" }}
+          style={{
+            height: `min(var(--git-commit-message-height, 72px), ${COMMIT_MESSAGE_MAX_VIEWPORT_RATIO * 100}vh)`,
+          }}
           disabled={isCommitting}
         />
       </SidebarComposerBody>

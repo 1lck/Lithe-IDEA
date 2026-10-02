@@ -14,6 +14,19 @@ export const COMMIT_MESSAGE_HEIGHT_CSS_VARIABLE = "--git-commit-message-height";
 /** The changes list never gets shorter than this while the commit area grows. */
 export const GIT_CHANGES_MIN_HEIGHT = 96;
 const KEYBOARD_STEP = 16;
+/** The editor never renders taller than this share of the viewport, whatever height is stored. */
+export const COMMIT_MESSAGE_MAX_VIEWPORT_RATIO = 0.6;
+
+/**
+ * Height the commit message editor actually has on screen. The stored height can exceed
+ * the viewport cap after the window shrinks, so dragging and keyboard steps start from this
+ * value; otherwise the first stretch of movement would change nothing visible.
+ */
+export function visibleCommitMessageHeight(storedHeight: number): number {
+  const viewportHeight = globalThis.innerHeight;
+  if (!Number.isFinite(viewportHeight) || viewportHeight <= 0) return storedHeight;
+  return Math.min(storedHeight, Math.floor(viewportHeight * COMMIT_MESSAGE_MAX_VIEWPORT_RATIO));
+}
 
 /**
  * Owns the divider between the changes list and the commit area.
@@ -49,12 +62,13 @@ export function useGitCommitAreaResize(
       if (event.button !== 0) return;
       event.preventDefault();
       sessionRef.current?.dispose({ commit: true });
-      const maxHeight = maxHeightFor(height);
+      const startHeight = visibleCommitMessageHeight(height);
+      const maxHeight = maxHeightFor(startHeight);
 
       sessionRef.current = startDocumentResizeSession({
         axis: "y",
         startX: event.clientY,
-        startWidth: height,
+        startWidth: startHeight,
         // The divider sits above the commit area, so dragging it up grows the editor.
         direction: -1,
         cursor: "ns-resize",
@@ -78,7 +92,10 @@ export function useGitCommitAreaResize(
         event.key === "ArrowUp" ? KEYBOARD_STEP : event.key === "ArrowDown" ? -KEYBOARD_STEP : 0;
       if (delta === 0) return;
       event.preventDefault();
-      setCommitMessageHeight(Math.min(maxHeightFor(height), clampCommitMessageHeight(height + delta)));
+      const visibleHeight = visibleCommitMessageHeight(height);
+      setCommitMessageHeight(
+        Math.min(maxHeightFor(visibleHeight), clampCommitMessageHeight(visibleHeight + delta)),
+      );
     },
     [height, maxHeightFor, setCommitMessageHeight],
   );

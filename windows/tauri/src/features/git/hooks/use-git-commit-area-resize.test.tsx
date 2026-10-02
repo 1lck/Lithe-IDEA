@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import {
   COMMIT_MESSAGE_DEFAULT_HEIGHT,
+  COMMIT_MESSAGE_MAX_HEIGHT,
   COMMIT_MESSAGE_MIN_HEIGHT,
   useGitCommitPanelPreferencesStore,
 } from "../stores/git-commit-panel-preferences.store";
@@ -24,6 +25,7 @@ const frameScheduler = {
   cancelFrame: () => undefined,
 };
 let changesHeight = 300;
+let previousInnerHeight: number;
 
 function Probe() {
   const commitAreaRef = useRef<HTMLDivElement>(null);
@@ -77,6 +79,7 @@ beforeEach(async () => {
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
   frames = [];
   changesHeight = 300;
+  previousInnerHeight = globalThis.innerHeight;
   useGitCommitPanelPreferencesStore.setState({ commitMessageHeight: COMMIT_MESSAGE_DEFAULT_HEIGHT });
   container = document.createElement("div");
   document.body.append(container);
@@ -88,6 +91,7 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   useGitCommitPanelPreferencesStore.setState({ commitMessageHeight: COMMIT_MESSAGE_DEFAULT_HEIGHT });
+  globalThis.innerHeight = previousInnerHeight;
   restoreDom();
   if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
@@ -126,4 +130,30 @@ test("arrow keys on the focused divider resize the editor", async () => {
     handle().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
   });
   expect(storedHeight()).toBe(COMMIT_MESSAGE_DEFAULT_HEIGHT);
+});
+
+// The editor renders at most 60% of the viewport. After the window shrinks, the stored
+// height is taller than what is on screen, and every adjustment must start from the
+// visible height or the first stretch of movement would change nothing.
+const shrinkViewportBelowStoredHeight = async () => {
+  globalThis.innerHeight = 800;
+  await act(async () => {
+    useGitCommitPanelPreferencesStore.setState({ commitMessageHeight: COMMIT_MESSAGE_MAX_HEIGHT });
+  });
+};
+
+test("dragging after the window shrank starts from the visible height", async () => {
+  await shrinkViewportBelowStoredHeight();
+  // 60% of 800px is 480px, although 640px is stored.
+  await drag(500, 520);
+  await act(async () => document.dispatchEvent(pointer("pointerup", 520)));
+  expect(storedHeight()).toBe(460);
+});
+
+test("arrow keys after the window shrank start from the visible height", async () => {
+  await shrinkViewportBelowStoredHeight();
+  await act(async () => {
+    handle().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  });
+  expect(storedHeight()).toBe(464);
 });
