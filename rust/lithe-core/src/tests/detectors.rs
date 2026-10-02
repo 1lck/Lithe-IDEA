@@ -1673,3 +1673,95 @@ fn java_entries_are_exactly_the_classes_jdt_reports() {
 
     fs::remove_dir_all(root).unwrap();
 }
+
+/// Maven merges a parent's `<build><plugins>` into every child, so a boot
+/// plugin an aggregator declares reaches the modules below it. Without that the
+/// child is emitted as a plain application and never offered as a service.
+#[test]
+fn maven_detector_inherits_the_boot_plugin_from_the_aggregator() {
+    let root = temporary_root("detect-maven-inherited-boot-plugin");
+    fs::create_dir_all(root.join("service-web")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("service-web/pom.xml"),
+        "<project><parent><artifactId>parent</artifactId></parent><artifactId>service-web</artifactId></project>",
+    )
+    .unwrap();
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter(|item| item["provider"] == "spring-boot.maven")
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["spring-boot.maven:service-web".to_string()]);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Inheritance crosses more than one level: a plugin declared on the reactor
+/// root is what the grandchild actually inherits, and the intermediate
+/// aggregator contributes nothing of its own.
+#[test]
+fn maven_detector_inherits_the_boot_plugin_across_several_levels() {
+    let root = temporary_root("detect-maven-inherited-boot-plugin-deep");
+    fs::create_dir_all(root.join("team/service-web")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>team</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("team/pom.xml"),
+        "<project><parent><artifactId>root</artifactId><relativePath>../pom.xml</relativePath></parent><artifactId>team</artifactId><packaging>pom</packaging><modules><module>service-web</module></modules></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("team/service-web/pom.xml"),
+        "<project><parent><artifactId>team</artifactId><relativePath>../pom.xml</relativePath></parent><artifactId>service-web</artifactId></project>",
+    )
+    .unwrap();
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter(|item| item["provider"] == "spring-boot.maven")
+        .map(|item| item["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+
+    assert_eq!(ids, vec!["spring-boot.maven:service-web".to_string()]);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// `<pluginManagement>` pins a version for children without applying the plugin,
+/// and inheriting a parent must not turn a managed plugin into a service. This is
+/// the counterpart to the inheritance above: the same parent shape, but the
+/// plugin stays inert.
+#[test]
+fn maven_detector_does_not_inherit_a_plugin_managed_parent() {
+    let root = temporary_root("detect-maven-inherited-plugin-management");
+    fs::create_dir_all(root.join("service-web")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-web</module></modules><build><pluginManagement><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></pluginManagement></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("service-web/pom.xml"),
+        "<project><parent><artifactId>parent</artifactId></parent><artifactId>service-web</artifactId></project>",
+    )
+    .unwrap();
+
+    assert!(
+        !generated_configurations(&root)
+            .iter()
+            .any(|item| item["provider"] == "spring-boot.maven"),
+        "a managed plugin must stay inert even when a parent declares it"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
