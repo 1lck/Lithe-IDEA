@@ -1,7 +1,6 @@
 import {
   ArrowUpIcon as ArrowUp,
   ArchiveIcon as Archive,
-  ClockCounterClockwiseIcon as ClockCounterClockwise,
   FolderOpenIcon as FolderOpen,
   GitBranchIcon as GitBranch,
   GitCommitIcon as GitCommit,
@@ -154,15 +153,11 @@ export const createGitActions = (params: GitActionsParams): Action[] => {
       icon: <GitBranch />,
       category: "Git",
       commandId: "workbench.showSourceControl",
-      action: () => openGitAction({ type: "show-tab", tab: "changes" }),
-    },
-    {
-      id: "git-show-history",
-      label: "Git: Show History",
-      description: "Open commit history",
-      icon: <ClockCounterClockwise />,
-      category: "Git",
-      action: () => openGitAction({ type: "show-tab", tab: "history" }),
+      action: () => {
+        setIsSidebarVisible(true);
+        setActiveView("git");
+        onClose();
+      },
     },
     {
       id: "git-open-log",

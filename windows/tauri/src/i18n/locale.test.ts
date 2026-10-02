@@ -30,7 +30,7 @@ describe("Windows display language", () => {
     expect(translate("workbench.changes")).toBe("更改");
     expect(translate("footer.changes", { count: 5 })).toBe("5 个更改");
     expect(translate("git.commit")).toBe("提交");
-    expect(translate("git.commitMessagePlaceholder")).toBe("提交说明...");
+    expect(translate("git.commitMessagePlaceholder")).toBe("提交说明");
     expect(translate("git.filesStaged", { count: 42 })).toBe("已暂存 42 个文件");
     expect(createTranslator("en-US")("workbench.search")).toBe("Search");
     expect(translate("search.emptyTitle")).toBe("在项目中搜索");
@@ -38,7 +38,8 @@ describe("Windows display language", () => {
     expect(translate("search.emptyDescription")).toBe(
       "输入关键词，即可在整个项目中查找匹配的文件和代码行。",
     );
-    expect(createTranslator("en-US")("workbench.sourceControl")).toBe("Source Control");
+    expect(createTranslator("en-US")("workbench.commit")).toBe("Commit");
+    expect(translate("workbench.commit")).toBe("提交");
     expect(translate("workbench.gitLog")).toBe("提交记录");
     expect(translate("git.branches")).toBe("分支");
     expect(translate("git.searchBranches")).toBe("搜索分支...");
@@ -72,8 +73,6 @@ describe("Windows display language", () => {
     expect(translate("editor.findInFile")).toBe("在文件中查找");
     expect(translate("lsp.noActive")).toBe("没有活动的语言服务器");
     expect(translate("editor.goToDefinition")).toBe("转到定义");
-    expect(translate("git.historySearch")).toBe("搜索历史");
-    expect(translate("git.historyFilterAll")).toBe("全部字段");
     expect(translate("git.push")).toBe("推送");
     expect(translate("git.selectRepository")).toBe("选择仓库");
     expect(translate("git.stashAllUnstaged")).toBe("贮藏全部未暂存");

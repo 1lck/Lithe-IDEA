@@ -93,3 +93,72 @@ test("keeps the repository header with one changed root and excludes dirty-only 
   await act(async () => headerCheckbox!.click());
   expect(staging).toHaveBeenCalledWith("C:/workspace/B", ["src/hello.ts"], true);
 });
+
+test("groups files under IntelliJ's Changes and Unversioned Files nodes", async () => {
+  await render([file("A", "tracked.ts"), { ...file("A", "new.ts"), status: "untracked" }]);
+  const changes = container.querySelector('[data-git-status-section="tracked"]');
+  const unversioned = container.querySelector('[data-git-status-section="untracked"]');
+  expect(changes?.textContent).toContain("Changes");
+  expect(changes?.textContent).toContain("1 file");
+  expect(unversioned?.textContent).toContain("Unversioned Files");
+  expect(container.textContent).not.toContain("Tracked");
+  expect(container.textContent).not.toContain("Untracked");
+});
+
+test("a group node checkbox includes all of its files and shows a mixed state", async () => {
+  await render([file("A", "one.ts"), { ...file("A", "two.ts"), staged: true }]);
+  const groupCheckbox = container.querySelector<HTMLElement>(
+    '[aria-label="Include folder Changes in commit"]',
+  );
+  expect(groupCheckbox?.hasAttribute("data-indeterminate")).toBe(true);
+  await act(async () => groupCheckbox!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["src/one.ts", "src/two.ts"], true);
+});
+
+test("the include-in-commit checkbox sits before the file name, not after it", async () => {
+  await render([file("A", "left.ts")]);
+  const checkbox = container.querySelector<HTMLElement>('[aria-label="Include left.ts in commit"]');
+  const row = checkbox?.closest("[data-sidebar-tree-row]");
+  const label = Array.from(row?.querySelectorAll("span") ?? []).find(
+    (span) => span.textContent === "left.ts",
+  );
+  expect(row).not.toBeNull();
+  expect(label).not.toBeUndefined();
+  // The checkbox overlays a reserved slot placed ahead of the icon and name.
+  expect(row!.querySelector("[data-sidebar-tree-leading-slot]")).not.toBeNull();
+  expect(
+    checkbox!.compareDocumentPosition(row!.querySelector("[role=treeitem]")!) &
+      Node.DOCUMENT_POSITION_FOLLOWING,
+  ).toBeTruthy();
+});
+
+test("View Options switches between the directory tree and a flat list in two clicks", async () => {
+  const settings = await import("@/features/settings/stores/settings.store");
+  const updateSetting = spyOn(
+    settings.useSettingsStore.getState().actions,
+    "updateSetting",
+  ).mockResolvedValue(undefined as never);
+  // The dropdown positions itself with ResizeObserver, which happy-dom lacks.
+  const globals = globalThis as { ResizeObserver?: unknown };
+  const previousResizeObserver = globals.ResizeObserver;
+  globals.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+  try {
+    await render([file("A", "flat.ts")]);
+    const current = settings.useSettingsStore.getState().settings.gitChangesFolderView;
+    const viewOptions = container.querySelector<HTMLElement>('[aria-label="View Options"]');
+    await act(async () => viewOptions!.click());
+    const target = Array.from(document.querySelectorAll<HTMLElement>("[role=menuitem]")).find(
+      (item) => item.textContent?.includes(current ? "Flat List" : "Directory"),
+    );
+    expect(target).not.toBeUndefined();
+    await act(async () => target!.click());
+    expect(updateSetting).toHaveBeenCalledWith("gitChangesFolderView", !current);
+  } finally {
+    updateSetting.mockRestore();
+    globals.ResizeObserver = previousResizeObserver;
+  }
+});

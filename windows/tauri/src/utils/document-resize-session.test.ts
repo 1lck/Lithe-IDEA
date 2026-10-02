@@ -19,7 +19,7 @@ function createFakeTarget() {
   };
 }
 
-function startSession(options: { direction?: 1 | -1; cursor?: string }) {
+function startSession(options: { direction?: 1 | -1; cursor?: string; axis?: "x" | "y" }) {
   const target = createFakeTarget();
   const bodyStyle = { cursor: "", userSelect: "" };
   const committed: number[] = [];
@@ -40,8 +40,12 @@ function startSession(options: { direction?: 1 | -1; cursor?: string }) {
     ...options,
   });
 
-  const move = (clientX: number) => {
-    target.dispatch("pointermove", { clientX } as PointerEvent);
+  // The off-axis coordinate is a large decoy so a session reading the wrong
+  // axis produces a visibly different size.
+  const move = (position: number) => {
+    const event =
+      options.axis === "y" ? { clientX: 9999, clientY: position } : { clientX: position, clientY: 9999 };
+    target.dispatch("pointermove", event as PointerEvent);
     const pending = frames.splice(0);
     pending[pending.length - 1]?.(0);
   };
@@ -74,5 +78,15 @@ describe("document resize session options", () => {
   test("uses the requested body cursor and falls back to col-resize", () => {
     expect(startSession({ cursor: "ew-resize" }).bodyStyle.cursor).toBe("ew-resize");
     expect(startSession({}).bodyStyle.cursor).toBe("col-resize");
+  });
+
+  test("follows clientY for a vertical resize", () => {
+    const { target, committed, applied, move } = startSession({ axis: "y", direction: -1 });
+
+    move(180);
+    expect(applied).toEqual([120]);
+
+    target.dispatch("pointerup", new Event("pointerup"));
+    expect(committed).toEqual([120]);
   });
 });

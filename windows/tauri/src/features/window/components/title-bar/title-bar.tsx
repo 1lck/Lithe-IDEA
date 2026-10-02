@@ -32,6 +32,7 @@ import {
   GearIcon,
   ListIcon,
   MagnifyingGlassIcon,
+  MenuIcon,
   PlayIcon,
   TrashIcon,
   WindowExpandIcon,
@@ -240,7 +241,7 @@ export const TitleBar = ({
                 aria-label={t("window.menu")}
                 aria-expanded={false}
               >
-                <ListIcon />
+                <MenuIcon />
               </Button>
             </Tooltip>
           )}

@@ -464,6 +464,7 @@ export const MagnifyingGlassPlusIcon = createIconComponent(
   Nucleo.IconMagnifierPlusOutline18,
   "MagnifyingGlassPlusIcon",
 );
+export const MenuIcon = createIconComponent(lucideIcons.Menu, "MenuIcon");
 export const MegaphoneIcon = createIconComponent(Nucleo.IconMegaphoneOutline18, "MegaphoneIcon");
 export const MicrophoneIcon = createIconComponent(Nucleo.IconMicrophoneOutline18, "MicrophoneIcon");
 export const MinusCircleIcon = createIconComponent(
@@ -518,6 +519,10 @@ export const PuzzlePieceIcon = createIconComponent(
   "PuzzlePieceIcon",
 );
 export const QuestionIcon = createIconComponent(Nucleo.IconCircleQuestionOutline18, "QuestionIcon");
+export const ProblemsToolWindowIcon = createIconComponent(
+  Nucleo.IconCircleWarningOutline18,
+  "ProblemsToolWindowIcon",
+);
 export const RadioButtonIcon = createIconComponent(Nucleo.IconRadioOutline18, "RadioButtonIcon");
 export const RobotIcon = createIconComponent(Nucleo.IconRobotOutline18, "RobotIcon");
 export const RocketLaunchIcon = createIconComponent(Nucleo.IconRocketOutline18, "RocketLaunchIcon");
@@ -525,6 +530,10 @@ export const RowsIcon = createIconComponent(Nucleo.IconTableRowsOutline18, "Rows
 export const RowsPlusTopIcon = createIconComponent(
   Nucleo.IconTableRowNewTopOutline18,
   "RowsPlusTopIcon",
+);
+export const RunToolWindowIcon = createIconComponent(
+  Nucleo.IconMediaPlayOutline18,
+  "RunToolWindowIcon",
 );
 export const ScissorsIcon = createIconComponent(Nucleo.IconScissorsOutline18, "ScissorsIcon");
 export const ShieldCheckIcon = createIconComponent(

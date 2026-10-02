@@ -25,6 +25,12 @@ interface VerticalScrollContainer {
   clientHeight: number;
 }
 
+interface HorizontalScrollContainer {
+  scrollLeft: number;
+  scrollWidth: number;
+  clientWidth: number;
+}
+
 export function isMostlyVerticalWheel(deltaX: number, deltaY: number) {
   return Math.abs(deltaY) >= Math.abs(deltaX);
 }
@@ -61,6 +67,25 @@ export function applyVerticalWheelToScrollContainer(
   return true;
 }
 
+/**
+ * Horizontal counterpart for touchpad side swipes. Only a container that overflows
+ * horizontally moves, so vertical-only scrollers keep ignoring sideways gestures.
+ */
+export function applyHorizontalWheelToScrollContainer(
+  element: HorizontalScrollContainer,
+  deltaX: number,
+) {
+  if (deltaX === 0) return false;
+
+  const maxScrollLeft = Math.max(0, element.scrollWidth - element.clientWidth);
+  if (maxScrollLeft === 0) return false;
+  const nextScrollLeft = Math.max(0, Math.min(maxScrollLeft, element.scrollLeft + deltaX));
+  if (nextScrollLeft === element.scrollLeft) return false;
+
+  element.scrollLeft = nextScrollLeft;
+  return true;
+}
+
 function getLineHeight(element: HTMLElement) {
   const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight);
   return Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 16;
@@ -68,7 +93,6 @@ function getLineHeight(element: HTMLElement) {
 
 function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
   if (event.ctrlKey || event.metaKey || event.defaultPrevented) return false;
-  if (!isMostlyVerticalWheel(event.deltaX, event.deltaY)) return false;
 
   const delta = getWheelDeltaPixels(event, {
     lineHeight: getLineHeight(element),
@@ -76,6 +100,11 @@ function applyVerticalWheelEvent(element: HTMLElement, event: WheelEvent) {
     pageHeight: element.clientHeight,
   });
 
+  // Sideways swipes latch onto the same clipped descendants as vertical ones, so a
+  // horizontally scrollable container applies them itself too.
+  if (!isMostlyVerticalWheel(event.deltaX, event.deltaY)) {
+    return applyHorizontalWheelToScrollContainer(element, delta.x);
+  }
   return applyVerticalWheelToScrollContainer(element, delta.y);
 }
 
