@@ -1,0 +1,24 @@
+{
+  "id": "terminal-sessions",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "多会话与标签",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Terminal",
+      "macos/Resources/IDEAIcons/expui/general/chevronDownLarge.svg",
+      "macos/Resources/IDEAIcons/expui/general/chevronDownLarge_dark.svg"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；macOS 默认标签依次显示 Local、Local (2)、Local (3)，从下拉框选择 zsh 后依次显示 zsh、zsh (2)，不同 Shell 分别编号；终端与 Git Log 标签悬停有反馈，点击各自区域时选中标签背景显示活动色、点击外部时显示非活动色，文字始终保持相同颜色与常规字重；macOS 终端标题栏的加号、下拉箭头、更多操作和收起图标在明暗主题分别使用 IDEA 的 #6C707E 和 #CED0D6 颜色，按钮动作及悬停效果保持一致；macOS 关闭终端会话直接停止进程，最后一个底部终端关闭后收起面板，编辑区的其他终端会话继续运行；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。 Terminal 失焦通知必须清除标签活动态，包含键盘与程序化切焦。"
+}

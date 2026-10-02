@@ -368,9 +368,7 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Runtime snapshots (including credential-bearing IDE MCP connections and JDT Maven settings)
-      // and Git-owned Inter 4.1/JetBrains Mono 2.304 fonts are isolated; never copy them across worktrees.
-      // Runtime snapshots, per-execution Java launch files and isolated plugin
+      // Generated matrix views, runtime snapshots, per-execution Java launch files and isolated plugin
       // packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
       if (excludedResources.some((resource) => resource.id === identifier)) {

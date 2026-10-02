@@ -1,0 +1,23 @@
+{
+  "id": "search-quick-open",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "快速打开文件与符号",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Sources/Lithe/Views/Workbench"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/quick-open"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "使用文件名、路径和符号查询，确认排序、键盘导航和打开位置。"
+}

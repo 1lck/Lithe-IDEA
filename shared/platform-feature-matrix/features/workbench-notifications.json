@@ -1,0 +1,25 @@
+{
+  "id": "workbench-notifications",
+  "area": "可观测性",
+  "group": "通知与资源",
+  "capability": "操作通知、错误提示与自动消失",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchNotificationBanner.swift",
+      "macos/Tests/LitheTests/WorkbenchNotificationTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/notifications"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。macOS 深浅主题检查共享卡片、官方图标、圆角边框、两行长消息与展开/收起。验证三条上限、旧消息折叠及历史入口；单条悬停不暂停其他通知，应用后台暂停全部、回到前台按剩余时间关闭；关闭与超时保留历史，清空历史关闭所有气泡。确定性时间测试覆盖计时与折叠，实际工作台检查叠放、关闭和通知中心。",
+  "notes": "macOS 通知外观使用 Community Islands 主题，颜色/边框/6pt 圆角/5pt 线性阴影由 LitheTheme.Notification 统一提供。普通 timeline 通知显示 10 秒，单条悬停和应用后台暂停剩余计时；最多显示三条，新通知向上叠放，溢出的旧通知折叠为历史入口。关闭气泡保留历史，打开通知中心关闭气泡并标为已读；沿用 100 条历史上限。长正文默认两行，可展开，超过十行在气泡内滚动。"
+}

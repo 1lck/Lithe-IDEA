@@ -1,0 +1,26 @@
+{
+  "id": "agent-subscription-quota",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Codex 订阅额度：上下文右侧紧凑显示、可见时定时刷新、悬停多窗口与重置时间、未知与过期状态及账号隔离",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentSubscriptionQuotaView.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentSubscriptionQuota.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "rust/lithe-agent-host/src/subscription/tests.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/subscription.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：订阅会话上下文右侧显示额度，悬停查看窗口时长/已用百分比/重置和更新时间；真实账号验证可见且活跃时每分钟刷新、隐藏不轮询、单连接不并发探测，查询不创建会话或模型请求；周窗口作为 primary 仍显示 7d，缺失不报 0%；网络失败保留并灰显旧值，账号不匹配清除；API Key 模式不查询。窄宽面板、深浅主题、关闭面板/项目和取消时确认探测进程清理。Windows UI 与真实账号验证待完成。"
+}

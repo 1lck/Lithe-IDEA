@@ -1,0 +1,22 @@
+{
+  "id": "database-crud-export",
+  "area": "数据库",
+  "group": "数据库工作区",
+  "capability": "表数据编辑、CRUD 与导出",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Database",
+  "verification": "验证新增、编辑、删除、事务失败、复制和结果导出。"
+}

@@ -133,7 +133,8 @@ implementation and must not import Swift source or depend on macOS types.
 ## Keep the platform feature matrix current
 
 For every new user-visible capability or cross-platform behavior change, update
-`shared/platform-feature-matrix.json` in the same pull request. Each row is one
+the relevant `shared/platform-feature-matrix/features/<id>.json` in the same pull
+request. Each file is one
 independently verifiable user capability and must include both platforms'
 `implementationStatus`, `verificationStatus`, evidence paths, owner, and a
 concrete verification action. Platform-only capabilities still get a row with
@@ -145,8 +146,12 @@ Code presence without runtime evidence keeps its implementation status and uses
 target platform permits `verified`. The status labels, icons, and descriptions in
 the JSON are the generator's only status source of truth.
 
-Run `node scripts/generate-platform-feature-matrix.mjs` after changing the source
-and commit both generated views under `docs/development/`. Run
+Run `node scripts/generate-platform-feature-matrix.mjs` after changing the source.
+Review the generated HTML/Markdown/CSV/JSON under `.artifacts/platform-feature-matrix/`;
+do not commit generated views. Public views are deployed alongside the Agent Notes
+board, and PR CI uploads revision-specific artifacts. Keep common status definitions
+in `shared/platform-feature-matrix/metadata.json`; dates or metadata-only changes
+do not satisfy the capability update gate. Run
 `./scripts/verify-platform-feature-matrix.sh` before handoff. Pull requests that
 change platform implementation paths are required by CI to update the JSON. A
 reviewer may add the `matrix-exempt` label only for a reviewed refactor with no
@@ -172,8 +177,8 @@ When any platform implementation path listed above changed, run both checks:
 
 Use the exact pull-request base and head SHA instead of `origin/preview` and
 `HEAD` when those SHAs are available. If the change gate reports platform paths
-without `shared/platform-feature-matrix.json`, stop and update the matrix source
-and its generated Markdown/CSV views before proceeding. Do not use
+without a substantive capability record change, stop and update the relevant
+`shared/platform-feature-matrix/features/<id>.json` before proceeding. Do not use
 `matrix-exempt` to bypass a user-visible behavior change. A user request to skip
 optional tests does not waive this contract gate when the work is being prepared
 for a pull request.

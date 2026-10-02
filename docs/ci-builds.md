@@ -123,6 +123,13 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包
 
 ### 独立工作树的本地编译
 
+功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
+`<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
+它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
+架构或工具链 identity stamp；任何复制阶段都应排除。资源清单的
+`excludedResources.platform-feature-matrix` 由复用脚本直接拒绝。目标工作树运行
+`node scripts/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
+
 IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
 `scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
 `rust/Cargo.lock` 构建。`dist/ide-mcp/`、`rust/target/windows-ide-mcp/` 和

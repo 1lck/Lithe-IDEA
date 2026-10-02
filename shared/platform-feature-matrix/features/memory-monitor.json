@@ -1,0 +1,23 @@
+{
+  "id": "memory-monitor",
+  "area": "可观测性",
+  "group": "通知与资源",
+  "capability": "应用与语言服务内存监控",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services/Monitoring/MemoryUsageMonitor.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/layout/services/memory-api.ts",
+      "windows/tauri/src/platform/tauri-core.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "打开内存指标并观察应用、语言服务和总内存变化，确认采样失败不会阻塞工作台。"
+}

@@ -1,0 +1,24 @@
+{
+  "id": "workbench-activity-rail-window-edge",
+  "area": "工作台",
+  "group": "工作台布局",
+  "capability": "活动栏贴合窗口外沿",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/layout/components/main-layout.tsx",
+      "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx",
+      "windows/tauri/src/features/layout/components/sidebar/main-sidebar.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "打开工作区，检查左右活动栏与窗口外沿齐平，外侧没有留白、圆角或边框；缩放窗口并切换活动面板后确认布局仍贴边。 macOS 右侧底部的检查更新与背景选择是居中的纯图标按钮，复用其他活动栏按钮的槽位、背景和 hover 提示；背景面板向上展开。"
+}

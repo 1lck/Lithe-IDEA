@@ -1,0 +1,23 @@
+{
+  "id": "search-global",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "全局命令与设置搜索",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/global-search",
+      "windows/tauri/src/features/command-palette"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "使用快捷键搜索命令、设置和工作区内容，确认结果来源和跳转行为。"
+}

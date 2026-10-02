@@ -1,0 +1,27 @@
+{
+  "id": "keymap-customization",
+  "area": "设置",
+  "group": "应用配置",
+  "capability": "快捷键查看与自定义",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/KeyboardShortcutSettingsView.swift",
+      "macos/Sources/Lithe/Models/Keymap"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/keymaps",
+      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
+      "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Settings",
+  "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。",
+  "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
+}

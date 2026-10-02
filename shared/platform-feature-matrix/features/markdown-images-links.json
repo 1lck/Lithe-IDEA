@@ -1,0 +1,24 @@
+{
+  "id": "markdown-images-links",
+  "area": "编辑器",
+  "group": "Markdown",
+  "capability": "图片导入与链接定位",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services/Markdown",
+      "macos/Sources/Lithe/Platform/MacOS/MarkdownPreviewWebView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/editor/markdown",
+      "windows/tauri/src/features/viewer"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "验证本地图片、远程图片、相对链接和打开源文件行为。"
+}

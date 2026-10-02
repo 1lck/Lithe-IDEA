@@ -1,0 +1,25 @@
+{
+  "id": "workspace-open-switch",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "打开工作区与切换项目",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace",
+      "macos/Sources/Lithe/Views/App/WelcomeView.swift",
+      "macos/Sources/Lithe/Services/Workspace",
+      "macos/Sources/Lithe/Application/Composition/WorkspaceProjectionComposition.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确；macOS 重启并恢复上次在 Search 等其他侧栏打开的工作区时，默认显示 Project 侧栏，打开的编辑器文件仍恢复。 macOS 欢迎页应用名、Projects、普通项目名及 New Project/Open/Clone Repository 按钮使用 Inter Regular 常规字重，与 IDEA WelcomeScreenComponentFactory 的 Font.PLAIN 和项目默认标签一致；搜索提示与项目路径保持常规字重。"
+}

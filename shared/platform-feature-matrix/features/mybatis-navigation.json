@@ -1,0 +1,23 @@
+{
+  "id": "mybatis-navigation",
+  "area": "Java",
+  "group": "Spring / MyBatis",
+  "capability": "MyBatis Mapper/XML 导航",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/MybatisFeatureModel.swift",
+      "macos/Sources/Lithe/Application/Composition/DocumentFeatureComposition.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/mybatis"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / MyBatis",
+  "verification": "使用 Mapper/XML fixture 对比索引、导航、文件变更刷新和失效处理。"
+}
