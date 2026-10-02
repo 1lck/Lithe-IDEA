@@ -1106,13 +1106,49 @@
           "shared/contracts/application-boundary.md",
           "windows/tauri/src/features/git/api/git-repository-path.ts",
           "rust/lithe-core/tests/git_path_roundtrip.rs",
-          "shared/fixtures/git/windows-paths.json"
+          "shared/fixtures/git/windows-paths.json",
+          "windows/tauri/src/features/git/hooks/use-git-commit-area-resize.ts",
+          "windows/tauri/src/features/git/stores/git-commit-panel-preferences.store.ts",
+          "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+          "windows/tauri/src/features/sidebar/components/sidebar-tree.tsx",
+          "windows/tauri/src/features/git/utils/idea-control-styles.ts",
+          "windows/tauri/src/features/git/hooks/use-git-commit-picker.ts",
+          "windows/tauri/src/features/git/hooks/use-git-commit-picker.test.tsx",
+          "windows/tauri/src/features/git/hooks/use-git-commit-area-resize.test.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。"
+      "verification": "修改、暂存、取消暂存并提交文件，确认状态、提交消息和错误回显。 Windows 另验证原生 UNC/verbatim 输入、中文/空格/长路径仓库往返及 linked worktree；末尾点/空格必须明确拒绝，外部提交/切换须触发元数据刷新。 Windows 另验证提交区（对齐 IntelliJ 非模态提交面板）：顶部右侧为已选文件图例（“N 添加  N 修改  N 删除”，未跟踪计入添加并显示为“新增+未跟踪”，重命名计入修改，各段按文件状态着色，未选择文件时不显示）；中间为提交说明编辑框（占位文字为“Commit Message/提交说明”，不带省略号；4px 圆角，常态 1px 控件边框，聚焦 2px 强调色边框，失败时错误色边框）；底部左侧为 IDEA 线框样式的 Commit 与 Commit and Push... 按钮（28px 高、4px 圆角、1px 边框），右侧为 AI 生成与设置按钮。提交区与变更列表之间只有一条分割线、无外框，拖动分割线（或聚焦后按上/下方向键）可调整提交说明编辑框高度：向上拖动变高，变更列表至少保留 96px，编辑框最小 48px，松开后保存并在重启后恢复，拖动过程中不写入持久化。提交按钮与 Commit and Push... 在未选文件或说明为空时不置灰：点击后在按钮上方显示 IDEA 文案提示（“请选择要提交的文件” / “请填写提交说明” / 二者合并），修正对应项后提示自动消失；焦点位于提交区（如编辑说明）时 Commit 变为蓝色默认按钮。变更列表按 IDEA 分为“更改”（Changes）与“未版本控制的文件”（Unversioned Files）两个可展开节点，节点名后显示灰色“N 个文件”，复选框为三态（部分包含时显示短横）；文件、文件夹、分组节点的包含复选框位于展开箭头之后、图标之前，箭头为 IDEA 细线 chevron（16px、1px 描边，亮色 #818594、暗色 #B4B8BF，悬停不变色），图标与文字在行内垂直居中，箭头/复选框/图标/文字间距 4px，文件夹名后紧跟灰色文件数；长文件名不再截断，变更列表出现横向滚动条。 变更列表工具栏有 IDEA 式“视图选项”（眼睛图标），菜单中直接列出“目录 / 平铺显示”并勾选当前项，两次点击即可切换（平铺时文件名后附灰色目录），选择持久化；文件行末尾不再显示暂存 +/- 按钮；列表很长时纵向/横向滚动条滑块按可视比例显示长度，笔记本触控板左右滑动可横向滚动；面板从隐藏切回显示、侧栏改宽或字体加载完成后，长文件名仍完整显示而不被截断；名称超出面板可视右边缘时，鼠标悬停该行会像 IDEA 一样在行上方弹出完整名称（含文件数或目录），移开、滚动或点击即消失。 Windows 补充验证：先拉高提交说明，再缩小窗口或侧栏可用高度、触发按钮换行，确认变更列表仍保留 96px；恢复空间后恢复原高度偏好，隐藏时不覆盖偏好，继续拖动从实际高度开始。提交比较选择器查询失败时显示错误和重试；重试成功且结果为空才显示无提交；关闭、切换仓库或工作区后迟到结果不得覆盖当前状态。"
+    },
+    {
+      "id": "git-status-colors-idea-alignment",
+      "area": "版本控制",
+      "group": "Git",
+      "capability": "Windows 默认主题 Git 状态配色与 IDEA 对齐（修改/重命名蓝、新增绿、删除灰、未跟踪暖红、gutter 浅色）",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift"
+        ],
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/extensions/themes/builtin/lithe.json",
+          "windows/tauri/src/styles/theme.css",
+          "windows/tauri/src/features/file-explorer/lib/file-tree-git-status.ts",
+          "windows/tauri/src/features/editor/styles/monaco-editor.css",
+          "windows/tauri/src/features/git/components/git-operation-banner.tsx",
+          "windows/tauri/src/features/git/utils/git-file-status-visuals.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Git",
+      "notes": "对齐 IntelliJ IDEA 新 UI 的 FILESTATUS 与 *_LINES_COLOR（来源 intellij-community expUI_lightScheme/expUI_darkScheme）：modified 与 renamed #0033B3/#70AEFF、added #067D17/#73BD79、deleted 文件 #6C707E/#6F737A（新增可选 token git-file-deleted）、untracked #B23247/#E88F89；编辑器 gutter 使用可选 token git-gutter-added/modified/deleted（#7FC784/#88ADF7/#767A8A，暗色 #549159/#375FAD/#868A91）。git-deleted 保持红色，继续用于 diff 删除行与删除计数；git-modified-staged 为蓝色浅化派生。其他主题未定义新 token 时回退到 git-deleted/git-added/git-modified。原误用 text-git-modified 作为警告色的 rebase/patch/历史改写对话框与操作横幅改回 text-warning。变更列表与提交文件树不再使用 text-info/灰色/红色临时映射，统一走 git-* token。macOS 项目树配色体系不同（modified 用 accent），不属于本行对齐范围。",
+      "verification": "在 Windows 打开包含已修改、已暂存修改、新增、删除、重命名、未跟踪文件与 .gitignore 忽略项的仓库，在 Lithe 明暗主题下确认：文件树、Commit 面板变更列表与 Git Log 提交文件树中已修改和重命名为蓝色（暂存修改为浅蓝）、新增为绿色、删除为灰色、未跟踪为暖红、忽略文件仍为置灰半透明；编辑器 gutter 修改/新增/删除标记为 IDEA 浅蓝/浅绿/灰色；diff 删除行与 -N 计数仍为红色；切换到未定义新 token 的其他内置主题时颜色回退正常；rebase/patch/历史改写对话框的警告文案与操作横幅保持琥珀警示色。"
     },
     {
       "id": "git-multi-repository-change-groups",
@@ -1224,7 +1260,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；在 Windows Git Log 选中带多行正文的提交，确认右侧详情在标题下方完整显示正文（保留空行与缩进），复制提交信息和打开提交 Diff 时也包含正文；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 读取提交正文期间切换仓库、重新打开另一提交或关闭面板，确认迟到结果不会打开旧 Diff 或覆盖新请求的加载状态。 Windows 另验证：单击提交后编辑区预览该提交第一个文件的 diff；单击或双击 Commit files 中的文件只显示该文件的 diff（不含提交说明，也不显示文件列表），并复用同一个预览标签；Git Log 刚打开、尚未点击提交时不会自动打开 diff；日期列对与本机同一时区的提交显示相对时间（刚刚、N 分钟前、今天/昨天 + 12 小时制，中文为上午/下午），其他时区或未知时区的提交只显示日期，鼠标移入行时刷新相对时间；作者/日期列可在行内列边缘拖动调整宽度并在重启后保留。 非连续多选提交修改同一路径时，预览保留每个提交的 diff 区段及提交标识；延迟请求返回前取消选择、隐藏 Git Log、切换仓库或卸载工具窗，确认旧请求不会重新打开或激活预览标签。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；在 Windows Git Log 选中带多行正文的提交，确认右侧详情在标题下方完整显示正文（保留空行与缩进），复制提交信息和打开提交 Diff 时也包含正文；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 读取提交正文期间切换仓库、重新打开另一提交或关闭面板，确认迟到结果不会打开旧 Diff 或覆盖新请求的加载状态。 Windows 另验证：单击提交后编辑区预览该提交第一个文件的 diff；单击或双击 Commit files 中的文件只显示该文件的 diff（不含提交说明，也不显示文件列表），并复用同一个预览标签；Git Log 刚打开、尚未点击提交时不会自动打开 diff；日期列对与本机同一时区的提交显示相对时间（刚刚、N 分钟前、今天/昨天 + 12 小时制，中文为上午/下午），其他时区或未知时区的提交只显示日期，鼠标移入行时刷新相对时间；作者/日期列可在行内列边缘拖动调整宽度并在重启后保留。 非连续多选提交修改同一路径时，预览保留每个提交的 diff 区段及提交标识；延迟请求返回前取消选择、隐藏 Git Log、切换仓库或卸载工具窗，确认旧请求不会重新打开或激活预览标签。 Windows 端提交历史仅通过 Git Log 工具窗浏览：源代码管理侧栏入口已更名为 Commit 面板，其 History 标签已移除，面板固定显示变更列表与提交区。命令面板中的 Git: Show History 入口同步移除。"
     },
     {
       "id": "git-rebase-stash",

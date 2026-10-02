@@ -1,4 +1,3 @@
-import { RunIcon } from "@/features/run/components/run-icon";
 import {
   WarningCircleIcon as AlertCircle,
   ColumnsIcon as Columns,
@@ -9,6 +8,7 @@ import {
   SidebarSimpleIcon as PanelBottom,
   SidebarSimpleIcon as PanelLeft,
   ArrowCounterClockwiseIcon as RotateCcw,
+  RunToolWindowIcon,
   MagnifyingGlassIcon as Search,
   TerminalWindowIcon as Terminal,
   MagnifyingGlassPlusIcon as ZoomIn,
@@ -109,7 +109,7 @@ export const createViewActions = (params: ViewActionsParams): Action[] => {
       label:
         isBottomPaneVisible && bottomPaneActiveTab === "run" ? "View: Hide Run" : "View: Show Run",
       description: "Toggle the Run tool window",
-      icon: <RunIcon />,
+      icon: <RunToolWindowIcon />,
       category: "View",
       commandId: "workbench.toggleRun",
       action: () => {

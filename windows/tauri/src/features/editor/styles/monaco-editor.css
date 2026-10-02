@@ -517,7 +517,9 @@
   display: none !important;
 }
 
-/* Git change markers in the line-decoration gutter (#681). */
+/* Git change markers in the line-decoration gutter (#681). The optional
+   git-gutter-* tokens carry IntelliJ's lighter *_LINES_COLOR values; themes
+   without them reuse the file-status colors. */
 .monaco-editor-shell .monaco-editor .lithe-git-gutter {
   width: 3px !important;
   margin-left: 3px;
@@ -525,11 +527,11 @@
 }
 
 .monaco-editor-shell .monaco-editor .lithe-git-gutter-added {
-  background: var(--git-added);
+  background: var(--git-gutter-added, var(--git-added));
 }
 
 .monaco-editor-shell .monaco-editor .lithe-git-gutter-modified {
-  background: var(--git-modified);
+  background: var(--git-gutter-modified, var(--git-modified));
 }
 
 /* A deletion owns no line; draw a wedge at the top of the following line. */
@@ -538,7 +540,7 @@
   height: 0 !important;
   border-top: 4px solid transparent;
   border-bottom: 4px solid transparent;
-  border-left: 6px solid var(--git-deleted);
+  border-left: 6px solid var(--git-gutter-deleted, var(--git-deleted));
   margin-top: -4px;
 }
 

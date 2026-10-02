@@ -301,6 +301,10 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-layout.json -- src/features/git/hooks/use-git-log-column-resize.test.tsx src/features/git/components/log/git-log-date-cell.test.tsx src/features/git/components/log/git-commit-file-tree.test.ts src/features/git/utils/git-log-columns.test.ts src/features/git/utils/git-log-date.test.ts src/features/git/utils/multi-file-diff.test.ts src/utils/document-resize-session.test.ts src/features/layout/components/plugin-activity-rail.test.ts src/features/layout/components/workbench-panel-frame.test.ts src/features/layout/config/item-order.test.ts src/features/keymaps/defaults/default-keymaps.git-log.test.ts src/features/terminal/stores/terminal.store.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Test Commit panel layout and history picker
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-commit-panel.json -- src/features/git/hooks/use-git-commit-picker.test.tsx src/features/git/hooks/use-git-commit-area-resize.test.tsx src/features/git/components/git-commit-panel.test.tsx
+
       - name: Test workspace Git commit adapters and staging
         shell: pwsh
         run: |

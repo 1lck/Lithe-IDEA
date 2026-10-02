@@ -26,7 +26,6 @@ export const GitSettings = () => {
       gitChangesFolderView: state.settings.gitChangesFolderView,
       gitDefaultDiffView: state.settings.gitDefaultDiffView,
       openDiffOnClick: state.settings.openDiffOnClick,
-      rememberLastGitPanelMode: state.settings.rememberLastGitPanelMode,
       showStagedFirst: state.settings.showStagedFirst,
       showUntrackedFiles: state.settings.showUntrackedFiles,
     })),
@@ -192,23 +191,6 @@ export const GitSettings = () => {
           <Switch
             checked={settings.collapseEmptyGitSections}
             onChange={(checked) => updateSetting("collapseEmptyGitSections", checked)}
-            size="sm"
-          />
-        </SettingRow>
-
-        <SettingRow
-          label={t("settings.git.rememberPanel")}
-          description={t("settings.git.rememberPanelDescription")}
-          onReset={() =>
-            updateSetting("rememberLastGitPanelMode", getDefaultSetting("rememberLastGitPanelMode"))
-          }
-          canReset={
-            settings.rememberLastGitPanelMode !== getDefaultSetting("rememberLastGitPanelMode")
-          }
-        >
-          <Switch
-            checked={settings.rememberLastGitPanelMode}
-            onChange={(checked) => updateSetting("rememberLastGitPanelMode", checked)}
             size="sm"
           />
         </SettingRow>

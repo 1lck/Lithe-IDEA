@@ -1,4 +1,5 @@
 export interface DocumentResizeSessionOptions {
+  /** Pointer coordinate on `axis` when the drag started (`clientX`, or `clientY` for `"y"`). */
   startX: number;
   startWidth: number;
   clampWidth: (value: number) => number;
@@ -11,6 +12,11 @@ export interface DocumentResizeSessionOptions {
    * whose handle sits on its left edge.
    */
   direction?: 1 | -1;
+  /**
+   * `"x"` (default) follows `clientX` for a width; `"y"` follows `clientY` so the same session
+   * drives a height. With `"y"`, `direction: -1` grows the size as the pointer moves up.
+   */
+  axis?: "x" | "y";
   /** Cursor forced on the body while dragging so it does not flicker over other elements. */
   cursor?: string;
   target?: Pick<Document, "addEventListener" | "removeEventListener">;
@@ -26,7 +32,7 @@ export interface DocumentResizeSession {
 }
 
 /**
- * Owns pointer-drag listeners for a horizontal resize.
+ * Owns pointer-drag listeners for a horizontal (or, with `axis: "y"`, vertical) resize.
  * Cleanup is idempotent and safe for mouseup, blur, pointercancel, and unmount.
  *
  * `applyWidth` is coalesced to one call per animation frame and should only touch the DOM;
@@ -41,6 +47,7 @@ export function startDocumentResizeSession(
   const scheduleFrame = options.scheduleFrame ?? requestAnimationFrame.bind(window);
   const cancelFrame = options.cancelFrame ?? cancelAnimationFrame.bind(window);
   const direction = options.direction ?? 1;
+  const axis = options.axis ?? "x";
 
   let currentWidth = options.startWidth;
   let rafId: number | null = null;
@@ -74,7 +81,8 @@ export function startDocumentResizeSession(
   const handlePointerMove = (event: Event) => {
     const pointerEvent = event as PointerEvent;
     currentWidth = options.clampWidth(
-      options.startWidth + direction * (pointerEvent.clientX - options.startX),
+      options.startWidth +
+        direction * ((axis === "y" ? pointerEvent.clientY : pointerEvent.clientX) - options.startX),
     );
     if (rafId !== null) {
       cancelFrame(rafId);

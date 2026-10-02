@@ -3,23 +3,16 @@ import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-
 import { writeSidebarResourceDragData } from "@/features/sidebar/utils/sidebar-resource-drag";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Checkbox } from "@/ui/checkbox";
-import { Button } from "@/ui/button";
-import { MinusIcon as Minus, PlusIcon as Plus } from "@/ui/icons";
-import { Spinner } from "@/ui/spinner";
 import { SidebarTreeRow } from "@/features/sidebar/components/sidebar-tree";
 import { FILE_TREE_BASE_INDENT } from "@/features/file-explorer/lib/file-tree-row";
 import { cn } from "@/utils/cn";
 import type { GitFile } from "../../types/git.types";
 import { getWorkingTreeStatusColorClassName } from "../../utils/git-file-status-visuals";
+import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
 import {
   getGitFileRepositoryPath,
   getGitFileRepositoryRelativePath,
 } from "../../utils/git-status-selection";
-import {
-  activateGitFileStageAction,
-  getGitFileStageActionState,
-  prepareGitFileStageAction,
-} from "../../utils/git-file-stage-action";
 
 interface GitFileItemProps {
   file: GitFile;
@@ -38,52 +31,6 @@ interface GitFileItemProps {
   reserveDisclosureSpace?: boolean;
   className?: string;
   repoPath?: string;
-  onStagedChange?: (staged: boolean) => void;
-  stagePending?: boolean;
-}
-
-interface GitFileStageActionProps {
-  staged: boolean;
-  label: string;
-  disabled?: boolean;
-  pending?: boolean;
-  onStagedChange: (staged: boolean) => void;
-}
-
-export function GitFileStageAction({
-  staged,
-  label,
-  disabled,
-  pending = false,
-  onStagedChange,
-}: GitFileStageActionProps) {
-  const actionState = getGitFileStageActionState(staged, pending, disabled);
-
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      size="icon-xs"
-      disabled={actionState.disabled}
-      aria-busy={actionState.busy || undefined}
-      className="size-5 opacity-0 group-hover/git-status-row:opacity-100 group-focus-within/git-status-row:opacity-100"
-      tooltip={label}
-      tooltipSide="left"
-      onMouseDown={prepareGitFileStageAction}
-      onClick={(event) =>
-        activateGitFileStageAction(event, actionState.targetStaged, onStagedChange)
-      }
-      onContextMenu={(event) => event.stopPropagation()}
-    >
-      {pending ? (
-        <Spinner label={label} compact />
-      ) : staged ? (
-        <Minus />
-      ) : (
-        <Plus />
-      )}
-    </Button>
-  );
 }
 
 export const GitFileItem = ({
@@ -103,8 +50,6 @@ export const GitFileItem = ({
   reserveDisclosureSpace = false,
   className,
   repoPath,
-  onStagedChange,
-  stagePending = false,
 }: GitFileItemProps) => {
   const { t } = useTranslation();
   const pathParts = getGitFileRepositoryRelativePath(file).split("/");
@@ -120,6 +65,7 @@ export const GitFileItem = ({
       baseIndent={FILE_TREE_BASE_INDENT}
       showGuides={showIndentGuides}
       active={active}
+      variant="idea"
       containerClassName="group/git-status-row"
       className={cn("h-full overflow-clip py-0.5", className)}
       style={rowHeight ? { height: rowHeight } : undefined}
@@ -137,30 +83,19 @@ export const GitFileItem = ({
           />
         ) : null
       }
-      action={
-        <div className="flex items-center gap-0.5">
-          {onStagedChange ? (
-            <GitFileStageAction
-              staged={file.staged}
-              disabled={disabled}
-              pending={stagePending}
-              label={t(file.staged ? "git.unstageFileNamed" : "git.stageFileNamed", {
-                name: fileName,
-              })}
-              onStagedChange={onStagedChange}
-            />
-          ) : null}
-          <Checkbox
-            checked={checked}
-            onCheckedChange={onCheckedChange}
-            disabled={disabled}
-            aria-label={
-              checked
-                ? t("git.excludeFileFromCommit", { name: fileName })
-                : t("git.includeFileInCommit", { name: fileName })
-            }
-          />
-        </div>
+      // IntelliJ places the include-in-commit checkbox before the file icon.
+      leadingAction={
+        <Checkbox
+          className={IDEA_CHECKBOX_CLASS_NAME}
+          checked={checked}
+          onCheckedChange={onCheckedChange}
+          disabled={disabled}
+          aria-label={
+            checked
+              ? t("git.excludeFileFromCommit", { name: fileName })
+              : t("git.includeFileInCommit", { name: fileName })
+          }
+        />
       }
       draggable={!!dragRepoPath}
       onDragStart={(event) => {

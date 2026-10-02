@@ -3,6 +3,8 @@ import {
   ArrowCounterClockwiseIcon as RotateCcw,
   CaretDownIcon as CaretDown,
   CaretRightIcon as CaretRight,
+  CheckIcon as Check,
+  EyeIcon as Eye,
   FolderOpenIcon as FolderOpen,
   GitCommitIcon as GitCommit,
   GitDiffIcon as GitDiff,
@@ -13,7 +15,7 @@ import {
 } from "@/ui/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { useFileTreePresentation } from "@/features/file-explorer/hooks/use-file-tree-presentation";
@@ -66,6 +68,12 @@ import {
 } from "../../utils/git-status-selection";
 import { StashMessageModal } from "../stash/git-stash-modal";
 import { GitFileItem } from "./git-status-file-item";
+import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
+import {
+  isLabelTruncated,
+  measureLabelNaturalWidth,
+  useGitStatusExpandableHint,
+} from "./use-git-status-expandable-hint";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
@@ -136,8 +144,34 @@ type GitStatusVirtualRow =
     };
 
 const GIT_STATUS_SECTION_HEADER_HEIGHT = 32;
-const GIT_STATUS_SECTION_CONTENT_GAP = 2;
-const GIT_STATUS_SECTION_GAP = 8;
+// IntelliJ lists "Changes" and "Unversioned Files" as top-level tree nodes, so their
+// files sit one level deeper than the node.
+const GIT_STATUS_SECTION_CHILD_DEPTH = 1;
+/**
+ * Width a rendered row needs to show its name and count without truncation: the row
+ * minus the flexible label area, plus the label parts' natural widths, rounded up with a
+ * pixel of slack so fractional text widths never end in an ellipsis. `truncated` tells
+ * whether the row is clipped right now.
+ */
+export function measureGitStatusRowWidth(row: HTMLElement): { width: number; truncated: boolean } {
+  const label = row.querySelector<HTMLElement>("[data-sidebar-tree-label]");
+  if (!label) return { width: row.offsetWidth, truncated: false };
+  return {
+    width: Math.ceil(row.offsetWidth - label.clientWidth + measureLabelNaturalWidth(label)) + 1,
+    truncated: isLabelTruncated(label),
+  };
+}
+
+/** Include-in-commit state of a group: all, none, or some of its eligible files. */
+function getCommitInclusionState(files: readonly GitFile[]) {
+  const eligible = files.filter((file) => file.canToggleStaging !== false);
+  const included = eligible.filter((file) => file.staged).length;
+  return {
+    eligible,
+    checked: eligible.length > 0 && included === eligible.length,
+    indeterminate: included > 0 && included < eligible.length,
+  };
+}
 const GIT_STATUS_TREE_OVERSCAN = 12;
 
 const getFileEntryId = (filePath: string) => `file:${filePath}`;
@@ -232,6 +266,9 @@ const GitStatusPanel = ({
   const statusViewportRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDiffMenuOpen, setIsDiffMenuOpen] = useState(false);
+  const [isViewOptionsOpen, setIsViewOptionsOpen] = useState(false);
+  const viewOptionsAnchorRef = useRef<HTMLDivElement>(null);
+  const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [optimisticStageMap, setOptimisticStageMap] = useState<Record<string, boolean>>({});
   const stagingOperationsRef = useRef(new Map<string, Set<symbol>>());
   const [stagePendingPaths, setStagePendingPaths] = useState<Set<string>>(new Set());
@@ -394,19 +431,11 @@ const GitStatusPanel = ({
       groupedFiles: Record<GitStatusGroup, GitFile[]>,
     ) => {
       if (fileCount === 0) return;
-      if (rows.length > 0) {
-        rows.push({ kind: "spacer", key: `${section}:section-gap`, size: GIT_STATUS_SECTION_GAP });
-      }
       rows.push({ kind: "section", key: `${section}:header`, section, count: fileCount });
       if (collapsedSections.has(section)) return;
 
-      rows.push({
-        kind: "spacer",
-        key: `${section}:content-gap`,
-        size: GIT_STATUS_SECTION_CONTENT_GAP,
-      });
       if (gitChangesFolderView && tree) {
-        for (const node of tree.nodes) appendTreeNode(node, 0, section);
+        for (const node of tree.nodes) appendTreeNode(node, GIT_STATUS_SECTION_CHILD_DEPTH, section);
         return;
       }
 
@@ -417,9 +446,9 @@ const GitStatusPanel = ({
             key: `${section}:${status}:${file.staged ? "staged" : "unstaged"}:${file.path}`,
             section,
             file,
-            depth: 0,
+            depth: GIT_STATUS_SECTION_CHILD_DEPTH,
             showDirectory: true,
-            reserveDisclosureSpace: false,
+            reserveDisclosureSpace: true,
           });
         }
       }
@@ -446,13 +475,58 @@ const GitStatusPanel = ({
     sections,
   ]);
 
+  // IntelliJ's changes tree scrolls horizontally instead of truncating long names. Rows
+  // are virtualized and absolutely positioned, so the tree takes the widest width any
+  // rendered row has needed; it restarts from the viewport width only when the layout
+  // itself changes, so routine status refreshes do not briefly re-truncate every name.
+  const [treeContentWidth, setTreeContentWidth] = useState(0);
+  const hasVisibleFiles = visibleFiles.length > 0;
+  const measureTreeContentWidth = useCallback(() => {
+    const viewport = statusViewportRef.current;
+    if (!viewport) return;
+    // Only rows that are actually clipped widen the tree, so a tree that fits keeps
+    // following the viewport width when the sidebar is resized.
+    let widest = 0;
+    for (const row of viewport.querySelectorAll<HTMLElement>("[data-git-status-row-index]")) {
+      const { width, truncated } = measureGitStatusRowWidth(row);
+      // A row that is already as wide as it claims to need cannot be helped by growing
+      // further; skipping it keeps a mis-measured row from widening the tree forever.
+      if (truncated && width > row.offsetWidth + 1) widest = Math.max(widest, width);
+    }
+    if (widest > 0) setTreeContentWidth((current) => (widest > current ? widest : current));
+  }, []);
+  useLayoutEffect(() => {
+    setTreeContentWidth(0);
+  }, [repoPath, gitChangesFolderView, fileTreePresentation.compactFolders]);
+  useLayoutEffect(() => {
+    measureTreeContentWidth();
+  });
+  // Text widths also change without a React render: the panel was hidden (every width
+  // reads 0) and is shown again, the sidebar is resized, or the UI font finishes loading.
+  useEffect(() => {
+    const viewport = statusViewportRef.current;
+    const fonts = globalThis.document?.fonts;
+    const observer =
+      viewport && typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => measureTreeContentWidth())
+        : null;
+    if (viewport) observer?.observe(viewport);
+    fonts?.addEventListener?.("loadingdone", measureTreeContentWidth);
+    return () => {
+      observer?.disconnect();
+      fonts?.removeEventListener?.("loadingdone", measureTreeContentWidth);
+    };
+    // The viewport only exists while there are files to list.
+  }, [measureTreeContentWidth, hasVisibleFiles]);
+  // Rows still cut off by the viewport edge show their full label on hover, like IntelliJ.
+  useGitStatusExpandableHint(statusViewportRef, hasVisibleFiles);
+
   const statusVirtualizer = useVirtualizer({
     count: statusRows.length,
     getScrollElement: () => statusViewportRef.current,
     estimateSize: (index) => {
       const row = statusRows[index];
-      if (row?.kind === "section" || row?.kind === "repository")
-        return GIT_STATUS_SECTION_HEADER_HEIGHT;
+      if (row?.kind === "repository") return GIT_STATUS_SECTION_HEADER_HEIGHT;
       if (row?.kind === "spacer") return row.size;
       return fileTreePresentation.rowHeight;
     },
@@ -814,18 +888,55 @@ const GitStatusPanel = ({
     onCollapsedSectionsChange(next);
   };
 
-  const renderSectionHeader = (section: StatusSection, title: string, count: number) => (
-    <SidebarSectionHeader
-      variant="surface"
-      count={count}
-      expanded={!collapsedSections.has(section)}
-      onToggle={() => toggleSectionCollapsed(section)}
-      className="h-full"
-      style={{ height: "100%" }}
-    >
-      {title}
-    </SidebarSectionHeader>
-  );
+  const renderSectionNode = (section: StatusSection) => {
+    const sectionData = sectionById.get(section);
+    if (!sectionData) return null;
+    const title = t(sectionData.kind === "tracked" ? "git.changesNode" : "git.unversionedFilesNode");
+    const inclusion = getCommitInclusionState(sectionData.files);
+    const count = sectionData.files.length;
+    const expanded = !collapsedSections.has(section);
+    return (
+      <SidebarTreeRow
+        depth={0}
+        indentSize={fileTreePresentation.indentSize}
+        baseIndent={FILE_TREE_BASE_INDENT}
+        showGuides={false}
+        expanded={expanded}
+        onToggle={() => toggleSectionCollapsed(section)}
+        onDoubleClick={() => toggleSectionCollapsed(section)}
+        variant="idea"
+        label={<span className="font-medium">{title}</span>}
+        // IntelliJ appends the grey "N files" count right after the node name.
+        description={t("git.diffFileCount", { count, plural: count === 1 ? "" : "s" })}
+        leadingAction={
+          <Checkbox
+            className={IDEA_CHECKBOX_CLASS_NAME}
+            checked={inclusion.checked}
+            indeterminate={inclusion.indeterminate}
+            onCheckedChange={(checked) =>
+              handleSetCommitPathsSelected(
+                inclusion.eligible.map((file) => file.path),
+                // A mixed group includes everything, like IntelliJ's tri-state node.
+                inclusion.indeterminate ? true : checked,
+              )
+            }
+            disabled={
+              isLoading ||
+              inclusion.eligible.length === 0 ||
+              sectionData.files.some((file) => stagePendingPaths.has(file.path))
+            }
+            aria-label={t(
+              inclusion.checked ? "git.excludeFolderFromCommit" : "git.includeFolderInCommit",
+              { name: title },
+            )}
+          />
+        }
+        className="h-full py-0.5"
+        style={{ height: fileTreePresentation.rowHeight }}
+        data-git-status-section={sectionData.kind}
+      />
+    );
+  };
 
   const focusStatusRow = (index: number) => {
     statusVirtualizer.scrollToIndex(index, { align: "auto" });
@@ -841,7 +952,7 @@ const GitStatusPanel = ({
   const findFocusableStatusRow = (start: number, step: -1 | 1) => {
     for (let index = start; index >= 0 && index < statusRows.length; index += step) {
       const row = statusRows[index];
-      if (row?.kind === "folder" || row?.kind === "file") return index;
+      if (row?.kind === "folder" || row?.kind === "file" || row?.kind === "section") return index;
     }
     return -1;
   };
@@ -852,7 +963,28 @@ const GitStatusPanel = ({
     const rowElement = target.closest<HTMLElement>("[data-git-status-row-index]");
     const rowIndex = Number(rowElement?.dataset.gitStatusRowIndex);
     const row = statusRows[rowIndex];
-    if (!Number.isInteger(rowIndex) || (row?.kind !== "folder" && row?.kind !== "file")) return;
+    if (!Number.isInteger(rowIndex) || !row) return;
+    if (row.kind === "section") {
+      const collapsed = collapsedSections.has(row.section);
+      if ((event.key === "ArrowRight" && collapsed) || (event.key === "ArrowLeft" && !collapsed)) {
+        event.preventDefault();
+        toggleSectionCollapsed(row.section);
+        return;
+      }
+      const sectionTarget =
+        event.key === "ArrowDown"
+          ? findFocusableStatusRow(rowIndex + 1, 1)
+          : event.key === "ArrowUp"
+            ? findFocusableStatusRow(rowIndex - 1, -1)
+            : event.key === "ArrowRight"
+              ? findFocusableStatusRow(rowIndex + 1, 1)
+              : -1;
+      if (sectionTarget < 0) return;
+      event.preventDefault();
+      focusStatusRow(sectionTarget);
+      return;
+    }
+    if (row.kind !== "folder" && row.kind !== "file") return;
 
     let targetIndex = -1;
     if (event.key === "ArrowDown") {
@@ -888,6 +1020,11 @@ const GitStatusPanel = ({
       }
       for (let index = rowIndex - 1; index >= 0; index -= 1) {
         const candidate = statusRows[index];
+        // The section node is the parent of its top-level files and folders.
+        if (candidate?.kind === "section" && candidate.section === row.section) {
+          targetIndex = index;
+          break;
+        }
         if (
           candidate &&
           (candidate.kind === "folder" || candidate.kind === "file") &&
@@ -925,6 +1062,7 @@ const GitStatusPanel = ({
             {row.repoPath}
           </SidebarSectionHeader>
           <Checkbox
+            className={IDEA_CHECKBOX_CLASS_NAME}
             checked={checked}
             onCheckedChange={(staged) => void handleSetFilesStaged(eligible, staged)}
             disabled={
@@ -939,13 +1077,7 @@ const GitStatusPanel = ({
         </div>
       );
     }
-    if (row.kind === "section") {
-      return renderSectionHeader(
-        row.section,
-        t(sectionById.get(row.section)?.kind === "tracked" ? "git.tracked" : "git.untracked"),
-        row.count,
-      );
-    }
+    if (row.kind === "section") return renderSectionNode(row.section);
 
     if (row.kind === "file") {
       const entry = entryById.get(getFileEntryId(row.file.path));
@@ -966,8 +1098,6 @@ const GitStatusPanel = ({
           disabled={
             isLoading || row.file.canToggleStaging === false || stagePendingPaths.has(row.file.path)
           }
-          onStagedChange={(staged) => void handleSetFilesStaged([row.file], staged)}
-          stagePending={stagePendingPaths.has(row.file.path)}
           showDirectory={row.showDirectory}
           showFileIcon={fileTreePresentation.showIcons}
           showIndentGuides={fileTreePresentation.showIndentGuides}
@@ -985,9 +1115,8 @@ const GitStatusPanel = ({
     const entry = entryById.get(getFolderEntryId(row.section, row.branch.path));
     if (!folderState || !entry) return null;
     const isCollapsed = collapsedFolders.has(`${row.section}:${row.branch.path}`);
-    const isChecked = folderState.descendantFilePaths.every(
-      (filePath) => displayFileByPath.get(filePath)?.staged,
-    );
+    const folderInclusion = getCommitInclusionState(entry.files);
+    const isChecked = folderInclusion.checked;
 
     return (
       <SidebarTreeRow
@@ -1006,15 +1135,12 @@ const GitStatusPanel = ({
         }}
         onDoubleClick={() => toggleFolderCollapsed(row.section, row.branch.path)}
         onContextMenu={(event) => handleContextMenu(event, entry)}
+        variant="idea"
         label={row.label}
-        trailing={
-          <span className="shrink-0 text-[10px] leading-none text-subtle-foreground">
-            {t("git.diffFileCount", {
-              count: entry.files.length,
-              plural: entry.files.length === 1 ? "" : "s",
-            })}
-          </span>
-        }
+        description={t("git.diffFileCount", {
+          count: entry.files.length,
+          plural: entry.files.length === 1 ? "" : "s",
+        })}
         className="h-full py-0.5"
         style={{ height: fileTreePresentation.rowHeight }}
         leading={
@@ -1027,11 +1153,16 @@ const GitStatusPanel = ({
             />
           ) : null
         }
-        action={
+        leadingAction={
           <Checkbox
+            className={IDEA_CHECKBOX_CLASS_NAME}
             checked={isChecked}
+            indeterminate={folderInclusion.indeterminate}
             onCheckedChange={(checked) =>
-              handleSetCommitPathsSelected(folderState.descendantFilePaths, checked)
+              handleSetCommitPathsSelected(
+                folderState.descendantFilePaths,
+                folderInclusion.indeterminate ? true : checked,
+              )
             }
             disabled={
               isLoading ||
@@ -1233,6 +1364,50 @@ const GitStatusPanel = ({
               />
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {/* IntelliJ's View Options: switch between the directory tree and a flat list. */}
+              <div ref={viewOptionsAnchorRef} className="flex">
+                <SidebarHeaderIconButton
+                  onClick={() => setIsViewOptionsOpen((open) => !open)}
+                  active={isViewOptionsOpen}
+                  tooltip={t("git.viewOptions")}
+                  tooltipSide="bottom"
+                  aria-label={t("git.viewOptions")}
+                  aria-haspopup="menu"
+                  aria-expanded={isViewOptionsOpen}
+                >
+                  <Eye />
+                </SidebarHeaderIconButton>
+              </div>
+              <Dropdown
+                isOpen={isViewOptionsOpen}
+                anchorRef={viewOptionsAnchorRef}
+                anchorAlign="end"
+                onClose={() => setIsViewOptionsOpen(false)}
+                className="min-w-37.5"
+                // One click picks the layout: both choices sit at the top level instead of
+                // behind IntelliJ's Group By submenu, with a check on the active one.
+                items={(
+                  [
+                    { id: "group-by-directory", folderView: true, label: t("git.groupByDirectory") },
+                    { id: "flat-list", folderView: false, label: t("git.flatList") },
+                  ] as const
+                ).map((option) => ({
+                  id: option.id,
+                  label: option.label,
+                  icon:
+                    gitChangesFolderView === option.folderView ? (
+                      <Check />
+                    ) : (
+                      <span className="size-3.5" />
+                    ),
+                  onClick: () => {
+                    setIsViewOptionsOpen(false);
+                    if (gitChangesFolderView !== option.folderView) {
+                      void updateSetting("gitChangesFolderView", option.folderView);
+                    }
+                  },
+                }))}
+              />
               {unstagedFiles.length > 0 && (
                 <SidebarHeaderIconButton
                   onClick={handleStashAllUnstaged}
@@ -1273,18 +1448,20 @@ const GitStatusPanel = ({
           </SidebarToolbar>
           <ScrollArea
             className="min-h-0 flex-1"
+            orientation="both"
             contentClassName="px-2 py-2"
             viewportProps={{ ref: statusViewportRef }}
             reserveScrollbarGutter
           >
             <SidebarTree
-              label={`${t("git.trackedFiles")} / ${t("git.untrackedFiles")}`}
+              label={`${t("git.changesNode")} / ${t("git.unversionedFilesNode")}`}
               className="file-tree-container relative overflow-visible!"
               onKeyDown={handleStatusTreeKeyDown}
               style={
                 {
                   "--file-tree-row-height": `${fileTreePresentation.rowHeight}px`,
                   height: statusVirtualizer.getTotalSize(),
+                  minWidth: treeContentWidth > 0 ? treeContentWidth : undefined,
                 } as React.CSSProperties
               }
             >
