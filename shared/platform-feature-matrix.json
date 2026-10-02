@@ -267,6 +267,54 @@
       "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
     },
     {
+      "id": "agent-thinking-level-labels",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 思考强度英文呈现：Claude/Codex 子菜单、设置行当前值和模型底栏统一使用上游英文名称",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "2026-10-01 macOS：最新 preview 独立 PR 分支 83 项 Agent 回归通过；含 PR #1007 前置修复的组合构建 87 项回归及真实界面验收通过；中文真实界面确认 Codex 的 Low、Medium、High、Xhigh、Max、Ultra 和 Claude 的 Low、Medium、High、Max 均显示英文。两边分别切换 Low，确认子菜单、设置行当前值和模型底栏同步英文，并恢复 Claude Medium、Codex Xhigh；权限、速度和思考强度标题仍显示中文。不改原始选项 ID、顺序和确认行为，运行前后 bundle 全部 990 个文件 SHA-256 一致。Windows 对话 UI 仍待实现。"
+    },
+    {
+      "id": "agent-approval-mode-presentation",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 权限模式呈现：Claude/Codex 名称保留上游原文，说明按界面语言显示并补齐图标，保留各 Agent 实际支持的选项及权限语义",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Resources/en.lproj/Localizable.strings",
+          "macos/Resources/zh-Hans.lproj/Localizable.strings",
+          "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，已知权限 ID 显示对应图标，未知选项原文和默认图标不变；说明使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；整合紧凑布局后检查双行说明和长列表滚动。Windows 对话 UI 待实现。"
+    },
+    {
       "id": "agent-tool-activity-timeline",
       "area": "AI",
       "group": "Agent 对话",
