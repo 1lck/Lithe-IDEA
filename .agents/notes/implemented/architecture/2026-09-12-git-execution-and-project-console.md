@@ -215,3 +215,21 @@ Windows CI 使用同一计时工具执行生命周期日志回归并保留 HTML/
 - `shared/contracts/rust-core-api.md`
 - `scripts/test-git-execution.py`
 - `.github/workflows/ci-windows.yml`
+
+### macOS Console 左侧工具栏样式
+
+外观依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`VcsConsoleTabService` → `ActionToolbarImpl` → `ActionButtonLook`，以及
+`ManyIslandsDark/Light.theme.json`，与上文执行行为参考版本分开记录。
+使用原始 16pt 明暗 SVG，22pt 背景、竖向上下 2/左右 1 的按钮留白，以及
+上下 5/左右 7 的容器留白；按钮圆角半径 4。清空动作通过
+`ClearConsoleAction` / `PlatformIconMappings` 映射到 `expui/general/delete`。
+
+复用 `LitheIconButtonStyle`，通过可选颜色与选中参数承接 Islands 状态色，
+其他调用者保留原默认值。保留 Lithe 已有的六个动作和可用条件；查找展开、
+软换行与跟随状态仍由原绑定决定，跟随状态是 Lithe 自有行为，不能归因于
+上游一次性的 ScrollToTheEnd 动作。停止/清空/复制禁用时降低图标透明度。
+不用 SF Symbols 近似，也不在这一轮扩展上游控制台功能。
+
+`GitConsoleToolbarTests` 在资源 helper 中检查所有明暗 SVG 真实解析并捕获
+实际 NSHostingView；完整应用中的动作、hover 和视觉检查仍需单独验收。

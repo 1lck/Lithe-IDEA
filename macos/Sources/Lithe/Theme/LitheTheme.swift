@@ -370,6 +370,21 @@ enum LitheTheme {
     static var subtleSelection: Color { adaptive(\.subtleSelection) }
     static var hoverBackground: Color { adaptive(\.hoverBackground) }
     static var pressedBackground: Color { adaptive(\.pressedBackground) }
+    // Community ManyIslands ActionButton tokens; opt in without changing other controls.
+    static var toolbarHoverBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(23.0 / 255)
+                : NSColor.black.withAlphaComponent(18.0 / 255)
+        })
+    }
+    static var toolbarPressedBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(41.0 / 255)
+                : NSColor.black.withAlphaComponent(32.0 / 255)
+        })
+    }
 
     /// IDEA Islands Tree + DefaultControl/ClassicPainter, regular density.
     enum Tree {
@@ -757,6 +772,9 @@ extension View {
 struct LitheIconButtonStyle: ButtonStyle {
     var size: CGFloat = 28
     var cornerRadius: CGFloat = LitheTheme.Metrics.cornerRadius
+    var isSelected = false
+    var hoverBackground: Color = LitheTheme.hoverBackground
+    var pressedBackground: Color = LitheTheme.pressedBackground
     @Environment(\.isEnabled) private var isEnabled
     @State private var isHovering = false
 
@@ -767,9 +785,9 @@ struct LitheIconButtonStyle: ButtonStyle {
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(
-                        configuration.isPressed && isEnabled
-                            ? LitheTheme.pressedBackground
-                            : (isEnabled && isHovering ? LitheTheme.hoverBackground : .clear)
+                        (configuration.isPressed || isSelected) && isEnabled
+                            ? pressedBackground
+                            : (isEnabled && isHovering ? hoverBackground : .clear)
                     )
             )
             .contentShape(Rectangle())

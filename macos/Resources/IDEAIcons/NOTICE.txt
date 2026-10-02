@@ -66,3 +66,8 @@ Commit Diff file navigation reuses Community expui/general/{left,right} SVGs
 (and their _dark variants), mapped from Actions.Back/Forward by
 PlatformIconMappings.json at c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
 Open in Editor and Collapse Unchanged Fragments reuse edit/collapseAll.
+
+The Git Console vertical toolbar uses unmodified expui/general/{search,softWrap,
+scrollDown,delete,copy} and expui/run/stop light/dark SVGs from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. VcsConsoleView, ScrollToTheEndToolbarAction,
+ClearConsoleAction and PlatformIconMappings supply the action mappings.
