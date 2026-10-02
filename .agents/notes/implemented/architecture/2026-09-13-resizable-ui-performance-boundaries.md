@@ -191,3 +191,8 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 仍由原生拖放所有者负责。`EditorTabOrderFeatureModelTests` 用真实窗口事件
 覆盖文件/Diff、单/多行、离栏再返回重排，以及预览窗口取消与焦点保持。
 这不代表实现了 IDEA 的拖出独立编辑窗口或跨编辑器拆分功能。
+
+标签拖动的开始、占位换位、松开与取消均不使用动画。标签栏清除继承的动画
+transaction，并禁止后代重新启用动画；浮动 NSPanel 的 animationBehavior 为
+none，防止系统淡出与标签从透明恢复时的弹簧/渐变。窗口事件回归必须走生产
+样式，不在测试宿主额外关闭动画，以免掩盖这一回归。

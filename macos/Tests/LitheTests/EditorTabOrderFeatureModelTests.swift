@@ -174,8 +174,7 @@ struct EditorTabOrderFeatureModelTests {
             }
             let host = NSHostingView(rootView: EditorAreaView().environmentObject(model)
                 .environmentObject(settings).environmentObject(model.editorChrome)
-                .environment(\.colorScheme, dragDiff ? .dark : .light)
-                .transaction { $0.disablesAnimations = true })
+                .environment(\.colorScheme, dragDiff ? .dark : .light))
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: layout == .singleLine ? 500 : 250, height: 220),
                 styleMask: [.borderless], backing: .buffered, defer: false)
             window.appearance = NSAppearance(named: dragDiff ? .darkAqua : .aqua)
@@ -214,6 +213,7 @@ struct EditorTabOrderFeatureModelTests {
                         })
                         #expect(preview.isVisible && preview.ignoresMouseEvents)
                         #expect(preview.alphaValue == 0.9)
+                        #expect(preview.animationBehavior == .none)
                         #expect(model.editorTabItems == originalItems, "Only commit order on drop")
                         if point.y == 110 {
                             #expect(preview.frame.maxY < window.frame.maxY - 60,

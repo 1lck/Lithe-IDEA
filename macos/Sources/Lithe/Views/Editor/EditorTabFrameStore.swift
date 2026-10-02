@@ -50,6 +50,7 @@ final class EditorTabDragPreviewStore {
         let panel = NSPanel(contentRect: screenFrame, styleMask: [.borderless, .nonactivatingPanel],
                             backing: .buffered, defer: false)
         panel.identifier = NSUserInterfaceItemIdentifier("lithe.editor-tab-drag-preview")
+        panel.animationBehavior = .none
         panel.isReleasedWhenClosed = false
         panel.isOpaque = false
         panel.backgroundColor = .clear

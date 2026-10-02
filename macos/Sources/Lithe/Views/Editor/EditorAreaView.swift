@@ -83,7 +83,6 @@ enum DocumentPreviewMode: String, CaseIterable, Identifiable, Equatable {
 struct EditorAreaView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var settings: AppSettings
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var editorIsActive = true
     @State private var hoveredTabItem: EditorTabItem?
     @State private var tabDragState = EditorTabDragState.idle
@@ -274,7 +273,12 @@ struct EditorAreaView: View {
             tabFrameStore.update(frames)
         }
         .clipped()
-        .animation(tabAnimation, value: model.editorTabItems)
+        // Tab placement and placeholder restoration are immediate, including
+        // when a parent workbench update carries an animation transaction.
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 
     private var multipleRowsEditorTabLayout: some View {
@@ -410,36 +414,30 @@ struct EditorAreaView: View {
                                       let source = tabDragState.draggedItem,
                                       source != .document(target.documentID) else { return }
                                 if tabDragState.dropTarget != target {
-                                    withAnimation(tabAnimation) {
-                                        tabDragState.updateTarget(target)
-                                    }
+                                    tabDragState.updateTarget(target)
                                 }
                                 guard settlesDrop else { return }
-                                withAnimation(tabAnimation) {
-                                    if target.side == .after {
-                                        model.moveEditorTab(
-                                            source,
-                                            after: .document(target.documentID)
-                                        )
-                                    } else {
-                                        model.moveEditorTab(
-                                            source,
-                                            before: .document(target.documentID)
-                                        )
-                                    }
+                                if target.side == .after {
+                                    model.moveEditorTab(
+                                        source,
+                                        after: .document(target.documentID)
+                                    )
+                                } else {
+                                    model.moveEditorTab(
+                                        source,
+                                        before: .document(target.documentID)
+                                    )
                                 }
                             },
                             clearTarget: { targetDocumentID, sessionID, revision in
                                 guard tabDragState.sessionID == sessionID,
                                       tabDragState.dropTargetRevision == revision,
                                       tabDragState.dropTarget?.documentID == targetDocumentID else { return }
-                                withAnimation(tabAnimation) {
-                                    _ = tabDragState.clearTarget(
-                                        documentID: targetDocumentID,
-                                        sessionID: sessionID,
-                                        revision: revision
-                                    )
-                                }
+                                _ = tabDragState.clearTarget(
+                                    documentID: targetDocumentID,
+                                    sessionID: sessionID,
+                                    revision: revision
+                                )
                             },
                             updateTerminalTarget: { target in
                                 updateTerminalTabBarDropTarget(target)
@@ -685,12 +683,6 @@ struct EditorAreaView: View {
         }
     }
 
-    private var tabAnimation: Animation? {
-        accessibilityReduceMotion
-            ? nil
-            : .interactiveSpring(response: 0.22, dampingFraction: 0.86, blendDuration: 0.10)
-    }
-
     private func updateHoveredTab(_ item: EditorTabItem, isHovering: Bool) {
         if isHovering {
             hoveredTabItem = item
@@ -749,9 +741,7 @@ struct EditorAreaView: View {
         tabDragStartFrames = tabFrameStore.frames
         tabDragPreview.begin(item, onCancel: { cancelTabDrag() })
         tabReorderTarget = nil
-        withAnimation(tabAnimation) {
-            tabDragState.begin(item: item)
-        }
+        tabDragState.begin(item: item)
     }
 
     private func updateTabDrag(
@@ -762,9 +752,7 @@ struct EditorAreaView: View {
               let plan = tabDragPlan(for: item, translation: translation) else { return }
         tabDragPreview.move(by: translation)
         guard tabReorderTarget != plan.target else { return }
-        withAnimation(tabAnimation) {
-            tabReorderTarget = plan.target
-        }
+        tabReorderTarget = plan.target
     }
 
     private func finishTabReorder(
@@ -776,18 +764,16 @@ struct EditorAreaView: View {
             return
         }
         let target = tabDragPlan(for: item, translation: translation)?.target
-        withAnimation(tabAnimation) {
-            if let target {
-                if target.side == .after {
-                    model.moveEditorTab(item, after: target.item)
-                } else {
-                    model.moveEditorTab(item, before: target.item)
-                }
+        if let target {
+            if target.side == .after {
+                model.moveEditorTab(item, after: target.item)
+            } else {
+                model.moveEditorTab(item, before: target.item)
             }
-            tabDragPreview.finish()
-            tabReorderTarget = nil
-            tabDragState.finish()
         }
+        tabDragPreview.finish()
+        tabReorderTarget = nil
+        tabDragState.finish()
         tabDragStartFrames = [:]
     }
 
@@ -901,9 +887,7 @@ struct EditorAreaView: View {
 
     private func updateTerminalTabBarDropTarget(_ target: EditorTabReorderTarget) {
         guard tabReorderTarget != target else { return }
-        withAnimation(tabAnimation) {
-            tabReorderTarget = target
-        }
+        tabReorderTarget = target
     }
 
     private func resolveTerminalDropSide(
@@ -933,9 +917,7 @@ struct EditorAreaView: View {
     private func clearTerminalTabBarDropTarget(matching item: EditorTabItem? = nil) {
         guard let currentTarget = tabReorderTarget,
               item == nil || currentTarget.item == item else { return }
-        withAnimation(tabAnimation) {
-            tabReorderTarget = nil
-        }
+        tabReorderTarget = nil
     }
 
     private func cancelTabDrag() {
@@ -948,11 +930,9 @@ struct EditorAreaView: View {
         guard tabDragState != .idle
             || tabReorderTarget != nil
             || tabDragPreview.panel != nil else { return }
-        withAnimation(tabAnimation) {
-            tabDragPreview.finish()
-            tabReorderTarget = nil
-            tabDragState.finish()
-        }
+        tabDragPreview.finish()
+        tabReorderTarget = nil
+        tabDragState.finish()
         tabDragStartFrames = [:]
     }
 
