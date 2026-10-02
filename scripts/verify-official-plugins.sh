@@ -28,6 +28,12 @@ PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
     print -u2 -- "Official plugin build returned an invalid package root: $PLUGIN_ROOT"
     exit 1
 }
+if [[ -n "${LITHE_PLUGIN_PACKAGE_PRIVATE_KEY:-}" ]]; then
+    [[ -d "$PLUGIN_ROOT/dev.lithe.plugin.php-support" ]] || {
+        print -u2 -- "Publisher key was provided but the PHP plugin package was not built"
+        exit 1
+    }
+fi
 plugins=("$PLUGIN_ROOT"/*(/N))
 package_signer_binary=""
 for plugin in "${plugins[@]}"; do
