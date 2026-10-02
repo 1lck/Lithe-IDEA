@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import LitheCoreContracts
+import SwiftUI
 import Testing
 @testable import Lithe
 
@@ -126,6 +127,68 @@ struct ProjectTreeSelectionTests {
     }
 
     @Test
+    @MainActor
+    func modifiedRowClicksReadModifiersFromTheMouseDownEvent() async throws {
+        let rows = ["a", "b", "c"]
+        var selection = ProjectTreeSelection()
+        var opened: [String] = []
+        let rowHeight: CGFloat = 22
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: rowHeight * 3),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        // Mirrors FileNodeRow: a Button for plain clicks plus the modified-click overlay.
+        window.contentView = NSHostingView(rootView: VStack(spacing: 0) {
+            ForEach(rows, id: \.self) { row in
+                Button { opened.append(row) } label: {
+                    Color.clear.frame(width: 240, height: rowHeight).contentShape(Rectangle())
+                }
+                .buttonStyle(.litheNoPress)
+                .overlay {
+                    ProjectTreeModifiedClick { flags in
+                        selection.select(row, visiblePaths: rows, extending: flags.contains(.shift),
+                                         toggling: flags.contains(.command))
+                    }
+                }
+            }
+        })
+        window.layoutIfNeeded()
+        // A test cannot make an event NSApp.currentEvent, which the overlay's
+        // hit test requires, so the mouse-down goes to the overlay laid out
+        // over the clicked row.
+        func click(_ index: Int, _ flags: NSEvent.ModifierFlags) throws {
+            let point = NSPoint(x: 50, y: rowHeight * (CGFloat(rows.count - index) - 0.5))
+            let down = try #require(NSEvent.mouseEvent(
+                with: .leftMouseDown, location: point, modifierFlags: flags, timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+            #expect(ProjectTreeModifiedClickView.captures(down))
+            let content = try #require(window.contentView)
+            let overlay = try #require(content.descendants
+                .compactMap { $0 as? ProjectTreeModifiedClickView }
+                .first { $0.convert($0.bounds, to: nil).contains(point) })
+            overlay.mouseDown(with: down)
+        }
+
+        // Selection uses the modifiers carried by the mouse-down event; the
+        // SwiftUI action runs later, when NSApp.currentEvent no longer has them.
+        selection.select("a", visiblePaths: rows, extending: false, toggling: false)
+        try click(2, .shift)
+        #expect(selection.paths == ["a", "b", "c"])
+        selection.select("c", visiblePaths: rows, extending: false, toggling: false)
+        try click(0, .shift)
+        #expect(selection.paths == ["a", "b", "c"])
+        try click(1, .command)
+        #expect(selection.paths == ["a", "c"])
+        // The Button sits under the overlay and never sees these clicks.
+        #expect(opened.isEmpty)
+
+        // Control-click stays the macOS secondary click.
+        #expect(!ProjectTreeModifiedClickView.captures(try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))))
+    }
+
+    @Test
     func rightClickPreservesTheGroupOnlyForSelectedRows() {
         let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [
             FileNode(url: URL(fileURLWithPath: "/p/a"), isDirectory: false, children: nil),
@@ -217,4 +280,8 @@ struct ProjectTreeSelectionTests {
 /// A non-text responder standing in for a focused editor or panel.
 private final class ProjectTreeFocusTestView: NSView {
     override var acceptsFirstResponder: Bool { true }
+}
+
+private extension NSView {
+    var descendants: [NSView] { subviews + subviews.flatMap(\.descendants) }
 }

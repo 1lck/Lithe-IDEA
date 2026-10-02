@@ -521,7 +521,7 @@ private struct FileNodeRow: View {
     private var directoryRow: some View {
         Button {
             contextMenuPath = nil
-            guard selectRow() else { return }
+            selectRow()
             if isExpanded {
                 expandedDirectoryPaths.remove(node.url.path)
                 node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
@@ -561,6 +561,12 @@ private struct FileNodeRow: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .overlay {
+            ProjectTreeModifiedClick { flags in
+                contextMenuPath = nil
+                selectRow(flags: flags)
+            }
+        }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
             onRightClick: {
@@ -573,7 +579,7 @@ private struct FileNodeRow: View {
     private var fileRow: some View {
         Button {
             contextMenuPath = nil
-            guard selectRow() else { return }
+            selectRow()
             ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
                 actions.openFile(node.url)
             }
@@ -613,6 +619,12 @@ private struct FileNodeRow: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .overlay {
+            ProjectTreeModifiedClick { flags in
+                contextMenuPath = nil
+                selectRow(flags: flags)
+            }
+        }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + fileContextMenuItems },
             onRightClick: {
@@ -639,12 +651,13 @@ private struct FileNodeRow: View {
 
     /// Modified clicks update selection without opening files or folding directories.
     /// Control-click stays the macOS secondary click and opens the context menu.
-    private func selectRow() -> Bool {
-        let flags = NSApp.currentEvent?.modifierFlags ?? NSEvent.modifierFlags
-        let extending = flags.contains(.shift)
-        let toggling = flags.contains(.command)
-        selection.select(node.url.path, visiblePaths: visibleNodes.map { $0.url.path }, extending: extending, toggling: toggling)
-        return !extending && !toggling
+    private func selectRow(flags: NSEvent.ModifierFlags = []) {
+        selection.select(
+            node.url.path,
+            visiblePaths: visibleNodes.map { $0.url.path },
+            extending: flags.contains(.shift),
+            toggling: flags.contains(.command)
+        )
     }
 
     private var selectedItemURLs: [URL] {
