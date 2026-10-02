@@ -370,6 +370,14 @@ enum LitheTheme {
     static var subtleSelection: Color { adaptive(\.subtleSelection) }
     static var hoverBackground: Color { adaptive(\.hoverBackground) }
     static var pressedBackground: Color { adaptive(\.pressedBackground) }
+    // TabLabel drop placeholder: Islands dark override, IntelliJ light parent.
+    static var editorTabDropBackground: Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? NSColor.white.withAlphaComponent(16.0 / 255)
+                : NSColor(srgbRed: 61.0 / 255, green: 125.0 / 255, blue: 204.0 / 255, alpha: 51.0 / 255)
+        })
+    }
     // Community ManyIslands ActionButton tokens; opt in without changing other controls.
     static var toolbarHoverBackground: Color {
         Color(nsColor: NSColor(name: nil) { appearance in

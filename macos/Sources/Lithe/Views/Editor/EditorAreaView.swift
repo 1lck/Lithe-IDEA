@@ -89,7 +89,8 @@ struct EditorAreaView: View {
     @State private var tabDragState = EditorTabDragState.idle
     @State private var tabFrameStore = EditorTabFrameStore()
     @State private var tabDragStartFrames: [EditorTabItem: CGRect] = [:]
-    @State private var tabDragOffset: CGSize = .zero
+    @State private var tabDragPreview = EditorTabDragPreviewStore()
+    @State private var tabDragCancelled = false
     @State private var tabReorderTarget: EditorTabReorderTarget?
     @State private var isTerminalTabBarDropTargeted = false
     @State private var splitDocumentID: UUID?
@@ -298,24 +299,46 @@ struct EditorAreaView: View {
             model.terminalSessions.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        ForEach(model.editorTabItems) { item in
-            switch item {
-            case .repositoryDiff:
-                repositoryDiffTab
-            case .document(let documentID):
-                if let index = documentIndices[documentID] {
-                    editorTab(model.openDocuments[index], at: index)
+        ForEach(displayedTabItems) { item in
+            Group {
+                switch item {
+                case .repositoryDiff:
+                    repositoryDiffTab
+                case .document(let documentID):
+                    if let index = documentIndices[documentID] {
+                        editorTab(model.openDocuments[index], at: index)
+                    }
+                case .terminal(let sessionID):
+                    if let session = sessionsByID[sessionID] {
+                        editorTerminalTab(session)
+                    }
+                case .media(let mediaID):
+                    if let media = model.openMediaDocuments.first(where: { $0.id == mediaID }) {
+                        editorMediaTab(media)
+                    }
                 }
-            case .terminal(let sessionID):
-                if let session = sessionsByID[sessionID] {
-                    editorTerminalTab(session)
-                }
-            case .media(let mediaID):
-                if let media = model.openMediaDocuments.first(where: { $0.id == mediaID }) {
-                    editorMediaTab(media)
+            }
+            .background(EditorTabDragPreviewAnchor(item: item, store: tabDragPreview))
+            .opacity(tabDragState.draggedItem == item ? 0 : 1)
+            .overlay {
+                if tabDragState.draggedItem == item {
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(LitheTheme.editorTabDropBackground)
+                        .padding(4)
+                        .allowsHitTesting(false)
                 }
             }
         }
+    }
+
+    private var displayedTabItems: [EditorTabItem] {
+        var items = model.editorTabItems
+        guard let source = tabDragState.draggedItem, let target = tabReorderTarget,
+              source != target.item else { return items }
+        items.removeAll { $0 == source }
+        guard let index = items.firstIndex(of: target.item) else { return model.editorTabItems }
+        items.insert(source, at: index + (target.side == .after ? 1 : 0))
+        return items
     }
 
     private var repositoryDiffTab: some View {
@@ -345,35 +368,21 @@ struct EditorAreaView: View {
         .padding(.horizontal, 4).padding(.vertical, 4)
         .onHover { updateHoveredTab(.repositoryDiff, isHovering: $0) }
         .help(title)
-        .overlay(alignment: tabReorderTarget?.side == .before ? .leading : .trailing) {
-            if tabReorderTarget?.item == .repositoryDiff {
-                tabDropInsertionIndicator.padding(.vertical, 5).allowsHitTesting(false)
-            }
-        }
         .background { editorTabFrameReader(for: .repositoryDiff) }
-        .offset(tabDragState.draggedItem == .repositoryDiff ? tabDragOffset : .zero)
         .zIndex(tabDragState.draggedItem == .repositoryDiff ? 1 : 0)
     }
 
     private func editorTab(_ document: EditorDocument, at index: Int) -> some View {
         let tabItem = EditorTabItem.document(document.id)
-        let dropSide: EditorTabDropSide? = {
-            if tabReorderTarget?.item == tabItem {
-                return tabReorderTarget?.side
-            }
-            guard tabDragState.dropTarget?.documentID == document.id else { return nil }
-            return tabDragState.dropTarget?.side
-        }()
-        let isDragged = tabDragState.draggedItem == tabItem
         let dragSessionID = tabDragState.sessionID
         let dropTargetRevision = tabDragState.dropTargetRevision
 
         return ZStack(alignment: .leading) {
             if settings.editorTabLayoutMode == .multipleRows {
-                editorTabContent(document, dropSide: dropSide)
+                editorTabContent(document)
                     .frame(minWidth: EditorTabFlowLayout.minimumItemWidth, alignment: .leading)
             } else {
-                editorTabContent(document, dropSide: dropSide)
+                editorTabContent(document)
             }
         }
         .contentShape(Rectangle())
@@ -465,19 +474,12 @@ struct EditorAreaView: View {
         .background {
             editorTabFrameReader(for: tabItem)
         }
-        .opacity(isDragged ? 0.92 : 1)
-        .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(isDragged ? tabDragOffset : .zero)
-        .zIndex(isDragged ? 1 : 0)
-        .animation(tabAnimation, value: isDragged)
     }
 
     private func editorMediaTab(_ media: MediaDocument) -> some View {
         let isActive = !model.isRepositoryDiffSelected && model.activeEditorTerminalSession == nil
             && model.activeMediaDocumentID == media.id
         let tabItem = EditorTabItem.media(media.id)
-        let isDragged = tabDragState.draggedItem == tabItem
-        let dropSide = tabReorderTarget?.item == tabItem ? tabReorderTarget?.side : nil
 
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
@@ -510,29 +512,12 @@ struct EditorAreaView: View {
         .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
-        .overlay(alignment: .leading) {
-            if dropSide == .some(.before) {
-                tabDropInsertionIndicator.padding(.vertical, 5)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if dropSide == .some(.after) {
-                tabDropInsertionIndicator.padding(.vertical, 5)
-            }
-        }
         .background { editorTabFrameReader(for: tabItem) }
-        .opacity(isDragged ? 0.92 : 1)
-        .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(isDragged ? tabDragOffset : .zero)
-        .zIndex(isDragged ? 1 : 0)
-        .animation(tabAnimation, value: isDragged)
     }
 
     private func editorTerminalTab(_ session: TerminalSession) -> some View {
         let isActive = !model.isRepositoryDiffSelected && model.activeEditorTerminalSession?.id == session.id
         let tabItem = EditorTabItem.terminal(session.id)
-        let isDragged = tabDragState.draggedItem == tabItem
-        let dropSide = tabReorderTarget?.item == tabItem ? tabReorderTarget?.side : nil
 
         return HStack(spacing: 0) {
             HStack(spacing: 7) {
@@ -552,9 +537,7 @@ struct EditorAreaView: View {
                 model.selectEditorTerminalSession(session)
                 session.focus()
             }
-            // Keep a compact native marker for cross-container drops without
-            // bringing back the free-floating tab card. The clipped tab strip
-            // provides the horizontal snap feedback.
+            // Terminal sessions retain their native cross-container transfer.
             .onDrag {
                 TerminalTabDragPayload.provider(for: session.id)
             } preview: {
@@ -581,18 +564,6 @@ struct EditorAreaView: View {
         .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
-        .overlay(alignment: .leading) {
-            if dropSide == .some(.before) {
-                tabDropInsertionIndicator
-                    .padding(.vertical, 5)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if dropSide == .some(.after) {
-                tabDropInsertionIndicator
-                    .padding(.vertical, 5)
-            }
-        }
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -649,16 +620,10 @@ struct EditorAreaView: View {
                 })
             ]
         }
-        .opacity(isDragged ? 0.92 : 1)
-        .scaleEffect(isDragged ? 0.99 : 1)
-        .offset(isDragged ? tabDragOffset : .zero)
-        .zIndex(isDragged ? 1 : 0)
-        .animation(tabAnimation, value: isDragged)
     }
 
     private func editorTabContent(
-        _ document: EditorDocument,
-        dropSide: EditorTabDropSide? = nil
+        _ document: EditorDocument
     ) -> some View {
         let isActive = !model.isRepositoryDiffSelected && model.activeEditorTerminalSession == nil
             && model.activeDocumentID == document.id
@@ -674,18 +639,6 @@ struct EditorAreaView: View {
         .modifier(LitheToolWindowTabStyle(isSelected: isActive, isActive: editorIsActive))
         .padding(.horizontal, 4)
         .padding(.vertical, 4)
-        .overlay(alignment: .leading) {
-            if dropSide == .some(.before) {
-                tabDropInsertionIndicator
-                    .padding(.vertical, 5)
-            }
-        }
-        .overlay(alignment: .trailing) {
-            if dropSide == .some(.after) {
-                tabDropInsertionIndicator
-                    .padding(.vertical, 5)
-            }
-        }
     }
 
     @ViewBuilder
@@ -731,15 +684,6 @@ struct EditorAreaView: View {
                 .lineLimit(1)
         }
     }
-
-    private var tabDropInsertionIndicator: some View {
-        Capsule()
-            .fill(LitheTheme.accent)
-            .frame(width: 3)
-            .shadow(color: LitheTheme.accent.opacity(0.7), radius: 4)
-            .transition(.opacity.combined(with: .scale))
-    }
-
 
     private var tabAnimation: Animation? {
         accessibilityReduceMotion
@@ -788,19 +732,22 @@ struct EditorAreaView: View {
             coordinateSpace: .global
         )
         .onChanged { value in
+            guard !tabDragCancelled else { return }
             if tabDragState.draggedItem != item {
                 beginTabDrag(item)
             }
             updateTabDrag(item, translation: value.translation)
         }
         .onEnded { value in
+            defer { tabDragCancelled = false }
+            guard !tabDragCancelled else { return }
             finishTabReorder(item, translation: value.translation)
         }
     }
 
     private func beginTabDrag(_ item: EditorTabItem) {
         tabDragStartFrames = tabFrameStore.frames
-        tabDragOffset = .zero
+        tabDragPreview.begin(item, onCancel: { cancelTabDrag() })
         tabReorderTarget = nil
         withAnimation(tabAnimation) {
             tabDragState.begin(item: item)
@@ -813,7 +760,7 @@ struct EditorAreaView: View {
     ) {
         guard tabDragState.draggedItem == item,
               let plan = tabDragPlan(for: item, translation: translation) else { return }
-        tabDragOffset = plan.offset
+        tabDragPreview.move(by: translation)
         guard tabReorderTarget != plan.target else { return }
         withAnimation(tabAnimation) {
             tabReorderTarget = plan.target
@@ -837,7 +784,7 @@ struct EditorAreaView: View {
                     model.moveEditorTab(item, before: target.item)
                 }
             }
-            tabDragOffset = .zero
+            tabDragPreview.finish()
             tabReorderTarget = nil
             tabDragState.finish()
         }
@@ -854,6 +801,10 @@ struct EditorAreaView: View {
         let maxY = tabDragStartFrames.values.map(\.maxY).max() ?? sourceFrame.maxY
         let offsetY = wraps ? min(max(translation.height, minY - sourceFrame.minY), maxY - sourceFrame.maxY) : 0
         let centerY = sourceFrame.midY + offsetY
+        let pointerCenterY = sourceFrame.midY + translation.height
+        guard pointerCenterY >= minY, pointerCenterY <= maxY else {
+            return (translation, nil)
+        }
         let rowAnchor = tabDragStartFrames.values.min { abs($0.midY - centerY) < abs($1.midY - centerY) } ?? sourceFrame
         let rowFrames = tabDragStartFrames.filter { _, frame in
             frame.maxY > rowAnchor.minY && frame.minY < rowAnchor.maxY
@@ -987,12 +938,18 @@ struct EditorAreaView: View {
         }
     }
 
+    private func cancelTabDrag() {
+        guard tabDragState.draggedItem != nil else { return }
+        tabDragCancelled = true
+        finishTabDrag()
+    }
+
     private func finishTabDrag() {
         guard tabDragState != .idle
             || tabReorderTarget != nil
-            || tabDragOffset != .zero else { return }
+            || tabDragPreview.panel != nil else { return }
         withAnimation(tabAnimation) {
-            tabDragOffset = .zero
+            tabDragPreview.finish()
             tabReorderTarget = nil
             tabDragState.finish()
         }

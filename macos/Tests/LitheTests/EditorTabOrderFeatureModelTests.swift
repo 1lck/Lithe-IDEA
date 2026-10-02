@@ -174,17 +174,23 @@ struct EditorTabOrderFeatureModelTests {
             }
             let host = NSHostingView(rootView: EditorAreaView().environmentObject(model)
                 .environmentObject(settings).environmentObject(model.editorChrome)
+                .environment(\.colorScheme, dragDiff ? .dark : .light)
                 .transaction { $0.disablesAnimations = true })
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: layout == .singleLine ? 500 : 250, height: 220),
                 styleMask: [.borderless], backing: .buffered, defer: false)
+            window.appearance = NSAppearance(named: dragDiff ? .darkAqua : .aqua)
             window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
             defer { window.contentView = nil; window.close() }
             host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
-            let points: [NSPoint] = layout == .singleLine
+            var points: [NSPoint] = layout == .singleLine
                 ? [NSPoint(x: dragDiff ? 150 : 180, y: 18), NSPoint(x: dragDiff ? 120 : 160, y: 18), NSPoint(x: 80, y: 18), NSPoint(x: 10, y: 18), NSPoint(x: 10, y: 18)]
                 : [NSPoint(x: 20, y: 58), NSPoint(x: 20, y: 48), NSPoint(x: 20, y: 30), NSPoint(x: 10, y: 18), NSPoint(x: 10, y: 18)]
+            // Leave the strip in both layouts, then return and reorder. The
+            // source gesture stays alive while its slot becomes a placeholder.
+            points.insert(NSPoint(x: points[0].x + 15, y: 110), at: 2)
+            let originalItems = model.editorTabItems
             var eventNumber = 0
-            func drag(_ points: [NSPoint]) async throws {
+            func drag(_ points: [NSPoint], cancel: Bool = false) async throws {
                 for (index, point) in points.enumerated() {
                     let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == points.count - 1 ? .leftMouseUp : .leftMouseDragged
                     window.sendEvent(try #require(NSEvent.mouseEvent(with: type,
@@ -193,14 +199,73 @@ struct EditorTabOrderFeatureModelTests {
                         eventNumber: eventNumber, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)))
                     eventNumber += 1
                     await Task.yield(); host.layoutSubtreeIfNeeded()
+                    if cancel && index == 2 {
+                        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                            timestamp: Double(eventNumber), windowNumber: window.windowNumber, context: nil,
+                            characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+                        await Task.yield(); host.layoutSubtreeIfNeeded()
+                    }
+                    if cancel && index >= 2 {
+                        #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } != true)
+                        #expect(model.editorTabItems == originalItems)
+                    } else if type == .leftMouseDragged {
+                        let preview = try #require(window.childWindows?.first {
+                            $0.identifier?.rawValue == "lithe.editor-tab-drag-preview"
+                        })
+                        #expect(preview.isVisible && preview.ignoresMouseEvents)
+                        #expect(preview.alphaValue == 0.9)
+                        #expect(model.editorTabItems == originalItems, "Only commit order on drop")
+                        if point.y == 110 {
+                            #expect(preview.frame.maxY < window.frame.maxY - 60,
+                                    "The floating preview must follow the pointer below the tab strip")
+                            if let directory = ProcessInfo.processInfo.environment["LITHE_DIFF_CAPTURE_DIR"],
+                               let view = preview.contentView {
+                                let url = URL(fileURLWithPath: directory)
+                                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+                                let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+                                view.cacheDisplay(in: view.bounds, to: bitmap)
+                                try #require(bitmap.representation(using: .png, properties: [:]))
+                                    .write(to: url.appendingPathComponent("tab-preview-\(layout)-\(dragDiff).png"))
+                            }
+                        }
+                    }
                 }
             }
+            try await drag(points, cancel: true)
+            #expect(model.editorTabItems == originalItems)
             try await drag(points)
+            #expect(window.childWindows?.contains { $0.identifier?.rawValue == "lithe.editor-tab-drag-preview" } != true)
             #expect(model.editorTabItems == (dragDiff
                 ? [.repositoryDiff, .document(document.id)] : [.document(document.id), .repositoryDiff]))
             #expect(model.isRepositoryDiffSelected == dragDiff)
         } catch { await model.shutdownProjectSession(); throw error }
         await model.shutdownProjectSession()
+    }
+
+    @Test
+    func floatingPreviewCancelsWithoutTakingFocus() async throws {
+        let preview = EditorTabDragPreviewStore()
+        let host = NSHostingView(rootView: Text("Repository Diff: Example.swift")
+            .frame(width: 230, height: 36)
+            .background(EditorTabDragPreviewAnchor(item: .repositoryDiff, store: preview)))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 230, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentView = host; window.orderFront(nil)
+        defer { preview.finish(); window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded(); await Task.yield(); host.layoutSubtreeIfNeeded()
+        var cancelled = false
+        let responder = window.firstResponder
+        preview.begin(.repositoryDiff) { cancelled = true; preview.finish() }
+        let panel = try #require(preview.panel)
+        let origin = panel.frame.origin
+        preview.move(by: CGSize(width: 300, height: 120))
+        #expect(panel.frame.origin == CGPoint(x: origin.x + 300, y: origin.y - 120))
+        #expect(window.firstResponder === responder)
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+            timestamp: 1, windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)))
+        #expect(cancelled)
+        #expect(preview.panel == nil && !panel.isVisible && panel.parent == nil)
     }
 
     @Test

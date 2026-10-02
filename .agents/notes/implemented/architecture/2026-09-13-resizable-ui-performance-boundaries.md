@@ -171,3 +171,23 @@ IDEA 的 [BranchesTreeComponent](https://github.com/JetBrains/intellij-community
 - `windows/tauri/src/features/`
 - `windows/tauri/src/ui/`
 - `macos/Tests/LitheTests/`
+
+### 编辑器标签的浮动拖动预览
+
+普通文件、媒体和 Repository Diff 的拖动预览在原生非激活 `NSPanel` 中显示，
+从现有标签捕获一次真实图标/字型；鼠标移动只移动窗口，不重复截图或每帧写入
+整个编辑区域的 SwiftUI 位移。原标签保留空白圆角占位，目标变化才调整临时
+显示顺序，松开时写入实际顺序。预览不能受标签栏 ScrollView 裁剪或单行 Y 轴
+钳制；单行与多行共享这条路径。栏外松开恢复原顺序，不隐式创建编辑器窗口。
+
+依据 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`DragHelper` / `DockManagerImpl.MyDragSession` / `DragImageDialog` / `TabLabel.paint`：
+拖出预览与标签重排独立，浮动预览 90% 不透明，落点用占位块而非蓝色插入线。
+占位颜色取 `DragAndDrop.areaBackground`，Islands 深色 `#FFFFFF10`，浅色父主题
+`#3D7DCC33`。源卡片保持原尺寸与资源，不新增另一套图标或字体。
+
+预览忽略鼠标且不抢焦点；松开、Esc、来源关闭、布局切换或编辑区卸载均清理
+子窗口和键盘监视器。Esc 后同一按住过程不能重新开始拖动。终端跨容器传输
+仍由原生拖放所有者负责。`EditorTabOrderFeatureModelTests` 用真实窗口事件
+覆盖文件/Diff、单/多行、离栏再返回重排，以及预览窗口取消与焦点保持。
+这不代表实现了 IDEA 的拖出独立编辑窗口或跨编辑器拆分功能。
