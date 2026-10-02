@@ -9,6 +9,47 @@ import LitheGitModule
 @MainActor
 struct DiffAppearanceTests {
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
+    func connectorJoinsGuttersWithoutRasterSeams(appearance: NSAppearance.Name) throws {
+        let view = DiffNativeTransitionsView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))
+        view.appearance = NSAppearance(named: appearance)
+        view.transitions = [.init(id: "flat", kind: .changed, leftRange: 20...64, rightRange: 20...64)]
+        for scale in [CGFloat(1), 2] {
+            for fraction in [CGFloat(0), 0.25, 0.5, 0.75] {
+                view.leftX = 38 + fraction; view.rightX = 62 + fraction
+                view.leftOffset = fraction; view.rightOffset = fraction
+                let bitmap = try #require(NSBitmapImageRep(bitmapDataPlanes: nil,
+                    pixelsWide: Int(100 * scale), pixelsHigh: Int(80 * scale),
+                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+                let context = try #require(NSGraphicsContext(bitmapImageRep: bitmap))
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = context
+                context.cgContext.scaleBy(x: scale, y: scale)
+                view.effectiveAppearance.performAsCurrentDrawingAppearance {
+                    NSColor(LitheTheme.Diff.background).setFill(); view.bounds.fill()
+                    context.shouldAntialias = false
+                    NSColor(LitheTheme.Diff.modified).setFill()
+                    NSRect(x: 0, y: 20 - fraction, width: view.leftX, height: 44).fill()
+                    NSRect(x: view.rightX, y: 20 - fraction, width: 100 - view.rightX, height: 44).fill()
+                    context.shouldAntialias = true
+                    view.draw(view.bounds)
+                }
+                NSGraphicsContext.restoreGraphicsState()
+                for y in Int(15 * scale)...Int(65 * scale) {
+                    let reference = try #require(bitmap.colorAt(x: Int(10 * scale), y: y))
+                    for x in Int(35 * scale)...Int(65 * scale) {
+                        let color = try #require(bitmap.colorAt(x: x, y: y))
+                        #expect(abs(color.redComponent - reference.redComponent) < 0.005
+                            && abs(color.greenComponent - reference.greenComponent) < 0.005
+                            && abs(color.blueComponent - reference.blueComponent) < 0.005,
+                            "No divider edge at scale \(scale), offset \(fraction), pixel \(x), \(y): \(color)")
+                    }
+                }
+            }
+        }
+    }
+
+    @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func adjacentEditsKeepNarrowWordRangesAndContinuousGutter(appearance: NSAppearance.Name) async throws {
         let old = ["    .padding(.horizontal, 18)", "    .frame(height: 30)"]
         let new = ["    .padding(.horizontal, horizontalPadding)", "    .frame(height: height)"]

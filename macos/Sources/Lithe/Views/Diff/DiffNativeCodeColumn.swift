@@ -347,7 +347,13 @@ final class DiffNativeTransitionsView: NSView {
         NSGraphicsContext.saveGraphicsState()
         defer { NSGraphicsContext.restoreGraphicsState() }
         NSBezierPath(rect: bounds).addClip()
-        guard rightX > leftX else { return }
+        guard rightX > leftX, let context = NSGraphicsContext.current?.cgContext else { return }
+        // NSRect.fill aligns gutter fills outward to device pixels. Use the same
+        // endpoint rectangles so antialiased curves cannot leave a seam there.
+        func edge(_ x: CGFloat, _ top: CGFloat, _ bottom: CGFloat) -> CGRect {
+            let rect = CGRect(x: x, y: top, width: 0, height: bottom - top)
+            return context.convertToUserSpace(context.convertToDeviceSpace(rect).integral)
+        }
         var low = 0, high = transitions.count
         while low < high {
             let mid = (low + high) / 2
@@ -367,10 +373,12 @@ final class DiffNativeTransitionsView: NSView {
             // exactly at the adjacent gutter's row boundary.
             let leftEmpty = transition.leftRange.lowerBound == transition.leftRange.upperBound
             let rightEmpty = transition.rightRange.lowerBound == transition.rightRange.upperBound
-            let leftTop = transition.leftRange.lowerBound - leftOffset - (leftEmpty ? 1 : 0)
-            let rightTop = transition.rightRange.lowerBound - rightOffset - (rightEmpty ? 1 : 0)
-            let leftBottom = transition.leftRange.upperBound - leftOffset + (leftEmpty ? 1 : 0)
-            let rightBottom = transition.rightRange.upperBound - rightOffset + (rightEmpty ? 1 : 0)
+            let leftEdge = edge(leftX, transition.leftRange.lowerBound - leftOffset - (leftEmpty ? 1 : 0),
+                transition.leftRange.upperBound - leftOffset + (leftEmpty ? 1 : 0))
+            let rightEdge = edge(rightX, transition.rightRange.lowerBound - rightOffset - (rightEmpty ? 1 : 0),
+                transition.rightRange.upperBound - rightOffset + (rightEmpty ? 1 : 0))
+            let leftTop = leftEdge.minY, leftBottom = leftEdge.maxY
+            let rightTop = rightEdge.minY, rightBottom = rightEdge.maxY
             path.move(to: NSPoint(x: leftX, y: leftTop))
             path.curve(to: NSPoint(x: rightX, y: rightTop),
                 controlPoint1: NSPoint(x: c1, y: leftTop), controlPoint2: NSPoint(x: c2, y: rightTop))
