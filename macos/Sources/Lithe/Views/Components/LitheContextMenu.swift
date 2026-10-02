@@ -402,6 +402,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var contentDismissed: (() -> Void)?
     private var contentAnchor: NSPoint?
     private var contentOpensUpward = false
+    private var contentIsAnchored = false
 
     func show(
         items: [LitheContextMenuItem],
@@ -537,6 +538,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         contentDismissed = onDismiss
         contentAnchor = screenPoint
         contentOpensUpward = opensUpward
+        contentIsAnchored = parentWindow != nil
         parentWindow?.addChildWindow(panel, ordered: .above)
         resize(contentController: contentController)
         installEventMonitors()
@@ -556,8 +558,14 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             ? preferred : contentController.view.fittingSize
         let size = NSSize(width: min(fitting.width, bounds.width),
                           height: min(fitting.height, bounds.height))
+        // Keep app-owned dropdowns attached to their trigger while SwiftUI
+        // content settles. Standalone presenters retain screen-edge clamping.
+        let y = contentOpensUpward ? point.y : point.y - size.height
+        let yOrigin = contentIsAnchored
+            ? y
+            : min(max(y, bounds.minY), bounds.maxY - size.height)
         let origin = NSPoint(x: min(max(point.x, bounds.minX), bounds.maxX - size.width),
-                             y: min(max(contentOpensUpward ? point.y : point.y - size.height, bounds.minY), bounds.maxY - size.height))
+                             y: yOrigin)
         let frame = NSRect(origin: origin, size: size)
         if panel.frame != frame { panel.setFrame(frame, display: true) }
     }
