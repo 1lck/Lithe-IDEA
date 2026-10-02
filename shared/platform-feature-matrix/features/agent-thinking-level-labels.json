@@ -1,0 +1,23 @@
+{
+  "id": "agent-thinking-level-labels",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 思考强度英文呈现：Claude/Codex 子菜单、设置行当前值和模型底栏统一使用上游英文名称",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+      "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": [
+      "shared/contracts/application-boundary.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "2026-10-01 macOS：最新 preview 独立 PR 分支 83 项 Agent 回归通过；含 PR #1007 前置修复的组合构建 87 项回归及真实界面验收通过；中文真实界面确认 Codex 的 Low、Medium、High、Xhigh、Max、Ultra 和 Claude 的 Low、Medium、High、Max 均显示英文。两边分别切换 Low，确认子菜单、设置行当前值和模型底栏同步英文，并恢复 Claude Medium、Codex Xhigh；权限、速度和思考强度标题仍显示中文。不改原始选项 ID、顺序和确认行为，运行前后 bundle 全部 990 个文件 SHA-256 一致。Windows 对话 UI 仍待实现。"
+}

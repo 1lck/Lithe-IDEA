@@ -1,0 +1,24 @@
+{
+  "id": "lsp-diagnostics",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "诊断与编译错误定位",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Core/Language",
+      "macos/Sources/Lithe/Services/Diagnostics"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/diagnostics",
+      "shared/fixtures/lsp"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "制造语法和类型错误，比较诊断等级、消息、行列号和清理行为。"
+}

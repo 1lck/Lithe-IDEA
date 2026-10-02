@@ -1,0 +1,24 @@
+{
+  "id": "updates-failure-rollback",
+  "area": "发行与更新",
+  "group": "应用更新",
+  "capability": "失败重试与回滚",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Updates"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "docs/releases/windows-updater.md",
+      "windows/tauri/src/features/settings/hooks/use-updater.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Release",
+  "verification": "模拟清单错误、下载失败和安装失败，确认重试、回滚和用户提示。",
+  "notes": "macOS 回退更新方案仍在 #734 跟进。"
+}

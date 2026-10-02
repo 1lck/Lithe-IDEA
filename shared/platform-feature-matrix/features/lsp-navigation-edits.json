@@ -1,0 +1,24 @@
+{
+  "id": "lsp-navigation-edits",
+  "area": "Java",
+  "group": "语言服务",
+  "capability": "跳转、引用、语义标记与编辑",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Core/Language",
+      "shared/contracts/rust-core-api.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features",
+      "shared/fixtures/lsp"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。"
+}

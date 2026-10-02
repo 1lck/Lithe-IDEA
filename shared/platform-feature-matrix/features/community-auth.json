@@ -1,0 +1,24 @@
+{
+  "id": "community-auth",
+  "area": "社区",
+  "group": "LINUX DO 社区",
+  "capability": "社区认证与请求失败处理",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift",
+      "shared/fixtures/community"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Community",
+  "verification": "如果重新引入社区入口，在 macOS 和 Windows 验证认证、过期、限流和网络错误。",
+  "notes": "macOS 的 LINUX DO 插件已退役，现存 fixture 不代表产品接入。"
+}

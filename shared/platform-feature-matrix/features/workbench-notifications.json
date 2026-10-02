@@ -1,0 +1,22 @@
+{
+  "id": "workbench-notifications",
+  "area": "可观测性",
+  "group": "通知与资源",
+  "capability": "操作通知、错误提示与自动消失",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/WorkbenchNotificationFeatureModel.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/notifications"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "verification": "触发成功、警告和失败通知，验证队列、关闭、超时和重复通知。"
+}

@@ -1,0 +1,25 @@
+{
+  "id": "agent-plan-display",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 上报的执行计划（ACP plan）固定显示在活动统计栏上方，折叠时显示完成进度与当前步骤，展开查看每条状态；每次更新整体替换，空计划清除",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheAgentConversationModule/Application/AgentSessionGuidance.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Agent",
+  "verification": "macOS：让真实 Agent（例如在计划模式或多步任务中）上报计划，确认计划栏显示“计划 已完成/总数”与当前步骤，展开后每条待办、进行中、已完成状态和图标正确；步骤推进时整体刷新而不重复；切换会话显示各自计划，加载历史会话后计划恢复；不上报计划的 Agent 不显示计划栏。在窄宽面板及深浅主题检查长步骤截断与滚动。Windows Agent 对话 UI 尚未实现。"
+}

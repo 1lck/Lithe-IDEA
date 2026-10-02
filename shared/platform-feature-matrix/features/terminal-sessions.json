@@ -1,0 +1,22 @@
+{
+  "id": "terminal-sessions",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "多会话与标签",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Terminal"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态；Windows 打开底部终端面板时默认通栏（与 IDEA 一致）：面板位于左右两条活动栏之间并横跨侧边栏与编辑器下方（活动栏保持通高，底部的活动栏按钮位置不上移），侧边栏让出纵向空间，且仍可通过面板菜单切换为编辑器宽度。"
+}
