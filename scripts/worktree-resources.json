@@ -29,6 +29,13 @@
   ],
   "excludedResources": [
     {
+      "id": "frontend-install-state",
+      "reusable": false,
+      "locations": ["node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules", ".artifacts/bun-tmp"],
+      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp",
+      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused."
+    },
+    {
       "id": "jdt-maven-settings",
       "reusable": false,
       "locations": ["<platform-cache>/jdtls/<workspace-state>/.lithe/maven/"],

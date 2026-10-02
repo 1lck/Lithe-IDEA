@@ -23,36 +23,38 @@ struct AgentComposerView: View {
     var subscriptionAccount: String?
     var quotaFailure: String?
     var onSetConfig: (String, String) -> Void = { _, _ in }
-    @State private var draft = ""
+    var commands: [AgentCommand] = []
+    @State private var completion = AgentCommandCompletion()
     @State private var files: [AgentFileReference] = []
     @State private var isDropTargeted = false
     @State private var showsFilePicker = false
     @State private var isHovering = false
     @FocusState private var isFocused: Bool
 
-    private var hasContent: Bool { !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+    private var hasContent: Bool { !completion.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !files.isEmpty }
+    private var commandSuggestions: [AgentCommand]? {
+        completion.suggestions(in: commands)
+    }
 
     var body: some View {
-        VStack(spacing: 0) {
+        AgentComposerContent(files: files, commands: commandSuggestions,
+                             highlightedIndex: completion.highlightedIndex,
+                             onSelect: complete, onRemoveFile: { id in files.removeAll { $0.id == id } },
+                             onFocus: { isFocused = true }) {
             contextBar
-            if !files.isEmpty {
-                AgentFileReferenceList(files: files) { id in files.removeAll { $0.id == id } }
-            }
-            ScrollView {
-                TextField("Message the Agent", text: $draft, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(AgentPanelStyle.text)
-                    .lineLimit(1...)
-                    .focused($isFocused)
-                    .onSubmit(send)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .contentShape(Rectangle())
-            .onTapGesture { isFocused = true }
+        } editor: {
+            TextField("Message the Agent", text: $completion.draft, axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.system(size: 13))
+                .foregroundStyle(AgentPanelStyle.text)
+                .lineLimit(1...)
+                .focused($isFocused)
+                .onSubmit { _ = handleCommandKey(.submit) }
+                .modifier(AgentCommandKeyNavigation(onKey: handleCommandKey))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } toolbar: {
             toolbar
         }
         .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 8))
@@ -75,9 +77,9 @@ struct AgentComposerView: View {
         }
         .onHover { isHovering = $0 }
         .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding(.bottom, AgentComposerMetrics.bottomInset)
         .onAppear { isFocused = true }
-        .onExitCommand { if isResponding { onCancel() } }
+        .onExitCommand { _ = handleCommandKey(.escape) }
     }
 
     private var contextBar: some View {
@@ -97,7 +99,7 @@ struct AgentComposerView: View {
         .font(.system(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .padding(.horizontal, 10)
-        .frame(height: 28)
+        .frame(height: AgentComposerMetrics.contextHeight - 2)
         .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 7))
         .padding(1)
     }
@@ -142,7 +144,7 @@ struct AgentComposerView: View {
             .help(isCancelling ? "Stopping…" : (isResponding ? "Stop" : "Send"))
         }
         .padding(.horizontal, 5)
-        .frame(height: 36)
+        .frame(height: AgentComposerMetrics.toolbarHeight - 2)
         .background(AgentPanelStyle.toolbar, in: RoundedRectangle(cornerRadius: 7))
         .padding(1)
     }
@@ -186,6 +188,22 @@ struct AgentComposerView: View {
         }
     }
 
+    private func complete(_ command: AgentCommand) {
+        completion.complete(command)
+        isFocused = true
+    }
+
+    private func handleCommandKey(_ key: AgentCommandCompletion.Key) -> AgentCommandCompletion.Result {
+        let result = completion.handle(key, commands: commands, isResponding: isResponding)
+        switch result {
+        case .send: send()
+        case .cancel: onCancel()
+        case .handled: isFocused = true
+        case .ignored: break
+        }
+        return result
+    }
+
     private func send() {
         guard hasContent, !isResponding else { return }
         if isBlocked {
@@ -193,8 +211,8 @@ struct AgentComposerView: View {
             return
         }
         do {
-            try onSend(draft, files)
-            draft = ""
+            try onSend(completion.draft, files)
+            completion.draft = ""
             files.removeAll()
             onError(nil)
         } catch {
@@ -204,23 +222,47 @@ struct AgentComposerView: View {
 
 }
 
+/// Arrow keys and Tab drive the command list while it is open. Key handling on a
+/// focused text field needs macOS 14; macOS 13 keeps mouse selection and Return.
+private struct AgentCommandKeyNavigation: ViewModifier {
+    let onKey: (AgentCommandCompletion.Key) -> AgentCommandCompletion.Result
+
+    func body(content: Content) -> some View {
+        if #available(macOS 14.0, *) {
+            content
+                .onKeyPress(.upArrow) { handle(.up) }
+                .onKeyPress(.downArrow) { handle(.down) }
+                .onKeyPress(.tab) { handle(.tab) }
+        } else {
+            content
+        }
+    }
+
+    @available(macOS 14.0, *)
+    private func handle(_ key: AgentCommandCompletion.Key) -> KeyPress.Result {
+        onKey(key) == .ignored ? .ignored : .handled
+    }
+}
+
 /// The shared split container keeps resize updates outside the conversation model.
 struct AgentConversationLayout<Transcript: View, Composer: View>: View {
     @ViewBuilder let transcript: Transcript
     @ViewBuilder let composer: Composer
+    @State private var composerMinimumHeight = AgentComposerMetrics.minimumHeight(hasFiles: false)
 
     var body: some View {
         GeometryReader { geometry in
+            let minimum = min(composerMinimumHeight, max(0, geometry.size.height - SplitHandleView.hitThickness))
             LitheSplitPaneView(
                 axis: .vertical,
                 placement: .trailing,
                 defaultSize: min(210, geometry.size.height * 0.3),
-                minimum: min(120, geometry.size.height * 0.4),
-                maximum: max(0, geometry.size.height * 0.6),
+                minimum: minimum,
+                maximum: max(minimum, geometry.size.height * 0.6),
                 showsIdleDivider: false
             ) {
                 composer
-                    .padding(.top, 10)
+                    .padding(.top, AgentComposerMetrics.splitTopInset)
                     .overlay(alignment: .top) {
                         Capsule().fill(AgentPanelStyle.muted.opacity(0.55))
                             .frame(width: 54, height: 3)
@@ -231,5 +273,7 @@ struct AgentConversationLayout<Transcript: View, Composer: View>: View {
                 transcript
             }
         }
+        .onPreferenceChange(AgentComposerMinimumHeightKey.self) { composerMinimumHeight = $0 }
+        .agentCommandSuggestionScope()
     }
 }

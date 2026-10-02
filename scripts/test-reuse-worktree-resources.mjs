@@ -64,6 +64,14 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("frontend install temp data and dependencies cannot cross worktrees", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("frontend-install-state"));
+    const refused = reuse(["--resource", "frontend-install-state"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /frontend-install-state.*node_modules.*bun-tmp.*cannot be reused/);
+  });
   await test("Java launch files are never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
