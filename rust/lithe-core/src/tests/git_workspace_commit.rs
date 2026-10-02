@@ -526,3 +526,113 @@ fn git_workspace_status_normalizes_native_repository_binding_aliases() {
     // The parent still owns the symlink itself; only B's independent files are excluded.
     assert_eq!(paths, ["binding-link"]);
 }
+
+/// Two independent repositories (A is the workspace root, B nests inside it), each
+/// with one commit, so an amend has a message to rewrite.
+fn amend_workspace(name: &str) -> (Repository, PathBuf) {
+    let repo = repository(name);
+    let other = repo.0.join("B");
+    init(&other);
+    staged_file(&repo.0, "a.txt", "one");
+    git(&repo.0, &["commit", "-qm", "A original"]);
+    staged_file(&other, "b.txt", "one");
+    git(&other, &["commit", "-qm", "B original"]);
+    (repo, other)
+}
+
+fn prepare_amend(root: &Path, other: &Path, target: Value) -> Value {
+    request(
+        root,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories": [{"id":".","root":root}, {"id":"B","root":other}],
+            "message": "A rewritten", "amend": true, "amendTarget": target,
+            "push": false, "includeParentReferences": true
+        }),
+    )
+}
+
+fn head_subject(root: &Path) -> String {
+    git(root, &["log", "-1", "--format=%s"]).trim().to_string()
+}
+
+#[test]
+fn git_workspace_amend_rejects_a_repository_staged_after_the_message_was_loaded() {
+    // The UI showed only A staged and loaded A's message; B was then staged in an
+    // external terminal. Preparing must refuse instead of rewriting B with A's message.
+    let (repo, other) = amend_workspace("workspace-amend-external-staging");
+    let head = git(&repo.0, &["rev-parse", "HEAD"]).trim().to_string();
+    staged_file(&repo.0, "a.txt", "two");
+    staged_file(&other, "b.txt", "two");
+
+    let response = prepare_amend(
+        &repo.0,
+        &other,
+        json!({"repositoryId":".","expectedHead":head}),
+    );
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(response["error"]["code"], "invalid_request", "{response}");
+    assert_eq!(head_subject(&repo.0), "A original");
+    assert_eq!(head_subject(&other), "B original");
+    assert_eq!(git(&other, &["rev-list", "--count", "HEAD"]).trim(), "1");
+}
+
+#[test]
+fn git_workspace_amend_rewrites_only_the_target_repository() {
+    let (repo, other) = amend_workspace("workspace-amend-target-only");
+    let head = git(&repo.0, &["rev-parse", "HEAD"]).trim().to_string();
+    staged_file(&repo.0, "a.txt", "two");
+
+    let prepared = prepare_amend(
+        &repo.0,
+        &other,
+        json!({"repositoryId":".","expectedHead":head}),
+    );
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    let mut session = prepared["data"]["session"].clone();
+    while session["finished"] != true {
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["succeeded"], true, "{session}");
+    assert_eq!(head_subject(&repo.0), "A rewritten");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert_eq!(head_subject(&other), "B original");
+}
+
+#[test]
+fn git_workspace_amend_rejects_a_head_that_advanced_after_the_message_was_loaded() {
+    // The branch moved (a new commit or a checkout) after the message was read.
+    let (repo, other) = amend_workspace("workspace-amend-stale-head");
+    let loaded = git(&repo.0, &["rev-parse", "HEAD"]).trim().to_string();
+    staged_file(&repo.0, "a.txt", "two");
+    git(&repo.0, &["commit", "-qm", "A moved on"]);
+    staged_file(&repo.0, "a.txt", "three");
+
+    let response = prepare_amend(
+        &repo.0,
+        &other,
+        json!({"repositoryId":".","expectedHead":loaded}),
+    );
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(head_subject(&repo.0), "A moved on");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "2");
+}
+
+#[test]
+fn git_workspace_amend_without_a_target_still_refuses_two_staged_repositories() {
+    // Clients that predate amendTarget (macOS today) keep the single-repository floor.
+    let (repo, other) = amend_workspace("workspace-amend-no-target");
+    staged_file(&repo.0, "a.txt", "two");
+    staged_file(&other, "b.txt", "two");
+
+    let response = request(
+        &repo.0,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories": [{"id":".","root":&repo.0}, {"id":"B","root":&other}],
+            "message": "rewritten", "amend": true, "push": false, "includeParentReferences": true
+        }),
+    );
+    assert_eq!(response["ok"], false, "{response}");
+    assert_eq!(head_subject(&other), "B original");
+}

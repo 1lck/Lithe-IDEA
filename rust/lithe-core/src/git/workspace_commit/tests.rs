@@ -175,3 +175,95 @@ fn shared_workflow_fixture_is_the_complete_portable_contract() {
         fixture["preparation"]
     );
 }
+
+fn amend_input(target: Option<(&str, &str)>) -> (PrepareRequest, BTreeMap<String, GitCommitState>) {
+    let (mut request, mut states) = input();
+    request.amend = true;
+    request.push = false;
+    request.amend_target = target.map(|(id, head)| AmendTarget {
+        repository_id: id.into(),
+        expected_head: head.into(),
+    });
+    // Only A/B has staged changes; "independent" is clean until a test stages it.
+    states.insert("independent".into(), state(&[], &[]));
+    (request, states)
+}
+
+#[test]
+fn amend_rejects_a_second_repository_with_staged_changes() {
+    // Regression: the UI showed only A staged, then B was staged outside the UI.
+    // Core reads every repository, so both would have been amended with A's message.
+    let (request, mut states) = amend_input(Some(("A/B", "initial")));
+    states.insert("independent".into(), state(&["file"], &[]));
+    let error = build_plan(request, states).unwrap_err();
+    assert!(
+        error.message.contains("one repository at a time"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn amend_without_a_target_still_rejects_several_staged_repositories() {
+    // Clients that omit amendTarget keep a safe floor: never amend two repositories.
+    let (request, mut states) = amend_input(None);
+    states.insert("independent".into(), state(&["file"], &[]));
+    assert!(build_plan(request, states).is_err());
+}
+
+#[test]
+fn amend_accepts_one_staged_repository_with_or_without_a_target() {
+    for target in [None, Some(("A/B", "initial"))] {
+        let (request, states) = amend_input(target);
+        let prepared = build_plan(request, states).unwrap();
+        assert!(prepared.session.plan.amend);
+    }
+}
+
+#[test]
+fn amend_rejects_a_target_other_than_the_staged_repository() {
+    let (request, states) = amend_input(Some(("independent", "initial")));
+    let error = build_plan(request, states).unwrap_err();
+    assert!(
+        error.message.contains("one repository at a time"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn amend_rejects_a_head_that_moved_after_the_message_was_loaded() {
+    let (request, states) = amend_input(Some(("A/B", "an-older-head")));
+    let error = build_plan(request, states).unwrap_err();
+    assert!(
+        error
+            .message
+            .contains("changed after its message was loaded"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn amend_rejects_an_unknown_target_repository() {
+    let (request, states) = amend_input(Some(("missing", "initial")));
+    assert!(build_plan(request, states).is_err());
+}
+
+#[test]
+fn a_regular_commit_may_span_several_staged_repositories() {
+    let (mut request, mut states) = amend_input(None);
+    request.amend = false;
+    states.insert("independent".into(), state(&["file"], &[]));
+    assert!(build_plan(request, states).is_ok());
+}
+
+#[test]
+fn a_continuation_that_amends_several_staged_repositories_is_invalid() {
+    // A forged or stale continuation must not reach step with several amend targets.
+    let (request, mut states) = amend_input(None);
+    let mut session = build_plan(request, states.clone()).unwrap().session;
+    states.insert("independent".into(), state(&["file"], &[]));
+    session.plan.states = states.clone();
+    session.states = states;
+    session.plan.ordered_ids = vec!["independent".into(), "A/B".into()];
+    session.results.entry("independent".into()).or_default();
+    assert!(validate_session(&session).is_err());
+}

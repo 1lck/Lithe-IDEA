@@ -19,7 +19,13 @@ let messageChanges: string[] = [];
 let currentMessage = "";
 let selectedFiles: GitFile[] = [];
 const HEAD_MESSAGE = "Previous commit title\n\nPrevious commit body";
-const getHeadCommitMessage = mock(async (_repoPath: string): Promise<string | null> => HEAD_MESSAGE);
+const HEAD_HASH = "0123456789abcdef0123456789abcdef01234567";
+const getHeadCommitMessage = mock(
+  async (_repoPath: string): Promise<commitsApi.HeadCommitMessage | null> => ({
+    message: HEAD_MESSAGE,
+    hash: HEAD_HASH,
+  }),
+);
 let headMessageSpy: { mockRestore: () => void };
 
 beforeEach(() => {
@@ -33,7 +39,7 @@ beforeEach(() => {
   root = createRoot(container);
   messageChanges = [];
   currentMessage = "";
-  getHeadCommitMessage.mockReset().mockResolvedValue(HEAD_MESSAGE);
+  getHeadCommitMessage.mockReset().mockResolvedValue({ message: HEAD_MESSAGE, hash: HEAD_HASH });
   headMessageSpy = spyOn(commitsApi, "getHeadCommitMessage").mockImplementation(
     getHeadCommitMessage,
   );
@@ -251,6 +257,8 @@ test("commit forwards the amend flag to the workspace commit workflow", async ()
     expect(prepare).toHaveBeenCalledTimes(1);
     const request = prepare.mock.calls[0][0];
     expect(request.amend).toBe(true);
+    // Core refuses the amend unless this repository still has the HEAD the message came from.
+    expect(request.amendTarget).toEqual({ repositoryId: ".", expectedHead: HEAD_HASH });
     expect(request.message).toBe("Previous commit title\n\nPrevious commit body");
   } finally {
     prepare.mockRestore();
@@ -296,8 +304,12 @@ const stagedFileInB: GitFile = {
 };
 const MESSAGE_A = "Message of A";
 const MESSAGE_B = "Message of B";
+const headHashOf = (repo: string) => `head-of-${repo}`;
 const headMessageByRepository = (messages: Record<string, string | null>) =>
-  getHeadCommitMessage.mockImplementation(async (repo: string) => messages[repo] ?? null);
+  getHeadCommitMessage.mockImplementation(async (repo: string) => {
+    const message = messages[repo];
+    return message ? { message, hash: headHashOf(repo) } : null;
+  });
 
 test("amend reads HEAD from the repository that has the staged files, not the active one", async () => {
   headMessageByRepository({ "C:/workspace/A": MESSAGE_A, "C:/workspace/B": MESSAGE_B });
@@ -349,4 +361,43 @@ test("staging another repository after checking amend drops the loaded message",
   await act(async () => rerender());
   expect(messageChanges).toEqual([MESSAGE_A, ""]);
   expect(commitButton()?.textContent).toBe("Commit");
+});
+
+test("amend sends the staged repository and the HEAD its message came from to the workflow", async () => {
+  headMessageByRepository({ "C:/workspace/A": MESSAGE_A, "C:/workspace/B": MESSAGE_B });
+  await renderPanel({
+    files: [stagedFileInB],
+    repoPath: "C:/workspace/A",
+    repositoryPaths: ["C:/workspace/A", "C:/workspace/B"],
+  });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => toggleAmend());
+    await act(async () => commitButton()!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+    const request = prepare.mock.calls[0][0];
+    expect(request.amend).toBe(true);
+    // B lies beside the workspace root A, so Core addresses it as "../B".
+    expect(request.amendTarget).toEqual({
+      repositoryId: "../B",
+      expectedHead: headHashOf("C:/workspace/B"),
+    });
+  } finally {
+    prepare.mockRestore();
+  }
+});
+
+test("a regular commit does not send an amend target", async () => {
+  await renderPanel({ message: "Plain commit" });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => commitButton()!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+    expect(prepare.mock.calls[0][0].amend).toBe(false);
+    expect(prepare.mock.calls[0][0].amendTarget).toBeUndefined();
+  } finally {
+    prepare.mockRestore();
+  }
 });

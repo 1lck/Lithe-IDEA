@@ -41,6 +41,11 @@ import {
 import type { GitFile } from "../types/git.types";
 import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
 
+/** Case-insensitive, separator-agnostic identity for comparing repository roots. */
+function repositoryRootKey(root: string): string {
+  return normalizePath(root).replace(/\/+$/, "").toLowerCase();
+}
+
 interface GitCommitPanelProps {
   selectedFiles: GitFile[];
   workspacePath: string;
@@ -164,6 +169,9 @@ const GitCommitPanel = ({
   // Mirrors IntelliJ's AmendData: remember the draft replaced by the amend
   // message so unchecking restores it while the user has not edited the text.
   const amendDraftRef = useRef<{ before: string; loaded: string } | null>(null);
+  // The repository and HEAD the amend message was read from. Core refuses the amend when
+  // another repository is staged by then or HEAD has moved, instead of trusting this view.
+  const amendSourceRef = useRef<{ root: string; head: string } | null>(null);
   const commitTextareaRef = useRef<HTMLTextAreaElement>(null);
   const selectedFilesCount = selectedFiles.length;
 
@@ -174,19 +182,18 @@ const GitCommitPanel = ({
     const roots = new Map<string, string>();
     for (const file of selectedFiles) {
       const root = file.repositoryPath ?? repoPath;
-      if (root) roots.set(normalizePath(root).replace(/\/+$/, "").toLowerCase(), root);
+      if (root) roots.set(repositoryRootKey(root), root);
     }
     if (roots.size === 0) return { root: repoPath ?? null, ambiguous: false };
     if (roots.size === 1) return { root: [...roots.values()][0]!, ambiguous: false };
     return { root: null, ambiguous: true };
   }, [repoPath, selectedFiles]);
-  const amendTargetKey = amendTarget.root
-    ? normalizePath(amendTarget.root).replace(/\/+$/, "").toLowerCase()
-    : "";
+  const amendTargetKey = amendTarget.root ? repositoryRootKey(amendTarget.root) : "";
 
   const resetAmend = () => {
     amendRequestRef.current += 1;
     amendDraftRef.current = null;
+    amendSourceRef.current = null;
     setAmend(false);
     setIsLoadingAmendMessage(false);
   };
@@ -257,13 +264,15 @@ const GitCommitPanel = ({
     const requestId = ++amendRequestRef.current;
     setError(null);
     setIsLoadingAmendMessage(true);
-    const loaded = await getHeadCommitMessage(targetRoot);
+    const headCommit = await getHeadCommitMessage(targetRoot);
     if (requestId !== amendRequestRef.current) return;
     setIsLoadingAmendMessage(false);
-    if (loaded === null) {
+    if (headCommit === null) {
       setError(t("git.amendNoHeadCommit"));
       return;
     }
+    const loaded = headCommit.message;
+    amendSourceRef.current = { root: targetRoot, head: headCommit.hash };
 
     // Follow IntelliJ: never clobber a user-typed message, only fill an empty draft.
     // Read the live draft because the user may have typed while HEAD was loading.
@@ -275,6 +284,15 @@ const GitCommitPanel = ({
       amendDraftRef.current = null;
     }
     setAmend(true);
+  };
+
+  // Names the amend repository by its workspace identity, the way Core addresses it.
+  const resolveAmendTarget = (repositories: ReturnType<typeof workspaceCommitBindings>) => {
+    const source = amendSourceRef.current;
+    if (!source) return undefined;
+    const sourceKey = repositoryRootKey(source.root);
+    const binding = repositories.find((candidate) => repositoryRootKey(candidate.root) === sourceKey);
+    return binding ? { repositoryId: binding.id, expectedHead: source.head } : undefined;
   };
 
   const handleCommit = async (pushAfterCommit = false) => {
@@ -296,13 +314,20 @@ const GitCommitPanel = ({
       return;
     }
     if (!repoPath) return;
+    const repositories = workspaceCommitBindings(workspacePath, repositoryPaths);
+    const amendTarget = amend ? resolveAmendTarget(repositories) : undefined;
+    if (amend && !amendTarget) {
+      setError(t("git.amendTargetUnverified"));
+      return;
+    }
     setCommitHint(null);
     setDraftOwner(repoPath);
     setError(null);
     await workflow.prepare({
-      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      repositories,
       message: commitMessage.trim(),
       amend,
+      amendTarget,
       push: pushAfterCommit,
       includeParentReferences: true,
     });
@@ -312,10 +337,14 @@ const GitCommitPanel = ({
     const previous = batch.session;
     if (!previous?.canRetry || isStaging || !isCurrentWorkspace) return;
     setError(null);
+    const repositories = workspaceCommitBindings(workspacePath, repositoryPaths);
     return workflow.prepare({
-      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
+      repositories,
       message: previous.plan.message,
       amend: previous.plan.amend,
+      // Without the source (Amend was toggled off meanwhile) Core still limits the retry to
+      // one repository; with it, a repository that already committed skips the HEAD check.
+      amendTarget: previous.plan.amend ? resolveAmendTarget(repositories) : undefined,
       push: previous.plan.push,
       includeParentReferences: previous.plan.includeParentReferences,
       previous,

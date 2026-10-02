@@ -260,12 +260,20 @@ interface GitCommitLookupResult {
   body?: string;
 }
 
+/** The checked-out commit an amend would rewrite, as the message editor shows it. */
+export interface HeadCommitMessage {
+  message: string;
+  /** Full object ID of the commit the message was read from. */
+  hash: string;
+}
+
 /**
- * Reads the full message of the checked-out HEAD for amending. History pages
- * list every reference and carry only subjects, so they cannot stand in for it.
+ * Reads the full message of the checked-out HEAD for amending, together with the HEAD it
+ * came from so Core can refuse the amend once HEAD has moved. History pages list every
+ * reference and carry only subjects, so they cannot stand in for it.
  * Returns null when HEAD has no commit yet or cannot be read.
  */
-export const getHeadCommitMessage = async (repoPath: string): Promise<string | null> => {
+export const getHeadCommitMessage = async (repoPath: string): Promise<HeadCommitMessage | null> => {
   try {
     const resolvedRepoPath = await resolveRepositoryPath(repoPath);
     if (!resolvedRepoPath) return null;
@@ -278,7 +286,7 @@ export const getHeadCommitMessage = async (repoPath: string): Promise<string | n
     const subject = result?.commit?.subject ?? "";
     if (!result?.commit?.hash) return null;
     const body = typeof result.body === "string" ? result.body : "";
-    return body ? `${subject}\n\n${body}` : subject;
+    return { message: body ? `${subject}\n\n${body}` : subject, hash: result.commit.hash };
   } catch (error) {
     if (!isNotGitRepositoryError(error)) {
       console.error("Failed to read HEAD commit message:", error);

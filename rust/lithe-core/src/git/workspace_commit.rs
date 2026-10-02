@@ -76,6 +76,16 @@ pub struct Session {
     pub can_retry: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+/// The repository and HEAD whose message the client loaded for an amend.
+pub struct AmendTarget {
+    /// Workspace-relative identity of the repository that will be rewritten.
+    pub repository_id: String,
+    /// Full HEAD object ID the client read the message from.
+    pub expected_head: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 /// Builds a fresh plan; retry and reviewed snapshots are optional continuations.
@@ -84,6 +94,10 @@ pub struct PrepareRequest {
     pub message: String,
     #[serde(default)]
     pub amend: bool,
+    /// Optional precondition for `amend`. Clients that omit it still get the
+    /// single-repository rule, but not the HEAD check.
+    #[serde(default)]
+    pub amend_target: Option<AmendTarget>,
     #[serde(default)]
     pub push: bool,
     pub include_parent_references: bool,
@@ -247,6 +261,7 @@ fn build_plan(
     if selected.is_empty() {
         return Err(invalid("Stage at least one change before committing"));
     }
+    check_amend_scope(&request, &states, &selected, &committed)?;
     let propagation: Vec<_> = relations
         .iter()
         .filter(|r| {
@@ -344,6 +359,64 @@ fn build_plan(
         review_changed,
         requires_confirmation,
     })
+}
+
+/// Repositories that would be committed with staged changes, and so amended.
+/// Parent repositories pulled in only to record a submodule pointer have no
+/// staged paths of their own and receive a regular commit.
+fn amended_candidates<'a>(
+    states: &'a BTreeMap<String, GitCommitState>,
+    selected: &'a BTreeSet<String>,
+    committed: &'a BTreeSet<String>,
+) -> impl Iterator<Item = &'a String> {
+    selected.iter().filter(move |id| {
+        !committed.contains(*id)
+            && states
+                .get(*id)
+                .is_some_and(|state| !state.staged_paths.is_empty())
+    })
+}
+
+/// An amend rewrites a commit that the client showed the user, so it must be
+/// bound to one repository. Core re-reads every repository when it prepares, so a
+/// repository staged outside the UI after the message was loaded would otherwise
+/// be rewritten with another repository's message.
+fn check_amend_scope(
+    request: &PrepareRequest,
+    states: &BTreeMap<String, GitCommitState>,
+    selected: &BTreeSet<String>,
+    committed: &BTreeSet<String>,
+) -> Result<(), CoreError> {
+    if !request.amend {
+        return Ok(());
+    }
+    let mut candidates = amended_candidates(states, selected, committed);
+    let multiple = invalid(
+        "Amend rewrites one repository at a time. Unstage the other repositories or turn Amend off.",
+    );
+    let Some(target) = &request.amend_target else {
+        candidates.next();
+        return if candidates.next().is_some() {
+            Err(multiple)
+        } else {
+            Ok(())
+        };
+    };
+    let state = states
+        .get(&target.repository_id)
+        .ok_or_else(|| invalid("The repository to amend is not part of this workspace commit"))?;
+    // A retry after the amend itself succeeded sees the rewritten HEAD.
+    if !committed.contains(&target.repository_id)
+        && state.head.as_deref() != Some(target.expected_head.as_str())
+    {
+        return Err(invalid(
+            "The commit to amend changed after its message was loaded. Reload the message and try again.",
+        ));
+    }
+    if candidates.any(|id| id != &target.repository_id) {
+        return Err(multiple);
+    }
+    Ok(())
 }
 
 fn relations(
@@ -543,6 +616,15 @@ fn validate_session(session: &Session) -> Result<(), CoreError> {
             .iter()
             .chain(&session.plan.propagated_relations)
             .any(|r| !ids.contains(&r.parent) || !ids.contains(&r.child))
+    {
+        return Err(invalid("Invalid workspace commit continuation"));
+    }
+    // Step amends every repository with staged changes, so a continuation that
+    // spans several of them must not have been planned as an amend.
+    let planned: BTreeSet<_> = session.plan.ordered_ids.iter().cloned().collect();
+    if session.plan.amend
+        && amended_candidates(&session.plan.states, &planned, &session.plan.committed_ids).count()
+            > 1
     {
         return Err(invalid("Invalid workspace commit continuation"));
     }
