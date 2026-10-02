@@ -2289,8 +2289,17 @@ rejects an unknown target, a different staged repository, or a HEAD that moved
 since (a new commit or a branch switch), asking the client to reload the message;
 a target that already committed in a retry skips the HEAD check. Clients that
 omit `amendTarget` keep the single-repository rule without the HEAD check.
-`workspaceCommitStep` re-validates the same rule, so the target is a `prepare`
-precondition and is not echoed in `plan`.
+
+The repository an amend rewrites is recorded in `plan.amendRepositoryId` (omitted
+for regular commits). Every other repository in the plan receives a regular
+commit, including a parent that only records a submodule pointer, and a retry
+carries the recorded repository forward from `previous.plan` instead of deriving it
+from the index again. This matters after a child amend succeeds and its parent's
+commit fails: the parent then holds a staged pointer and would otherwise be amended
+rather than receive the new commit. A retry that names a different `amendTarget`
+fails. `workspaceCommitStep` amends only the recorded repository; a plan returned
+without the field (a client that drops unknown fields) falls back to amending the
+repository with staged paths, which `workspaceCommitStep` limits to one.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed

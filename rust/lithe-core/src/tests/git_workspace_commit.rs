@@ -636,3 +636,89 @@ fn git_workspace_amend_without_a_target_still_refuses_two_staged_repositories() 
     assert_eq!(response["ok"], false, "{response}");
     assert_eq!(head_subject(&other), "B original");
 }
+
+/// Makes the repository's commits fail through Git's real hook runner.
+fn reject_commits(root: &Path) {
+    let hook = root.join(".git/hooks/pre-commit");
+    fs::write(
+        &hook,
+        "#!/bin/sh
+exit 1
+",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[test]
+fn git_workspace_amend_retry_commits_the_parent_normally_after_the_child_amend_succeeded() {
+    // Amend the submodule B and let the parent A record the new pointer. A's hook rejects
+    // the pointer commit, leaving the pointer staged in A. Retrying must add that commit
+    // to A, not amend A's original HEAD because A is now the only staged repository.
+    let repo = repository("workspace-amend-parent-retry");
+    let child = repo.0.join("B");
+    init(&child);
+    staged_file(&child, "hello.ts", "one");
+    git(&child, &["commit", "-qm", "B original"]);
+    staged_file(&repo.0, "parent.txt", "one");
+    git(&repo.0, &["add", "B"]);
+    git(&repo.0, &["commit", "-qm", "A original"]);
+    staged_file(&child, "hello.ts", "two");
+    let loaded_head = git(&child, &["rev-parse", "HEAD"]).trim().to_string();
+    reject_commits(&repo.0);
+
+    let prepared = request(
+        &repo.0,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories": [{"id":".","root":&repo.0}, {"id":"B","root":&child}],
+            "message": "B rewritten", "amend": true, "push": false,
+            "amendTarget": {"repositoryId":"B","expectedHead":loaded_head},
+            "includeParentReferences": true
+        }),
+    );
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    let plan = prepared["data"]["session"]["plan"].clone();
+    assert_eq!(plan["amendRepositoryId"], "B", "{plan}");
+    assert_eq!(plan["orderedIds"], json!(["B", "."]));
+
+    let mut session = prepared["data"]["session"].clone();
+    while session["finished"] != true {
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["canRetry"], true, "{session}");
+    assert_eq!(session["results"]["B"]["committed"], true);
+    assert_eq!(session["results"]["."]["committed"], false);
+    assert_eq!(head_subject(&child), "B rewritten");
+    assert_eq!(git(&child, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert_eq!(head_subject(&repo.0), "A original");
+    assert!(git(&repo.0, &["diff", "--cached", "--name-only"]).contains('B'));
+
+    fs::remove_file(repo.0.join(".git/hooks/pre-commit")).unwrap();
+    // The client sends the retry exactly like the failed batch, without an amend target.
+    let mut retry = plan;
+    retry["previous"] = session;
+    let response = request(&repo.0, "git.workspaceCommitPrepare", retry);
+    assert_eq!(response["ok"], true, "{response}");
+    let mut session = response["data"]["session"].clone();
+    assert_eq!(session["plan"]["amendRepositoryId"], "B");
+    while session["finished"] != true {
+        session = next_workspace(&repo.0, session);
+    }
+    assert_eq!(session["succeeded"], true, "{session}");
+    // B was not rewritten again; A gained a commit and kept its original one.
+    assert_eq!(git(&child, &["rev-list", "--count", "HEAD"]).trim(), "1");
+    assert_eq!(git(&repo.0, &["rev-list", "--count", "HEAD"]).trim(), "2");
+    assert_eq!(
+        git(&repo.0, &["log", "-1", "--skip=1", "--format=%s"]).trim(),
+        "A original"
+    );
+    assert_eq!(
+        git(&repo.0, &["rev-parse", "HEAD:B"]),
+        git(&child, &["rev-parse", "HEAD"])
+    );
+}

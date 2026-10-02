@@ -260,10 +260,100 @@ fn a_continuation_that_amends_several_staged_repositories_is_invalid() {
     // A forged or stale continuation must not reach step with several amend targets.
     let (request, mut states) = amend_input(None);
     let mut session = build_plan(request, states.clone()).unwrap().session;
+    // A client that drops unknown fields returns the plan without its amend repository.
+    session.plan.amend_repository_id = None;
     states.insert("independent".into(), state(&["file"], &[]));
     session.plan.states = states.clone();
     session.states = states;
     session.plan.ordered_ids = vec!["independent".into(), "A/B".into()];
     session.results.entry("independent".into()).or_default();
+    assert!(validate_session(&session).is_err());
+}
+
+#[test]
+fn amend_records_the_repository_it_rewrites() {
+    for target in [None, Some(("A/B", "initial"))] {
+        let (request, states) = amend_input(target);
+        let plan = build_plan(request, states).unwrap().session.plan;
+        assert_eq!(plan.amend_repository_id.as_deref(), Some("A/B"));
+    }
+    // A regular commit records nothing, so existing plan payloads stay unchanged.
+    let (mut request, states) = amend_input(None);
+    request.amend = false;
+    let plan = build_plan(request, states).unwrap().session.plan;
+    assert_eq!(plan.amend_repository_id, None);
+    assert!(!serde_json::to_string(&plan)
+        .unwrap()
+        .contains("amendRepositoryId"));
+}
+
+/// A child amend that succeeded while its parent's commit failed: the parent now holds
+/// the staged submodule pointer and the child is committed.
+fn parent_failed_after_child_amend() -> Session {
+    let (request, states) = amend_input(Some(("A/B", "initial")));
+    let mut session = build_plan(request, states).unwrap().session;
+    assert_eq!(session.plan.ordered_ids, ["A/B", "A"]);
+    session.results.get_mut("A/B").unwrap().committed = true;
+    session
+}
+
+fn retry_states() -> BTreeMap<String, GitCommitState> {
+    let mut states = BTreeMap::new();
+    states.insert("A".into(), state(&["B"], &["B"]));
+    states.insert("A/B".into(), state(&[], &[]));
+    states.insert("independent".into(), state(&[], &[]));
+    states
+}
+
+#[test]
+fn a_retry_keeps_the_amend_repository_and_commits_the_parent_normally() {
+    // Regression: re-deriving the amend target from the retry-time index selected the
+    // parent, because its staged submodule pointer made it the only staged repository.
+    let session = parent_failed_after_child_amend();
+    let (mut request, _) = amend_input(None);
+    request.previous = Some(session);
+    let states = retry_states();
+    let plan = build_plan(request, states.clone()).unwrap().session.plan;
+    assert_eq!(plan.amend_repository_id.as_deref(), Some("A/B"));
+    assert!(plan.ordered_ids.contains(&"A".to_string()));
+    assert!(!amends_repository(&plan, "A", &states["A"]));
+}
+
+#[test]
+fn a_retry_may_not_switch_the_amend_repository() {
+    let session = parent_failed_after_child_amend();
+    let (mut request, _) = amend_input(Some(("A", "initial")));
+    request.previous = Some(session);
+    let error = build_plan(request, retry_states()).unwrap_err();
+    assert!(
+        error.message.contains("changed since the first attempt"),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn only_the_recorded_repository_with_staged_paths_is_amended() {
+    let (request, states) = amend_input(Some(("A/B", "initial")));
+    let plan = build_plan(request, states.clone()).unwrap().session.plan;
+    assert!(amends_repository(&plan, "A/B", &states["A/B"]));
+    assert!(!amends_repository(&plan, "A", &state(&["B"], &[])));
+    assert!(!amends_repository(&plan, "A/B", &state(&[], &[])));
+
+    // Plans from clients that drop unknown fields keep the staged-paths rule.
+    let mut unrecorded = plan;
+    unrecorded.amend_repository_id = None;
+    assert!(amends_repository(&unrecorded, "A", &state(&["B"], &[])));
+}
+
+#[test]
+fn a_continuation_must_name_a_known_amend_repository() {
+    let (request, states) = amend_input(Some(("A/B", "initial")));
+    let mut session = build_plan(request, states).unwrap().session;
+    session.plan.amend_repository_id = Some("missing".into());
+    assert!(validate_session(&session).is_err());
+
+    let (request, states) = amend_input(Some(("A/B", "initial")));
+    let mut session = build_plan(request, states).unwrap().session;
+    session.plan.amend = false;
     assert!(validate_session(&session).is_err());
 }

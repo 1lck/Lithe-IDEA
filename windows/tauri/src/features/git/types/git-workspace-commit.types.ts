@@ -20,6 +20,8 @@ export interface WorkspaceCommitPlan {
   repositories: WorkspaceRepositoryBinding[];
   message: string;
   amend: boolean;
+  /** The one repository an amend rewrites; Core carries it through retries unchanged. */
+  amendRepositoryId?: string;
   push: boolean;
   includeParentReferences: boolean;
   isRetry: boolean;

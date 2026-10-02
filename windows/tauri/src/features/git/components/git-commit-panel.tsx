@@ -337,14 +337,13 @@ const GitCommitPanel = ({
     const previous = batch.session;
     if (!previous?.canRetry || isStaging || !isCurrentWorkspace) return;
     setError(null);
-    const repositories = workspaceCommitBindings(workspacePath, repositoryPaths);
     return workflow.prepare({
-      repositories,
+      repositories: workspaceCommitBindings(workspacePath, repositoryPaths),
       message: previous.plan.message,
       amend: previous.plan.amend,
-      // Without the source (Amend was toggled off meanwhile) Core still limits the retry to
-      // one repository; with it, a repository that already committed skips the HEAD check.
-      amendTarget: previous.plan.amend ? resolveAmendTarget(repositories) : undefined,
+      // No amend target here: Core keeps the repository recorded in the previous plan
+      // (`amendRepositoryId`). Deriving it again from this view or from the current index
+      // would miss that a parent now holds a staged submodule pointer.
       push: previous.plan.push,
       includeParentReferences: previous.plan.includeParentReferences,
       previous,

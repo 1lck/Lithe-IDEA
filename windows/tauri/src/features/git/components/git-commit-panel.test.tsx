@@ -9,6 +9,7 @@ import * as commitsApi from "../api/git-commits-api";
 import { useGitStore } from "../stores/git.store";
 import GitCommitPanel from "./git-commit-panel";
 import type { GitCommit, GitFile } from "../types/git.types";
+import type { WorkspaceCommitSession } from "../types/git-workspace-commit.types";
 
 let restoreDom: () => void;
 let container: HTMLDivElement;
@@ -397,6 +398,48 @@ test("a regular commit does not send an amend target", async () => {
     expect(prepare).toHaveBeenCalledTimes(1);
     expect(prepare.mock.calls[0][0].amend).toBe(false);
     expect(prepare.mock.calls[0][0].amendTarget).toBeUndefined();
+  } finally {
+    prepare.mockRestore();
+  }
+});
+
+test("retry returns the previous plan and leaves the amend repository to Core", async () => {
+  // The child amend succeeded and the parent's commit failed. Whatever this view now
+  // thinks the amend target is (a staged pointer makes the parent look like one), the
+  // retry must not name a target: Core keeps the repository recorded in the plan.
+  await renderPanel();
+  // Amend is on, so this view holds an amend source of its own.
+  await act(async () => toggleAmend());
+  const result = (committed: boolean, status: string) => ({
+    committed,
+    pushed: false,
+    status,
+    detail: "",
+  });
+  const failed = {
+    plan: {
+      message: "B rewritten",
+      amend: true,
+      amendRepositoryId: "B",
+      push: false,
+      includeParentReferences: true,
+    },
+    results: { B: result(true, "committed"), ".": result(false, "commitFailed") },
+    canRetry: true,
+    finished: true,
+    succeeded: false,
+    commandFailed: true,
+  } as unknown as WorkspaceCommitSession;
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    await act(async () => workflow.setState({ session: failed }));
+    await act(async () => buttonByText("Review and retry unfinished work")!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+    const request = prepare.mock.calls[0][0];
+    expect(request.previous).toBe(failed);
+    expect(request.amend).toBe(true);
+    expect(request.amendTarget).toBeUndefined();
   } finally {
     prepare.mockRestore();
   }
