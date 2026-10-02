@@ -163,6 +163,7 @@ struct AgentComposerView: View {
                 LitheContextMenuItem.action(agent.name, checked: agent.id == selectedAgent?.id) {
                     onSelectAgent(agent.id)
                 }
+            }
             LitheContextMenuItem.separator
             LitheContextMenuItem.action("Agent Settings…", action: onOpenSettings)
         } label: {

@@ -42,10 +42,17 @@ final class DiffNativeColumnState: ObservableObject {
     private(set) var lines: [Line] = []
     private(set) var preparedText = NSAttributedString()
     private(set) var revision = 0
+    private(set) var selectedRowIDs: Set<DiffRowID> = []
     var currentSearchID: DiffRowID?
     var caretLine: Int?
     var hasCaret = false
     weak var gutter: DiffNativeGutterView?
+
+    func updateSelection(_ rowIDs: Set<DiffRowID>) {
+        guard selectedRowIDs != rowIDs else { return }
+        selectedRowIDs = rowIDs
+        gutter?.needsDisplay = true
+    }
 
     func prepare(identity: UUID, items: [DiffSplitLayout.Item], side: DiffSide,
                  fileExtension: String, highlightsWords: Bool, dark: Bool, unified: Bool = false) {
@@ -172,6 +179,7 @@ struct DiffNativeCodeColumn: NSViewRepresentable {
     func updateNSView(_ view: DiffNativeTextView, context: Context) {
         state.prepare(identity: layoutIdentity, items: items, side: side,
             fileExtension: fileExtension, highlightsWords: highlightsWords, dark: colorScheme == .dark, unified: unified)
+        state.updateSelection(selectedRowIDs)
         state.currentSearchID = currentSearchMatchID
         view.selectedTextAttributes = [.backgroundColor: NSColor(LitheTheme.Diff.selection)]
         if view.appliedRevision != state.revision {
@@ -311,6 +319,13 @@ final class DiffNativeGutterView: NSView {
                 NSRect(x: mirrored ? 0 : bounds.width - edgeWidth, y: line.item.top,
                        width: edgeWidth, height: line.item.height).fill()
                 NSGraphicsContext.restoreGraphicsState()
+            }
+            if case let .row(row, _) = line.item.displayRow,
+               column.selectedRowIDs.contains(row.id) {
+                NSColor(LitheTheme.accent).setFill()
+                let markerWidth: CGFloat = 2
+                NSRect(x: mirrored ? bounds.width - markerWidth : 0,
+                       y: line.item.top, width: markerWidth, height: line.item.height).fill()
             }
             let numbers: [Int?]
             if showsBothNumbers, case let .row(row, _) = line.item.displayRow {

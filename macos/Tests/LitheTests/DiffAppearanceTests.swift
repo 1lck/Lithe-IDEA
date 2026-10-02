@@ -8,6 +8,20 @@ import LitheGitModule
 @Suite("Native Diff appearance", .serialized)
 @MainActor
 struct DiffAppearanceTests {
+    @Test
+    func nativeColumnSelectionTracksDifferenceNavigation() {
+        let row = DiffRow(oldLine: 1, newLine: 1, left: "before", right: "after", kind: .changed, sequence: 0)
+        let layout = DiffSplitLayout.plan(displayRows: [.row(row, index: 0)], kinds: [.changed])
+        let state = DiffNativeColumnState()
+        state.prepare(identity: layout.identity, items: layout.rightItems, side: .right,
+            fileExtension: "swift", highlightsWords: true, dark: true)
+
+        state.updateSelection([row.id])
+        #expect(state.selectedRowIDs == [row.id])
+        state.updateSelection([])
+        #expect(state.selectedRowIDs.isEmpty)
+    }
+
     @Test(arguments: [NSAppearance.Name.aqua, .darkAqua])
     func connectorJoinsGuttersWithoutRasterSeams(appearance: NSAppearance.Name) throws {
         let view = DiffNativeTransitionsView(frame: NSRect(x: 0, y: 0, width: 100, height: 80))

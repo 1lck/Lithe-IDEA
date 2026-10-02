@@ -287,7 +287,7 @@ struct GitGraphScrollView: NSViewRepresentable {
             // Selection changes are the only updates that should move the
             // viewport. Appending a history page must leave the user's
             // current scroll position untouched.
-            nsView.contentView.scrollToVisible(
+            documentView.scrollToVisible(
                 NSRect(
                     x: 0,
                     y: CGFloat(selectedIndex) * rowHeight,

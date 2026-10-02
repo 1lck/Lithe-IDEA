@@ -167,7 +167,10 @@ final class LitheTerminalView: LocalProcessTerminalView {
             .withAlphaComponent(0)
         layer?.backgroundColor = NSColor.clear.cgColor
         layer?.isOpaque = false
-        nativeForegroundColor = palette.textColor ?? LitheTheme.nsColor(.primaryText, isDark: isDark)
+        // Terminal.app profiles may use a foreground color that assumes their
+        // own opaque background. The terminal is composited over Lithe's
+        // editor or wallpaper, so keep the default text tied to the app theme.
+        nativeForegroundColor = LitheTheme.nsColor(.primaryText, isDark: isDark)
         caretColor = isDark
             ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
             : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
