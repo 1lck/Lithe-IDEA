@@ -171,6 +171,13 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `.swift-version` 和 `.lithe-integrity.json` 校验。
 - `.artifacts/bun-cache/`：Bun 下载缓存；按 `bun.lock`、Bun 版本和缓存完整性
   清单校验。
+  Windows 的每次依赖安装在独立 worker 中执行；worker 在启动 Bun 前加入
+  Job Object（Windows 用于管理整棵子进程树的对象），退出时终止残留安装脚本。
+  每次安装默认有 300 秒本地期限，超时终止 worker 及其子进程；
+  安装失败后先释放子进程，再清理部分依赖与缓存，并只进行一次冷安装重试；
+  文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
+  `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
+  worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
 - `.artifacts/php-language-server-downloads/`：按

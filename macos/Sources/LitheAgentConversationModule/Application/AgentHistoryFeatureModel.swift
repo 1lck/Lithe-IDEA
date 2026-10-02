@@ -137,9 +137,14 @@ public struct AgentHistoryDocument: Sendable {
                 switch message.role {
                 case .user: role = String(localized: "You")
                 case .agent: role = "Agent"
+                case .thought: role = String(localized: "Thinking")
                 case .tool: role = String(localized: "Tool")
                 }
-                var content = "## \(role)\n\n\(message.text)"
+                // Reasoning is exported as a quote so it stays distinct from the reply.
+                let body = message.role == .thought
+                    ? message.text.components(separatedBy: .newlines).map { "> " + $0 }.joined(separator: "\n")
+                    : message.text
+                var content = "## \(role)\n\n\(body)"
                 if let status = message.toolStatus { content += "\n\nStatus: \(status.rawValue)" }
                 for detail in [message.toolDetails.input, message.toolDetails.output].compactMap({ $0 }) {
                     content += "\n\n\(detail)"

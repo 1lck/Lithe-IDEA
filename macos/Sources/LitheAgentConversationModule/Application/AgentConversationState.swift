@@ -14,7 +14,8 @@ public struct AgentSessionSummary: Identifiable, Equatable, Sendable {
 }
 
 public struct AgentConversationMessage: Identifiable, Equatable, Sendable {
-    public enum Role: Equatable, Sendable { case user, agent, tool }
+    /// `thought` holds the agent's streamed reasoning, kept apart from its reply.
+    public enum Role: Equatable, Sendable { case user, agent, thought, tool }
     public enum ToolStatus: String, Equatable, Sendable {
         case pending
         case inProgress = "in_progress"
@@ -55,6 +56,10 @@ public struct AgentPermissionPrompt: Identifiable, Equatable, Sendable {
 public struct AgentConversation: Equatable, Sendable {
     public var messages: [AgentConversationMessage] = []
     public var contextUsage: AgentContextUsage?
+    /// Latest complete plan from the agent; history replay restores it.
+    public var plan: AgentPlan?
+    /// Slash commands the agent currently advertises for this session.
+    public var availableCommands: [AgentCommand] = []
     public var activeTurn: AgentTurnStatistics?
     /// Local statistics survive tab switches and disconnects, but are not fabricated
     /// when the Agent replays history without timing or usage records.

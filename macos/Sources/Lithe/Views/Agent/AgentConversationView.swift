@@ -268,7 +268,8 @@ private struct AgentConnectionView: View {
                     subscriptionQuota: feature.subscriptionQuota,
                     subscriptionAccount: feature.subscriptionEmail,
                     quotaFailure: feature.quotaFailure,
-                    onSetConfig: { feature.setConfigOption($0, value: $1) }
+                    onSetConfig: { feature.setConfigOption($0, value: $1) },
+                    commands: feature.selectedConversation?.availableCommands ?? []
                 )
             }
         }

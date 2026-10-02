@@ -123,6 +123,10 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory frontend/editor --report .artifacts/test-stability/shared-editor.json
 
+      - name: Test Windows dependency install recovery
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --working-directory . --max-ms 30000 --report .artifacts/test-stability/windows-dependency-install.json -- scripts/windows-frontend-install.test.ts
+
       - name: Configure isolated dependency caches
         shell: pwsh
         run: |
