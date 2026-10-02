@@ -511,6 +511,15 @@ enum LitheTheme {
         })
     }
 
+    /// HelpTooltip / JBUI.Tooltip / ManyIslands themes, Community c7f91397.
+    /// Keep tooltip colors separate from popup menus and editor documentation.
+    enum HoverTooltip {
+        static let cornerRadius: CGFloat = 4
+        static var background: Color { controlColor(light: 0xFFFFFF, dark: 0x33353B) }
+        static var border: Color { controlColor(light: 0xD1D3D9, dark: 0x33353B) }
+        static var foreground: Color { controlColor(light: 0x000000, dark: 0xD1D3D9) }
+    }
+
     // MARK: - 浮层
     static var popupBackground: Color { adaptive(\.popupBackground) }
     static var popupShadow: Color { adaptive(\.popupShadow) }
@@ -766,6 +775,15 @@ extension View {
     /// hovered. The push/pop pair is balanced even when a view disappears.
     func lithePointer() -> some View {
         modifier(LithePointerModifier())
+    }
+
+    func litheHoverTooltipSurface() -> some View {
+        background(LitheTheme.HoverTooltip.background,
+                   in: RoundedRectangle(cornerRadius: LitheTheme.HoverTooltip.cornerRadius))
+            .overlay {
+                RoundedRectangle(cornerRadius: LitheTheme.HoverTooltip.cornerRadius)
+                    .strokeBorder(LitheTheme.HoverTooltip.border, lineWidth: 1)
+            }
     }
 
     func litheTreeRow(isSelected: Bool = false, isFocused: Bool = false) -> some View {

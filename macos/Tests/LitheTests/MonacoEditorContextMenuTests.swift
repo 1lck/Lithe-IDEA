@@ -69,7 +69,10 @@ struct MonacoEditorContextMenuTests {
         window.contentView = webView
         defer { menu.dismiss(); window.contentView = nil; window.close() }
         var replies: [String?] = []
-        menu.show(try request(), in: webView) { replies.append($0) }
+        menu.show(try request(), in: webView) { key, handled in
+            replies.append(key)
+            #expect(!handled)
+        }
         let panel = try #require(window.childWindows?.first)
         #expect(panel.isVisible)
         #expect(panel.animationBehavior == .none)
@@ -82,13 +85,65 @@ struct MonacoEditorContextMenuTests {
         #expect(replies.count == 1)
         #expect(replies[0] == "2")
         #expect(!panel.isVisible)
-        menu.show(try request(), in: webView) { replies.append($0) }
+        menu.show(try request(), in: webView) { key, handled in
+            replies.append(key)
+            #expect(!handled)
+        }
         try sendKey(53, to: #require(window.childWindows?.first))
         try await waitForReplies(2, in: { replies })
         #expect(replies.count == 2)
         #expect(replies[1] == nil)
         menu.dismiss()
         #expect(window.childWindows?.isEmpty != false)
+    }
+
+    @Test
+    func nativeClipboardCommandsWorkAfterAsynchronousMenuSelection() async throws {
+        let pasteboard = NSPasteboard.general
+        let saved = (pasteboard.pasteboardItems ?? []).map { item in
+            item.types.compactMap { type in item.data(forType: type).map { (type, $0) } }
+        }
+        defer {
+            pasteboard.clearContents()
+            let items = saved.map { values in
+                let item = NSPasteboardItem()
+                for (type, data) in values { item.setData(data, forType: type) }
+                return item
+            }
+            pasteboard.writeObjects(items)
+        }
+        let menu = MonacoEditorContextMenu()
+        let webView = WKWebView(frame: NSRect(x: 0, y: 0, width: 600, height: 300))
+        let window = NSWindow(contentRect: webView.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = webView
+        window.makeKeyAndOrderFront(nil)
+        defer { menu.dismiss(); webView.stopLoading(); window.contentView = nil; window.close() }
+        webView.loadHTMLString("<textarea id='text'>alpha beta</textarea>", baseURL: nil)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+        while webView.isLoading, ContinuousClock.now < deadline { await Task.yield() }
+        try #require(!webView.isLoading, "WebKit did not load within three seconds")
+        for (command, expected) in [("Copy", "alpha beta"), ("Cut", " beta"), ("Paste", "omega beta")] {
+            if command == "Paste" {
+                pasteboard.clearContents(); pasteboard.setString("omega", forType: .string)
+            }
+            _ = try await webView.evaluateJavaScript("var t=document.getElementById('text'); t.focus(); t.setSelectionRange(0, \(command == "Paste" ? 0 : 5));")
+            let request = try MonacoEditorContextMenu.Request.decode(["x": 40, "y": 50, "items": [
+                ["key": "0", "id": "editor.action.clipboard\(command)Action", "title": command, "enabled": true, "checked": false]
+            ]])
+            var replies: [String?] = []
+            menu.show(request, in: webView) { key, handled in
+                #expect(handled)
+                replies.append(key)
+            }
+            let panel = try #require(window.childWindows?.first)
+            try sendKey(125, to: panel); try sendKey(36, to: panel)
+            try await waitForReplies(1, in: { replies })
+            // Evaluating after the native command observes WebKit's ordered event delivery.
+            let text = try await webView.evaluateJavaScript("document.getElementById('text').value") as? String
+            #expect(text == expected)
+            if command != "Paste" { #expect(pasteboard.string(forType: .string) == "alpha") }
+        }
     }
 
     private func waitForReplies(_ count: Int, in replies: () -> [String?]) async throws {

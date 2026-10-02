@@ -1,3 +1,4 @@
+import AppKit
 import CoreGraphics
 import SwiftUI
 import Testing
@@ -6,6 +7,32 @@ import Testing
 @Suite("Workbench hover tooltips", .serialized)
 @MainActor
 struct WorkbenchHoverTooltipTests {
+    @Test("Shared tooltip uses Islands surfaces in both appearances", arguments: [false, true])
+    func sharedTooltipPalette(_ dark: Bool) throws {
+        let renderer = ImageRenderer(content: WorkbenchHoverTooltipLabel(title: Text("Pull Requests"))
+            .environment(\.colorScheme, dark ? .dark : .light))
+        renderer.scale = 1
+        let image = try #require(renderer.cgImage)
+        let bitmap = NSBitmapImageRep(cgImage: image)
+        func rgb(_ x: Int, _ y: Int) -> [Int] {
+            var values = [Int](repeating: 0, count: bitmap.samplesPerPixel)
+            bitmap.getPixel(&values, atX: x, y: y)
+            return Array(values.prefix(3))
+        }
+        let fill = rgb(image.width / 2, 3)
+        let edge = rgb(0, image.height / 2)
+        let expected = dark ? [51, 53, 59] : [255, 255, 255]
+        let border = dark ? expected : [209, 211, 217]
+        #expect(zip(fill, expected).allSatisfy { abs($0 - $1) <= 2 })
+        #expect(zip(edge, border).allSatisfy { abs($0 - $1) <= 2 })
+        if let directory = ProcessInfo.processInfo.environment["LITHE_HOVER_TOOLTIP_CAPTURE_DIR"] {
+            let root = URL(fileURLWithPath: directory, isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try #require(bitmap.representation(using: .png, properties: [:]))
+                .write(to: root.appendingPathComponent("tooltip-\(dark ? "dark" : "light").png"))
+        }
+    }
+
     @Test
     func previousIconExitDoesNotDismissTheNewTooltip() async {
         let state = WorkbenchHoverTooltipState()

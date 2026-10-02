@@ -1,8 +1,29 @@
 // Adapted from IntelliJ DefaultColorGenerator, Copyright 2000-2024
 // JetBrains s.r.o. and contributors. Apache-2.0. See Resources/GitGraph/NOTICE.txt.
 import AppKit
+import LitheGitModule
 
 enum GitGraphColor {
+    /// VersionControl.Log.Commit.currentBranchBackground in ManyIslands themes,
+    /// Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+    static func currentBranchBackground(isDark: Bool) -> NSColor {
+        isDark ? NSColor(deviceRed: 29 / 255, green: 35 / 255, blue: 54 / 255, alpha: 1)
+            : NSColor(deviceRed: 237 / 255, green: 243 / 255, blue: 1, alpha: 1)
+    }
+
+    /// ManyIslands{Dark,Light}: VersionControl.GitLog.*IconColor.
+    static func reference(_ kind: GitGraphReferenceKind, isDark: Bool) -> NSColor {
+        let rgb: Int
+        switch kind {
+        case .head: rgb = isDark ? 0xF5D273 : 0xFFAF0F
+        case .branch: rgb = isDark ? 0x5FAD65 : 0x369650
+        case .remote: rgb = isDark ? 0xB589EC : 0x834DF0
+        case .tag: rgb = isDark ? 0x868A91 : 0x6C707E
+        }
+        return NSColor(deviceRed: CGFloat((rgb >> 16) & 255) / 255,
+                       green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: 1)
+    }
+
     /// IDEA generates hues from a signed 32-bit color ID, rather than reducing
     /// the ID modulo a small palette (which merges unrelated adjacent branches).
     static func color(for colorID: Int, isDark: Bool) -> NSColor {

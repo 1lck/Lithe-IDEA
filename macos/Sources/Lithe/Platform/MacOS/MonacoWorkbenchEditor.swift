@@ -916,7 +916,9 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             guard !failed, let webView, webView.window != nil else { reply(["selected": NSNull()], nil); return }
             do {
                 let request = try MonacoEditorContextMenu.Request.decode(body)
-                contextMenu.show(request, in: webView) { key in reply(["selected": key as Any? ?? NSNull()], nil) }
+                contextMenu.show(request, in: webView) { key, handled in
+                    reply(["selected": key as Any? ?? NSNull(), "handled": handled], nil)
+                }
             } catch { reply(nil, "Invalid editor context menu") }
             return
         }

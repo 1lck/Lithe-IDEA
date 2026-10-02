@@ -25,6 +25,29 @@ Project/Dependencies 标题与 Terminal shell/动作入口同样使用 `LitheMen
 - 产品下拉框直接显示透明面板，`animationBehavior = .none`，不使用 SwiftUI `Menu`、菜单式 `Picker` 或系统 `NSPopover` 的弹跳展开，也不添加缩放或弹簧过渡。新增或修改产品下拉框时必须走共享组件；AI 的强制入口规则位于 `develop-lithe` Skill。
 - 调用方只提交条目、动作、可用条件和定位信息。例如 Git Log 设置调用 `show(items:at:appearance:locale:)`；不要重新增加样式布尔值或局部绘制另一套菜单。
 
+Monaco 的原生菜单选中经过异步 WebKit 消息回调，已经失去浏览器的用户手势授权。
+复制、剪切、粘贴因此由 WKWebView 原生 responder 命令执行，继续触发 Monaco
+自己的 DOM 剪贴板监听和撤销逻辑；返回 `handled` 后前端不能再次执行动作。
+只处理 Monaco 已启用的对应菜单项，其余动作仍走原 action runner。测试必须
+同时覆盖真实 WKWebView 的剪贴板内容与前端不重复执行，不能只检查命令 ID。
+
+### 工作台共享悬停提示
+
+四周工具栏、Git/Maven/Agent 等已有 `workbenchHoverHelp` 消费者统一读取
+`LitheTheme.HoverTooltip` 和 `litheHoverTooltipSurface`，禁止调用处另画外框。
+Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `HelpTooltip`、
+`JBUI.CurrentTheme.Tooltip/HelpTooltip` 和 `ManyIslands{Dark,Light}.theme.json`
+决定背景、文字、边框与尺寸：深色背景/边框 `#33353B`、文字 `#D1D3D9`；
+浅色白底、`#D1D3D9` 边框、黑字。半径 4，内容左右 12、上 8、下 9，
+常规文字 13pt。旧实现使用 expUI 的深/浅暗色表面，不能把它当 Islands 的覆盖值。
+
+IDEA 的 `AbstractPopup` / `WindowRoundedCornersManager` 将 macOS 深色 tooltip
+边框交给原生窗口层绘制，宽度 1；Lithe 在既有浮层内只绘制一次相同 token 的
+内边框。原生窗口阴影不等价于背景色，不能从截图吸色后写成另一圈不明边框。
+本项只调整已有提示的共享视觉，不改变范围、定位、关闭与可访问性策略。
+`WorkbenchHoverTooltipTests.sharedTooltipPalette` 检查深浅实际渲染像素；原有
+四周定位、窄窗换行和窗口隔离检查继续保留。
+
 ## 考虑过的备选方案
 
 - 为 Monaco 复制一份相同 CSS：拒绝，因为网页和原生菜单会各自持有圆角、行高和颜色，后续共享样式修改无法自动覆盖编辑区。

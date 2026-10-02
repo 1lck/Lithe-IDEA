@@ -9,6 +9,76 @@ import Testing
 @Suite("Git graph arrow interaction", .serialized)
 @MainActor
 struct GitGraphInteractionTests {
+    @Test("Compact reference groups keep full names and IDEA tracking and shortening rules")
+    func referenceGroups() throws {
+        let local = GitReference(fullName: "refs/heads/main", shortName: "main", kind: .local,
+                                 isCurrent: true, upstreamShortName: "upstream/release")
+        func group(_ decorations: String) throws -> GitGraphReferenceGroup {
+            let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test",
+                authorEmail: "", date: "", subject: "Subject", decorations: decorations)
+            let row = try #require(GitGraphLayoutService.layout(commits: [commit]).rows.first)
+            return GitGraphReferenceGroup(labels: row.labels, references: [local])
+        }
+        let tracked = try group("HEAD -> main, refs/remotes/upstream/release, tag: v1")
+        #expect(tracked.title == "upstream & main")
+        #expect(tracked.iconKinds == [.head, .branch, .remote, .tag])
+        #expect(tracked.tooltip == "HEAD\nmain\nupstream/release\nv1")
+        #expect(try group("main, origin/main").title == "origin & main")
+        #expect(try group("tag: v1, tag: v2, tag: v3").iconKinds == [.tag, .tag])
+        #expect(try group("tag: v1").title.isEmpty)
+        #expect(try group("HEAD").title == "HEAD")
+        let long = try group("refs/remotes/origin/codex/frontend-preview-with-long-name")
+        let font = LitheTheme.uiNSFont(size: 12)
+        #expect(long.shortenedTitle(availableWidth: 1000, font: font) == long.title)
+        let short = long.shortenedTitle(availableWidth: 60, font: font)
+        #expect(short.hasPrefix("../codex/"))
+        #expect(short.hasSuffix("…"))
+        #expect(short.count == 22)
+        #expect(long.tooltip == "origin/codex/frontend-preview-with-long-name")
+    }
+
+    @Test("Native reference hover survives truncation and branch background yields to selection", arguments: [false, true])
+    func referenceHoverAndCurrentBranchColor(_ dark: Bool) throws {
+        let commit = GitCommit(hash: "tip", shortHash: "tip", parentHashes: [], authorName: "Test", authorEmail: "",
+            date: "2026/09/09", subject: "A commit with a long branch reference",
+            decorations: "HEAD -> main, origin/main, refs/remotes/origin/codex/frontend-preview-with-long-name")
+        let rows = GitGraphLayoutService.layout(commits: [commit]).rows
+        let frame = CGRect(x: 0, y: 0, width: 780, height: GitGraphGeometry.rowHeight)
+        let view = GitGraphCommitRowsNSView(frame: frame)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        window.contentView = view
+        defer { window.contentView = nil; window.close() }
+        view.update(rows: rows, selectedHash: nil, showDecorations: true, graphWidth: 100,
+                    rowHeight: frame.height, actions: actions { _ in })
+        view.updateCurrentBranchHashes([commit.hash])
+        for width: CGFloat in [780, 500] {
+            view.setFrameSize(CGSize(width: width, height: frame.height))
+            let end = width - LitheTheme.GitLog.dateColumnWidth(locale: .current) - 120
+            #expect(view.referenceTooltip(at: CGPoint(x: end - 2, y: 12))?.contains("origin/codex/frontend-preview-with-long-name") == true)
+            #expect(view.referenceTooltip(at: CGPoint(x: 10, y: 12)) == nil)
+        }
+        func background() throws -> NSColor {
+            let bitmap = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
+            view.cacheDisplay(in: view.bounds, to: bitmap)
+            // Compare encoded RGB samples; colorAt() converts this display-profile
+            // bitmap through the monitor profile a second time on this host.
+            var samples = [Int](repeating: 0, count: bitmap.samplesPerPixel)
+            bitmap.getPixel(&samples, atX: 2, y: 2)
+            let maximum = CGFloat((1 << bitmap.bitsPerSample) - 1)
+            return NSColor(deviceRed: CGFloat(samples[0]) / maximum, green: CGFloat(samples[1]) / maximum,
+                           blue: CGFloat(samples[2]) / maximum, alpha: 1)
+        }
+        let branch = try background()
+        let expected = GitGraphColor.currentBranchBackground(isDark: dark)
+        #expect(abs(branch.redComponent - expected.redComponent) < 0.01)
+        #expect(abs(branch.blueComponent - expected.blueComponent) < 0.01)
+        view.updateSelection([commit.hash], isFocused: true)
+        let selected = try background()
+        #expect(abs(selected.redComponent - branch.redComponent) + abs(selected.greenComponent - branch.greenComponent) > 0.05)
+    }
+
     @Test("Real history matches IDEA for page, repository context and Normal date order", arguments: ["page", "context", "date"])
     func reportedHistoryParity(_ fixture: String) throws {
         let layout = GitGraphLayoutService.layout(commits: try reportedCommits(fixture == "date" ? "issue410-date-history" : "issue410-history"),

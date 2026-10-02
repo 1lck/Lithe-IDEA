@@ -86,6 +86,8 @@ struct GitGraphPresentation: Sendable {
     let rows: [GitGraphRow]
     let routingSnapshot: GitGraphRoutingSnapshot
     let hasMissingParents: Bool
+    var referenceGroups: [String: GitGraphReferenceGroup] = [:]
+    var currentBranchHashes: Set<String> = []
 
     static let empty = GitGraphPresentation(
         rows: [],
@@ -117,7 +119,8 @@ struct GitGraphView: View {
                         isSelected: selectedHashes?.contains(row.commit.hash) ?? (selectedHash == row.commit.hash),
                         showCommitDecorations: showCommitDecorations,
                         actions: actions,
-                        isFocused: isFocused
+                        isFocused: isFocused,
+                        isCurrentBranch: presentation.currentBranchHashes.contains(row.commit.hash)
                     )
                     .equatable()
                     .overlay(alignment: .topLeading) {
@@ -422,6 +425,8 @@ final class GitGraphScrollDocumentView: NSView {
         }
         // Selection and focus are cheap drawing state, independent of graph data.
         commitRowsView.updateSelection(selectedHashes ?? Set(selectedHash.map { [$0] } ?? []), isFocused: isFocused)
+        commitRowsView.updateCurrentBranchHashes(presentation.currentBranchHashes)
+        commitRowsView.updateReferenceGroups(presentation.referenceGroups)
         graphView.onNavigateHash = actions.onNavigateHash
         if graphChanged || rowsChanged || selectionChanged || showDecorationsChanged {
             commitRowsView.update(
@@ -588,7 +593,8 @@ private final class GitGraphLoadMoreButtonTarget: NSObject {
     }
 }
 
-final class GitGraphCommitRowsNSView: NSView {
+final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
+    private var currentBranchHashes: Set<String> = []
     private var locale = Locale.current
     private var rows: [GitGraphRow] = []
     private var selectedHash: String?
@@ -601,7 +607,7 @@ final class GitGraphCommitRowsNSView: NSView {
     private var hoveredIndex: Int?
     private var selectedHashes: Set<String>? = nil
     private var isFocused = true
-    private var labelWidthCache: [String: CGFloat] = [:]
+    private var referenceGroups: [String: GitGraphReferenceGroup] = [:]
     private var dateTextCache: [String: (text: String, period: String?)] = [:]
 
     override var isFlipped: Bool { true }
@@ -623,7 +629,6 @@ final class GitGraphCommitRowsNSView: NSView {
                 || self.rowHeight != rowHeight else { return }
         if self.rows != rows { dateTextCache.removeAll(keepingCapacity: true) }
         self.rows = rows
-        labelWidthCache.removeAll(keepingCapacity: true)
         self.selectedHash = selectedHash
         self.showDecorations = showDecorations
         self.graphWidth = graphWidth
@@ -634,6 +639,18 @@ final class GitGraphCommitRowsNSView: NSView {
     }
 
     func isSelected(_ hash: String) -> Bool { selectedHashes?.contains(hash) ?? (selectedHash == hash) }
+
+    func updateReferenceGroups(_ groups: [String: GitGraphReferenceGroup]) {
+        guard referenceGroups != groups else { return }
+        referenceGroups = groups
+        needsDisplay = true
+    }
+
+    func updateCurrentBranchHashes(_ hashes: Set<String>) {
+        guard currentBranchHashes != hashes else { return }
+        currentBranchHashes = hashes
+        needsDisplay = true
+    }
 
     func updateSelection(_ hashes: Set<String>, isFocused: Bool) {
         guard selectedHashes != hashes || self.isFocused != isFocused else { return }
@@ -654,12 +671,13 @@ final class GitGraphCommitRowsNSView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         drawingStyle = nil
-        labelWidthCache.removeAll(keepingCapacity: true)
         needsDisplay = true
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        removeAllToolTips()
+        if !visibleRect.isEmpty { addToolTip(visibleRect, owner: self, userData: nil) }
         for area in trackingAreas { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
@@ -667,6 +685,13 @@ final class GitGraphCommitRowsNSView: NSView {
             owner: self,
             userInfo: nil
         ))
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint,
+              userData data: UnsafeMutableRawPointer?) -> String {
+        // Resolve when AppKit displays the tip, including after scrolling under
+        // a stationary pointer. One native tooltip region serves the viewport.
+        referenceTooltip(at: point) ?? ""
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -711,10 +736,18 @@ final class GitGraphCommitRowsNSView: NSView {
                 (isFocused ? style.selection : style.inactiveSelection).setFill()
                 NSBezierPath(rect: rect).fill()
             } else if hoveredIndex == index {
+                if currentBranchHashes.contains(row.commit.hash) {
+                    style.currentBranch.setFill()
+                    NSBezierPath(rect: rect).fill()
+                }
                 style.hover.setFill()
                 NSBezierPath(rect: rect).fill()
+            } else if currentBranchHashes.contains(row.commit.hash) {
+                style.currentBranch.setFill()
+                NSBezierPath(rect: rect).fill()
             }
-            let labelsWidth = showDecorations ? row.labels.reduce(0) { $0 + labelWidth($1, style: style) + 6 } : 0
+            let label = referenceLayout(row, in: rect, style: style)
+            let labelsWidth = label?.rect.width ?? 0
             drawText(
                 row.commit.subject,
                 in: CGRect(x: textStart, y: rect.minY, width: max(0, rect.width - textStart - dateWidth - 120 - labelsWidth), height: rowHeight),
@@ -740,7 +773,7 @@ final class GitGraphCommitRowsNSView: NSView {
                     font: style.date, color: foreground, alignment: .right)
             }
             if showDecorations, !row.labels.isEmpty {
-                drawLabels(row.labels, in: rect, style: style, context: context)
+                drawLabels(row, layout: label, style: style, context: context)
             }
         }
     }
@@ -771,29 +804,58 @@ final class GitGraphCommitRowsNSView: NSView {
         return nil
     }
 
-    private func labelWidth(_ label: GitGraphLabel, style: DrawingStyle) -> CGFloat {
-        labelWidthCache[label.title] ?? {
-            let width = ceil((label.title as NSString).size(withAttributes: [.font: style.reference]).width) + 21
-            labelWidthCache[label.title] = width
-            return width
-        }()
+    private func referenceLayout(_ row: GitGraphRow, in rect: CGRect, style: DrawingStyle)
+        -> (group: GitGraphReferenceGroup, text: String, rect: CGRect)? {
+        guard showDecorations, !row.labels.isEmpty else { return nil }
+        let group = referenceGroups[row.commit.hash] ?? GitGraphReferenceGroup(labels: row.labels)
+        let start = GitGraphGeometry.titleOffset(row, recommendedLaneCount: recommendedLaneCount)
+        let end = max(start, rect.width - style.dateWidth(locale: locale) - 120)
+        let columnWidth = end - start
+        let subjectWidth = (row.commit.subject as NSString).size(withAttributes: [.font: style.body]).width
+        let available = max(0, min(columnWidth - subjectWidth, columnWidth / 3))
+        let text = group.shortenedTitle(availableWidth: available - group.iconWidth(height: style.referenceIconHeight) - 9, font: style.reference)
+        let textWidth = ceil((text as NSString).size(withAttributes: [.font: style.reference]).width)
+        let width = min(columnWidth, group.iconWidth(height: style.referenceIconHeight) + (text.isEmpty ? 0 : textWidth + 1) + 8)
+        return (group, text, CGRect(x: end - width, y: rect.minY, width: width, height: rowHeight))
     }
 
-    private func drawLabels(_ labels: [GitGraphLabel], in rect: CGRect, style: DrawingStyle, context: CGContext?) {
-        var x = max(0, rect.width - style.dateWidth(locale: locale) - 120)
-        for label in labels.reversed() {
-            let width = labelWidth(label, style: style)
-            x -= width + 6
-            guard x >= graphWidth else { break }
-            context?.saveGState()
-            context?.translateBy(x: x + 3, y: rect.midY - 6)
-            context?.addPath(GitReferenceTagIcon.path(in: CGSize(width: 12, height: 12)).cgPath)
-            context?.setFillColor(NSColor(GitGraphLabelView.accentColor(for: label)).cgColor)
-            context?.drawPath(using: .eoFill)
-            context?.restoreGState()
-            drawText(label.title, in: CGRect(x: x + 17, y: rect.minY, width: width - 21, height: rect.height),
-                     font: style.reference, color: style.referenceText)
+    func referenceTooltip(at point: CGPoint) -> String? {
+        let index = Int(floor(point.y / rowHeight))
+        guard rows.indices.contains(index), let style = resolvedDrawingStyle(),
+              let layout = referenceLayout(rows[index], in: CGRect(x: 0, y: CGFloat(index) * rowHeight,
+                  width: bounds.width, height: rowHeight), style: style), layout.rect.contains(point) else { return nil }
+        return layout.group.tooltip
+    }
+
+    private func drawLabels(_ row: GitGraphRow,
+                            layout: (group: GitGraphReferenceGroup, text: String, rect: CGRect)?,
+                            style: DrawingStyle, context: CGContext?) {
+        guard let layout, let context else { return }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let background = isSelected(row.commit.hash) ? (isFocused ? style.selection : style.inactiveSelection)
+            : currentBranchHashes.contains(row.commit.hash) ? style.currentBranch : NSColor(LitheTheme.editor)
+        let size = style.referenceIconHeight
+        context.saveGState()
+        context.clip(to: layout.rect)
+        for (index, kind) in layout.group.iconKinds.reversed().enumerated() {
+            context.saveGState()
+            context.translateBy(x: layout.rect.minX + 4 + CGFloat(index) * size / 6.25 * 2, y: layout.rect.midY - size / 2)
+            context.addPath(GitReferenceTagIcon.path(in: CGSize(width: size, height: size)).cgPath)
+            context.setFillColor(background.cgColor)
+            context.setStrokeColor(GitGraphColor.reference(kind, isDark: isDark).cgColor)
+            context.setLineWidth(size / 16)
+            context.setLineJoin(.round)
+            context.drawPath(using: .fillStroke)
+            if index == layout.group.iconKinds.count - 1 {
+                context.setFillColor(GitGraphColor.reference(kind, isDark: isDark).cgColor)
+                context.fillEllipse(in: CGRect(x: 9.5 * size / 16, y: 4.5 * size / 16, width: size / 8, height: size / 8))
+            }
+            context.restoreGState()
         }
+        drawText(layout.text, in: CGRect(x: layout.rect.minX + 5 + layout.group.iconWidth(height: style.referenceIconHeight), y: layout.rect.minY,
+                 width: max(0, layout.rect.width - layout.group.iconWidth(height: style.referenceIconHeight) - 9), height: layout.rect.height),
+                 font: style.reference, color: style.referenceText)
+        context.restoreGState()
     }
 
     private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
@@ -840,13 +902,16 @@ final class GitGraphCommitRowsNSView: NSView {
             locale.language.languageCode?.identifier == "en" ? englishDateWidth : twentyFourHourDateWidth
         }
         let reference = LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize - 1)
+        var referenceIconHeight: CGFloat { ceil(reference.ascender) + ceil(-reference.descender) + ceil(reference.leading) }
         let referenceText = NSColor(LitheTheme.GitLog.referenceText)
         let primary: NSColor
         let selection: NSColor
         let inactiveSelection = NSColor(LitheTheme.Tree.inactiveSelection)
         let hover: NSColor
+        let currentBranch: NSColor
 
         init(isDark: Bool) {
+            currentBranch = GitGraphColor.currentBranchBackground(isDark: isDark)
             primary = NSColor(LitheTheme.searchFieldText)
             selection = NSColor(LitheTheme.GitLog.rowBackground(selected: true, hovered: false))
             hover = NSColor(LitheTheme.GitLog.rowBackground(selected: false, hovered: true))
@@ -864,6 +929,7 @@ private struct GitGraphRowView: View, Equatable {
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
     var isFocused = true
+    var isCurrentBranch = false
 
     @State private var isHovered = false
 
@@ -874,6 +940,7 @@ private struct GitGraphRowView: View, Equatable {
             && lhs.isSelected == rhs.isSelected
             && lhs.showCommitDecorations == rhs.showCommitDecorations
             && lhs.isFocused == rhs.isFocused
+            && lhs.isCurrentBranch == rhs.isCurrentBranch
     }
 
     var body: some View {
@@ -939,11 +1006,16 @@ private struct GitGraphRowView: View, Equatable {
     }
 
     private var backgroundColor: Color {
-        LitheTheme.GitLog.rowBackground(selected: isSelected, hovered: isHovered, focused: isFocused)
+        if isCurrentBranch && !isSelected && !isHovered {
+            Color(nsColor: GitGraphColor.currentBranchBackground(isDark: colorScheme == .dark))
+        } else {
+            LitheTheme.GitLog.rowBackground(selected: isSelected, hovered: isHovered, focused: isFocused)
+        }
     }
 }
 
 struct GitGraphLabelView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let label: GitGraphLabel
     var fontSize: CGFloat = LitheTheme.GitLog.fontSize - 1
     var height: CGFloat = GitGraphGeometry.rowHeight
@@ -962,16 +1034,9 @@ struct GitGraphLabelView: View {
         .frame(height: height)
     }
 
-    private var accentColor: Color { Self.accentColor(for: label) }
+    private var accentColor: Color { Color(nsColor: GitGraphColor.reference(label.kind, isDark: colorScheme == .dark)) }
 
-    static func accentColor(for label: GitGraphLabel) -> Color {
-        switch label.kind {
-        case .head: return LitheTheme.accent
-        case .branch: return LitheTheme.success
-        case .remote: return Color(red: 0.55, green: 0.70, blue: 0.96)
-        case .tag: return LitheTheme.warning
-        }
-    }
+
 }
 
 private struct GitReferenceTagIcon: View {
@@ -979,30 +1044,30 @@ private struct GitReferenceTagIcon: View {
 
     var body: some View {
         Canvas { context, size in
-            context.fill(Self.path(in: size), with: .color(color), style: FillStyle(eoFill: true))
+            context.stroke(Self.path(in: size), with: .color(color), lineWidth: size.width / 16)
+            context.fill(Path(ellipseIn: CGRect(x: size.width * 9.5 / 16, y: size.height * 4.5 / 16,
+                width: size.width / 8, height: size.height / 8)), with: .color(color))
         }
         .accessibilityHidden(true)
     }
 
     static func path(in size: CGSize) -> Path {
-        let scale = min(size.width, size.height) / 6.25
-        let origin = CGPoint(
-            x: (size.width - 5.25 * scale) / 2,
-            y: (size.height - 5 * scale) / 2
-        )
+        // Community TagPainter: the New UI outlined currentBranch icon.
+        let scale = min(size.width, size.height) / 16
         var path = Path()
-        path.move(to: CGPoint(x: origin.x, y: origin.y))
-        path.addLine(to: CGPoint(x: origin.x + 2 * scale, y: origin.y))
-        path.addLine(to: CGPoint(x: origin.x + 5 * scale, y: origin.y + 3 * scale))
-        path.addLine(to: CGPoint(x: origin.x + 3 * scale, y: origin.y + 5 * scale))
-        path.addLine(to: CGPoint(x: origin.x, y: origin.y + 2 * scale))
+        path.move(to: CGPoint(x: 13.4495, y: 7.5001))
+        path.addLine(to: CGPoint(x: 7.01028, y: 13.9394))
+        path.addCurve(to: CGPoint(x: 6.30317, y: 13.9394), control1: CGPoint(x: 6.81502, y: 14.1347), control2: CGPoint(x: 6.49843, y: 14.1347))
+        path.addLine(to: CGPoint(x: 2.06053, y: 9.69679))
+        path.addCurve(to: CGPoint(x: 2.06053, y: 8.98968), control1: CGPoint(x: 1.86527, y: 9.50152), control2: CGPoint(x: 1.86527, y: 9.18494))
+        path.addLine(to: CGPoint(x: 8.49978, y: 2.55035))
+        path.addCurve(to: CGPoint(x: 8.92404, y: 2.40893), control1: CGPoint(x: 8.61106, y: 2.43907), control2: CGPoint(x: 8.76824, y: 2.38667))
+        path.addLine(to: CGPoint(x: 12.6363, y: 2.93926))
+        path.addCurve(to: CGPoint(x: 13.0606, y: 3.36352), control1: CGPoint(x: 12.8563, y: 2.97069), control2: CGPoint(x: 13.0292, y: 3.14354))
+        path.addLine(to: CGPoint(x: 13.5909, y: 7.07584))
+        path.addCurve(to: CGPoint(x: 13.4495, y: 7.5001), control1: CGPoint(x: 13.6132, y: 7.23163), control2: CGPoint(x: 13.5608, y: 7.38882))
         path.closeSubpath()
-        path.addEllipse(in: CGRect(
-            x: origin.x + scale,
-            y: origin.y + scale,
-            width: scale,
-            height: scale
-        ))
+        path = path.applying(CGAffineTransform(scaleX: scale, y: scale))
         return path
     }
 }

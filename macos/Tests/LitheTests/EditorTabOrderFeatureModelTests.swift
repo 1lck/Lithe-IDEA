@@ -187,6 +187,11 @@ struct EditorTabOrderFeatureModelTests {
             // Leave the strip in both layouts, then return and reorder. The
             // source gesture stays alive while its slot becomes a placeholder.
             points.insert(NSPoint(x: points[0].x + 15, y: 110), at: 2)
+            // A grab below the tab's midpoint can finish near the strip's top
+            // while the dragged card's center is already outside the strip.
+            points[0].y += 10
+            points[points.count - 2].y = 8
+            points[points.count - 1].y = 8
             let originalItems = model.editorTabItems
             var eventNumber = 0
             func drag(_ points: [NSPoint], cancel: Bool = false) async throws {

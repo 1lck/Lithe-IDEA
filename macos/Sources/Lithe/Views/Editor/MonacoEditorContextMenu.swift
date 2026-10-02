@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import WebKit
 
-/// Presentation only: Monaco still owns menu membership, availability and action execution.
+/// Monaco owns menu membership and availability; WebKit handles native clipboard commands.
 @MainActor
 final class MonacoEditorContextMenu {
     struct Item: Decodable {
@@ -78,8 +78,8 @@ final class MonacoEditorContextMenu {
         }
     }
 
-    func show(_ request: Request, in webView: WKWebView, completion: @escaping (String?) -> Void) {
-        guard let window = webView.window else { completion(nil); return }
+    func show(_ request: Request, in webView: WKWebView, completion: @escaping (String?, Bool) -> Void) {
+        guard let window = webView.window else { completion(nil, false); return }
         // CSS pixels are logical points at pageZoom == 1, independent of Retina scale.
         let x = min(max(CGFloat(request.x) * webView.pageZoom, 0), webView.bounds.width)
         let y = min(max(CGFloat(request.y) * webView.pageZoom, 0), webView.bounds.height)
@@ -95,8 +95,26 @@ final class MonacoEditorContextMenu {
                 if selected != nil, let webView, let window, webView.window === window {
                     window.makeKey()
                     window.makeFirstResponder(webView)
-                    completion(selected)
-                } else { completion(nil) }
+                    // An asynchronous script-message reply is no longer a DOM user gesture.
+                    // Native WebKit edit commands still dispatch Monaco's copy/cut/paste events.
+                    func clipboardAction(in items: [Item]) -> Selector? {
+                        for item in items where item.enabled {
+                            if let children = item.children, let action = clipboardAction(in: children) { return action }
+                            guard item.key == selected, item.separator != true, item.children == nil else { continue }
+                            switch item.id {
+                            case "editor.action.clipboardCopyAction": return #selector(NSText.copy(_:))
+                            case "editor.action.clipboardCutAction": return #selector(NSText.cut(_:))
+                            case "editor.action.clipboardPasteAction": return #selector(NSText.paste(_:))
+                            default: return nil
+                            }
+                        }
+                        return nil
+                    }
+                    let handled = clipboardAction(in: request.items).map {
+                        NSApp.sendAction($0, to: webView, from: nil)
+                    } ?? false
+                    completion(selected, handled)
+                } else { completion(nil, false) }
             }
         }
     }

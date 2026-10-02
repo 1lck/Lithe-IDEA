@@ -721,19 +721,21 @@ struct EditorAreaView: View {
     private func editorTabDragGesture(for item: EditorTabItem) -> some Gesture {
         DragGesture(
             minimumDistance: 8,
-            coordinateSpace: .global
+            // The strip stays fixed while its tab slots move. Use that same
+            // coordinate space for both the pointer and the recorded tab frames.
+            coordinateSpace: .named(editorTabCoordinateSpaceName)
         )
         .onChanged { value in
             guard !tabDragCancelled else { return }
             if tabDragState.draggedItem != item {
                 beginTabDrag(item)
             }
-            updateTabDrag(item, translation: value.translation)
+            updateTabDrag(item, translation: value.translation, location: value.location)
         }
         .onEnded { value in
             defer { tabDragCancelled = false }
             guard !tabDragCancelled else { return }
-            finishTabReorder(item, translation: value.translation)
+            finishTabReorder(item, translation: value.translation, location: value.location)
         }
     }
 
@@ -746,10 +748,11 @@ struct EditorAreaView: View {
 
     private func updateTabDrag(
         _ item: EditorTabItem,
-        translation: CGSize
+        translation: CGSize,
+        location: CGPoint
     ) {
         guard tabDragState.draggedItem == item,
-              let plan = tabDragPlan(for: item, translation: translation) else { return }
+              let plan = tabDragPlan(for: item, translation: translation, location: location) else { return }
         tabDragPreview.move(by: translation)
         guard tabReorderTarget != plan.target else { return }
         tabReorderTarget = plan.target
@@ -757,13 +760,14 @@ struct EditorAreaView: View {
 
     private func finishTabReorder(
         _ item: EditorTabItem,
-        translation: CGSize
+        translation: CGSize,
+        location: CGPoint
     ) {
         guard tabDragState.draggedItem == item else {
             finishTabDrag()
             return
         }
-        let target = tabDragPlan(for: item, translation: translation)?.target
+        let target = tabDragPlan(for: item, translation: translation, location: location)?.target
         if let target {
             if target.side == .after {
                 model.moveEditorTab(item, after: target.item)
@@ -779,19 +783,18 @@ struct EditorAreaView: View {
 
     private func tabDragPlan(
         for item: EditorTabItem,
-        translation: CGSize
+        translation: CGSize,
+        location: CGPoint
     ) -> (offset: CGSize, target: EditorTabReorderTarget?)? {
         guard let sourceFrame = tabDragStartFrames[item] else { return nil }
         let wraps = settings.editorTabLayoutMode == .multipleRows
         let minY = tabDragStartFrames.values.map(\.minY).min() ?? sourceFrame.minY
         let maxY = tabDragStartFrames.values.map(\.maxY).max() ?? sourceFrame.maxY
         let offsetY = wraps ? min(max(translation.height, minY - sourceFrame.minY), maxY - sourceFrame.maxY) : 0
-        let centerY = sourceFrame.midY + offsetY
-        let pointerCenterY = sourceFrame.midY + translation.height
-        guard pointerCenterY >= minY, pointerCenterY <= maxY else {
+        guard location.y >= minY, location.y <= maxY else {
             return (translation, nil)
         }
-        let rowAnchor = tabDragStartFrames.values.min { abs($0.midY - centerY) < abs($1.midY - centerY) } ?? sourceFrame
+        let rowAnchor = tabDragStartFrames.values.min { abs($0.midY - location.y) < abs($1.midY - location.y) } ?? sourceFrame
         let rowFrames = tabDragStartFrames.filter { _, frame in
             frame.maxY > rowAnchor.minY && frame.minY < rowAnchor.maxY
         }

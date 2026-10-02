@@ -145,27 +145,17 @@ private struct WorkbenchHoverTooltipOverlay: View {
 }
 
 struct WorkbenchHoverTooltipLabel: View {
-    @Environment(\.colorScheme) private var colorScheme
     let title: Text
 
     var body: some View {
-        let isDark = colorScheme == .dark
         title
-            .font(LitheTheme.uiFont(size: 12))
-            .foregroundStyle(isDark ? Color(red: 240.0 / 255, green: 241.0 / 255, blue: 242.0 / 255) : .white)
+            .font(LitheTheme.uiFont(size: 13))
+            .foregroundStyle(LitheTheme.HoverTooltip.foreground)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 12)
             .padding(.top, 8)
             .padding(.bottom, 9)
-            .background(isDark ? Color(red: 57.0 / 255, green: 59.0 / 255, blue: 64.0 / 255)
-                               : Color(red: 39.0 / 255, green: 40.0 / 255, blue: 46.0 / 255),
-                        in: RoundedRectangle(cornerRadius: 4))
-            .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .strokeBorder(isDark ? Color(red: 67.0 / 255, green: 69.0 / 255, blue: 74.0 / 255)
-                                         : Color(red: 39.0 / 255, green: 40.0 / 255, blue: 46.0 / 255),
-                                  lineWidth: 1)
-            }
+            .litheHoverTooltipSurface()
     }
 }
 

@@ -73,6 +73,35 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
   选中后恢复主文字色，对齐 `MergeCommitsHighlighter`。以父节点数量而非
   标题是否以 "Merge" 开头判断是否为合并提交。
 
+### 当前分支底色与紧凑引用标签
+
+以 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`CurrentBranchHighlighter`、`GitRefManager.groupForTable`、`SimpleRefGroup`、
+`LabelPainter`、`LabelIcon/TagPainter` 和 Islands 主题为准。深蓝底色表示当前
+分支可到达的提交，包含所有合并父节点，不按图谱列、连续行块或提交标题猜测。
+深/浅背景为 `#1D2336` / `#EDF3FF`；选中行优先，hover 在当前底色上叠加。
+单独过滤 HEAD 或当前分支时不再重复强调；没有当前本地分支时不着色。
+
+祖先集合在数据刷新任务中生成，绘制和拖动不读取 Git。当前只遍历已加载图谱，
+因此缺失的历史不能推断为当前分支成员；完整仓库索引成熟后可扩展同一数据入口。
+不能在原生 draw 或逐行 body 中运行 `git branch --contains`。
+
+提交标签默认显示，采用 IDEA 默认的紧凑模式、右对齐及不显示 tag 名称规则。
+同一提交上的本地分支和其上游合成 `origin & main`，没有显式上游时允许同名
+远程分支合并；当前分支优先，其余名称复用已导入的自然排序规则。HEAD 以黄色
+图标加入分组，分离头指针保留 HEAD 文字。每种引用类型最多两个叠加图标；
+本地绿、远程紫、HEAD 黄、tag 灰，均使用 Islands 明暗专用颜色。
+
+名字超过 22 个字符且空间不足时，先将首段路径缩成 `..`，再按字体宽度省略；
+22 是上游保留长度下限，不是始终截到 22。原始引用名不改写，悬停显示组内全部
+完整名称。整张原生提交表只注册一个可见范围的 AppKit tooltip 区域，显示时再
+按行和标签范围命中，避免给每条提交创建 SwiftUI tooltip/几何覆盖层。
+`GitGraphReferenceGroup` 是显示值，不改变 Git 引用和图谱排序的业务模型。
+
+`GitGraphLayoutTests.currentBranchMembership` 覆盖交错分支、合并父节点及缺失历史；
+`GitGraphInteractionTests.referenceGroups/referenceHoverAndCurrentBranchColor` 验证
+名称、堆叠类型、省略后原名和深浅主题选中覆盖。
+
 Git 工具窗的活动态必须双向跟随工具窗、提交列表、关键词、分支和路径筛选
 的当前焦点；全部失焦时清除活动态，不能只在获得焦点时置为 true。视图挂载
 只恢复显示，不请求 first responder（接收键盘输入的控件），避免打断编辑器

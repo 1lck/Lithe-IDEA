@@ -41,7 +41,7 @@ struct GitLogView: View {
     @State private var pendingBranchOperation: GitBranchOperationRequest?
     @State private var pendingTagDeletion: GitReference?
     @State private var comparisonSourceReference: GitReference?
-    @State private var showCommitDecorations = false
+    @State private var showCommitDecorations = true
     @State private var showLongGraphEdges = false
     @State private var graphNavigationRequest: GraphNavigationRequest?
     @State private var selectedGitToolTab = GitToolTab.log
@@ -124,12 +124,18 @@ struct GitLogView: View {
             let repositoryCommits = feature.gitGraphRepositoryCommits
             let visibleHashes = visibleCommitHashes
             let options: GitGraphDisplayOptions = showLongGraphEdges ? .expanded : .compact
+            let highlightsCurrentBranch = graphProjectionIdentity.highlightsCurrentBranch
             let task = Task.detached(priority: .userInitiated) {
                 let layout = GitGraphLayoutService.layout(commits: commits, references: references,
                     repositoryCommits: repositoryCommits, visibleHashes: visibleHashes, options: options)
                 return GitGraphPresentation(rows: layout.rows,
                     routingSnapshot: GitGraphLayoutService.routingSnapshot(for: layout),
-                    hasMissingParents: layout.hasMissingParents)
+                    hasMissingParents: layout.hasMissingParents,
+                    referenceGroups: Dictionary(uniqueKeysWithValues: layout.rows.map {
+                        ($0.commit.hash, GitGraphReferenceGroup(labels: $0.labels, references: references))
+                    }),
+                    currentBranchHashes: highlightsCurrentBranch
+                        ? GitGraphLayoutService.currentBranchHashes(commits: commits, repositoryCommits: repositoryCommits, references: references) : [])
             }
             let presentation = await withTaskCancellationHandler {
                 await task.value
@@ -1576,6 +1582,7 @@ struct GitLogView: View {
         let filterVersion: Int
         let filtering: Bool
         let showLongEdges: Bool
+        let highlightsCurrentBranch: Bool
     }
 
     private var graphProjectionIdentity: GraphProjectionIdentity {
@@ -1583,7 +1590,9 @@ struct GitLogView: View {
             repositoryVersion: feature.gitGraphRepositoryVersion,
             referencesVersion: feature.gitReferencesVersion,
             filterVersion: feature.gitLogFilterVersion, filtering: hasActiveGitLogFilter,
-            showLongEdges: showLongGraphEdges)
+            showLongEdges: showLongGraphEdges,
+            highlightsCurrentBranch: feature.isShowingAllGitReferences
+                || (feature.selectedGitReference.map { !$0.isCurrent && $0.shortName != "HEAD" } ?? false))
     }
 
     /// True when any filter is active, without calling `Date()`. Used to decide

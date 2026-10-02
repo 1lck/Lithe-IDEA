@@ -29,7 +29,7 @@ export interface MenuHandler {
 
 /** Replace only Monaco 0.55.1's renderer, after its menu/context-key resolution. */
 export function installNativeContextMenu(handler: MenuHandler,
-  request: (payload: { type: "contextMenu"; x: number; y: number; items: NativeMenuItem[] }) => Promise<{ selected: string | null }>,
+  request: (payload: { type: "contextMenu"; x: number; y: number; items: NativeMenuItem[] }) => Promise<{ selected: string | null; handled?: boolean }>,
   document: Document): { dispose(): void } {
   const original = handler.showContextMenu;
   let cancelCurrent: (() => void) | undefined;
@@ -70,6 +70,7 @@ export function installNativeContextMenu(handler: MenuHandler,
       hide(!action?.enabled);
       if (!action?.enabled || action instanceof SubmenuAction || action.id === Separator.ID) return;
       focused?.focus();
+      if (result.handled) return;
       const runner = delegate.actionRunner ?? new ActionRunner();
       const listener = runner.onDidRun(event => handler.onDidActionRun(event));
       try {

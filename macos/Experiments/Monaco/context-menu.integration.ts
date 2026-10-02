@@ -3,7 +3,7 @@ import { installNativeContextMenu, type MenuDelegate, type MenuHandler, type Nat
 const assert = (condition: unknown, message: string) => { if (!condition) throw new Error(message); };
 
 function harness() {
-  const requests: { payload: { items: NativeMenuItem[]; x: number; y: number }; resolve: (value: { selected: string | null }) => void; reject: (error: Error) => void }[] = [];
+  const requests: { payload: { items: NativeMenuItem[]; x: number; y: number }; resolve: (value: { selected: string | null; handled?: boolean }) => void; reject: (error: Error) => void }[] = [];
   const errors: unknown[] = [], hidden: boolean[] = [], log: unknown[] = [];
   let focusCount = 0;
   const handler: MenuHandler = {
@@ -23,7 +23,16 @@ function harness() {
 // Replies are controlled explicitly. The enclosing WebKit probe owns a bounded deadline.
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
-export const contextMenuCases = [{ name: "native menu preserves resolved actions, groups, bindings, context and runner", run: async () => {
+export const contextMenuCases = [{ name: "native clipboard selection does not execute a second DOM command", run: async () => {
+  const h = harness();
+  let calls = 0;
+  try {
+    h.show(() => [new Action("editor.action.clipboardCutAction", "Cut", undefined, true, () => { calls++; })]);
+    h.requests[0].resolve({ selected: "0", handled: true }); await flush();
+    assert(calls === 0 && JSON.stringify(h.hidden) === "[false]", "native cut executed twice or was treated as cancellation");
+    assert(h.focusCount() === 1, "native clipboard selection lost editor focus");
+  } finally { h.menu.dispose(); }
+}}, { name: "native menu preserves resolved actions, groups, bindings, context and runner", run: async () => {
   const h = harness(), runner = new ActionRunner();
   const calls: unknown[] = [];
   const action = new Action("editor.action.clipboardCopyAction", "Copy", undefined, true, context => { calls.push(context); });
