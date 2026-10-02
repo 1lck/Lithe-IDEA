@@ -29,7 +29,7 @@ struct LithePluginPackageSigner {
                 document: document,
                 publicKey: publicKey
             )
-            print("Verified publisher signature for \(manifest.pluginID) \(manifest.pluginVersion)")
+            writeStatus("Verified publisher signature for \(manifest.pluginID) \(manifest.pluginVersion)")
             return
         }
 
@@ -54,7 +54,13 @@ struct LithePluginPackageSigner {
             privateKey: privateKey
         )
         try PluginPackageSignature.write(document, to: packageURL)
-        print("Signed publisher package \(manifest.pluginID) \(manifest.pluginVersion)")
+        writeStatus("Signed publisher package \(manifest.pluginID) \(manifest.pluginVersion)")
+    }
+
+    /// Keep stdout available for machine-readable command results.
+    /// Build scripts capture stdout as the package path, so status messages belong on stderr.
+    private static func writeStatus(_ message: String) {
+        FileHandle.standardError.write(Data((message + "\n").utf8))
     }
 
     private static func loadManifest(from packageURL: URL) throws -> (pluginID: String, pluginVersion: String) {

@@ -24,6 +24,10 @@ swift build "${SWIFT_BUILD_ARGS[@]}" --product LitheOfficialPluginVerifier
 PLUGIN_ROOT=$(scripts/build-official-plugins.sh \
     --configuration debug \
     --triple "$TRIPLE")
+[[ -d "$PLUGIN_ROOT" ]] || {
+    print -u2 -- "Official plugin build returned an invalid package root: $PLUGIN_ROOT"
+    exit 1
+}
 plugins=("$PLUGIN_ROOT"/*(/N))
 package_signer_binary=""
 for plugin in "${plugins[@]}"; do
