@@ -1,0 +1,22 @@
+{
+  "id": "java-service-devtools-update",
+  "area": "Run/Debug",
+  "group": "Java 服务更新",
+  "capability": "运行中的 Spring Boot DevTools 服务手动保存并编译更新",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run/RunView.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/run/components/run-pane.tsx"
+    ]
+  },
+  "owner": "Run/Debug",
+  "verification": "在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。"
+}

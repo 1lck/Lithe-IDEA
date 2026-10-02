@@ -1,0 +1,23 @@
+{
+  "id": "spring-navigation",
+  "area": "Java",
+  "group": "Spring / MyBatis",
+  "capability": "Spring 符号导航与代码关联",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features",
+      "macos/Sources/Lithe/Views/Language"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/spring"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Spring",
+  "verification": "从 Bean、配置和 Endpoint 结果跳转到源代码并返回，确认行列号一致。"
+}

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyHorizontalWheelToScrollContainer,
   applyVerticalWheelToScrollContainer,
   getWheelDeltaPixels,
   isMostlyVerticalWheel,
@@ -59,5 +60,20 @@ describe("scroll container wheel", () => {
     element.scrollTop = 600;
     expect(applyVerticalWheelToScrollContainer(element, 40)).toBe(false);
     expect(element.scrollTop).toBe(600);
+  });
+
+  test("moves a horizontally overflowing container for sideways swipes and clamps at the edge", () => {
+    const element = { scrollLeft: 0, scrollWidth: 480, clientWidth: 300 };
+    expect(applyHorizontalWheelToScrollContainer(element, 120)).toBe(true);
+    expect(element.scrollLeft).toBe(120);
+    expect(applyHorizontalWheelToScrollContainer(element, 400)).toBe(true);
+    expect(element.scrollLeft).toBe(180);
+    expect(applyHorizontalWheelToScrollContainer(element, 40)).toBe(false);
+  });
+
+  test("leaves sideways swipes alone when the container does not overflow horizontally", () => {
+    const element = { scrollLeft: 0, scrollWidth: 300, clientWidth: 300 };
+    expect(applyHorizontalWheelToScrollContainer(element, 120)).toBe(false);
+    expect(element.scrollLeft).toBe(0);
   });
 });

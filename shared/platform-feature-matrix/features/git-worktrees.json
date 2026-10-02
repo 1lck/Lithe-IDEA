@@ -1,0 +1,22 @@
+{
+  "id": "git-worktrees",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "Worktree 管理",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "列出、创建、切换和删除 Worktree，确认路径、分支和安全检查。"
+}

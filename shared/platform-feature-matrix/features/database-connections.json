@@ -1,0 +1,23 @@
+{
+  "id": "database-connections",
+  "area": "数据库",
+  "group": "数据库工作区",
+  "capability": "连接配置与 Provider",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Database",
+      "macos/Sources/Lithe/Services"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Database",
+  "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。"
+}

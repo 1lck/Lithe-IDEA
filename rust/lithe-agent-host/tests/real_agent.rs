@@ -11,9 +11,10 @@
 //!
 //! `LITHE_ACP_E2E_MODEL` optionally selects the provider model and
 //! `LITHE_ACP_E2E_ARGS` holds newline-separated arguments. With
-//! `LITHE_ACP_E2E_DATA_DIR` set instead of a command, the Codex adapter is
+//! `LITHE_ACP_E2E_DATA_DIR` set instead of a command, the catalog adapter is
 //! installed there with the user's npm (if missing) and launched as a catalog
-//! agent, covering the one-click install path.
+//! agent, covering the one-click install path. `LITHE_ACP_E2E_AGENT_ID` selects
+//! the adapter and its provider protocol (defaults to `codex-acp`).
 
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
@@ -129,15 +130,20 @@ fn required(name: &str) -> String {
 fn open(workspace: &std::path::Path) -> Session {
     let (sender, events) = mpsc::channel();
     let data_directory = std::env::var_os("LITHE_ACP_E2E_DATA_DIR").map(std::path::PathBuf::from);
+    let agent_id = std::env::var("LITHE_ACP_E2E_AGENT_ID").unwrap_or_else(|_| "codex-acp".into());
+    let agent = lithe_agent_host::catalog::find(&agent_id).expect("catalog E2E agent");
+    let protocol = if data_directory.is_some() {
+        agent.protocol
+    } else {
+        ProviderProtocol::Responses
+    };
     if let Some(data) = &data_directory {
-        if install::installed_version(data, lithe_agent_host::catalog::find("codex-acp").unwrap())
-            .is_none()
-        {
-            install::install(data, "codex-acp", &|| false).expect("adapter installs with npm");
+        if install::installed_version(data, agent).is_none() {
+            install::install(data, &agent_id, &|| false).expect("adapter installs with npm");
         }
     }
     let launch = AgentLaunch {
-        agent_id: data_directory.as_ref().map(|_| "codex-acp".to_owned()),
+        agent_id: data_directory.as_ref().map(|_| agent_id),
         command: std::env::var("LITHE_ACP_E2E_COMMAND").ok(),
         args: std::env::var("LITHE_ACP_E2E_ARGS")
             .map(|args| {
@@ -151,7 +157,7 @@ fn open(workspace: &std::path::Path) -> Session {
         data_directory,
         authentication: lithe_agent_host::AgentAuthentication::ApiKey,
         provider: Some(ProviderCredentials {
-            protocol: ProviderProtocol::Responses,
+            protocol,
             base_url: required("LITHE_ACP_E2E_BASE_URL"),
             api_key: required("LITHE_ACP_E2E_API_KEY"),
             name: Some("Lithe end-to-end test".into()),
@@ -289,7 +295,7 @@ fn real_agent_reads_edits_tests_and_continues_in_temporary_project() {
     )
     .unwrap();
     std::fs::write(workspace.0.join("sum.test.cjs"),
-        "const assert = require('node:assert/strict');\nconst sum = require('./sum.cjs');\nassert.equal(sum(2, 3), 5);\nconsole.log('LITHE_TEST_PASSED');\n").unwrap();
+        "const assert = require('node:assert/strict');\nconst sum = require('./sum.cjs');\nassert.equal(sum(2, 3), 5);\nassert.equal(sum(-2, 4), 2);\nconsole.log('LITHE_TEST_PASSED');\n").unwrap();
     let session = open(&workspace.0);
     let id = session.new_session("workflow");
     session.send(AgentCommand::Prompt {
@@ -353,7 +359,7 @@ fn real_agent_reads_edits_tests_and_continues_in_temporary_project() {
 }
 
 #[test]
-#[ignore = "requires a real Codex ACP agent and API key configuration"]
+#[ignore = "requires a real catalog ACP agent and API key configuration"]
 fn real_agent_configuration_options_are_selectable() {
     let workspace = TemporaryProject::new();
     let session = open(&workspace.0);
@@ -377,23 +383,29 @@ fn real_agent_configuration_options_are_selectable() {
                 _ => None,
             },
         );
-    let options = options.as_array().expect("Codex reports config options");
+    let mut options = options
+        .as_array()
+        .expect("Agent reports config options")
+        .clone();
     for category in ["model", "mode", "thought_level"] {
-        let option = options
-            .iter()
-            .find(|option| option["category"] == category)
-            .unwrap_or_else(|| panic!("missing category {category}"));
+        let option = options.iter().find(|option| option["category"] == category);
+        // Thinking choices are optional upstream capabilities, not a product list.
+        if category == "thought_level" && option.is_none() {
+            continue;
+        }
+        let option = option.unwrap_or_else(|| panic!("missing category {category}"));
         let config_id = option["id"].as_str().unwrap();
         let current = option["currentValue"].as_str().unwrap();
-        // Change reasoning to another supported value; model and permission
-        // round trips preserve the user's effective defaults without a prompt.
-        let value = if category == "thought_level" {
+        // Switch models as well as reasoning; a same-value acknowledgement
+        // would miss the user-visible failure. Keep the permission mode intact.
+        let value = if category != "mode" {
             option["options"]
                 .as_array()
                 .unwrap()
                 .iter()
                 .filter_map(|choice| choice["value"].as_str())
-                .find(|value| *value != current)
+                .filter(|value| *value != current)
+                .next_back()
                 .unwrap_or(current)
         } else {
             current
@@ -424,6 +436,25 @@ fn real_agent_configuration_options_are_selectable() {
             .find(|o| o["id"] == config_id)
             .unwrap();
         assert_eq!(actual["currentValue"], value);
+        println!("Configuration {category}: {current} -> {value}");
+        if category == "model" {
+            assert_ne!(
+                value, current,
+                "the integration must switch to another model"
+            );
+        }
+        // Changing the model can remove thinking options (e.g. Claude Haiku).
+        // Subsequent choices must come from the confirmed current catalog.
+        options = updated.as_array().unwrap().clone();
     }
+    let (reason, reply) = session.prompt(
+        &id,
+        "Do not use any tools. Reply with only LITHE_MODEL_SWITCH_OK.",
+    );
+    assert_eq!(reason, "end_turn");
+    assert!(
+        reply.contains("LITHE_MODEL_SWITCH_OK"),
+        "no reply after switching: {reply:?}"
+    );
     session.handle.close();
 }

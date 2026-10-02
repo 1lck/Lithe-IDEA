@@ -1,0 +1,23 @@
+{
+  "id": "workspace-open-switch",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "打开工作区与切换项目",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace",
+      "macos/Sources/Lithe/Services/Workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。"
+}

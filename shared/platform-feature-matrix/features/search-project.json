@@ -1,0 +1,23 @@
+{
+  "id": "search-project",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "项目范围文本搜索",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Sources/Lithe/Services/Language"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-search"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序。"
+}

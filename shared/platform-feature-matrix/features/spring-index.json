@@ -1,0 +1,25 @@
+{
+  "id": "spring-index",
+  "area": "Java",
+  "group": "Spring / MyBatis",
+  "capability": "Spring 配置、Bean 与 Endpoint 索引",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features",
+      "macos/Sources/Lithe/Views/Run",
+      "shared/fixtures/spring"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/spring",
+      "shared/fixtures/spring"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Spring",
+  "verification": "使用 Spring fixture 对比配置、Bean、Endpoint 索引、刷新和失效处理。"
+}

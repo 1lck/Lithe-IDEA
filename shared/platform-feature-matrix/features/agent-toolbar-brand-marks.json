@@ -1,0 +1,25 @@
+{
+  "id": "agent-toolbar-brand-marks",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 品牌标志：Claude 橙色星芒、Codex 随主题变化的灰色结形图标，底栏切换入口、Agent 下拉菜单条目与模型入口保持清晰一致",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentPanelStyle.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+      "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "missing",
+    "verificationStatus": "pending",
+    "evidence": [
+      "shared/contracts/application-boundary.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：原生真实输入框的 Menu 像素测试通过四种品牌/深浅主题组合，共用模板图像保持不变；87 项相关 Agent 测试通过。打包预览应用的深色界面实际展开 Agent 与模型菜单，确认底栏图标居中、点击区域一致、模型小标志同步；Agent 菜单中 Claude 与 Codex 都带对应品牌图标，Claude 选中与切到 Codex 后的勾选均与品牌图标并列正确显示，模型与权限跟随所选 Agent。菜单验证前后 bundle 的 990 个文件清单及 SHA-256 一致，旧版应用与辅助进程已退出，仅保留用户新版主应用及项目正常运行的进程。Windows 对话 UI 和验收待完成。"
+}

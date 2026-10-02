@@ -11,6 +11,8 @@ protocol PlatformUI: AnyObject {
     func open(_ url: URL)
     func openHTMLInBrowser(_ url: URL) async throws
     func copyToClipboard(_ value: String)
+    func copyFilesToClipboard(_ urls: [URL]) -> Bool
+    func fileURLsFromClipboard() -> [URL]
     func markdownImageFromClipboard() -> MarkdownImageSource?
     func startAccessingProject(_ url: URL) -> Bool
     func stopAccessingProject(_ url: URL)
@@ -20,6 +22,9 @@ extension PlatformUI {
     func openHTMLInBrowser(_ url: URL) async throws {
         throw CocoaError(.featureUnsupported)
     }
+
+    func copyFilesToClipboard(_ urls: [URL]) -> Bool { false }
+    func fileURLsFromClipboard() -> [URL] { [] }
 
     func activateApplication() {}
     func startAccessingProject(_ url: URL) -> Bool { false }

@@ -1,0 +1,23 @@
+{
+  "id": "search-replace",
+  "area": "搜索",
+  "group": "搜索与导航",
+  "capability": "项目替换与取消",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Search",
+      "macos/Sources/Lithe/Services/Language"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-search"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Search",
+  "verification": "执行替换预览、确认替换和取消操作，确认未保存文件与异常文件不会被静默覆盖。"
+}

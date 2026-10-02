@@ -1,0 +1,25 @@
+{
+  "id": "editor-macos-ime-presentation",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "macOS 中文组合输入层遮住原文字，输入和删除候选文字时不透出整行重影",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/EditorFrontend/ime-input.css",
+      "macos/EditorFrontend/main.ts",
+      "macos/Experiments/Monaco/ime-input.integration.ts"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/features/editor/components/monaco-editor.tsx"
+    ]
+  },
+  "owner": "Editor",
+  "notes": "修正 macOS 原生主题半透明当前行底色作为 Monaco 输入法覆盖层底色时的字形透出。Linux Chromium 的真实 Monaco 组合事件样式回归通过；macOS 原生输入法及删除键实机验证待完成。Windows 不加载此 macOS 样式。",
+  "verification": "运行 scripts/probe-macos-monaco.sh --workbench-tests。在 macOS 使用系统拼音与微信输入法，在含中文和英文的同一行中间输入、删减候选拼音、确认上屏，再按删除键；检查整行无重影、候选与光标正常、撤销恢复文本。覆盖明暗主题、背景图开关和分屏，结束输入后背景恢复。"
+}

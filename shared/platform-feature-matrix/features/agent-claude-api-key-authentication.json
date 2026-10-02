@@ -1,0 +1,27 @@
+{
+  "id": "agent-claude-api-key-authentication",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Claude API Key 鉴权：通过公开会话参数使用所选供应商，清除冲突占位 Bearer，新建与历史恢复保持地址、密钥和模型",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "verified",
+    "evidence": [
+      "rust/lithe-agent-host/src/session_routing.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "rust/lithe-agent-host/tests/real_agent.rs",
+      "shared/fixtures/agent/acp-events-v1.json",
+      ".agents/notes/implemented/architecture/2026-09-25-shared-acp-agent-conversation.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/session_routing.rs",
+      "shared/contracts/rust-core-api.md"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：使用支持 Anthropic Messages 的供应商，在 Claude 新会话中验证正常和流式回复、读取临时文件、修改错误实现、执行两项 Node 断言并追问；验证停止、重连、历史加载后仍使用原供应商并记住上下文。用本地假服务观察同版原生 CLI 与固定 ACP 适配器请求仅含有效 x-api-key、没有占位 Bearer；新建与恢复共用 fixture 配置，环境与程序化 settings 都清除旧鉴权和路由；关闭项目后检查子进程退出与 bundle 哈希不变。Windows 共享 Host 已具备路由修复，对话 UI 与真实 Windows 验收仍待完成。"
+}

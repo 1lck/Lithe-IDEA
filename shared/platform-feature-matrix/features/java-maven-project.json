@@ -1,0 +1,24 @@
+{
+  "id": "java-maven-project",
+  "area": "Java",
+  "group": "Java/Maven",
+  "capability": "项目根、模块与源码集识别",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Services/Java",
+      "shared/contracts/application-boundary.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/maven",
+      "windows/tauri/src/features/workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Maven",
+  "verification": "使用单模块、多模块和非标准源码目录 fixture 对比项目模型。"
+}

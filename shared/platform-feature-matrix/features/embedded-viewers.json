@@ -1,0 +1,28 @@
+{
+  "id": "embedded-viewers",
+  "area": "编辑器",
+  "group": "资源预览",
+  "capability": "HTML、SVG、媒体、PDF 与二进制预览",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor/HTMLPreviewView.swift",
+      "macos/Sources/Lithe/Views/Editor/MediaViewerView.swift",
+      "macos/Sources/Lithe/Views/Editor/SVGPreviewView.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacHTMLBrowserOpener.swift",
+      "macos/Tests/LitheTests/HTMLBrowserOpenerTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/viewer",
+      "windows/tauri/src-tauri/src/html_browser.rs",
+      "windows/tauri/src/features/editor/components/html/html-preview.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。"
+}

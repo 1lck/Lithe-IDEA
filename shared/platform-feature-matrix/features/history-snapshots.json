@@ -1,0 +1,23 @@
+{
+  "id": "history-snapshots",
+  "area": "工作台",
+  "group": "本地历史",
+  "capability": "快照列表与 Diff",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/History",
+      "macos/Sources/Lithe/Services"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/local-history"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Local History",
+  "verification": "编辑同一文件多次，比较快照时间、内容 Diff 和文件范围。"
+}

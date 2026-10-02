@@ -169,6 +169,8 @@ async function validatorArguments(resource, cachePath, targetRoot) {
     ];
   }
   if (resource.validator === "bun") {
+    // This route validates sealed downloads only. Job-owned installation temp
+    // data and node_modules stay in the registry's non-reusable exclusions.
     const packagePath = await requiredFile(targetRoot, "package.json", resource.id);
     const packageManifest = JSON.parse(await fs.readFile(packagePath, "utf8"));
     const match = String(packageManifest.packageManager ?? "").match(/^bun@(.+)$/);
@@ -366,7 +368,7 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Runtime snapshots, per-execution Java launch files and isolated plugin
+      // Generated matrix views, runtime snapshots, per-execution Java launch files and isolated plugin
       // packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
       if (excludedResources.some((resource) => resource.id === identifier)) {

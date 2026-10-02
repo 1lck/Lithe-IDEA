@@ -1,0 +1,26 @@
+{
+  "id": "java-build-diagnostics",
+  "area": "Java",
+  "group": "Java/Maven",
+  "capability": "构建输出与编译诊断",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run",
+      "macos/Sources/Lithe/Services/Diagnostics"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/maven",
+      "windows/tauri/src/features/diagnostics",
+      "windows/tauri/src/features/maven/components/maven-run-pane.tsx",
+      "windows/tauri/src/features/run/components/run-output-text.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Maven",
+  "verification": "使用成功、编译失败和进程失败构建 fixture，对比诊断位置、输出和退出状态。 Windows Maven 构建输出使用 Geist Mono 显示 ====、==>、=>、!=、>=，确认禁用连字后逐字符显示且复制文本与原始输出一致；检查有输出与空态、ANSI 颜色、自动换行切换及横向滚动。"
+}

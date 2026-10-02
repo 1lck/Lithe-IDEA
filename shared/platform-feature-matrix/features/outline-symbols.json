@@ -1,0 +1,23 @@
+{
+  "id": "outline-symbols",
+  "area": "编辑器",
+  "group": "代码结构",
+  "capability": "当前文件 Outline 与符号树",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Language",
+      "macos/Sources/Lithe/Views/Search"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/outline"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "使用 Java 文件验证符号树、展开折叠、排序和跳转；确认 macOS 是否提供同等独立 Outline 入口。"
+}

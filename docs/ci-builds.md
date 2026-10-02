@@ -97,7 +97,10 @@ change should be evaluated separately if queueing continues to dominate.
 
 普通 `./scripts/test-macos.sh` 和 `./scripts/test-git-performance-baseline.sh`
 默认跳过两个 WindowServer/display-link 真实窗口采样用例，继续运行 Git 图布局、
-离屏绘制和其他性能回归验证。真实窗口采样需要 macOS 14+ 和可用的桌面显示；
+离屏绘制和其他性能回归验证。图形离屏帧采样保留完整 1,000 行历史，分别在
+开头、中间、末尾采样 40 行可见区域，并检查位图确实绘制了图形。完整图的
+结构和 Release 基线仍覆盖 1,000/5,000 行；单帧与测试总耗时上限保持不变。
+真实窗口采样需要 macOS 14+ 和可用的桌面显示；
 只在专门测量滚动帧率时显式开启：
 
 ```bash
@@ -119,6 +122,13 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包
 看门狗仍由原计时工具控制。
 
 ### 独立工作树的本地编译
+
+功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
+`<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
+它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
+架构或工具链 identity stamp；任何复制阶段都应排除。资源清单的
+`excludedResources.platform-feature-matrix` 由复用脚本直接拒绝。目标工作树运行
+`node scripts/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
 
 IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
 `scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
@@ -168,6 +178,13 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `.swift-version` 和 `.lithe-integrity.json` 校验。
 - `.artifacts/bun-cache/`：Bun 下载缓存；按 `bun.lock`、Bun 版本和缓存完整性
   清单校验。
+  Windows 的每次依赖安装在独立 worker 中执行；worker 在启动 Bun 前加入
+  Job Object（Windows 用于管理整棵子进程树的对象），退出时终止残留安装脚本。
+  每次安装默认有 300 秒本地期限，超时终止 worker 及其子进程；
+  安装失败后先释放子进程，再清理部分依赖与缓存，并只进行一次冷安装重试；
+  文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
+  `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
+  worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
 - `.artifacts/php-language-server-downloads/`：按

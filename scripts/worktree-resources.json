@@ -29,6 +29,13 @@
   ],
   "excludedResources": [
     {
+      "id": "frontend-install-state",
+      "reusable": false,
+      "locations": ["node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules", ".artifacts/bun-tmp"],
+      "identity": "Mutable installation state tied to one worktree, OS, architecture, Bun version and lifecycle attempt; no sealed reusable identity stamp",
+      "reason": "Each Windows install attempt owns its lifecycle processes in a worker Job Object. Release that tree before clearing partial dependencies or retrying. Never copy install temp data or node_modules across worktrees; only the sealed Bun download cache may be reused."
+    },
+    {
       "id": "jdt-maven-settings",
       "reusable": false,
       "locations": ["<platform-cache>/jdtls/<workspace-state>/.lithe/maven/"],
@@ -127,6 +134,16 @@
       "reusable": false,
       "identity": "Owned by one Java execution: absolute classpath, working directory, JDK version and native encoding. No reusable version/platform/architecture/toolchain identity stamp.",
       "reason": "Created exclusively by the platform launch adapter and deleted on preparation failure, cancelled launch, spawn failure or process exit. Never copy, publish or share between worktrees at any stage; installed bundles and JDK directories remain read-only."
+    },
+    {
+      "id": "platform-feature-matrix",
+      "reusable": false,
+      "locations": [
+        ".artifacts/platform-feature-matrix",
+        "<runner-temp>/lithe-agent-notes-site/platform-feature-matrix"
+      ],
+      "identity": "Generated from current worktree capability records and evidence paths; no sealed version/platform/architecture/toolchain identity stamp",
+      "reason": "Always validate and regenerate in the target worktree or CI checkout. Never copy at any reuse stage; source revisions may differ even on the same platform."
     }
   ]
 }

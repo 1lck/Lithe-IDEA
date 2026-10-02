@@ -40,7 +40,7 @@ enum AgentHistoryPresentation {
     static func messageCount(_ conversation: AgentConversation?) -> Int? {
         guard let conversation, !conversation.isLoading,
               conversation.isAttached || !conversation.messages.isEmpty else { return nil }
-        return conversation.messages.filter { $0.role != .tool }.count
+        return conversation.messages.filter { $0.role == .user || $0.role == .agent }.count
     }
 }
 
