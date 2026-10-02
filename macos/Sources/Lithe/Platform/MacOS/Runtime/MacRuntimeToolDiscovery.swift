@@ -4,22 +4,22 @@ import Foundation
 /// checks known locations and environment variables but never invokes a
 /// package manager or installs anything on the user's behalf.
 struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
-    private let homeDirectoryURL: URL
     private let resourceDirectoryURL: URL?
     private let pluginToolRoots: [URL]
+    private let configuredPluginExecutablesProvider: @Sendable () -> [String: [URL]]
     private let isExecutable: @Sendable (URL) -> Bool
 
     init(
-        homeDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser,
         resourceDirectoryURL: URL? = Bundle.main.resourceURL,
         pluginToolRoots: [URL] = [],
+        configuredPluginExecutablesProvider: @escaping @Sendable () -> [String: [URL]] = { [:] },
         isExecutable: @escaping @Sendable (URL) -> Bool = {
             FileManager.default.isExecutableFile(atPath: $0.path)
         }
     ) {
-        self.homeDirectoryURL = homeDirectoryURL.standardizedFileURL
         self.resourceDirectoryURL = resourceDirectoryURL?.standardizedFileURL
         self.pluginToolRoots = pluginToolRoots.map(\.standardizedFileURL)
+        self.configuredPluginExecutablesProvider = configuredPluginExecutablesProvider
         self.isExecutable = isExecutable
     }
 
@@ -84,6 +84,14 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             }
         }
 
+        for executable in configuredPluginExecutablesProvider()[command] ?? [] {
+            add(
+                executable,
+                source: .bundled,
+                detail: "Configured plugin toolchain"
+            )
+        }
+
         for directory in (environment["PATH"] ?? "").split(separator: ":") where !directory.isEmpty {
             let path = String(directory)
             let source: RuntimeToolSource = isHomebrewPath(path) ? .homebrew : .path
@@ -92,16 +100,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
                 source: source,
                 detail: source == .homebrew ? "PATH/Homebrew: \(path)" : "PATH: \(path)"
             )
-        }
-
-        if shouldSearchGoUserBin(for: command) {
-            for directory in goUserBinDirectories(environment: environment) {
-                add(
-                    directory.appendingPathComponent(command),
-                    source: .environment,
-                    detail: "Go user bin: \(directory.path)"
-                )
-            }
         }
 
         let homebrewRoots = [
@@ -149,13 +147,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
         environment: [String: String]
     ) -> RuntimeToolGuidance {
         switch command {
-        case "go", "dlv":
-            return RuntimeToolGuidance(
-                command: command,
-                displayName: "Go toolchain",
-                summary: "Go tooling (\(command)) was not found.",
-                recovery: "Install Go, then install the missing tool with `go install` or add its bin directory to PATH."
-            )
         case "python", "python3":
             return RuntimeToolGuidance(
                 command: command,
@@ -221,7 +212,6 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
 
     private func homebrewFormula(for command: String) -> String {
         switch command {
-        case "dlv": "delve"
         case "tsx": "tsx"
         case "ts-node": "ts-node"
         case "cargo", "rustc": "rust"
@@ -238,25 +228,4 @@ struct MacRuntimeToolDiscovery: RuntimeToolDiscovery {
             || path.hasPrefix("/usr/local/opt/")
     }
 
-    private func goUserBinDirectories(environment: [String: String]) -> [URL] {
-        var directories: [URL] = []
-        if let goBin = configuredURL(environment["GOBIN"] ?? "", projectURL: nil) {
-            directories.append(goBin)
-        }
-        for goPath in (environment["GOPATH"] ?? "").split(separator: ":") where !goPath.isEmpty {
-            directories.append(URL(fileURLWithPath: String(goPath)).appendingPathComponent("bin"))
-        }
-        directories.append(homeDirectoryURL.appendingPathComponent("go/bin"))
-        directories.append(homeDirectoryURL.appendingPathComponent(".go/bin"))
-        return directories
-    }
-
-    private func shouldSearchGoUserBin(for command: String) -> Bool {
-        switch command {
-        case "dlv", "gofumpt", "goimports", "gomodifytags", "gopls", "staticcheck":
-            return true
-        default:
-            return false
-        }
-    }
 }

@@ -63,6 +63,9 @@
 
 新增或修改语言服务器插件前，先阅读
 [LSP 插件构建与语言服务器资源归属](.agents/notes/implemented/architecture/2026-09-30-lsp-plugin-build-and-distribution.md)。
+实现 SDK、LSP、构建工具或语言插件 UI 时，同时以
+[语言插件、SDK、LSP 与构建工具需求文档](docs/development/language-plugin-tooling-requirements.md)
+作为需求和验收基线。
 所有 LSP 插件都必须在构建阶段固定来源并校验语言服务器，把完整资源放入插件包后签名；运行时只能从已安装插件发现入口，不能把下载物、解压物或插件状态写入 app bundle、安装目录或跨工作树共享缓存。
 
 ## 跨平台功能同步

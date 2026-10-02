@@ -15,6 +15,7 @@ import LitheCoreContracts
 final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     let id = UUID()
     lazy var ideCapabilities = IdeCapabilitiesFeatureModel(model: self)
+    var pluginToolchainFeatures: [PluginID: PluginToolchainFeatureModel] = [:]
     @Published var isChangingAgentProvider = false
     var workspaceURL: URL? { workspaceSessionCoordinator.workspaceURL }
     var standaloneFileURL: URL? { workspaceSessionCoordinator.standaloneFileURL }

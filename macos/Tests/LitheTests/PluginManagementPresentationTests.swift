@@ -5,11 +5,11 @@ import LitheModuleAPI
 @Suite("Plugin management presentation")
 struct PluginManagementPresentationTests {
     @Test
-    func onlyOfficialPHPPluginAppearsInSettings() throws {
+    func officialLanguagePluginsAppearInSettings() throws {
         let phpManifest = try #require(
             OfficialPluginCatalog.manifests.first { $0.id == OfficialPluginCatalog.phpPluginID }
         )
-        let goManifest = try #require(
+        let officialManifest = try #require(
             OfficialPluginCatalog.manifests.first { $0.id != OfficialPluginCatalog.phpPluginID }
         )
         let pythonManifest = try #require(
@@ -17,11 +17,11 @@ struct PluginManagementPresentationTests {
         )
         let content = PluginManagementListContent(plugins: [
             snapshot(phpManifest),
-            snapshot(goManifest),
+            snapshot(officialManifest),
             snapshot(pythonManifest),
         ])
 
-        #expect(content.plugins.map(\.id) == [phpManifest.id])
+        #expect(Set(content.plugins.map(\.id)) == Set([phpManifest.id, officialManifest.id]))
     }
 
     @Test

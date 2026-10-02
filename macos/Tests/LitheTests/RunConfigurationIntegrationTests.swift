@@ -779,7 +779,6 @@ struct RunConfigurationIntegrationTests {
             "/Library/Developer/CommandLineTools/usr/bin/lldb-dap"
         ]
         let discovery = MacRuntimeToolDiscovery(
-            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
             isExecutable: { executablePaths.contains($0.path) }
         )
 
@@ -806,9 +805,9 @@ struct RunConfigurationIntegrationTests {
     }
 
     @Test
-    func macToolDiscoveryFindsGoLanguageServerInUserBin() {
+    func macToolDiscoveryFindsPluginDeclaredUserExecutable() {
         let discovery = MacRuntimeToolDiscovery(
-            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
+            configuredPluginExecutablesProvider: { ["gopls": [URL(fileURLWithPath: "/tmp/home/.go/bin/gopls")]] },
             isExecutable: { $0.path == "/tmp/home/.go/bin/gopls" }
         )
 
@@ -819,7 +818,7 @@ struct RunConfigurationIntegrationTests {
         )
 
         #expect(candidates.first?.executableURL.path == "/tmp/home/.go/bin/gopls")
-        #expect(candidates.first?.source == .environment)
+        #expect(candidates.first?.source == .bundled)
     }
 
     @Test
@@ -829,7 +828,6 @@ struct RunConfigurationIntegrationTests {
         let bundled = resources.appendingPathComponent("LanguageServers/jdtls/bin/jdtls")
         let project = root.appendingPathComponent(".lithe/toolchains/bin/jdtls")
         let discovery = MacRuntimeToolDiscovery(
-            homeDirectoryURL: URL(fileURLWithPath: "/tmp/home", isDirectory: true),
             resourceDirectoryURL: resources,
             isExecutable: { $0 == bundled || $0 == project }
         )
@@ -1392,7 +1390,6 @@ struct RunConfigurationIntegrationTests {
         var endpoint: (String, UInt16)?
         let locator = MacJavaScriptDebugAdapterLocator(
             environment: ["PATH": "/toolchains"],
-            homeDirectoryURL: URL(fileURLWithPath: "/users/test", isDirectory: true),
             fileExists: { $0.standardizedFileURL.path == adapterScript.standardizedFileURL.path },
             isDirectory: { $0.standardizedFileURL.path == adapterRoot.standardizedFileURL.path },
             executableOnPath: { _ in nil }

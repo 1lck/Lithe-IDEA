@@ -18,6 +18,7 @@ enum MacPluginLanguageServerPackageValidationError: Error, Equatable, LocalizedE
     case missingManifest
     case invalidManifest
     case missingLauncher
+    case invalidToolchainConfiguration
 
     var errorDescription: String? {
         switch self {
@@ -27,6 +28,8 @@ enum MacPluginLanguageServerPackageValidationError: Error, Equatable, LocalizedE
             "language-server.json contains invalid metadata."
         case .missingLauncher:
             "The Intelephense launcher is missing."
+        case .invalidToolchainConfiguration:
+            "toolchain.json contains invalid metadata."
         }
     }
 }
@@ -37,6 +40,14 @@ enum MacPluginLanguageServerPackageValidator {
         pluginManifest: PluginManifest,
         fileManager: FileManager = .default
     ) throws {
+        let toolchainURL = packageURL.appendingPathComponent("toolchain.json")
+        if fileManager.fileExists(atPath: toolchainURL.path) {
+            guard let configuration = try? MacPluginToolchainConfiguration.load(from: toolchainURL),
+                  configuration.pluginID == pluginManifest.id else {
+                throw MacPluginLanguageServerPackageValidationError.invalidToolchainConfiguration
+            }
+            return
+        }
         guard pluginManifest.id == OfficialPluginCatalog.phpPluginID else { return }
         let manifestURL = packageURL.appendingPathComponent("language-server.json")
         guard let data = try? Data(contentsOf: manifestURL) else {

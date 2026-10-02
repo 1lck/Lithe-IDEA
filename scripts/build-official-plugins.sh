@@ -88,6 +88,9 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
     rm -rf "$package_dir"
     mkdir -p "$executable_dir"
     cp "$manifest" "$package_dir/plugin.json"
+    if [[ -f "$plugin_source/toolchain.json" ]]; then
+        cp "$plugin_source/toolchain.json" "$package_dir/toolchain.json"
+    fi
     if [[ "$package_id" == "dev.lithe.plugin.php-support" ]]; then
         language_server_manifest="$plugin_source/language-server.json"
         [[ -f "$language_server_manifest" ]] || {

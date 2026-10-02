@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "pluginID": "dev.lithe.plugin.go-support",
+  "toolchains": [
+    {
+      "id": "go-sdk",
+      "kind": "sdk",
+      "displayName": "Go SDK",
+      "metadataURL": "https://go.dev/dl/?mode=json&include=all",
+      "os": "darwin",
+      "archiveFormat": "tar.gz",
+      "executable": "bin/go",
+      "downloadURLTemplate": "https://go.dev/dl/{filename}",
+      "validationArguments": [
+        "version"
+      ],
+      "architecture": "host",
+      "archiveRoot": "go",
+      "indexFields": {
+        "stable": "stable",
+        "files": "files",
+        "filename": "filename",
+        "os": "os",
+        "architecture": "arch",
+        "version": "version",
+        "checksum": "sha256",
+        "kind": "kind",
+        "archiveKind": "archive"
+      }
+    }
+  ],
+  "languageServers": [
+    {
+      "id": "gopls",
+      "kind": "goModule",
+      "module": "golang.org/x/tools/gopls",
+      "executable": "bin/gopls",
+      "installCommand": [
+        "install",
+        "golang.org/x/tools/gopls@latest"
+      ],
+      "environment": {
+        "GOBIN": "{serverBin}",
+        "GOROOT": "{toolchainRoot}",
+        "GOTOOLCHAIN": "local",
+        "GOENV": "off",
+        "GOPATH": "{stateRoot}/packages",
+        "GOCACHE": "{cacheRoot}",
+        "PATH": "{toolchainBin}:{PATH}"
+      },
+      "validationArguments": [
+        "version"
+      ],
+      "runtimeEnvironment": {
+        "GOROOT": "{toolchainRoot}",
+        "GOTOOLCHAIN": "local",
+        "PATH": "{toolchainBin}:{PATH}"
+      }
+    }
+  ],
+  "discovery": {
+    "dlv": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin",
+      "/opt/homebrew/opt/delve/bin",
+      "/usr/local/opt/delve/bin"
+    ],
+    "gofumpt": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin"
+    ],
+    "goimports": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin"
+    ],
+    "gomodifytags": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin"
+    ],
+    "gopls": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin"
+    ],
+    "staticcheck": [
+      "{environment:GOBIN}",
+      "{environment:GOPATH}/bin",
+      "{home}/go/bin",
+      "{home}/.go/bin"
+    ]
+  }
+}
