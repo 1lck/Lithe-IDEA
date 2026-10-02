@@ -128,19 +128,23 @@ struct ProjectTreeSelectionTests {
 
     @Test
     @MainActor
-    func modifiedRowClicksReadModifiersFromTheMouseDownEvent() async throws {
-        let rows = ["a", "b", "c"]
+    func modifiedRowClicksReachTheOverlayThroughWindowDispatch() throws {
+        let rows = ["folder", "a", "b", "c"]
         var selection = ProjectTreeSelection()
-        var opened: [String] = []
+        var activated: [String] = []
         let rowHeight: CGFloat = 22
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: rowHeight * 3),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: rowHeight * CGFloat(rows.count)),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
-        // Mirrors FileNodeRow: a Button for plain clicks plus the modified-click overlay.
+        defer { window.orderOut(nil); window.close() }
+        // Mirrors FileNodeRow: the Button selects and opens a file or folds a
+        // folder, and the overlay handles modified clicks.
         window.contentView = NSHostingView(rootView: VStack(spacing: 0) {
             ForEach(rows, id: \.self) { row in
-                Button { opened.append(row) } label: {
+                Button {
+                    selection.select(row, visiblePaths: rows, extending: false, toggling: false)
+                    activated.append(row)
+                } label: {
                     Color.clear.frame(width: 240, height: rowHeight).contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
@@ -152,40 +156,48 @@ struct ProjectTreeSelectionTests {
                 }
             }
         })
+        // Hosting views hit-test only in an on-screen window; it never becomes key.
+        window.orderFrontRegardless()
         window.layoutIfNeeded()
-        // A test cannot make an event NSApp.currentEvent, which the overlay's
-        // hit test requires, so the mouse-down goes to the overlay laid out
-        // over the clicked row.
+        // The window hit-tests each event and routes it to the overlay or the
+        // Button as in the app; only the current-event lookup is substituted.
+        var dispatching: NSEvent?
+        for overlay in try #require(window.contentView).descendants.compactMap({ $0 as? ProjectTreeModifiedClickView }) {
+            overlay.currentEvent = { dispatching }
+        }
         func click(_ index: Int, _ flags: NSEvent.ModifierFlags) throws {
             let point = NSPoint(x: 50, y: rowHeight * (CGFloat(rows.count - index) - 0.5))
-            let down = try #require(NSEvent.mouseEvent(
-                with: .leftMouseDown, location: point, modifierFlags: flags, timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-            #expect(ProjectTreeModifiedClickView.captures(down))
-            let content = try #require(window.contentView)
-            let overlay = try #require(content.descendants
-                .compactMap { $0 as? ProjectTreeModifiedClickView }
-                .first { $0.convert($0.bounds, to: nil).contains(point) })
-            overlay.mouseDown(with: down)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                let event = try #require(NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+                dispatching = event
+                window.sendEvent(event)
+            }
+            dispatching = nil
         }
 
-        // Selection uses the modifiers carried by the mouse-down event; the
-        // SwiftUI action runs later, when NSApp.currentEvent no longer has them.
-        selection.select("a", visiblePaths: rows, extending: false, toggling: false)
-        try click(2, .shift)
+        // A plain click goes to the Button and sets the range anchor.
+        try click(1, [])
+        #expect(activated == ["a"])
+        #expect(selection.paths == ["a"])
+        // Shift extends forward and backward, ⌘ toggles; none of these clicks
+        // reach the Button, so files stay closed and the folder stays as is.
+        try click(3, .shift)
         #expect(selection.paths == ["a", "b", "c"])
-        selection.select("c", visiblePaths: rows, extending: false, toggling: false)
-        try click(0, .shift)
-        #expect(selection.paths == ["a", "b", "c"])
-        try click(1, .command)
+        try click(2, .command)
         #expect(selection.paths == ["a", "c"])
-        // The Button sits under the overlay and never sees these clicks.
-        #expect(opened.isEmpty)
+        try click(3, [])
+        try click(1, .shift)
+        #expect(selection.paths == ["a", "b", "c"])
+        try click(0, .command)
+        #expect(selection.paths == ["folder", "a", "b", "c"])
+        #expect(activated == ["a", "c"])
 
-        // Control-click stays the macOS secondary click.
-        #expect(!ProjectTreeModifiedClickView.captures(try #require(NSEvent.mouseEvent(
-            with: .leftMouseDown, location: .zero, modifierFlags: [.control, .shift], timestamp: 0,
-            windowNumber: 0, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))))
+        // Control-click passes through the overlay to the row below, where
+        // FileNodeRow's context menu capture handles it.
+        try click(2, [.control, .shift])
+        #expect(activated == ["a", "c", "b"])
     }
 
     @Test

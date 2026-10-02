@@ -20,6 +20,9 @@ struct ProjectTreeModifiedClick: NSViewRepresentable {
 
 final class ProjectTreeModifiedClickView: NSView {
     var select: ((NSEvent.ModifierFlags) -> Void)?
+    /// The event AppKit is dispatching. Tests substitute the synthesized event,
+    /// because pulling it through NSApp's event queue ends the test process.
+    var currentEvent: () -> NSEvent? = { NSApp.currentEvent }
 
     /// Plain clicks stay with the Button, and Control-click stays the macOS
     /// secondary click handled by the context menu.
@@ -30,7 +33,7 @@ final class ProjectTreeModifiedClickView: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard let event = NSApp.currentEvent, Self.captures(event) else { return nil }
+        guard let event = currentEvent(), Self.captures(event) else { return nil }
         return super.hitTest(point)
     }
 
