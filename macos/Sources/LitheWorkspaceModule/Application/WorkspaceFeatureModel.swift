@@ -598,6 +598,76 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if request.kind == .createFile { openFile?(destination) }
     }
 
+    package func pasteProjectItems(_ urls: [URL], in directory: URL) async {
+        guard !isPerformingProjectItemOperation else { return }
+        isPerformingProjectItemOperation = true
+        let copied = await pasteProjectItemsWithinOperation(urls, in: directory)
+        isPerformingProjectItemOperation = false
+        if copied { await refreshCurrent() }
+    }
+
+    /// Copies into one directory. The caller owns `isPerformingProjectItemOperation`
+    /// and the refresh, so a batch is not interleaved with another file operation.
+    private func pasteProjectItemsWithinOperation(_ urls: [URL], in directory: URL) async -> Bool {
+        guard isWorkspaceURL(directory), fileOperations.isDirectory(at: directory),
+              let operationWorkspaceURL = workspaceURL else { return false }
+        let generation = workspaceGeneration
+        guard let sources = validatedCopySources(urls, in: directory, workspace: operationWorkspaceURL) else { return false }
+        let fileOperations = self.fileOperations
+        let result = await Task.detached(priority: .userInitiated) {
+            Self.copyProjectItems(sources, in: directory, fileOperations: fileOperations)
+        }.value
+        guard workspaceURL == operationWorkspaceURL, workspaceGeneration == generation else { return false }
+        if let error = result.1 { notify?(error) } else { notify?("Pasted files") }
+        return result.0 > 0
+    }
+
+    private func validatedCopySources(_ urls: [URL], in directory: URL, workspace: URL) -> [URL]? {
+        let sources = Array(Set(urls.filter { $0.isFileURL }.map { $0.standardizedFileURL }))
+            .sorted { $0.path < $1.path }
+        let topLevelSources = sources.filter { source in
+            !sources.contains { parent in parent != source && source.path.hasPrefix(parent.path + "/") }
+        }
+        guard !topLevelSources.isEmpty else { return nil }
+        // Resolving links prevents a destination alias from copying a directory into itself.
+        let target = directory.resolvingSymlinksInPath().standardizedFileURL
+        let resolvedRoot = workspace.resolvingSymlinksInPath().standardizedFileURL
+        guard target == resolvedRoot || target.path.hasPrefix(resolvedRoot.path + "/") else {
+            notify?("Choose a directory inside the project")
+            return nil
+        }
+        for source in topLevelSources where fileOperations.isDirectory(at: source) {
+            let resolved = source.resolvingSymlinksInPath().standardizedFileURL
+            if target == resolved || target.path.hasPrefix(resolved.path + "/") {
+                notify?("Cannot copy a directory into itself")
+                return nil
+            }
+        }
+        return topLevelSources
+    }
+
+    private nonisolated static func copyProjectItems(
+        _ sources: [URL], in directory: URL, fileOperations: any WorkspaceFileOperations
+    ) -> (Int, String?) {
+        var copied = 0
+        do {
+            for source in sources {
+                var destination = directory.appendingPathComponent(source.lastPathComponent)
+                var index = 1
+                while fileOperations.fileExists(at: destination) {
+                    let ext = source.pathExtension
+                    let base = ext.isEmpty ? source.lastPathComponent : source.deletingPathExtension().lastPathComponent
+                    let suffix = index == 1 ? " copy" : " copy \(index)"
+                    destination = directory.appendingPathComponent(base + suffix + (ext.isEmpty ? "" : "." + ext))
+                    index += 1
+                }
+                try fileOperations.copyItem(at: source, to: destination)
+                copied += 1
+            }
+            return (copied, nil)
+        } catch { return (copied, error.localizedDescription) }
+    }
+
     package func duplicateProjectItem(at sourceURL: URL) async {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(sourceURL),
@@ -622,6 +692,46 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
     }
 
+    package func duplicateProjectItems(_ urls: [URL]) async {
+        guard !isPerformingProjectItemOperation else { return }
+        let generation = workspaceGeneration
+        let sources = topLevelProjectItems(urls)
+        isPerformingProjectItemOperation = true
+        var copied = false
+        for directory in Set(sources.map { $0.deletingLastPathComponent() }).sorted(by: { $0.path < $1.path }) {
+            guard workspaceGeneration == generation else { break }
+            copied = await pasteProjectItemsWithinOperation(
+                sources.filter { $0.deletingLastPathComponent() == directory }, in: directory
+            ) || copied
+        }
+        isPerformingProjectItemOperation = false
+        if copied { await refreshCurrent() }
+    }
+
+    private func topLevelProjectItems(_ urls: [URL]) -> [URL] {
+        let sources = Array(Set(urls.map { $0.standardizedFileURL }))
+            .filter { isWorkspaceURL($0) && $0 != workspaceURL?.standardizedFileURL }
+            .sorted { $0.path < $1.path }
+        return sources.filter { source in
+            !sources.contains { parent in parent != source && source.path.hasPrefix(parent.path + "/") }
+        }
+    }
+
+    package func requestDeleteProjectItems(_ urls: [URL]) {
+        guard !isPerformingProjectItemOperation else { return }
+        let sources = topLevelProjectItems(urls)
+        guard let first = sources.first else { return }
+        guard !sources.contains(where: hasDirtyDocument(in:)) else {
+            notify?("Save or discard unsaved files before deleting this item")
+            return
+        }
+        var request = ProjectItemDeletionRequest(url: first, isDirectory: fileOperations.isDirectory(at: first))
+        request.additionalItems = sources.dropFirst().map {
+            ProjectItemDeletionRequest(url: $0, isDirectory: fileOperations.isDirectory(at: $0))
+        }
+        pendingProjectItemDeletion = request
+    }
+
     package func requestDeleteProjectItem(at url: URL, isDirectory: Bool) {
         guard !isPerformingProjectItemOperation,
               isWorkspaceURL(url),
@@ -641,13 +751,44 @@ package final class WorkspaceFeatureModel: ObservableObject {
         if pendingProjectItemDeletion?.id == request.id {
             pendingProjectItemDeletion = nil
         }
-        guard !isPerformingProjectItemOperation,
-              isWorkspaceURL(request.url),
-              request.url.standardizedFileURL != workspaceURL?.standardizedFileURL else { return }
-        guard let operationWorkspaceURL = workspaceURL else { return }
+        guard !isPerformingProjectItemOperation else { return }
+        let generation = workspaceGeneration
+        var first = request
+        first.additionalItems = []
+        let items = [first] + request.additionalItems
+        // The whole batch owns the operation flag, so no other file operation
+        // can start between items and make later items skip silently.
+        isPerformingProjectItemOperation = true
+        var changed = false
+        for (index, item) in items.enumerated() {
+            guard workspaceGeneration == generation else { break }
+            changed = await trashProjectItemWithinOperation(item) || changed
+            guard workspaceGeneration == generation else { break }
+            if fileOperations.fileExists(at: item.url) {
+                // Each item reports its own failure; also say that the rest
+                // of the batch was intentionally left in place.
+                if index < items.count - 1 { notify?("Stopped moving the remaining items to Trash") }
+                break
+            }
+        }
+        isPerformingProjectItemOperation = false
+        if changed { await refreshCurrent() }
+    }
+
+    /// Moves one item to the Trash and returns whether the tree needs a refresh.
+    /// The caller owns `isPerformingProjectItemOperation` and the refresh.
+    private func trashProjectItemWithinOperation(_ request: ProjectItemDeletionRequest) async -> Bool {
+        guard isWorkspaceURL(request.url),
+              request.url.standardizedFileURL != workspaceURL?.standardizedFileURL,
+              let operationWorkspaceURL = workspaceURL else { return false }
+        // Editors stay usable while the dialog is open and while earlier batch
+        // items wait for the Trash, so the request-time check can be stale.
+        guard !hasDirtyDocument(in: request.url) else {
+            notify?("Save or discard unsaved files before deleting this item")
+            return false
+        }
         let operationWorkspaceGeneration = workspaceGeneration
         let operationDirectoryMarks = directoryMarks
-        isPerformingProjectItemOperation = true
         // Update the visible tree before waiting for the native Trash operation.
         // A failed operation reloads the disk snapshot below to restore the item.
         removeProjectItemFromSnapshot(request.url)
@@ -666,11 +807,9 @@ package final class WorkspaceFeatureModel: ObservableObject {
                 continuation.resume(returning: errorMessage)
             }
         }
-        isPerformingProjectItemOperation = false
         if let errorMessage {
             notify?(errorMessage)
-            await refreshCurrent()
-            return
+            return true
         }
         if request.isDirectory {
             let marksToRemoveFrom: [String: WorkspaceDirectoryMark]
@@ -693,10 +832,19 @@ package final class WorkspaceFeatureModel: ObservableObject {
             )
         }
         guard workspaceURL == operationWorkspaceURL,
-              workspaceGeneration == operationWorkspaceGeneration else { return }
-        closeDocuments?(request.url)
+              workspaceGeneration == operationWorkspaceGeneration else { return false }
+        if hasDirtyDocument(in: request.url) {
+            // Edits made while the Trash operation ran exist only in memory.
+            // Keep those documents open so the user can still save them.
+            for document in documentsProvider?() ?? []
+            where !document.isDirty && urlContains(request.url, child: document.url) {
+                closeDocuments?(document.url)
+            }
+        } else {
+            closeDocuments?(request.url)
+        }
         notify?("Moved \(request.url.lastPathComponent) to Trash")
-        await refreshCurrent()
+        return true
     }
 
     package func readFile(at workspaceURL: URL, relativePath: String) async -> String? {
@@ -1037,6 +1185,10 @@ package final class WorkspaceFeatureModel: ObservableObject {
         let parentPath = parent.standardizedFileURL.path
         let childPath = child.standardizedFileURL.path
         return childPath == parentPath || childPath.hasPrefix(parentPath + "/")
+    }
+
+    private func hasDirtyDocument(in url: URL) -> Bool {
+        documentsProvider?().contains { $0.isDirty && urlContains(url, child: $0.url) } == true
     }
 
     private func removeProjectItemFromSnapshot(_ targetURL: URL) {

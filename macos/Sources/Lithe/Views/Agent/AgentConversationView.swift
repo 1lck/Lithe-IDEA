@@ -18,19 +18,16 @@ struct AgentConversationView: View {
                     feature: model.agentManagementFeature,
                     onDone: { showsSettings = false }
                 )
-            } else if let feature, let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
-                AgentConnectionView(
-                    feature: connection,
-                    history: feature.history(for: agentID),
-                    agents: feature.agents,
-                    selectedAgentID: feature.selectedAgentID,
+            } else if let feature {
+                AgentConfiguredConversationView(
+                    feature: feature,
+                    setupError: model.agentConversationSetupError,
                     onSelectAgent: { model.selectAgentConversationAgent($0) },
                     onConnect: { model.connectAgentConversation() },
                     onOpenSettings: { showsSettings = true },
                     onCopySessionID: { model.copyAgentSessionID($0) },
                     onOpenFile: { model.openAgentFile($0) }
                 )
-                .id(feature.selectedAgentID)
             } else {
                 AgentUnconfiguredConversationView(
                     setupError: model.agentConversationSetupError,
@@ -41,6 +38,37 @@ struct AgentConversationView: View {
         .background(AgentPanelStyle.canvas)
         .workbenchHoverTooltipScope()
         .onAppear { model.activateAgentConversation() }
+    }
+}
+
+/// Observe selection where the selected connection is resolved. AppModel does
+/// not forward this optional module's changes, and each connection owns its UI.
+struct AgentConfiguredConversationView: View {
+    @ObservedObject var feature: AgentConversationFeatureModel
+    let setupError: AgentConversationError?
+    let onSelectAgent: (String) -> Void
+    let onConnect: () -> Void
+    let onOpenSettings: () -> Void
+    let onCopySessionID: (String) -> Void
+    let onOpenFile: (AgentToolDetails.Location) -> Void
+
+    var body: some View {
+        if let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
+            AgentConnectionView(
+                feature: connection,
+                history: feature.history(for: agentID),
+                agents: feature.agents,
+                selectedAgentID: agentID,
+                onSelectAgent: onSelectAgent,
+                onConnect: onConnect,
+                onOpenSettings: onOpenSettings,
+                onCopySessionID: onCopySessionID,
+                onOpenFile: onOpenFile
+            )
+            .id(agentID)
+        } else {
+            AgentUnconfiguredConversationView(setupError: setupError, onOpenSettings: onOpenSettings)
+        }
     }
 }
 
@@ -131,6 +159,20 @@ private struct AgentConnectionView: View {
 
     private var selectedAgent: AgentOption? { agents.first { $0.id == selectedAgentID } }
 
+    /// A saved provider model is not the current session's confirmed model.
+    /// Include the ready-to-create gap, but stop waiting on failure or sign-in.
+    private var isPreparingSession: Bool {
+        switch feature.connectionState {
+        case .idle, .connecting:
+            return true
+        case .ready:
+            return feature.isCreatingSession || feature.selectedConversation?.isLoading == true
+                || (feature.selectedSessionID == nil && feature.errorMessage == nil)
+        case .authenticationRequired, .authenticating, .failed:
+            return false
+        }
+    }
+
     var body: some View {
         ZStack {
             conversation
@@ -218,6 +260,7 @@ private struct AgentConnectionView: View {
                     onError: { localError = $0 },
                     configOptions: feature.selectedConversation?.configOptions ?? [],
                     sessionID: feature.selectedSessionID,
+                    isPreparingSession: isPreparingSession,
                     isConfiguring: feature.selectedConversation?.pendingConfigToken != nil,
                     isCancelling: feature.selectedConversation?.isCancelling == true,
                     contextUsage: feature.selectedConversation?.contextUsage,

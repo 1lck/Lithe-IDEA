@@ -2544,6 +2544,7 @@
 "Repository needs attention" = "仓库需要处理";
 
 "Codex subscription" = "Codex 官方订阅（本机账号）";
+"Loading session settings…" = "正在加载会话设置…";
 
 "Use your local ChatGPT account. No API key or URL is needed." = "使用本机已登录的 ChatGPT 账号，无需 API Key 或 URL。";
 
@@ -2578,6 +2579,15 @@
 
 "Could not open HTML in browser" = "无法在浏览器中打开 HTML";
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
+
+"Paste" = "粘贴";
+"Copied files" = "已拷贝文件";
+"Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
+"Pasted files" = "已粘贴文件";
+"Copy Files" = "拷贝";
+"Choose a directory inside the project" = "请选择项目内的目录";
+"Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";
+"Stopped moving the remaining items to Trash" = "已停止将剩余项目移到废纸篓";
 "%llds" = "%lld秒";
 "%lldm %llds" = "%lld分 %lld秒";
 "%lldh %lldm %llds" = "%lld小时 %lld分 %lld秒";

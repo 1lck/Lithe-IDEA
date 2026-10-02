@@ -1,7 +1,7 @@
 //! Agents Lithe can install and launch, and how each receives its settings.
 //!
-//! Every adapter signs in through the ACP `gateway` method, so the user's API
-//! key travels over stdio in the header of the agent's provider protocol.
+//! API keys travel over ACP stdio. Codex uses `gateway` authentication; Claude
+//! uses its public session options to avoid gateway placeholder credentials.
 //!
 //! Entries mirror the official ACP registry
 //! (`cdn.agentclientprotocol.com/registry/v1/latest/registry.json`): the same

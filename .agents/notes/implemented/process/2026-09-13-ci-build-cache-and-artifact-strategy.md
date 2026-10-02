@@ -50,6 +50,16 @@ Git 性能测试增加等待时间。推送到 `main` 或手动运行时，再�
 组装通用 DMG。Windows PR 把前端验证与 Rust 测试放在两个独立 job 中并行
 执行；Windows x64 NSIS 安装包只由 preview 和稳定版发布工作流生成。
 
+Git 图形的离屏帧采样保留完整 1,000 行历史，但每次只绘制 40 行的可见区域，
+分别覆盖开头、中间和末尾。绘制前把该区域的坐标映射到小位图，绘制后检查
+实际有图形像素，避免中段被裁剪为空时得到虚假的快速结果。完整 1,000/5,000
+行图结构、顺序和签名仍由独立用例与 Release 验证器检查；单帧中位数和整个
+测试的时间上限保持不变。
+
+正确做法：模拟滚动窗口的一帧，把可见区域作为绘制输入。不要把全部历史
+重复绘制 220 次当作单帧采样：这会把画面之外的工作混进测试总耗时，在共享
+runner 上可能出现断言都通过、计时工具仍因超过十秒而失败的情况。
+
 CI 缓存 Cargo fingerprints、build script outputs 和依赖 outputs，不缓存
 最终可执行文件。缓存覆盖 `rust/target/macos` 的 Rust Core 和 `rust/target`
 的数据库辅助 crate；缓存键必须包含运行器架构、编译器、Xcode/SDK/macOS
@@ -133,11 +143,19 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 任务结束。双架构验证因此保留给真正影响包内容和构建边界的改动；开发者需要
 临时安装包时使用手动工作流。
 
+### 提高 Git 帧采样的总时间上限
+
+这能容纳重复绘制完整历史的耗时，却保留了与可见窗口不符的工作量，也削弱
+其他测试的时间门禁。因此修正采样范围与位图坐标，继续使用原有上限；完整
+图的正确性检查不减少，批量绘制不能替代可见区域的帧成本测量。
+
 ## 后果
 
 - 普通 macOS Swift PR 更快得到必需检查结果；被选中的打包改动仍获得两个架构
   的真实安装物。
 - Git 专项验证不会再延长无关 Swift 改动的反馈时间。
+- 帧采样只绘制可见区域，减少与屏幕无关的测试工作；它不衡量完整历史的一次
+  批量导出，也不等同于需要显式开启的真实窗口帧率采样。
 - Windows 前端失败与 Rust 失败可以独立、并行反馈，不再等待 NSIS 安装包。
 - 缓存命中时可减少 Rust 相关重复编译，同时通过完整缓存键避免跨环境误复用。
 - artifact、校验和、合并提交与 gate 结果共同提供可追溯的测试交付物。
@@ -149,6 +167,7 @@ Swift 测试已经编译完整 Lithe 目标。再生成两个 DMG 会在普通�
 
 - `actionlint .github/workflows/ci-macos.yml .github/workflows/ci-windows.yml`
 - `./scripts/test-macos.sh`
+- `./scripts/test-git-performance-baseline.sh`
 - `./scripts/build-macos.sh --configuration debug --triple arm64-apple-macosx`
 - `./scripts/build-macos.sh --configuration debug --triple x86_64-apple-macosx`
 - `./scripts/build-official-plugins.sh --configuration debug --triple arm64-apple-macosx`
