@@ -1,0 +1,24 @@
+{
+  "id": "run-save-toolchain",
+  "area": "运行与调试",
+  "group": "运行配置",
+  "capability": "保存前同步与工具链解析",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run",
+      "macos/Sources/Lithe/Services/Java"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/run",
+      "windows/tauri/src/features/maven"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Run",
+  "verification": "修改未保存文件后运行，验证同步、JDK/Maven 选择和版本不匹配诊断。"
+}

@@ -1,0 +1,22 @@
+{
+  "id": "git-rebase-stash",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "Rebase 与 Stash",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "执行交互式 Rebase 和 Stash 保存/恢复，确认中断、冲突和继续操作。"
+}

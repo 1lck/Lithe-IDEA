@@ -1,0 +1,24 @@
+{
+  "id": "onboarding-welcome",
+  "area": "启动与窗口",
+  "group": "首次启动",
+  "capability": "欢迎页、项目入口与首次启动引导",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/WelcomeView.swift",
+      "macos/Sources/Lithe/Views/Workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/onboarding",
+      "windows/tauri/src/features/bootstrap"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Onboarding",
+  "verification": "清空首次启动状态，验证打开项目、克隆项目、最近项目和跳过引导；在 macOS 深色与浅色模式检查欢迎页布局、颜色和交互，确认默认及最小内容尺寸均为 800×650、可向屏幕可用区域放大，左下角齿轮菜单采用设置页下拉框配色并可进入设置与检查更新。"
+}

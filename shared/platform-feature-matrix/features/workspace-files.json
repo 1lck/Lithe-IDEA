@@ -1,0 +1,22 @@
+{
+  "id": "workspace-files",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "文件树与文件操作",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-system"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"
+}

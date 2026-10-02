@@ -1,0 +1,29 @@
+{
+  "id": "agent-turn-statistics",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "发送后实时计时、每轮结束固定耗时、Agent 上报的输入/输出 token 与缓存/推理用量详情",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentTurnStatistics.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-agent-host/src/prompt.rs",
+      "rust/lithe-agent-host/src/tests.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS：在真实 Agent 会话中确认发送后计时包含建会话、加载历史、工具和权限等待；正常完成、取消确认、请求失败和断连后停止计时，下一轮仍可看到上一轮统计。并发会话切换验证耗时与用量隔离；上报 usage 时显示准确输入/输出并悬停查看总量、缓存和推理值，缺失时只显示耗时。历史回放不编造统计，上下文占用与订阅额度不作为输入/输出 token。检查深浅主题和窄宽面板。Windows 共享 Host 已透传可选 usage，对话 UI 尚未接入。"
+}

@@ -1,0 +1,23 @@
+{
+  "id": "ai-chat-session",
+  "area": "AI",
+  "group": "AI 对话",
+  "capability": "对话会话与流式响应",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/AI"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/ai/components/chat/ai-chat.tsx",
+      "windows/tauri/src/features/ai/services/ai-chat-service.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "AI",
+  "verification": "Windows 验证新建会话、流式输出、取消和失败恢复；macOS 需要先定义产品范围。"
+}

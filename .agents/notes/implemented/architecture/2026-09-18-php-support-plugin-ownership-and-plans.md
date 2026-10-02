@@ -92,4 +92,4 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 - `windows/tauri/src/features/run-actions/`
 - `windows/tauri/src-tauri/src/language_tools.rs`
 - `shared/contracts/application-boundary.md`
-- `shared/platform-feature-matrix.json`
+- `shared/platform-feature-matrix/features/`

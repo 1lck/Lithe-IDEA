@@ -1,0 +1,24 @@
+{
+  "id": "docker-compose",
+  "area": "运行与调试",
+  "group": "项目运行",
+  "capability": "Docker / Compose 项目识别与运行",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run/RunConfigurationIcon.swift",
+      "macos/Sources/Lithe/Services/Java"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/docker",
+      "windows/tauri/src/features/run"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Run / Docker",
+  "verification": "使用 Dockerfile 和 Compose fixture 验证识别、命令参数、输出和进程停止；确认 macOS 是否只有入口识别。"
+}

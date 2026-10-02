@@ -1,0 +1,27 @@
+{
+  "id": "agent-codex-subscription",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Codex 供应商选择官方订阅：复用本机账号、显式浏览器登录与取消、API Key 模式切换及旧配置兼容",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentProviderConfigurationView.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+AgentProviders.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Tests/LitheTests/AgentProviderConfigurationTests.swift",
+      "rust/lithe-agent-host/src/subscription.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "partial",
+    "verificationStatus": "pending",
+    "evidence": [
+      "rust/lithe-agent-host/src/lib.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "macOS：已有 Codex ChatGPT 登录直接对话；未登录只显示登录按钮，点击才打开浏览器，取消与超时清理进程；API Key 与订阅空闲切换后验证实际计费来源，不携带旧 key/URL/模型、不改提交服务商；忙碌时拒绝切换，账号变化后断开；老配置仍走 API Key，Claude 不显示订阅选项。真实账号与 macOS UI 待验证；Windows 仅共享 host 已实现，UI 待接入。"
+}

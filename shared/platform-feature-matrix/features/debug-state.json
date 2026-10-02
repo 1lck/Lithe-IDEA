@@ -1,0 +1,25 @@
+{
+  "id": "debug-state",
+  "area": "运行与调试",
+  "group": "调试器",
+  "capability": "变量、异常与断开策略",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Debug",
+      "shared/fixtures/debug"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/debugger",
+      "shared/fixtures/debug"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Debug",
+  "verification": "验证变量分页、异常信息、step filters、暂停/继续和 disconnect policy。",
+  "notes": "Windows 真实调试产品链路仍在 #466 跟进。"
+}

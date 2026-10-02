@@ -1,0 +1,22 @@
+{
+  "id": "editor-multiline-tabs",
+  "area": "编辑器",
+  "group": "文本编辑",
+  "capability": "多行标签与标签导航",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Editor"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/tabs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Editor",
+  "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。"
+}

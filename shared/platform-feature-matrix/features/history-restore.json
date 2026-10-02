@@ -1,0 +1,22 @@
+{
+  "id": "history-restore",
+  "area": "工作台",
+  "group": "本地历史",
+  "capability": "恢复、删除与持久化",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/History"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/local-history"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Local History",
+  "verification": "验证恢复、删除、应用重启后持久化和失败回滚。"
+}

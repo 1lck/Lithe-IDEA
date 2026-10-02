@@ -1,0 +1,28 @@
+{
+  "id": "ide-api-maven",
+  "area": "AI",
+  "group": "IDE MCP",
+  "capability": "插件与 MCP 读取 Maven 模块和 Profile，保存配置、重载并执行既有生命周期和插件目标",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/IdeCapabilitiesFeatureModel.swift",
+      "macos/Sources/Lithe/Views/App/McpSettingsView.swift",
+      "macos/Tests/LitheTests/IdeCapabilitiesTests.swift",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/host-api/ide-capabilities.ts",
+      "windows/tauri/src/features/host-api/mcp-settings.tsx",
+      "windows/tauri/src/features/host-api/ide-capabilities.test.ts",
+      "rust/lithe-ide-host/src/lib.rs"
+    ]
+  },
+  "owner": "Agent",
+  "verification": "双端对同一示例项目设置 Profile/skipTests，重载、执行 clean verify，核对按钮与 MCP 的命令、输出、失败和取消。 运行前后对比安装目录文件清单与哈希；当前 Linux 仅执行共享协议及前端验证，原生运行待验证。"
+}

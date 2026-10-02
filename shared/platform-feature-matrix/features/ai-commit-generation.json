@@ -1,0 +1,24 @@
+{
+  "id": "ai-commit-generation",
+  "area": "AI",
+  "group": "AI 提交信息",
+  "capability": "Provider 配置与提交信息生成",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
+      "macos/Sources/Lithe/Platform/MacOS/AI"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git/services/ai-commit-service.ts",
+      "shared/contracts/ai-commit.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git / AI",
+  "verification": "用相同 diff、规则和 Provider 配置比较请求计划、取消、错误和生成文本。"
+}

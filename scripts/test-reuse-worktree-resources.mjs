@@ -85,6 +85,12 @@ try {
     assert.notEqual(refused.status, 0);
     assert.match(diagnostics(refused), /ide-mcp.*cannot be reused/);
   });
+  await test("generated matrix views cannot be copied across worktrees", { timeout: 15000 }, () => {
+    const refused = reuse(["--resource", "platform-feature-matrix"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /platform-feature-matrix.*cannot be reused/);
+  });
+
   await test("user-owned CLI installations are excluded from worktree copying", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);
