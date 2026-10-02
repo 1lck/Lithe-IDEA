@@ -17,6 +17,14 @@ enum AgentPanelStyle {
     static let versionText = adaptive(dark: 0xddd6fe, light: 0x6d28d9)
     static let versionAccent = Color(red: 139 / 255, green: 92 / 255, blue: 246 / 255)
 
+    static func brandTint(for name: String?, isDark: Bool) -> UInt32? {
+        switch name?.lowercased() {
+        case "claude", "claude code": 0xd97757
+        case "codex": isDark ? 0xcccccc : 0x333333
+        default: nil
+        }
+    }
+
     private static func adaptive(dark: UInt32, light: UInt32) -> Color {
         Color(nsColor: NSColor(name: nil) { appearance in
             let hex = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
@@ -30,17 +38,25 @@ enum AgentPanelStyle {
     }
 }
 
-/// Template SVGs use the same vendor silhouettes at welcome and toolbar sizes.
+/// Reuse the vendor silhouettes; toolbar marks retain their color in native menus.
 struct AgentBrandIcon: View {
+    enum Style { case template, brand }
+
     let name: String?
     var size: CGFloat = 16
+    var style: Style = .template
+    @Environment(\.colorScheme) private var colorScheme
+
+    private var tint: UInt32? {
+        style == .brand ? AgentPanelStyle.brandTint(for: name, isDark: colorScheme == .dark) : nil
+    }
 
     var body: some View {
         Group {
-            if let image = AgentBrandIconLoader.image(name: name, size: size) {
+            if let image = AgentBrandIconLoader.image(name: name, size: size, tint: tint) {
                 Image(nsImage: image)
                     .resizable()
-                    .renderingMode(.template)
+                    .renderingMode(tint == nil ? .template : .original)
                     .aspectRatio(contentMode: .fit)
             } else {
                 Image(systemName: "sparkles")
@@ -59,11 +75,13 @@ enum AgentBrandIconLoader {
         let bundleURL: URL
         let filename: String
         let size: Int
+        let tint: UInt32?
     }
     private static var images: [CacheKey: NSImage] = [:]
 
     static func image(
         name: String?, size: CGFloat = 64,
+        tint: UInt32? = nil,
         resourceBundle: Bundle? = resolveResourceBundle()
     ) -> NSImage? {
         let filename: String
@@ -73,15 +91,33 @@ enum AgentBrandIconLoader {
         default: return nil
         }
         guard let resourceBundle else { return nil }
-        let key = CacheKey(bundleURL: resourceBundle.bundleURL, filename: filename, size: max(1, Int(size.rounded())))
+        let key = CacheKey(bundleURL: resourceBundle.bundleURL, filename: filename,
+                           size: max(1, Int(size.rounded())), tint: tint)
         if let image = images[key] { return image }
         guard let url = resourceBundle.url(forResource: filename, withExtension: "svg", subdirectory: "AgentIcons"),
               let image = NSImage(contentsOf: url) else { return nil }
         image.isTemplate = true
         // Native Menu labels read NSImage.size rather than the SwiftUI frame.
         image.size = NSSize(width: key.size, height: key.size)
-        images[key] = image
-        return image
+        let rendered: NSImage
+        if let tint {
+            let color = NSColor(srgbRed: CGFloat((tint >> 16) & 255) / 255,
+                                green: CGFloat((tint >> 8) & 255) / 255,
+                                blue: CGFloat(tint & 255) / 255, alpha: 1)
+            // SwiftUI foreground styles can be lost when Menu converts its label
+            // to AppKit. Color the SVG's alpha mask in memory and keep it original.
+            rendered = NSImage(size: image.size, flipped: false) { rect in
+                image.draw(in: rect, from: .zero, operation: .copy, fraction: 1)
+                color.setFill()
+                rect.fill(using: .sourceIn)
+                return true
+            }
+            rendered.isTemplate = false
+        } else {
+            rendered = image
+        }
+        images[key] = rendered
+        return rendered
     }
 
     nonisolated static func resolveResourceBundle(
