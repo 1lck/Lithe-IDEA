@@ -594,6 +594,7 @@ struct LitheIDEAIcon: View {
     @Environment(\.colorScheme) private var colorScheme
     let resourcePath: String
     var size: CGFloat = 14
+    var width: CGFloat? = nil
     var fallbackSystemImage: String?
     var preservesOriginalColors = false
 
@@ -604,20 +605,20 @@ struct LitheIDEAIcon: View {
                     .renderingMode(.original)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: size, height: size)
+                    .frame(width: width ?? size, height: size)
             } else {
                 Image(nsImage: image)
                     .renderingMode(.template)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: size, height: size)
+                    .frame(width: width ?? size, height: size)
             }
         } else if let fallbackSystemImage {
             Image(systemName: fallbackSystemImage)
                 .font(LitheTheme.uiFont(size: size, weight: .medium))
-                .frame(width: size, height: size)
+                .frame(width: width ?? size, height: size)
         } else {
-            Color.clear.frame(width: size, height: size)
+            Color.clear.frame(width: width ?? size, height: size)
         }
     }
 

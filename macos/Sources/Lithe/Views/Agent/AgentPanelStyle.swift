@@ -1,13 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Conversation-local colors mirror the reference without changing the workbench.
+/// Conversation surfaces follow the same live theme tokens as the workbench.
 enum AgentPanelStyle {
-    static let canvas = adaptive(dark: 0x1e1e1e, light: 0xffffff)
-    static let header = adaptive(dark: 0x242424, light: 0xf5f5f5)
-    static let context = adaptive(dark: 0x2f2f2f, light: 0xf0f0f0)
-    static let toolbar = adaptive(dark: 0x1b1b1b, light: 0xf8f8f8)
-    static let border = adaptive(dark: 0x303030, light: 0xdcdcdc)
+    static var canvas: Color { LitheTheme.editor }
+    static var header: Color { LitheTheme.toolHeader }
+    static var context: Color { LitheTheme.raised }
+    static var toolbar: Color { LitheTheme.editor }
+    static var border: Color { LitheTheme.panelBorder }
     static let text = adaptive(dark: 0xcccccc, light: 0x333333)
     static let secondary = adaptive(dark: 0x888888, light: 0x666666)
     static let muted = adaptive(dark: 0x666666, light: 0x777777)

@@ -115,7 +115,36 @@ Project 菜单宽度由内容测量、Branch 使用已有基准，不能因为�
 同宽。树行也不能代替多行项目菜单、表格或原生提交图谱。这样约束的代价是规则不
 覆盖尚未实现的共享控件，但不会让 AI 为满足规则自行新增一套控件或重写原生列表。
 
+## Maven 树与 Agent 表面接入共享样式
+
+Maven 工具栏和树行复用 `LitheIconButtonStyle`、`litheTreeRow`、`LitheTheme.Tree`。
+Agent 的画布、标题、上下文栏、输入工具栏及边框读取 `LitheTheme` 的实时 token，
+避免局部固定灰色在切换应用主题后继续覆盖工作区。品牌色和会话语义色保留。
+
+Maven 对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`plugins/maven/src/main/resources/intellij.maven.xml`、`MavenProjectsNavigatorPanel.java`
+以及 `navigator/structure` 下的节点类。`AllIcons.java` / `MavenIcons.java` 决定
+New UI 对应资源：RunAnything、ShowIgnored、taskGroup、libraryFolder、library、
+mavenProject、mavenProfiles 和 ExternalSystem 的 task，保留 SVG 原色及明暗变体。
+Profiles 上游为 17×16，其余本次资源为 16×16；`LitheIDEAIcon.width` 允许该非方形资源
+保留原始宽度，已有调用仍默认使用原来的正方形尺寸。
+没有用复选框替代“跳过测试”图标，也没有把生命周期节点都画成齿轮。
+
+`ActionToolbar.DEFAULT_MINIMUM_BUTTON_SIZE` 为 22，`ActionToolbarImpl.ActionButtonBorder`
+给水平按钮加上下 1、左右 2 的留白；`JBUI.CurrentTheme.Toolbar` 外围上下 5、左右 7。
+`ManyIslandsDark/Light.theme.json` 及各自 `expUI` 父主题未覆盖上述 toolbar insets；
+它们覆盖 ActionButton 的 hover/pressed 背景，圆角取 Button.arc=8（半径 4）。
+使用已有 toolbar 专用颜色参数，不改变其他共享按钮的默认值。
+树使用 Islands 的 24pt 行高、4/12 留白及现有 19pt 缩进；附加说明与名称同一行，
+保留双击运行、展开、模块菜单、依赖错误提示和取消/重试语义，默认箭头光标。
+完整树行（含展开箭头）绘制共享选中底色，并由既有活动区域观察器区分焦点。
+
+这些 SVG 是构建时打包的只读源资源，不增加下载器、运行时缓存或可写 bundle 路径。
+资源许可和导入路径记录于 `macos/Resources/IDEAIcons/NOTICE.txt`。
+
 ## 验证
+
+- `AgentMavenAppearanceTests` 验证 Agent 表面在所有应用配色和明暗外观中跟随共享主题，并逐个用 AppKit 解码 Maven 的明暗 SVG，检查 16×16（Profiles 为 17×16）原始尺寸与可见像素；这些资源检查不代替完整应用交互验收。
 
 - `MonacoEditorContextMenuTests` 检查真实原生菜单面板在明暗主题下的共享尺寸、无动画、禁用跳过、选中/取消回复、官方 SVG 的 16×16 尺寸与资源可解析性，以及非法展示数据拒绝。
 - `./scripts/probe-macos-monaco.sh --workbench-tests` 使用正式 macOS 前端入口，验证真实 Monaco 菜单经过原生桥接而不产生网页菜单，同时保留既有菜单事件。`context-menu.integration.ts` 验证动态条目、分组、快捷键、实例前缀映射、动作上下文、原 action runner、取消/失败/替换和卸载后的旧响应。

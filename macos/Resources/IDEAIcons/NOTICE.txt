@@ -71,3 +71,13 @@ The Git Console vertical toolbar uses unmodified expui/general/{search,softWrap,
 scrollDown,delete,copy} and expui/run/stop light/dark SVGs from Community revision
 c7f91397daa3a961b4e78bc634fe467a0a7d9ade. VcsConsoleView, ScrollToTheEndToolbarAction,
 ClearConsoleAction and PlatformIconMappings supply the action mappings.
+
+Maven toolbar/tree additions use Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade, including dark variants:
+- platform/icons/src/expui/{run/{run,showIgnored},general/runAnything,
+  build/taskGroup,nodes/{library,libraryFolder}}.svg
+- plugins/maven/src/main/resources/images/expui/{build/{mavenProject,mavenProfiles},
+  toolwindow/maven}.svg (stored under maven/expui)
+- platform/external-system-impl/resources/icons/newui/task.svg
+  (stored as maven/task.svg)
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
