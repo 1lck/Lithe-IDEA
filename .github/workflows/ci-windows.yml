@@ -228,6 +228,10 @@ jobs:
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
 
+      - name: Test Git gutter changes and inline review lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts
+
       - name: Test editor tab scrolling and lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-tabs.json -- src/features/tabs
@@ -254,6 +258,10 @@ jobs:
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-paths.json -- src/features/git/api/git-repo-api.test.ts src/utils/path-helpers.test.ts
 
+      - name: Test Git commit messages and asynchronous diff ownership
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-commit-messages.json -- src/features/git/api/git-commits-api.test.ts src/features/git/components/log/git-commit-details.test.tsx src/features/git/hooks/use-git-diff-actions.test.tsx
+
       - name: Test Git query recovery and isolation
         shell: pwsh
         timeout-minutes: 5
@@ -278,6 +286,15 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-execution-journal.json -- src/features/git/services/git-execution-journal.test.ts
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Test Git Log previews, dates, columns, and workbench layout
+        shell: pwsh
+        run: |
+          $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-preview.json -- src/features/git/hooks/use-commit-file-preview.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-layout.json -- src/features/git/hooks/use-git-log-column-resize.test.tsx src/features/git/components/log/git-log-date-cell.test.tsx src/features/git/components/log/git-commit-file-tree.test.ts src/features/git/utils/git-log-columns.test.ts src/features/git/utils/git-log-date.test.ts src/features/git/utils/multi-file-diff.test.ts src/utils/document-resize-session.test.ts src/features/layout/components/plugin-activity-rail.test.ts src/features/layout/components/workbench-panel-frame.test.ts src/features/layout/config/item-order.test.ts src/features/keymaps/defaults/default-keymaps.git-log.test.ts src/features/terminal/stores/terminal.store.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test workspace Git commit adapters and staging

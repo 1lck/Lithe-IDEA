@@ -2399,6 +2399,11 @@
 "Ask for approval" = "请求批准";
 "Approve for me" = "替我审批";
 "Full access" = "完全访问";
+"Always ask before making changes" = "修改文件或执行需要权限的操作前请求你的批准。";
+"Automatically accept all file edits" = "自动批准文件编辑，其他操作仍按权限规则处理。";
+"Create a plan before making changes" = "阅读和分析后制定计划，不修改文件。";
+"Claude handles permission decisions" = "由 Claude 自动评估并审批操作。";
+"Accepts all permissions" = "跳过常规权限审批，仍受环境和管理策略限制。";
 "Always ask to edit external files and use the internet" = "修改工作区外文件或访问网络时先请求批准。";
 "Only ask for actions detected as potentially unsafe" = "自动审批，仅在检测到潜在风险时请求你的确认。";
 "Unrestricted access to the internet and any file on your computer" = "允许访问网络和电脑上的所有文件。";
@@ -2552,6 +2557,15 @@
 
 "Could not open HTML in browser" = "无法在浏览器中打开 HTML";
 "Choose a default web browser in System Settings, then retry." = "请在系统设置中选择默认网页浏览器，然后重试。";
+
+"Paste" = "粘贴";
+"Copied files" = "已拷贝文件";
+"Move %lld items to Trash?" = "将 %lld 个项目移到废纸篓？";
+"Pasted files" = "已粘贴文件";
+"Copy Files" = "拷贝";
+"Choose a directory inside the project" = "请选择项目内的目录";
+"Cannot copy a directory into itself" = "不能将目录复制到其自身或子目录中";
+"Stopped moving the remaining items to Trash" = "已停止将剩余项目移到废纸篓";
 "%llds" = "%lld秒";
 "%lldm %llds" = "%lld分 %lld秒";
 "%lldh %lldm %llds" = "%lld小时 %lld分 %lld秒";

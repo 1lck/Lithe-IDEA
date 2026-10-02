@@ -2,7 +2,8 @@
 
 use super::{
     command_value, execute_git_readonly_with_environment, git_process, parse_commit,
-    parse_reference, readonly_command, validate_root, GitCommandRequest, INTERNAL_REF_PREFIX,
+    parse_reference, readonly_command, validate_root, GitCommandRequest, GIT_COMMIT_DATE_ARGUMENT,
+    INTERNAL_REF_PREFIX,
 };
 use crate::protocol::{
     cancellation, CoreError, ErrorCode, GitCommitResponse, GitHistoryCursorCloseResponse,
@@ -340,7 +341,7 @@ fn offset_history_page(
         offset.to_string(),
         "-n".to_string(),
         limit.saturating_add(1).to_string(),
-        "--date=format:%Y/%m/%d %H:%M".to_string(),
+        GIT_COMMIT_DATE_ARGUMENT.to_string(),
         "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
     ]);
     let output = readonly_command(GitCommandRequest {
@@ -479,7 +480,7 @@ impl HistorySession {
             format!("--decorate-refs-exclude={INTERNAL_REF_PREFIX}*"),
             "-n".to_string(),
             MAX_HISTORY_COMMITS.to_string(),
-            "--date=format:%Y/%m/%d %H:%M".to_string(),
+            GIT_COMMIT_DATE_ARGUMENT.to_string(),
             "--pretty=format:%H%x1f%h%x1f%P%x1f%an%x1f%ae%x1f%ad%x1f%s%x1f%D".to_string(),
         ]);
         let mut process = git_process();

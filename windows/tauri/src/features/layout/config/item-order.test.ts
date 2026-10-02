@@ -33,7 +33,7 @@ describe("sidebar activity order", () => {
         terminal: true,
         diagnostics: true,
       }),
-    ).toEqual(["files", "git", "search", "run", "terminal", "diagnostics", "gitLog", "settings"]);
+    ).toEqual(["files", "git", "search", "run", "terminal", "diagnostics", "gitLog"]);
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("maven");
   });
 
@@ -48,18 +48,22 @@ describe("sidebar activity order", () => {
     expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("database");
   });
 
+  test("keeps the Settings entry out of the activity rail because it moved to the title bar", () => {
+    expect([...SIDEBAR_ACTIVITY_ITEM_IDS]).not.toContain("settings");
+    expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).not.toContain("settings");
+  });
+
   test("keeps bottom activity items ordered after the primary views", () => {
     expect([...SIDEBAR_BOTTOM_ACTIVITY_ITEM_IDS]).toEqual([
       "run",
       "terminal",
       "diagnostics",
       "gitLog",
-      "settings",
     ]);
   });
 
-  test("drops the removed Maven item from persisted left sidebar order", () => {
-    expect(normalizeItemOrder(["maven", "run"], SIDEBAR_ACTIVITY_ITEM_IDS)).toEqual([
+  test("drops removed Maven and Settings items from persisted left sidebar order", () => {
+    expect(normalizeItemOrder(["maven", "settings", "run"], SIDEBAR_ACTIVITY_ITEM_IDS)).toEqual([
       "run",
       "files",
       "git",
@@ -67,7 +71,6 @@ describe("sidebar activity order", () => {
       "terminal",
       "diagnostics",
       "gitLog",
-      "settings",
     ]);
   });
 });

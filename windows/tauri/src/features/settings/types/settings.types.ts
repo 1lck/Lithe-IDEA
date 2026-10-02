@@ -207,4 +207,6 @@ export interface Settings {
   gitSidebarTabOrder: Array<"changes" | "history">;
   githubSidebarSectionOrder: Array<"pull-requests" | "issues" | "actions">;
   enableInlineGitBlame: boolean;
+  /** Git change markers in the editor gutter; clicking one opens its inline review. */
+  enableGitGutter: boolean;
 }

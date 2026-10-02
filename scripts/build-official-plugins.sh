@@ -51,7 +51,8 @@ fi
 if [[ -z "$OUTPUT_DIR" ]]; then
     OUTPUT_DIR="$SWIFT_BIN_PATH/OfficialPlugins"
 fi
-SDK_PATH=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
+# Match the host build's explicit SDK when multiple SDKs are installed.
+SDK_PATH="${SDKROOT:-$(/usr/bin/xcrun --sdk macosx --show-sdk-path)}"
 if ! SWIFT_COMPILER=$(command -v swiftc); then
     print -u2 -- "Swift compiler is not available on PATH"
     exit 1

@@ -176,6 +176,14 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 
 以下目录不应直接复制或跨工作树共享：
 
+- Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
+  和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
+  执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
+  或工具链 identity stamp。准备失败、准备完成前已取消、启动失败或进程退出后由
+  所有者删除；系统临时目录由平台解析，不写安装包或 JDK，不影响签名或增量更新。
+  `excludedResources.java-launch-temporaries` 经复用脚本的排除路由直接拒绝，任何
+  复制阶段都不得共享；内容哈希相同也不能转移进程所有权。
+
 - Agent CLI 的用户级安装与下载缓存：npm 的 global prefix/cache、Homebrew 的
   Cellar/Caskroom/cache、用户目录下 `.local/share/claude/versions`。它们由运行时
   `PATH` 和原安装器决定，不属于工作树；包版本、平台与架构由原安装器校验，

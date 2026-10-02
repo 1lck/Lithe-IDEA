@@ -238,11 +238,22 @@ export const getFileDiff = async (
   }
 };
 
+/**
+ * Git's largest accepted `--unified` value. A single-file review asks for the
+ * whole file as context so omitted regions can be revealed without inventing
+ * source text; Git emits one hunk per file at this size.
+ */
+const FULL_FILE_CONTEXT_LINES = 2_147_483_647;
+
+const markFullContext = (diff: GitDiff | null): GitDiff | null =>
+  diff ? { ...diff, is_full_context: true } : diff;
+
 export const getWorkingTreePathDiff = async (
   repoPath: string,
   filePath: string,
   _untracked = false,
   originalPath?: string,
+  fullContext = false,
 ): Promise<GitDiff | null> => {
   try {
     const resolved = await resolveRepositoryForFile(repoPath, filePath);
@@ -251,20 +262,56 @@ export const getWorkingTreePathDiff = async (
     const filePaths = [
       ...new Set([originalPath, resolved.filePath].filter(Boolean) as string[]),
     ];
-    return await runGitRead(
+    const diff = await runGitRead(
       resolved.repoPath,
-      `working-tree-path-diff:${resolved.filePath}`,
+      `working-tree-path-diff:${fullContext ? "full:" : ""}${resolved.filePath}`,
       () =>
         tauriInvoke<GitDiff>("git_diff_file", {
           repoPath: resolved.repoPath,
           filePath: resolved.filePath,
           ...(filePaths.length > 1 ? { filePaths } : {}),
           worktreeSnapshot: true,
+          ...(fullContext ? { contextLines: FULL_FILE_CONTEXT_LINES } : {}),
         }),
     );
+    return fullContext ? markFullContext(diff) : diff;
   } catch (error) {
     if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
       console.error("Failed to get working-tree path diff:", error);
+    }
+    return null;
+  }
+};
+
+/**
+ * Index or worktree diff of one file with the whole file as context. It is not
+ * cached with `getFileDiff` results because gutter and AI consumers expect the
+ * regular sparse patch for the same key.
+ */
+export const getFullContextFileDiff = async (
+  repoPath: string,
+  filePath: string,
+  staged = false,
+): Promise<GitDiff | null> => {
+  try {
+    const resolved = await resolveRepositoryForFile(repoPath, filePath);
+    if (!resolved) return null;
+
+    const diff = await runGitRead(
+      resolved.repoPath,
+      `full-context-diff:${staged ? "staged" : "unstaged"}:${resolved.filePath}`,
+      () =>
+        tauriInvoke<GitDiff>("git_diff_file", {
+          repoPath: resolved.repoPath,
+          filePath: resolved.filePath,
+          staged,
+          contextLines: FULL_FILE_CONTEXT_LINES,
+        }),
+    );
+    return markFullContext(diff);
+  } catch (error) {
+    if (!isNotGitRepositoryError(error) && !isNoDiffFoundError(error)) {
+      console.error("Failed to get full-context file diff:", error);
     }
     return null;
   }

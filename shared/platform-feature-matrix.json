@@ -245,13 +245,15 @@
       "id": "agent-acp-conversation",
       "area": "AI",
       "group": "Agent 对话",
-      "capability": "可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理",
+      "capability": "可选 ACP Agent 对话：API Key 网关登录、项目会话与历史恢复、模型/权限/思考配置、不依赖凭据的本机默认模型同步、旧默认模型按上游推荐修复与品牌模型图标、CC GUI 风格紧凑的可搜索模型与权限弹出面板、工具详情与权限、停止确认和进程清理",
       "macos": {
         "evidence": [
           "macos/Sources/LitheAgentConversationModule",
           "macos/Sources/Lithe/Views/Agent",
           "rust/lithe-agent-host",
-          "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift"
+          "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift",
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Tests/LitheTests/AgentSessionSelectorLayoutTests.swift"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
@@ -264,7 +266,55 @@
         "verificationStatus": "pending"
       },
       "owner": "Agent",
-      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。"
+      "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 与 Claude 端到端仍待验证。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。 检查紧凑配置菜单：模型和设置子选项最小行高 26pt、权限模式最小行高 44pt，上下内边距 4pt；面板高度随行高收紧；权限面板按实际内容高度调整并保留 330pt 上限，短列表的双行说明不需要滚动即可完整显示。深浅主题下通过实际 SwiftUI/AppKit 渲染与原生鼠标事件验证双行说明、滚动到模型/权限长列表末项并选择，原始 ID 和选中回调不变；搜索及选中标记正常。"
+    },
+    {
+      "id": "agent-thinking-level-labels",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 思考强度英文呈现：Claude/Codex 子菜单、设置行当前值和模型底栏统一使用上游英文名称",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "verified",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "2026-10-01 macOS：最新 preview 独立 PR 分支 83 项 Agent 回归通过；含 PR #1007 前置修复的组合构建 87 项回归及真实界面验收通过；中文真实界面确认 Codex 的 Low、Medium、High、Xhigh、Max、Ultra 和 Claude 的 Low、Medium、High、Max 均显示英文。两边分别切换 Low，确认子菜单、设置行当前值和模型底栏同步英文，并恢复 Claude Medium、Codex Xhigh；权限、速度和思考强度标题仍显示中文。不改原始选项 ID、顺序和确认行为，运行前后 bundle 全部 990 个文件 SHA-256 一致。Windows 对话 UI 仍待实现。"
+    },
+    {
+      "id": "agent-approval-mode-presentation",
+      "area": "AI",
+      "group": "Agent 对话",
+      "capability": "Agent 权限模式呈现：Claude/Codex 名称保留上游原文，说明按界面语言显示并补齐图标，保留各 Agent 实际支持的选项及权限语义",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
+          "macos/Resources/en.lproj/Localizable.strings",
+          "macos/Resources/zh-Hans.lproj/Localizable.strings",
+          "macos/Tests/LitheTests/AgentSessionSelectorPresentationTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "pending",
+        "evidence": [
+          "shared/contracts/application-boundary.md"
+        ]
+      },
+      "owner": "Agent",
+      "verification": "中文和英文环境分别验证 Claude/Codex：权限名称保留上游原文，Plan 菜单与底栏一致，已知权限 ID 显示对应图标，未知选项原文和默认图标不变；说明使用当前界面语言，保留各 Agent 实际的审批和环境约束。检查原始 ID、数量、顺序及确认/失败行为不变。使用指定语言的资源 Bundle 验证名称与通用 Plan 翻译不会串用；整合紧凑布局后检查双行说明和长列表滚动。Windows 对话 UI 待实现。"
     },
     {
       "id": "agent-tool-activity-timeline",
@@ -503,6 +553,34 @@
       "verification": "新建、移动、重命名、删除文件和目录，并确认相对路径与错误提示一致。"
     },
     {
+      "id": "workspace-tree-batch-files",
+      "area": "工作区",
+      "group": "工作区生命周期",
+      "capability": "项目树多选、范围选择及批量复制、重复和移到废纸篓",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+          "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
+          "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
+          "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift",
+          "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeModifiedClick.swift",
+          "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift",
+          "macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "missing",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "windows/tauri/src/features/file-system"
+        ]
+      },
+      "owner": "Workspace",
+      "verification": "macOS 项目树中使用 ⌘ 点击增减选择、Shift 点击正反向连续选择，Control 点击仍打开右键菜单，右键已选项保持集合；⌘A 全选焦点项的同级项目（点击文件夹时选它旁边的项目而不是其内容，未选中时选项目顶层项目），已选文件夹下展开的内容同时显示为选中；打开文件后单选高亮跟随编辑器；拷贝并粘贴到目标目录、批量创建副本和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；确认删除后、废纸篓操作完成前修改的文件不会被删除或关闭，失败时提示剩余项目未移动；点击编辑器或在点击项目树后用快捷键打开全局搜索时，⌘A/⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。"
+    },
+    {
       "id": "workspace-document-sync",
       "area": "工作区",
       "group": "工作区生命周期",
@@ -569,13 +647,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src/features/editor",
-          "windows/tauri/src/features/tabs"
+          "windows/tauri/src/features/tabs",
+          "windows/tauri/src/features/tabs/components/tab-context-menu.tsx",
+          "windows/tauri/src/features/tabs/components/tab-context-menu.test.ts"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Editor",
-      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。"
+      "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；右键标签页确认关闭分组排在其他操作之前；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。"
     },
     {
       "id": "editor-pointer-selection",
@@ -626,6 +706,31 @@
       },
       "owner": "Editor",
       "verification": "分别打开 Java、Markdown 和普通文本，确认语言识别、语法高亮和模型切换；开启缩略图并滚动，确认滚动条轨道不透出编辑器代码。"
+    },
+    {
+      "id": "editor-macos-ime-presentation",
+      "area": "编辑器",
+      "group": "文本编辑",
+      "capability": "macOS 中文组合输入层遮住原文字，输入和删除候选文字时不透出整行重影",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/EditorFrontend/ime-input.css",
+          "macos/EditorFrontend/main.ts",
+          "macos/Experiments/Monaco/ime-input.integration.ts"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "windows/tauri/src/features/editor/components/monaco-editor.tsx"
+        ]
+      },
+      "owner": "Editor",
+      "notes": "修正 macOS 原生主题半透明当前行底色作为 Monaco 输入法覆盖层底色时的字形透出。Linux Chromium 的真实 Monaco 组合事件样式回归通过；macOS 原生输入法及删除键实机验证待完成。Windows 不加载此 macOS 样式。",
+      "verification": "运行 scripts/probe-macos-monaco.sh --workbench-tests。在 macOS 使用系统拼音与微信输入法，在含中文和英文的同一行中间输入、删减候选拼音、确认上屏，再按删除键；检查整行无重影、候选与光标正常、撤销恢复文本。覆盖明暗主题、背景图开关和分屏，结束输入后背景恢复。"
     },
     {
       "id": "editor-wallpaper-overview-ruler",
@@ -898,7 +1003,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。"
+      "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭；在 Windows 单文件工作区 Diff 中点击折叠条展开省略的未改动代码，确认 Diff 保持打开且每个修改块仍可单独暂存；在 Windows 未暂存单文件 Diff 中点击某个修改块的“回滚”，确认弹出确认框、取消不改文件、确认后只恢复该块且暂存区不变，最后一块回滚后文件从状态中消失时 Diff 关闭；暂存区、历史、分支比较与新增/未跟踪文件不显示回滚按钮。"
     },
     {
       "id": "git-history",
@@ -920,13 +1025,18 @@
           "windows/tauri/src/features/git",
           "windows/tauri/src/features/git/utils/git-graph-layout.ts",
           "windows/tauri/src/features/git/utils/git-graph-colors.ts",
-          "windows/tauri/src/features/git/utils/git-graph-layout.test.ts"
+          "windows/tauri/src/features/git/utils/git-graph-layout.test.ts",
+          "windows/tauri/src/features/git/components/log/git-commit-details.tsx",
+          "windows/tauri/src/features/git/components/log/git-commit-details.test.tsx",
+          "windows/tauri/src/features/git/hooks/use-git-diff-actions.test.tsx",
+          "windows/tauri/src/features/git/hooks/use-commit-file-preview.ts",
+          "windows/tauri/src/features/git/hooks/use-commit-file-preview.test.tsx"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Git",
-      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。"
+      "verification": "分页浏览提交历史、分支图谱和提交详情，确认日期、作者和文件列表一致；在 Windows Git Log 选中带多行正文的提交，确认右侧详情在标题下方完整显示正文（保留空行与缩进），复制提交信息和打开提交 Diff 时也包含正文；分支最新提交的图谱连线从提交圆点开始，不超出到圆点上方；在双端使用同一包含本地分支、远端引用、标签和合并提交的仓库，核对永久图布局、图头引用排序、合并边投影及跨越 30 行的紧凑长边；在本地分支新增提交后确认分支颜色保持稳定，且不会因共用屏幕泳道直接沿用父分支颜色。双端保留各自调色板，不要求 RGB 值一致。 读取提交正文期间切换仓库、重新打开另一提交或关闭面板，确认迟到结果不会打开旧 Diff 或覆盖新请求的加载状态。 Windows 另验证：单击提交后编辑区预览该提交第一个文件的 diff；单击或双击 Commit files 中的文件只显示该文件的 diff（不含提交说明，也不显示文件列表），并复用同一个预览标签；Git Log 刚打开、尚未点击提交时不会自动打开 diff；日期列对与本机同一时区的提交显示相对时间（刚刚、N 分钟前、今天/昨天 + 12 小时制，中文为上午/下午），其他时区或未知时区的提交只显示日期，鼠标移入行时刷新相对时间；作者/日期列可在行内列边缘拖动调整宽度并在重启后保留。 非连续多选提交修改同一路径时，预览保留每个提交的 diff 区段及提交标识；延迟请求返回前取消选择、隐藏 Git Log、切换仓库或卸载工具窗，确认旧请求不会重新打开或激活预览标签。"
     },
     {
       "id": "git-rebase-stash",
@@ -1612,13 +1722,15 @@
       "windows": {
         "evidence": [
           "windows/tauri/src-tauri/src/run/launch_arguments.rs",
-          "rust/lithe-core/src/execution/launch_command.rs"
+          "rust/lithe-core/src/execution/launch_command.rs",
+          "rust/lithe-core/src/execution/classpath_jar.rs",
+          "windows/tauri/src-tauri/src/run.rs"
         ],
         "implementationStatus": "implemented",
         "verificationStatus": "pending"
       },
       "owner": "Run",
-      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。"
+      "verification": "使用包含大量依赖的 Java 项目运行 main，确认超长类路径自动写入参数文件、进程可启动且参数文件在退出后清理。 Windows 上分别用 JDK 8 和 JDK 17 运行同一个依赖很多、路径含空格和中文的项目 main：JDK 8 应在临时目录生成只含 META-INF/MANIFEST.MF 的 .classpath.jar 并以 -cp 引用，JDK 17 仍使用 @argfile；两者都能启动，进程退出或启动失败后临时文件被删除，安装目录与 JDK 目录不新增文件。 在慢速网络盘 classpath 准备期间确认工作台可交互；停止或重新运行后，旧准备结果不得启动进程，旧 executionId 的停止请求不得影响新执行。"
     },
     {
       "id": "debug-breakpoints",
@@ -1717,7 +1829,7 @@
         "verificationStatus": "pending"
       },
       "owner": "Terminal",
-      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态。"
+      "verification": "创建多个终端会话并切换、重命名、关闭，确认子进程生命周期和资源清理；Windows 横向标签栏的新建终端与 Shell 配置按钮紧跟最后一个标签，标签溢出时按钮保持可见；标签栏右侧最小化按钮隐藏终端面板且会话继续运行，重新打开时恢复为停靠状态；Windows 打开底部终端面板时默认通栏（与 IDEA 一致）：面板位于左右两条活动栏之间并横跨侧边栏与编辑器下方（活动栏保持通高，底部的活动栏按钮位置不上移），侧边栏让出纵向空间，且仍可通过面板菜单切换为编辑器宽度。"
     },
     {
       "id": "terminal-interaction",
@@ -2249,6 +2361,31 @@
       },
       "owner": "Workbench",
       "verification": "在 Windows 工作台点击标题栏左端菜单按钮，确认汉堡按钮由“文件”菜单项取代，“文件”项处于选中状态且其下拉菜单立即展开；菜单与标题栏同高，不覆盖编辑区域，项目/分支控件在展开时隐藏。检查常驻品牌标识与下方活动栏图标列对齐且不可选中，并确认项目菜单显示当前项目图标（无自定义图标时显示项目缩写）。点击其他菜单项时菜单条保持展开并执行动作；点击工作区、标题栏空白和右侧控件或按 Escape 后收起；按 Escape 后确认焦点返回菜单入口；窄窗口确认菜单在标题栏内水平滚动且不挤压窗口控件。macOS 保持系统菜单栏行为。"
+    },
+    {
+      "id": "workbench-settings-entry",
+      "area": "工作台",
+      "group": "命令与布局",
+      "capability": "从工作台 chrome 打开设置：Windows 点击标题栏搜索按钮右侧的齿轮，macOS 通过应用菜单及面板内入口",
+      "macos": {
+        "evidence": [
+          "macos/Sources/Lithe/Models/LitheAction.swift",
+          "macos/Sources/Lithe/Views/App/SettingsView.swift"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "windows": {
+        "evidence": [
+          "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+          "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+          "windows/tauri/src/features/layout/config/item-order.ts"
+        ],
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending"
+      },
+      "owner": "Workbench",
+      "verification": "在 Windows 打开工作区，确认左侧活动栏底部不再显示设置齿轮，活动栏右键“在活动栏中显示”列表不包含设置项；点击标题栏右上搜索按钮右侧的齿轮打开设置对话框并再次关闭；携带旧版设置文件（活动栏排序或隐藏列表含 settings）启动后确认遗留条目被清理且活动栏显示正常。macOS 通过应用菜单和各面板入口打开设置保持不变。"
     },
     {
       "id": "window-controls",
@@ -2995,6 +3132,76 @@
       },
       "owner": "Run/Debug",
       "verification": "在双端运行 Spring Boot HTTP 服务，修改方法体并更新，检查响应、PID、DevTools 日志与断点暂停状态；覆盖编译失败、JVM 拒绝结构修改、连续点击、停止/重启、依赖路径变化。对比运行前后安装目录清单/哈希。Linux 仅完成共享 Core 和前端测试，原生验证待完成。"
+    },
+    {
+      "id": "editor-git-gutter-peek",
+      "area": "编辑器",
+      "group": "Git 变更",
+      "capability": "编辑器 Git 行变更标记、点击预览与变更导航",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/editor/engines/monaco/git-gutter-controller.ts",
+          "windows/tauri/src/features/editor/engines/monaco/git-gutter-peek-widget.ts",
+          "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+        ]
+      },
+      "owner": "Editor / Git",
+      "verification": "在 Windows 打开已跟踪文件，新增、修改、删除内容并保存，点击标记查看差异、切换前后变更、按 Escape 关闭；确认多仓库同名文件互不影响。切换浅色、深色及自定义主色，检查面板边框、焦点和 Git 语义色；关闭 Git 标记设置后标记消失。macOS 检查对应行变更入口。Linux 单元测试不替代目标平台运行验证。"
+    },
+    {
+      "id": "editor-git-gutter-stage",
+      "area": "编辑器",
+      "group": "Git 变更",
+      "capability": "从编辑器行变更入口暂存单处修改",
+      "macos": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/git/services/git-gutter-actions.ts",
+          "windows/tauri/src/features/git/utils/git-gutter-changes.test.ts"
+        ]
+      },
+      "owner": "Editor / Git",
+      "verification": "保存含多处增删改的已跟踪文件，单独暂存后一处修改，检查 index 只包含选中修改，邻近与前方未暂存修改保留；未保存或只读时禁用暂存。Windows 与 macOS 均需实机验证。"
+    },
+    {
+      "id": "editor-git-gutter-setting",
+      "area": "编辑器",
+      "group": "Git 变更",
+      "capability": "设置中开关编辑器 Git 变更标记",
+      "macos": {
+        "implementationStatus": "platform-specific",
+        "verificationStatus": "not-applicable",
+        "evidence": [
+          "macos/Sources/Lithe/Views/Editor/CodeEditorView.swift"
+        ]
+      },
+      "windows": {
+        "implementationStatus": "implemented",
+        "verificationStatus": "pending",
+        "evidence": [
+          "windows/tauri/src/features/settings/components/tabs/git-settings.tsx",
+          "windows/tauri/src/features/settings/config/default-settings.ts"
+        ]
+      },
+      "owner": "Editor / Git",
+      "verification": "Windows 默认显示 Git 变更标记；在 Git 设置中关闭时清除标记和预览，重新启用后恢复，重启后保留选择。此项记录 Windows 新增的独立开关。"
     }
   ]
 }

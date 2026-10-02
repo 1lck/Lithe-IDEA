@@ -46,6 +46,14 @@ final class MacPlatformUI: PlatformUI {
         NSPasteboard.general.setString(value, forType: .string)
     }
 
+    func copyFilesToClipboard(_ urls: [URL]) -> Bool {
+        MacFileClipboard.write(urls, to: .general)
+    }
+
+    func fileURLsFromClipboard() -> [URL] {
+        MacFileClipboard.read(from: .general)
+    }
+
     func markdownImageFromClipboard() -> MarkdownImageSource? {
         MarkdownClipboardImageReader.read(from: .general)
     }

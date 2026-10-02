@@ -5,9 +5,13 @@ let unavailableRepo: string | null = null;
 let statusFailure: Error | null = null;
 
 let interceptWrite: ((args: Record<string, unknown>) => Promise<unknown>) | undefined;
+// Keyed by command: repository discovery may or may not run first, depending
+// on what earlier tests in a randomized order have already cached.
+let fileDiffResponse: unknown = null;
 
 const invoke = mock(async (command: string, args?: Record<string, unknown>): Promise<unknown> => {
   if (command === "git.write" && interceptWrite) return interceptWrite(args ?? {});
+  if (command === "git_diff_file") return fileDiffResponse;
   if (command === "git_discover_repo") {
     const path = String(args?.path ?? "");
     return path.startsWith("C:/workspace/") ? path : "C:/repo";
@@ -37,18 +41,21 @@ let invokeSpy: ReturnType<typeof spyOn<typeof tauriCore, "invoke">>;
 const {
   addPathsToGitignore,
   addPathsToLocalGitExclude,
+  discardHunk,
   rollbackFilesChanges,
   setFilesStaged,
   getWorkspaceGitStatus,
   getWorkspaceRootGitStatus,
   getGitStatus,
 } = await import("./git-status-api");
-const { getWorkingTreePathDiff } = await import("./git-diff-api");
+const { getFullContextFileDiff, getWorkingTreePathDiff } = await import("./git-diff-api");
+const gitEvents = await import("../events/git-events");
 
 beforeEach(() => {
   invokeSpy = spyOn(tauriCore, "invoke").mockImplementation(invoke as typeof tauriCore.invoke);
   invoke.mockClear();
   interceptWrite = undefined;
+  fileDiffResponse = null;
   unavailableRepo = null;
   statusFailure = null;
 });
@@ -96,6 +103,44 @@ describe("Git status batch mutations", () => {
       operation: "discardAll",
       paths: ["src/first.ts", "src/second.ts"],
     });
+  });
+
+  test("discards one hunk in its owning repository and announces the file change", async () => {
+    const hunk = {
+      file_path: "src/App.tsx",
+      lines: [
+        { line_type: "header" as const, content: "@@ -1 +1 @@" },
+        { line_type: "removed" as const, content: "old", old_line_number: 1 },
+        { line_type: "added" as const, content: "new", new_line_number: 1 },
+      ],
+    };
+    const emitted = spyOn(gitEvents, "emitGitChanged");
+    const recorded = () => emitted.mock.calls.map(([change]) => change);
+    try {
+      await expect(discardHunk("C:/workspace/service-a", hunk)).resolves.toBe(true);
+      expect(invoke).toHaveBeenLastCalledWith("git_discard_hunk", {
+        repoPath: "C:/workspace/service-a",
+        hunk,
+      });
+      expect(recorded()).toEqual([{
+        repoPath: "C:/workspace/service-a",
+        filePath: "src/App.tsx",
+        scopes: ["working-tree"],
+        source: "discard-hunk",
+      }]);
+
+      // A rejected patch reports failure without announcing a change. Route by
+      // command: repository discovery may already be cached in random order.
+      invokeSpy.mockImplementation((async (command: string, args?: Record<string, unknown>) => {
+        if (command === "git_discard_hunk") throw new Error("patch does not apply");
+        return invoke(command, args);
+      }) as typeof tauriCore.invoke);
+      const error = spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await expect(discardHunk("C:/repo", hunk)).resolves.toBe(false);
+      } finally { error.mockRestore(); }
+      expect(recorded()).toHaveLength(1);
+    } finally { emitted.mockRestore(); }
   });
 
   test("adds selected paths to the repository gitignore", async () => {
@@ -171,6 +216,36 @@ describe("Git status review diffs", () => {
       repoPath: "C:/repo",
       filePath: "src/partially-staged.ts",
       worktreeSnapshot: true,
+    });
+  });
+
+  // #557: a single-file review needs every source line so folded unchanged
+  // regions can be expanded; the result is marked for the renderer.
+  test("requests the whole file as context for a single-file review", async () => {
+    fileDiffResponse = { file_path: "src/App.tsx", lines: [] };
+    await expect(
+      getWorkingTreePathDiff("C:/repo", "src/App.tsx", false, undefined, true),
+    ).resolves.toMatchObject({ is_full_context: true });
+
+    expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
+      repoPath: "C:/repo",
+      filePath: "src/App.tsx",
+      worktreeSnapshot: true,
+      contextLines: 2_147_483_647,
+    });
+  });
+
+  test("requests a full-context staged diff without the sparse cache", async () => {
+    fileDiffResponse = { file_path: "src/App.tsx", lines: [] };
+    await expect(getFullContextFileDiff("C:/repo", "src/App.tsx", true)).resolves.toMatchObject({
+      is_full_context: true,
+    });
+
+    expect(invoke).toHaveBeenLastCalledWith("git_diff_file", {
+      repoPath: "C:/repo",
+      filePath: "src/App.tsx",
+      staged: true,
+      contextLines: 2_147_483_647,
     });
   });
 });

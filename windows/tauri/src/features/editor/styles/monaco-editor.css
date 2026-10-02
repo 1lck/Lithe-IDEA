@@ -516,3 +516,99 @@
 .monaco-vim-statusbar:empty {
   display: none !important;
 }
+
+/* Git change markers in the line-decoration gutter (#681). */
+.monaco-editor-shell .monaco-editor .lithe-git-gutter {
+  width: 3px !important;
+  margin-left: 3px;
+  cursor: pointer;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-gutter-added {
+  background: var(--git-added);
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-gutter-modified {
+  background: var(--git-modified);
+}
+
+/* A deletion owns no line; draw a wedge at the top of the following line. */
+.monaco-editor-shell .monaco-editor .lithe-git-gutter-deleted {
+  width: 0 !important;
+  height: 0 !important;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--git-deleted);
+  margin-top: -4px;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek {
+  position: absolute;
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--primary);
+  border-bottom: 1px solid var(--primary);
+  background: var(--background);
+  color: var(--foreground);
+  z-index: 5;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.5rem;
+  background: color-mix(in srgb, var(--surface) 90%, var(--background));
+  font-family: var(--app-font-family);
+  font-size: var(--ui-text-sm);
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-actions {
+  display: flex;
+  flex: none;
+  gap: 0.125rem;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: var(--radius-sm, 3px);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--foreground) 12%, transparent);
+  outline: none;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.monaco-editor-shell .monaco-editor .lithe-git-peek-button:focus-visible {
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
