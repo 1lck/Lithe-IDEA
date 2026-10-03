@@ -317,6 +317,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-changelists.json -- git-changelists.store.test.ts git-changelist-bar.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test terminal discovery, default shell, profiles, and tab layout
         shell: pwsh

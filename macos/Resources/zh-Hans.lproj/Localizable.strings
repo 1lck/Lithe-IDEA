@@ -2612,3 +2612,24 @@
 
 "MCP Configuration" = "MCP 配置";
 "Open a project to configure MCP access for agents." = "打开项目后，可在这里配置 Agent 的 MCP 访问权限。";
+
+// Local Git ChangeLists
+"ChangeList" = "更改列表";
+"Default ChangeList" = "默认更改列表";
+"New ChangeList" = "新建更改列表";
+"Rename ChangeList" = "重命名更改列表";
+"Delete ChangeList" = "删除更改列表";
+"Delete ChangeList?" = "删除更改列表？";
+"ChangeList name" = "更改列表名称";
+"Move to ChangeList" = "移到更改列表";
+"Select the ChangeList to commit" = "选择要提交的更改列表";
+"Stage All and Commit use the current ChangeList." = "全部暂存和提交仅使用当前更改列表。";
+"Stage all files in current ChangeList" = "暂存当前更改列表中的所有文件";
+"Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged." = "文件将回到默认更改列表，可能被全部暂存操作选中。现有 Git 暂存状态保持不变。";
+"ChangeList storage is unavailable. Restore the saved data and reopen the workspace." = "更改列表保存数据不可用。请恢复保存的数据后重新打开工作区。";
+"Other ChangeLists have staged files. Unstage them before committing the current ChangeList." = "其他更改列表有已暂存文件。请先取消这些文件的暂存，再提交当前更改列表。";
+"ChangeList editing is unavailable." = "暂时无法编辑更改列表。";
+"Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
+"A ChangeList with this name already exists." = "已存在同名的更改列表。";
+"The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
+"Selected ChangeList or staged files changed before generation finished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";

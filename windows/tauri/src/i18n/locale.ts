@@ -1,3 +1,4 @@
+import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
 export const DISPLAY_LANGUAGES = ["en-US", "zh-CN"] as const;
@@ -8,6 +9,7 @@ const catalogs = {
   "en-US": {
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
+    ...changelistsEnglish,
     "git.console.details": "Command details",
     "git.console.historyTruncated": "Earlier Git commands were truncated to limit memory use.",
   "git.console.options": "Git command options",
@@ -1519,7 +1521,13 @@ const catalogs = {
     "run.wrapOutputLines": "Use soft wraps",
     "run.minimize": "Minimize",
     "run.configurations": "Run configurations",
+    "run.languages": "Languages / ecosystems",
+    "run.languageInfrastructure": "Infrastructure",
+    "run.languageTools": "Build tools",
+    "run.languageOther": "Other",
     "run.resizeConfigurationList": "Resize run configuration list",
+    "run.resizeLanguages": "Resize language sidebar",
+    "run.resizeLanguagesHint": "Drag left to collapse or right to expand; arrow keys adjust width",
     "run.services": "Services",
     "run.infrastructure": "Docker services",
     "run.applications": "Applications",
@@ -4558,6 +4566,7 @@ const catalogs = {
   "zh-CN": {
     ...aiCommitChinese,
     ...workspaceCommitChinese,
+    ...changelistsChinese,
     "git.console.details": "命令详情",
     "git.console.historyTruncated": "为限制内存占用，较早的 Git 执行记录已截断，无法展开。",
   "git.console.options": "Git 命令选项",
@@ -6034,7 +6043,13 @@ const catalogs = {
     "run.wrapOutputLines": "自动换行",
     "run.minimize": "最小化",
     "run.configurations": "运行配置",
+    "run.languages": "语言 / 生态",
+    "run.languageInfrastructure": "基础设施",
+    "run.languageTools": "构建工具",
+    "run.languageOther": "其他",
     "run.resizeConfigurationList": "调整运行配置列表宽度",
+    "run.resizeLanguages": "调整语言侧栏宽度",
+    "run.resizeLanguagesHint": "向左拖动折叠，向右拖动展开；方向键调整宽度",
     "run.services": "服务",
     "run.infrastructure": "Docker 服务",
     "run.applications": "应用",

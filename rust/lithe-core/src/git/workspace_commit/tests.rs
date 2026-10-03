@@ -175,3 +175,117 @@ fn shared_workflow_fixture_is_the_complete_portable_contract() {
         fixture["preparation"]
     );
 }
+
+#[test]
+fn changelist_scope_rejects_staged_files_and_automatic_parent_updates() {
+    let (mut request, states) = input();
+    request.path_scope = Some(
+        serde_json::from_value(json!({"include":false,"paths":{"independent":["file"]}})).unwrap(),
+    );
+    assert!(build_plan(request, states)
+        .unwrap_err()
+        .message
+        .contains("outside the active changelist"));
+    let (mut request, states) = input();
+    request.path_scope =
+        Some(serde_json::from_value(json!({"include":false,"paths":{"A":["B"]}})).unwrap());
+    assert!(build_plan(request, states)
+        .unwrap_err()
+        .message
+        .contains("parent reference"));
+    let (mut request, states) = input();
+    request.include_parent_references = false;
+    request.path_scope = Some(
+        serde_json::from_value(
+            json!({"include":true,"paths":{"A/B":["hello.ts"],"independent":["file"]}}),
+        )
+        .unwrap(),
+    );
+    let plan = build_plan(request, states).unwrap().session.plan;
+    assert_eq!(plan.ordered_ids, ["A/B", "independent"]);
+    assert!(plan.path_scope.unwrap().include);
+}
+
+#[test]
+fn changelist_scope_survives_retry_and_rejects_scope_changes_or_new_staged_files() {
+    let (mut request, states) = input();
+    request.path_scope = Some(
+        serde_json::from_value(json!({"include":false,"paths":{"A":["local.yaml"]}})).unwrap(),
+    );
+    let previous = build_plan(request, states.clone()).unwrap().session;
+    let (mut request, _) = input();
+    request.previous = Some(previous.clone());
+    let retried = build_plan(request, states.clone()).unwrap().session;
+    assert_eq!(retried.plan.path_scope, previous.plan.path_scope);
+    let (mut request, _) = input();
+    request.previous = Some(previous.clone());
+    request.path_scope = Some(PathScope {
+        include: false,
+        paths: BTreeMap::new(),
+    });
+    assert!(build_plan(request, states.clone())
+        .unwrap_err()
+        .message
+        .contains("changing its commit scope"));
+    let (mut request, mut states) = input();
+    request.previous = Some(previous);
+    states
+        .get_mut("A")
+        .unwrap()
+        .staged_paths
+        .push("local.yaml".into());
+    assert!(build_plan(request, states).is_err());
+}
+
+#[test]
+fn changelist_scope_is_checked_on_continuations_and_compared_during_review() {
+    let (mut request, states) = input();
+    request.path_scope = Some(PathScope {
+        include: false,
+        paths: BTreeMap::new(),
+    });
+    let original = build_plan(request, states.clone()).unwrap().session;
+    let (mut request, _) = input();
+    request.reviewed = Some(original.plan.clone());
+    request.path_scope = Some(
+        serde_json::from_value(json!({"include":false,"paths":{"A":["protected.yaml"]}})).unwrap(),
+    );
+    assert!(build_plan(request, states).unwrap().review_changed);
+    let mut changed = original;
+    changed
+        .plan
+        .path_scope
+        .as_mut()
+        .unwrap()
+        .paths
+        .insert("A/B".into(), BTreeSet::from(["hello.ts".into()]));
+    assert!(validate_session(&changed).is_err());
+}
+
+#[test]
+fn local_changelist_scope_fixture_defines_default_and_custom_membership() {
+    let fixture: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../shared/fixtures/git/local-changelist-scope-v1.json"
+    ))
+    .unwrap();
+    for case in fixture["cases"].as_array().unwrap() {
+        let scope = fixture[case["scope"].as_str().unwrap()].clone();
+        let request = serde_json::from_value(json!({
+            "repositories":[{"id":"A","root":"/workspace/A"}], "message":"scoped",
+            "includeParentReferences":false, "pathScope":scope
+        }))
+        .unwrap();
+        let paths = case["stagedPaths"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|path| path.as_str().unwrap())
+            .collect::<Vec<_>>();
+        let states = BTreeMap::from([("A".into(), state(&paths, &[]))]);
+        assert_eq!(
+            build_plan(request, states).is_ok(),
+            case["allowed"].as_bool().unwrap(),
+            "{case}"
+        );
+    }
+}

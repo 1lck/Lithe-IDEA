@@ -37,3 +37,16 @@ test("workspace step preserves Core partial result rather than converting it to 
   await cancelWorkspaceCommit("step");
   expect(invoke).toHaveBeenLastCalledWith("core_cancel", { operationId: "step" });
 });
+
+test("workspace preparation forwards the literal changelist scope to Core", async () => {
+  const request = {
+    ...fixture.request,
+    pathScope: { include: false, paths: { A: ["application.yaml"] } },
+  };
+  await prepareWorkspaceCommit(request, "scoped-prepare");
+  expect(invoke).toHaveBeenCalledWith(
+    "git.workspaceCommitPrepare",
+    { ...request, operationId: "scoped-prepare" },
+    { gitExecutionSource: "user" },
+  );
+});

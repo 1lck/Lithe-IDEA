@@ -1,3 +1,4 @@
+import type { WorkspaceCommitPathScope } from "../types/git-workspace-commit.types";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -15,6 +16,8 @@ const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?:
 let previousAct: boolean | undefined;
 let currentMessage = "";
 let selectedFiles: GitFile[] = [];
+let scope: WorkspaceCommitPathScope | undefined;
+let scopeError: string | undefined;
 
 beforeEach(() => {
   registry.resetForTests();
@@ -26,6 +29,8 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   currentMessage = "";
+  scope = undefined;
+  scopeError = undefined;
 });
 
 afterEach(async () => {
@@ -68,6 +73,8 @@ const rerender = () => {
   root.render(
     <LocaleProvider language="en-US">
       <GitCommitPanel
+        pathScope={scope}
+        commitScopeError={scopeError}
         selectedFiles={selectedFiles}
         workspacePath="C:/workspace/A"
         repositoryPaths={["C:/workspace/A"]}
@@ -164,4 +171,38 @@ test("Commit with files but no message asks for a commit message", async () => {
   );
   await act(async () => applyMessage("Done"));
   expect(container.querySelector('[data-testid="git-commit-hint"]')).toBeNull();
+});
+
+test("the commit button and shortcut cannot bypass another changelist's staged files", async () => {
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    scopeError = "Other changelists contain staged changes.";
+    await renderPanel({ message: "Feature" });
+    expect(commitButton()?.disabled).toBe(true);
+    expect(container.textContent).toContain(scopeError);
+    await act(async () =>
+      container
+        .querySelector("textarea")!
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+        ),
+    );
+    expect(prepare).not.toHaveBeenCalled();
+  } finally {
+    prepare.mockRestore();
+  }
+});
+
+test("commit captures the active list scope for native revalidation", async () => {
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  try {
+    scope = { include: false, paths: { ".": ["application.yaml"] } };
+    await renderPanel({ message: "Feature" });
+    await act(async () => commitButton()!.click());
+    expect(prepare.mock.calls[0]?.[0].pathScope).toEqual(scope);
+  } finally {
+    prepare.mockRestore();
+  }
 });

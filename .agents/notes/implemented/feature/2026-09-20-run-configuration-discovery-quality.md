@@ -70,7 +70,49 @@ category 分组展示。
 `shared/fixtures/execution/maven-java-main-source-sets-v1.json` 保证，不要
 为了让列表变短而整体排除测试源码。
 
-### 4. 生成器 revision 提升
+### 4. Windows 按语言生态、运行类型和输出分三栏浏览
+
+复合项目可能同时包含 Java、Node.js、Python 和 Rust。只按框架排列，用户要在
+同一列表中寻找不同语言的构建任务和服务。Windows 先显示当前配置对应的语言
+生态，再在中栏按具体运行类型分组，右栏显示所选配置详情及其输出。
+
+这里的语言生态是界面导航，依据 Core 已提供的 provider（配置来源类型）投影，
+不新增源码扫描或改变启动计划。Maven、Gradle、Spring Boot 属于 Java；npm、
+pnpm、Bun 及前端框架属于 Node.js 生态。当前 npm 元数据不能证明源码是
+JavaScript 还是 TypeScript，因此不根据名称、目录或启动命令猜测两者。
+Swift、PHP 等已有明确 provider 的配置可归类，但这不代表增加了这些语言的
+自动发现能力。未知 provider 放进“其他”，通用构建工具和基础设施各有入口。
+
+切换语言只改变浏览选择，不停止后台进程。右栏依据当前配置选择输出，不能把
+另一个配置的日志、运行状态或标准输入通道借给未启动的配置。外部操作选中配置时，
+浏览器自动切换到其生态。语言栏和配置栏直接展示导航内容，不重复增加“语言／生态”
+或当前语言的栏头，也不展示生态的配置数量，以减少重复信息和垂直空间占用。
+
+语言栏直接通过拖动调整和折叠：向左拖过收起阈值后变成带无障碍名称和悬停提示的
+图标栏，向右拖过展开阈值后恢复文字并跟随拖动宽度。收起和展开使用不同阈值，
+避免边界附近的微小移动反复切换。键盘方向键也可收起及恢复保存的展开宽度；
+中栏保留独立宽度。窗口变窄时自动收起语言栏，不覆盖
+用户保存的展开偏好，空间恢复后重新展开。两条分隔条复用已有拖动会话，只在每帧
+更新局部 DOM 的宽度与紧凑标记，文字和图标对齐由 CSS 根据标记切换，不在拖动
+过程中重建 React 页面；同时限制语言栏和中栏宽度，为输出保留空间。结束或卸载时持久化一次
+并释放监听。窗口尺寸变化会结束正在进行的拖动，避免继续使用旧的尺寸边界。
+
+正确示例：Java 栏中同时展示 Spring Boot 服务和 Maven 构建任务，仍保留各自
+的 execution（服务、应用或任务）及进程会话。不要为了语言分组把 Java Main
+改成 service，也不要让语言切换触发启动或停止。
+
+保留旧框架平铺列表层级更浅，但复合项目定位成本高，因此采用三栏。
+把 JS/TS 强行拆开会依赖未提供的语言事实，因此当前使用 Node.js 生态。
+收益是跨语言定位清晰；代价是增加一层浏览选择和少量横向空间。macOS 保留
+现有列表，本次三栏是 Windows 展示变化，不修改共享发现与执行语义。
+固定语言栏实现更简单，但会持续占用输出空间，因此保留拖动和手动折叠。
+专门的底部折叠按钮会占用空间，也让调宽和折叠成为两套操作，因此使用同一个
+分隔条完成。语言行、类型行和实例行使用一致的紧凑行高，移除列表上下留白，
+选中实例使用平直的整行背景，减少孤立圆角块与上下错位。
+不要在拖动每一帧写入偏好或重建整个运行页面，也不要把自动收起保存为手动折叠，
+否则扩大窗口后用户原本的布局不会恢复。
+
+### 5. 生成器 revision 提升
 
 `GENERATOR_REVISION` 从 `4` 提到 `5`，已有工作区会重新生成配置，用户不需要
 手动删除 `.lithe/run/generated.json`。
@@ -108,6 +150,10 @@ category 分组展示。
   `java_entries_ignore_main_methods_inside_strings_and_comments`，以及
   `java_syntax` 中的入口签名单元测试。
 - Windows：`bun test src/features/run` 覆盖 category 映射与分组过滤。
+- Windows 三栏：`./.agents/skills/write-stable-tests/scripts/test-stability-windows.ps1 -Scope Frontend -FrontendTestPath src/features/run`
+  覆盖生态归类、语言切换、外部选中、重新扫描、无重复栏头与计数、拖动期间不写偏好、
+  拖动折叠与展开、阈值附近防抖、保存宽度及窄栏键盘恢复、窗口变窄与卸载清理，
+  以及输出会话隔离。
 - 共享契约：`./scripts/verify-shared-contracts.sh`，契约文本与
   `shared/contracts/run-configuration-v2.schema.json` 同步更新。
 
@@ -120,6 +166,8 @@ category 分组展示。
   `rust/lithe-core/src/languages/java.rs`、
   `rust/lithe-core/src/languages/java_syntax.rs`
 - Windows：`windows/tauri/src/features/run/utils/run-configuration.ts`、
-  `windows/tauri/src/features/run/components/run-pane.tsx`
+  `windows/tauri/src/features/run/components/run-pane.tsx`、
+  `windows/tauri/src/features/run/components/run-configuration-browser.tsx`、
+  `windows/tauri/src/features/run/utils/run-configuration-language.ts`
 - 相关笔记：
   `.agents/notes/implemented/architecture/2026-09-18-java-project-build-and-launch-boundary.md`

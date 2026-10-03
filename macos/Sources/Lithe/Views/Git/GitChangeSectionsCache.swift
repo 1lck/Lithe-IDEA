@@ -12,8 +12,15 @@ import LitheGitModule
 /// invalidate the view that reads it.
 @MainActor
 final class GitChangeSectionsCache {
+    struct ChangelistSection: Identifiable {
+        let list: GitLocalChangelist
+        let changes: [GitChange]
+        var id: String { list.id }
+    }
+
     struct RepositorySection: Identifiable {
         let root: URL
+        let changelists: [ChangelistSection]
         let changes: [GitChange]
         let tracked: [GitChange]
         let added: [GitChange]
@@ -28,17 +35,20 @@ final class GitChangeSectionsCache {
         let added: [GitChange]
         let staged: [GitChange]
         let repositories: [RepositorySection]
+        let changelists: [ChangelistSection]
     }
 
     private var cachedChanges: [GitChange] = []
     private var cachedFilterPaths: Set<String> = []
+    private var cachedChangelists: GitLocalChangelists?
     private var cached: Sections?
 
     func sections(
         changes: [GitChange],
-        conflictFilterPaths: Set<String>
+        conflictFilterPaths: Set<String>,
+        changelists: GitLocalChangelists = GitLocalChangelists()
     ) -> Sections {
-        if let cached, cachedChanges == changes, cachedFilterPaths == conflictFilterPaths {
+        if let cached, cachedChanges == changes, cachedFilterPaths == conflictFilterPaths, cachedChangelists == changelists {
             return cached
         }
 
@@ -79,6 +89,7 @@ final class GitChangeSectionsCache {
                   let root = changes.first?.repositoryRoot else { return nil }
             return RepositorySection(
                 root: root,
+                changelists: listSections(changes, state: changelists),
                 changes: changes,
                 tracked: repositoryTracked[repositoryID] ?? [],
                 added: repositoryAdded[repositoryID] ?? []
@@ -89,11 +100,21 @@ final class GitChangeSectionsCache {
             tracked: tracked,
             added: added,
             staged: staged,
-            repositories: repositories
+            repositories: repositories,
+            changelists: listSections(displayed, state: changelists)
         )
+        cachedChangelists = changelists
         cachedChanges = changes
         cachedFilterPaths = conflictFilterPaths
         cached = sections
         return sections
+    }
+
+    private func listSections(_ changes: [GitChange], state: GitLocalChangelists) -> [ChangelistSection] {
+        let grouped = Dictionary(grouping: changes) { state.listID(for: $0) }
+        return state.lists.compactMap { list in
+            guard let changes = grouped[list.id], !changes.isEmpty else { return nil }
+            return ChangelistSection(list: list, changes: changes)
+        }
     }
 }

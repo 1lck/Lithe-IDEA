@@ -16,7 +16,12 @@ export interface WorkspaceCommitRelation {
   child: string;
   path: string;
 }
+export interface WorkspaceCommitPathScope {
+  include: boolean;
+  paths: Record<string, string[]>;
+}
 export interface WorkspaceCommitPlan {
+  pathScope?: WorkspaceCommitPathScope;
   repositories: WorkspaceRepositoryBinding[];
   message: string;
   amend: boolean;
@@ -42,6 +47,7 @@ export interface WorkspaceCommitSession {
   canRetry: boolean;
 }
 export interface WorkspaceCommitRequest {
+  pathScope?: WorkspaceCommitPathScope;
   repositories: WorkspaceRepositoryBinding[];
   message: string;
   amend: boolean;
