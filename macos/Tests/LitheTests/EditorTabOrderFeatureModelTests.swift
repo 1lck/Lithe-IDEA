@@ -291,7 +291,9 @@ struct EditorTabOrderFeatureModelTests {
             store: store, settings: settings, moduleLaunchMode: .safeMode).services)
         let change = GitChange(repositoryRoot: FileManager.default.temporaryDirectory,
             path: "Example.swift", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
-        let diff = DiffDocument(patch: "-old\n+new", rows: [], hunks: [])
+        let diff = DiffDocument(patch: "-old\n+new",
+            rows: [DiffRow(oldLine: 1, newLine: 1, left: "old", right: "new", kind: .changed, hunkID: "h1")],
+            hunks: [DiffHunk(id: "h1", header: "@@ -1 +1 @@", patch: "-old\n+new")])
         let checkClose: @MainActor @Sendable () -> Void = { [weak model] in
             guard let model, let feature = model.gitFeatureIfActive else {
                 Issue.record("The working-tree preview must retain its owning feature")
@@ -311,6 +313,8 @@ struct EditorTabOrderFeatureModelTests {
             } else {
                 #expect(model.requestCloseActiveWorkbenchItem())
                 #expect(feature.selectedChange == nil, "Close must dismiss the visible working-tree preview")
+                #expect(!feature.isLoadingDiff, "Closing the visible preview must clear its loading state immediately")
+                #expect(!feature.hasActiveModuleWork, "A closed preview must not block Git module sleep")
                 #expect(model.editorTabItems.contains(.repositoryDiff), "The hidden history tab was not the close target")
             }
         }
@@ -334,7 +338,15 @@ struct EditorTabOrderFeatureModelTests {
             if !loading { checkClose() }
             if closeBackgroundTab {
                 #expect(feature.selectedDiffPatch == diff.patch)
+                #expect(feature.diffRows == diff.rows)
+                #expect(feature.diffHunks.map(\.id) == diff.hunks.map(\.id))
                 #expect(!feature.isLoadingDiff, "Closing the background tab must let the working-tree load finish")
+            } else {
+                #expect(feature.selectedChange == nil)
+                #expect(feature.selectedDiffPatch.isEmpty && feature.diffRows.isEmpty && feature.diffHunks.isEmpty,
+                    "A late result must not repopulate the closed preview")
+                #expect(!feature.isLoadingDiff && !feature.hasActiveModuleWork,
+                    "The feature must remain idle after the closed preview's load returns")
             }
             #expect(model.openDocuments.contains { $0.id == document.id })
         } catch { await model.shutdownProjectSession(); throw error }

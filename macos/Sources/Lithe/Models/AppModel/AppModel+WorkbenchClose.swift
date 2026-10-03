@@ -29,7 +29,7 @@ extension AppModel {
             return true
         }
         if selectedChange != nil {
-            selectedChange = nil
+            gitFeatureIfActive?.closeWorkingTreeDiff()
             return true
         }
         if let session = activeEditorTerminalSession {

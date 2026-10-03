@@ -786,6 +786,17 @@ package final class GitFeatureModel: ObservableObject {
         isLoadingDiff = false
     }
 
+    package func closeWorkingTreeDiff() {
+        guard selectedChange != nil else { return }
+        // Invalidate the pending preview before clearing its state. A late
+        // result fails the selection guard and cannot leave the module busy.
+        selectedChange = nil
+        selectedDiffPatch = ""
+        diffRows = []
+        diffHunks = []
+        isLoadingDiff = false
+    }
+
     package func showDirectoryDiff(at directoryURL: URL) async {
         let directoryPath = directoryURL.standardizedFileURL.path
         guard let repositoryRoot = (availableRepositoryRoots.isEmpty

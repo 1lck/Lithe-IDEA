@@ -79,7 +79,7 @@ struct DiffReviewView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             Spacer()
             Button {
-                feature.selectedChange = nil
+                feature.closeWorkingTreeDiff()
             } label: {
                 Image(systemName: "xmark")
                     .font(LitheTheme.uiFont(size: 9, weight: .semibold))

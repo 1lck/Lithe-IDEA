@@ -255,6 +255,12 @@ Git feature 的工作区预览会复用历史 Diff 的缓冲区，因此关闭�
 `EditorTabOrderFeatureModelTests.workingTreeDiffOwnsCloseCommandWhileHistoryTabIsRetained`
 覆盖加载中和已加载两种状态；不通过复制另一份 Diff 数据来规避生命周期问题。
 
+关闭当前工作区/目录 Diff 时，快捷键和视图关闭按钮都调用 Git feature 的
+`closeWorkingTreeDiff`，同时清理选择、补丁、差异行和加载状态。不能只清空
+`selectedChange`：迟到结果会被选择校验丢弃，却没有机会再把加载标记清回空闲，
+导致 AI 提交信息按钮一直禁用并阻止 Git 模块休眠。上述测试在关闭发生时和
+加载返回后都检查空闲状态与缓冲区，后台历史标签的关闭仍保留当前预览。
+
 `IslandsTabPainter` 对编辑器与工具窗口复用相同 selected active/inactive token；
 ManyIslands 明暗主题的 EditorTabs 也指向 `tab-selected-*`。因此编辑器复用
 `LitheToolWindowTabStyle` 与 `LitheToolWindowTabCloseButton`，不复制另一套颜色。
