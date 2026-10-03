@@ -4,7 +4,9 @@ import LitheCoreContracts
 /// The Git operations needed by the application-owned commit workflow.
 @MainActor
 protocol CommitWorkflowGit: AnyObject {
-    /// Staged changes from every repository discovered in the workspace.
+    /// Active ChangeList selection, including changes that return to the original list.
+    var commitMessageSelectionID: UUID { get }
+    /// Staged changes in that list, across the workspace repositories.
     var stagedChangeIDs: Set<String> { get }
     var pendingCommitDraft: (message: String, amend: Bool)? { get }
     func stagedCommitMessageInput() async -> CommitMessageInput?
@@ -80,6 +82,7 @@ final class CommitWorkflowCoordinator {
             let outcome = try await draft.generate {
                 guard let git = await activateGit(),
                       generation == workspaceGeneration(), !Task.isCancelled else { return nil }
+                let selectionID = git.commitMessageSelectionID
                 let stagedIDs = git.stagedChangeIDs
                 guard !stagedIDs.isEmpty else {
                     notify("Stage at least one file first")
@@ -87,11 +90,15 @@ final class CommitWorkflowCoordinator {
                 }
                 let input = await git.stagedCommitMessageInput()
                 guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
+                guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
+                    notify("Selected ChangeList or staged files changed before generation finished")
+                    return nil
+                }
                 guard let input else { throw CommitMessageGenerationError.emptyDiff }
                 let message = try await generate(input)
                 guard generation == workspaceGeneration(), !Task.isCancelled else { return nil }
-                guard git.stagedChangeIDs == stagedIDs else {
-                    notify("Staged files changed before generation finished")
+                guard git.commitMessageSelectionID == selectionID, git.stagedChangeIDs == stagedIDs else {
+                    notify("Selected ChangeList or staged files changed before generation finished")
                     return nil
                 }
                 return message

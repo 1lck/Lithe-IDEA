@@ -1,3 +1,8 @@
+import {
+  assignChangelist,
+  EMPTY_CHANGELISTS,
+  type LocalChangelists,
+} from "../../utils/git-changelists";
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -42,12 +47,13 @@ afterEach(async () => {
   if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
   else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
 });
-const render = async (files: GitFile[]) => {
+const render = async (files: GitFile[], changelists?: LocalChangelists) => {
   await act(async () =>
     root.render(
       <LocaleProvider language="en-US">
         <GitStatusPanel
           files={files}
+          changelists={changelists}
           repositoryCount={2}
           repoPath="C:/workspace/A"
           collapsedFolders={new Set()}
@@ -161,4 +167,44 @@ test("View Options switches between the directory tree and a flat list in two cl
     updateSetting.mockRestore();
     globals.ResizeObserver = previousResizeObserver;
   }
+});
+
+test("bulk and repository staging only include the active changelist, while named groups remain visible", async () => {
+  const config = file("A", "application.yaml");
+  const feature = file("A", "feature.ts");
+  const lists = assignChangelist(
+    {
+      ...EMPTY_CHANGELISTS,
+      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    },
+    [config],
+    "local",
+  );
+  await render([config, feature], lists);
+  expect(container.textContent).toContain("Local only");
+  const all = container.querySelector<HTMLElement>(
+    '[aria-label="Stage all changes in the active changelist"]',
+  );
+  expect(all).not.toBeNull();
+  await act(async () => all!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["src/feature.ts"], true);
+  expect(staging.mock.calls.flatMap((call) => call[1])).not.toContain("src/application.yaml");
+});
+
+test("named group selection stays inside that group", async () => {
+  const config = file("A", "application.yaml");
+  const lists = assignChangelist(
+    {
+      ...EMPTY_CHANGELISTS,
+      lists: [...EMPTY_CHANGELISTS.lists, { id: "local", name: "Local only" }],
+    },
+    [config],
+    "local",
+  );
+  await render([config, file("A", "feature.ts")], lists);
+  const checkbox = container.querySelector<HTMLElement>(
+    '[aria-label="Include folder Local only in commit"]',
+  );
+  await act(async () => checkbox!.click());
+  expect(staging).toHaveBeenCalledWith("C:/workspace/A", ["src/application.yaml"], true);
 });

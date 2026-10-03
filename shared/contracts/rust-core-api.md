@@ -2242,6 +2242,8 @@ gitlinks, stagedPaths, conflictedPaths }`. `head` is null only for an unborn bra
 null for detached HEAD. `indexEntries` is Git's opaque NUL-delimited staged index
 listing, including blob IDs and conflict stages; clients compare it without
 parsing it. `gitlinks` lists stage-0 mode-160000 entries as `{ path, revision }`.
+`stagedPaths` disables rename detection so both deleted and added paths are listed;
+local selection guards must not miss the old side of a rename.
 Read failures are errors, never an empty relationship list.
 The requested root must still be Git's exact working-tree root. Removing a
 nested repository's metadata must fail instead of falling back to its parent;
@@ -2287,6 +2289,18 @@ execution binding, never a portable identity. The response is
 finds real gitlink relationships, includes clean parents when requested, orders
 children first, and adds push-only child work where needed. Cycles fail closed.
 A changed reviewed plan must be displayed and confirmed again before any step.
+
+An optional `pathScope: { include, paths: { <repository-id>: [<relative-path>] } }`
+restricts local changelist commits. With `include: true`, only the listed literal
+paths are allowed; with `include: false`, the listed paths are excluded. Missing
+repository entries mean an empty set, not unrestricted access in inclusion mode.
+This is an exact-path guard, not a Git pathspec and not a second staging index.
+Core rejects any staged file or automatic parent-reference update outside the
+scope before executing mutations. It never silently unstages other lists. Scope
+changes invalidate a reviewed plan; retries inherit the original scope and may
+not replace it. Continuations retain the scope and validate it before writes,
+alongside the existing exact HEAD/index checks. Omitted scopes preserve existing
+clients' behavior. Shared examples: `shared/fixtures/git/local-changelist-scope-v1.json`.
 
 `git.workspaceCommitStep` accepts `{ session }` and returns the next session,
 executing at most one commit or push. Session fields are `plan`, last observed

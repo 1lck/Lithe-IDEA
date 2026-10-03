@@ -21,8 +21,7 @@ struct ChangesSidebarView: View {
     let showSettings: (SettingsCategory) -> Void
     @State private var selectedTab = CommitTab.commit
     @State private var commitToolActive = false
-    @State private var trackedExpanded = true
-    @State private var untrackedExpanded = true
+    @State private var changelistExpanded: [String: Bool] = [:]
     @State private var repositoryExpanded: [String: Bool] = [:]
     @State private var stashMessage = "WIP"
     @State private var includeUntracked = true
@@ -202,7 +201,12 @@ struct ChangesSidebarView: View {
                         CommitAreaView(feature: feature, draft: draft, commitWorkflow: commitWorkflow,
                                        hasBackgroundImage: hasBackgroundImage, showSettings: showSettings)
                     },
-                    flexible: { changeList.frame(minHeight: minimumListHeight) }
+                    flexible: {
+                        VStack(spacing: 0) {
+                            GitChangelistBar(feature: feature)
+                            changeList
+                        }.frame(minHeight: minimumListHeight)
+                    }
                 )
             }
         }
@@ -455,8 +459,8 @@ struct ChangesSidebarView: View {
                     preservesOriginalColors: true
                 )
             }
-            .litheToolbarIconButton(isEnabled: !feature.gitChanges.isEmpty)
-            .help("Stage all changes")
+            .litheToolbarIconButton(isEnabled: !feature.activeChangelistChanges.isEmpty && !feature.isCommitting && !feature.changelistStorageFailed)
+            .help("Stage all files in current ChangeList")
 
             Button {
                 if let first = feature.gitChanges.first {
@@ -551,20 +555,9 @@ struct ChangesSidebarView: View {
         GeometryReader { geometry in
             ScrollView(.vertical) {
                 LazyVStack(alignment: .leading, spacing: 0) {
-                    changeSection(
-                        "Changes",
-                        changes: trackedChanges,
-                        expanded: $trackedExpanded,
-                        showsParentPaths: geometry.size.width >= 300,
-                        joinsNextHeader: !trackedExpanded && !addedChanges.isEmpty
-                    )
-                    changeSection(
-                        "Unversioned Files",
-                        changes: addedChanges,
-                        expanded: $untrackedExpanded,
-                        showsParentPaths: geometry.size.width >= 300,
-                        joinsPreviousHeader: !trackedExpanded && !trackedChanges.isEmpty
-                    )
+                    ForEach(changeSections.changelists) { section in
+                        changelistSection(section, repositoryID: "", showsParentPaths: geometry.size.width >= 300)
+                    }
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 8)
@@ -596,6 +589,7 @@ struct ChangesSidebarView: View {
         showsParentPaths: Bool
     ) -> some View {
         let repositoryID = repository.id
+        let activeChanges = repository.changes.filter { feature.changelists.listID(for: $0) == feature.changelists.activeID }
         let isExpanded = repositoryExpanded[repositoryID] ?? true
 
         return VStack(alignment: .leading, spacing: 0) {
@@ -612,12 +606,12 @@ struct ChangesSidebarView: View {
                 .help(LocalizedStringKey(isExpanded ? "Collapse repository" : "Expand repository"))
 
                 Button {
-                    setStaging(repository.changes, !allChangesStaged(repository.changes))
+                    setStaging(activeChanges, !allChangesStaged(activeChanges))
                 } label: {
-                    Image(systemName: stagingSymbol(for: repository.changes))
+                    Image(systemName: stagingSymbol(for: activeChanges))
                         .font(LitheTheme.uiFont(size: 16))
                         .foregroundStyle(
-                            repository.changes.contains(where: isEffectivelyStaged)
+                            activeChanges.contains(where: isEffectivelyStaged)
                                 ? LitheTheme.accent
                                 : LitheTheme.secondaryText
                         )
@@ -625,9 +619,9 @@ struct ChangesSidebarView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .disabled(feature.isCommitting || !repository.changes.contains(where: \.canToggleStaging))
+                .disabled(feature.isCommitting || feature.changelistStorageFailed || !activeChanges.contains(where: \.canToggleStaging))
                 .help(LocalizedStringKey(
-                    allChangesStaged(repository.changes)
+                    allChangesStaged(activeChanges)
                         ? "Unstage all files in repository"
                         : "Stage all files in repository"
                 ))
@@ -662,16 +656,8 @@ struct ChangesSidebarView: View {
             .background(LitheTheme.subtleSelection.opacity(0.45))
 
             if isExpanded {
-                ForEach(Array(repository.changes.enumerated()), id: \.element.id) { index, change in
-                    changeRow(
-                        change,
-                        showsParentPath: showsParentPaths,
-                        includesRepositoryRootInParentPath: false,
-                        leadingInset: 12,
-                        joinsPrevious: index > 0 && selection.ids.contains(repository.changes[index - 1].id),
-                        joinsNext: index + 1 < repository.changes.count
-                            && selection.ids.contains(repository.changes[index + 1].id)
-                    )
+                ForEach(repository.changelists) { section in
+                    changelistSection(section, repositoryID: repositoryID, showsParentPaths: showsParentPaths)
                 }
             }
         }
@@ -682,9 +668,21 @@ struct ChangesSidebarView: View {
         }
     }
 
+    private func changelistSection(
+        _ section: GitChangeSectionsCache.ChangelistSection, repositoryID: String, showsParentPaths: Bool
+    ) -> some View {
+        let key = repositoryID + ":" + section.id
+        return changeSection(
+            section.list,
+            changes: section.changes,
+            expanded: Binding(get: { changelistExpanded[key] ?? true }, set: { changelistExpanded[key] = $0 }),
+            showsParentPaths: showsParentPaths
+        )
+    }
+
     @ViewBuilder
     private func changeSection(
-        _ title: String,
+        _ list: GitLocalChangelist,
         changes: [GitChange],
         expanded: Binding<Bool>,
         showsParentPaths: Bool,
@@ -715,14 +713,20 @@ struct ChangesSidebarView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .disabled(feature.isCommitting || !changes.contains(where: \.canToggleStaging))
+                .disabled(feature.isCommitting || feature.changelistStorageFailed || !changes.contains(where: \.canToggleStaging))
                 .help(LocalizedStringKey(allChangesStaged(changes) ? "Unstage all files" : "Stage all files"))
 
                 Button {
                     expanded.wrappedValue.toggle()
                 } label: {
                     HStack(spacing: 7) {
-                        Text(LocalizedStringKey(title))
+                        Group {
+                            if list.id == GitLocalChangelists.defaultID {
+                                Text("Default ChangeList")
+                            } else {
+                                Text(verbatim: list.name)
+                            }
+                        }
                             .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                         Text("\(changes.count) files")
@@ -786,7 +790,7 @@ struct ChangesSidebarView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.litheNoPress)
-            .disabled(feature.isCommitting || !change.canToggleStaging)
+            .disabled(feature.isCommitting || feature.changelistStorageFailed || !change.canToggleStaging)
             .help(LocalizedStringKey(change.canToggleStaging
                 ? (isEffectivelyStaged(change) ? "Unstage file" : "Stage file")
                 : "Commit changed files in the submodule first"))
@@ -865,13 +869,16 @@ struct ChangesSidebarView: View {
     }
 
     private var visibleChangeIDs: [String] {
-        guard feature.availableRepositoryRoots.count > 1 else {
-            return ((trackedExpanded ? trackedChanges : []) + (untrackedExpanded ? addedChanges : [])).map(\.id)
+        if feature.availableRepositoryRoots.count == 1 {
+            return changeSections.changelists.flatMap { section in
+                (changelistExpanded[":" + section.id] ?? true) ? section.changes.map(\.id) : []
+            }
         }
-
         return changeSections.repositories.flatMap { repository in
             guard repositoryExpanded[repository.id] ?? true else { return [String]() }
-            return repository.changes.map(\.id)
+            return repository.changelists.flatMap { section in
+                (changelistExpanded[repository.id + ":" + section.id] ?? true) ? section.changes.map(\.id) : []
+            }
         }
     }
 
@@ -898,10 +905,15 @@ struct ChangesSidebarView: View {
         items.append(.action("Show Diff", systemImage: "doc.text.magnifyingglass", action: {
             selectChange(change)
         }))
+        items.append(.submenu("Move to ChangeList", items: feature.changelists.lists.map { list in
+            .action(list.displayName, isEnabled: !feature.changelistEditingDisabled,
+                    action: { feature.moveChanges(targets, toChangelist: list.id) })
+        }))
         items.append(.separator)
         items.append(.action(
             shouldStage ? "Stage Files" : "Unstage Files",
             systemImage: shouldStage ? "plus.square" : "arrow.uturn.backward",
+            isEnabled: !feature.isCommitting && !feature.changelistStorageFailed,
             action: { setStaging(targets, shouldStage) }
         ))
         if targets.contains(where: \.hasWorkingTreeChange) {
@@ -955,16 +967,9 @@ struct ChangesSidebarView: View {
     private var changeSections: GitChangeSectionsCache.Sections {
         sectionsCache.sections(
             changes: feature.gitChanges,
-            conflictFilterPaths: feature.gitConflictFilterPaths
+            conflictFilterPaths: feature.gitConflictFilterPaths,
+            changelists: feature.changelists
         )
-    }
-
-    private var trackedChanges: [GitChange] {
-        changeSections.tracked
-    }
-
-    private var addedChanges: [GitChange] {
-        changeSections.added
     }
 
     private var displayedChanges: [GitChange] {

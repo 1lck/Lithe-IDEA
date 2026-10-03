@@ -22,14 +22,17 @@ extension GitFeatureModel {
     }
 
     private func prepareWorkspaceCommit(message: String, amend: Bool, push: Bool) async -> Bool {
-        guard !isCommitting, pendingSubmoduleCommitPlan == nil else { return false }
+        loadChangelistsIfNeeded()
+        guard !isCommitting, pendingSubmoduleCommitPlan == nil,
+              workspaceCommitAttempt == nil || workspaceCommitAttempt?.succeeded == true else { return false }
+        if let error = changelistCommitError { notify?(error); return false }
         let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !message.isEmpty else { notify?("Enter a commit message"); return false }
         isCommitting = true
         let generation = workspaceCommitGeneration
         defer { if generation == workspaceCommitGeneration { isCommitting = false } }
         guard let plan = await makeWorkspaceCommitPlan(message: message, amend: amend, push: push,
-            includeParentReferences: true, retry: false), generation == workspaceCommitGeneration else { return false }
+            includeParentReferences: includeChangelistParentReferences, retry: false), generation == workspaceCommitGeneration else { return false }
         workspaceCommitAttempt = nil
         workspaceCommitResults = []
         if plan.preparation.requiresConfirmation {
@@ -67,7 +70,7 @@ extension GitFeatureModel {
         let generation = workspaceCommitGeneration
         defer { if generation == workspaceCommitGeneration { isCommitting = false } }
         let replacement = await makeWorkspaceCommitPlan(message: plan.message, amend: plan.amend, push: plan.push,
-            includeParentReferences: include, retry: plan.isRetry)
+            includeParentReferences: include, retry: plan.isRetry, reviewed: plan.core)
         guard generation == workspaceCommitGeneration, pendingSubmoduleCommitPlan?.id == plan.id else { return }
         pendingSubmoduleCommitPlan = replacement
     }
@@ -97,9 +100,12 @@ extension GitFeatureModel {
             return GitWorkspaceRepositoryBinding(id: relative.isEmpty ? "." : relative.joined(separator: "/"),
                 root: root.standardizedFileURL.path)
         }
+        // Preserve the reviewed/retry scope even if status refreshes report new paths.
+        let scope = retry ? workspaceCommitAttempt?.plan.pathScope
+            : reviewed?.pathScope ?? changelists.commitScope(repositories: bindings, changes: gitChanges)
         let request = GitWorkspaceCommitRequest(repositories: bindings,
             message: message, amend: amend, push: push, includeParentReferences: includeParentReferences,
-            previous: retry ? workspaceCommitAttempt : nil, reviewed: reviewed)
+            previous: retry ? workspaceCommitAttempt : nil, reviewed: reviewed, pathScope: scope)
         let response = await withGitOperation { await service.prepareWorkspaceCommit(request) }
         guard generation == workspaceCommitGeneration, !Task.isCancelled else { return nil }
         switch response {

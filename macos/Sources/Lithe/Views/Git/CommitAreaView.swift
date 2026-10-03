@@ -158,11 +158,11 @@ struct CommitAreaView: View {
     private var stagedChanges: [GitChange] {
         // Commit operates on every repository in the workspace, not only the
         // repository selected by the branch toolbar.
-        feature.gitChanges.filter(\.isStaged)
+        feature.activeChangelistChanges.filter(\.isStaged)
     }
 
     private var canCommit: Bool {
-        !stagedChanges.isEmpty &&
+        feature.changelistCommitError == nil && !feature.changelistEditingDisabled && !stagedChanges.isEmpty &&
             !draft.message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !feature.isCommitting && !feature.isStagingChanges && feature.pendingSubmoduleCommitPlan == nil && !feature.canRetryWorkspaceCommit
     }

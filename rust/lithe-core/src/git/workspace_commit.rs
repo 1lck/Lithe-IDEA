@@ -1,6 +1,9 @@
 //! Shared workspace commit planning, guarded execution, and partial-success recovery.
 // Decisions: .agents/notes/implemented/feature/2026-09-27-workspace-git-commit-plans.md
 
+mod path_scope;
+pub use path_scope::PathScope;
+
 use super::{commit_state, GitCommitGitlink, GitCommitState, GitWriteRequest};
 use crate::protocol::{CoreError, ErrorCode};
 use serde::{Deserialize, Serialize};
@@ -37,6 +40,9 @@ pub struct Plan {
     pub amend: bool,
     pub push: bool,
     pub include_parent_references: bool,
+    /// Optional local selection guard; omitted by clients without changelists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path_scope: Option<PathScope>,
     pub is_retry: bool,
     /// Child-before-parent order, preserving input order for independent roots.
     pub ordered_ids: Vec<String>,
@@ -87,6 +93,9 @@ pub struct PrepareRequest {
     #[serde(default)]
     pub push: bool,
     pub include_parent_references: bool,
+    /// Restricts commits without rewriting the user's index.
+    #[serde(default)]
+    pub path_scope: Option<PathScope>,
     #[serde(default)]
     pub previous: Option<Session>,
     #[serde(default)]
@@ -159,6 +168,15 @@ fn build_plan(
         return Err(invalid("Enter a commit message"));
     }
     let previous = request.previous.as_ref();
+    let path_scope = request
+        .path_scope
+        .clone()
+        .or_else(|| previous.and_then(|s| s.plan.path_scope.clone()));
+    if previous.is_some_and(|s| s.plan.path_scope != path_scope) {
+        return Err(invalid(
+            "Dismiss the previous batch before changing its commit scope",
+        ));
+    }
     let mut results = previous.map(|s| s.results.clone()).unwrap_or_default();
     if let Some(previous) = previous {
         for id in &previous.plan.ordered_ids {
@@ -301,6 +319,7 @@ fn build_plan(
         amend: request.amend,
         push: request.push,
         include_parent_references: request.include_parent_references,
+        path_scope,
         is_retry: previous.is_some(),
         ordered_ids: order,
         propagated_relations: propagation,
@@ -309,6 +328,7 @@ fn build_plan(
         committed_ids: committed,
         pending_push_ids: pending_push,
     };
+    path_scope::validate(&plan, &states, &plan.committed_ids)?;
     let review_changed = request
         .reviewed
         .as_ref()
@@ -555,6 +575,13 @@ fn validate_session(session: &Session) -> Result<(), CoreError> {
             "Workspace commit dependencies must precede their parents",
         ));
     }
+    let committed = session
+        .results
+        .iter()
+        .filter(|(_, result)| result.committed)
+        .map(|(id, _)| id.clone())
+        .collect();
+    path_scope::validate(&session.plan, &session.states, &committed)?;
     Ok(())
 }
 
