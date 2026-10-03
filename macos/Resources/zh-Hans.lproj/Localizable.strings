@@ -2407,6 +2407,7 @@
 
 // Verified CLI update outcomes
 "CLI updated to %@" = "CLI 已更新至 %@";
+"Reconnect this Agent to refresh its model list." = "重新连接此 Agent 即可刷新模型列表。";
 "The installer reported an error, but the new CLI version was verified." = "安装器报告了错误，但已确认新 CLI 版本可用。";
 "Update log" = "更新日志";
 

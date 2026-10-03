@@ -4,8 +4,8 @@ import Testing
 @testable import Lithe
 
 struct AgentSetupDiagnosticsTests {
-    @Test
-    func cliOwnershipControlsAutomaticUpdateAndProvidesManualGuidance() throws {
+    @Test(arguments: ["0.142.5", "0.157.1", "0.159.1"])
+    func cliOwnershipControlsAutomaticUpdateAndProvidesManualGuidance(version: String) throws {
         let root = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -19,9 +19,11 @@ struct AgentSetupDiagnosticsTests {
             let agent = AgentCatalogStatus(id: "codex-acp", name: "Codex", description: "", package: "adapter",
                 version: "1", installedVersion: "1", protocol: "responses", minimumNodeMajor: 20, verified: true,
                 cli: .init(name: "Codex CLI", command: "codex", minimumVersion: "0.156.0", installHint: "npm install",
-                           detected: .init(version: "0.142.5", path: "/example/bin/codex"), installation: installation), issues: [])
+                           detected: .init(version: version, path: "/example/bin/codex"), installation: installation), issues: [])
             let check = try #require(AgentSetupDiagnostics.preflight(for: agent, environment: environment, hasProvider: true).first { $0.id == "cli" })
             #expect(check.fix == (installation.canUpdate ? .updateCli : nil))
+            #expect(check.status == (AgentSetupDiagnostics.isVersion(version, atLeast: "0.156.0") ? .pass : .warn),
+                    "Manual update availability must not change the compatibility result")
             #expect(check.message.contains(installation.source == .homebrew ? "Homebrew" :
                 NSLocalizedString(installation.updateHint, comment: "")))
             if installation.source == .homebrew {
