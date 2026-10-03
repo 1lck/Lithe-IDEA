@@ -91,6 +91,13 @@ persist 后先切到后继 Tab（与 `removeProjectTabItems` 的选择一致）�
 无法回到原状态（曾尝试过"拆除后复核"，被评审否决：取消会留下 MCP 失效的项目，
 且与已选"放弃"的缓冲冲突）。删除时仍防御性检查活动项目，避免 registry 停在已删除 id。
 
+**所有激活入口都必须遵守 closing 锁，包括失败回滚**：`restorePreviousWorkspace`
+（打开或切换失败后回到之前的项目）会跳过已锁定的项目，改为激活其他未锁定的 Tab；
+都不可用且失败项目的 Tab 已移除时，回到欢迎页。曾出现的交错路径：Attach 打开 B 卡在初始化 → 切回 A → This Window
+打开 C（A 被锁）→ 点击 B → B 失败回滚到最初捕获的 A，绕过锁让 A 重新可编辑，随后 A
+被拆除导致输入丢失。另外两道防线：替换流程拆除旧项目前如果它又成了活动项目，就保留
+它并释放锁；`activateSuccessor` 缺少 `switchTo` 时视为无法离开（返回 false），不再当作成功。
+
 已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
 （拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径
 （WSL 项目经 This Window 替换当前项目）已于 2026-10-03 实机验证通过；

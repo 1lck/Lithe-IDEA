@@ -674,3 +674,136 @@ test("a failed successor switch stops the close before anything is revoked", asy
   );
   expect(tabs.map((tab) => tab.id)).toEqual([otherId]);
 });
+
+test("a failed attach rollback cannot reactivate a project replaced via This Window", async () => {
+  // Real open/switch chain from the review: A ready; attach B stalls; switch back to A;
+  // This Window opens C; the user clicks B; B's open fails and rolls back toward A, which
+  // is already confirmed for close; then C succeeds and A is torn down.
+  const aDescriptor = { path: "C:/projects/a", name: "a" };
+  const bDescriptor = { path: "C:/projects/b", name: "b" };
+  const cDescriptor = { path: "C:/projects/c", name: "c" };
+  const aId = createProjectTabId(aDescriptor.path);
+  const bId = createProjectTabId(bDescriptor.path);
+  const cId = createProjectTabId(cDescriptor.path);
+  await openWorkspaceRuntime({ descriptor: aDescriptor, initialize: async () => true });
+
+  let finishB!: (value: boolean) => void;
+  const bGate = new Promise<boolean>((resolve) => {
+    finishB = resolve;
+  });
+  let finishC!: (value: boolean) => void;
+  const cGate = new Promise<boolean>((resolve) => {
+    finishC = resolve;
+  });
+  let cStarted!: () => void;
+  const cInitializing = new Promise<void>((resolve) => {
+    cStarted = resolve;
+  });
+  let finishSwitchB!: (value: boolean) => void;
+  const switchBGate = new Promise<boolean>((resolve) => {
+    finishSwitchB = resolve;
+  });
+
+  let bStarted!: () => void;
+  const bInitializing = new Promise<void>((resolve) => {
+    bStarted = resolve;
+  });
+  const openB = openWorkspaceRuntime({
+    descriptor: bDescriptor,
+    initialize: () => {
+      bStarted();
+      return bGate;
+    },
+  });
+  let openC: Promise<boolean> | undefined;
+  let switchB: Promise<boolean> | undefined;
+  const disposed: string[] = [];
+  try {
+    await bInitializing;
+    expect(await switchWorkspaceRuntime(aId, { initialize: async () => true })).toBe(true);
+    expect(active).toBe(aId);
+
+    openC = openWorkspaceRuntime({
+      descriptor: cDescriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async (workspaceId) => {
+        disposed.push(workspaceId);
+      },
+      initialize: () => {
+        cStarted();
+        return cGate;
+      },
+    });
+    await cInitializing;
+    expect(isWorkspaceClosing(aId)).toBe(true);
+
+    switchB = switchWorkspaceRuntime(bId, { initialize: () => switchBGate });
+    expect(active).toBe(bId);
+
+    finishB(false);
+    expect(await openB).toBe(false);
+    // The rollback skips the locked A and lands on C, which is still opening.
+    expect(active).not.toBe(aId);
+    expect(active).toBe(cId);
+
+    finishC(true);
+    expect(await openC).toBe(true);
+    expect(disposed).toEqual([aId]);
+    expect(tabs.map((tab) => tab.id)).toEqual([cId]);
+    expect(active).toBe(cId);
+    expect(isWorkspaceClosing(aId)).toBe(false);
+  } finally {
+    finishB(false);
+    finishC(false);
+    finishSwitchB(false);
+    await Promise.allSettled([openB, openC, switchB]);
+  }
+});
+
+test("a replaced project that is active again at teardown is kept, not torn down", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => {
+        // Bypass every guarded entry point to force the defensive check.
+        active = oldId;
+        return true;
+      },
+    }),
+  ).toBe(true);
+
+  expect(disposed).toBe(false);
+  expect(revokedIdeWorkspaces).toEqual([]);
+  expect(tabs.map((tab) => tab.id)).toContain(oldId);
+  expect(isWorkspaceClosing(oldId)).toBe(false);
+});
+
+test("closing without a switch callback does not tear down a project it cannot leave", async () => {
+  const otherDescriptor = { path: "C:/projects/other", name: "other" };
+  await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+
+  let disposed = false;
+  expect(
+    await closeWorkspaceRuntime(id, {
+      dispose: async () => {
+        disposed = true;
+      },
+    }),
+  ).toBe(false);
+  expect(disposed).toBe(false);
+  expect(active).toBe(id);
+  expect(isWorkspaceClosing(id)).toBe(false);
+});

@@ -104,23 +104,37 @@ const resumeWorkspaceInBackground = (
   }, 0);
 };
 
-const restorePreviousWorkspace = (workspaceId: string | undefined) => {
-  if (!workspaceId) {
+// Rolls a failed open or switch back. The rollback honours the closing lock like any other
+// activation: a project whose close was confirmed (e.g. replaced via This Window while this
+// open was still initializing) is never made editable again. Without a usable previous
+// project, another open project takes over, then the welcome workspace if the failed
+// project's tab is gone.
+const restorePreviousWorkspace = (
+  previousWorkspaceId: string | undefined,
+  failedWorkspaceId: string,
+) => {
+  const projectTabs = useWorkspaceTabsStore.getState().projectTabs;
+  const isRestorable = (tabId: string) =>
+    tabId !== failedWorkspaceId && !closingWorkspaces.has(tabId);
+  const target =
+    projectTabs.find((tab) => tab.id === previousWorkspaceId && isRestorable(tab.id)) ??
+    (previousWorkspaceId === WELCOME_WORKSPACE_ID
+      ? undefined
+      : projectTabs.find((tab) => isRestorable(tab.id)));
+
+  if (target) {
+    useWorkspaceTabsStore.getState().actions.setActiveProjectTab(target.id);
+    workspaceRuntimeRegistry.activateWorkspace(
+      { id: target.id, name: target.name, path: target.path },
+      workspaceRuntimeRegistry.getWorkspace(target.id)?.status ?? "ready",
+    );
     return;
   }
 
-  const previousTab = useWorkspaceTabsStore
-    .getState()
-    .projectTabs.find((tab) => tab.id === workspaceId);
-  if (!previousTab) {
-    return;
+  // A failed project that keeps its tab stays active in its error state.
+  if (!projectTabs.some((tab) => tab.id === failedWorkspaceId)) {
+    workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");
   }
-
-  useWorkspaceTabsStore.getState().actions.setActiveProjectTab(previousTab.id);
-  workspaceRuntimeRegistry.activateWorkspace(
-    { id: previousTab.id, name: previousTab.name, path: previousTab.path },
-    workspaceRuntimeRegistry.getWorkspace(previousTab.id)?.status ?? "ready",
-  );
 };
 
 const pendingWorkspaceOpens = new Map<string, Promise<boolean>>();
@@ -284,7 +298,7 @@ async function openWorkspaceRuntimeOnce({
     // The replaced project was never touched beyond its lock; hand it back.
     settleReplacedClose?.(false);
     if (shouldRestorePrevious) {
-      restorePreviousWorkspace(previousWorkspaceId);
+      restorePreviousWorkspace(previousWorkspaceId, workspaceId);
     }
     return false;
   }
@@ -293,6 +307,15 @@ async function openWorkspaceRuntimeOnce({
   // confirmation, so nothing could reactivate or edit it and no second question is needed.
   // A teardown failure must not roll the successful open back, so it is logged instead.
   if (settleReplacedClose && previousWorkspaceId) {
+    // Every activation path honours the lock, but tearing down a project the user can still
+    // edit would lose input: if it is somehow active again, keep it instead.
+    if (workspaceRuntimeRegistry.getActiveWorkspaceId() === previousWorkspaceId) {
+      settleReplacedClose(false);
+      console.warn(
+        `Kept replaced workspace "${previousWorkspaceId}": it became active again while "${descriptor.name}" opened.`,
+      );
+      return true;
+    }
     const replacedTab = useWorkspaceTabsStore
       .getState()
       .projectTabs.find((projectTab) => projectTab.id === previousWorkspaceId);
@@ -352,7 +375,7 @@ export async function switchWorkspaceRuntime(
   }
 
   if (workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId) {
-    restorePreviousWorkspace(previousWorkspaceId);
+    restorePreviousWorkspace(previousWorkspaceId, workspaceId);
   }
   return false;
 }
@@ -407,7 +430,8 @@ const activateSuccessor = async (
     workspaceId,
   ).find((projectTab) => projectTab.isActive);
   if (successor) {
-    return (await switchTo?.(successor.id)) ?? true;
+    // Without a switch callback the project cannot actually be left; that is no success.
+    return switchTo ? await switchTo(successor.id) : false;
   }
 
   workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");
