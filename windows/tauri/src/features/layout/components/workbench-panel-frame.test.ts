@@ -17,7 +17,7 @@ test("workbench panels are borderless solid islands separated only by the gap co
   ).text();
 
   expect(layoutSource).toContain(
-    'className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-xl bg-background"',
+    'className="lithe-glass-island relative min-h-0 flex-1 overflow-hidden rounded-(--lithe-island-radius) bg-background"',
   );
   expect(resizablePaneSource).toContain(
     '!hidden && position === "left" && "mr-(--lithe-sidebar-gap)"',
@@ -25,14 +25,16 @@ test("workbench panels are borderless solid islands separated only by the gap co
   expect(resizablePaneSource).toContain(
     '!hidden && position === "right" && "ml-(--lithe-workbench-gap)"',
   );
-  expect(resizablePaneSource).toContain('!hidden && "rounded-xl"');
+  expect(resizablePaneSource).toContain('!hidden && "rounded-(--lithe-island-radius)"');
   expect(resizablePaneSource).not.toContain("border-border border-x");
   expect(pluginRailSource).toContain(
-    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center bg-surface pt-1"',
+    'className="lithe-plugin-activity-rail flex w-9.5 shrink-0 flex-col items-center gap-2.5 bg-surface pt-1"',
   );
   expect(pluginRailSource).not.toContain('ml-(--lithe-workbench-gap)');
   expect(pluginRailSource).not.toContain("border-l");
-  expect(bottomPaneSource).toContain("overflow-hidden rounded-xl bg-background");
+  expect(bottomPaneSource).toContain(
+    "overflow-hidden rounded-(--lithe-island-radius) bg-background",
+  );
   expect(bottomPaneSource).not.toContain("border-border/70 border-t border-l");
   expect(titleBarSource).toContain(
     'gap-(--lithe-chrome-gap) bg-surface pr-(--lithe-chrome-padding-inline) pl-0',

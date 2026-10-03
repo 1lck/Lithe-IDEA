@@ -21,6 +21,8 @@ import arrowUpLight from "./idea/expui/general/up.svg?url";
 import arrowUpDark from "./idea/expui/general/up_dark.svg?url";
 import bellLight from "./idea/expui/toolwindows/notifications.svg?url";
 import bellDark from "./idea/expui/toolwindows/notifications_dark.svg?url";
+import bellLargeLight from "./idea/expui/toolwindows/notifications@20x20.svg?url";
+import bellLargeDark from "./idea/expui/toolwindows/notifications@20x20_dark.svg?url";
 import bookmarkLight from "./idea/expui/bookmarks/bookmark.svg?url";
 import bookmarkDark from "./idea/expui/bookmarks/bookmark_dark.svg?url";
 import bookOpenLight from "./idea/expui/toolwindows/documentation.svg?url";
@@ -74,6 +76,8 @@ import filePlusLight from "./idea/expui/actions/addFile.svg?url";
 import filePlusDark from "./idea/expui/actions/addFile_dark.svg?url";
 import filesLight from "./idea/expui/toolwindows/project.svg?url";
 import filesDark from "./idea/expui/toolwindows/project_dark.svg?url";
+import filesLargeLight from "./idea/expui/toolwindows/project@20x20.svg?url";
+import filesLargeDark from "./idea/expui/toolwindows/project@20x20_dark.svg?url";
 import fileTextLight from "./idea/fileTypes/text.svg?url";
 import floppyDiskLight from "./idea/expui/general/save.svg?url";
 import floppyDiskDark from "./idea/expui/general/save_dark.svg?url";
@@ -87,16 +91,22 @@ import funnelLight from "./idea/expui/general/filter.svg?url";
 import funnelDark from "./idea/expui/general/filter_dark.svg?url";
 import gearLight from "./idea/expui/general/settings.svg?url";
 import gearDark from "./idea/expui/general/settings_dark.svg?url";
+import gearLargeLight from "./idea/expui/general/settings@20x20.svg?url";
+import gearLargeDark from "./idea/expui/general/settings@20x20_dark.svg?url";
 import gearSixLight from "./idea/expui/general/settings.svg?url";
 import gearSixDark from "./idea/expui/general/settings_dark.svg?url";
 import gitBranchLight from "./idea/vcs/branch.svg?url";
 import gitBranchDark from "./idea/vcs/branch_dark.svg?url";
 import gitCommitLight from "./idea/expui/vcs/commit.svg?url";
 import gitCommitDark from "./idea/expui/vcs/commit_dark.svg?url";
+import gitCommitLargeLight from "./idea/expui/toolwindows/commit@20x20.svg?url";
+import gitCommitLargeDark from "./idea/expui/toolwindows/commit@20x20_dark.svg?url";
 import gitDiffLight from "./idea/expui/vcs/diff.svg?url";
 import gitDiffDark from "./idea/expui/vcs/diff_dark.svg?url";
 import gitGraphLight from "./idea/expui/toolwindows/vcs.svg?url";
 import gitGraphDark from "./idea/expui/toolwindows/vcs_dark.svg?url";
+import gitGraphLargeLight from "./idea/expui/toolwindows/vcs@20x20.svg?url";
+import gitGraphLargeDark from "./idea/expui/toolwindows/vcs@20x20_dark.svg?url";
 import gitMergeLight from "./idea/expui/vcs/merge.svg?url";
 import gitMergeDark from "./idea/expui/vcs/merge_dark.svg?url";
 import globeHemisphereWestLight from "./idea/expui/toolwindows/web.svg?url";
@@ -123,12 +133,16 @@ import lockOpenLight from "./idea/expui/general/unlocked.svg?url";
 import lockOpenDark from "./idea/expui/general/unlocked_dark.svg?url";
 import magnifyingGlassLight from "./idea/expui/general/search.svg?url";
 import magnifyingGlassDark from "./idea/expui/general/search_dark.svg?url";
+import magnifyingGlassLargeLight from "./idea/expui/general/search@20x20.svg?url";
+import magnifyingGlassLargeDark from "./idea/expui/general/search@20x20_dark.svg?url";
 import magnifyingGlassMinusLight from "./idea/expui/image/zoomOut.svg?url";
 import magnifyingGlassMinusDark from "./idea/expui/image/zoomOut_dark.svg?url";
 import magnifyingGlassPlusLight from "./idea/expui/image/zoomIn.svg?url";
 import magnifyingGlassPlusDark from "./idea/expui/image/zoomIn_dark.svg?url";
 import menuLight from "./idea/expui/general/menu.svg?url";
 import menuDark from "./idea/expui/general/menu_dark.svg?url";
+import menuLargeLight from "./idea/expui/general/windowsMenu@20x20.svg?url";
+import menuLargeDark from "./idea/expui/general/windowsMenu@20x20_dark.svg?url";
 import minusLight from "./idea/expui/general/remove.svg?url";
 import minusDark from "./idea/expui/general/remove_dark.svg?url";
 import monitorLight from "./idea/expui/nodes/desktop.svg?url";
@@ -155,6 +169,8 @@ import plusLight from "./idea/expui/general/add.svg?url";
 import plusDark from "./idea/expui/general/add_dark.svg?url";
 import problemsToolWindowLight from "./idea/expui/toolwindows/problems.svg?url";
 import problemsToolWindowDark from "./idea/expui/toolwindows/problems_dark.svg?url";
+import problemsToolWindowLargeLight from "./idea/expui/toolwindows/problems@20x20.svg?url";
+import problemsToolWindowLargeDark from "./idea/expui/toolwindows/problems@20x20_dark.svg?url";
 import pushPinLight from "./idea/expui/general/pin.svg?url";
 import pushPinDark from "./idea/expui/general/pin_dark.svg?url";
 import questionLight from "./idea/expui/general/questionDialog.svg?url";
@@ -165,6 +181,8 @@ import rowsLight from "./idea/expui/general/splitHorizontally.svg?url";
 import rowsDark from "./idea/expui/general/splitHorizontally_dark.svg?url";
 import runToolWindowLight from "./idea/expui/toolwindows/run.svg?url";
 import runToolWindowDark from "./idea/expui/toolwindows/run_dark.svg?url";
+import runToolWindowLargeLight from "./idea/expui/toolwindows/run@20x20.svg?url";
+import runToolWindowLargeDark from "./idea/expui/toolwindows/run@20x20_dark.svg?url";
 import scissorsLight from "./idea/expui/general/cut.svg?url";
 import scissorsDark from "./idea/expui/general/cut_dark.svg?url";
 import sidebarSimpleLight from "./idea/expui/general/layout.svg?url";
@@ -177,6 +195,8 @@ import tableLight from "./idea/expui/nodes/dataTables.svg?url";
 import tableDark from "./idea/expui/nodes/dataTables_dark.svg?url";
 import terminalWindowLight from "./idea/expui/toolwindows/terminal.svg?url";
 import terminalWindowDark from "./idea/expui/toolwindows/terminal_dark.svg?url";
+import terminalWindowLargeLight from "./idea/expui/toolwindows/terminal@20x20.svg?url";
+import terminalWindowLargeDark from "./idea/expui/toolwindows/terminal@20x20_dark.svg?url";
 import translateLight from "./idea/expui/general/language.svg?url";
 import translateDark from "./idea/expui/general/language_dark.svg?url";
 import trashLight from "./idea/expui/general/delete.svg?url";
@@ -191,6 +211,8 @@ import userLight from "./idea/expui/general/user.svg?url";
 import userDark from "./idea/expui/general/user_dark.svg?url";
 import usersThreeLight from "./idea/expui/general/groups.svg?url";
 import usersThreeDark from "./idea/expui/general/groups_dark.svg?url";
+import vcsLight from "./idea/expui/general/vcs.svg?url";
+import vcsDark from "./idea/expui/general/vcs_dark.svg?url";
 import warningCircleLight from "./idea/expui/general/warningDialog.svg?url";
 import warningCircleDark from "./idea/expui/general/warningDialog_dark.svg?url";
 import warningLight from "./idea/expui/general/warningDialog.svg?url";
@@ -205,6 +227,8 @@ import xDark from "./idea/expui/general/close_dark.svg?url";
 export interface IdeaIconAsset {
   light: string;
   dark: string;
+  /** IntelliJ @20x20 toolbar and stripe artwork, when it exists. */
+  large?: { light: string; dark: string };
 }
 
 export const ideaIconAssets: Record<string, IdeaIconAsset> = {
@@ -216,7 +240,7 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   ArrowRightIcon: { light: arrowRightLight, dark: arrowRightDark },
   ArrowSquareOutIcon: { light: arrowSquareOutLight, dark: arrowSquareOutDark },
   ArrowUpIcon: { light: arrowUpLight, dark: arrowUpDark },
-  BellIcon: { light: bellLight, dark: bellDark },
+  BellIcon: { light: bellLight, dark: bellDark, large: { light: bellLargeLight, dark: bellLargeDark } },
   BookmarkIcon: { light: bookmarkLight, dark: bookmarkDark },
   BookOpenIcon: { light: bookOpenLight, dark: bookOpenDark },
   BugIcon: { light: bugLight, dark: bugDark },
@@ -243,19 +267,19 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   EyeSlashIcon: { light: eyeSlashLight, dark: eyeSlashDark },
   FileIcon: { light: fileLight, dark: fileLight },
   FilePlusIcon: { light: filePlusLight, dark: filePlusDark },
-  FilesIcon: { light: filesLight, dark: filesDark },
+  FilesIcon: { light: filesLight, dark: filesDark, large: { light: filesLargeLight, dark: filesLargeDark } },
   FileTextIcon: { light: fileTextLight, dark: fileTextLight },
   FloppyDiskIcon: { light: floppyDiskLight, dark: floppyDiskDark },
   FolderIcon: { light: folderLight, dark: folderDark },
   FolderPlusIcon: { light: folderPlusLight, dark: folderPlusDark },
   FunctionIcon: { light: functionLight, dark: functionDark },
   FunnelIcon: { light: funnelLight, dark: funnelDark },
-  GearIcon: { light: gearLight, dark: gearDark },
+  GearIcon: { light: gearLight, dark: gearDark, large: { light: gearLargeLight, dark: gearLargeDark } },
   GearSixIcon: { light: gearSixLight, dark: gearSixDark },
   GitBranchIcon: { light: gitBranchLight, dark: gitBranchDark },
-  GitCommitIcon: { light: gitCommitLight, dark: gitCommitDark },
+  GitCommitIcon: { light: gitCommitLight, dark: gitCommitDark, large: { light: gitCommitLargeLight, dark: gitCommitLargeDark } },
   GitDiffIcon: { light: gitDiffLight, dark: gitDiffDark },
-  GitGraphIcon: { light: gitGraphLight, dark: gitGraphDark },
+  GitGraphIcon: { light: gitGraphLight, dark: gitGraphDark, large: { light: gitGraphLargeLight, dark: gitGraphLargeDark } },
   GitMergeIcon: { light: gitMergeLight, dark: gitMergeDark },
   GlobeHemisphereWestIcon: { light: globeHemisphereWestLight, dark: globeHemisphereWestDark },
   GlobeIcon: { light: globeLight, dark: globeDark },
@@ -268,10 +292,10 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   LightningIcon: { light: lightningLight, dark: lightningDark },
   LockIcon: { light: lockLight, dark: lockDark },
   LockOpenIcon: { light: lockOpenLight, dark: lockOpenDark },
-  MagnifyingGlassIcon: { light: magnifyingGlassLight, dark: magnifyingGlassDark },
+  MagnifyingGlassIcon: { light: magnifyingGlassLight, dark: magnifyingGlassDark, large: { light: magnifyingGlassLargeLight, dark: magnifyingGlassLargeDark } },
   MagnifyingGlassMinusIcon: { light: magnifyingGlassMinusLight, dark: magnifyingGlassMinusDark },
   MagnifyingGlassPlusIcon: { light: magnifyingGlassPlusLight, dark: magnifyingGlassPlusDark },
-  MenuIcon: { light: menuLight, dark: menuDark },
+  MenuIcon: { light: menuLight, dark: menuDark, large: { light: menuLargeLight, dark: menuLargeDark } },
   MinusIcon: { light: minusLight, dark: minusDark },
   MonitorIcon: { light: monitorLight, dark: monitorDark },
   OpenExternalIcon: { light: openExternalLight, dark: openExternalDark },
@@ -284,18 +308,18 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   PenIcon: { light: penLight, dark: penDark },
   PlayIcon: { light: playLight, dark: playDark },
   PlusIcon: { light: plusLight, dark: plusDark },
-  ProblemsToolWindowIcon: { light: problemsToolWindowLight, dark: problemsToolWindowDark },
+  ProblemsToolWindowIcon: { light: problemsToolWindowLight, dark: problemsToolWindowDark, large: { light: problemsToolWindowLargeLight, dark: problemsToolWindowLargeDark } },
   PushPinIcon: { light: pushPinLight, dark: pushPinDark },
   QuestionIcon: { light: questionLight, dark: questionDark },
   RefreshIcon: { light: refreshLight, dark: refreshDark },
   RowsIcon: { light: rowsLight, dark: rowsDark },
-  RunToolWindowIcon: { light: runToolWindowLight, dark: runToolWindowDark },
+  RunToolWindowIcon: { light: runToolWindowLight, dark: runToolWindowDark, large: { light: runToolWindowLargeLight, dark: runToolWindowLargeDark } },
   ScissorsIcon: { light: scissorsLight, dark: scissorsDark },
   SidebarSimpleIcon: { light: sidebarSimpleLight, dark: sidebarSimpleDark },
   SignOutIcon: { light: signOutLight, dark: signOutDark },
   StopIcon: { light: stopLight, dark: stopDark },
   TableIcon: { light: tableLight, dark: tableDark },
-  TerminalWindowIcon: { light: terminalWindowLight, dark: terminalWindowDark },
+  TerminalWindowIcon: { light: terminalWindowLight, dark: terminalWindowDark, large: { light: terminalWindowLargeLight, dark: terminalWindowLargeDark } },
   TranslateIcon: { light: translateLight, dark: translateDark },
   TrashIcon: { light: trashLight, dark: trashDark },
   TreeStructureIcon: { light: treeStructureLight, dark: treeStructureDark },
@@ -303,6 +327,7 @@ export const ideaIconAssets: Record<string, IdeaIconAsset> = {
   UploadSimpleIcon: { light: uploadSimpleLight, dark: uploadSimpleDark },
   UserIcon: { light: userLight, dark: userDark },
   UsersThreeIcon: { light: usersThreeLight, dark: usersThreeDark },
+  VcsIcon: { light: vcsLight, dark: vcsDark },
   WarningCircleIcon: { light: warningCircleLight, dark: warningCircleDark },
   WarningIcon: { light: warningLight, dark: warningDark },
   WrenchIcon: { light: wrenchLight, dark: wrenchDark },

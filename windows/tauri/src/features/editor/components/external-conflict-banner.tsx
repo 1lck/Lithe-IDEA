@@ -38,7 +38,8 @@ export function ExternalConflictBanner({ bufferId }: ExternalConflictBannerProps
 
   return (
     <div
-      className="flex min-h-10 items-center gap-2 border-b border-warning/35 bg-warning/10 px-3 text-xs text-foreground"
+      // IntelliJ Islands editor notifications are 7px-inset cards with a 12px arc.
+      className="mx-[7px] my-1 flex min-h-10 items-center gap-2 rounded-[6px] border border-warning/35 bg-warning/10 px-3 text-xs text-foreground"
       data-testid="editor-external-conflict-banner"
       role="alert"
     >

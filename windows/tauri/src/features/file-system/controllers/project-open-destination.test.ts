@@ -11,17 +11,17 @@ import {
 
 function createServices(options?: {
   askWhereToOpenProjects?: boolean;
-  openFoldersInNewWindow?: boolean;
+  projectOpenDefaultDestination?: ProjectOpenDestination;
   promptResult?: ProjectOpenPromptResult | null;
   language?: "en-US" | "zh-CN";
 }) {
   const promptRequests: Array<{ projectName: string; language: "en-US" | "zh-CN" }> = [];
-  const updates: Array<[string, boolean]> = [];
+  const updates: Array<[string, boolean | string]> = [];
 
   const services: ProjectOpenDestinationServices = {
     getSettings: () => ({
       askWhereToOpenProjects: options?.askWhereToOpenProjects ?? true,
-      openFoldersInNewWindow: options?.openFoldersInNewWindow ?? true,
+      projectOpenDefaultDestination: options?.projectOpenDefaultDestination ?? "new-window",
       displayLanguage: options?.language ?? "en-US",
     }),
     prompt: async (request) => {
@@ -41,7 +41,7 @@ describe("project open destination", () => {
     expect(defaultSettings.askWhereToOpenProjects).toBe(true);
   });
 
-  test("opens directly in this window when no workspace is open", async () => {
+  test("opens directly without prompting when no workspace is open", async () => {
     const { services, promptRequests } = createServices();
 
     const decision = await chooseProjectOpenDestination(
@@ -49,27 +49,27 @@ describe("project open destination", () => {
       services,
     );
 
-    expect(decision).toEqual({ destination: "this-window", rememberAfterOpen: false });
+    expect(decision).toEqual({ destination: "attach", rememberAfterOpen: false });
     expect(promptRequests).toEqual([]);
   });
 
-  test.each([
-    [true, "new-window"],
-    [false, "this-window"],
-  ] as const)("uses the remembered destination when prompting is disabled", async (openNew, expected) => {
-    const { services, promptRequests } = createServices({
-      askWhereToOpenProjects: false,
-      openFoldersInNewWindow: openNew,
-    });
+  test.each(["this-window", "new-window", "attach"] as const)(
+    "uses the remembered destination when prompting is disabled: %s",
+    async (destination) => {
+      const { services, promptRequests } = createServices({
+        askWhereToOpenProjects: false,
+        projectOpenDefaultDestination: destination,
+      });
 
-    const decision = await chooseProjectOpenDestination(
-      { projectName: "Lithe", hasOpenWorkspace: true },
-      services,
-    );
+      const decision = await chooseProjectOpenDestination(
+        { projectName: "Lithe", hasOpenWorkspace: true },
+        services,
+      );
 
-    expect(decision).toEqual({ destination: expected, rememberAfterOpen: false });
-    expect(promptRequests).toEqual([]);
-  });
+      expect(decision).toEqual({ destination, rememberAfterOpen: false });
+      expect(promptRequests).toEqual([]);
+    },
+  );
 
   test("returns an unchecked selection without changing settings", async () => {
     const selected: ProjectOpenDestination = "new-window";
@@ -88,8 +88,8 @@ describe("project open destination", () => {
     expect(updates).toEqual([]);
   });
 
-  test.each(["new-window", "this-window"] as const)(
-    "defers a checked destination until the project opens",
+  test.each(["new-window", "this-window", "attach"] as const)(
+    "defers a checked destination until the project opens: %s",
     async (selected) => {
       const { services, updates } = createServices({
         promptResult: { destination: selected, doNotAskAgain: true },
@@ -126,12 +126,12 @@ describe("project open destination", () => {
       {
         projectName: "Lithe",
         hasOpenWorkspace: true,
-        explicitDestination: "this-window",
+        explicitDestination: "attach",
       },
       services,
     );
 
-    expect(decision).toEqual({ destination: "this-window", rememberAfterOpen: false });
+    expect(decision).toEqual({ destination: "attach", rememberAfterOpen: false });
     expect(promptRequests).toEqual([]);
     expect(updates).toEqual([]);
   });
@@ -159,7 +159,7 @@ describe("project open destination", () => {
     expect(opened).toBe(true);
     expect(events).toEqual([
       "open:new-window",
-      "setting:openFoldersInNewWindow:true",
+      "setting:projectOpenDefaultDestination:new-window",
       "setting:askWhereToOpenProjects:false",
     ]);
   });

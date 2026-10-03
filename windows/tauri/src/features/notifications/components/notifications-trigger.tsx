@@ -40,7 +40,8 @@ export const NotificationsTrigger = ({ className }: NotificationsTriggerProps) =
       aria-label={t("notifications.title")}
       aria-pressed={isActive}
     >
-      <BellIcon className="size-4.5" />
+      {/* IntelliJ tool window stripe icon: the 20x20 notifications artwork. */}
+      <BellIcon large className="size-5" />
       {unreadCount > 0 ? (
         <span className="pointer-events-none absolute top-0 right-0 flex min-w-3 translate-x-0.5 -translate-y-0.5 items-center justify-center rounded-full bg-primary px-0.5 font-sans text-[9px] leading-3 text-primary-foreground tabular-nums">
           {unreadCount > 9 ? "9+" : unreadCount}

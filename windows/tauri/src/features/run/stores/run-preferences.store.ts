@@ -2,18 +2,24 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createSelectors } from "@/utils/zustand-selectors";
 import { createSafeJSONStorage } from "@/utils/zustand-storage";
-import { RUN_CONFIGURATION_LIST_DEFAULT_WIDTH } from "../utils/run-configuration-list-layout";
+import {
+  RUN_CONFIGURATION_LIST_DEFAULT_WIDTH,
+  RUN_LANGUAGE_COLUMN_WIDTH,
+} from "../utils/run-configuration-list-layout";
 
 export type JavaBuildFailurePolicy = "ask" | "alwaysProceed";
 
 interface RunPreferencesStore {
   configurationListWidth: number;
+  languageColumnWidth: number;
+  languageColumnCollapsed: boolean;
   scrollOutputToEnd: boolean;
   wrapOutputLines: boolean;
   selectedServiceIDsByWorkspace: Record<string, string[]>;
   javaBuildFailurePolicyByWorkspace: Record<string, JavaBuildFailurePolicy>;
   actions: {
     setConfigurationListWidth: (width: number) => void;
+    setLanguageColumnLayout: (width: number, collapsed: boolean) => void;
     setScrollOutputToEnd: (scroll: boolean) => void;
     setWrapOutputLines: (wrap: boolean) => void;
     setSelectedServiceIDs: (workspace: string, ids: string[]) => void;
@@ -28,12 +34,16 @@ const useRunPreferencesStoreBase = create<RunPreferencesStore>()(
   persist(
     (set) => ({
       configurationListWidth: RUN_CONFIGURATION_LIST_DEFAULT_WIDTH,
+      languageColumnWidth: RUN_LANGUAGE_COLUMN_WIDTH,
+      languageColumnCollapsed: false,
       scrollOutputToEnd: true,
       wrapOutputLines: true,
       selectedServiceIDsByWorkspace: {},
       javaBuildFailurePolicyByWorkspace: {},
       actions: {
         setConfigurationListWidth: (configurationListWidth) => set({ configurationListWidth }),
+        setLanguageColumnLayout: (languageColumnWidth, languageColumnCollapsed) =>
+          set({ languageColumnWidth, languageColumnCollapsed }),
         setScrollOutputToEnd: (scrollOutputToEnd) => set({ scrollOutputToEnd }),
         setWrapOutputLines: (wrapOutputLines) => set({ wrapOutputLines }),
         setSelectedServiceIDs: (workspace, ids) =>

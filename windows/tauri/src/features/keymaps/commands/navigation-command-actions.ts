@@ -38,6 +38,7 @@ import { useMybatisStore } from "@/features/mybatis/stores/mybatis.store";
 import { resolveMybatisDefinitions } from "@/features/mybatis/utils/mybatis-navigation";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
+import { useWebViewerNavigationStore } from "@/features/viewer/web/stores/web-viewer-navigation.store";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import type { WorkspaceLaunchScope } from "@/features/workspace/types/workspace-launch-scope";
 import { createTranslator } from "@/i18n/locale";
@@ -752,7 +753,22 @@ export async function goToReferences(): Promise<void> {
   referencesActions.setReferences(origin, converted);
 }
 
+// Web viewer tabs own a browser history. Back/Forward walk it first and fall back to the
+// editor jump list once the page has no history in that direction.
+function activeWebViewerNavigation() {
+  const { activeBufferId, buffers } = useBufferStore.getState();
+  const activeBuffer = buffers.find((b) => b.id === activeBufferId);
+  if (activeBuffer?.type !== "webViewer") return null;
+  return useWebViewerNavigationStore.getState().navigationByBufferId[activeBuffer.id] ?? {};
+}
+
 export async function goBack(): Promise<void> {
+  const webViewerNavigation = activeWebViewerNavigation();
+  if (webViewerNavigation?.canGoBack && webViewerNavigation.goBack) {
+    webViewerNavigation.goBack();
+    return;
+  }
+
   const bufferStore = useBufferStore.getState();
   const editorState = useEditorStateStore.getState();
   const cursorPosition = editorAPI.getCursorPosition();
@@ -760,8 +776,9 @@ export async function goBack(): Promise<void> {
   const activeBuffer = bufferStore.buffers.find((b) => b.id === activeBufferId);
 
   const paneId = usePaneStore.getState().activePaneId;
+  // A web page has no editor cursor to return to, so leaving it records no position.
   const currentPosition =
-    activeBufferId && activeBuffer?.path
+    !webViewerNavigation && activeBufferId && activeBuffer?.path
       ? {
           bufferId: activeBufferId,
           filePath: activeBuffer.path,
@@ -792,6 +809,12 @@ export async function goBack(): Promise<void> {
 }
 
 export async function goForward(): Promise<void> {
+  const webViewerNavigation = activeWebViewerNavigation();
+  if (webViewerNavigation?.canGoForward && webViewerNavigation.goForward) {
+    webViewerNavigation.goForward();
+    return;
+  }
+
   const jumpList = useJumpListStore.getState();
   const previousIndex = jumpList.currentIndex;
   const entry = jumpList.actions.goForward();

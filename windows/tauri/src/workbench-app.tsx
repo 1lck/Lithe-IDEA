@@ -23,6 +23,7 @@ import { GitWorkspaceCommitHost } from "@/features/git/runtime/git-workspace-com
 import { GitMetadataWatchHost } from "@/features/git/runtime/git-metadata-watch-host";
 
 import { MainLayout } from "./features/layout/components/main-layout";
+import { NativeWindowTitleHost } from "./features/window/components/native-window-title-host";
 import { ZoomIndicator } from "./features/window/components/zoom-indicator";
 import { Toaster } from "./ui/sonner";
 import { TooltipProvider } from "./ui/tooltip";
@@ -88,6 +89,7 @@ function WorkbenchApp() {
       <DialogServiceProvider>
         <TooltipProvider>
           <WindowResizeBorder />
+          <NativeWindowTitleHost />
 
           <div className="h-dvh w-dvw overflow-hidden">
             <FontStyleInjector />

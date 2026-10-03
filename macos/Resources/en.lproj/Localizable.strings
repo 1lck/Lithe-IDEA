@@ -1148,6 +1148,7 @@
 
 // Verified CLI update outcomes
 "CLI updated to %@" = "CLI updated to %@";
+"Reconnect this Agent to refresh its model list." = "Reconnect this Agent to refresh its model list.";
 "The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
 "Update log" = "Update log";
 

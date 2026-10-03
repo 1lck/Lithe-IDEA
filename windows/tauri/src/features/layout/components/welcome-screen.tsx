@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
 import { AppUpdateControl } from "./app-update-control";
+import { ProjectAvatar } from "@/features/window/components/project-avatar";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { Button } from "@/ui/button";
@@ -14,28 +15,6 @@ import {
   MagnifyingGlassIcon,
   XIcon,
 } from "@/ui/icons";
-
-const projectColors = [
-  "bg-emerald-500/80",
-  "bg-blue-500/85",
-  "bg-orange-500/85",
-  "bg-cyan-500/80",
-  "bg-violet-500/80",
-];
-
-function projectInitials(name: string) {
-  const words = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
-  const initials = words
-    .slice(0, 2)
-    .map((word) => word[0])
-    .join("");
-  return (initials || "LI").toUpperCase();
-}
-
-function colorForProject(path: string) {
-  const hash = Array.from(path).reduce((value, character) => value + character.charCodeAt(0), 0);
-  return projectColors[hash % projectColors.length];
-}
 
 export function WelcomeScreen() {
   const { t } = useTranslation();
@@ -152,13 +131,13 @@ export function WelcomeScreen() {
                   key={folder.path}
                   className="group flex h-13 items-center gap-3 rounded-md px-2 hover:bg-accent/65"
                 >
-                  <div
-                    className={`flex size-8.5 shrink-0 items-center justify-center rounded-lg text-xs font-semibold text-white ${
-                      folder.missing ? "bg-muted-foreground/25" : colorForProject(folder.path)
-                    }`}
-                  >
-                    {projectInitials(folder.name)}
-                  </div>
+                  <ProjectAvatar
+                    name={folder.name}
+                    path={folder.path}
+                    customIconPath={folder.customIcon}
+                    missing={folder.missing}
+                    size={34}
+                  />
                   <Button
                     type="button"
                     variant="ghost"
