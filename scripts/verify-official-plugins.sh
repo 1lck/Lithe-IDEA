@@ -3,6 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
+PLUGIN_CHANNEL="${LITHE_PLUGIN_PACKAGE_CHANNEL:-${LITHE_UPDATE_CHANNEL:-stable}}"
 cd "$ROOT_DIR"
 
 case "$(uname -m)" in
@@ -58,7 +59,7 @@ for plugin in "${plugins[@]}"; do
                 exit 1
             }
         fi
-        "$package_signer_binary" --verify "$plugin"
+        "$package_signer_binary" --verify --channel "$PLUGIN_CHANNEL" "$plugin"
     fi
 done
 print "Verified ${#plugins[@]} official native plugin package(s)"

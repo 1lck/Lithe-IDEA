@@ -153,8 +153,10 @@ Dir.mktmpdir("lithe-sparkle-channels-") do |root|
   %w[stable preview].product(%w[arm64 x86_64]).each do |channel, architecture|
     path = File.join(root, "#{channel}-#{architecture}.plist")
     File.write(path, '<plist version="1.0"><dict/></plist>')
-    run("env", "LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=preview-0.3.0",
-      "LITHE_SPARKLE_PUBLIC_KEY=#{key}", "GITHUB_REPOSITORY=example/lithe",
+    environment = ["LITHE_UPDATE_CHANNEL=#{channel}", "LITHE_PREVIEW_TAG=preview-0.3.0",
+      "LITHE_SPARKLE_PUBLIC_KEY=#{key}", "GITHUB_REPOSITORY=example/lithe"]
+    environment << "LITHE_PLUGIN_PACKAGE_PUBLIC_KEY=#{key}" if channel == "preview"
+    run("env", *environment,
       "zsh", File.join(__dir__, "configure-sparkle-app.sh"), path, architecture)
     info = JSON.parse(run("plutil", "-convert", "json", "-o", "-", path))
     expected = channel == "preview" ? "download/preview-0.3.0/appcast-preview-#{architecture}.xml" : "latest/download/appcast-#{architecture}.xml"
