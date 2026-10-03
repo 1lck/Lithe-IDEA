@@ -36,13 +36,13 @@ jobs:
         shell: bash
         run: ./scripts/test-classify-ci-changes.sh
 
-      - name: Test Sparkle baseline download reliability
+      - name: Test release scripts and Markdown preview
         timeout-minutes: 2
         run: |
           mkdir -p .artifacts/test-stability
           node --test --test-reporter=spec --test-reporter-destination=stdout \
             --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
-            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs
+            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs scripts/test-markdown-preview.mjs
 
       - name: Generate Sparkle download timing report
         if: always()

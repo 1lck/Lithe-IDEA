@@ -293,7 +293,7 @@ audio { width: min(100%, 520px); }
   top: 52px;
   right: 16px;
   width: min(280px, calc(100vw - 32px));
-  max-height: min(66vh, 560px);
+  bottom: 16px;
   overflow: auto;
   padding: 12px 10px;
   border: 1px solid var(--border);
@@ -308,6 +308,10 @@ audio { width: min(100%, 520px); }
 .toc a:hover { background: var(--accent-soft); color: var(--accent); text-decoration: none; }
 .toc a[data-level="2"] { padding-left: 18px; }
 .toc a[data-level="3"] { padding-left: 29px; color: var(--muted); }
+
+@media (min-width: 681px) {
+  body.toc-open { padding-right: 312px; }
+}
 
 .image-viewer {
   position: fixed;
@@ -333,5 +337,5 @@ audio { width: min(100%, 520px); }
 @media (max-width: 440px) {
   .markdown-body { padding: 22px 18px 54px; }
   .toc-toggle { top: 10px; right: 10px; }
-  .toc { top: 46px; right: 10px; }
+  .toc { top: 46px; right: 10px; bottom: 10px; }
 }
