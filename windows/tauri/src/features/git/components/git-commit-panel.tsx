@@ -1,3 +1,5 @@
+import type { WorkspaceCommitPathScope } from "../types/git-workspace-commit.types";
+import { Checkbox } from "@/ui/checkbox";
 import {
   ArrowDownIcon as ArrowDown,
   ArrowUpIcon as ArrowUp,
@@ -38,6 +40,8 @@ import type { GitFile } from "../types/git.types";
 import { COMMIT_MESSAGE_MAX_VIEWPORT_RATIO } from "../hooks/use-git-commit-area-resize";
 
 interface GitCommitPanelProps {
+  pathScope?: WorkspaceCommitPathScope;
+  commitScopeError?: string;
   selectedFiles: GitFile[];
   workspacePath: string;
   repositoryPaths: string[];
@@ -53,7 +57,6 @@ interface GitCommitPanelProps {
   isPullLocked?: boolean;
   focusRequest?: number;
 }
-
 
 // IntelliJ CommitLegendComponent: "N added   N modified   N deleted", each part
 // tinted with its file-status color. Untracked files count as added (shown as
@@ -105,6 +108,8 @@ function buildCommitLegend(files: GitFile[]): CommitLegendChunk[] {
 }
 
 const GitCommitPanel = ({
+  pathScope,
+  commitScopeError,
   selectedFiles,
   workspacePath,
   repositoryPaths,
@@ -121,6 +126,7 @@ const GitCommitPanel = ({
   focusRequest = 0,
 }: GitCommitPanelProps) => {
   const { t } = useTranslation();
+  const [includeParentReferences, setIncludeParentReferences] = useState(true);
   const aiSettings = useSettingsStore((state) => state.settings.aiCommit);
   const openSettings = useUIState((state) => state.openSettingsDialog);
   const generationRef = useRef<AbortController | null>(null);
@@ -194,6 +200,7 @@ const GitCommitPanel = ({
   const handleCommit = async (pushAfterCommit = false) => {
     if (
       !isCurrentWorkspace ||
+      commitScopeError ||
       isStaging ||
       batch.busy ||
       batch.review ||
@@ -216,7 +223,8 @@ const GitCommitPanel = ({
       message: commitMessage.trim(),
       amend: false,
       push: pushAfterCommit,
-      includeParentReferences: true,
+      includeParentReferences,
+      pathScope,
     });
   };
 
@@ -230,6 +238,7 @@ const GitCommitPanel = ({
       amend: previous.plan.amend,
       push: previous.plan.push,
       includeParentReferences: previous.plan.includeParentReferences,
+      pathScope: previous.plan.pathScope,
       previous,
     });
   };
@@ -257,6 +266,7 @@ const GitCommitPanel = ({
   // Missing files or message no longer grey the buttons out (see commitHint); only
   // states where a click cannot start a commit at all still disable them.
   const isCommitDisabled =
+    Boolean(commitScopeError) ||
     !isCurrentWorkspace ||
     isStaging ||
     Boolean(batch.review) ||
@@ -289,7 +299,9 @@ const GitCommitPanel = ({
             : "git.specifyCommitMessage",
       )
     : null;
-  const hasError = Boolean(error || batch.error || visibleCommitHint?.noMessage);
+  const hasError = Boolean(
+    error || batch.error || commitScopeError || visibleCommitHint?.noMessage,
+  );
   const commitLegend = useMemo(() => buildCommitLegend(selectedFiles), [selectedFiles]);
 
   return (
@@ -322,7 +334,17 @@ const GitCommitPanel = ({
           hasError && "focus-within:border-destructive focus-within:ring-destructive",
         )}
       >
-        {(error || batch.error) && (
+        {pathScope && (
+          <label className="flex items-center gap-2 ui-text-xs">
+            <Checkbox
+              checked={includeParentReferences}
+              onCheckedChange={setIncludeParentReferences}
+              disabled={isCommitting || Boolean(batch.review)}
+            />
+            {t("git.workspaceCommit.parents")}
+          </label>
+        )}
+        {(error || batch.error || commitScopeError) && (
           <div
             className={cn(
               "mx-2 mt-2 flex items-center gap-2 rounded-md border border-destructive/30",
@@ -330,7 +352,7 @@ const GitCommitPanel = ({
             )}
           >
             <AlertCircle />
-            {error || batch.error}
+            {error || batch.error || commitScopeError}
           </div>
         )}
 
