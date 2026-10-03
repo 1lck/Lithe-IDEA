@@ -129,7 +129,6 @@ export default function RunPane() {
     isRunning: primaryRunning,
     exitCode: primaryExitCode,
   });
-  const selectedSession = selection.session;
   const blockingDiagnostic = blockingToolchainDiagnosticForConfiguration(
     diagnostics,
     selectedConfiguration?.id,
@@ -178,7 +177,7 @@ export default function RunPane() {
 
   const runSelected = () => {
     if (isSelectedRunning) {
-      void actions.stop(selectedSession?.id);
+      void actions.stop(decisionSessionId);
       return;
     }
     const configuration = selectedConfiguration?.execution === "group"
