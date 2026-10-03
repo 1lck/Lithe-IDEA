@@ -32,7 +32,9 @@ impl Drop for Fixture {
 }
 
 fn run(command: &mut Command) -> String {
-    let deadline = Instant::now() + Duration::from_secs(5);
+    // Git/Node startup can exceed five seconds on Windows CI. Keep a local
+    // deadline inside the timing harness's 15-second case watchdog.
+    let deadline = Instant::now() + Duration::from_secs(10);
     let result = lithe_git_host::run(
         command,
         None,
@@ -40,7 +42,7 @@ fn run(command: &mut Command) -> String {
         || {},
         |_, _| {},
     );
-    assert!(result.failure.is_none(), "{:?}", result.failure);
+    assert!(result.failure.is_none(), "{command:?}: {:?}", result.failure);
     assert!(
         result.status.is_some_and(|status| status.success()),
         "{}",
