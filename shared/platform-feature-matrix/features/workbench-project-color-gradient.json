@@ -22,7 +22,7 @@
       "windows/tauri/src/features/window/utils/project-avatar.ts"
     ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "verified"
   },
   "owner": "Workbench",
   "notes": "两端都用项目路径的 64 位 FNV-1a 哈希从 IntelliJ Islands 的 9 种 RecentProject 颜色中取色（不存储、不可自定义），并以 0.85 混入窗口底色；Windows 额外忽略路径大小写与分隔符差异。Windows 提供“用颜色区分项目”开关（默认开启，对应 IntelliJ differentiateProjects），仅在 Lithe 主题且关闭窗口透明时绘制，窗口失焦时按 0.56 减弱；macOS 无开关与失焦减弱。 两端深色项目色相同；macOS 浅色项目色沿用旧版 IntelliJ New UI（expUI_light_with_light_header）的取值，Windows 浅色使用 ManyIslandsLight 的取值，两者略有差异。",

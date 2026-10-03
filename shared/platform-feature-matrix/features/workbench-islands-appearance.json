@@ -24,7 +24,7 @@
       "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx"
     ],
     "implementationStatus": "implemented",
-    "verificationStatus": "pending"
+    "verificationStatus": "verified"
   },
   "owner": "Workbench",
   "notes": "Windows 的 Lithe 主题使用 IntelliJ ManyIslands 色板；其他内置主题只继承布局与圆角，标签和滚动条颜色由主题自身颜色推导。失焦置淡只作用于外框，编辑器与工具窗口内容保持不透明，与 IntelliJ IslandsInactiveFrameGraphics2D 的作用范围一致。macOS 尚未实现失焦置淡，配色未逐项对齐 Islands。",
