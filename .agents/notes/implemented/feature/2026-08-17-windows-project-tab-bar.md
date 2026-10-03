@@ -67,12 +67,22 @@ macOS 的同窗口选项就是本地的 Attach 语义（同窗口新开项目 se
 `shared/platform-feature-matrix/features/workspace-open-switch.json`。
 
 替换由 `openWorkspaceRuntime` 的 `mode: "replace-active"` 实现，时序是：
-claim 窗口归属 → 对旧活动项目做未保存缓冲确认（用户取消则零状态变更退出）→
+claim 窗口归属 → 对旧活动项目做未保存缓冲确认（用户取消或确认异常时，
+若新路径此前在本窗口没有 Tab，则 release 本次新取得的 claim，避免原生
+registry 把它一直路由到本窗口导致其他窗口也打不开；旧项目归属不动）→
 persistCurrent → 走正常 attach 流程（新 Tab 激活、初始化或恢复）→
 **新项目成功后**才用 `closeWorkspaceRuntime` 关闭进入流程时捕获的旧项目 id
 （`wasActive=false` 路径只做服务拆除，不切欢迎页）。初始化失败走既有回滚，
 旧项目原样保留；拆除目标是进入时捕获的 id，初始化期间切换 Tab 不会误关其他
 项目。旧项目的服务拆除与 `closeProject` 共用 `disposeWorkspaceServices`。
+
+关闭与激活互斥：`closeWorkspaceRuntime` 在拆除期间把项目记入 closing 集合，
+Java 服务停止可能要等它的 startTask，期间旧 Tab 仍在但 `switchWorkspaceRuntime`
+/ `switchToProject` 直接拒绝激活（不弹失败 toast），同路径的新打开会等关闭结束
+再全新打开，重复关闭复用同一个 promise。服务拆除完成、真正删除前再做两项复核：
+一是 `confirmRemove`，只对上次确认之后新增或内容变化的脏缓冲重新询问
+（已选"放弃"的不再重复询问；拒绝则保留该 Tab）；二是按**删除时**的活动项目
+决定是否切到后继项目，而不是按进入时捕获的 `wasActive`，避免 registry 停在已删除 id。
 
 已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
 （拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径

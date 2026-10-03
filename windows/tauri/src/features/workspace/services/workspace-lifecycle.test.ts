@@ -5,6 +5,8 @@ const workspaces = new Map<string, { status: string }>();
 let active = "welcome";
 let redirected = false;
 const released: string[] = [];
+// Native registry owners claimed by this window, so tests can observe leaked claims.
+const ownedByThisWindow = new Set<string>();
 const revokedIdeWorkspaces: string[] = [];
 mock.module("@/features/host-api/mcp-connection", () => ({
   disableMcp: async (id: string) => {
@@ -57,14 +59,20 @@ mock.module("@/features/workspace/runtime/workspace-runtime-registry", () => ({
 }));
 mock.module("@/features/window/services/project-window-routing", () => ({
   projectWindowRouting: {
-    claim: async () => redirected,
+    claim: async (tab: { id: string }) => {
+      if (redirected) return true;
+      ownedByThisWindow.add(tab.id);
+      return false;
+    },
     release: async (id: string) => {
       released.push(id);
+      ownedByThisWindow.delete(id);
     },
   },
 }));
 const { createProjectTabId } = await import("@/features/window/utils/project-tab-path");
-const { openWorkspaceRuntime, closeWorkspaceRuntime } = await import("./workspace-lifecycle");
+const { openWorkspaceRuntime, closeWorkspaceRuntime, switchWorkspaceRuntime, isWorkspaceClosing } =
+  await import("./workspace-lifecycle");
 
 beforeEach(() => {
   tabs.length = 0;
@@ -72,6 +80,7 @@ beforeEach(() => {
   active = "welcome";
   redirected = false;
   released.length = 0;
+  ownedByThisWindow.clear();
   revokedIdeWorkspaces.length = 0;
 });
 afterEach(() => {
@@ -220,7 +229,8 @@ test("replace-active aborts without any state change when the guard declines", a
   expect(disposed).toBe(false);
   expect(active).toBe(oldId);
   expect(tabs.map((tab) => tab.id)).toEqual([oldId]);
-  expect(released).toEqual([]);
+  // Only the claim this open just made is handed back; the replaced project keeps its owner.
+  expect(released).toEqual([createProjectTabId(descriptor.path)]);
 });
 
 test("replace-active rolls the failed open back and leaves the replaced project intact", async () => {
@@ -408,4 +418,155 @@ test("replace-active after a successful in-flight attach reactivates without tea
   expect(disposed).toBe(false);
   expect(tabs.map((tab) => tab.id).sort()).toEqual([oldId, newId].sort());
   expect(active).toBe(newId);
+});
+
+test("replace-active cancel hands a fresh claim back so another window can open the project", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+  const newId = createProjectTabId(descriptor.path);
+
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => false,
+      initialize: async () => true,
+    }),
+  ).toBe(false);
+
+  expect(ownedByThisWindow.has(newId)).toBe(false);
+  expect(ownedByThisWindow.has(oldId)).toBe(true);
+  expect(active).toBe(oldId);
+});
+
+test("replace-active guard failure also hands the fresh claim back", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const newId = createProjectTabId(descriptor.path);
+
+  await expect(
+    openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => {
+        throw new Error("dialog failed");
+      },
+      initialize: async () => true,
+    }),
+  ).rejects.toThrow("dialog failed");
+
+  expect(ownedByThisWindow.has(newId)).toBe(false);
+});
+
+test("replace-active cancel keeps ownership of a project that already had a tab here", async () => {
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const existingId = createProjectTabId(descriptor.path);
+  const otherDescriptor = { path: "C:/projects/other", name: "other" };
+  await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
+
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => false,
+      initialize: async () => true,
+    }),
+  ).toBe(false);
+
+  expect(ownedByThisWindow.has(existingId)).toBe(true);
+  expect(released).not.toContain(existingId);
+});
+
+test("a replaced project cannot be reactivated while its teardown waits", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+  const newId = createProjectTabId(descriptor.path);
+
+  let releaseDispose!: () => void;
+  const disposeGate = new Promise<void>((resolve) => {
+    releaseDispose = resolve;
+  });
+  let disposeStarted!: () => void;
+  const disposing = new Promise<void>((resolve) => {
+    disposeStarted = resolve;
+  });
+  const removalChecks: string[] = [];
+  const opening = openWorkspaceRuntime({
+    descriptor,
+    mode: "replace-active",
+    confirmReplaceCurrent: async () => true,
+    disposeReplaced: async () => {
+      disposeStarted();
+      await disposeGate;
+    },
+    confirmReplacedRemoval: async (workspaceId) => {
+      removalChecks.push(workspaceId);
+      return true;
+    },
+    initialize: async () => true,
+  });
+
+  try {
+    await disposing;
+    expect(isWorkspaceClosing(oldId)).toBe(true);
+    // The old tab is still visible, but switching back to it is refused.
+    expect(tabs.map((tab) => tab.id)).toContain(oldId);
+    expect(await switchWorkspaceRuntime(oldId, { initialize: async () => true })).toBe(false);
+    expect(active).toBe(newId);
+  } finally {
+    releaseDispose();
+  }
+
+  expect(await opening).toBe(true);
+  expect(removalChecks).toEqual([oldId]);
+  expect(isWorkspaceClosing(oldId)).toBe(false);
+  expect(tabs.map((tab) => tab.id)).toEqual([newId]);
+  expect(active).toBe(newId);
+});
+
+test("a replaced project with edits made during teardown is kept when removal is declined", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async () => {},
+      confirmReplacedRemoval: async () => false,
+      initialize: async () => true,
+    }),
+  ).toBe(true);
+
+  expect(tabs.map((tab) => tab.id)).toContain(oldId);
+  expect(workspaces.has(oldId)).toBe(true);
+  expect(released).not.toContain(oldId);
+});
+
+test("closing picks the successor from the active workspace at removal time", async () => {
+  const otherDescriptor = { path: "C:/projects/other", name: "other" };
+  await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+  const otherId = createProjectTabId(otherDescriptor.path);
+
+  // Close the background project; the registry ends on the surviving project, never on
+  // the removed id.
+  active = otherId;
+  const switchedTo: string[] = [];
+  expect(
+    await closeWorkspaceRuntime(id, {
+      switchTo: async (next) => {
+        switchedTo.push(next);
+        return true;
+      },
+    }),
+  ).toBe(true);
+  expect(active).toBe(otherId);
+  expect(switchedTo).toEqual([]);
+  expect(workspaces.has(id)).toBe(false);
 });
