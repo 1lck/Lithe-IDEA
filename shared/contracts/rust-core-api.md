@@ -178,6 +178,17 @@ explicit recovery prevents another message from entering a lost cancelled turn.
 Other sessions on the same process are also detached on this failure.
 Normal cancellation does not restart the process.
 
+Every `prompt` also has a ten-minute absolute wall-clock limit, including tool
+execution and permission waits. This is a safety bound for an upstream request
+that stops responding; it is not an inactivity timer and progress updates do not
+extend it. On expiry the host sends the same `session/cancel`, emits
+`turnCancelling`, then waits up to the existing ten-second cancellation grace
+period before emitting `requestFailed` with an actionable timeout message. An
+acknowledged cancellation releases the session; otherwise the connection and its
+process tree are stopped. No terminal event is emitted during the grace period,
+so consumers keep the session busy. A late response cannot overlap a new prompt
+or turn an expired request into a successful completion.
+
 ACP `usage_update` notifications are forwarded unchanged in `update`, with
 `used` (tokens currently in context) and `size` (context window capacity), scoped
 by `sessionId`. Consumers replace the previous snapshot, allowing usage to drop
