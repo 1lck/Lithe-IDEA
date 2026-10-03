@@ -23,15 +23,14 @@ import Tooltip from "@/ui/tooltip";
 import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
-import { PRIMARY_SESSION_ID } from "../types/run.types";
 import {
   configurationsForExecution,
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
-import { RunConfigurationListSplit } from "./run-configuration-list-split";
-import { RunConfigurationList } from "./run-configuration-list";
+import { RunConfigurationBrowser } from "./run-configuration-browser";
+import { selectRunOutput } from "../utils/run-output-selection";
 import { RunOutputText } from "./run-output-text";
 import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
@@ -89,11 +88,10 @@ export default function RunPane() {
   const diagnostics = useRunStore((state) => state.diagnostics);
   const selectedConfigurationId = useRunStore((state) => state.selectedConfigurationId);
   const serviceUpdates = useRunStore((state) => state.serviceUpdates);
-  const selectedSessionId = useRunStore((state) => state.selectedSessionId);
   const sessions = useRunStore((state) => state.sessions);
   const primaryOutput = useRunStore((state) => state.primaryOutput);
+  const primaryConfigurationId = useRunStore((state) => state.primaryConfigurationId);
   const primaryRunning = useRunStore((state) => state.primaryRunning);
-  const primaryTitle = useRunStore((state) => state.primaryTitle);
   const primaryExitCode = useRunStore((state) => state.primaryExitCode);
   const recoveryAction = useRunStore((state) => state.recoveryAction);
   const invalidMessage = useRunStore((state) => state.invalidMessage);
@@ -125,17 +123,23 @@ export default function RunPane() {
   );
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
-  const selectedSession = sessions.find((session) => session.id === selectedSessionId);
+  const selection = selectRunOutput(selectedConfigurationId, sessions, {
+    configurationId: primaryConfigurationId,
+    output: primaryOutput,
+    isRunning: primaryRunning,
+    exitCode: primaryExitCode,
+  });
+  const selectedSession = selection.session;
   const blockingDiagnostic = blockingToolchainDiagnosticForConfiguration(
     diagnostics,
     selectedConfiguration?.id,
   );
   const freshnessDiagnostic = diagnostics.find((diagnostic) =>
     diagnostic.code === "staleFingerprint" || diagnostic.code === "fingerprintCheckFailed");
-  const isSelectedRunning = selectedSession ? selectedSession.isRunning : primaryRunning;
-  const output = selectedSession ? selectedSession.output : primaryOutput;
-  const exitCode = selectedSession ? selectedSession.exitCode : primaryExitCode;
-  const decisionSessionId = selectedSession?.id ?? PRIMARY_SESSION_ID;
+  const isSelectedRunning = selection.isRunning;
+  const output = selection.output;
+  const exitCode = selection.exitCode;
+  const decisionSessionId = selection.sessionId;
   const serviceUpdate = serviceUpdates[decisionSessionId];
   const canUpdateService = isSelectedRunning && supportsDevToolsUpdate(serviceUpdate?.context);
   const javaLaunchDecision =
@@ -266,7 +270,7 @@ export default function RunPane() {
           </Button>
         </Tooltip>
         <Tooltip content={t("run.clearOutput")} side="bottom">
-          <Button variant="ghost" size="icon-xs" onClick={() => actions.clearOutput()} aria-label={t("run.clearOutput")}>
+          <Button variant="ghost" size="icon-xs" disabled={!selection.hasOutputOwner} onClick={() => actions.clearOutput(decisionSessionId)} aria-label={t("run.clearOutput")}>
             <TrashIcon />
           </Button>
         </Tooltip>
@@ -343,25 +347,22 @@ export default function RunPane() {
           ) : null}
         </div>
       ) : (
-        <RunConfigurationListSplit
-          list={
-            <RunConfigurationList
-              key={rootFolderPath}
-              configurations={configurations}
-              selectedId={selectedConfigurationId}
-              sessions={sessions}
-              onSelect={actions.selectConfiguration}
-              onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-              onStop={(sessionId) => void actions.stop(sessionId)}
-              onEdit={editInSettings}
-            />
-          }
+        <RunConfigurationBrowser
+          key={rootFolderPath}
+          configurations={configurations}
+          selectedId={selectedConfigurationId}
+          sessions={sessions}
+          onSelect={actions.selectConfiguration}
+          onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+          onStop={(sessionId) => void actions.stop(sessionId)}
+          onEdit={editInSettings}
           content={
             <>
               <div className="border-border/70 border-b px-3 py-2">
                 <div className="font-medium text-subtle-foreground ui-text-sm">{t("run.configurationDetails")}</div>
                 {selectedConfiguration ? (
                   <div className="mt-1 grid grid-cols-[6.5rem_1fr] gap-y-0.5 ui-text-sm">
+                    <span className="col-span-2 truncate font-medium" title={selectedConfiguration.name}>{selectedConfiguration.name}</span>
                     <span className="text-subtle-foreground">{t("run.type")}</span>
                     <span>{selectedConfiguration.kindTitle}</span>
                     {selectedConfiguration.mainClass ? (
@@ -387,8 +388,8 @@ export default function RunPane() {
               </div>
               {isSelectedRunning ? (
                 <RunStdinInput
-                  sessionId={selectedSessionId ?? PRIMARY_SESSION_ID}
-                  onSend={(input) => void actions.writeStdin(selectedSessionId ?? PRIMARY_SESSION_ID, input)}
+                  sessionId={decisionSessionId}
+                  onSend={(input) => void actions.writeStdin(decisionSessionId, input)}
                 />
               ) : null}
               {generationNotice?.startsWith("generated:") ? (

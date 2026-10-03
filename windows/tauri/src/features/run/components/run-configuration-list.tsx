@@ -11,7 +11,7 @@ import {
 import { runConfigurationPresentation } from "../utils/run-configuration-presentation";
 import { RunConfigurationIcon } from "./run-icon";
 
-interface RunConfigurationListProps {
+export interface RunConfigurationListProps {
   configurations: RunConfiguration[];
   selectedId: string | null;
   sessions: RunSession[];
@@ -64,7 +64,7 @@ export function RunConfigurationList({
   }, [selectedId, selectedGroupKey]);
 
   return (
-    <nav aria-label={t("run.configurations")} className="min-h-0 flex-1 overflow-y-auto py-1">
+    <nav aria-label={t("run.configurations")} className="min-h-0 flex-1 overflow-y-auto">
       <ul className="m-0 list-none p-0">
         {groups.map(({ key, entries }, index) => {
           const representative = entries[0];
@@ -76,7 +76,7 @@ export function RunConfigurationList({
                 type="button"
                 aria-expanded={!isCollapsed}
                 aria-controls={groupId}
-                className="flex h-7 w-full items-center gap-1 px-2 text-left ui-text-sm hover:bg-accent focus-visible:outline focus-visible:outline-ring"
+                className="flex h-6 w-full items-center gap-1 px-2 text-left ui-text-sm hover:bg-accent focus-visible:outline focus-visible:outline-ring"
                 onClick={() => setCollapsed((previous) => ({ ...previous, [key]: !isCollapsed }))}
                 onKeyDown={(event) => {
                   if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -104,7 +104,7 @@ export function RunConfigurationList({
                     <li
                       key={configuration.id}
                       className={cn(
-                        "group relative mx-1 flex h-7 items-center rounded-sm pr-1 pl-10 ui-text-sm",
+                        "group relative flex h-6 items-center pr-1 pl-10 ui-text-sm",
                         selected ? "bg-selected text-foreground" : "hover:bg-accent",
                       )}
                     >
