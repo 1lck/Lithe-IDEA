@@ -1,6 +1,6 @@
 import AppKit
 import LitheApplicationKernel
-import LitheDatabaseModule
+@testable import LitheDatabaseModule
 import LitheModuleAPI
 import SwiftUI
 import Testing
