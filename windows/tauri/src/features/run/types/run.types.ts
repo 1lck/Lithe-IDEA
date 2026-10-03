@@ -1,3 +1,5 @@
+import type { RunIconKey } from "../utils/run-configuration-presentation";
+
 export type RunConfigurationStatus = "missing" | "ready" | "invalid";
 export type RunRecoveryAction =
   | "none"
@@ -24,6 +26,7 @@ export interface RunConfiguration {
   name: string;
   provider: string;
   kindTitle: string;
+  iconKey?: RunIconKey;
   execution: RunExecution;
   category: RunCategory;
   modulePath?: string;
@@ -197,6 +200,9 @@ export interface CoreResolvedConfiguration {
     adapter?: string;
   };
   extensions?: {
+    npm?: { manager?: string; framework?: string; server?: string };
+    gradle?: { plugin?: string };
+    python?: { framework?: string };
     maven?: {
       module?: string;
       reactorPath?: string;

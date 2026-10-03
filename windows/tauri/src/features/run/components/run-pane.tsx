@@ -11,7 +11,6 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import {
   ArrowFatLineDownIcon,
-  GearIcon,
   MinusIcon,
   PlayIcon,
   RunToolWindowIcon,
@@ -21,20 +20,18 @@ import {
 } from "@/ui/icons";
 import { Spinner } from "@/ui/spinner";
 import Tooltip from "@/ui/tooltip";
-import { cn } from "@/utils/cn";
 import { useFollowOutputEnd } from "../hooks/use-follow-output-end";
 import { ensureRunProcessListeners } from "../hooks/use-run-process-events";
 import { useRunStore } from "../stores/run.store";
-import { PRIMARY_SESSION_ID, type RunConfiguration } from "../types/run.types";
+import { PRIMARY_SESSION_ID } from "../types/run.types";
 import {
   configurationsForExecution,
-  infrastructureConfigurations,
   blockingToolchainDiagnosticForConfiguration,
   workspaceRelativePath,
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
-import { JavaCupIcon } from "./run-icon";
+import { RunConfigurationList } from "./run-configuration-list";
 import { RunOutputText } from "./run-output-text";
 import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
@@ -110,8 +107,6 @@ export default function RunPane() {
   const wrapOutputLines = useRunPreferencesStore((state) => state.wrapOutputLines);
   const setWrapOutputLines = useRunPreferencesStore((state) => state.actions.setWrapOutputLines);
   const [selectedServiceIDs, setSelectedServiceIDsLocal] = useState<string[]>([]);
-  const [otherConfigurationsCollapsed, setOtherConfigurationsCollapsed] = useState(true);
-  const [infrastructureCollapsed, setInfrastructureCollapsed] = useState(true);
   const outputScrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -128,12 +123,6 @@ export default function RunPane() {
     () => configurationsForExecution(configurations, "application"),
     [configurations],
   );
-  const tasks = useMemo(() => configurationsForExecution(configurations, "task"), [configurations]);
-  // Compose databases and caches are runnable, but they are not this project's
-  // services: keeping them in their own collapsed section stops nineteen
-  // containers from burying the one Spring Boot service.
-  const infrastructure = useMemo(() => infrastructureConfigurations(configurations), [configurations]);
-  const otherConfigurations = useMemo(() => [...applications, ...tasks], [applications, tasks]);
   const selectedConfiguration =
     configurations.find((configuration) => configuration.id === selectedConfigurationId) ?? null;
   const selectedSession = sessions.find((session) => session.id === selectedSessionId);
@@ -356,73 +345,16 @@ export default function RunPane() {
       ) : (
         <RunConfigurationListSplit
           list={
-            <>
-              <div className="px-3 py-2 font-medium text-subtle-foreground ui-text-sm">
-                {t("run.configurations")}
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto pb-2">
-                <ConfigurationSection
-                  title={t("run.services")}
-                  configurations={services}
-                  selectedId={selectedConfigurationId}
-                  sessions={sessions}
-                  onSelect={actions.selectConfiguration}
-                  onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                  onEdit={editInSettings}
-                />
-                {infrastructure.length > 0 ? <button
-                  type="button"
-                  aria-expanded={!infrastructureCollapsed}
-                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
-                  onClick={() => setInfrastructureCollapsed((collapsed) => !collapsed)}
-                >
-                  {t("run.infrastructure")}
-                  <span aria-hidden>{infrastructureCollapsed ? "▸" : "▾"}</span>
-                </button> : null}
-                {infrastructure.length > 0 && !infrastructureCollapsed ? (
-                  <ConfigurationSection
-                    title={t("run.infrastructure")}
-                    configurations={infrastructure}
-                    selectedId={selectedConfigurationId}
-                    sessions={sessions}
-                    onSelect={actions.selectConfiguration}
-                    onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                    onEdit={editInSettings}
-                  />
-                ) : null}
-                {otherConfigurations.length > 0 ? <button
-                  type="button"
-                  aria-expanded={!otherConfigurationsCollapsed}
-                  className="mt-2 flex w-full items-center justify-between px-2 py-1 text-left font-medium text-subtle-foreground ui-text-sm hover:text-foreground"
-                  onClick={() => setOtherConfigurationsCollapsed((collapsed) => !collapsed)}
-                >
-                  {t("run.otherConfigurations")}
-                  <span aria-hidden>{otherConfigurationsCollapsed ? "▸" : "▾"}</span>
-                </button> : null}
-                {otherConfigurations.length > 0 && !otherConfigurationsCollapsed ? (
-                  <>
-                    <ConfigurationSection
-                      title={t("run.applications")}
-                      configurations={applications}
-                      selectedId={selectedConfigurationId}
-                      sessions={sessions}
-                      onSelect={actions.selectConfiguration}
-                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={editInSettings}
-                    />
-                    <ConfigurationSection
-                      title={t("run.tasks")}
-                      configurations={tasks}
-                      selectedId={selectedConfigurationId}
-                      sessions={sessions}
-                      onSelect={actions.selectConfiguration}
-                      onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
-                      onEdit={editInSettings}
-                    />
-                  </>
-                ) : null}
-              </div>
-            </>
+            <RunConfigurationList
+              key={rootFolderPath}
+              configurations={configurations}
+              selectedId={selectedConfigurationId}
+              sessions={sessions}
+              onSelect={actions.selectConfiguration}
+              onRun={(configuration) => void actions.runConfiguration(configuration.id, currentFile)}
+              onStop={(sessionId) => void actions.stop(sessionId)}
+              onEdit={editInSettings}
+            />
           }
           content={
             <>
@@ -504,70 +436,5 @@ function RunStdinInput({
         {t("run.stdinSend")}
       </Button>
     </div>
-  );
-}
-
-function ConfigurationSection({
-  title,
-  configurations,
-  selectedId,
-  sessions,
-  onSelect,
-  onRun,
-  onEdit,
-}: {
-  title: string;
-  configurations: RunConfiguration[];
-  selectedId: string | null;
-  sessions: Array<{ id: string; isRunning: boolean }>;
-  onSelect: (id: string) => void;
-  onRun: (configuration: RunConfiguration) => void;
-  /** Opens Settings → Run configurations on this configuration. */
-  onEdit: (id: string) => void;
-}) {
-  const { t } = useTranslation();
-  if (configurations.length === 0) return null;
-  return (
-    <section className="px-1">
-      <div className="px-2 py-1 font-medium text-subtle-foreground ui-text-sm">{title}</div>
-      {configurations.map((configuration) => {
-        const running = sessions.some((session) => session.id === configuration.id && session.isRunning);
-        return (
-          <div
-            key={configuration.id}
-            className={cn(
-              "group flex items-center gap-1 rounded-md px-1.5 py-1 ui-text-sm",
-              selectedId === configuration.id ? "bg-selected text-foreground" : "hover:bg-accent",
-            )}
-          >
-            <button
-              type="button"
-              className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-              onClick={() => onSelect(configuration.id)}
-            >
-              <JavaCupIcon className="shrink-0 text-subtle-foreground" />
-              <span className="min-w-0 truncate">{configuration.name}</span>
-            </button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-              onClick={() => onEdit(configuration.id)}
-              aria-label={t("run.editService")}
-            >
-              <GearIcon />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={() => onRun(configuration)}
-              aria-label={t("run.title")}
-            >
-              {running ? <StopIcon className="text-warning" /> : <PlayIcon className="text-success" />}
-            </Button>
-          </div>
-        );
-      })}
-    </section>
   );
 }

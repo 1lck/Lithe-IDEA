@@ -14,11 +14,15 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features/run",
+      "windows/tauri/src/features/run/components/run-configuration-list.tsx",
+      "windows/tauri/src/features/run/components/run-configuration-list.test.tsx",
+      "windows/tauri/src/features/run/utils/run-configuration-presentation.ts",
+      "windows/tauri/src/features/run/utils/run-configuration-presentation.test.tsx",
       "shared/fixtures/run-configuration"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Run",
-  "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因；在 Windows 确认重新扫描服务使用双箭头刷新图标。"
+  "verification": "验证 Spring Boot、Java、Maven、Gradle、npm、Cargo、Go、Python 和 Docker Compose 入口识别；多模块项目把服务工作目录改成模块目录后，服务仍留在列表中并以该目录启动；填写不存在的目录或 ${workspaceFolder} 等变量时，保存被拒绝并提示原因；在 Windows 确认重新扫描服务使用双箭头刷新图标，配置按类型呈现紧凑的可折叠列表，左侧使用 SVG 箭头和类型图标，基础设施默认折叠，选择配置自动展开所在分组，运行、停止、编辑和完整名称提示可用；根据 Core 提供的 npm、Gradle 和 Python 元数据展示明确识别的框架图标，构建与测试任务保留工具图标，未知类型回退通用图标；同名自定义 provider 与已知框架分别分组且折叠状态独立，相同已知框架跨 Maven/Gradle provider 合组，项目与基础设施不合组；分组与子项图标一致，运行或失败不改变类型图标，深浅主题均可辨认。"
 }
