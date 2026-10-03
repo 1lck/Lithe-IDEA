@@ -18,11 +18,12 @@
     "evidence": [
       "windows/tauri/src/features/viewer",
       "windows/tauri/src-tauri/src/html_browser.rs",
-      "windows/tauri/src/features/editor/components/html/html-preview.tsx"
+      "windows/tauri/src/features/editor/components/html/html-preview.tsx",
+      "windows/tauri/src/features/keymaps/commands/navigation-command-actions.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。"
+  "verification": "分别打开 HTML、SVG、图片、PDF 和二进制文件，验证缩放、错误和源文件返回。 两端将 .html 默认打开程序改成文本编辑器，再点击 HTML 浏览器按钮，确认仍打开默认网页浏览器中的磁盘文件；覆盖中文、空格、# 文件名和无默认浏览器失败提示。 在 Windows 的 Web Viewer 标签中浏览几页后，用 Navigate 菜单或 Ctrl+Alt+←/→ 确认先在网页历史中后退/前进，到达网页历史起点后再次后退回到之前的代码位置。"
 }

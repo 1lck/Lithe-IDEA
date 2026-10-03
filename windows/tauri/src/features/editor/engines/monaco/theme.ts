@@ -31,6 +31,25 @@ function colorValue(theme: ThemeDefinition, name: string): string {
   );
 }
 
+/**
+ * Matches Monaco's scrollbar to the app scrollbars (styles/scrollbars.css) when the theme
+ * defines app-scrollbar-* colors, e.g. the Lithe themes' IntelliJ Islands values.
+ */
+function scrollbarSliderColors(theme: ThemeDefinition): Record<string, string> {
+  const colors: Record<string, string> = {};
+  const slider = {
+    "scrollbarSlider.background": "--app-scrollbar-thumb",
+    "scrollbarSlider.hoverBackground": "--app-scrollbar-thumb-hover",
+    "scrollbarSlider.activeBackground": "--app-scrollbar-thumb-active",
+  };
+  for (const [monacoKey, variable] of Object.entries(slider)) {
+    const value = theme.cssVariables[variable];
+    const color = value ? toMonacoColor(value, "") : "";
+    if (color) colors[monacoKey] = color;
+  }
+  return colors;
+}
+
 function toMonacoThemeName(themeId: string, italicComments: boolean): string {
   const suffix = italicComments ? "-italic-comments" : "";
   return `lithe-${themeId.replace(/[^a-zA-Z0-9_-]/g, "-")}${suffix}`;
@@ -75,6 +94,7 @@ function createMonacoThemeData(
       "editor.background": background,
       "minimap.background": background,
       "scrollbar.background": background,
+      ...scrollbarSliderColors(theme),
       "editor.foreground": foreground,
       "editorLink.activeForeground": accent,
       "editorCursor.foreground": cursor,

@@ -125,7 +125,7 @@ const BottomPane = () => {
         if (rafId !== null) cancelAnimationFrame(rafId);
         rafId = requestAnimationFrame(() => {
           if (frameEl) {
-            frameEl.style.height = `calc(${currentHeight}px + var(--lithe-workbench-gap))`;
+            frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
           }
         });
       };
@@ -136,7 +136,7 @@ const BottomPane = () => {
           rafId = null;
         }
         if (frameEl) {
-          frameEl.style.height = `calc(${currentHeight}px + var(--lithe-workbench-gap))`;
+          frameEl.style.height = `calc(${currentHeight}px + var(--lithe-bottom-pane-gap))`;
         }
         setHeight(currentHeight);
         setIsResizing(false);
@@ -223,7 +223,7 @@ const BottomPane = () => {
   const resizeGutter = !isFullScreen ? (
     <div
       onMouseDown={handleMouseDown}
-      className="relative flex h-(--lithe-workbench-gap) w-full shrink-0 cursor-ns-resize items-center justify-center"
+      className="relative flex h-(--lithe-bottom-pane-gap) w-full shrink-0 cursor-ns-resize items-center justify-center"
       role="separator"
       aria-orientation="horizontal"
       aria-label={t("layout.resizeBottomPane")}
@@ -234,7 +234,7 @@ const BottomPane = () => {
     <div
       data-bottom-pane-drop-target
       className={cn(
-        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-xl bg-background",
+        "lithe-glass-island relative flex min-h-0 flex-col overflow-hidden rounded-(--lithe-island-radius) bg-background",
         isInternalHoverTarget && "ring-2 ring-primary ring-inset",
         isFullScreen && "size-full rounded-none border-0 shadow-none ring-0",
         !isFullScreen && "flex-1",
@@ -325,7 +325,7 @@ const BottomPane = () => {
       ref={paneFrameRef}
       className={cn("flex shrink-0 flex-col", !isBottomPaneVisible && "hidden")}
       style={{
-        height: `calc(${height}px + var(--lithe-workbench-gap))`,
+        height: `calc(${height}px + var(--lithe-bottom-pane-gap))`,
       }}
     >
       {resizeGutter}

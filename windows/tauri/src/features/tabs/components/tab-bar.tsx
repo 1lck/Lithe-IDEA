@@ -1,8 +1,6 @@
 import { type DragEndEvent, type DragMoveEvent, type DragStartEvent } from "@dnd-kit/core";
 import { SortableContext } from "@dnd-kit/sortable";
 import {
-  ArrowLeftIcon as ArrowLeft,
-  ArrowRightIcon as ArrowRight,
   ArrowsOutIcon as Maximize2,
   ArrowsInIcon as Minimize2,
   PlusIcon as Plus,
@@ -11,10 +9,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useJavaFileIconCacheLifecycle } from "@/extensions/icon-themes/hooks/use-java-file-icon-kind";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { useJumpListStore } from "@/features/editor/stores/jump-list.store";
 import { useEditorStateStore } from "@/features/editor/stores/state.store";
-import { getBufferById } from "@/features/editor/utils/buffer-index";
-import { navigateToJumpEntry } from "@/features/editor/utils/jump-navigation";
 import { MarkdownModePicker } from "@/features/editor/components/toolbar/markdown-mode-picker";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { formatDiffBufferLabel } from "@/features/git/utils/diff-buffer-label";
@@ -32,7 +27,6 @@ import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { getChromeNavigationIndex } from "@/features/layout/utils/chrome-keyboard";
 import { useSidebarStore } from "@/features/layout/stores/sidebar.store";
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
-import { useWebViewerNavigationStore } from "@/features/viewer/web/stores/web-viewer-navigation.store";
 import { useUIState } from "@/features/window/stores/ui-state.store";
 import { Button } from "@/ui/button";
 import { ContextMenu, ContextMenuTrigger } from "@/ui/context-menu";
@@ -54,12 +48,15 @@ import { tabChromeBuffersEqual, toTabChromeBuffer } from "../utils/tab-chrome-bu
 
 interface TabBarProps {
   paneId?: string;
+  /** Whether focus is inside this tab group; an unfocused group greys its selected tab. */
+  isGroupActive?: boolean;
   onTabClick?: (bufferId: string) => void;
   disablePaneActions?: boolean;
 }
 
 const TabBar = ({
   paneId,
+  isGroupActive = true,
   onTabClick: externalTabClick,
   disablePaneActions = false,
 }: TabBarProps) => {
@@ -109,7 +106,6 @@ const TabBar = ({
   );
   const updateActivePath = useSidebarStore.use.actions().updateActivePath;
   const rootFolderPath = useFileSystemStore.use.rootFolderPath?.() || undefined;
-  const jumpListActions = useJumpListStore.use.actions();
   const bufferById = useMemo(() => {
     const nextBufferById = new Map<string, PaneContent>();
     for (const buffer of buffers) {
@@ -120,16 +116,6 @@ const TabBar = ({
   const activeBufferId =
     activeBufferCandidate && bufferById.has(activeBufferCandidate) ? activeBufferCandidate : null;
   const activeBuffer = activeBufferId ? (bufferById.get(activeBufferId) ?? null) : null;
-  const activeWebViewerNavigation = useWebViewerNavigationStore((state) =>
-    activeBuffer?.type === "webViewer" ? state.navigationByBufferId[activeBuffer.id] : undefined,
-  );
-  const usesWebViewerNavigation = activeBuffer?.type === "webViewer";
-  const canGoBack = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoBack)
-    : jumpListActions.canGoBack();
-  const canGoForward = usesWebViewerNavigation
-    ? Boolean(activeWebViewerNavigation?.canGoForward)
-    : jumpListActions.canGoForward();
   const isPaneFullscreen = paneId ? fullscreenPaneId === paneId : false;
   const isPaneLocked = Boolean(pane?.locked);
   const isInSplit = paneRoot.type === "split";
@@ -179,49 +165,6 @@ const TabBar = ({
 
     return true;
   }, []);
-
-  const handleJumpBack = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goBack?.();
-      return;
-    }
-
-    const bufferStore = useBufferStore.getState();
-    const editorState = useEditorStateStore.getState();
-    const currentActiveBufferId = bufferStore.activeBufferId;
-    const currentActiveBuffer = getBufferById(bufferStore.buffers, currentActiveBufferId);
-
-    const currentPosition =
-      currentActiveBufferId && currentActiveBuffer?.path
-        ? {
-            bufferId: currentActiveBufferId,
-            filePath: currentActiveBuffer.path,
-            paneId,
-            line: editorState.cursorPosition.line,
-            column: editorState.cursorPosition.column,
-            offset: editorState.cursorPosition.offset,
-            scrollTop: editorState.scrollTop,
-            scrollLeft: editorState.scrollLeft,
-          }
-        : undefined;
-
-    const entry = jumpListActions.goBack(currentPosition);
-    if (entry) {
-      await navigateToJumpEntry(entry);
-    }
-  }, [activeWebViewerNavigation, jumpListActions, paneId, usesWebViewerNavigation]);
-
-  const handleJumpForward = useCallback(async () => {
-    if (usesWebViewerNavigation) {
-      activeWebViewerNavigation?.goForward?.();
-      return;
-    }
-
-    const entry = jumpListActions.goForward();
-    if (entry) {
-      await navigateToJumpEntry(entry);
-    }
-  }, [activeWebViewerNavigation, jumpListActions, usesWebViewerNavigation]);
 
   const handleShowNewTab = useCallback(() => {
     if (!paneId) return;
@@ -296,7 +239,12 @@ const TabBar = ({
       if (singletonTitleKey) return t(singletonTitleKey);
 
       if (buffer.type === "diff") {
-        return formatDiffBufferLabel(displayNames.get(buffer.id) || buffer.name, buffer.path, t);
+        return formatDiffBufferLabel(
+          displayNames.get(buffer.id) || buffer.name,
+          buffer.path,
+          t,
+          buffer.diffData,
+        );
       }
 
       return displayNames.get(buffer.id) ?? buffer.name;
@@ -636,45 +584,11 @@ const TabBar = ({
           role="tablist"
           aria-label={t("tabs.openFiles")}
         >
-          <div
-            className={cn(
-              "flex shrink-0 items-center gap-0.5",
-              tabStripLayout.wrapsTabs ? "h-(--lithe-tab-height)" : "h-8",
-            )}
-          >
-            <Button
-              type="button"
-              onClick={handleJumpBack}
-              disabled={!canGoBack}
-              variant="ghost"
-              tooltip={t("tabs.goBackShort")}
-              tooltipSide="bottom"
-              commandId="navigation.goBack"
-              aria-label={t("tabs.goBack")}
-              size="icon-xs"
-            >
-              <ArrowLeft />
-            </Button>
-            <Button
-              type="button"
-              onClick={handleJumpForward}
-              disabled={!canGoForward}
-              variant="ghost"
-              tooltip={t("tabs.goForwardShort")}
-              tooltipSide="bottom"
-              commandId="navigation.goForward"
-              aria-label={t("tabs.goForward")}
-              size="icon-xs"
-            >
-              <ArrowRight />
-            </Button>
-          </div>
-
           <SortableContext items={sortedBufferIds} strategy={tabStripLayout.sortingStrategy}>
             <div
               ref={tabScrollRef}
               className={cn(
-                "flex min-w-0 flex-1 items-center gap-0.5",
+                "flex min-w-0 flex-1 items-center gap-2",
                 tabStripLayout.wrapsTabs
                   ? "flex-wrap"
                   : "scrollbar-hidden overflow-x-auto overflow-y-hidden overscroll-x-contain",
@@ -699,6 +613,7 @@ const TabBar = ({
                           displayName={getBufferDisplayName(buffer)}
                           index={index}
                           isActive={buffer.id === activeBufferId}
+                          isGroupActive={isGroupActive}
                           isDraggedTab={isDragging}
                           isWrapped={tabStripLayout.wrapsTabs}
                           onClick={() => handleTabSelect(buffer)}

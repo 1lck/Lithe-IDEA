@@ -64,6 +64,7 @@ export const AppearanceSettings = () => {
       uiFontFamily: state.settings.uiFontFamily,
       uiFontSize: state.settings.uiFontSize,
       windowTransparency: state.settings.windowTransparency,
+      differentiateProjects: state.settings.differentiateProjects,
       windowChromeDensity: state.settings.windowChromeDensity,
     })),
   );
@@ -564,6 +565,21 @@ export const AppearanceSettings = () => {
           <Switch
             checked={settings.windowTransparency}
             onChange={(checked) => updateSetting("windowTransparency", checked)}
+            size="sm"
+          />
+        </SettingRow>
+
+        <SettingRow
+          label={t("settings.appearance.differentiateProjects")}
+          description={t("settings.appearance.differentiateProjectsDescription")}
+          onReset={() =>
+            updateSetting("differentiateProjects", getDefaultSetting("differentiateProjects"))
+          }
+          canReset={settings.differentiateProjects !== getDefaultSetting("differentiateProjects")}
+        >
+          <Switch
+            checked={settings.differentiateProjects}
+            onChange={(checked) => updateSetting("differentiateProjects", checked)}
             size="sm"
           />
         </SettingRow>

@@ -2336,6 +2336,9 @@ const catalogs = {
     "settings.appearance.windowTransparency": "Window Transparency",
     "settings.appearance.windowTransparencyDescription":
       "Use translucent app chrome and transparent native windows where supported",
+    "settings.appearance.differentiateProjects": "Differentiate Projects with Color",
+    "settings.appearance.differentiateProjectsDescription":
+      "Tint the top of the window with a project color gradient (Lithe themes; hidden while window transparency is on)",
     "settings.appearance.openProjectsDestination": "Open Projects",
     "settings.appearance.openProjectsDestinationDescription":
       "Choose whether opening another project asks first, replaces the current project, attaches it to this window, or opens a new window",
@@ -3595,12 +3598,9 @@ const catalogs = {
     "tabs.closeToRight": "Close to Right",
     "tabs.closeAll": "Close All",
     "tabs.openFiles": "Open files",
-    "tabs.goBack": "Go back to previous location",
-    "tabs.goForward": "Go forward to next location",
     "tabs.newTab": "New tab",
     "tabs.toggleEditorFullScreen": "Toggle editor full screen",
     "tabs.goBackShort": "Go Back",
-    "tabs.goForwardShort": "Go Forward",
     "tabs.closeSplit": "Close Split",
     "tabs.closeSplitPane": "Close split pane",
     "tabs.exitFullScreen": "Exit Full Screen",
@@ -4533,6 +4533,8 @@ const catalogs = {
     "git.diff.rollbackHunkConfirm":
       'Roll back this change block in "{path}"? Its unstaged edits will be discarded. This cannot be undone.',
     "git.diff.uncommitted": "Uncommitted Changes",
+    "git.diff.commitPreviewTitle": "Commit: {file}",
+    "git.diff.commitPreviewEmptyTitle": "Commit",
     "welcome.openProjectOrRemote": "Open project or remote connection",
     "welcome.openFolder": "Open Folder",
     "welcome.newProject": "New Project",
@@ -6785,6 +6787,9 @@ const catalogs = {
       "需要界面菜单栏；使用紧凑汉堡菜单或完整界面菜单",
     "settings.appearance.windowTransparency": "窗口透明度",
     "settings.appearance.windowTransparencyDescription": "在支持时使用半透明应用框架和透明原生窗口",
+    "settings.appearance.differentiateProjects": "用颜色区分项目",
+    "settings.appearance.differentiateProjectsDescription":
+      "在窗口顶部显示项目颜色渐变（Lithe 主题；开启窗口透明度时不显示）",
     "settings.appearance.openProjectsDestination": "打开项目方式",
     "settings.appearance.openProjectsDestinationDescription":
       "选择打开另一个项目时是每次询问、替换当前项目、附加到当前窗口还是打开新窗口",
@@ -7998,12 +8003,9 @@ const catalogs = {
     "tabs.closeToRight": "关闭右侧",
     "tabs.closeAll": "全部关闭",
     "tabs.openFiles": "打开的文件",
-    "tabs.goBack": "后退到上一个位置",
-    "tabs.goForward": "前进到下一个位置",
     "tabs.newTab": "新建标签页",
     "tabs.toggleEditorFullScreen": "切换编辑器全屏",
     "tabs.goBackShort": "后退",
-    "tabs.goForwardShort": "前进",
     "tabs.closeSplit": "关闭拆分",
     "tabs.closeSplitPane": "关闭拆分窗格",
     "tabs.exitFullScreen": "退出全屏",
@@ -8907,6 +8909,8 @@ const catalogs = {
     "git.diff.rollbackHunk": "回滚修改块",
     "git.diff.rollbackHunkConfirm": "回滚 “{path}” 中的这个修改块吗？该块未暂存的修改将被丢弃，此操作无法撤销。",
     "git.diff.uncommitted": "未提交的更改",
+    "git.diff.commitPreviewTitle": "提交: {file}",
+    "git.diff.commitPreviewEmptyTitle": "提交",
     "welcome.openProjectOrRemote": "打开项目或远程连接",
     "welcome.openFolder": "打开文件夹",
     "welcome.newProject": "新建项目",

@@ -8,10 +8,13 @@
   background-color: var(--background, #0f1117);
 }
 
+/* IntelliJ Islands draws the search bar as a floating card (arc 12, 6px below the
+   tab strip) instead of a panel hanging from the editor's top edge. */
 .monaco-editor-shell .monaco-editor .find-widget {
+  margin-top: 6px;
   padding: 0 0.375rem;
-  border-color: color-mix(in srgb, var(--border) 78%, transparent);
-  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-radius: 6px;
   background: color-mix(in srgb, var(--surface) 94%, var(--background));
   color: var(--foreground);
   box-shadow: var(--shadow-popover);

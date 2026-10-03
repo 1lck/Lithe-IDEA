@@ -105,6 +105,7 @@ export const defaultSettings: Settings = {
   nativeMenuBar: false,
   compactMenuBar: true,
   windowTransparency: false,
+  differentiateProjects: true,
   sidebarActivityItemsOrder: [...SIDEBAR_ACTIVITY_ITEM_IDS],
   hiddenSidebarActivityItems: [],
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],

@@ -101,6 +101,8 @@ export interface Settings {
   nativeMenuBar: boolean;
   compactMenuBar: boolean;
   windowTransparency: boolean;
+  /** IntelliJ "Differentiate projects with color": the Islands project-color gradient. */
+  differentiateProjects: boolean;
   sidebarActivityItemsOrder: Array<SidebarActivityItemId | string>;
   hiddenSidebarActivityItems: string[];
   footerLeadingItemsOrder: FooterLeadingItemId[];

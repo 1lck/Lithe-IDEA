@@ -1,0 +1,32 @@
+{
+  "id": "workbench-islands-appearance",
+  "area": "工作台",
+  "group": "外观",
+  "capability": "IntelliJ Islands 外观：Islands 配色、10px 圆角面板卡片、控件 4px 圆角、卡片式查找栏与编辑器通知、Islands 滚动条颜色，窗口失焦时外框（标题栏、侧边按钮条、状态栏）降到 0.56 透明度",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/RootView.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/extensions/themes/builtin/lithe.json",
+      "windows/tauri/src/styles/theme.css",
+      "windows/tauri/src/styles/base.css",
+      "windows/tauri/src/styles/scrollbars.css",
+      "windows/tauri/src/features/window/components/title-bar/title-bar.tsx",
+      "windows/tauri/src/features/editor/styles/monaco-editor.css",
+      "windows/tauri/src/ui/button.tsx",
+      "windows/tauri/src/utils/control-variants.ts",
+      "windows/tauri/src/features/layout/components/sidebar/sidebar-pane-selector.tsx",
+      "windows/tauri/src/features/layout/components/plugin-activity-rail.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "notes": "Windows 的 Lithe 主题使用 IntelliJ ManyIslands 色板；其他内置主题只继承布局与圆角，标签和滚动条颜色由主题自身颜色推导。失焦置淡只作用于外框，编辑器与工具窗口内容保持不透明，与 IntelliJ IslandsInactiveFrameGraphics2D 的作用范围一致。macOS 尚未实现失焦置淡，配色未逐项对齐 Islands。",
+  "verification": "在 Windows 使用 Lithe Dark 与 Lithe Light：确认窗口底色、面板卡片、选中色与 IntelliJ Islands 一致；面板卡片为 10px 圆角，按钮与输入框为 4px 圆角；Ctrl+F 查找栏为离顶部 6px 的圆角浮动卡片；外部修改冲突提示为内缩圆角卡片；切换到其他应用后标题栏、侧边按钮条与状态栏变淡而编辑器正文不变，切回后恢复；在后台打开新窗口时一开始即为变淡状态；切换到 Dracula 或高对比主题确认标签与滚动条使用该主题自身颜色。 左右两侧按钮条的按钮为 30px 高亮区、6px 圆角、20px 图标、间隔 10px（IntelliJ StripeToolbar.Button），标题栏搜索、设置和菜单按钮为 30px、20px 图标（IntelliJ MainToolbar.Button）。"
+}

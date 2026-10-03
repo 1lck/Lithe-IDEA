@@ -75,7 +75,8 @@
     },
     {
       "icon": "BellIcon",
-      "source": "expui/toolwindows/notifications.svg"
+      "source": "expui/toolwindows/notifications.svg",
+      "source20": "expui/toolwindows/notifications@20x20.svg"
     },
     {
       "icon": "BookOpenIcon",
@@ -332,7 +333,8 @@
     },
     {
       "icon": "FilesIcon",
-      "source": "expui/toolwindows/project.svg"
+      "source": "expui/toolwindows/project.svg",
+      "source20": "expui/toolwindows/project@20x20.svg"
     },
     {
       "icon": "FlipHorizontalIcon",
@@ -376,7 +378,8 @@
     },
     {
       "icon": "GearIcon",
-      "source": "expui/general/settings.svg"
+      "source": "expui/general/settings.svg",
+      "source20": "expui/general/settings@20x20.svg"
     },
     {
       "icon": "GearSixIcon",
@@ -388,7 +391,8 @@
     },
     {
       "icon": "GitCommitIcon",
-      "source": "expui/vcs/commit.svg"
+      "source": "expui/vcs/commit.svg",
+      "source20": "expui/toolwindows/commit@20x20.svg"
     },
     {
       "icon": "GitDiffIcon",
@@ -396,7 +400,8 @@
     },
     {
       "icon": "GitGraphIcon",
-      "source": "expui/toolwindows/vcs.svg"
+      "source": "expui/toolwindows/vcs.svg",
+      "source20": "expui/toolwindows/vcs@20x20.svg"
     },
     {
       "icon": "GitMergeIcon",
@@ -513,7 +518,8 @@
     },
     {
       "icon": "MagnifyingGlassIcon",
-      "source": "expui/general/search.svg"
+      "source": "expui/general/search.svg",
+      "source20": "expui/general/search@20x20.svg"
     },
     {
       "icon": "MagnifyingGlassMinusIcon",
@@ -530,7 +536,8 @@
     },
     {
       "icon": "MenuIcon",
-      "source": "expui/general/menu.svg"
+      "source": "expui/general/menu.svg",
+      "source20": "expui/general/windowsMenu@20x20.svg"
     },
     {
       "icon": "MicrophoneIcon",
@@ -647,7 +654,8 @@
     },
     {
       "icon": "ProblemsToolWindowIcon",
-      "source": "expui/toolwindows/problems.svg"
+      "source": "expui/toolwindows/problems.svg",
+      "source20": "expui/toolwindows/problems@20x20.svg"
     },
     {
       "icon": "PulseIcon",
@@ -702,7 +710,8 @@
     },
     {
       "icon": "RunToolWindowIcon",
-      "source": "expui/toolwindows/run.svg"
+      "source": "expui/toolwindows/run.svg",
+      "source20": "expui/toolwindows/run@20x20.svg"
     },
     {
       "icon": "ScissorsIcon",
@@ -793,7 +802,9 @@
       "icon": "TerminalWindowIcon",
       "source": "../../jewel/samples/showcase/src/main/resources/icons/terminal.svg",
       "destination": "expui/toolwindows/terminal.svg",
-      "note": "IDEA terminal tool window glyph; only present under Jewel showcase resources in the community checkout"
+      "note": "IDEA terminal tool window glyph; only present under Jewel showcase resources in the community checkout",
+      "source20": "../../jewel/samples/showcase/src/main/resources/icons/terminal@20x20.svg",
+      "destination20": "expui/toolwindows/terminal@20x20.svg"
     },
     {
       "icon": "TextAaIcon",
@@ -862,6 +873,11 @@
     {
       "icon": "UsersThreeIcon",
       "source": "expui/general/groups.svg"
+    },
+    {
+      "icon": "VcsIcon",
+      "source": "expui/general/vcs.svg",
+      "note": "IntelliJ main toolbar Git widget icon (AllIcons.General.Vcs)"
     },
     {
       "icon": "WarningCircleIcon",

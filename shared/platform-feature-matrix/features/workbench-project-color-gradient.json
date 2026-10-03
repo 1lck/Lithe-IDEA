@@ -1,0 +1,30 @@
+{
+  "id": "workbench-project-color-gradient",
+  "area": "工作台",
+  "group": "外观",
+  "capability": "用颜色区分项目：窗口顶部按项目颜色绘制 IntelliJ Islands 渐变（项目组件处最浓，水平 600px、垂直 300px 淡出，覆盖标题栏、侧边按钮条、状态栏与面板之间的缝隙）；标题栏、项目菜单与欢迎页的项目头像使用 IntelliJ AvatarIcon 样式，颜色与渐变一致",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectIdentityAppearance.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/styles/project-gradient.css",
+      "windows/tauri/src/features/window/hooks/use-project-gradient.ts",
+      "windows/tauri/src/features/window/utils/project-gradient.ts",
+      "windows/tauri/src/features/settings/lib/settings-effects.ts",
+      "windows/tauri/src/features/settings/components/tabs/appearance-settings.tsx",
+      "windows/tauri/src/features/window/components/project-avatar.tsx",
+      "windows/tauri/src/features/window/utils/project-avatar.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "notes": "两端都用项目路径的 64 位 FNV-1a 哈希从 IntelliJ Islands 的 9 种 RecentProject 颜色中取色（不存储、不可自定义），并以 0.85 混入窗口底色；Windows 额外忽略路径大小写与分隔符差异。Windows 提供“用颜色区分项目”开关（默认开启，对应 IntelliJ differentiateProjects），仅在 Lithe 主题且关闭窗口透明时绘制，窗口失焦时按 0.56 减弱；macOS 无开关与失焦减弱。 两端深色项目色相同；macOS 浅色项目色沿用旧版 IntelliJ New UI（expUI_light_with_light_header）的取值，Windows 浅色使用 ManyIslandsLight 的取值，两者略有差异。",
+  "verification": "在 Windows 用 Lithe Dark 与 Lithe Light 打开项目，确认渐变在标题栏项目名图标处最浓并向右、向下淡出，侧边栏与编辑区之间的缝隙同样带渐变；打开另一个项目确认颜色可能不同且重新打开时保持一致；在外观设置关闭“用颜色区分项目”、开启窗口透明度或切换到非 Lithe 主题时渐变消失；切换到其他应用时渐变减弱。在 macOS 打开同一路径的项目，确认颜色序号与 Windows 一致。 确认标题栏左上角项目头像颜色与渐变同色、为 4px 圆角渐变方块且首字母按 IntelliJ 规则（如 Lithe-IDEA-issue-35-ci 显示 LC）；项目菜单和欢迎页最近项目使用同一头像，已不存在的项目头像为灰色。"
+}

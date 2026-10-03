@@ -95,6 +95,9 @@ const DEFAULT_ACTIVITY_RAIL_WIDTH = 160;
 const MIN_ACTIVITY_RAIL_WIDTH = 140;
 const MAX_ACTIVITY_RAIL_WIDTH = 320;
 const ACTIVITY_RAIL_HORIZONTAL_GUTTER = 8;
+// The collapsed rail is COLLAPSED_ACTIVITY_RAIL_WIDTH (38px) wide; 4px gutters leave the 30px
+// IntelliJ Islands stripe button highlight.
+const COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER = 4;
 const PROJECT_SWIPE_THRESHOLD_PX = 42;
 const PROJECT_WHEEL_END_DELAY_MS = 40;
 const PROJECT_WHEEL_COMMIT_PROGRESS = 0.82;
@@ -589,8 +592,12 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
         )}
         style={{
           boxSizing: "border-box",
-          paddingLeft: ACTIVITY_RAIL_HORIZONTAL_GUTTER,
-          paddingRight: ACTIVITY_RAIL_HORIZONTAL_GUTTER,
+          paddingLeft: expanded
+            ? ACTIVITY_RAIL_HORIZONTAL_GUTTER
+            : COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER,
+          paddingRight: expanded
+            ? ACTIVITY_RAIL_HORIZONTAL_GUTTER
+            : COLLAPSED_ACTIVITY_RAIL_HORIZONTAL_GUTTER,
           transform:
             position === "previous"
               ? "translateX(-100%)"
