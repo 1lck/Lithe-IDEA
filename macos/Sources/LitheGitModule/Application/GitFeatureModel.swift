@@ -778,10 +778,7 @@ package final class GitFeatureModel: ObservableObject {
         diffRows = []
         diffHunks = []
         isLoadingDiff = true
-        let document = await service.diffDocument(
-            for: change,
-            whitespace: gitDiffWhitespaceMode
-        )
+        let document = await diffDocumentProvider(change, gitDiffWhitespaceMode)
         guard selectedChange?.id == change.id else { return }
         selectedDiffPatch = document.patch
         diffRows = document.rows
