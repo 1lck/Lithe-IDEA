@@ -324,6 +324,11 @@ Node.js and npm remain user-managed. Detection is read-only and locally bounded.
 only when `canUpdate` is true. The hint is never executable input. Absent fields
 remain backward compatible with older hosts. Windows installer/shim ownership
 has not been verified; unrecognized installations use the manual path.
+The minimum CLI version is a compatibility requirement, not a latest-version
+check. macOS keeps an explicit update action available for compatible CLIs whose
+installation owner permits it, including when the preflight row is collapsed.
+After a successful update, users reconnect the Agent to start the updated CLI
+and obtain its model catalog; existing conversations are not interrupted automatically.
 
 `agent.install` and `agent.installCli` publish `agentInstallProgress` through the
 existing synchronous `execute_json_with_events`/C ABI event callback. Each event
