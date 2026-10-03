@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { persist, type PersistStorage } from "zustand/middleware";
-import { createSafeJSONStorage } from "@/utils/zustand-storage";
+import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
+import { createChangelistStorage } from "../api/git-changelist-storage";
 import type { GitFile } from "../types/git.types";
 import {
   assignChangelist,
@@ -28,11 +28,21 @@ export const workspaceChangelists = (state: Persisted, workspace: string) =>
   state.workspaces[keyFor(workspace)] ?? EMPTY_CHANGELISTS;
 
 export function createGitChangelistsStore(
-  storage: PersistStorage<Persisted> = createSafeJSONStorage<Persisted>(),
+  storage: PersistStorage<Persisted> = createChangelistStorage<Persisted>(),
 ) {
   let storageFailed = false;
   const guardedStorage: PersistStorage<Persisted> = {
     ...storage,
+    getItem: (name) => {
+      const validate = (value: StorageValue<Persisted> | null) => {
+        if (value !== null && (!value || value.version !== 0 || !value.state)) {
+          throw new Error("Unsupported changelist storage format");
+        }
+        return value;
+      };
+      const value = storage.getItem(name);
+      return value instanceof Promise ? value.then(validate) : validate(value);
+    },
     setItem: (name, value) => {
       if (storageFailed) return;
       return storage.setItem(name, value);
@@ -68,7 +78,7 @@ export function createGitChangelistsStore(
           );
         return {
           workspaces: {},
-          unavailable: false,
+          unavailable: true,
           createList: (workspace, rawName, id) => {
             const name = rawName.trim();
             const state = workspaceChangelists(get(), workspace);
@@ -147,7 +157,7 @@ export function createGitChangelistsStore(
         },
         partialize: ({ workspaces }) => ({ workspaces }),
         merge: (persisted, current) => {
-          if (persisted === undefined) return current;
+          if (persisted === undefined) return { ...current, unavailable: false };
           const workspaces = (persisted as Persisted)?.workspaces;
           if (
             !workspaces ||
@@ -158,7 +168,7 @@ export function createGitChangelistsStore(
             storageFailed = true;
             return { ...current, unavailable: true };
           }
-          return { ...current, workspaces };
+          return { ...current, workspaces, unavailable: false };
         },
       },
     ),

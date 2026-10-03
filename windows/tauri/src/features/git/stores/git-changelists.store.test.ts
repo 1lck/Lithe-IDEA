@@ -113,15 +113,13 @@ test("observed renames remain assigned after they disappear from Git status", ()
   const store = makeStore();
   store.getState().createList(workspace, "Local", "local");
   store.getState().moveFiles(workspace, [file], "local");
-  store
-    .getState()
-    .rememberRenames(workspace, [
-      {
-        ...file,
-        repositoryRelativePath: "renamed.yaml",
-        repositoryOriginalRelativePath: "application.yaml",
-      },
-    ]);
+  store.getState().rememberRenames(workspace, [
+    {
+      ...file,
+      repositoryRelativePath: "renamed.yaml",
+      repositoryOriginalRelativePath: "application.yaml",
+    },
+  ]);
   expect(
     fileChangelist(workspaceChangelists(store.getState(), workspace), {
       ...file,
@@ -168,7 +166,96 @@ test("repository names that match object properties remain literal scope identif
   const store = makeStore();
   store.getState().createList(workspace, "Local", "local");
   store.getState().moveFiles(workspace, [file], "local");
-  const scope = changelistCommitScope(workspaceChangelists(store.getState(), workspace), [{ id: "__proto__", root: "C:/workspace/A" }], []);
+  const scope = changelistCommitScope(
+    workspaceChangelists(store.getState(), workspace),
+    [{ id: "__proto__", root: "C:/workspace/A" }],
+    [],
+  );
   expect(scope.paths["__proto__"]).toEqual(["application.yaml"]);
   expect(JSON.parse(JSON.stringify(scope)).paths["__proto__"]).toEqual(["application.yaml"]);
+});
+
+test("a renamed protected source takes precedence over stale destination membership", () => {
+  const store = makeStore();
+  store.getState().createList(workspace, "Local", "local");
+  store.getState().moveFiles(workspace, [file], "local");
+  const destination = { ...file, repositoryRelativePath: "renamed.yaml" };
+  store.getState().moveFiles(workspace, [destination], DEFAULT_CHANGELIST);
+  const renamed = { ...destination, repositoryOriginalRelativePath: "application.yaml" };
+  store.getState().rememberRenames(workspace, [renamed]);
+  const state = workspaceChangelists(store.getState(), workspace);
+  expect(fileChangelist(state, renamed)).toBe("local");
+  expect(
+    changelistCommitScope(state, [{ id: "A", root: file.repositoryPath! }], []).paths.A,
+  ).toEqual(["application.yaml", "renamed.yaml"]);
+});
+
+test("unknown persisted versions and missing state remain blocked and untouched", () => {
+  for (const saved of [{ version: 9, state: { workspaces: {} } }, {}, false]) {
+    const memory = createMemoryStateStorage();
+    const raw = JSON.stringify(saved);
+    memory.setItem("git-local-changelists-v1", raw);
+    const store = createGitChangelistsStore(createJSONStorageFrom(memory));
+    expect(store.getState().unavailable).toBe(true);
+    expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
+    expect(memory.getItem("git-local-changelists-v1")).toBe(raw);
+  }
+});
+
+test("inaccessible browser storage never falls back to an empty in-memory list", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  try {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      get: () => {
+        throw new Error("Access denied");
+      },
+    });
+    const store = createGitChangelistsStore();
+    expect(store.getState().unavailable).toBe(true);
+    expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
+});
+
+test("moving a copied file does not remove protection from its source", () => {
+  const store = makeStore();
+  store.getState().createList(workspace, "Local", "local");
+  store.getState().moveFiles(workspace, [file], "local");
+  const copy = {
+    ...file,
+    repositoryRelativePath: "copy.yaml",
+    repositoryOriginalRelativePath: "application.yaml",
+    rawStatus: "C ",
+  };
+  store.getState().moveFiles(workspace, [copy], DEFAULT_CHANGELIST);
+  const state = workspaceChangelists(store.getState(), workspace);
+  expect(fileChangelist(state, file)).toBe("local");
+  expect(fileChangelist(state, copy)).toBe(DEFAULT_CHANGELIST);
+});
+
+test("a stored JSON null is corrupt metadata, not a new workspace", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  let writes = 0;
+  try {
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: () => " null ",
+        setItem: () => {
+          writes += 1;
+        },
+        removeItem: () => {},
+      },
+    });
+    const store = createGitChangelistsStore();
+    expect(store.getState().unavailable).toBe(true);
+    expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
+    expect(writes).toBe(0);
+  } finally {
+    if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
+    else Reflect.deleteProperty(globalThis, "localStorage");
+  }
 });

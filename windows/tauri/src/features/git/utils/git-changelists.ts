@@ -27,15 +27,20 @@ export const EMPTY_CHANGELISTS: LocalChangelists = {
 };
 export const changelistPathKey = (root: string, path: string) => JSON.stringify([root, path]);
 
+/** Copies are new paths; moving a copy must never reassign its unchanged source. */
+function renamedSourcePath(file: GitFile): string | undefined {
+  return file.rawStatus?.includes("C") ? undefined : getGitFileOriginalRepositoryRelativePath(file);
+}
+
 export function fileChangelist(state: LocalChangelists, file: GitFile, fallback?: string): string {
   const root = getGitFileRepositoryPath(file, fallback);
   if (!root) return DEFAULT_CHANGELIST;
   const current =
     state.assignments[changelistPathKey(root, getGitFileRepositoryRelativePath(file))];
-  const original = getGitFileOriginalRepositoryRelativePath(file);
+  const original = renamedSourcePath(file);
   return (
-    current ??
     (original ? state.assignments[changelistPathKey(root, original)] : undefined) ??
+    current ??
     DEFAULT_CHANGELIST
   );
 }
@@ -52,10 +57,7 @@ export function assignChangelist(
   for (const file of files) {
     const root = getGitFileRepositoryPath(file, fallback);
     if (!root) continue;
-    for (const path of [
-      getGitFileRepositoryRelativePath(file),
-      getGitFileOriginalRepositoryRelativePath(file),
-    ]) {
+    for (const path of [getGitFileRepositoryRelativePath(file), renamedSourcePath(file)]) {
       if (path) assignments[changelistPathKey(root, path)] = list;
     }
   }
@@ -72,7 +74,7 @@ export function changelistCommitScope(
   let snapshot = state;
   // Git reports renames; do not infer them from names or filesystem scans.
   for (const file of files) {
-    if (getGitFileOriginalRepositoryRelativePath(file)) {
+    if (renamedSourcePath(file)) {
       snapshot = assignChangelist(
         snapshot,
         [file],

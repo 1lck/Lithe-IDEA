@@ -4,11 +4,18 @@
   "group": "Git",
   "capability": "本地 ChangeList：持久化文件分组、按当前列表批量暂存及提交范围保护",
   "macos": {
-    "implementationStatus": "missing",
-    "verificationStatus": "not-applicable",
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
     "evidence": [
+      "macos/Sources/Lithe/Views/Git/GitChangelistBar.swift",
       "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
-      ".agents/notes/implemented/feature/2026-10-03-local-git-changelists.md"
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel+Changelists.swift",
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Storage/MacGitChangelistStorage.swift",
+      "macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift",
+      "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
+      "macos/Tests/LitheTests/MacGitChangelistStorageTests.swift",
+      "shared/fixtures/git/local-changelist-scope-v1.json"
     ]
   },
   "windows": {
@@ -26,6 +33,6 @@
     ]
   },
   "owner": "Git",
-  "verification": "Windows 创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件和目录多选移动、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。",
-  "notes": "本次优先实现 Issue #429 指定的 Windows 产品。共享 Core 提供可选 pathScope，macOS 暂未接入列表界面和持久化，原提交行为保持兼容。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。"
+  "verification": "macOS 与 Windows 分别创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件多选移动（Windows 同时支持目录）、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。",
+  "notes": "双端均已接入本地分组、持久化及共享 Core pathScope 提交保护。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。macOS 使用偏好存储 adapter，Windows 使用 WebView 本地存储。两端原生构建和交互验收均待目标平台验证。"
 }

@@ -629,6 +629,117 @@ struct GitModuleTests {
     }
 
     @Test
+    func changelistManagementPersistsWithoutChangingTheIndexAndIsolatesWorkspaces() async throws {
+        let root = URL(fileURLWithPath: "/workspace/A")
+        let config = GitChange(repositoryRoot: root, path: "application.yaml", originalPath: nil,
+                               indexStatus: "M", workTreeStatus: "M")
+        let storage = ChangelistStorageProbe()
+        let feature = workspaceCommitFeature(roots: [root], changes: [config], storage: storage)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.saveChangelistName(" Local config ") == nil)
+        let id = try #require(feature.changelists.lists.last?.id)
+        #expect(feature.saveChangelistName("local CONFIG") != nil)
+        #expect(feature.saveChangelistName("Changed", id: GitLocalChangelists.defaultID) != nil)
+        feature.moveChanges([config], toChangelist: id)
+        #expect(feature.gitChanges == [config])
+        #expect(feature.activeChangelistChanges.isEmpty)
+        #expect(feature.changelistCommitError != nil)
+        feature.activateChangelist(id)
+        #expect(feature.changelistCommitError == nil)
+        #expect(feature.saveChangelistName("Private", id: id) == nil)
+        let reopened = workspaceCommitFeature(roots: [root], changes: [config], storage: storage)
+        defer { reopened.reset() }
+        await reopened.refreshGit()
+        #expect(reopened.changelists == feature.changelists)
+        reopened.configure(workspaceURLProvider: { URL(fileURLWithPath: "/other-workspace") },
+            isGitLogVisibleProvider: { false }, notify: { _ in }, onStateRefreshed: {})
+        #expect(reopened.changelists.lists.count == 1)
+        feature.removeChangelist(id)
+        #expect(feature.changelists.activeID == GitLocalChangelists.defaultID)
+        #expect(feature.activeChangelistChanges == [config])
+        #expect(feature.gitChanges == [config])
+    }
+
+    @Test
+    func changelistBulkStagingAndPreparationUseOnlyTheActiveList() async throws {
+        let root = URL(fileURLWithPath: "/workspace/A")
+        let config = GitChange(repositoryRoot: root, path: "application.yaml", originalPath: nil,
+                               indexStatus: " ", workTreeStatus: "M")
+        let code = GitChange(repositoryRoot: root, path: "feature.swift", originalPath: nil,
+                             indexStatus: " ", workTreeStatus: "M")
+        let recorder = StageCallRecorder()
+        let probe = WorkspaceCommitProbe()
+        let feature = workspaceCommitFeature(roots: [root], changes: [config, code], probe: probe, stageRecorder: recorder)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.saveChangelistName("Local") == nil)
+        feature.moveChanges([config], toChangelist: try #require(feature.changelists.lists.last?.id))
+        await feature.stageAllChanges()
+        #expect(recorder.recorded.map(\.path) == ["feature.swift"])
+        // The scripted status remains unstaged; failed staging must clear pending UI state.
+        feature.includeChangelistParentReferences = false
+        #expect(await !feature.commitStagedChanges(message: "Feature", amend: false))
+        let request = try #require(probe.requests.last)
+        #expect(request.pathScope == GitWorkspaceCommitPathScope(include: false, paths: ["A": ["application.yaml"]]))
+        #expect(!request.includeParentReferences)
+    }
+
+    @Test
+    func corruptOrUnwritableChangelistStorageBlocksStagingAndCommit() async {
+        let root = URL(fileURLWithPath: "/workspace/A")
+        let code = GitChange(repositoryRoot: root, path: "feature.swift", originalPath: nil,
+                             indexStatus: "M", workTreeStatus: "M")
+        let storage = ChangelistStorageProbe()
+        storage.failLoad = true
+        let probe = WorkspaceCommitProbe()
+        let feature = workspaceCommitFeature(roots: [root], changes: [code], probe: probe, storage: storage)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.changelistStorageFailed)
+        #expect(feature.beginSetStaging([code], staged: false).isEmpty)
+        #expect(feature.beginToggleStaging(code) == nil)
+        #expect(await !feature.commitStagedChanges(message: "Blocked", amend: false))
+        #expect(probe.requests.isEmpty)
+        storage.failLoad = false
+        feature.reset()
+        await feature.refreshGit()
+        storage.failSave = true
+        #expect(feature.saveChangelistName("Local") != nil)
+        #expect(feature.changelistStorageFailed)
+        #expect(feature.changelists.lists.count == 1)
+        #expect(await !feature.commitStagedChanges(message: "Blocked", amend: false))
+        #expect(probe.requests.isEmpty)
+    }
+
+    @Test
+    func changelistReviewAndRetryKeepTheOriginalScopeAndFreezeListEditing() async throws {
+        let scope = GitWorkspaceCommitPathScope(include: false, paths: ["A": ["application.yaml"]])
+        let original = try workspacePreparation(pathScope: scope)
+        var failed = original.session
+        failed.finished = true
+        let probe = WorkspaceCommitProbe(preparations: [original, original, original], steps: [failed])
+        let feature = workspaceCommitFeature(probe: probe)
+        defer { feature.reset() }
+        await feature.refreshGit()
+        #expect(feature.saveChangelistName("Local") == nil)
+        let id = try #require(feature.changelists.lists.last?.id)
+        #expect(await !feature.commitStagedChanges(message: "Feature", amend: false))
+        feature.activateChangelist(id)
+        #expect(feature.changelists.activeID == GitLocalChangelists.defaultID)
+        #expect(feature.saveChangelistName("Blocked") != nil)
+        #expect(await !feature.confirmPendingSubmoduleCommit())
+        #expect(probe.requests.last?.pathScope == scope)
+        #expect(feature.changelistEditingDisabled)
+        await feature.prepareWorkspaceCommitRetry()
+        #expect(probe.requests.last?.pathScope == scope)
+        #expect(probe.requests.last?.previous?.plan.pathScope == scope)
+        feature.cancelPendingSubmoduleCommit()
+        feature.dismissWorkspaceCommitResults()
+        #expect(!feature.changelistEditingDisabled)
+    }
+
+    @Test
     func workspaceCommitConfirmationUsesTheSharedPlanAndForwardsOptions() async throws {
         let preparation = try workspacePreparation()
         let probe = WorkspaceCommitProbe(preparations: [preparation, preparation], steps: [completedWorkspace(preparation)])
@@ -745,13 +856,22 @@ struct GitModuleTests {
         #expect(!feature.isCommitting)
     }
 
-    private func workspacePreparation() throws -> GitWorkspaceCommitPreparation {
+    private func workspacePreparation(pathScope: GitWorkspaceCommitPathScope? = nil) throws -> GitWorkspaceCommitPreparation {
         struct Fixture: Decodable { let preparation: GitWorkspaceCommitPreparation }
         let fixtureURL = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("shared/fixtures/git/workspace-commit-workflow-v1.json")
-        return try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL)).preparation
+        let preparation = try JSONDecoder().decode(Fixture.self, from: Data(contentsOf: fixtureURL)).preparation
+        guard let pathScope else { return preparation }
+        let current = preparation.session
+        var plan = current.plan
+        plan.pathScope = pathScope
+        let session = GitWorkspaceCommitSession(plan: plan, states: current.states, results: current.results,
+            blocked: current.blocked, cursor: current.cursor, commandFailed: current.commandFailed,
+            finished: current.finished, succeeded: current.succeeded, canRetry: current.canRetry)
+        return GitWorkspaceCommitPreparation(session: session, reviewChanged: preparation.reviewChanged,
+            requiresConfirmation: preparation.requiresConfirmation)
     }
 
     private func completedWorkspace(_ preparation: GitWorkspaceCommitPreparation) -> GitWorkspaceCommitSession {
@@ -764,11 +884,12 @@ struct GitModuleTests {
     }
 
     private func workspaceCommitFeature(roots: [URL] = [URL(fileURLWithPath: "/workspace/A"), URL(fileURLWithPath: "/workspace/A/B")],
-        changes: [GitChange] = [], probe: WorkspaceCommitProbe = WorkspaceCommitProbe()) -> GitFeatureModel {
+        changes: [GitChange] = [], probe: WorkspaceCommitProbe = WorkspaceCommitProbe(),
+        storage: (any GitChangelistStorage)? = nil, stageRecorder: StageCallRecorder? = nil) -> GitFeatureModel {
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
             snapshotsByRoot: Dictionary(uniqueKeysWithValues: roots.map { root in
                 (root.path, GitSnapshot(repositoryRoot: root, branch: "main", changes: changes.filter { $0.repositoryRoot == root }))
-            }), repositoryRoots: roots, workspaceCommitProbe: probe)))
+            }), repositoryRoots: roots, stageCallRecorder: stageRecorder, workspaceCommitProbe: probe)), changelistStorage: storage)
         feature.configure(workspaceURLProvider: { URL(fileURLWithPath: "/workspace") }, isGitLogVisibleProvider: { false },
             notify: { _ in }, onStateRefreshed: {})
         return feature
@@ -4132,4 +4253,19 @@ private final class WorkspaceCommitProbe: @unchecked Sendable {
     }
     var requests: [GitWorkspaceCommitRequest] { lock.lock(); defer { lock.unlock() }; return recordedRequests }
     var stepCount: Int { lock.lock(); defer { lock.unlock() }; return recordedSteps }
+}
+
+@MainActor
+private final class ChangelistStorageProbe: GitChangelistStorage {
+    var states: [URL: GitLocalChangelists] = [:]
+    var failLoad = false
+    var failSave = false
+    func load(workspace: URL) throws -> GitLocalChangelists? {
+        if failLoad { throw GitWorkspaceCommitFailure("Corrupt metadata") }
+        return states[workspace]
+    }
+    func save(_ state: GitLocalChangelists, workspace: URL) throws {
+        if failSave { throw GitWorkspaceCommitFailure("Write rejected") }
+        states[workspace] = state
+    }
 }
