@@ -5,25 +5,31 @@ import {
 } from "./project-open-preference";
 
 describe("project open preference", () => {
-  test("maps persisted settings to all three visible modes", () => {
+  test("maps persisted settings to all four visible modes", () => {
     expect(
       getProjectOpenPreference({
         askWhereToOpenProjects: true,
-        openFoldersInNewWindow: true,
+        projectOpenDefaultDestination: "new-window",
       }),
     ).toBe("ask");
     expect(
       getProjectOpenPreference({
         askWhereToOpenProjects: false,
-        openFoldersInNewWindow: false,
+        projectOpenDefaultDestination: "this-window",
       }),
     ).toBe("this-window");
     expect(
       getProjectOpenPreference({
         askWhereToOpenProjects: false,
-        openFoldersInNewWindow: true,
+        projectOpenDefaultDestination: "new-window",
       }),
     ).toBe("new-window");
+    expect(
+      getProjectOpenPreference({
+        askWhereToOpenProjects: false,
+        projectOpenDefaultDestination: "attach",
+      }),
+    ).toBe("attach");
   });
 
   test("keeps the remembered destination when ask mode is selected", () => {
@@ -33,12 +39,13 @@ describe("project open preference", () => {
   });
 
   test.each([
-    ["this-window", false],
-    ["new-window", true],
-  ] as const)("disables asking for an explicit destination", (preference, openNew) => {
+    ["this-window"],
+    ["new-window"],
+    ["attach"],
+  ] as const)("disables asking for an explicit destination: %s", (preference) => {
     expect(getProjectOpenPreferencePatch(preference)).toEqual({
       askWhereToOpenProjects: false,
-      openFoldersInNewWindow: openNew,
+      projectOpenDefaultDestination: preference,
     });
   });
 });

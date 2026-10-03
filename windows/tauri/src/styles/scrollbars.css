@@ -3,6 +3,8 @@
   --app-scrollbar-thin-size: 9px;
   --app-scrollbar-radius: 999px;
   --app-scrollbar-track: transparent;
+  /* Defaults for themes without app-scrollbar-* colors; the Lithe themes override them with
+     the IntelliJ Islands (Mac-style) ScrollBar colors. */
   --app-scrollbar-thumb: rgba(120, 120, 120, 0.42);
   --app-scrollbar-thumb-subtle: rgba(120, 120, 120, 0.28);
   --app-scrollbar-thumb-hover: rgba(105, 105, 105, 0.62);

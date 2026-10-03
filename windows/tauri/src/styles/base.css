@@ -19,6 +19,21 @@ html {
   background: transparent;
 }
 
+/* IntelliJ Islands paints the frame chrome of an unfocused window (main toolbar, tool window
+   stripes, status bar) at Island.inactiveAlpha 0.56; editor and tool window content stays
+   fully opaque. The chrome sits on the same main-window color, so element opacity fades
+   only its content. */
+html[data-window-inactive]
+  :is(
+    .lithe-title-bar,
+    .lithe-project-tab-bar,
+    .lithe-sidebar-rail,
+    .lithe-plugin-activity-rail,
+    .lithe-footer-bar
+  ) {
+  opacity: 0.56;
+}
+
 body {
   margin: 0;
   padding: 0;

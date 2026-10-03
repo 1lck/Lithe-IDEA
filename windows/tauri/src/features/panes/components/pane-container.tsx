@@ -209,6 +209,9 @@ export function PaneContainer({ pane }: PaneContainerProps) {
   const activeWorkspaceId = useActiveWorkspaceId();
   const isWorkspaceSurfaceActive = !workspaceScopeId || workspaceScopeId === activeWorkspaceId;
   const isActivePane = pane.id === activePaneId && isWorkspaceSurfaceActive;
+  // IntelliJ greys the selected editor tab unless focus is inside its tab group
+  // (EditorTabbedContainer: isActiveTabs = UIUtil.isFocusAncestor).
+  const [hasFocusWithin, setHasFocusWithin] = useState(false);
 
   const { activeBuffer, paneBuffers } = useBufferStore(
     useShallow((state) => {
@@ -764,6 +767,13 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onFocus={() => setHasFocusWithin(true)}
+      onBlur={(event) => {
+        // A null relatedTarget means focus left the window, which also greys the tabs.
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          setHasFocusWithin(false);
+        }
+      }}
     >
       {(isDragOver || internalHoverZone) && !isTabDragOver && !internalHoverZone && (
         <div className="pointer-events-none absolute inset-0 z-40 bg-primary/10" />
@@ -775,6 +785,7 @@ export function PaneContainer({ pane }: PaneContainerProps) {
       />
       <TabBar
         paneId={pane.id}
+        isGroupActive={hasFocusWithin}
         onTabClick={handleTabClick}
         disablePaneActions={pane.id === BOTTOM_PANE_ID}
       />

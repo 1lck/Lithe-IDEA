@@ -20,7 +20,15 @@ import {
   CommandTabs,
   useCommandListNavigation,
 } from "@/ui/command";
-import { GitBranchIcon, FolderOpenIcon, GitMergeIcon, NodesIcon, DotsThreeIcon } from "@/ui/icons";
+import {
+  ChevronDownIcon,
+  GitBranchIcon,
+  FolderOpenIcon,
+  GitMergeIcon,
+  NodesIcon,
+  DotsThreeIcon,
+  VcsIcon,
+} from "@/ui/icons";
 import { showConfirmDialog } from "@/ui/dialog";
 import { cn } from "@/utils/cn";
 import { getFolderName, getRelativePath } from "@/utils/path-helpers";
@@ -55,7 +63,7 @@ interface GitBranchManagerProps {
   onRepositoryChange?: (repoPath: string | null) => void;
   paletteTarget?: boolean;
   openEventName?: string;
-  triggerSurface?: "default" | "footer";
+  triggerSurface?: "default" | "footer" | "toolbar";
 }
 
 type GitBranchManagerTab = "branches" | "worktrees" | "repositories";
@@ -636,15 +644,24 @@ const GitBranchManager = ({
         onClick={() => void handleOpenDropdown()}
         disabled={isLoading}
         variant="ghost"
-        size={triggerSurface === "footer" ? "xs" : "default"}
+        size={triggerSurface === "default" ? "default" : "xs"}
         className={cn(
           "inline-flex max-w-full shrink overflow-hidden px-2 text-subtle-foreground hover:bg-accent/80",
-          triggerSurface === "footer" && "font-medium",
+          triggerSurface !== "default" && "font-medium",
+          // IntelliJ ToolbarComboButton: 30px tall, 12px arc (6px radius), insets 10px left
+          // and 6px right, 6px between icon and text.
+          triggerSurface === "toolbar" && "h-[30px] rounded-[6px] pr-1.5 pl-2.5",
           isDropdownOpen ? "bg-accent/80" : "cursor-pointer",
         )}
         aria-label={t("git.searchBranchesAria")}
       >
-        <GitBranchIcon className="shrink-0" />
+        {triggerSurface === "toolbar" ? (
+          // IntelliJ's Git toolbar widget draws AllIcons.General.Vcs scaled to the 20px toolbar size.
+          <VcsIcon className="size-5 shrink-0" />
+        ) : (
+          // The status bar branch widget keeps the native 16px branch icon.
+          <GitBranchIcon className="size-4 shrink-0" />
+        )}
         <span
           className="min-w-0 truncate font-normal"
           style={{ maxWidth: `${triggerTextWidthCh}ch` }}
@@ -658,6 +675,11 @@ const GitBranchManager = ({
           behindLabel={t("git.behindRemote", { count: behind })}
           showCounts={false}
         />
+        {triggerSurface === "toolbar" ? (
+          // IntelliJ's Git widget shows General.ChevronDown at its native 16px, 2px after the
+          // text (BEFORE_CHEVRON_GAP); -ml-1 trims the 6px item gap to those 2px.
+          <ChevronDownIcon aria-hidden className="-ml-1 size-4 shrink-0" />
+        ) : null}
       </Button>
 
       <GitCommandSurface

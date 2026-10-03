@@ -580,10 +580,22 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     id: "appearance-open-folders-new-window",
     tab: "appearance",
     section: "Layout",
-    label: "Open Projects In New Window",
+    label: "Open Projects",
     description:
-      "Open each new project in a separate window and disable activity-bar project switching",
-    keywords: ["open", "folder", "project", "new", "window", "separate", "activity", "switch"],
+      "Choose whether opening another project asks first, replaces the current project, attaches it to this window, or opens a new window",
+    keywords: [
+      "open",
+      "folder",
+      "project",
+      "new",
+      "window",
+      "attach",
+      "replace",
+      "ask",
+      "separate",
+      "activity",
+      "switch",
+    ],
   },
 
   // AI Settings

@@ -120,6 +120,7 @@ export async function refreshWorkingTreeFileDiff(
     diff: hasRenderableDiff(diff) ? diff : null,
     title: startingDiff.title,
     target: nextTarget,
+    commitPreview: startingDiff.commitPreview,
   });
   // Git metadata changes often leave the file untouched. Replacing the buffer
   // anyway rebuilds the review editor and disturbs the reader's scroll position.

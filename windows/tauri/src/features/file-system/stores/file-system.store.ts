@@ -52,7 +52,11 @@ import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { showAlertDialog, showPromptDialog } from "@/ui/dialog";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { workspaceSessionRepository } from "@/features/workspace/persistence/workspace-session-repository";
-import { switchWorkspaceRuntime } from "@/features/workspace/services/workspace-lifecycle";
+import {
+  isWorkspaceClosing,
+  switchWorkspaceRuntime,
+  type ProjectOpenMode,
+} from "@/features/workspace/services/workspace-lifecycle";
 import { scheduleWorkspacePrewarm } from "@/features/workspace/services/workspace-prewarm";
 import { runGitBeforeJava } from "@/features/workspace/services/workspace-startup-priority";
 import { ensureWorkspaceGitBootstrap } from "@/features/workspace/services/workspace-git-bootstrap";
@@ -428,6 +432,75 @@ type ScopedFileSystemGet = () => ScopedFileSystemStoreState;
 let scopedFileSystemStore: WorkspaceScopedStore<ScopedFileSystemStoreState>;
 const getScopedFileSystemStore = (workspaceId: string) =>
   scopedFileSystemStore.getStore(workspaceId);
+
+// Stops the workspace-scoped services (watcher refreshes, Java language server, debug and
+// terminal sessions, remote connection) owned by one project. Shared by closeProject and
+// the replace-active open mode so both tear a project down the same way.
+const disposeWorkspaceServices = async (projectId: string, path: string): Promise<void> => {
+  cancelFileWatcherRefreshes(projectId);
+  const { cancelJavaWorkspaceChanges } = await import(
+    "@/features/editor/lsp/java-workspace-change-scheduler"
+  );
+  cancelJavaWorkspaceChanges(projectId);
+  const { getJavaWorkspaceLanguageServerOwner } = await import(
+    "@/features/editor/lsp/java-workspace-language-server"
+  );
+  await getJavaWorkspaceLanguageServerOwner().stop({
+    workspaceId: projectId,
+    root: path,
+  });
+  await invoke("debug_stop_workspace_sessions", {
+    workspacePath: path,
+  }).catch((error) => {
+    console.error("Failed to stop debug sessions for the project:", error);
+  });
+  const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
+  await Promise.all(
+    [...terminalSessions.values()].map(async (session) => {
+      if (!session.connectionId) {
+        return;
+      }
+
+      const command = session.remoteConnectionId
+        ? "close_remote_terminal"
+        : "close_terminal";
+      await invoke(command, { id: session.connectionId }).catch((error) => {
+        console.error("Failed to close terminal session:", error);
+      });
+    }),
+  );
+
+  const remote = parseRemotePath(path);
+  if (!remote) {
+    return;
+  }
+
+  await invoke("ssh_disconnect_only", {
+    connectionId: remote.connectionId,
+  }).catch((error) => {
+    console.error("Failed to disconnect remote workspace:", error);
+  });
+  await connectionStore.updateConnectionStatus(remote.connectionId, false).catch(() => {});
+};
+
+// Guards for the workspace-lifecycle replace-active mode: the dirty-buffer confirm runs
+// against the project that is about to be replaced, and teardown reuses closeProject's
+// service disposal.
+const createProjectOpenRuntimeGuards = () => ({
+  confirmReplaceCurrent: async (workspaceId: string) => {
+    const workspaceBuffers = useBufferStore.getStore(workspaceId).getState().buffers;
+    if (getDirtyEditorBuffers(workspaceBuffers).length === 0) {
+      return true;
+    }
+
+    return await prepareProjectTransitionWithUnsavedBuffers(
+      "closing this project",
+      useBufferStore.getStore(workspaceId).getState().buffers,
+      workspaceId,
+    );
+  },
+  disposeReplaced: disposeWorkspaceServices,
+});
 
 let workspaceServiceActivationVersion = 0;
 
@@ -836,8 +909,12 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
 
           const { openWorkspaceRuntime } =
             await import("@/features/workspace/services/workspace-lifecycle");
+          const replaceGuards = createProjectOpenRuntimeGuards();
           return await openWorkspaceRuntime({
             descriptor: { path: selected, name: getFolderName(selected) },
+            mode: destination === "this-window" ? "replace-active" : "attach",
+            confirmReplaceCurrent: replaceGuards.confirmReplaceCurrent,
+            disposeReplaced: replaceGuards.disposeReplaced,
             persistCurrent: () => get().persistActiveProjectSession(),
             initialize: (workspaceId): Promise<boolean> =>
               getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
@@ -1202,16 +1279,23 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         return true;
       },
 
-      handleOpenFolderByPath: async (path: string) => {
+      handleOpenFolderByPath: async (path: string, options?: { mode?: ProjectOpenMode }) => {
         const wslInfo = parseWslPath(path);
         if (wslInfo) {
-          return await get().handleOpenWslProject(wslInfo.distro, wslInfo.linuxPath);
+          return await get().handleOpenWslProject(wslInfo.distro, wslInfo.linuxPath, {
+            mode: options?.mode,
+          });
         }
 
         const { openWorkspaceRuntime } =
           await import("@/features/workspace/services/workspace-lifecycle");
+        const replaceGuards = createProjectOpenRuntimeGuards();
         return await openWorkspaceRuntime({
           descriptor: { path, name: getFolderName(path) },
+          mode: options?.mode,
+          confirmReplaceCurrent:
+            options?.mode === "replace-active" ? replaceGuards.confirmReplaceCurrent : undefined,
+          disposeReplaced: replaceGuards.disposeReplaced,
           persistCurrent: () => get().persistActiveProjectSession(),
           initialize: (workspaceId) =>
             getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
@@ -1451,14 +1535,19 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
         }
       },
 
-      handleOpenWslProject: async (distro: string, linuxPath: string) => {
+      handleOpenWslProject: async (distro: string, linuxPath: string, options?: { mode?: ProjectOpenMode }) => {
         const normalizedLinuxPath = linuxPath || "/";
         const path = buildWslPath(distro, normalizedLinuxPath);
         const name = getWslProjectName(distro, normalizedLinuxPath);
         const { openWorkspaceRuntime } =
           await import("@/features/workspace/services/workspace-lifecycle");
+        const replaceGuards = createProjectOpenRuntimeGuards();
         return await openWorkspaceRuntime({
           descriptor: { path, name },
+          mode: options?.mode,
+          confirmReplaceCurrent:
+            options?.mode === "replace-active" ? replaceGuards.confirmReplaceCurrent : undefined,
+          disposeReplaced: replaceGuards.disposeReplaced,
           persistCurrent: () => get().persistActiveProjectSession(),
           initialize: (workspaceId) =>
             getScopedFileSystemStore(workspaceId)
@@ -2861,6 +2950,11 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
       },
 
       switchToProject: async (projectId: string) => {
+        // A project mid-teardown cannot be reactivated; ignore quietly instead of reporting
+        // a failed switch.
+        if (isWorkspaceClosing(projectId)) {
+          return false;
+        }
         const switchStartedAt = performance.now();
         const wasReady = workspaceRuntimeRegistry.isWorkspaceReady(projectId);
         frontendTrace("info", "bench:workspace-switch", "switch:start", {
@@ -2984,51 +3078,7 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           persist: () =>
             getScopedFileSystemStore(projectId).getState().persistActiveProjectSession(),
           dispose: async (path) => {
-            cancelFileWatcherRefreshes(projectId);
-            const { cancelJavaWorkspaceChanges } = await import(
-              "@/features/editor/lsp/java-workspace-change-scheduler"
-            );
-            cancelJavaWorkspaceChanges(projectId);
-            const { getJavaWorkspaceLanguageServerOwner } =
-              await import("@/features/editor/lsp/java-workspace-language-server");
-            await getJavaWorkspaceLanguageServerOwner().stop({
-              workspaceId: projectId,
-              root: path,
-            });
-            await invoke("debug_stop_workspace_sessions", {
-              workspacePath: path,
-            }).catch((error) => {
-              console.error("Failed to stop debug sessions for the project:", error);
-            });
-            const terminalSessions = useTerminalStore.getStore(projectId).getState().sessions;
-            await Promise.all(
-              [...terminalSessions.values()].map(async (session) => {
-                if (!session.connectionId) {
-                  return;
-                }
-
-                const command = session.remoteConnectionId
-                  ? "close_remote_terminal"
-                  : "close_terminal";
-                await invoke(command, { id: session.connectionId }).catch((error) => {
-                  console.error("Failed to close terminal session:", error);
-                });
-              }),
-            );
-
-            const remote = parseRemotePath(path);
-            if (!remote) {
-              return;
-            }
-
-            await invoke("ssh_disconnect_only", {
-              connectionId: remote.connectionId,
-            }).catch((error) => {
-              console.error("Failed to disconnect remote workspace:", error);
-            });
-            await connectionStore
-              .updateConnectionStatus(remote.connectionId, false)
-              .catch(() => {});
+            await disposeWorkspaceServices(projectId, path);
           },
           switchTo: (nextWorkspaceId) => get().switchToProject(nextWorkspaceId),
           showWelcome: async () => {

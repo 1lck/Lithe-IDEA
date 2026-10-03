@@ -16,6 +16,7 @@
 @import "./styles/syntax-tokens.css";
 @import "./styles/rendered-code-tokens.css";
 @import "./styles/window-transparency.css";
+@import "./styles/project-gradient.css";
 @import "./styles/utilities.css";
 
 @import "tw-animate-css";
