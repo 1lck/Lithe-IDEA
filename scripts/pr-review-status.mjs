@@ -69,6 +69,21 @@ function latestReviewsByReviewer(reviews) {
     return latestReviews;
 }
 
+function mergeCurrentReview(reviews, currentReview) {
+    const reviewHistory = [...(reviews ?? [])];
+    if (!currentReview) {
+        return reviewHistory;
+    }
+
+    const currentReviewId = currentReview.id == null ? null : String(currentReview.id);
+    if (currentReviewId && reviewHistory.some((review) => String(review?.id ?? "") === currentReviewId)) {
+        return reviewHistory;
+    }
+
+    reviewHistory.push(currentReview);
+    return reviewHistory;
+}
+
 export function hasOutstandingChangesRequestedReviews(reviews = [], requestedReviewerLogins = []) {
     const requestedReviewers = new Set(
         (requestedReviewerLogins ?? [])
@@ -106,7 +121,7 @@ export function determineReviewStatus({
     currentLabels = [],
 }) {
     const currentStatus = currentReviewStatus(currentLabels);
-    const reviewHistory = currentReview ? [...reviews, currentReview] : reviews;
+    const reviewHistory = mergeCurrentReview(reviews, currentReview);
     const hasOutstandingChangesRequested = hasOutstandingChangesRequestedReviews(
         reviewHistory,
         requestedReviewerLogins,
@@ -123,6 +138,16 @@ export function determineReviewStatus({
     }
 
     if (eventName === "pull_request_review") {
+        const normalizedReviewState = normalizeReviewState(reviewState);
+        if (action === "submitted" && normalizedReviewState === "commented") {
+            if (currentStatus) {
+                return currentStatus;
+            }
+            if (hasChangesRequestedState) {
+                return REVIEW_LABELS.needsChanges;
+            }
+            return hasOutstandingReviewers ? REVIEW_LABELS.needsReview : null;
+        }
         if (action === "submitted" || action === "dismissed") {
             if (hasChangesRequestedState) {
                 return REVIEW_LABELS.needsChanges;

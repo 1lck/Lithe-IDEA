@@ -116,15 +116,20 @@ jobs:
               const belongsToWorkflowRun = workflowPullRequests.some(
                 (workflowPullRequest) => workflowPullRequest.number === pullNumber,
               );
-              const eventHeadRepository = payload.pull_request.head.repo?.full_name;
-              const runHeadRepository = workflowRun.head_repository?.full_name;
-              const matchesFallbackRunMetadata =
-                workflowRun.head_sha === payload.pull_request.head.sha &&
-                workflowRun.head_branch === payload.pull_request.head.ref &&
-                (!eventHeadRepository || !runHeadRepository || runHeadRepository === eventHeadRepository);
+              const normalizeRepositoryName = (repository) =>
+                typeof repository?.full_name === "string"
+                  ? repository.full_name.toLowerCase()
+                  : null;
+              const runHeadRepository = normalizeRepositoryName(workflowRun.head_repository);
+              const pullRequestHeadRepository = normalizeRepositoryName(pullRequest.head?.repo);
+              const matchesApiPullRequest =
+                workflowRun.head_sha === pullRequest.head?.sha &&
+                workflowRun.head_branch === pullRequest.head?.ref &&
+                runHeadRepository !== null &&
+                runHeadRepository === pullRequestHeadRepository;
               if (
-                (workflowPullRequests.length > 0 && !belongsToWorkflowRun) ||
-                (workflowPullRequests.length === 0 && !matchesFallbackRunMetadata)
+                !matchesApiPullRequest ||
+                (workflowPullRequests.length > 0 && !belongsToWorkflowRun)
               ) {
                 core.setFailed("The review event does not match the completed workflow run.");
                 return;
@@ -151,17 +156,18 @@ jobs:
               core.setOutput("review-id", String(review.id));
               core.setOutput("review-user-login", review.user.login);
               core.setOutput("review-submitted-at", review.submitted_at ?? payload.review.submitted_at ?? "");
+              core.setOutput("review-state", review.state?.toLowerCase() ?? payload.review?.state?.toLowerCase() ?? "");
             } else {
               core.setOutput("review-id", "");
               core.setOutput("review-user-login", "");
               core.setOutput("review-submitted-at", "");
+              core.setOutput("review-state", "");
             }
 
             core.setOutput("pull-number", String(pullNumber));
             core.setOutput("base-sha", pullRequest.base.sha);
             core.setOutput("event-name", isReviewEvent ? "pull_request_review" : "pull_request");
             core.setOutput("action", payload.action ?? "");
-            core.setOutput("review-state", payload.review?.state?.toLowerCase() ?? "");
 
       - name: Check out trusted review tooling
         uses: actions/checkout@v7
@@ -262,11 +268,11 @@ jobs:
             }
 
             core.info(`PR #${pullNumber} review status: ${nextStatus ?? "none"}`);
-          env:
-            PULL_REQUEST_NUMBER: ${{ steps.event.outputs.pull-number }}
-            REVIEW_EVENT_NAME: ${{ steps.event.outputs.event-name }}
-            REVIEW_ACTION: ${{ steps.event.outputs.action }}
-            REVIEW_STATE: ${{ steps.event.outputs.review-state }}
-            REVIEW_ID: ${{ steps.event.outputs.review-id }}
-            REVIEW_USER_LOGIN: ${{ steps.event.outputs.review-user-login }}
-            REVIEW_SUBMITTED_AT: ${{ steps.event.outputs.review-submitted-at }}
+        env:
+          PULL_REQUEST_NUMBER: ${{ steps.event.outputs.pull-number }}
+          REVIEW_EVENT_NAME: ${{ steps.event.outputs.event-name }}
+          REVIEW_ACTION: ${{ steps.event.outputs.action }}
+          REVIEW_STATE: ${{ steps.event.outputs.review-state }}
+          REVIEW_ID: ${{ steps.event.outputs.review-id }}
+          REVIEW_USER_LOGIN: ${{ steps.event.outputs.review-user-login }}
+          REVIEW_SUBMITTED_AT: ${{ steps.event.outputs.review-submitted-at }}

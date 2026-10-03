@@ -10,6 +10,7 @@ import {
 
 const workflowPath = ".github/workflows/lithe-pr-review-status.yml";
 const observerWorkflowPath = ".github/workflows/lithe-pr-review-status-observer.yml";
+const verificationWorkflowPath = ".github/workflows/verify-pr-review-status.yml";
 
 test("marks a newly ready non-draft PR as waiting for review", () => {
     assert.equal(determineReviewStatus({
@@ -113,6 +114,42 @@ test("treats a later review from the same reviewer as the effective state", () =
             user: { login: "alice" },
         },
     ]), false);
+});
+
+test("does not clear the current state for a submitted comment review", () => {
+    assert.equal(determineReviewStatus({
+        action: "submitted",
+        currentLabels: [REVIEW_LABELS.needsReview],
+        eventName: "pull_request_review",
+        reviewState: "commented",
+    }), REVIEW_LABELS.needsReview);
+    assert.equal(determineReviewStatus({
+        action: "submitted",
+        currentLabels: [REVIEW_LABELS.needsChanges],
+        eventName: "pull_request_review",
+        reviewState: "commented",
+    }), REVIEW_LABELS.needsChanges);
+});
+
+test("uses the API review record when a stale event has the same review ID", () => {
+    assert.equal(determineReviewStatus({
+        action: "submitted",
+        currentLabels: [REVIEW_LABELS.needsChanges],
+        currentReview: {
+            id: 9,
+            state: "changes_requested",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        },
+        eventName: "pull_request_review",
+        reviewState: "changes_requested",
+        reviews: [{
+            id: 9,
+            state: "dismissed",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        }],
+    }), null);
 });
 
 test("preserves other changes requests when one reviewer is requested again", () => {
@@ -225,10 +262,14 @@ test("workflow uses trusted base code and only owns review labels", async () => 
     assert.match(workflow, /ref: \$\{\{ steps\.event\.outputs\.base-sha \}\}/);
     assert.doesNotMatch(workflow, /github\.event\.pull_request\.head\.sha/);
     assert.match(workflow, /github\.rest\.actions\.getWorkflowRun/);
-    assert.match(workflow, /workflowPullRequests\.length === 0/);
-    assert.match(workflow, /workflowRun\.head_sha === payload\.pull_request\.head\.sha/);
+    assert.match(workflow, /workflowRun\.head_sha === pullRequest\.head\?\.sha/);
+    assert.match(workflow, /workflowRun\.head_branch === pullRequest\.head\?\.ref/);
+    assert.match(workflow, /pullRequestHeadRepository/);
+    assert.match(workflow, /workflowPullRequests\.length > 0 && !belongsToWorkflowRun/);
     assert.match(workflow, /github\.rest\.pulls\.getReview/);
     assert.match(workflow, /github\.paginate\(github\.rest\.pulls\.listReviews/);
+    assert.match(workflow, /review\.state\?\.toLowerCase\(\)/);
+    assert.match(workflow, /env:\n          PULL_REQUEST_NUMBER/);
     assert.match(workflow, /actions: read/);
     assert.match(workflow, /issues: write/);
     assert.match(workflow, /pull-requests: read/);
@@ -240,4 +281,7 @@ test("workflow uses trusted base code and only owns review labels", async () => 
     assert.match(observerWorkflow, /uses: actions\/upload-artifact@v4/);
     assert.doesNotMatch(observerWorkflow, /issues: write/);
     assert.doesNotMatch(observerWorkflow, /actions\/checkout/);
+
+    const verificationWorkflow = await readFile(verificationWorkflowPath, "utf8");
+    assert.match(verificationWorkflow, /rhysd\/actionlint:1\.7\.7/);
 });

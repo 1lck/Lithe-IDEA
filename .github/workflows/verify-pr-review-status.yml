@@ -31,5 +31,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+      - name: Validate GitHub Actions workflows with actionlint
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          args: >-
+            .github/workflows/lithe-pr-review-status.yml
+            .github/workflows/lithe-pr-review-status-observer.yml
+            .github/workflows/verify-pr-review-status.yml
       - name: Test PR review status decisions and workflow safety
         run: node --test --test-timeout=10000 scripts/test-lithe-pr-review-status.mjs
