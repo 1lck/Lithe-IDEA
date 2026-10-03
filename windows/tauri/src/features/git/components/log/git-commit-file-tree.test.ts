@@ -47,4 +47,15 @@ describe("GitCommitFileTree", () => {
     expect(files.map((file) => file.path)).toContain(first as string);
     expect(getFirstCommitFilePath([])).toBeNull();
   });
+
+  test("long file names scroll horizontally instead of folding", async () => {
+    const source = await Bun.file(new URL("./git-commit-file-tree.tsx", import.meta.url)).text();
+
+    // Like the Git changes tree, the tree rides inside a bidirectional ScrollArea and
+    // takes the measured content width, so long names never end in an ellipsis.
+    expect(source).toContain('orientation="both"');
+    expect(source).toContain("useTreeContentWidth");
+    expect(source).toContain("minWidth: treeContentWidth > 0 ? treeContentWidth : undefined");
+    expect(source).toContain("overflow-visible!");
+  });
 });

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { installHappyDom } from "@/test-utils/happy-dom";
-import { measureGitStatusRowWidth } from "./git-status-panel";
+import { measureTreeRowWidth } from "../../hooks/use-tree-content-width";
 
 let restoreDom: () => void;
 beforeEach(() => {
@@ -33,9 +33,9 @@ const buildRow = (nameWidth: number, countWidth: number) => {
 test("a clipped name widens the row by the hidden part of its name and count", () => {
   // Fixed chrome is 200 - 120 = 80px; the name and count need 150 + 6 + 40 = 196px,
   // plus one pixel of slack against fractional text widths.
-  expect(measureGitStatusRowWidth(buildRow(150, 40))).toEqual({ width: 277, truncated: true });
+  expect(measureTreeRowWidth(buildRow(150, 40))).toEqual({ width: 277, truncated: true });
 });
 
 test("a row whose label fits needs no more than its current width", () => {
-  expect(measureGitStatusRowWidth(buildRow(60, 54))).toEqual({ width: 201, truncated: false });
+  expect(measureTreeRowWidth(buildRow(60, 54))).toEqual({ width: 201, truncated: false });
 });
