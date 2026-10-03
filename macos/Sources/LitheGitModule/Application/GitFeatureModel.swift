@@ -1307,10 +1307,11 @@ package final class GitFeatureModel: ObservableObject {
         return staged
     }
 
-    package func beginSetStaging(_ changes: [GitChange], staged: Bool) -> [GitChange] {
+    package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
         guard !isCommitting else { return [] }
         let pendingChanges = changes.filter {
-            $0.canToggleStaging && pendingStagingStates[$0.id] == nil && $0.isStaged != staged
+            $0.canToggleStaging && pendingStagingStates[$0.id] == nil
+                && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
         }
         for change in pendingChanges {
             pendingStagingStates[change.id] = staged

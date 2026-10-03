@@ -617,6 +617,17 @@ struct GitModuleTests {
         #expect(feature.beginSetStaging([change], staged: true).isEmpty)
     }
 
+    @Test(arguments: [Character("M"), Character("A")])
+    func explicitStagingIncludesRemainingEditsWithoutChangingCheckboxSemantics(indexStatus: Character) {
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))
+        defer { feature.reset() }
+        let change = GitChange(repositoryRoot: URL(fileURLWithPath: "/workspace"), path: "Main.java",
+            originalPath: nil, indexStatus: indexStatus, workTreeStatus: "M")
+        #expect(feature.beginSetStaging([change], staged: true).isEmpty)
+        #expect(feature.beginSetStaging([change], staged: true, includeWorkingTreeChanges: true) == [change])
+        #expect(feature.beginSetStaging([change], staged: true, includeWorkingTreeChanges: true).isEmpty)
+    }
+
     @Test
     func workspaceCommitConfirmationUsesTheSharedPlanAndForwardsOptions() async throws {
         let preparation = try workspacePreparation()
