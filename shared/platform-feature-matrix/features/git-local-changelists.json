@@ -1,0 +1,31 @@
+{
+  "id": "git-local-changelists",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "本地 ChangeList：持久化文件分组、按当前列表批量暂存及提交范围保护",
+  "macos": {
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git/ChangesSidebarView.swift",
+      ".agents/notes/implemented/feature/2026-10-03-local-git-changelists.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "windows/tauri/src/features/git/components/git-changelist-bar.tsx",
+      "windows/tauri/src/features/git/components/status/git-status-panel.tsx",
+      "windows/tauri/src/features/git/stores/git-changelists.store.ts",
+      "windows/tauri/src/features/git/utils/git-changelists.ts",
+      "rust/lithe-core/src/git/workspace_commit/path_scope.rs",
+      "shared/fixtures/git/local-changelist-scope-v1.json",
+      "windows/tauri/src/features/git/stores/git-changelists.store.test.ts",
+      "rust/lithe-core/src/tests/git_workspace_commit.rs"
+    ]
+  },
+  "owner": "Git",
+  "verification": "Windows 创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件和目录多选移动、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。",
+  "notes": "本次优先实现 Issue #429 指定的 Windows 产品。共享 Core 提供可选 pathScope，macOS 暂未接入列表界面和持久化，原提交行为保持兼容。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。"
+}

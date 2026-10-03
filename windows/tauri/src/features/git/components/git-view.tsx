@@ -1,3 +1,8 @@
+import { GitChangelistBar } from "./git-changelist-bar";
+import { useGitChangelistsStore, workspaceChangelists } from "../stores/git-changelists.store";
+import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { changelistCommitScope, fileChangelist } from "../utils/git-changelists";
+import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   ArchiveIcon as Archive,
@@ -10,7 +15,15 @@ import {
   TrashIcon as Trash2,
   UploadIcon as Upload,
 } from "@/ui/icons";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import { Button } from "@/ui/button";
@@ -199,9 +212,49 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   const commitByHash = useMemo(() => {
     return new Map(commits.map((commit) => [commit.hash, commit] as const));
   }, [commits]);
+  const changelistWorkspace = repoPath ?? activeRepoPath ?? "";
+  const changelists = useGitChangelistsStore((state) =>
+    workspaceChangelists(state, changelistWorkspace),
+  );
+  useEffect(() => {
+    useGitChangelistsStore
+      .getState()
+      .rememberRenames(changelistWorkspace, gitStatus?.files ?? [], activeRepoPath ?? undefined);
+  }, [changelistWorkspace, gitStatus?.files, activeRepoPath]);
+  const changelistsUnavailable = useGitChangelistsStore((state) => state.unavailable);
+  const workflow = useWorkspaceCommitStore((state) => state.workflow);
+  const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
+  const changelistsBusy =
+    isStaging ||
+    batch.busy ||
+    Boolean(batch.review) ||
+    Boolean(batch.session && !batch.session.succeeded);
   const commitSelectedFiles = useMemo(
-    () => (gitStatus?.files ?? []).filter((file) => file.staged),
-    [gitStatus?.files],
+    () =>
+      (gitStatus?.files ?? []).filter(
+        (file) =>
+          file.staged &&
+          fileChangelist(changelists, file, activeRepoPath ?? undefined) === changelists.activeId,
+      ),
+    [gitStatus?.files, changelists, activeRepoPath],
+  );
+  const otherListsStaged = (gitStatus?.files ?? []).some(
+    (file) =>
+      file.staged &&
+      fileChangelist(changelists, file, activeRepoPath ?? undefined) !== changelists.activeId,
+  );
+  const pathScope = useMemo(
+    () =>
+      changelistCommitScope(
+        changelists,
+        workspaceCommitBindings(
+          changelistWorkspace,
+          repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : [],
+        ),
+        gitStatus?.files ?? [],
+        activeRepoPath ?? undefined,
+      ),
+    [changelists, changelistWorkspace, repositoryPaths, activeRepoPath, gitStatus?.files],
   );
   const handleBranchDiffOpened = useCallback(() => {
     setShowBranchDiffList(false);
@@ -668,7 +721,17 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden isolate">
           <div ref={changesAreaRef} className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
             <GitOperationBanner repoPath={activeRepoPath} />
+            <GitChangelistBar workspace={changelistWorkspace} disabled={changelistsBusy} />
             <GitStatusPanel
+              changelists={changelists}
+              changelistsDisabled={changelistsBusy}
+              stagingDisabled={changelistsUnavailable}
+              onMoveToChangelist={(files, id) => {
+                if (!changelistsBusy)
+                  useGitChangelistsStore
+                    .getState()
+                    .moveFiles(changelistWorkspace, files, id, activeRepoPath ?? undefined);
+              }}
               files={visibleGitFiles}
               repositoryCount={repositoryPaths.length}
               collapsedFolders={collapsedStatusFolders}
@@ -717,6 +780,14 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
             />
 
             <GitCommitPanel
+              pathScope={pathScope}
+              commitScopeError={
+                changelistsUnavailable
+                  ? t("git.changelists.unavailable")
+                  : otherListsStaged
+                    ? t("git.changelists.otherStaged")
+                    : undefined
+              }
               selectedFiles={commitSelectedFiles}
               isStaging={isStaging}
               workspacePath={repoPath ?? activeRepoPath ?? ""}
