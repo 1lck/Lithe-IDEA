@@ -423,10 +423,10 @@ struct GitStatusObservationTests {
         #expect(model.selectedChange == nil)
         #expect(model.beginToggleStaging(unstaged) == true)
         #expect(model.selectedChange == nil)
-        model.reconcilePendingStagingStates(with: [unstaged])
+        model.reconcilePendingStagingStates(with: [unstaged], successfullyReadRepositoryRoots: [repository])
         #expect(model.effectiveStagingState(for: unstaged))
 
-        model.reconcilePendingStagingStates(with: [staged])
+        model.reconcilePendingStagingStates(with: [staged], successfullyReadRepositoryRoots: [repository])
         #expect(model.effectiveStagingState(for: staged))
         model.selectedChange = unstaged
         #expect(model.beginToggleStaging(staged) == false)
