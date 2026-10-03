@@ -48,7 +48,7 @@ import { useTerminalTabsStore } from "@/features/terminal/stores/terminal-tabs.s
 import { useTerminalStore } from "@/features/terminal/stores/terminal.store";
 import { createTerminalEventChannel } from "@/features/terminal/utils/terminal-protocol";
 import { getFrontendTerminalSessionArgs } from "@/features/terminal/utils/frontend-terminal-session";
-import { isEditorContent, type PaneContent } from "@/features/panes/types/pane-content.types";
+import type { PaneContent } from "@/features/panes/types/pane-content.types";
 import { showAlertDialog, showPromptDialog } from "@/ui/dialog";
 import { workspaceRuntimeRegistry } from "@/features/workspace/runtime/workspace-runtime-registry";
 import { workspaceSessionRepository } from "@/features/workspace/persistence/workspace-session-repository";
@@ -483,58 +483,24 @@ const disposeWorkspaceServices = async (projectId: string, path: string): Promis
   await connectionStore.updateConnectionStatus(remote.connectionId, false).catch(() => {});
 };
 
-// Dirty buffer contents the user already settled (saved, or chose to discard) for a project
-// that is closing. Teardown can outlast that answer, so removal re-checks only edits that
-// are new or changed since — a "discard" answer must not be asked again.
-type SettledDirtyBuffers = Map<string, string>;
-
-const captureSettledDirtyBuffers = (workspaceId: string): SettledDirtyBuffers =>
-  new Map(
-    getDirtyEditorBuffers(useBufferStore.getStore(workspaceId).getState().buffers).flatMap(
-      (buffer) => (isEditorContent(buffer) ? [[buffer.id, buffer.content] as const] : []),
-    ),
-  );
-
-const confirmEditsSinceSettled = async (workspaceId: string, settled: SettledDirtyBuffers) => {
-  const unsettled = getDirtyEditorBuffers(
-    useBufferStore.getStore(workspaceId).getState().buffers,
-  ).filter((buffer) => isEditorContent(buffer) && settled.get(buffer.id) !== buffer.content);
-  if (unsettled.length === 0) {
-    return true;
-  }
-
-  return await prepareProjectTransitionWithUnsavedBuffers(
-    "closing this project",
-    unsettled,
-    workspaceId,
-  );
-};
-
 // Guards for the workspace-lifecycle replace-active mode: the dirty-buffer confirm runs
-// against the project that is about to be replaced, teardown reuses closeProject's
-// service disposal, and removal re-checks edits made after the last confirm.
-const createProjectOpenRuntimeGuards = () => {
-  let settled: SettledDirtyBuffers = new Map();
-  return {
-    confirmReplaceCurrent: async (workspaceId: string) => {
-      const workspaceBuffers = useBufferStore.getStore(workspaceId).getState().buffers;
-      const confirmed =
-        getDirtyEditorBuffers(workspaceBuffers).length === 0 ||
-        (await prepareProjectTransitionWithUnsavedBuffers(
-          "closing this project",
-          useBufferStore.getStore(workspaceId).getState().buffers,
-          workspaceId,
-        ));
-      if (confirmed) {
-        settled = captureSettledDirtyBuffers(workspaceId);
-      }
-      return confirmed;
-    },
-    disposeReplaced: disposeWorkspaceServices,
-    confirmReplacedRemoval: (workspaceId: string) =>
-      confirmEditsSinceSettled(workspaceId, settled),
-  };
-};
+// against the project that is about to be replaced, and teardown reuses closeProject's
+// service disposal.
+const createProjectOpenRuntimeGuards = () => ({
+  confirmReplaceCurrent: async (workspaceId: string) => {
+    const workspaceBuffers = useBufferStore.getStore(workspaceId).getState().buffers;
+    if (getDirtyEditorBuffers(workspaceBuffers).length === 0) {
+      return true;
+    }
+
+    return await prepareProjectTransitionWithUnsavedBuffers(
+      "closing this project",
+      useBufferStore.getStore(workspaceId).getState().buffers,
+      workspaceId,
+    );
+  },
+  disposeReplaced: disposeWorkspaceServices,
+});
 
 let workspaceServiceActivationVersion = 0;
 
@@ -949,7 +915,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
             mode: destination === "this-window" ? "replace-active" : "attach",
             confirmReplaceCurrent: replaceGuards.confirmReplaceCurrent,
             disposeReplaced: replaceGuards.disposeReplaced,
-            confirmReplacedRemoval: replaceGuards.confirmReplacedRemoval,
             persistCurrent: () => get().persistActiveProjectSession(),
             initialize: (workspaceId): Promise<boolean> =>
               getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
@@ -1331,7 +1296,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           confirmReplaceCurrent:
             options?.mode === "replace-active" ? replaceGuards.confirmReplaceCurrent : undefined,
           disposeReplaced: replaceGuards.disposeReplaced,
-          confirmReplacedRemoval: replaceGuards.confirmReplacedRemoval,
           persistCurrent: () => get().persistActiveProjectSession(),
           initialize: (workspaceId) =>
             getScopedFileSystemStore(workspaceId).getState().initializeLocalWorkspace({
@@ -1584,7 +1548,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           confirmReplaceCurrent:
             options?.mode === "replace-active" ? replaceGuards.confirmReplaceCurrent : undefined,
           disposeReplaced: replaceGuards.disposeReplaced,
-          confirmReplacedRemoval: replaceGuards.confirmReplacedRemoval,
           persistCurrent: () => get().persistActiveProjectSession(),
           initialize: (workspaceId) =>
             getScopedFileSystemStore(workspaceId)
@@ -3109,7 +3072,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           }
         }
 
-        const settled = captureSettledDirtyBuffers(projectId);
         const { closeWorkspaceRuntime } =
           await import("@/features/workspace/services/workspace-lifecycle");
         return await closeWorkspaceRuntime(projectId, {
@@ -3118,7 +3080,6 @@ const createFileSystemStore = (workspaceId: string): StoreApi<ScopedFileSystemSt
           dispose: async (path) => {
             await disposeWorkspaceServices(projectId, path);
           },
-          confirmRemove: () => confirmEditsSinceSettled(projectId, settled),
           switchTo: (nextWorkspaceId) => get().switchToProject(nextWorkspaceId),
           showWelcome: async () => {
             await useFileWatcherStore.getStore(workspaceId).getState().actions.setProjectRoot("");

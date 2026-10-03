@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
 
-const tabs: { id: string; path: string; name: string }[] = [];
+const tabs: { id: string; path: string; name: string; readonly isActive: boolean }[] = [];
 const workspaces = new Map<string, { status: string }>();
 let active = "welcome";
 let redirected = false;
@@ -19,7 +19,16 @@ const actions = {
   },
   addProjectTab: (path: string, name: string) => {
     const id = createProjectTabId(path);
-    if (!tabs.some((tab) => tab.id === id)) tabs.push({ id, path, name });
+    if (!tabs.some((tab) => tab.id === id)) {
+      tabs.push({
+        id,
+        path,
+        name,
+        get isActive() {
+          return this.id === active;
+        },
+      });
+    }
   },
   removeProjectTab: (id: string) => {
     const index = tabs.findIndex((tab) => tab.id === id);
@@ -492,7 +501,6 @@ test("a replaced project cannot be reactivated while its teardown waits", async 
   const disposing = new Promise<void>((resolve) => {
     disposeStarted = resolve;
   });
-  const removalChecks: string[] = [];
   const opening = openWorkspaceRuntime({
     descriptor,
     mode: "replace-active",
@@ -500,10 +508,6 @@ test("a replaced project cannot be reactivated while its teardown waits", async 
     disposeReplaced: async () => {
       disposeStarted();
       await disposeGate;
-    },
-    confirmReplacedRemoval: async (workspaceId) => {
-      removalChecks.push(workspaceId);
-      return true;
     },
     initialize: async () => true,
   });
@@ -520,31 +524,9 @@ test("a replaced project cannot be reactivated while its teardown waits", async 
   }
 
   expect(await opening).toBe(true);
-  expect(removalChecks).toEqual([oldId]);
   expect(isWorkspaceClosing(oldId)).toBe(false);
   expect(tabs.map((tab) => tab.id)).toEqual([newId]);
   expect(active).toBe(newId);
-});
-
-test("a replaced project with edits made during teardown is kept when removal is declined", async () => {
-  const oldDescriptor = { path: "C:/projects/old", name: "old" };
-  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
-  const oldId = createProjectTabId(oldDescriptor.path);
-
-  expect(
-    await openWorkspaceRuntime({
-      descriptor,
-      mode: "replace-active",
-      confirmReplaceCurrent: async () => true,
-      disposeReplaced: async () => {},
-      confirmReplacedRemoval: async () => false,
-      initialize: async () => true,
-    }),
-  ).toBe(true);
-
-  expect(tabs.map((tab) => tab.id)).toContain(oldId);
-  expect(workspaces.has(oldId)).toBe(true);
-  expect(released).not.toContain(oldId);
 });
 
 test("closing picks the successor from the active workspace at removal time", async () => {
@@ -569,4 +551,88 @@ test("closing picks the successor from the active workspace at removal time", as
   expect(active).toBe(otherId);
   expect(switchedTo).toEqual([]);
   expect(workspaces.has(id)).toBe(false);
+});
+
+test("closing the active project leaves it before MCP and services are torn down", async () => {
+  const otherDescriptor = { path: "C:/projects/other", name: "other" };
+  await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+  const otherId = createProjectTabId(otherDescriptor.path);
+
+  let releaseDispose!: () => void;
+  const disposeGate = new Promise<void>((resolve) => {
+    releaseDispose = resolve;
+  });
+  let disposeStarted!: () => void;
+  const disposing = new Promise<void>((resolve) => {
+    disposeStarted = resolve;
+  });
+  const events: string[] = [];
+  const closing = closeWorkspaceRuntime(id, {
+    persist: () => events.push("persist"),
+    switchTo: async (next) => {
+      events.push(`switch:${next}`);
+      // Nothing has been revoked yet: the project is left while still fully usable.
+      expect(revokedIdeWorkspaces).toEqual([]);
+      active = next;
+      return true;
+    },
+    dispose: async () => {
+      events.push("dispose");
+      disposeStarted();
+      await disposeGate;
+    },
+  });
+
+  try {
+    await disposing;
+    // During teardown the project is inactive and cannot be reactivated for editing.
+    expect(active).toBe(otherId);
+    expect(await switchWorkspaceRuntime(id, { initialize: async () => true })).toBe(false);
+    expect(active).toBe(otherId);
+  } finally {
+    releaseDispose();
+  }
+
+  expect(await closing).toBe(true);
+  expect(events).toEqual(["persist", `switch:${otherId}`, "dispose"]);
+  expect(revokedIdeWorkspaces).toEqual([id]);
+  expect(tabs.map((tab) => tab.id)).toEqual([otherId]);
+  expect(active).toBe(otherId);
+});
+
+test("closing the last project shows the welcome workspace before teardown", async () => {
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+
+  const events: string[] = [];
+  expect(
+    await closeWorkspaceRuntime(id, {
+      showWelcome: async () => {
+        events.push(`welcome:${active}`);
+      },
+      dispose: async () => {
+        events.push("dispose");
+      },
+    }),
+  ).toBe(true);
+
+  expect(events).toEqual([`welcome:${active}`, "dispose"]);
+  expect(active).not.toBe(id);
+  expect(tabs).toEqual([]);
+});
+
+test("a failed successor switch never leaves the registry on the removed project", async () => {
+  const otherDescriptor = { path: "C:/projects/other", name: "other" };
+  await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+
+  // Every switch fails and leaves the registry on the closing project; removal must still
+  // move it off the removed id.
+  await closeWorkspaceRuntime(id, { switchTo: async () => false });
+
+  expect(workspaces.has(id)).toBe(false);
+  expect(active).not.toBe(id);
 });

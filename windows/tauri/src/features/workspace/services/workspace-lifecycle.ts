@@ -4,6 +4,7 @@ import { useSettingsStore } from "@/features/settings/stores/settings.store";
 import type { WorkspaceRuntimeDescriptor } from "@/features/workspace/types/workspace-runtime.types";
 import { WELCOME_WORKSPACE_ID } from "@/features/workspace/types/workspace-runtime.types";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
+import { removeProjectTabItems } from "@/features/window/utils/project-tab-close";
 import { createProjectTabId } from "@/features/window/utils/project-tab-path";
 
 // "attach" keeps the current projects as tabs beside the new one; "replace-active" closes
@@ -20,8 +21,6 @@ interface OpenWorkspaceRuntimeOptions {
   confirmReplaceCurrent?: (workspaceId: string) => Promise<boolean>;
   /** replace-active only: service teardown for the replaced project, injected by the file-system store. */
   disposeReplaced?: (workspaceId: string, path: string) => Promise<void>;
-  /** replace-active only: final unsaved-edit check for the replaced project, run after teardown and before its removal. */
-  confirmReplacedRemoval?: (workspaceId: string) => Promise<boolean>;
 }
 
 interface SwitchWorkspaceRuntimeOptions {
@@ -38,8 +37,6 @@ interface PrepareWorkspaceRuntimeOptions {
 
 interface CloseWorkspaceRuntimeOptions {
   dispose?: (path: string) => Promise<void>;
-  /** Runs after dispose, right before removal; returning false keeps the project tab. */
-  confirmRemove?: () => Promise<boolean>;
   persist?: () => void;
   showWelcome?: () => Promise<void>;
   switchTo?: (workspaceId: string) => Promise<boolean>;
@@ -171,7 +168,6 @@ async function openWorkspaceRuntimeOnce({
   mode = "attach",
   confirmReplaceCurrent,
   disposeReplaced,
-  confirmReplacedRemoval,
 }: OpenWorkspaceRuntimeOptions) {
   const workspaceId = createProjectTabId(descriptor.path);
   const { projectWindowRouting } =
@@ -289,9 +285,6 @@ async function openWorkspaceRuntimeOnce({
 
       await closeWorkspaceRuntime(previousWorkspaceId, {
         dispose: (path) => disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
-        confirmRemove: confirmReplacedRemoval
-          ? () => confirmReplacedRemoval(previousWorkspaceId)
-          : undefined,
       });
     } catch (error) {
       console.warn(`Failed to tear down replaced workspace "${previousWorkspaceId}":`, error);
@@ -377,28 +370,47 @@ export function closeWorkspaceRuntime(
   return closingOnce;
 }
 
+// Activates the tab that will follow the closing one (the same pick removeProjectTab makes),
+// or the welcome workspace when it is the last tab.
+const activateSuccessor = async (
+  workspaceId: string,
+  { showWelcome, switchTo }: Pick<CloseWorkspaceRuntimeOptions, "showWelcome" | "switchTo">,
+) => {
+  const successor = removeProjectTabItems(
+    useWorkspaceTabsStore.getState().projectTabs,
+    workspaceId,
+  ).find((projectTab) => projectTab.isActive);
+  if (successor) {
+    return (await switchTo?.(successor.id)) ?? true;
+  }
+
+  workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");
+  await showWelcome?.();
+  return true;
+};
+
 async function closeWorkspaceRuntimeOnce(
   workspaceId: string,
   path: string,
-  { dispose, confirmRemove, persist, showWelcome, switchTo }: CloseWorkspaceRuntimeOptions,
+  { dispose, persist, showWelcome, switchTo }: CloseWorkspaceRuntimeOptions,
 ) {
+  // Leave the project before tearing it down. Teardown can wait a long time (the Java
+  // server waits for its start task); with the project inactive and closing-locked nothing
+  // can edit it meanwhile, so the caller's dirty guard stays the last word and no question
+  // is ever asked after MCP and services are already gone.
+  let switched = true;
   if (workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId) {
     persist?.();
+    switched = await activateSuccessor(workspaceId, { showWelcome, switchTo });
   }
+
   const { disableMcp } = await import("@/features/host-api/mcp-connection");
   await disableMcp(workspaceId);
   await extensionProcessOwner.stop(workspaceId);
   await dispose?.(path);
 
-  // Dispose can wait a long time; edits made meanwhile (the active project stays editable)
-  // were never covered by the caller's dirty guard.
-  if (confirmRemove && !(await confirmRemove())) {
-    console.warn(`Kept workspace "${workspaceId}": unsaved edits were made while it closed.`);
-    return false;
-  }
-
-  // Decide the successor from the state at removal, not at entry, so the registry never
-  // keeps pointing at the removed workspace.
+  // A failed successor switch rolls back onto this project; check again at removal so the
+  // registry never keeps pointing at the removed workspace.
   const isActiveAtRemoval = workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId;
   useWorkspaceTabsStore.getState().actions.removeProjectTab(workspaceId);
   workspaceRuntimeRegistry.removeWorkspace(workspaceId);
@@ -406,16 +418,8 @@ async function closeWorkspaceRuntimeOnce(
     await import("@/features/window/services/project-window-routing");
   await projectWindowRouting.release(workspaceId);
 
-  if (!isActiveAtRemoval) {
-    return true;
+  if (isActiveAtRemoval) {
+    return await activateSuccessor(workspaceId, { showWelcome, switchTo });
   }
-
-  const nextTab = useWorkspaceTabsStore.getState().actions.getActiveProjectTab();
-  if (nextTab) {
-    return await switchTo?.(nextTab.id) ?? true;
-  }
-
-  workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");
-  await showWelcome?.();
-  return true;
+  return switched;
 }

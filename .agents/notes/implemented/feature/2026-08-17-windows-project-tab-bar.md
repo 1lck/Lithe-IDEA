@@ -79,10 +79,13 @@ persistCurrent → 走正常 attach 流程（新 Tab 激活、初始化或恢复
 关闭与激活互斥：`closeWorkspaceRuntime` 在拆除期间把项目记入 closing 集合，
 Java 服务停止可能要等它的 startTask，期间旧 Tab 仍在但 `switchWorkspaceRuntime`
 / `switchToProject` 直接拒绝激活（不弹失败 toast），同路径的新打开会等关闭结束
-再全新打开，重复关闭复用同一个 promise。服务拆除完成、真正删除前再做两项复核：
-一是 `confirmRemove`，只对上次确认之后新增或内容变化的脏缓冲重新询问
-（已选"放弃"的不再重复询问；拒绝则保留该 Tab）；二是按**删除时**的活动项目
-决定是否切到后继项目，而不是按进入时捕获的 `wasActive`，避免 registry 停在已删除 id。
+再全新打开，重复关闭复用同一个 promise。关闭当前活动项目时**先离开再拆除**：
+persist 后立即切到后继 Tab（与 `removeProjectTabItems` 的选择一致）或欢迎页，
+之后才撤销 MCP、停止扩展进程和服务。拆除期间项目既不活动又被锁定，无法再编辑，
+调用方的脏缓冲确认就是最后一次询问；不在拆除之后再弹确认，因为那时 MCP 授权和
+服务已撤销，用户取消也无法回到原状态（曾尝试过"拆除后复核"，被评审否决：取消会
+留下 MCP 失效的项目，且与已选"放弃"的缓冲冲突）。删除时若后继切换失败回滚到
+本项目，会按**删除时**的活动项目再次选后继，避免 registry 停在已删除 id。
 
 已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
 （拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径
