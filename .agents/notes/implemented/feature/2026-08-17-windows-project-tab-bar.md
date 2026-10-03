@@ -98,6 +98,15 @@ persist 后先切到后继 Tab（与 `removeProjectTabItems` 的选择一致）�
 被拆除导致输入丢失。另外两道防线：替换流程拆除旧项目前如果它又成了活动项目，就保留
 它并释放锁；`activateSuccessor` 缺少 `switchTo` 时视为无法离开（返回 false），不再当作成功。
 
+回滚只做激活、从不做初始化，所以兜底只选**有存活 runtime** 的 Tab（`ready`，或
+`opening` 且初始化仍在进行）。重启后从未访问过的持久化 Tab 没有 runtime；如果把它默认
+标记为 ready，它的初始化会被永久跳过（文件树为空，之后来回切换也修不好）。由于回滚会跳过
+已锁定的关闭中项目，关闭流程在后继切换失败而中止时，会**自己把原项目重新激活**，
+保证中止关闭后用户回到完好可编辑的原项目。
+
+这组生命周期回归由 `ci-windows.yml` 的 "Test workspace open, replace, and close
+lifecycle" 步骤单独执行（`workspace-lifecycle.test.ts` 与 `project-window-router.test.ts`）。
+
 已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
 （拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径
 （WSL 项目经 This Window 替换当前项目）已于 2026-10-03 实机验证通过；

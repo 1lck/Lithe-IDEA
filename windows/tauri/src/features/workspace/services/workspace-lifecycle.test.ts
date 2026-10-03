@@ -807,3 +807,37 @@ test("closing without a switch callback does not tear down a project it cannot l
   expect(active).toBe(id);
   expect(isWorkspaceClosing(id)).toBe(false);
 });
+
+test("a failed successor rollback never activates a persisted tab that has no runtime", async () => {
+  // After a restart the tab order is D (unvisited WSL project), B (stale local path),
+  // A (ready). Closing A switches to B, B fails to initialize, and the rollback must not
+  // pick D: it has no runtime, and marking it ready would skip its initialization for good.
+  const dDescriptor = { path: "//wsl$/Ubuntu/home/me/d", name: "d" };
+  const bDescriptor = { path: "C:/projects/stale-b", name: "b" };
+  const aDescriptor = { path: "C:/projects/a", name: "a" };
+  const dId = createProjectTabId(dDescriptor.path);
+  const bId = createProjectTabId(bDescriptor.path);
+  const aId = createProjectTabId(aDescriptor.path);
+  actions.addProjectTab(dDescriptor.path, dDescriptor.name);
+  actions.addProjectTab(bDescriptor.path, bDescriptor.name);
+  await openWorkspaceRuntime({ descriptor: aDescriptor, initialize: async () => true });
+  expect(tabs.map((tab) => tab.id)).toEqual([dId, bId, aId]);
+
+  let disposed = false;
+  const closed = await closeWorkspaceRuntime(aId, {
+    switchTo: (next) => switchWorkspaceRuntime(next, { initialize: async () => false }),
+    dispose: async () => {
+      disposed = true;
+    },
+  });
+
+  expect(closed).toBe(false);
+  // The close stopped before teardown and handed A back, active and intact.
+  expect(active).toBe(aId);
+  expect(disposed).toBe(false);
+  expect(revokedIdeWorkspaces).toEqual([]);
+  expect(isWorkspaceClosing(aId)).toBe(false);
+  // D was never touched: no runtime was invented for it, so a later switch initializes it.
+  expect(workspaces.has(dId)).toBe(false);
+  expect(workspaces.get(bId)?.status).toBe("error");
+});

@@ -109,24 +109,37 @@ const resumeWorkspaceInBackground = (
 // open was still initializing) is never made editable again. Without a usable previous
 // project, another open project takes over, then the welcome workspace if the failed
 // project's tab is gone.
+//
+// Rollback only re-activates; it never initializes. So only tabs with a live runtime
+// qualify — ready, or opening with its initialization still in flight. A persisted tab
+// never visited since restart has no runtime, and marking it ready would skip its
+// initialization for good (an empty file tree that later switches never repair).
 const restorePreviousWorkspace = (
   previousWorkspaceId: string | undefined,
   failedWorkspaceId: string,
 ) => {
   const projectTabs = useWorkspaceTabsStore.getState().projectTabs;
-  const isRestorable = (tabId: string) =>
-    tabId !== failedWorkspaceId && !closingWorkspaces.has(tabId);
+  const runtimeStatus = (tabId: string) => workspaceRuntimeRegistry.getWorkspace(tabId)?.status;
+  const isRestorable = (tabId: string) => {
+    const status = runtimeStatus(tabId);
+    return (
+      tabId !== failedWorkspaceId &&
+      !closingWorkspaces.has(tabId) &&
+      (status === "ready" || status === "opening")
+    );
+  };
   const target =
     projectTabs.find((tab) => tab.id === previousWorkspaceId && isRestorable(tab.id)) ??
     (previousWorkspaceId === WELCOME_WORKSPACE_ID
       ? undefined
       : projectTabs.find((tab) => isRestorable(tab.id)));
+  const targetStatus = target ? runtimeStatus(target.id) : undefined;
 
-  if (target) {
+  if (target && targetStatus) {
     useWorkspaceTabsStore.getState().actions.setActiveProjectTab(target.id);
     workspaceRuntimeRegistry.activateWorkspace(
       { id: target.id, name: target.name, path: target.path },
-      workspaceRuntimeRegistry.getWorkspace(target.id)?.status ?? "ready",
+      targetStatus,
     );
     return;
   }
@@ -450,9 +463,21 @@ async function closeWorkspaceRuntimeOnce(
   // is ever asked after MCP and services are already gone.
   if (workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId) {
     persist?.();
-    // A failed switch rolls back onto this project and makes it editable again, so the
-    // close stops here, before anything is revoked; the project stays fully usable.
+    // A failed switch stops the close here, before anything is revoked. The switch's own
+    // rollback skips this project because it is closing-locked, so the close hands the
+    // project back itself: it is still fully intact and becomes active and editable again.
     if (!(await activateSuccessor(workspaceId, { showWelcome, switchTo }))) {
+      const tab = useWorkspaceTabsStore
+        .getState()
+        .projectTabs.find((projectTab) => projectTab.id === workspaceId);
+      const status = workspaceRuntimeRegistry.getWorkspace(workspaceId)?.status;
+      if (tab && status && workspaceRuntimeRegistry.getActiveWorkspaceId() !== workspaceId) {
+        useWorkspaceTabsStore.getState().actions.setActiveProjectTab(workspaceId);
+        workspaceRuntimeRegistry.activateWorkspace(
+          { id: tab.id, name: tab.name, path: tab.path },
+          status,
+        );
+      }
       console.warn(`Close of workspace "${workspaceId}" stopped: its successor failed to open.`);
       return false;
     }
