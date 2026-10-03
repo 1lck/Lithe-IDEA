@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Database",
-      "macos/Sources/Lithe/Services"
+      "macos/Sources/Lithe/Services",
+      "macos/Sources/Lithe/Models/AppModel/AppModel.swift",
+      "macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +21,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Database",
-  "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。"
+  "verification": "创建、编辑、测试和删除各支持数据库连接，确认凭据和错误边界。macOS：分别在数据库首页、SQL/数据/结构/历史页、Redis/Nacos/MongoDB 工作区及连接/结构比较弹窗打开时退出应用或关闭项目，确认无 SIGTRAP；休眠后重新打开数据库，确认新实例正常工作，旧视图的延迟刷新不会访问已清空的能力缓存。"
 }

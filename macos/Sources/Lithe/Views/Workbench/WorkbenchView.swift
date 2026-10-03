@@ -1624,8 +1624,9 @@ struct WorkbenchView: View {
                         .task { _ = await model.activateSearchModule() }
                 }
             case .database:
-                if model.isDatabaseModuleActive {
+                if let feature = model.databaseFeatureIfActive {
                     DatabaseSidebarView()
+                        .environmentObject(feature)
                 } else {
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)

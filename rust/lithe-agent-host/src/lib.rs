@@ -44,6 +44,11 @@ use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const SESSION_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const LOAD_SESSION_TIMEOUT: Duration = Duration::from_secs(60);
+/// Absolute wall-clock limit for one upstream prompt, including tool and
+/// permission waits. A stalled prompt must not keep a session busy forever.
+const PROMPT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const PROMPT_TIMEOUT_MESSAGE: &str =
+    "The Agent did not respond within 10 minutes. The turn was stopped; try again.";
 const STOP_TIMEOUT: Duration = Duration::from_secs(3);
 const PERMISSION_TIMEOUT: Duration = Duration::from_secs(300);
 const CANCEL_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1145,18 +1150,85 @@ where
                             ));
                             continue;
                         }
-                        let request = PromptRequest::new(
-                            session_id.clone(),
-                            content,
-                        );
-                        let response = connection.send_request(request).block_task();
+                        let request = PromptRequest::new(session_id.clone(), content);
+                        let connection = connection.clone();
+                        let mut response = Box::pin(connection.send_request(request).block_task());
                         let emit = emit.clone();
                         let turns = turns.clone();
                         let prompt_permissions = cancel_permissions.clone();
+                        let cancel_deadline = cancel_deadline_tx.clone();
                         tasks.spawn(async move {
-                            let result = response.await;
+                            let result = tokio::time::timeout(PROMPT_TIMEOUT, response.as_mut()).await;
+                            if result.is_err() {
+                                // Treat an expired prompt like a cancellation, but keep the
+                                // turn registered until the agent acknowledges it. This
+                                // prevents a late upstream response from overlapping a new
+                                // prompt in the same session.
+                                let current = turns.lock().is_ok_and(|mut turns| {
+                                    let Some(turn) = turns.get_mut(&session_id) else {
+                                        return false;
+                                    };
+                                    if turn.generation != generation {
+                                        return false;
+                                    }
+                                    turn.cancelling = true;
+                                    true
+                                });
+                                if !current {
+                                    return;
+                                }
+                                reject_pending_permissions(&prompt_permissions, Some(&session_id));
+                                let _ = connection
+                                    .send_notification(CancelNotification::new(session_id.clone()));
+                                emit(AgentEvent::TurnCancelling {
+                                    session_id: session_id.clone(),
+                                });
+
+                                // A terminal failure also releases the UI's busy state, so
+                                // report it only after cancellation has settled. Even a
+                                // late successful response cannot erase the timeout error.
+                                match tokio::time::timeout(CANCEL_TIMEOUT, response.as_mut()).await {
+                                    Ok(_) => {
+                                        let current = turns.lock().is_ok_and(|mut turns| {
+                                            let current = turns.get(&session_id).is_some_and(
+                                                |turn| turn.generation == generation,
+                                            );
+                                            if current {
+                                                turns.remove(&session_id);
+                                            }
+                                            current
+                                        });
+                                        if current {
+                                            reject_pending_permissions(
+                                                &prompt_permissions,
+                                                Some(&session_id),
+                                            );
+                                            emit(failed(
+                                                None,
+                                                Some(session_id),
+                                                PROMPT_TIMEOUT_MESSAGE.into(),
+                                            ));
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Keep the turn registered so the outer loop stops the
+                                        // connection instead of allowing a stale request to
+                                        // overlap.
+                                        emit(failed(
+                                            None,
+                                            Some(session_id.clone()),
+                                            PROMPT_TIMEOUT_MESSAGE.into(),
+                                        ));
+                                        let _ = cancel_deadline.send((session_id, generation));
+                                    }
+                                }
+                                return;
+                            }
+
                             let current = turns.lock().is_ok_and(|mut turns| {
-                                let current = turns.get(&session_id).is_some_and(|turn| turn.generation == generation);
+                                let current = turns
+                                    .get(&session_id)
+                                    .is_some_and(|turn| turn.generation == generation);
                                 if current {
                                     turns.remove(&session_id);
                                 }
@@ -1167,8 +1239,9 @@ where
                             }
                             reject_pending_permissions(&prompt_permissions, Some(&session_id));
                             emit(match result {
-                                Ok(response) => prompt::finished(session_id, response),
-                                Err(error) => failed(None, Some(session_id), error.to_string()),
+                                Ok(Ok(response)) => prompt::finished(session_id, response),
+                                Ok(Err(error)) => failed(None, Some(session_id), error.to_string()),
+                                Err(_) => unreachable!("prompt timeout handled above"),
                             });
                         });
                     }
