@@ -97,6 +97,82 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func hostCancellationClearsPermissionsAndKeepsTheTurnBusyUntilFailure() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            var attention: [Bool] = []
+            feature.onAttentionChanged = { attention.append($0) }
+            try feature.send("Wait for permission")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("permission"))
+            try feature.receive(event("permission", ["requestId": "permission-2"]))
+            #expect(feature.selectedConversation?.pendingPermissions.count == 2)
+            clock.advance(600)
+
+            // Deliver the Host timeout event without calling the UI's cancel action.
+            try feature.receive(event("turnCancelling"))
+            #expect(feature.selectedConversation?.pendingPermissions.isEmpty == true)
+            #expect(feature.selectedConversation?.permission == nil)
+            #expect(!feature.hasPendingPermission)
+            #expect(attention == [true, false])
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.isCancelling == true)
+            #expect(feature.selectedConversation?.completedTurns.isEmpty == true)
+            clock.advance(3)
+            #expect(feature.selectedConversation?.activeTurn?.elapsed(at: clock.instant) == 603)
+
+            let commandCount = connection.commands.count
+            try feature.receive(event("permission", ["requestId": "late-permission"]))
+            feature.answerPermission(optionID: "allow_once")
+            feature.cancel()
+            #expect(feature.selectedConversation?.permission == nil)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Still stopping") }
+            #expect(connection.commands.count == commandCount)
+            #expect(attention == [true, false])
+
+            try feature.receive(event("requestFailed", ["message": "The Agent request timed out"]))
+            #expect(feature.selectedConversation?.isResponding == false)
+            #expect(feature.selectedConversation?.isCancelling == false)
+            #expect(feature.selectedConversation?.activeTurn == nil)
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 603)
+            #expect(feature.selectedConversation?.errorMessage == "The Agent request timed out")
+            #expect(feature.connectionState == .ready)
+            try feature.send("Retry on the same connection")
+            #expect(connection.commands.last?["kind"] as? String == "prompt")
+        }
+    }
+
+    @Test
+    func backgroundHostCancellationPreservesOtherSessionsPermissionsAndAttention() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            var attention: [Bool] = []
+            feature.onAttentionChanged = { attention.append($0) }
+            try feature.send("First session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("permission"))
+            feature.startNewConversation()
+            try feature.send("Second session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any,
+                                                       "sessionId": "session-2"]))
+            try feature.receive(event("permission", ["sessionId": "session-2", "requestId": "permission-2"]))
+
+            try feature.receive(event("turnCancelling"))
+            try feature.receive(event("turnCancelling"))
+            #expect(feature.conversations["session-1"]?.pendingPermissions.isEmpty == true)
+            #expect(feature.conversations["session-1"]?.isCancelling == true)
+            #expect(feature.selectedSessionID == "session-2")
+            #expect(feature.selectedConversation?.isCancelling == false)
+            #expect(feature.selectedConversation?.permission?.id == "permission-2")
+            #expect(feature.hasPendingPermission)
+            #expect(attention == [true])
+            feature.answerPermission(optionID: "allow_once")
+            #expect(connection.commands.last?["requestId"] as? String == "permission-2")
+            #expect(connection.commands.last?["optionId"] as? String == "allow_once")
+            #expect(!feature.hasPendingPermission)
+            #expect(attention == [true, false])
+        }
+    }
+
+    @Test
     func failedSendAndReplayedHistoryDoNotInventStatistics() async throws {
         try await withStatisticsFeature { feature, connection, clock in
             feature.selectSession("session-1")

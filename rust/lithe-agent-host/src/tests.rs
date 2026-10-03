@@ -999,6 +999,86 @@ async fn a_busy_session_rejects_a_second_prompt_without_stopping() {
     assert_eq!(harness.stop().await, Ok(()));
 }
 
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn an_unresponsive_prompt_is_bounded_and_stops_before_a_stale_turn_can_overlap() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "wait" }));
+    let _prompt = harness.agent.expect("session/prompt").await;
+
+    tokio::time::advance(PROMPT_TIMEOUT).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnCancelling { session_id } if session_id == "session-1"
+    ));
+    harness.agent.expect("session/cancel").await;
+    assert!(
+        harness.events.try_recv().is_err(),
+        "no terminal failure during cancellation grace"
+    );
+
+    // The session remains busy during the bounded cancellation grace period.
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "overlap" }));
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::RequestFailed { session_id, .. } if session_id.as_deref() == Some("session-1")
+    ));
+
+    tokio::time::advance(CANCEL_TIMEOUT).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::RequestFailed { session_id, message, .. }
+            if session_id.as_deref() == Some("session-1") && message == PROMPT_TIMEOUT_MESSAGE
+    ));
+    let result = tokio::time::timeout(WAIT, &mut harness.connection)
+        .await
+        .expect("timed-out prompt stops the connection before the test deadline")
+        .expect("connection task joins");
+    assert!(result.is_err());
+}
+
+#[tokio::test(flavor = "current_thread", start_paused = true)]
+async fn a_timed_out_prompt_releases_the_session_after_cancellation_acknowledgement() {
+    let mut harness = Harness::ready().await;
+    harness.open_session("session-1").await;
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "wait" }));
+    let prompt = harness.agent.expect("session/prompt").await;
+
+    tokio::time::advance(PROMPT_TIMEOUT).await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnCancelling { session_id } if session_id == "session-1"
+    ));
+    harness.agent.expect("session/cancel").await;
+    assert!(
+        harness.events.try_recv().is_err(),
+        "no terminal failure during cancellation grace"
+    );
+    harness
+        .agent
+        .reply(&prompt, json!({ "stopReason": "cancelled" }))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::RequestFailed { session_id, message, .. }
+            if session_id.as_deref() == Some("session-1") && message == PROMPT_TIMEOUT_MESSAGE
+    ));
+
+    // The acknowledged timeout is complete; a later prompt can use the same connection.
+    harness.send(json!({ "kind": "prompt", "sessionId": "session-1", "text": "again" }));
+    let next = harness.agent.expect("session/prompt").await;
+    harness
+        .agent
+        .reply(&next, json!({ "stopReason": "end_turn" }))
+        .await;
+    assert!(matches!(
+        harness.event().await,
+        AgentEvent::TurnFinished { session_id, stop_reason, .. }
+            if session_id == "session-1" && stop_reason == "end_turn"
+    ));
+    assert_eq!(harness.stop().await, Ok(()));
+}
+
 #[tokio::test(flavor = "current_thread")]
 async fn agent_exit_without_a_stop_request_is_reported_as_failure() {
     let mut harness = Harness::ready().await;
