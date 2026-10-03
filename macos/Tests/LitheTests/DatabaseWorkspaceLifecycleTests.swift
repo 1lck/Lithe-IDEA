@@ -67,7 +67,9 @@ struct DatabaseWorkspaceLifecycleTests {
         host.rootView = AnyView(VStack {
             DatabaseConnectionEditor(isPresented: .constant(true))
             DatabaseSchemaDiffView()
-        }.environmentObject(feature))
+        }.environmentObject(feature)
+            .environmentObject(model)
+            .environmentObject(settings))
         host.layoutSubtreeIfNeeded()
         #expect(host.fittingSize.width > 0)
     }
