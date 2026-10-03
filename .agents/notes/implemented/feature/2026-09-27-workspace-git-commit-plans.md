@@ -19,6 +19,7 @@ macOS 和 Windows 都直接消费 Rust Core 的提交计划、依赖排序、失
 - 已发现的独立嵌套仓库不会作为父仓库的未跟踪目录参与勾选，避免“全部暂存”意外创建子模块引用。比较前必须统一规范化 Git 返回的路径和平台传入的仓库绑定，兼容 macOS 目录别名及 Windows 短路径/扩展路径。
 - Windows 的文件及仓库分组勾选也写入真实暂存区，取消原有仅限单仓库的提交入口。部分暂存文件的提交预览和 AI 说明只读取索引；工作树差异仍可从差异菜单查看。
 - 保留暂存区作为选择的唯一来源，外部 `git add` 也会反映到勾选状态。没有另建一份仅属于 UI 的提交选择。
+- macOS 的待确认暂存状态不能假设变更标识唯一。例如 `git rm --cached example.txt` 保留磁盘文件后，Git 同时返回暂存删除和未跟踪文件，两条记录拥有同一标识。保留真实记录，按标识分组核对；所有记录都符合请求的暂存状态后才清除界面的待确认值，避免打开项目闪退或旧快照提前确认操作。如果文件恢复干净并从完整快照消失，也要清除待确认值，否则后续操作会一直被阻止。不要用要求键唯一的字典构造器，也不要只保留第一条或最后一条记录，这会让结果依赖返回顺序。
 - Core 读取 Git 的 porcelain v2 状态，把子模块提交号变化和未提交文件分开。只有文件脏、引用未变的父条目展示提示，不参与批量勾选。
 - Core 读取所有已发现仓库的真实引用，再计算子到父的执行顺序。默认自动带上必要的父引用；确认窗口显示仓库、文件、顺序和引用更新，并允许关闭本次自动联动。
 - Core 的提交前置状态包括 HEAD、当前分支、索引对象号和暂存路径。确认时重新传入最新仓库列表，任何状态变化都更新计划并再次确认；实际写入前仍在已有仓库写入锁内核对。
@@ -54,6 +55,7 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 - `windows/tauri/src/features/git/services/git-workspace-commit-workflow.test.ts` 消费同一份共享夹具，验证计划转发、再次确认、重试、取消与迟到响应；`git-workspace-status-panel.test.tsx` 验证分组勾选写入所属仓库、忽略不可暂存的脏子模块引用。Tauri dispatcher 测试保护原生认证超时与部分结果透传。
 
 - `macos/Tests/LitheGitModuleTests/GitModuleTests.swift` 消费共享夹具和预设 Core 响应，验证确认与再次确认、联动选项与重试转发、步骤驱动、复选框资格和项目切换隔离；不在测试替身中重新实现业务算法。
+- 同文件暂存删除和未跟踪记录的回归用例覆盖两种返回顺序、首次与重复状态刷新，以及暂存和取消暂存都要等待全部记录确认；`macos/Tests/LitheTests/GitStatusObservationTests.swift` 通过真实 Git → Rust Core → Swift 状态刷新验证打开仓库时不闪退，实际执行暂存或取消暂存后，干净状态正确结束待确认操作。旧快照用例继续保护单记录场景。
 - `rust/lithe-core/src/git/workspace_commit/tests.rs` 覆盖干净祖先联动、关闭联动、独立嵌套仓库、过期计划、失败依赖阻塞、仅重推和外部推进后再次推送。
 - `rust/lithe-core/src/tests/git_workspace_commit.rs` 使用真实 Git 验证过期索引拒绝、子模块状态、只更新引用且不带入父文件、首次提交前取消暂存保留后续编辑，暂存后在工作树删除的文件仍可见、子仓库元数据被删除后拒绝回退父仓库，以及共享夹具序列化。真实 Git 还验证共享计划执行、推送失败后的重试、过期步骤重放拒绝、取消与成功提交返回竞争。
 - 使用 `write-stable-tests` 的 Rust 逐例计时入口生成 HTML/JUnit；macOS 使用该 Skill 的 macOS 计时入口。
@@ -63,6 +65,7 @@ Git 的多个仓库没有跨仓库原子事务，已成功的提交不会因后�
 ## 适用范围
 
 - `macos/Sources/LitheGitModule/Application/GitFeatureModel+WorkspaceCommit.swift`
+- `macos/Sources/LitheGitModule/Application/GitFeatureModel.swift`
 - `macos/Sources/LitheGitModule/Models/GitModels.swift`
 - `macos/Sources/LitheGitModule/Services/GitService.swift`
 - `macos/Sources/Lithe/Views/Git/CommitAreaView.swift`

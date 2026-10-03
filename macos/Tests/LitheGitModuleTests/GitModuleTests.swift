@@ -617,6 +617,63 @@ struct GitModuleTests {
         #expect(feature.beginSetStaging([change], staged: true).isEmpty)
     }
 
+    @Test(arguments: [false, true])
+    func gitRefreshPreservesStagedDeletionAndUntrackedReplacement(reverseRecords: Bool) async {
+        let root = URL(fileURLWithPath: "/workspace")
+        // `git rm --cached` retains the file on disk: porcelain reports both
+        // the staged deletion and the untracked file under the same identity.
+        let deletion = GitChange(repositoryRoot: root, path: "example.txt", originalPath: nil,
+            indexStatus: "D", workTreeStatus: " ")
+        let untracked = GitChange(repositoryRoot: root, path: "example.txt", originalPath: nil,
+            indexStatus: "?", workTreeStatus: "?")
+        let changes = reverseRecords ? [untracked, deletion] : [deletion, untracked]
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations(
+            snapshotValue: GitSnapshot(repositoryRoot: root, branch: "main", changes: changes)
+        )))
+        defer { feature.reset() }
+        feature.configure(workspaceURLProvider: { root }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+
+        await feature.refreshGit()
+        await feature.refreshGit()
+
+        #expect(deletion.id == untracked.id)
+        #expect(feature.gitChanges == changes)
+        #expect(feature.currentBranch == "main")
+        #expect(!feature.isStagingChanges)
+        #expect(feature.effectiveStagingState(for: deletion))
+        #expect(!feature.effectiveStagingState(for: untracked))
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func duplicateGitStatusRecordsKeepStagingPendingUntilEveryRecordMatches(staged: Bool, reverseRecords: Bool) {
+        let root = URL(fileURLWithPath: "/workspace")
+        let deletion = GitChange(repositoryRoot: root, path: "example.txt", originalPath: nil,
+            indexStatus: "D", workTreeStatus: " ")
+        let untracked = GitChange(repositoryRoot: root, path: "example.txt", originalPath: nil,
+            indexStatus: "?", workTreeStatus: "?")
+        let changes = reverseRecords ? [untracked, deletion] : [deletion, untracked]
+        let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))
+        defer { feature.reset() }
+        let target = staged ? untracked : deletion
+        #expect(feature.beginToggleStaging(target) == staged)
+
+        // One matching record in a stale snapshot must not confirm either
+        // staging the untracked replacement or unstaging the deleted file.
+        feature.reconcilePendingStagingStates(with: changes)
+        #expect(feature.isStagingChanges)
+        #expect(feature.effectiveStagingState(for: deletion) == staged)
+        #expect(feature.effectiveStagingState(for: untracked) == staged)
+        #expect(feature.beginToggleStaging(target) == nil)
+
+        let confirmed = GitChange(repositoryRoot: root, path: "example.txt", originalPath: nil,
+            indexStatus: staged ? "M" : " ", workTreeStatus: staged ? " " : "M")
+        feature.reconcilePendingStagingStates(with: [confirmed])
+        #expect(!feature.isStagingChanges)
+        #expect(feature.effectiveStagingState(for: confirmed) == staged)
+        #expect(feature.beginToggleStaging(confirmed) == !staged)
+    }
+
     @Test(arguments: [Character("M"), Character("A")])
     func explicitStagingIncludesRemainingEditsWithoutChangingCheckboxSemantics(indexStatus: Character) {
         let feature = GitFeatureModel(service: GitService(operations: TestGitOperations()))

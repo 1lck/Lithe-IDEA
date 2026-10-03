@@ -1288,9 +1288,14 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     func reconcilePendingStagingStates(with changes: [GitChange]) {
-        let changesByID = Dictionary(uniqueKeysWithValues: changes.map { ($0.id, $0) })
+        // Git can report a staged deletion and an untracked replacement at the
+        // same path. Preserve both records and wait until all of them agree
+        // with the requested staging state before dropping the optimistic value.
+        // A path that becomes clean disappears from the snapshot entirely.
+        let changesByID = Dictionary(grouping: changes, by: \.id)
         pendingStagingStates = pendingStagingStates.filter { id, staged in
-            changesByID[id]?.isStaged != staged
+            guard let currentChanges = changesByID[id] else { return false }
+            return !currentChanges.allSatisfy { $0.isStaged == staged }
         }
     }
 
