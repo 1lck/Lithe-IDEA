@@ -106,7 +106,7 @@ jobs:
             echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
             exit 1
           else
-            echo "Developer ID is not configured; the preview app will be ad-hoc signed and no externally installable PHP plugin archive will be published."
+            echo "Developer ID is not configured; the preview app will be ad-hoc signed. Official plugin packages use Lithe Ed25519 signatures."
           fi
 
       - name: Build and package the preview app
@@ -114,6 +114,7 @@ jobs:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ env.PREVIEW_VERSION }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build }}
+          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
           LITHE_BUILD_TIMESTAMP: ${{ needs.prepare.outputs.timestamp }}
           LITHE_BUILD_GIT_BRANCH: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || env.PREVIEW_BRANCH }}
           LITHE_UPDATE_CHANNEL: preview
@@ -121,20 +122,17 @@ jobs:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before publishing preview updates"; exit 1; }
+          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before publishing preview updates"; exit 1; }
           ./scripts/package-app.sh
-          if [[ -n "${LITHE_CODESIGN_IDENTITY:-}" ]]; then
-            plugin_root=$(LITHE_CODESIGN_IDENTITY="$LITHE_CODESIGN_IDENTITY" \
-              scripts/build-official-plugins.sh \
-              --configuration release \
-              --triple "${LITHE_ARCH}-apple-macosx" \
-              --plugin-id dev.lithe.plugin.php-support \
-              --output "dist/official-plugins/${LITHE_ARCH}")
-            ditto -c -k --sequesterRsrc --keepParent \
-              "$plugin_root/dev.lithe.plugin.php-support" \
-              "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
-          else
-            echo "Developer ID is not configured; skipping externally installable PHP plugin archive."
-          fi
+          plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
+            scripts/build-official-plugins.sh \
+            --configuration release \
+            --triple "${LITHE_ARCH}-apple-macosx" \
+            --plugin-id dev.lithe.plugin.php-support \
+            --output "dist/official-plugins/${LITHE_ARCH}")
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$plugin_root/dev.lithe.plugin.php-support" \
+            "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
@@ -179,8 +177,7 @@ jobs:
           compression-level: 0
           retention-days: 14
 
-      - name: Upload optional PHP plugin archive
-        if: ${{ hashFiles(format('dist/Lithe-PHP-Support-{0}-{1}.zip', env.PREVIEW_VERSION, matrix.architecture)) != '' }}
+      - name: Upload PHP plugin archive
         uses: actions/upload-artifact@v7
         with:
           name: macos-php-plugin-${{ matrix.architecture }}
@@ -282,10 +279,9 @@ jobs:
 
           for architecture in arm64 x86_64; do
             plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
-            if [[ -e "$plugin_archive" ]]; then
-              gh release upload "$RELEASE_TAG" "$plugin_archive" \
-                --repo "$GITHUB_REPOSITORY" --clobber
-            fi
+            test -s "$plugin_archive"
+            gh release upload "$RELEASE_TAG" "$plugin_archive" \
+              --repo "$GITHUB_REPOSITORY" --clobber
           done
 
           # Publish every archive before replacing either feed. Retention protects
