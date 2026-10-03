@@ -6,11 +6,20 @@ import { WELCOME_WORKSPACE_ID } from "@/features/workspace/types/workspace-runti
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import { createProjectTabId } from "@/features/window/utils/project-tab-path";
 
+// "attach" keeps the current projects as tabs beside the new one; "replace-active" closes
+// the previously active project after the new one opens successfully.
+export type ProjectOpenMode = "attach" | "replace-active";
+
 interface OpenWorkspaceRuntimeOptions {
   descriptor: Omit<WorkspaceRuntimeDescriptor, "id"> & { path: string };
   initialize: (workspaceId: string) => Promise<boolean>;
   persistCurrent?: () => void;
   resume?: (workspaceId: string) => Promise<void>;
+  mode?: ProjectOpenMode;
+  /** replace-active only: dirty-buffer guard for the workspace being replaced, run after ownership checks but before any state change and again before teardown; returning false aborts that step. */
+  confirmReplaceCurrent?: (workspaceId: string) => Promise<boolean>;
+  /** replace-active only: service teardown for the replaced project, injected by the file-system store. */
+  disposeReplaced?: (workspaceId: string, path: string) => Promise<void>;
 }
 
 interface SwitchWorkspaceRuntimeOptions {
@@ -29,7 +38,7 @@ interface CloseWorkspaceRuntimeOptions {
   dispose?: (path: string) => Promise<void>;
   persist?: () => void;
   showWelcome?: () => Promise<void>;
-  switchTo: (workspaceId: string) => Promise<boolean>;
+  switchTo?: (workspaceId: string) => Promise<boolean>;
 }
 
 const activateDescriptor = (descriptor: WorkspaceRuntimeDescriptor) => {
@@ -118,11 +127,20 @@ const pendingWorkspaceOpens = new Map<string, Promise<boolean>>();
 export function openWorkspaceRuntime(options: OpenWorkspaceRuntimeOptions) {
   const workspaceId = createProjectTabId(options.descriptor.path);
   const pending = pendingWorkspaceOpens.get(workspaceId);
-  if (pending) return pending;
+  // An attach may share an in-flight open of the same path; the end state is identical.
+  // A replace-active open must not adopt that promise — its guard, teardown, and failure
+  // retry would all be skipped — so it waits for the pending open, then runs with its own
+  // semantics (a same-path target naturally deactivates replacement).
+  if (pending && options.mode !== "replace-active") {
+    return pending;
+  }
 
-  // A focus event may arrive while this workspace is still initializing.
-  // Reuse that initialization instead of starting its services a second time.
-  const opening = openWorkspaceRuntimeOnce(options).finally(() => {
+  const opening = (async () => {
+    if (pending) {
+      await pending.catch(() => false);
+    }
+    return await openWorkspaceRuntimeOnce(options);
+  })().finally(() => {
     pendingWorkspaceOpens.delete(workspaceId);
   });
   pendingWorkspaceOpens.set(workspaceId, opening);
@@ -134,6 +152,9 @@ async function openWorkspaceRuntimeOnce({
   initialize,
   persistCurrent,
   resume,
+  mode = "attach",
+  confirmReplaceCurrent,
+  disposeReplaced,
 }: OpenWorkspaceRuntimeOptions) {
   const workspaceId = createProjectTabId(descriptor.path);
   const { projectWindowRouting } =
@@ -144,6 +165,27 @@ async function openWorkspaceRuntimeOnce({
   const previousWorkspaceId = workspaceRuntimeRegistry.getActiveWorkspaceId();
   const wasKnown = workspaceRuntimeRegistry.hasWorkspace(workspaceId);
   const wasReady = workspaceRuntimeRegistry.isWorkspaceReady(workspaceId);
+  // Capture the replace target at entry so a tab switch during initialization cannot close
+  // a different project. Reopening the already-active path deactivates replacement.
+  const replacingPrevious =
+    mode === "replace-active" &&
+    !!previousWorkspaceId &&
+    previousWorkspaceId !== workspaceId &&
+    useWorkspaceTabsStore
+      .getState()
+      .projectTabs.some((projectTab) => projectTab.id === previousWorkspaceId);
+
+  if (replacingPrevious && previousWorkspaceId) {
+    if (!confirmReplaceCurrent) {
+      // A replace without a guard would close a possibly-dirty project unseen; abort
+      // loudly instead of silently degrading.
+      console.warn('replace-active open is missing confirmReplaceCurrent; aborting.');
+      return false;
+    }
+    if (!(await confirmReplaceCurrent(previousWorkspaceId))) {
+      return false;
+    }
+  }
 
   if (previousWorkspaceId !== workspaceId) {
     persistCurrent?.();
@@ -161,16 +203,14 @@ async function openWorkspaceRuntimeOnce({
   try {
     if (wasReady) {
       await resume?.(workspaceId);
-      return true;
-    }
+    } else {
+      const initialized = await initialize(workspaceId);
+      if (!initialized) {
+        throw new Error(`Failed to initialize workspace "${descriptor.name}".`);
+      }
 
-    const initialized = await initialize(workspaceId);
-    if (!initialized) {
-      throw new Error(`Failed to initialize workspace "${descriptor.name}".`);
+      workspaceRuntimeRegistry.updateWorkspaceStatus(workspaceId, "ready");
     }
-
-    workspaceRuntimeRegistry.updateWorkspaceStatus(workspaceId, "ready");
-    return true;
   } catch (error) {
     const shouldRestorePrevious = workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId;
     workspaceRuntimeRegistry.updateWorkspaceStatus(
@@ -189,6 +229,37 @@ async function openWorkspaceRuntimeOnce({
     }
     return false;
   }
+
+  // The new project is live; only now tear the replaced one down. If the user switched
+  // back to the replaced project while the new one initialized, keep both tabs — their
+  // switch says the old project is still wanted, and closing the now-active workspace
+  // without a successor would strand the registry on a removed id. A teardown failure
+  // must not roll the successful open back, so it is logged instead of thrown.
+  if (replacingPrevious && previousWorkspaceId) {
+    const activeAtTeardown = workspaceRuntimeRegistry.getActiveWorkspaceId();
+    if (activeAtTeardown !== workspaceId) {
+      console.debug(
+        `Keeping workspace "${previousWorkspaceId}": the active workspace changed while "${descriptor.name}" opened.`,
+      );
+      return true;
+    }
+
+    try {
+      // Re-run the guard against the replaced workspace: buffers may have turned dirty
+      // after the first confirm. Declining keeps the old project as a background tab.
+      if (confirmReplaceCurrent && !(await confirmReplaceCurrent(previousWorkspaceId))) {
+        return true;
+      }
+
+      await closeWorkspaceRuntime(previousWorkspaceId, {
+        dispose: (path) => disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
+      });
+    } catch (error) {
+      console.warn(`Failed to tear down replaced workspace "${previousWorkspaceId}":`, error);
+    }
+  }
+
+  return true;
 }
 
 export async function switchWorkspaceRuntime(
@@ -276,7 +347,7 @@ export async function closeWorkspaceRuntime(
 
   const nextTab = useWorkspaceTabsStore.getState().actions.getActiveProjectTab();
   if (nextTab) {
-    return await switchTo(nextTab.id);
+    return await switchTo?.(nextTab.id) ?? true;
   }
 
   workspaceRuntimeRegistry.activateWorkspace({ id: WELCOME_WORKSPACE_ID, name: "Files" }, "empty");

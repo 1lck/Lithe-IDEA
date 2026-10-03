@@ -57,6 +57,36 @@ Tauri 宿主记录目录实际对应的文件系统对象与所属窗口，前�
 销毁事件不能同步等待宿主异步锁，否则可能阻塞正在构建窗口的 UI 线程。
 远程和 WSL 协议路径不参与本地目录身份判断。
 
+### 打开项目的目的地语义（This Window / New Window / Attach）
+
+打开项目的询问弹窗对齐 IntelliJ：**This Window 关闭当前项目并由新项目替换**，
+**New Window 打开独立应用窗口**，**Attach 把新项目作为附加的项目 Tab 加到当前
+窗口**（即本 Note 的多项目模型），Cancel 取消。这是对 macOS 参考实现的有意分歧：
+macOS 的同窗口选项就是本地的 Attach 语义（同窗口新开项目 session），Windows 端
+把"替换"保留给 This Window，两个平台的差异记录在
+`shared/platform-feature-matrix/features/workspace-open-switch.json`。
+
+替换由 `openWorkspaceRuntime` 的 `mode: "replace-active"` 实现，时序是：
+claim 窗口归属 → 对旧活动项目做未保存缓冲确认（用户取消则零状态变更退出）→
+persistCurrent → 走正常 attach 流程（新 Tab 激活、初始化或恢复）→
+**新项目成功后**才用 `closeWorkspaceRuntime` 关闭进入流程时捕获的旧项目 id
+（`wasActive=false` 路径只做服务拆除，不切欢迎页）。初始化失败走既有回滚，
+旧项目原样保留；拆除目标是进入时捕获的 id，初始化期间切换 Tab 不会误关其他
+项目。旧项目的服务拆除与 `closeProject` 共用 `disposeWorkspaceServices`。
+
+已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
+（拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径
+（WSL 项目经 This Window 替换当前项目）已于 2026-10-03 实机验证通过；
+被替换方为 WSL 项目的拆除方向、脏缓冲守卫在 WSL 场景下的表现尚未完整
+覆盖。远程（ssh）路径的打开分支仍未接入 replace，保持 attach 行为。
+
+设置侧由布尔 `openFoldersInNewWindow` 迁移为三态
+`projectOpenDefaultDestination`（this-window / new-window / attach），
+`askWhereToOpenProjects` 保留。迁移映射必须保持旧行为：
+`true → "new-window"`、`false → "attach"`（旧 this-window 就是附加 Tab），
+且迁移要在 retired key 删除之前读取旧值；写成 `false → "this-window"` 会让
+存量用户的项目在升级后被意外替换。
+
 ## 考虑过的备选方案
 
 - **按路径字符串或各窗口缓存查重**：字符串会漏掉链接与路径别名，缓存无法原子处理连续打开，也会残留已关闭窗口；因此窗口去重使用宿主原生身份登记。
@@ -70,6 +100,11 @@ Tauri 宿主记录目录实际对应的文件系统对象与所属窗口，前�
   活动 Tab，因此由纯 model helper 归一化为一个活动项。
 - **只有一个项目也显示 Tab Bar**：能持续展示当前项目，但会占用欢迎页和
   单项目工作台的固定垂直空间，因此当前布局明确隐藏单项目状态。
+- **替换语义用"先 closeProject 再打开"实现**：关闭最后一个 Tab 会先切到
+  欢迎页再加载新项目，产生两次工作区切换闪烁，且关闭后打开失败无法回滚；
+  因此替换并入 `openWorkspaceRuntime`，成功后才拆除旧项目。
+- **迁移把 `openFoldersInNewWindow=false` 映射为 this-window**：会让存量
+  用户从"附加 Tab"变成"替换并关闭当前项目"，行为突变；因此映射为 attach。
 
 ## 后果
 
@@ -91,8 +126,9 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 - `./scripts/verify-windows-boundaries.sh`
 - `./scripts/verify-agent-notes.sh`
 - `bun test windows/tauri/src/features/window/services/project-window-router.test.ts`
+- `bun test windows/tauri/src/features/workspace/services/workspace-lifecycle.test.ts windows/tauri/src/features/file-system/controllers/project-open-destination.test.ts`
 - `cargo test --manifest-path windows/tauri/src-tauri/Cargo.toml project_window_registry`
-- Windows 手工验证：项目位于后台标签、窗口最小化、连续重复打开、目录别名、关闭重开及初始化失败重试。
+- Windows 手工验证：项目位于后台标签、窗口最小化、连续重复打开、目录别名、关闭重开及初始化失败重试；替换模式下未保存缓冲确认（保存/放弃/取消）、初始化失败回滚、同路径重复打开不触发拆除。
 
 测试覆盖可访问角色、项目切换、关闭按钮、异步状态清理、事件冒泡隔离、
 项目顺序保持、单一活动项投影以及无项目/单项目/多项目的显示条件。
@@ -105,6 +141,8 @@ Tab Bar 目前不承载拖拽排序，若未来开放项目排序，必须复用
 - `windows/tauri/src/features/window/stores/workspace-tabs.store.ts`
 - `windows/tauri/src/features/window/components/project-tab-bar.test.ts`
 - `windows/tauri/src/features/window/utils/project-tab-bar-model.test.ts`
+- `windows/tauri/src/features/file-system/controllers/project-open-destination.ts`
+- `windows/tauri/src/features/workspace/services/workspace-lifecycle.ts`
 
 - `windows/tauri/src-tauri/src/project_windows.rs`
 - `windows/tauri/src-tauri/src/project_window_registry.rs`

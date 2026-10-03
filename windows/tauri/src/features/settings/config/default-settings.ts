@@ -110,7 +110,7 @@ export const defaultSettings: Settings = {
   footerLeadingItemsOrder: [...FOOTER_LEADING_ITEM_IDS],
   footerTrailingItemsOrder: [...FOOTER_TRAILING_ITEM_IDS],
   askWhereToOpenProjects: true,
-  openFoldersInNewWindow: true,
+  projectOpenDefaultDestination: "new-window",
   // AI
   aiProviderId: DEFAULT_AI_PROVIDER_ID,
   aiModelId: DEFAULT_AI_MODEL_ID,

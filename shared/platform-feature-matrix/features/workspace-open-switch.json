@@ -13,11 +13,12 @@
   },
   "windows": {
     "evidence": [
-      "windows/tauri/src/features/workspace"
+      "windows/tauri/src/features/workspace",
+      "windows/tauri/src/features/file-system/controllers/project-open-destination.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Workspace",
-  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。"
+  "verification": "打开多个项目并在项目之间切换，确认当前项目、文件树和编辑器状态正确。Windows 端询问弹窗提供 This Window（替换当前项目）/ New Window / Attach / Cancel 四个选项，勾选\"不再询问\"后记住所选目的地（设置项 projectOpenDefaultDestination），替换前对未保存缓冲区弹确认，新项目打开失败时回滚保留原项目。"
 }

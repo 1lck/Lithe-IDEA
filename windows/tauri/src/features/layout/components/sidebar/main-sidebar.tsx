@@ -124,14 +124,17 @@ export const SidebarActivityRail = memo(({ expanded = false }: SidebarActivityRa
   const bottomPaneActiveTab = useUIState((state) => state.bottomPaneActiveTab);
   const configuredActivityRailWidth = useSettingsStore((state) => state.settings.activityRailWidth);
   const askWhereToOpenProjects = useSettingsStore((state) => state.settings.askWhereToOpenProjects);
-  const openFoldersInNewWindow = useSettingsStore((state) => state.settings.openFoldersInNewWindow);
+  const projectOpenDefaultDestination = useSettingsStore(
+    (state) => state.settings.projectOpenDefaultDestination,
+  );
   const hiddenSidebarActivityItems = useSettingsStore(
     (state) => state.settings.hiddenSidebarActivityItems,
   );
   const showActivityRailProjectIcons = useSettingsStore(
     (state) => state.settings.showActivityRailProjectIcons,
   );
-  const projectCarouselEnabled = askWhereToOpenProjects || !openFoldersInNewWindow;
+  const projectCarouselEnabled =
+    askWhereToOpenProjects || projectOpenDefaultDestination !== "new-window";
   const updateSetting = useSettingsStore((state) => state.actions.updateSetting);
   const [activityRailWidth, setActivityRailWidth] = useState(() =>
     clampActivityRailWidth(configuredActivityRailWidth || DEFAULT_ACTIVITY_RAIL_WIDTH),

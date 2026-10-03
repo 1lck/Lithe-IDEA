@@ -156,3 +156,256 @@ test("closing a project revokes IDE access before disposal and then releases own
   expect(released).toEqual([id]);
   expect(tabs).toEqual([]);
 });
+
+test("replace-active opens the new project and tears the previously active one down", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+  const bystanderDescriptor = { path: "C:/projects/bystander", name: "bystander" };
+  await openWorkspaceRuntime({ descriptor: bystanderDescriptor, initialize: async () => true });
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const bystanderId = createProjectTabId(bystanderDescriptor.path);
+
+  let confirmed = false;
+  let disposedWorkspace = "";
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => {
+        confirmed = true;
+        return true;
+      },
+      disposeReplaced: async (workspaceId) => {
+        disposedWorkspace = workspaceId;
+      },
+      initialize: async () => true,
+    }),
+  ).toBe(true);
+
+  const newId = createProjectTabId(descriptor.path);
+  expect(confirmed).toBe(true);
+  expect(disposedWorkspace).toBe(oldId);
+  expect(active).toBe(newId);
+  expect(revokedIdeWorkspaces).toContain(oldId);
+  expect(released).toContain(oldId);
+  // The old tab is gone; other background tabs stay untouched.
+  expect(tabs.map((tab) => tab.id).includes(oldId)).toBe(false);
+  expect(tabs.map((tab) => tab.id).includes(bystanderId)).toBe(true);
+});
+
+test("replace-active aborts without any state change when the guard declines", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  let initialized = false;
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => false,
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => {
+        initialized = true;
+        return true;
+      },
+    }),
+  ).toBe(false);
+
+  expect(initialized).toBe(false);
+  expect(disposed).toBe(false);
+  expect(active).toBe(oldId);
+  expect(tabs.map((tab) => tab.id)).toEqual([oldId]);
+  expect(released).toEqual([]);
+});
+
+test("replace-active rolls the failed open back and leaves the replaced project intact", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => false,
+    }),
+  ).toBe(false);
+
+  expect(disposed).toBe(false);
+  expect(active).toBe(oldId);
+  expect(tabs.map((tab) => tab.id)).toEqual([oldId]);
+});
+
+test("replace-active without a previous project tab behaves like attach", async () => {
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => true,
+    }),
+  ).toBe(true);
+
+  expect(disposed).toBe(false);
+  expect(tabs.map((tab) => tab.id)).toEqual([createProjectTabId(descriptor.path)]);
+});
+
+test("replace-active reopening the active project keeps it instead of tearing it down", async () => {
+  await openWorkspaceRuntime({ descriptor, initialize: async () => true });
+  const id = createProjectTabId(descriptor.path);
+
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async () => true,
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => true,
+    }),
+  ).toBe(true);
+
+  expect(disposed).toBe(false);
+  expect(active).toBe(id);
+  expect(tabs).toHaveLength(1);
+});
+
+test("replace-active keeps the replaced project when the user switches back during initialization", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  let completeInitialize!: (value: boolean) => void;
+  const initialization = new Promise<boolean>((resolve) => {
+    completeInitialize = resolve;
+  });
+  let disposed = false;
+  const opening = openWorkspaceRuntime({
+    descriptor,
+    mode: "replace-active",
+    confirmReplaceCurrent: async () => true,
+    disposeReplaced: async () => {
+      disposed = true;
+    },
+    initialize: async () => {
+      // The user switches back to the old tab once the new project is initializing,
+      // i.e. after the open already activated the new tab.
+      active = oldId;
+      return await initialization;
+    },
+  });
+
+  completeInitialize(true);
+  expect(await opening).toBe(true);
+
+  expect(disposed).toBe(false);
+  expect(tabs.map((tab) => tab.id)).toContain(oldId);
+  expect(released).not.toContain(oldId);
+});
+
+test("replace-active re-checks the guard before teardown and keeps the project when declined", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  const confirmedWorkspaces: string[] = [];
+  let disposed = false;
+  expect(
+    await openWorkspaceRuntime({
+      descriptor,
+      mode: "replace-active",
+      confirmReplaceCurrent: async (workspaceId) => {
+        confirmedWorkspaces.push(workspaceId);
+        // Confirm at entry, decline at the teardown re-check.
+        return confirmedWorkspaces.length === 1;
+      },
+      disposeReplaced: async () => {
+        disposed = true;
+      },
+      initialize: async () => true,
+    }),
+  ).toBe(true);
+
+  expect(confirmedWorkspaces).toEqual([oldId, oldId]);
+  expect(disposed).toBe(false);
+  expect(tabs.map((tab) => tab.id)).toContain(oldId);
+});
+
+test("replace-active retries with its own semantics after an in-flight attach fails", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+
+  // Both calls in one tick: the replace must observe the attach's pending entry.
+  const attach = openWorkspaceRuntime({ descriptor, initialize: async () => false });
+  const confirmedWorkspaces: string[] = [];
+  let disposedWorkspace = "";
+  const replace = openWorkspaceRuntime({
+    descriptor,
+    mode: "replace-active",
+    confirmReplaceCurrent: async (workspaceId) => {
+      confirmedWorkspaces.push(workspaceId);
+      return true;
+    },
+    disposeReplaced: async (workspaceId) => {
+      disposedWorkspace = workspaceId;
+    },
+    initialize: async () => true,
+  });
+
+  expect(await attach).toBe(false);
+  // The failed attach must not be reused: the replace opens, guards, and tears the old
+  // project down itself instead of just returning the failure.
+  expect(await replace).toBe(true);
+  expect(confirmedWorkspaces).toEqual([oldId, oldId]);
+  expect(disposedWorkspace).toBe(oldId);
+  expect(tabs.map((tab) => tab.id)).toEqual([createProjectTabId(descriptor.path)]);
+});
+
+test("replace-active after a successful in-flight attach reactivates without teardown", async () => {
+  const oldDescriptor = { path: "C:/projects/old", name: "old" };
+  await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
+  const oldId = createProjectTabId(oldDescriptor.path);
+  const newId = createProjectTabId(descriptor.path);
+
+  let completeInitialize!: (value: boolean) => void;
+  const initialization = new Promise<boolean>((resolve) => {
+    completeInitialize = resolve;
+  });
+  const attach = openWorkspaceRuntime({ descriptor, initialize: () => initialization });
+  let disposed = false;
+  const replace = openWorkspaceRuntime({
+    descriptor,
+    mode: "replace-active",
+    confirmReplaceCurrent: async () => true,
+    disposeReplaced: async () => {
+      disposed = true;
+    },
+    initialize: async () => true,
+  });
+
+  completeInitialize(true);
+  expect(await attach).toBe(true);
+  // The attach already activated the target, so the same-path rule turns the replace into
+  // a reactivation: both projects stay and nothing is torn down.
+  expect(await replace).toBe(true);
+  expect(disposed).toBe(false);
+  expect(tabs.map((tab) => tab.id).sort()).toEqual([oldId, newId].sort());
+  expect(active).toBe(newId);
+});

@@ -1,9 +1,12 @@
 import type { DisplayLanguage } from "@/i18n/locale";
 import { createTranslator } from "@/i18n/locale";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
+import type { ProjectOpenDefaultDestination } from "@/features/settings/types/settings.types";
 import { showChoiceDialogWithCheckbox } from "@/ui/dialog";
 
-export type ProjectOpenDestination = "new-window" | "this-window";
+// IntelliJ-aligned destinations: "this-window" replaces the active project, "attach" adds
+// the new project as a tab beside it, "new-window" opens a separate app window.
+export type ProjectOpenDestination = "new-window" | "this-window" | "attach";
 
 export interface ProjectOpenPromptResult {
   destination: ProjectOpenDestination;
@@ -27,19 +30,19 @@ export interface ProjectWorkspaceState {
   projectTabCount: number;
 }
 
-type ProjectOpenSettingKey = "askWhereToOpenProjects" | "openFoldersInNewWindow";
+type ProjectOpenSettingKey = "askWhereToOpenProjects" | "projectOpenDefaultDestination";
 
 export interface ProjectOpenDestinationServices {
   getSettings: () => {
     askWhereToOpenProjects: boolean;
-    openFoldersInNewWindow: boolean;
+    projectOpenDefaultDestination: ProjectOpenDefaultDestination;
     displayLanguage: DisplayLanguage;
   };
   prompt: (request: {
     projectName: string;
     language: DisplayLanguage;
   }) => Promise<ProjectOpenPromptResult | null>;
-  updateSetting: (key: ProjectOpenSettingKey, value: boolean) => Promise<void>;
+  updateSetting: (key: ProjectOpenSettingKey, value: boolean | ProjectOpenDefaultDestination) => Promise<void>;
 }
 
 const defaultServices: ProjectOpenDestinationServices = {
@@ -47,7 +50,7 @@ const defaultServices: ProjectOpenDestinationServices = {
     const { settings } = useSettingsStore.getState();
     return {
       askWhereToOpenProjects: settings.askWhereToOpenProjects,
-      openFoldersInNewWindow: settings.openFoldersInNewWindow,
+      projectOpenDefaultDestination: settings.projectOpenDefaultDestination,
       displayLanguage: settings.displayLanguage,
     };
   },
@@ -62,6 +65,7 @@ const defaultServices: ProjectOpenDestinationServices = {
         choices: [
           { value: "this-window", label: t("projectOpen.thisWindow"), variant: "accent" },
           { value: "new-window", label: t("projectOpen.newWindow") },
+          { value: "attach", label: t("projectOpen.attach") },
         ],
       },
     );
@@ -84,13 +88,14 @@ export async function chooseProjectOpenDestination(
   }
 
   if (!request.hasOpenWorkspace) {
-    return { destination: "this-window", rememberAfterOpen: false };
+    // Nothing to replace or attach beside: the first project just opens here.
+    return { destination: "attach", rememberAfterOpen: false };
   }
 
   const settings = services.getSettings();
   if (!settings.askWhereToOpenProjects) {
     return {
-      destination: settings.openFoldersInNewWindow ? "new-window" : "this-window",
+      destination: settings.projectOpenDefaultDestination,
       rememberAfterOpen: false,
     };
   }
@@ -120,10 +125,7 @@ export async function executeProjectOpenDecision(
   }
 
   if (decision.rememberAfterOpen) {
-    await services.updateSetting(
-      "openFoldersInNewWindow",
-      decision.destination === "new-window",
-    );
+    await services.updateSetting("projectOpenDefaultDestination", decision.destination);
     await services.updateSetting("askWhereToOpenProjects", false);
   }
 

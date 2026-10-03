@@ -25,6 +25,9 @@ export type TabCloseButtonVisibility = "active" | "hover" | "always";
 export type EditorTabLayoutMode = "singleLine" | "multipleRows";
 export type WindowChromeDensity = "focused" | "comfortable";
 export type FileTreeSortOrder = "folders-first" | "name";
+// Where a project opens when the ask-first dialog is disabled. The false branch of the
+// retired openFoldersInNewWindow boolean maps to "attach", which was its old behavior.
+export type ProjectOpenDefaultDestination = "this-window" | "new-window" | "attach";
 export type SettingsSection =
   | "general"
   | "editor"
@@ -103,7 +106,7 @@ export interface Settings {
   footerLeadingItemsOrder: FooterLeadingItemId[];
   footerTrailingItemsOrder: FooterTrailingItemId[];
   askWhereToOpenProjects: boolean;
-  openFoldersInNewWindow: boolean;
+  projectOpenDefaultDestination: ProjectOpenDefaultDestination;
   // AI
   aiProviderId: string;
   aiModelId: string;

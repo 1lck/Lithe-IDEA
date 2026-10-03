@@ -114,6 +114,7 @@ describe("Windows display language", () => {
     expect(english("projectOpen.cancel")).toBe("Cancel");
     expect(english("projectOpen.newWindow")).toBe("New Window");
     expect(english("projectOpen.thisWindow")).toBe("This Window");
+    expect(english("projectOpen.attach")).toBe("Attach");
     expect(english("titleProject.newProject")).toBe("New Project…");
     expect(english("titleProject.open")).toBe("Open…");
     expect(english("titleProject.cloneRepository")).toBe("Clone Repository…");
@@ -130,6 +131,7 @@ describe("Windows display language", () => {
     expect(chinese("projectOpen.cancel")).toBe("取消");
     expect(chinese("projectOpen.newWindow")).toBe("新窗口");
     expect(chinese("projectOpen.thisWindow")).toBe("此窗口");
+    expect(chinese("projectOpen.attach")).toBe("附加");
     expect(chinese("titleProject.newProject")).toBe("新建项目…");
     expect(chinese("titleProject.open")).toBe("打开…");
     expect(chinese("titleProject.cloneRepository")).toBe("克隆仓库…");

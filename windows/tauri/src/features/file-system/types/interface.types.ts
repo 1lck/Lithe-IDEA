@@ -1,4 +1,6 @@
 import type { CodeEditorRef } from "@/features/editor/components/code-editor";
+import type { ProjectOpenMode } from "@/features/workspace/services/workspace-lifecycle";
+import type { ProjectOpenDestination } from "../controllers/project-open-destination";
 import type { FileEntry } from "./app.types";
 
 interface WorkspaceFolder {
@@ -26,13 +28,17 @@ export interface FsState {
 export interface FsActions {
   // Folder operations
   handleOpenFolder: (options?: {
-    destination?: "new-window" | "this-window";
+    destination?: ProjectOpenDestination;
   }) => Promise<boolean>;
-  handleOpenFolderByPath: (path: string) => Promise<boolean>;
+  handleOpenFolderByPath: (path: string, options?: { mode?: ProjectOpenMode }) => Promise<boolean>;
   addFolderToWorkspace: (path?: string) => Promise<boolean>;
   removeFolderFromWorkspace: (path: string) => Promise<boolean>;
   handleOpenRemoteProject: (connectionId: string, connectionName: string) => Promise<boolean>;
-  handleOpenWslProject: (distro: string, linuxPath: string) => Promise<boolean>;
+  handleOpenWslProject: (
+    distro: string,
+    linuxPath: string,
+    options?: { mode?: ProjectOpenMode },
+  ) => Promise<boolean>;
   closeFolder: () => Promise<boolean>;
   resetWorkspace: () => Promise<void>;
   switchToProject: (projectId: string) => Promise<boolean>;

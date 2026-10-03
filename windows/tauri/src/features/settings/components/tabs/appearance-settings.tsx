@@ -16,6 +16,11 @@ import {
   UI_FONT_SIZE_STEP,
 } from "@/features/settings/lib/ui-font-size";
 import { getDefaultSetting, useSettingsStore } from "@/features/settings/stores/settings.store";
+import {
+  getProjectOpenPreference,
+  getProjectOpenPreferencePatch,
+  type ProjectOpenPreference,
+} from "@/features/settings/lib/project-open-preference";
 import type {
   TabCloseButtonVisibility,
   WindowChromeDensity,
@@ -47,7 +52,8 @@ export const AppearanceSettings = () => {
       compactMenuBar: state.settings.compactMenuBar,
       iconTheme: state.settings.iconTheme,
       nativeMenuBar: state.settings.nativeMenuBar,
-      openFoldersInNewWindow: state.settings.openFoldersInNewWindow,
+      askWhereToOpenProjects: state.settings.askWhereToOpenProjects,
+      projectOpenDefaultDestination: state.settings.projectOpenDefaultDestination,
       reduceMotion: state.settings.reduceMotion,
       showStatusBar: state.settings.showStatusBar,
       showTabIcons: state.settings.showTabIcons,
@@ -563,17 +569,38 @@ export const AppearanceSettings = () => {
         </SettingRow>
 
         <SettingRow
-          label={t("settings.appearance.openProjectsNewWindow")}
-          description={t("settings.appearance.openProjectsNewWindowDescription")}
-          onReset={() =>
-            updateSetting("openFoldersInNewWindow", getDefaultSetting("openFoldersInNewWindow"))
-          }
-          canReset={settings.openFoldersInNewWindow !== getDefaultSetting("openFoldersInNewWindow")}
+          label={t("settings.appearance.openProjectsDestination")}
+          description={t("settings.appearance.openProjectsDestinationDescription")}
+          onReset={() => {
+            void updateSetting(
+              "projectOpenDefaultDestination",
+              getDefaultSetting("projectOpenDefaultDestination"),
+            );
+            void updateSetting("askWhereToOpenProjects", true);
+          }}
+          canReset={getProjectOpenPreference(settings) !== "ask"}
         >
-          <Switch
-            checked={settings.openFoldersInNewWindow}
-            onChange={(checked) => updateSetting("openFoldersInNewWindow", checked)}
+          <Select
+            value={getProjectOpenPreference(settings)}
+            options={[
+              { value: "ask", label: t("settings.appearance.openAskEveryTime") },
+              { value: "this-window", label: t("settings.appearance.openThisWindow") },
+              { value: "new-window", label: t("settings.appearance.openNewWindow") },
+              { value: "attach", label: t("settings.appearance.openAttach") },
+            ]}
+            onChange={(value) => {
+              const patch = getProjectOpenPreferencePatch(value as ProjectOpenPreference);
+              if (patch.projectOpenDefaultDestination !== undefined) {
+                void updateSetting(
+                  "projectOpenDefaultDestination",
+                  patch.projectOpenDefaultDestination,
+                );
+              }
+              void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
+            }}
+            className={SETTINGS_CONTROL_WIDTHS.wide}
             size="sm"
+            variant="default"
           />
         </SettingRow>
       </Section>
