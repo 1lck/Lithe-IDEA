@@ -1,0 +1,25 @@
+{
+  "id": "window-title-active-file",
+  "area": "工作台",
+  "group": "窗口管理",
+  "capability": "Windows 原生窗口标题显示「项目名 – 当前编辑文件」，编辑区未打开文件时仅显示项目名，任务栏悬停预览与 Alt+Tab 据此区分窗口内容；超长标题由系统自动折叠",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/App/RootView.swift"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/window/components/native-window-title-host.tsx",
+      "windows/tauri/src/features/window/utils/window-title.ts",
+      "windows/tauri/src/workbench-app.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workbench",
+  "notes": "macOS 原生标题由 RootView 单独推导（工作区名或独立文件名），不采用「项目 – 文件」组合形式。Windows 侧文件名取当前活动缓冲区；终端、搜索、欢迎页等工具标签视为未打开文件，仅显示项目名；项目段复用标题栏项目菜单的显示名（含别名后缀）。标题以字符串选择器订阅，缓冲区高频编辑不会触发工作台重渲染或重复 IPC。依赖 capabilities/main.json 中的 core:window:allow-set-title 权限。",
+  "verification": "在 Windows 运行应用并打开项目：任务栏图标悬停预览标题显示「项目名 – 文件名」，切换编辑区文件后标题随之更新；关闭全部编辑标签或聚焦终端/欢迎页后标题回落为项目名；无项目时显示 Lithe；打开超长文件名的文件确认预览卡片由系统折叠显示，悬停任务栏图标可看到完整标题。"
+}
