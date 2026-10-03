@@ -15,7 +15,10 @@
       "macos/Tests/LitheGitModuleTests/GitLocalChangelistsTests.swift",
       "macos/Tests/LitheGitModuleTests/GitModuleTests.swift",
       "macos/Tests/LitheTests/MacGitChangelistStorageTests.swift",
-      "shared/fixtures/git/local-changelist-scope-v1.json"
+      "shared/fixtures/git/local-changelist-scope-v1.json",
+      "macos/Sources/Lithe/Application/Composition/CommitWorkflowComposition.swift",
+      "macos/Sources/Lithe/Application/Features/CommitWorkflowCoordinator.swift",
+      "macos/Tests/LitheTests/CommitWorkflowChangelistTests.swift"
     ]
   },
   "windows": {
@@ -29,10 +32,11 @@
       "rust/lithe-core/src/git/workspace_commit/path_scope.rs",
       "shared/fixtures/git/local-changelist-scope-v1.json",
       "windows/tauri/src/features/git/stores/git-changelists.store.test.ts",
-      "rust/lithe-core/src/tests/git_workspace_commit.rs"
+      "rust/lithe-core/src/tests/git_workspace_commit.rs",
+      "windows/tauri/src/features/git/api/git-changelist-storage.ts"
     ]
   },
   "owner": "Git",
-  "verification": "macOS 与 Windows 分别创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件多选移动（Windows 同时支持目录）、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。",
-  "notes": "双端均已接入本地分组、持久化及共享 Core pathScope 提交保护。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。macOS 使用偏好存储 adapter，Windows 使用 WebView 本地存储。两端原生构建和交互验收均待目标平台验证。"
+  "verification": "macOS 与 Windows 分别创建本地配置列表，将 application.yaml 移入其中并保持默认列表为当前提交列表；点击全部暂存只能包含默认列表。外部暂存配置文件时提交必须被拦截，取消暂存后只提交功能文件，保留其后续未暂存编辑及配置内容。验证新建、重命名、删除确认、文件多选移动（Windows 同时支持目录）、分组勾选、当前列表切换、重启及文件干净后再次修改的归属；多仓库、工作树与项目互不串组，重命名的旧新路径都受保护。子模块父引用被排除时提交失败，关闭父引用联动后可提交子仓库。保存数据损坏或写入失败时禁止继续暂存和提交。 Windows 两个项目窗口先同时初始化，交错修改不同工作区后用第三个实例重载，配置归属和提交排除范围都必须保留；验证旧格式迁移不覆盖原数据。macOS 在差异读取或 AI 生成期间切换列表、切走再切回或修改归属，旧结果不得回填当前提交说明。",
+  "notes": "双端均已接入本地分组、持久化及共享 Core pathScope 提交保护。分组按完整文件路径，不支持单文件内按 hunk 拆分；不自动重写暂存区。macOS 使用偏好存储 adapter，Windows 使用按工作区独立键保存的 WebView 本地存储。两端原生构建和交互验收均待目标平台验证。"
 }

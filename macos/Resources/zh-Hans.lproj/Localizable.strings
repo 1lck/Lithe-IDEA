@@ -2632,3 +2632,4 @@
 "Enter a ChangeList name (1–100 characters)." = "请输入更改列表名称（1–100 个字符）。";
 "A ChangeList with this name already exists." = "已存在同名的更改列表。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
+"Selected ChangeList or staged files changed before generation finished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";

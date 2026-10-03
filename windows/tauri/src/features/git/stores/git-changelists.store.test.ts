@@ -1,6 +1,12 @@
+import type { StateStorage } from "zustand/middleware";
+import { createChangelistStorage, changelistStorageKey } from "../api/git-changelist-storage";
 import { expect, test } from "bun:test";
-import { createJSONStorageFrom, createMemoryStateStorage } from "@/utils/zustand-storage";
-import { createGitChangelistsStore, workspaceChangelists } from "./git-changelists.store";
+import { createMemoryStateStorage } from "@/utils/zustand-storage";
+import {
+  changelistsUnavailable,
+  createGitChangelistsStore,
+  workspaceChangelists,
+} from "./git-changelists.store";
 import {
   changelistCommitScope,
   DEFAULT_CHANGELIST,
@@ -16,17 +22,16 @@ const file: GitFile = {
   status: "modified",
   staged: false,
 };
-const makeStore = () =>
-  createGitChangelistsStore(createJSONStorageFrom(createMemoryStateStorage()));
+const storageFrom = (storage: StateStorage) => createChangelistStorage(() => storage);
+const makeStore = () => createGitChangelistsStore(storageFrom(createMemoryStateStorage()));
 
 test("changelists persist clean-file membership and isolate repositories, worktrees and workspaces", () => {
-  const storage = createJSONStorageFrom<{
-    workspaces: Record<string, import("../utils/git-changelists").LocalChangelists>;
-  }>(createMemoryStateStorage());
+  const storage = storageFrom(createMemoryStateStorage());
   const store = createGitChangelistsStore(storage);
   store.getState().createList(workspace, "Local only", "local");
   store.getState().moveFiles(workspace, [file], "local");
   const reloaded = createGitChangelistsStore(storage);
+  reloaded.getState().loadWorkspace(workspace);
   const state = workspaceChangelists(reloaded.getState(), workspace);
   expect(fileChangelist(state, file)).toBe("local");
   expect(fileChangelist(state, { ...file, repositoryPath: "C:/workspace/B" })).toBe(
@@ -104,7 +109,8 @@ test("invalid saved assignments fail closed instead of forgetting excluded files
       version: 0,
     }),
   );
-  const store = createGitChangelistsStore(createJSONStorageFrom(storage));
+  const store = createGitChangelistsStore(storageFrom(storage));
+  store.getState().loadWorkspace(workspace);
   expect(store.getState().unavailable).toBe(true);
   expect(store.getState().createList(workspace, "Unsafe reset", "new")).toBe(false);
 });
@@ -131,11 +137,12 @@ test("observed renames remain assigned after they disappear from Git status", ()
 test("unreadable JSON and storage write failures stop submissions without overwriting saved data", () => {
   const memory = createMemoryStateStorage();
   memory.setItem("git-local-changelists-v1", "{broken");
-  const corrupt = createGitChangelistsStore(createJSONStorageFrom(memory));
+  const corrupt = createGitChangelistsStore(storageFrom(memory));
+  corrupt.getState().loadWorkspace(workspace);
   expect(corrupt.getState().unavailable).toBe(true);
   expect(memory.getItem("git-local-changelists-v1")).toBe("{broken");
   const failed = createGitChangelistsStore(
-    createJSONStorageFrom({
+    storageFrom({
       ...createMemoryStateStorage(),
       setItem: () => {
         throw new Error("storage unavailable");
@@ -195,7 +202,8 @@ test("unknown persisted versions and missing state remain blocked and untouched"
     const memory = createMemoryStateStorage();
     const raw = JSON.stringify(saved);
     memory.setItem("git-local-changelists-v1", raw);
-    const store = createGitChangelistsStore(createJSONStorageFrom(memory));
+    const store = createGitChangelistsStore(storageFrom(memory));
+    store.getState().loadWorkspace(workspace);
     expect(store.getState().unavailable).toBe(true);
     expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
     expect(memory.getItem("git-local-changelists-v1")).toBe(raw);
@@ -212,6 +220,7 @@ test("inaccessible browser storage never falls back to an empty in-memory list",
       },
     });
     const store = createGitChangelistsStore();
+    store.getState().loadWorkspace(workspace);
     expect(store.getState().unavailable).toBe(true);
     expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
   } finally {
@@ -251,6 +260,7 @@ test("a stored JSON null is corrupt metadata, not a new workspace", () => {
       },
     });
     const store = createGitChangelistsStore();
+    store.getState().loadWorkspace(workspace);
     expect(store.getState().unavailable).toBe(true);
     expect(store.getState().createList(workspace, "Local", "local")).toBe(false);
     expect(writes).toBe(0);
@@ -258,4 +268,88 @@ test("a stored JSON null is corrupt metadata, not a new workspace", () => {
     if (descriptor) Object.defineProperty(globalThis, "localStorage", descriptor);
     else Reflect.deleteProperty(globalThis, "localStorage");
   }
+});
+
+test("two stale windows save different workspaces without erasing either protection", () => {
+  const memory = createMemoryStateStorage();
+  const writes: string[] = [];
+  const storage = storageFrom({
+    ...memory,
+    setItem: (key, value) => {
+      writes.push(key);
+      memory.setItem(key, value);
+    },
+  });
+  const first = createGitChangelistsStore(storage);
+  const second = createGitChangelistsStore(storage);
+  const other = "C:/other";
+  for (const store of [first, second]) {
+    store.getState().loadWorkspace(workspace);
+    store.getState().loadWorkspace(other);
+  }
+  first.getState().createList(workspace, "Local", "local");
+  first.getState().moveFiles(workspace, [file], "local");
+  const protectedRaw = memory.getItem(changelistStorageKey(workspace));
+  second.getState().createList(other, "Other", "other-list");
+  second.getState().activateList(other, "other-list");
+  expect(memory.getItem(changelistStorageKey(workspace))).toBe(protectedRaw);
+  expect(writes).toEqual([
+    changelistStorageKey(workspace),
+    changelistStorageKey(workspace),
+    changelistStorageKey(other),
+    changelistStorageKey(other),
+  ]);
+  const reopened = createGitChangelistsStore(storage);
+  reopened.getState().loadWorkspace(workspace);
+  reopened.getState().loadWorkspace(other);
+  const state = workspaceChangelists(reopened.getState(), workspace);
+  expect(fileChangelist(state, file)).toBe("local");
+  expect(
+    changelistCommitScope(state, [{ id: "A", root: file.repositoryPath! }], []).paths.A,
+  ).toEqual(["application.yaml"]);
+  expect(workspaceChangelists(reopened.getState(), other).activeId).toBe("other-list");
+});
+
+test("legacy migration writes only the selected workspace and preserves the original snapshot", () => {
+  const seed = makeStore();
+  seed.getState().createList(workspace, "Local", "local");
+  seed.getState().moveFiles(workspace, [file], "local");
+  const memory = createMemoryStateStorage();
+  const original = JSON.stringify({
+    version: 0,
+    state: { workspaces: seed.getState().workspaces },
+  });
+  memory.setItem("git-local-changelists-v1", original);
+  const storage = storageFrom(memory);
+  const first = createGitChangelistsStore(storage);
+  const second = createGitChangelistsStore(storage);
+  first.getState().loadWorkspace(workspace);
+  second.getState().loadWorkspace(workspace);
+  expect(fileChangelist(workspaceChangelists(first.getState(), workspace), file)).toBe("local");
+  first.getState().renameList(workspace, "local", "Private");
+  second.getState().createList("C:/other", "Other", "other");
+  expect(memory.getItem("git-local-changelists-v1")).toBe(original);
+  const reopened = createGitChangelistsStore(storage);
+  reopened.getState().loadWorkspace(workspace);
+  expect(workspaceChangelists(reopened.getState(), workspace).lists[1]!.name).toBe("Private");
+  memory.setItem(changelistStorageKey(workspace), "{broken");
+  reopened.getState().loadWorkspace(workspace);
+  expect(reopened.getState().unavailable).toBe(true);
+  expect(memory.getItem(changelistStorageKey(workspace))).toBe("{broken");
+});
+
+test("workspace changes stay disabled until loaded and actions read the latest target data", () => {
+  const storage = storageFrom(createMemoryStateStorage());
+  const first = createGitChangelistsStore(storage);
+  const second = createGitChangelistsStore(storage);
+  expect(changelistsUnavailable(second.getState(), workspace)).toBe(true);
+  second.getState().loadWorkspace(workspace);
+  expect(changelistsUnavailable(second.getState(), workspace)).toBe(false);
+  first.getState().createList(workspace, "Local", "local");
+  first.getState().moveFiles(workspace, [file], "local");
+  second.getState().createList(workspace, "Task", "task");
+  const state = workspaceChangelists(second.getState(), workspace);
+  expect(fileChangelist(state, file)).toBe("local");
+  expect(state.lists.map((list) => list.id)).toEqual(["default", "local", "task"]);
+  expect(changelistsUnavailable(second.getState(), "C:/unloaded")).toBe(true);
 });

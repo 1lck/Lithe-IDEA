@@ -8,7 +8,8 @@ extension GitFeatureModel {
     }
 
     package var activeChangelistChanges: [GitChange] {
-        gitChanges.filter { changelists.listID(for: $0) == changelists.activeID }
+        guard !changelistStorageFailed else { return [] }
+        return gitChanges.filter { changelists.listID(for: $0) == changelists.activeID }
     }
 
     package var changelistCommitError: String? {

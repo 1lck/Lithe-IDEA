@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { createMemoryStateStorage } from "@/utils/zustand-storage";
 import { installHappyDom } from "@/test-utils/happy-dom";
 import { LocaleProvider } from "@/i18n/locale-provider";
 let dialog: typeof import("@/ui/dialog");
@@ -9,6 +10,7 @@ import { useGitChangelistsStore, workspaceChangelists } from "../stores/git-chan
 
 const workspace = "C:/changelist-test";
 let restoreDom: () => void;
+let previousStorage: PropertyDescriptor | undefined;
 let root: Root;
 let container: HTMLDivElement;
 let confirmation: ReturnType<typeof spyOn<typeof dialog, "showConfirmDialog">>;
@@ -23,6 +25,11 @@ let restoreControls: () => void;
 
 beforeEach(async () => {
   restoreDom = installHappyDom();
+  previousStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: createMemoryStateStorage(),
+  });
   dialog = await import("@/ui/dialog");
   ({ GitChangelistBar } = await import("./git-changelist-bar"));
   const { createRoot } = await import("react-dom/client");
@@ -106,6 +113,8 @@ afterEach(async () => {
   useGitChangelistsStore.setState(previousState);
   container.remove();
   globalThis.ResizeObserver = previousObserver;
+  if (previousStorage) Object.defineProperty(globalThis, "localStorage", previousStorage);
+  else Reflect.deleteProperty(globalThis, "localStorage");
   restoreDom();
   if (previousAct === undefined) delete globals.IS_REACT_ACT_ENVIRONMENT;
   else globals.IS_REACT_ACT_ENVIRONMENT = previousAct;

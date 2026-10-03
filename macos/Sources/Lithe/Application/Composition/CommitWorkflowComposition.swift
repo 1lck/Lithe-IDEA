@@ -1,3 +1,4 @@
+import Foundation
 import LitheCoreContracts
 import LitheGitModule
 import LitheModuleAPI
@@ -7,8 +8,10 @@ extension GitFeatureModel: CommitWorkflowGit {
         pendingSubmoduleCommitPlan.map { ($0.message, $0.amend) }
     }
 
+    var commitMessageSelectionID: UUID { changelistSelectionGeneration }
+
     var stagedChangeIDs: Set<String> {
-        Set(gitChanges.filter(\.isStaged).map(\.id))
+        Set(activeChangelistChanges.filter(\.isStaged).map(\.id))
     }
 }
 

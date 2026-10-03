@@ -1360,3 +1360,4 @@
 "Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
 "A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
+"Selected ChangeList or staged files changed before generation finished" = "Selected ChangeList or staged files changed before generation finished";

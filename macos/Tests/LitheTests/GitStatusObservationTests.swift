@@ -6,6 +6,44 @@ import Testing
 
 @Suite("Git status observation", .serialized)
 struct GitStatusObservationTests {
+    @Test(arguments: [false, true])
+    @MainActor
+    func realGitRemovedFromIndexFileRefreshesWithoutCrashing(staged: Bool) async throws {
+        // Exercise real Git -> Rust Core -> Swift feature refresh, using the
+        // valid duplicate-path status that triggered issue #1033 on project open.
+        let fixture = try GitObservationFixture(label: "removed-from-index")
+        let repository = fixture.url.appendingPathComponent("repository", isDirectory: true)
+        try await fixture.initializeRepository(at: repository)
+        try await fixture.git(["rm", "--cached", "tracked.txt"], at: repository)
+        let model = GitFeatureModel(
+            service: GitService(operations: RustGitOperations(core: RustCoreBridge()))
+        )
+        defer { model.reset() }
+        model.configure(workspaceURLProvider: { repository }, isGitLogVisibleProvider: { false },
+            notify: { _ in }, onStateRefreshed: {})
+
+        await model.refreshGit()
+
+        #expect(model.gitChanges.count == 2)
+        #expect(model.gitChanges.allSatisfy { $0.path == "tracked.txt" })
+        #expect(Set(model.gitChanges.map(\.id)).count == 1)
+        #expect(model.gitChanges.filter(\.isStaged).count == 1)
+        #expect(model.gitChanges.filter(\.isUntracked).count == 1)
+        let initialChanges = model.gitChanges
+        await model.refreshGit()
+        #expect(model.gitChanges == initialChanges)
+        #expect(!model.isStagingChanges)
+
+        let target = try #require(model.gitChanges.first { $0.isStaged != staged })
+        #expect(model.beginToggleStaging(target) == staged)
+        await model.finishToggleStaging(target, staged: staged)
+
+        // Both restoring the original index entry and adding the unchanged
+        // retained file leave a clean repository with no status records.
+        #expect(model.gitChanges.isEmpty)
+        #expect(!model.isStagingChanges)
+    }
+
     @Test
     @MainActor
     func identicalGitRefreshSkipsExpensiveDownstreamWork() async {
@@ -385,10 +423,10 @@ struct GitStatusObservationTests {
         #expect(model.selectedChange == nil)
         #expect(model.beginToggleStaging(unstaged) == true)
         #expect(model.selectedChange == nil)
-        model.reconcilePendingStagingStates(with: [unstaged])
+        model.reconcilePendingStagingStates(with: [unstaged], successfullyReadRepositoryRoots: [repository])
         #expect(model.effectiveStagingState(for: unstaged))
 
-        model.reconcilePendingStagingStates(with: [staged])
+        model.reconcilePendingStagingStates(with: [staged], successfullyReadRepositoryRoots: [repository])
         #expect(model.effectiveStagingState(for: staged))
         model.selectedChange = unstaged
         #expect(model.beginToggleStaging(staged) == false)
