@@ -10,7 +10,8 @@
       "rust/lithe-agent-host",
       "macos/Tests/LitheTests/AgentBrandIconResourceTests.swift",
       "macos/Sources/Lithe/Views/Agent/AgentSessionSelectors.swift",
-      "macos/Tests/LitheTests/AgentSessionSelectorLayoutTests.swift"
+      "macos/Tests/LitheTests/AgentSessionSelectorLayoutTests.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -23,5 +24,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Agent",
-  "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；模拟 prompt 无响应推进十分钟上限，确认先进入停止状态并保持会话忙碌，取消确认后报告超时并释放，会话不确认时连接和进程树停止，不能与迟到响应重叠；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 端到端仍待验证；Claude API Key 鉴权与完整工具流程由独立能力行记录。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。 检查紧凑配置菜单：模型和设置子选项最小行高 26pt、权限模式最小行高 44pt，上下内边距 4pt；面板高度随行高收紧；权限面板按实际内容高度调整并保留 330pt 上限，短列表的双行说明不需要滚动即可完整显示。深浅主题下通过实际 SwiftUI/AppKit 渲染与原生鼠标事件验证双行说明、滚动到模型/权限长列表末项并选择，原始 ID 和选中回调不变；搜索及选中标记正常。"
+  "verification": "macOS + Codex + API Key：验证发消息前的上游配置选项和确认；无自定义服务商或 API Key 时确认仍显示本机顶层默认模型、保留密钥缺失错误；修改本机默认模型后重连，连续新建空会话确认不再使用旧导入模型；配置不在上游目录中的旧模型时确认新会话使用目录内的上游推荐值、拒绝与超时不显示假成功且 Codex 模型菜单显示 OpenAI 标志；验证工具输入/输出/文件/变更、权限拒绝、停止确认及超时重连、历史加载失败保留记录；模拟 prompt 无响应推进十分钟上限，确认先进入停止状态并保持会话忙碌，同时清空该会话全部授权卡片并刷新提醒，忽略停止期间迟到的授权请求；后台会话超时不能清除其他会话的授权或提醒；取消确认后报告超时并释放，会话不确认时连接和进程树停止，不能与迟到响应重叠；临时项目跑通读文件→修改→执行测试→追问，复用文档观察和脏缓冲区保存保护。检查模型搜索（名称/ID/分组、空结果）、品牌图标/选中状态、无模型说明、权限说明、思考/速度子菜单、确认/失败与会话切换关闭弹出面板；检查项目切换、退出清理，以及 CC GUI 风格空态、搜索、标签、可调整输入区和配置菜单在窄宽面板及深浅主题下的布局。Windows 端到端仍待验证；Claude API Key 鉴权与完整工具流程由独立能力行记录。 安装包环境下打开 Agent 面板，确认 Codex/Claude 图标从 Contents/Resources 加载且不依赖构建目录；资源包或图标缺失时显示默认图标而不闪退，读取前后包内文件清单和内容不变。 检查紧凑配置菜单：模型和设置子选项最小行高 26pt、权限模式最小行高 44pt，上下内边距 4pt；面板高度随行高收紧；权限面板按实际内容高度调整并保留 330pt 上限，短列表的双行说明不需要滚动即可完整显示。深浅主题下通过实际 SwiftUI/AppKit 渲染与原生鼠标事件验证双行说明、滚动到模型/权限长列表末项并选择，原始 ID 和选中回调不变；搜索及选中标记正常。"
 }
