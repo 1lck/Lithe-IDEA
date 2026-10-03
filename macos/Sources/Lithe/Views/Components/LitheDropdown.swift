@@ -76,6 +76,16 @@ final class LitheDropdownAnchorView: NSView {
     }
 }
 
+enum LitheDropdownAnchorGeometry {
+    @MainActor
+    static func isAnchorClick(_ event: NSEvent?, anchorWindow: NSWindow?, anchorFrame: NSRect?) -> Bool {
+        guard let event, event.type == .leftMouseDown,
+              let anchorWindow, let anchorFrame,
+              event.windowNumber == anchorWindow.windowNumber else { return false }
+        return anchorFrame.contains(anchorWindow.convertPoint(toScreen: event.locationInWindow))
+    }
+}
+
 /// Position searchable filters using the same borderless host as Project menus.
 struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
     @Environment(\.self) private var environment
@@ -148,7 +158,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
                     items: items, at: point, appearance: appearance,
                     locale: environment.locale, opensUpward: opensUpward, anchored: true,
                     adjacentTo: opensToSide ? NSRect(x: window.frame.minX, y: rect.minY,
-                        width: window.frame.width, height: rect.height) : nil, parentWindow: window
+                        width: window.frame.width, height: rect.height) : nil, parentWindow: window, trigger: anchor
                 ) { [weak self] in
                     guard let self else { return }
                     self.menuIsPresented = false
@@ -167,7 +177,7 @@ struct LitheDropdownPopover<Content: View>: NSViewRepresentable {
             presenter.show(
                 contentController: controller, at: point,
                 appearance: appearance, opensUpward: opensUpward,
-                searchOnTyping: searchOnTyping, parentWindow: window
+                searchOnTyping: searchOnTyping, parentWindow: window, trigger: anchor
             ) { [weak self] in
                 guard let self else { return }
                 self.hostingController = nil

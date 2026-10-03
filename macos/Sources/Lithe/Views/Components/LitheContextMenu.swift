@@ -403,6 +403,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     private var contentAnchor: NSPoint?
     private var contentOpensUpward = false
     private var contentIsAnchored = false
+    private weak var triggerView: NSView?
 
     func show(
         items: [LitheContextMenuItem],
@@ -413,6 +414,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         anchored: Bool = false,
         adjacentTo row: NSRect? = nil,
         parentWindow: NSWindow? = nil,
+        trigger: NSView? = nil,
         onDismiss: (() -> Void)? = nil
     ) {
         dismiss()
@@ -474,6 +476,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
         panel.setFrame(NSRect(origin: origin, size: NSSize(width: menuWidth, height: menuHeight)), display: true)
 
         self.panel = panel
+        triggerView = trigger
         parentWindow?.addChildWindow(panel, ordered: .above)
         contentDismissed = onDismiss
         installEventMonitors()
@@ -504,6 +507,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
     func show(contentController: NSViewController, at screenPoint: NSPoint,
               appearance: NSAppearance?, opensUpward: Bool = false, searchOnTyping: Bool = false,
               parentWindow: NSWindow? = nil,
+              trigger: NSView? = nil,
               onDismiss: @escaping () -> Void) {
         dismiss()
         let panel = makePanel(contentController: contentController, appearance: appearance)
@@ -528,6 +532,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
             return find
         }
         self.panel = panel
+        triggerView = trigger
         if let hosting = contentController as? LitheDropdownHostingController {
             hosting.sizingOptions = [.preferredContentSize]
             hosting.sizeChanged = { [weak self, weak hosting] in
@@ -662,6 +667,7 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
     func dismiss() {
         removeEventMonitors()
+        triggerView = nil
         panel?.orderOut(nil)
         panel?.close()
         panel = nil
@@ -673,7 +679,14 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
 
     func windowDidResignKey(_ notification: Notification) {
         guard panel?.childWindows?.contains(where: { $0.isVisible }) != true else { return }
+        guard !isTriggerClick(NSApp.currentEvent) else { return }
         dismiss()
+    }
+
+    private func isTriggerClick(_ event: NSEvent?) -> Bool {
+        guard let triggerView, let window = triggerView.window else { return false }
+        return LitheDropdownAnchorGeometry.isAnchorClick(event, anchorWindow: window,
+            anchorFrame: window.convertToScreen(triggerView.convert(triggerView.bounds, to: nil)))
     }
 
     private func installEventMonitors() {
@@ -690,6 +703,9 @@ final class LitheContextMenuPresenter: NSObject, NSWindowDelegate {
                 eventWindow = window.parent
             }
             if event.type != .keyDown {
+                // The trigger owns its toggle. Dismissing here would reset its
+                // binding before the same click reaches the button and reopen it.
+                if self.isTriggerClick(event) { return event }
                 self.dismiss()
                 // Let the same click reach another menu trigger or the underlying control.
                 return event

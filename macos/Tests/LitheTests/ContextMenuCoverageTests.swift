@@ -8,6 +8,61 @@ import LitheGitModule
 @Suite("Unified context menus", .serialized)
 @MainActor
 struct ContextMenuCoverageTests {
+    @Test(arguments: [false, true], [ColorScheme.dark, .light])
+    func dropdownTriggerClosesItsPopupAndSwitchesToAnother(customContent: Bool, scheme: ColorScheme) async throws {
+        let host = NSHostingView(rootView: HStack(spacing: 20) {
+            DropdownToggleTestTrigger(title: "First", customContent: customContent)
+            DropdownToggleTestTrigger(title: "Second", customContent: customContent)
+            Spacer()
+        }.frame(width: 450, height: 120, alignment: .topLeading).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 450, height: 120),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.contentView = nil; window.close() }
+        host.layoutSubtreeIfNeeded()
+
+        func popup() -> NSPanel? {
+            window.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible }
+        }
+        func click(_ point: NSPoint) throws {
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                NSApp.sendEvent(try #require(NSEvent.mouseEvent(with: type,
+                    location: host.convert(point, to: nil), modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 1,
+                    clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0)))
+            }
+            host.layoutSubtreeIfNeeded()
+        }
+        func waitForPopup(_ condition: (NSPanel?) -> Bool) async -> Bool {
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(1))
+            repeat {
+                await Task.yield()
+                host.layoutSubtreeIfNeeded()
+                if condition(popup()) { return true }
+            } while clock.now < deadline
+            return false
+        }
+
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 != nil })
+        let first = try #require(popup())
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 == nil }, "The original trigger must close without reopening")
+        #expect(!first.isVisible)
+
+        try click(NSPoint(x: 80, y: 14))
+        #expect(await waitForPopup { $0 != nil })
+        let firstFrame = try #require(popup()?.frame)
+        try click(NSPoint(x: 280, y: 14))
+        #expect(await waitForPopup { ($0?.frame.minX ?? 0) > firstFrame.minX + 100 },
+            "Clicking a different trigger must open it with the same click")
+        try click(NSPoint(x: 420, y: 80))
+        #expect(await waitForPopup { $0 == nil }, "Outside clicks must still dismiss the popup")
+    }
+
     @Test
     func projectPopupMeasuresContentInsteadOfKeepingA390PointWidth() {
         let short = ProjectSwitcherLayoutMetrics.width(projects: [("Lithe-IDEA", "~/Documents/Lithe-IDEA")],
@@ -671,6 +726,29 @@ struct ContextMenuCoverageTests {
             isCurrent: current, isPrimary: primary, isBare: false, isDetached: false,
             isLocked: locked, lockReason: nil, isPrunable: prunable, pruneReason: nil
         ), status: .available)
+    }
+}
+
+private struct DropdownToggleTestTrigger: View {
+    let title: String
+    let customContent: Bool
+    @State private var isPresented = false
+
+    private var label: some View {
+        Text(title).frame(width: 180, height: 28).contentShape(Rectangle())
+    }
+
+    var body: some View {
+        if customContent {
+            Button { isPresented.toggle() } label: { label }
+                .buttonStyle(.litheNoPress)
+                .litheDropdown(isPresented: $isPresented) {
+                    Text("Content").frame(width: 180, height: 48)
+                }
+        } else {
+            LitheMenu { .action("Choose") {} } label: { label }
+                .buttonStyle(.litheNoPress)
+        }
     }
 }
 

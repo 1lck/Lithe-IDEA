@@ -85,7 +85,9 @@ extension AppModel {
     }
 
     var isRepositoryDiffSelected: Bool {
-        editorTabOrderFeature.contains(.repositoryDiff) && (editorTabOrderFeature.repositoryDiffSelected
+        // These surfaces take precedence over the editor tabs in EditorAreaView.
+        selectedSidebar != .database && selectedChange == nil && branchComparison == nil
+            && editorTabOrderFeature.contains(.repositoryDiff) && (editorTabOrderFeature.repositoryDiffSelected
             || activeDocument == nil && activeEditorTerminalSession == nil && activeMediaDocument == nil)
     }
     var editorTabItems: [EditorTabItem] {

@@ -142,16 +142,16 @@ struct SettingsSelectPopupGeometryTests {
             ))
         }
 
-        #expect(LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 100, y: 214)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 260, y: 214)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 300, y: 50)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 100, y: 214), type: .rightMouseDown),
             anchorWindow: window, anchorFrame: anchor
         ))

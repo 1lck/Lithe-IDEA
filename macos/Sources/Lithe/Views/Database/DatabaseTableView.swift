@@ -364,7 +364,7 @@ struct DatabaseTableView: View {
                     }
                     .buttonStyle(.litheNoPress)
                     .help(condition.isEnabled ? "Disable condition" : "Enable condition")
-                    LitheSettingsSelect(selection: $condition.column, options: feature.columns, width: 150, accessibilityLabel: "Column", title: { $0 })
+                    LitheSettingsSelect(selection: $condition.column, options: feature.columns, width: 150, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .frame(width: 150)
                     LitheSettingsSelect(selection: $condition.operator, options: DatabaseFilterOperator.allCases, width: 130, accessibilityLabel: "Operator", title: { $0.menuTitle })
                     .frame(width: 130)
@@ -409,7 +409,7 @@ struct DatabaseTableView: View {
             ForEach(Array(sortConditions.indices), id: \.self) { index in
                 HStack(spacing: 8) {
                     Text("\(index + 1)").font(LitheTheme.uiFont(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
-                    LitheSettingsSelect(selection: $sortConditions[index].column, options: feature.columns, width: 190, accessibilityLabel: "Column", title: { $0 })
+                    LitheSettingsSelect(selection: $sortConditions[index].column, options: feature.columns, width: 190, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .frame(width: 190)
                     LitheSettingsSelect(selection: $sortConditions[index].descending, options: [false, true], width: 120, accessibilityLabel: "Direction", title: { $0 ? "Descending" : "Ascending" })
                     .frame(width: 120)
@@ -1064,7 +1064,7 @@ private struct DatabaseBatchUpdateSheet: View {
                     Text("Column")
                         .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    LitheSettingsSelect(selection: $column, options: columns, width: 240, accessibilityLabel: "Column", title: { $0 })
+                    LitheSettingsSelect(selection: $column, options: columns, width: 240, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                 }
@@ -1235,6 +1235,7 @@ private struct DatabaseRowDetailsSheet: View {
 
 private struct DatabaseReplaceSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     let columns: [String]
     @Binding var column: String
     @Binding var searchText: String
@@ -1248,7 +1249,8 @@ private struct DatabaseReplaceSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
             Form {
-                LitheSettingsSelect(selection: $column, options: [""] + columns, width: 240, accessibilityLabel: "Column", title: { $0.isEmpty ? "All columns" : $0 })
+                LitheSettingsSelect(selection: $column, options: [""] + columns, width: 240, accessibilityLabel: "Column",
+                    title: { $0.isEmpty ? String(localized: "All columns", locale: locale) : $0 }, localizesTitles: false)
                 TextField("Find", text: $searchText)
                 TextField("Replace with", text: $replacementText)
             }

@@ -352,14 +352,6 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
 }
 
 struct LitheSettingsSelectPopupGeometry {
-    @MainActor
-    static func isAnchorClick(_ event: NSEvent?, anchorWindow: NSWindow?, anchorFrame: NSRect?) -> Bool {
-        guard let event, event.type == .leftMouseDown,
-              let anchorWindow, let anchorFrame,
-              event.windowNumber == anchorWindow.windowNumber else { return false }
-        return anchorFrame.contains(anchorWindow.convertPoint(toScreen: event.locationInWindow))
-    }
-
     static func frame(anchor: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
         let bounds = visibleFrame.insetBy(dx: 6, dy: 6)
         let width = min(size.width, bounds.width)
@@ -468,7 +460,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if !LitheSettingsSelectPopupGeometry.isAnchorClick(
+        if !LitheDropdownAnchorGeometry.isAnchorClick(
             NSApp.currentEvent, anchorWindow: anchorWindow, anchorFrame: anchorFrame
         ) { dismiss() }
     }
@@ -476,7 +468,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     private func installEventMonitors() {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
-            if event.window !== self.panel && !LitheSettingsSelectPopupGeometry.isAnchorClick(
+            if event.window !== self.panel && !LitheDropdownAnchorGeometry.isAnchorClick(
                 event, anchorWindow: self.anchorWindow, anchorFrame: self.anchorFrame
             ) { self.dismiss() }
             return event

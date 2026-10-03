@@ -283,6 +283,50 @@ struct EditorTabOrderFeatureModelTests {
         #expect(model.items == [.document(second), .repositoryDiff, .document(first)])
     }
 
+    @Test(arguments: [false, true], [false, true])
+    func workingTreeDiffOwnsCloseCommandWhileHistoryTabIsRetained(closeBackgroundTab: Bool, loading: Bool) async throws {
+        let store = EditorTabOrderTestStore()
+        let settings = AppSettings(store: store)
+        let model = AppModel(settings: settings, services: MacServiceContainer(
+            store: store, settings: settings, moduleLaunchMode: .safeMode).services)
+        let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
+        model.moduleCapabilityStore.cache(GitModuleCapability(feature: feature), id: .gitWorkspace, moduleID: .git)
+        model.documentFeature.openVirtualDocument(URL(string: "lithe-test://documents/Example.swift")!,
+            text: "example", displayPath: nil)
+        do {
+            let document = try #require(model.openDocuments.first)
+            model.editorTabOrderFeature.moveToEnd(.repositoryDiff)
+            model.selectRepositoryDiffTab()
+            #expect(model.isRepositoryDiffSelected)
+
+            // selectChange replaces the Git history context while retaining the
+            // editor tab. Cover both its loading state and a completed preview.
+            let change = GitChange(repositoryRoot: FileManager.default.temporaryDirectory,
+                path: "Example.swift", originalPath: nil, indexStatus: " ", workTreeStatus: "M")
+            feature.selectedGitCommitDiffContext = nil
+            feature.selectedChange = change
+            feature.selectedDiffPatch = loading ? "" : "-old\n+new"
+            feature.isLoadingDiff = loading
+            #expect(!model.isRepositoryDiffSelected)
+            #expect(model.activeDocumentID == nil)
+
+            if closeBackgroundTab {
+                model.closeGitCommitDiff()
+                #expect(feature.selectedChange == change)
+                #expect(feature.selectedDiffPatch == (loading ? "" : "-old\n+new"))
+                #expect(feature.isLoadingDiff == loading)
+                #expect(!model.editorTabItems.contains(.repositoryDiff))
+                #expect(model.activeDocumentID == nil, "Closing a hidden tab must not activate its return document")
+            } else {
+                #expect(model.requestCloseActiveWorkbenchItem())
+                #expect(feature.selectedChange == nil, "Close must dismiss the visible working-tree preview")
+                #expect(model.editorTabItems.contains(.repositoryDiff), "The hidden history tab was not the close target")
+            }
+            #expect(model.openDocuments.contains { $0.id == document.id })
+        } catch { await model.shutdownProjectSession(); throw error }
+        await model.shutdownProjectSession()
+    }
+
     @Test
     func mixesDocumentsAndTerminalsInOneOrder() {
         let model = EditorTabOrderFeatureModel()

@@ -2055,6 +2055,9 @@ package final class GitFeatureModel: ObservableObject {
     package func closeGitCommitDiff() {
         selectedGitCommitDiffContext = nil
         selectedGitCommitFile = nil
+        // Working-tree/directory previews reuse these buffers after replacing
+        // the history context. Closing its background tab must preserve them.
+        guard selectedChange == nil, branchComparison == nil else { return }
         selectedDiffPatch = ""
         diffRows = []
         diffHunks = []

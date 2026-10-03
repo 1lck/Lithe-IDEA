@@ -248,6 +248,13 @@ Git Log 历史 Diff 进入已有 `EditorTabItem`/`EditorTabOrderFeatureModel` �
 Diff 设置菜单也必须调用 AppModel 的关闭入口，不能仅清空 Git feature 而留下空标签。
 加载前即显示可关闭标签，请求身份阻止关闭/替换后的旧激活回调重新打开预览。
 
+工作区/目录 Diff、分支比较和数据库工作区覆盖编辑器表面时，历史标签即使保留
+选中标记，也不算当前显示的内容；关闭命令必须遵循 `EditorAreaView` 的显示优先级。
+Git feature 的工作区预览会复用历史 Diff 的缓冲区，因此关闭后台历史标签只清理
+历史上下文，不能清空当前工作区的补丁、差异行或加载状态。这一边界由
+`EditorTabOrderFeatureModelTests.workingTreeDiffOwnsCloseCommandWhileHistoryTabIsRetained`
+覆盖加载中和已加载两种状态；不通过复制另一份 Diff 数据来规避生命周期问题。
+
 `IslandsTabPainter` 对编辑器与工具窗口复用相同 selected active/inactive token；
 ManyIslands 明暗主题的 EditorTabs 也指向 `tab-selected-*`。因此编辑器复用
 `LitheToolWindowTabStyle` 与 `LitheToolWindowTabCloseButton`，不复制另一套颜色。
