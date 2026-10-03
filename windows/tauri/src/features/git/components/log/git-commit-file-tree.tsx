@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import {
   useFileTreePresentation,
@@ -14,7 +14,8 @@ import {
   type PathTreeNode,
 } from "@/features/sidebar/lib/path-tree";
 import { useTranslation } from "@/i18n/locale-provider";
-import { bindScrollContainerWheel } from "@/ui/scroll-container-wheel";
+import { ScrollArea } from "@/ui/scroll-area";
+import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import type { GitCommitFile } from "../../types/git.types";
 import { getCommitFileStatusColorClassName } from "../../utils/git-file-status-visuals";
 
@@ -164,7 +165,7 @@ export function GitCommitFileTree({
 }) {
   const { t } = useTranslation();
   const presentation = useFileTreePresentation();
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const tree = useMemo(
     () =>
       buildPathTree(files, {
@@ -182,38 +183,47 @@ export function GitCommitFileTree({
       return next;
     });
   };
-
-  useLayoutEffect(() => {
-    const element = scrollRef.current;
-    if (!element) return;
-    return bindScrollContainerWheel(element);
-  }, []);
+  // IntelliJ's commit-files tree scrolls horizontally instead of truncating long names,
+  // like the changes tree: the tree widens to the widest rendered row (see
+  // use-tree-content-width.ts) and the viewport scrolls both ways.
+  const treeContentWidth = useTreeContentWidth({
+    viewportRef,
+    rowSelector: "[data-sidebar-tree-row]",
+    resetKey: `${files.map((file) => file.path).join("\u0000")}\u0000${presentation.compactFolders}`,
+  });
 
   return (
-    <SidebarTree
-      ref={scrollRef}
-      data-scroll-container=""
-      label={t("git.log.commitFiles")}
-      className="file-tree-container min-h-0 flex-1 overflow-auto p-1.5"
-      style={
-        {
-          "--file-tree-row-height": `${presentation.rowHeight}px`,
-        } as CSSProperties
-      }
+    <ScrollArea
+      className="min-h-0 flex-1"
+      orientation="both"
+      contentClassName="p-1.5"
+      viewportProps={{ ref: viewportRef }}
+      reserveScrollbarGutter
     >
-      {tree.map((node) => (
-        <FileNode
-          key={node.id}
-          node={node}
-          depth={0}
-          collapsed={collapsed}
-          selectedPath={selectedPath}
-          presentation={presentation}
-          onToggle={toggle}
-          onSelect={onSelect}
-          onOpen={onOpen}
-        />
-      ))}
-    </SidebarTree>
+      <SidebarTree
+        label={t("git.log.commitFiles")}
+        className="file-tree-container relative overflow-visible!"
+        style={
+          {
+            "--file-tree-row-height": `${presentation.rowHeight}px`,
+            minWidth: treeContentWidth > 0 ? treeContentWidth : undefined,
+          } as CSSProperties
+        }
+      >
+        {tree.map((node) => (
+          <FileNode
+            key={node.id}
+            node={node}
+            depth={0}
+            collapsed={collapsed}
+            selectedPath={selectedPath}
+            presentation={presentation}
+            onToggle={toggle}
+            onSelect={onSelect}
+            onOpen={onOpen}
+          />
+        ))}
+      </SidebarTree>
+    </ScrollArea>
   );
 }

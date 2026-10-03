@@ -12,6 +12,16 @@ import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-dif
 
 export type WorkingTreeDiffRefreshOutcome = "updated" | "unchanged" | "closed" | "skipped";
 
+/** Opening and refreshing a target must use the same comparison and context. */
+export function loadWorkingTreeFileDiff(
+  target: WorkingTreeDiffTarget,
+  { loadStaged = getFullContextFileDiff, loadWorktree = getWorkingTreePathDiff } = {},
+): Promise<GitDiff | null> {
+  return target.staged
+    ? loadStaged(target.repoPath, target.filePath, true)
+    : loadWorktree(target.repoPath, target.filePath, target.untracked, target.originalPath, true);
+}
+
 /** Editor buffer access for one working-tree diff; the editor owns the store. */
 export interface WorkingTreeDiffBufferPort {
   /** Returns the buffer's working-tree diff, or null when it no longer shows one. */
@@ -64,9 +74,7 @@ export async function refreshWorkingTreeFileDiff(
     buffers,
     loadStatus = getGitStatus,
     loadDiff = (root, path, untracked, originalPath, staged) =>
-      staged
-        ? getFullContextFileDiff(root, path, true)
-        : getWorkingTreePathDiff(root, path, untracked, originalPath, true),
+      loadWorkingTreeFileDiff({ repoPath: root, filePath: path, untracked, originalPath, staged }),
   }: WorkingTreeDiffRefreshDependencies,
 ): Promise<WorkingTreeDiffRefreshOutcome> {
   const startingDiff = buffers.read(bufferId);
@@ -112,6 +120,7 @@ export async function refreshWorkingTreeFileDiff(
     diff: hasRenderableDiff(diff) ? diff : null,
     title: startingDiff.title,
     target: nextTarget,
+    commitPreview: startingDiff.commitPreview,
   });
   // Git metadata changes often leave the file untouched. Replacing the buffer
   // anyway rebuilds the review editor and disturbs the reader's scroll position.

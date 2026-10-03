@@ -15,25 +15,21 @@ import {
   type RunRecoveryAction,
 } from "../types/run.types";
 
-const FRAMEWORK_TITLES: Record<string, string> = {
-  "spring-boot.maven": "Spring Boot",
-  "quarkus.maven": "Quarkus",
-  "micronaut.maven": "Micronaut",
-  "java.main": "Java Application",
-  "java.current-file": "Current File",
-  "maven.module": "Maven Module",
-};
+import { runConfigurationPresentation } from "./run-configuration-presentation";
 
 export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfiguration {
   const maven = value.extensions?.maven;
   const java = value.extensions?.java;
   const source = value.source === "project" || value.source === "local" ? value.source : "generated";
+  const execution = normalizeExecution(value.execution, value.provider);
+  const presentation = runConfigurationPresentation(value, execution);
   return {
     id: value.id,
     name: value.name,
     provider: value.provider,
-    kindTitle: configurationTitle(value.provider),
-    execution: normalizeExecution(value.execution, value.provider),
+    kindTitle: presentation.title,
+    iconKey: presentation.iconKey,
+    execution,
     category: normalizeCategory(value.category),
     toolchains: value.toolchains ?? {},
     debugAdapter: value.debug?.adapter,
@@ -57,9 +53,7 @@ export function mapCoreConfiguration(value: CoreResolvedConfiguration): RunConfi
 }
 
 export function configurationTitle(provider: string): string {
-  if (FRAMEWORK_TITLES[provider]) return FRAMEWORK_TITLES[provider];
-  const namespace = provider.split(".")[0] ?? provider;
-  return namespace.charAt(0).toUpperCase() + namespace.slice(1);
+  return runConfigurationPresentation({ provider }).title;
 }
 
 /** Core omits the category for project entries, which is the default. */

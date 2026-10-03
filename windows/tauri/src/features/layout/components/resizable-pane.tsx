@@ -194,7 +194,7 @@ export function ResizablePane({
         <div
           className={cn(
             "lithe-glass-island flex min-h-0 flex-1 flex-col overflow-hidden bg-background",
-            !hidden && "rounded-xl",
+            !hidden && "rounded-(--lithe-island-radius)",
             position === "right" && !outerEdge && "rounded-r-none",
           )}
         >

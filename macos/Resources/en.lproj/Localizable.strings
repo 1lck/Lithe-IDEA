@@ -1147,6 +1147,7 @@
 
 // Verified CLI update outcomes
 "CLI updated to %@" = "CLI updated to %@";
+"Reconnect this Agent to refresh its model list." = "Reconnect this Agent to refresh its model list.";
 "The installer reported an error, but the new CLI version was verified." = "The installer reported an error, but the new CLI version was verified.";
 "Update log" = "Update log";
 
@@ -1340,3 +1341,24 @@
 
 "MCP Configuration" = "MCP Configuration";
 "Open a project to configure MCP access for agents." = "Open a project to configure MCP access for agents.";
+
+// Local Git ChangeLists
+"ChangeList" = "ChangeList";
+"Default ChangeList" = "Default ChangeList";
+"New ChangeList" = "New ChangeList";
+"Rename ChangeList" = "Rename ChangeList";
+"Delete ChangeList" = "Delete ChangeList";
+"Delete ChangeList?" = "Delete ChangeList?";
+"ChangeList name" = "ChangeList name";
+"Move to ChangeList" = "Move to ChangeList";
+"Select the ChangeList to commit" = "Select the ChangeList to commit";
+"Stage All and Commit use the current ChangeList." = "Stage All and Commit use the current ChangeList.";
+"Stage all files in current ChangeList" = "Stage all files in current ChangeList";
+"Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged." = "Files return to the default ChangeList and may be included by Stage All. Their Git staging state is unchanged.";
+"ChangeList storage is unavailable. Restore the saved data and reopen the workspace." = "ChangeList storage is unavailable. Restore the saved data and reopen the workspace.";
+"Other ChangeLists have staged files. Unstage them before committing the current ChangeList." = "Other ChangeLists have staged files. Unstage them before committing the current ChangeList.";
+"ChangeList editing is unavailable." = "ChangeList editing is unavailable.";
+"Enter a ChangeList name (1–100 characters)." = "Enter a ChangeList name (1–100 characters).";
+"A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
+"The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
+"Selected ChangeList or staged files changed before generation finished" = "Selected ChangeList or staged files changed before generation finished";

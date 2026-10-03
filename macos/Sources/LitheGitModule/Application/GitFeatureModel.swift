@@ -113,7 +113,7 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL == gitRepositoryRoot?.standardizedFileURL
         }
     }
-    @Published private var pendingStagingStates: [GitChange.ID: Bool] = [:]
+    @Published private var pendingStagingStates: [GitChange.ID: (repositoryRoot: URL, staged: Bool)] = [:]
     @Published package private(set) var gitStashes: [GitStash] = []
     @Published package private(set) var gitShelves: [GitShelfEntry] = []
     @Published package private(set) var gitWorktrees: [GitWorktree] = [] {
@@ -299,6 +299,18 @@ package final class GitFeatureModel: ObservableObject {
     private let repositoryRootsProvider: @Sendable (URL) async -> [URL]
     private var requestedRepositoryRoot: URL?
     private let diffDocumentProvider: @Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument
+    let changelistStorage: (any GitChangelistStorage)?
+    var changelistWorkspace: URL?
+    package private(set) var changelistSelectionGeneration = UUID()
+    @Published package internal(set) var changelists = GitLocalChangelists() {
+        didSet {
+            if oldValue.activeID != changelists.activeID || oldValue.assignments != changelists.assignments {
+                changelistSelectionGeneration = UUID()
+            }
+        }
+    }
+    @Published package internal(set) var changelistStorageFailed = false
+    @Published package var includeChangelistParentReferences = true
     var workspaceURLProvider: (@MainActor () -> URL?)?
     private var isGitLogVisibleProvider: (@MainActor () -> Bool)?
     var notify: (@MainActor (String) -> Void)?
@@ -345,6 +357,7 @@ package final class GitFeatureModel: ObservableObject {
         service: GitService,
         shelveService: ShelveService? = nil,
         executionJournal: GitExecutionJournal? = nil,
+        changelistStorage: (any GitChangelistStorage)? = nil,
         snapshotProvider: (@Sendable (URL) async -> GitSnapshot?)? = nil,
         stashesProvider: (@Sendable (URL) async -> [GitStash])? = nil,
         operationStateProvider: (@Sendable (URL) async -> GitOperationState?)? = nil,
@@ -352,6 +365,7 @@ package final class GitFeatureModel: ObservableObject {
         repositoryRootsProvider: (@Sendable (URL) async -> [URL])? = nil,
         diffDocumentProvider: (@Sendable (GitChange, GitDiffWhitespaceMode) async -> DiffDocument)? = nil
     ) {
+        self.changelistStorage = changelistStorage
         self.service = service
         self.executionJournal = executionJournal
         commitFilesLoader = GitCommitFilesLoader(service: service)
@@ -385,6 +399,7 @@ package final class GitFeatureModel: ObservableObject {
         onGitOperationEnded: @escaping @MainActor () async -> Void = {}
     ) {
         self.workspaceURLProvider = workspaceURLProvider
+        loadChangelistsIfNeeded()
         self.isGitLogVisibleProvider = isGitLogVisibleProvider
         self.notify = notify
         self.onStateRefreshed = onStateRefreshed
@@ -431,6 +446,10 @@ package final class GitFeatureModel: ObservableObject {
         patchExchange.reset()
         interactiveRebase.reset()
         cancelGitHistoryLoading()
+        changelistWorkspace = nil
+        changelists = GitLocalChangelists()
+        changelistStorageFailed = false
+        includeChangelistParentReferences = true
         gitChanges = []
         pendingStagingStates = [:]
         gitStashes = []
@@ -591,14 +610,16 @@ package final class GitFeatureModel: ObservableObject {
         guard !Task.isCancelled else { return }
         var didChange = false
         let repositoryRoots = await repositoryRootsProvider(workspaceURL)
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
         if availableRepositoryRoots != repositoryRoots {
             availableRepositoryRoots = repositoryRoots
             didChange = true
         }
-        let snapshot = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
-        if let snapshot {
-            guard !Task.isCancelled else { return }
+        let observation = await workspaceSnapshot(workspaceURL: workspaceURL, repositoryRoots: repositoryRoots)
+        if let observation {
+            let snapshot = observation.snapshot
+            guard !Task.isCancelled, workspaceURLProvider?()?.standardizedFileURL == workspaceURL.standardizedFileURL else { return }
+            loadChangelistsIfNeeded()
             let changesChanged = gitChanges != snapshot.changes
             if gitRepositoryRoot != snapshot.repositoryRoot {
                 clearGitCommitFilesCache()
@@ -618,11 +639,13 @@ package final class GitFeatureModel: ObservableObject {
             }
             if changesChanged {
                 gitChanges = snapshot.changes
+                rememberChangelistRenames()
                 gitLineChangeMarkers = [:]
                 lineChangeHunks = [:]
                 didChange = true
             }
-            reconcilePendingStagingStates(with: snapshot.changes)
+            reconcilePendingStagingStates(with: snapshot.changes,
+                successfullyReadRepositoryRoots: observation.successfullyReadRepositoryRoots)
             if !gitConflictFilterPaths.isEmpty {
                 let previousFilter = gitConflictFilterPaths
                 gitConflictFilterPaths.formIntersection(Set(snapshot.changes.map(\.path)))
@@ -712,9 +735,10 @@ package final class GitFeatureModel: ObservableObject {
     private func workspaceSnapshot(
         workspaceURL: URL,
         repositoryRoots: [URL]
-    ) async -> GitSnapshot? {
+    ) async -> (snapshot: GitSnapshot, successfullyReadRepositoryRoots: Set<URL>)? {
         if repositoryRoots.isEmpty {
-            return await snapshotProvider(workspaceURL, [])
+            guard let snapshot = await snapshotProvider(workspaceURL, []) else { return nil }
+            return (snapshot, [snapshot.repositoryRoot.standardizedFileURL])
         }
 
         var snapshots: [GitSnapshot] = []
@@ -729,15 +753,14 @@ package final class GitFeatureModel: ObservableObject {
             $0.repositoryRoot.standardizedFileURL
                 == (requestedRepositoryRoot ?? gitRepositoryRoot)?.standardizedFileURL
         }) ?? snapshots.first else { return nil }
-        if snapshots.count == 1 {
-            return firstSnapshot
-        }
-
-        return GitSnapshot(
+        let snapshot = GitSnapshot(
             repositoryRoot: firstSnapshot.repositoryRoot,
             branch: firstSnapshot.branch,
             changes: snapshots.flatMap(\.changes)
         )
+        // An absent path confirms a clean state only in a repository whose
+        // status was actually read; other repositories may have failed.
+        return (snapshot, Set(snapshots.map { $0.repositoryRoot.standardizedFileURL }))
     }
 
     package func selectRepository(_ root: URL) async {
@@ -1118,7 +1141,7 @@ package final class GitFeatureModel: ObservableObject {
         // `gitChanges` is the workspace aggregate. Keeping this input
         // aggregate in the same way as the commit operation prevents the AI
         // button from silently ignoring staged files in child repositories.
-        let stagedChanges = gitChanges.filter(\.isStaged)
+        let stagedChanges = activeChangelistChanges.filter(\.isStaged)
         guard !stagedChanges.isEmpty else { return nil }
 
         var files: [CommitMessageFileInput] = []
@@ -1287,33 +1310,41 @@ package final class GitFeatureModel: ObservableObject {
         }
     }
 
-    func reconcilePendingStagingStates(with changes: [GitChange]) {
-        let changesByID = Dictionary(uniqueKeysWithValues: changes.map { ($0.id, $0) })
-        pendingStagingStates = pendingStagingStates.filter { id, staged in
-            changesByID[id]?.isStaged != staged
+    func reconcilePendingStagingStates(with changes: [GitChange], successfullyReadRepositoryRoots: Set<URL>) {
+        // Git can report a staged deletion and an untracked replacement at the
+        // same path. Preserve both records and wait until all of them agree
+        // with the requested staging state before dropping the optimistic value.
+        // A clean path disappears, but a failed repository read is not evidence
+        // of cleanliness. Retain the repository with each pending request.
+        let changesByID = Dictionary(grouping: changes, by: \.id)
+        pendingStagingStates = pendingStagingStates.filter { id, pending in
+            guard successfullyReadRepositoryRoots.contains(pending.repositoryRoot) else { return true }
+            guard let currentChanges = changesByID[id] else { return false }
+            return !currentChanges.allSatisfy { $0.isStaged == pending.staged }
         }
     }
 
     package var isStagingChanges: Bool { !pendingStagingStates.isEmpty }
 
     package func effectiveStagingState(for change: GitChange) -> Bool {
-        pendingStagingStates[change.id] ?? change.isStaged
+        pendingStagingStates[change.id]?.staged ?? change.isStaged
     }
 
     package func beginToggleStaging(_ change: GitChange) -> Bool? {
-        guard !isCommitting, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
+        guard !isCommitting, !changelistStorageFailed, change.canToggleStaging, pendingStagingStates[change.id] == nil else { return nil }
         let staged = !change.isStaged
-        pendingStagingStates[change.id] = staged
+        pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         return staged
     }
 
-    package func beginSetStaging(_ changes: [GitChange], staged: Bool) -> [GitChange] {
-        guard !isCommitting else { return [] }
+    package func beginSetStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) -> [GitChange] {
+        guard !isCommitting, !changelistStorageFailed else { return [] }
         let pendingChanges = changes.filter {
-            $0.canToggleStaging && pendingStagingStates[$0.id] == nil && $0.isStaged != staged
+            $0.canToggleStaging && pendingStagingStates[$0.id] == nil
+                && ($0.isStaged != staged || (staged && includeWorkingTreeChanges && $0.hasWorkingTreeChange))
         }
         for change in pendingChanges {
-            pendingStagingStates[change.id] = staged
+            pendingStagingStates[change.id] = (change.repositoryRoot.standardizedFileURL, staged)
         }
         return pendingChanges
     }
@@ -1367,7 +1398,8 @@ package final class GitFeatureModel: ObservableObject {
     }
 
     package func stageAllChanges() async {
-        let pendingChanges = beginSetStaging(gitChanges, staged: true)
+        loadChangelistsIfNeeded()
+        let pendingChanges = beginSetStaging(activeChangelistChanges, staged: true)
         await finishSetStaging(pendingChanges, staged: true)
     }
 

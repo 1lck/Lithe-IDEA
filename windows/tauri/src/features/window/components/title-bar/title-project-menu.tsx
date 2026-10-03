@@ -1,19 +1,19 @@
-import { convertFileSrc } from "@/platform/tauri-core";
 import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
+import { ProjectAvatar } from "@/features/window/components/project-avatar";
+import { TitleWidgetChevron } from "./title-widget-chevron";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useRecentFoldersStore } from "@/features/file-system/stores/recent-folders.store";
+import { useProjectGradientAnchor } from "@/features/window/hooks/use-project-gradient";
 import { getProjectDisplayLabel } from "@/features/window/utils/project-display-label";
 import { useTranslation } from "@/i18n/locale-provider";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import {
-  getTitleProjectBadge,
   getTitleProjectMenuItemAriaCurrent,
   getTitleProjectMenuProjects,
 } from "@/features/window/utils/title-project-menu-model";
 import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import {
   CheckIcon,
-  ChevronDownIcon,
   FolderOpenIcon,
   GitBranchIcon,
   PlusIcon,
@@ -33,40 +33,6 @@ import { cn } from "@/utils/cn";
 
 interface TitleProjectMenuProps {
   onOpenProjectPicker: (mode: ProjectPickerMode) => void;
-}
-
-function ProjectBadge({
-  name,
-  iconPath,
-  className,
-}: {
-  name: string;
-  iconPath?: string;
-  className?: string;
-}) {
-  if (iconPath) {
-    return (
-      <img
-        src={convertFileSrc(iconPath)}
-        alt=""
-        className={cn("shrink-0 rounded-md object-contain", className ?? "size-5")}
-      />
-    );
-  }
-
-  const badge = getTitleProjectBadge(name);
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "grid shrink-0 place-items-center rounded-md font-bold text-[10px] text-white",
-        badge.tone,
-        className ?? "size-7",
-      )}
-    >
-      {badge.initials}
-    </span>
-  );
 }
 
 function ProjectMenuRow({
@@ -92,11 +58,12 @@ function ProjectMenuRow({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "min-h-11 w-full items-center gap-2.5 rounded-md px-2 py-1.5",
+        "min-h-11 w-full items-start gap-2 rounded-md px-2 py-1.5",
         active && "bg-selected text-foreground",
       )}
     >
-      <ProjectBadge name={name} iconPath={iconPath} className="size-7" />
+      {/* IntelliJ's project popup uses a 20px avatar aligned to the top, 8px before the name. */}
+      <ProjectAvatar name={name} path={path} customIconPath={iconPath} className="mt-0.5" />
       <span className="min-w-0 flex-1 text-left">
         <span className="block truncate font-medium text-foreground ui-text-sm">{name}</span>
         <span className="block truncate text-subtle-foreground ui-text-xs">{path}</span>
@@ -120,6 +87,8 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
     : t("projectOpen.title");
   const [isOpen, setIsOpen] = useState(false);
   const [menuNode, setMenuNode] = useState<HTMLDivElement | null>(null);
+  const [badgeNode, setBadgeNode] = useState<HTMLElement | null>(null);
+  useProjectGradientAnchor(badgeNode);
   const projects = useMemo(
     () => getTitleProjectMenuProjects(projectTabs, recentFolders),
     [projectTabs, recentFolders],
@@ -143,23 +112,27 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
             type="button"
             variant="ghost"
             size="xs"
-            className="max-w-56 justify-start gap-1.5 px-2"
+            // IntelliJ ToolbarComboButton: 30px tall, 12px arc (6px radius), insets 10px left and
+            // 6px right, 6px between icon and text, 2px before the chevron.
+            className="h-[30px] max-w-56 justify-start gap-1.5 rounded-[6px] pr-1.5 pl-2.5"
             aria-label={t("titleProject.trigger", { project: projectLabel })}
           />
         }
       >
-        <ProjectBadge
-          name={projectLabel}
-          iconPath={activeProject?.customIcon}
-          className="size-5"
-        />
+        {activeProject ? (
+          <ProjectAvatar
+            name={projectLabel}
+            path={activeProject.path}
+            customIconPath={activeProject.customIcon}
+            avatarRef={setBadgeNode}
+          />
+        ) : (
+          <FolderOpenIcon className="size-5 shrink-0" />
+        )}
         <span className="min-w-0 truncate">{projectLabel}</span>
-        <ChevronDownIcon
-          className={cn(
-            "size-3.5 shrink-0 text-subtle-foreground transition-transform",
-            isOpen && "rotate-180",
-          )}
-        />
+        {/* IntelliJ draws General.ChevronDown at its native 16px, 2px after the text, and
+            leaves it unrotated while the popup is open. */}
+        <TitleWidgetChevron />
       </DropdownMenuTrigger>
 
       <DropdownMenuContent
@@ -207,7 +180,7 @@ export function TitleProjectMenu({ onOpenProjectPicker }: TitleProjectMenuProps)
                 if (project.isActive) return;
                 closeAndRun(() => void switchToProject(project.id));
               }}
-              trailing={project.isActive ? <CheckIcon className="size-4 text-primary" /> : null}
+              trailing={project.isActive ? <CheckIcon className="size-4 self-center text-primary" /> : null}
             />
           ))}
         </DropdownMenuGroup>

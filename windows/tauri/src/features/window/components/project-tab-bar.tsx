@@ -38,7 +38,7 @@ export function ProjectTabBar({ hideWhenSingle = false }: ProjectTabBarProps) {
 
   return (
     <div
-      className="flex h-8 shrink-0 items-center overflow-x-auto border-border border-b bg-surface px-1.5"
+      className="lithe-project-tab-bar flex h-8 shrink-0 items-center overflow-x-auto border-border border-b bg-surface px-1.5"
       role="tablist"
       aria-label={t("titleProject.openProjects")}
       aria-orientation="horizontal"

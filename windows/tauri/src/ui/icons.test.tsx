@@ -15,7 +15,7 @@ function renderIcon(IconComponent: ElementType) {
 
 describe("application icon mappings", () => {
   test("exports the complete icon inventory", () => {
-    expect(iconEntries).toHaveLength(208);
+    expect(iconEntries).toHaveLength(209);
   });
 
   test("avoids unintended help fallbacks", () => {
@@ -73,6 +73,22 @@ describe("application icon mappings", () => {
       expect(markup).toContain("lithe-idea-icon-light");
       expect(markup).toContain("lithe-idea-icon-dark");
     }
+  });
+
+  test("renders IntelliJ 20x20 toolbar artwork for large icons", () => {
+    // IntelliJ's main toolbar and stripes draw dedicated @20x20 art, not the scaled 16px icon.
+    const large = renderToStaticMarkup(
+      createElement(AppIcons.GearIcon as ElementType, { large: true }),
+    );
+    expect(large).toContain('viewBox="0 0 20 20"');
+    expect(large).toContain("settings@20x20");
+    expect(large).not.toContain("large=");
+
+    // Icons without 20x20 artwork keep their 16px asset.
+    const fallback = renderToStaticMarkup(
+      createElement(AppIcons.ChevronDownIcon as ElementType, { large: true }),
+    );
+    expect(fallback).toContain('viewBox="0 0 16 16"');
   });
 
   test("forwards title to the asset aria label", () => {

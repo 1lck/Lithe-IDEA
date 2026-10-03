@@ -391,6 +391,15 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func selectChange(_ change: GitChange) {
         Task { @MainActor in self.model.selectChange(change) }
     }
+    nonisolated func stageChange(_ change: GitChange) {
+        Task { @MainActor in self.model.setStaging([change], staged: true, includeWorkingTreeChanges: true) }
+    }
+    nonisolated func stageAndOpenCommit(_ change: GitChange) {
+        Task { @MainActor in
+            self.model.setStaging([change], staged: true, includeWorkingTreeChanges: true)
+            self.model.selectedSidebar = .changes
+        }
+    }
     nonisolated func showLocalHistory(_ url: URL) {
         Task { @MainActor in self.model.showLocalHistory(for: url) }
     }
@@ -829,6 +838,32 @@ private struct FileNodeRow: View {
                     actions.selectChange(change)
                 }
             ]
+        }
+
+        // Windows parity: a Git submenu with the remaining single-file actions.
+        // Show Diff stays as the standalone item above, so it is not repeated.
+        if let change = gitStatus.change(for: node.url) {
+            let plan = GitFileContextMenuPlan(change: change)
+            var gitItems: [LitheContextMenuItem] = []
+            if plan.showsAdd {
+                gitItems.append(
+                    .action("Add", systemImage: "plus") {
+                        actions.stageChange(change)
+                    }
+                )
+            }
+            if plan.showsStageAndOpenCommit {
+                gitItems.append(
+                    .action("Stage and Open Commit…", systemImage: "checkmark.circle") {
+                        actions.stageAndOpenCommit(change)
+                    }
+                )
+            }
+            if !gitItems.isEmpty {
+                items += [
+                    .submenu("Git", systemImage: "arrow.triangle.branch", items: gitItems)
+                ]
+            }
         }
 
         items += [

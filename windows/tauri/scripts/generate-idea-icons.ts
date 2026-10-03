@@ -24,6 +24,13 @@ interface MappingEntry {
    * ships in the Jewel showcase resources). Defaults to `source`.
    */
   destination?: string;
+  /**
+   * IntelliJ's dedicated 20x20 artwork (`*@20x20.svg`) used by the main toolbar and tool window
+   * stripes. Rendered when an icon is requested with `large`; the 16px art is not just scaled.
+   */
+  source20?: string;
+  /** Like `destination`, for `source20`. */
+  destination20?: string;
   note?: string;
 }
 
@@ -77,17 +84,37 @@ interface PlannedIcon {
   /** Light/dark paths relative to src/ui/icons/idea. */
   light: string;
   dark: string | null;
+  /** The optional 20x20 artwork, with the same light/dark layout. */
+  large: PlannedVariant | null;
 }
 
+type PlannedVariant = Omit<PlannedIcon, "icon" | "large">;
+
 /** [destination relative to ASSETS_DIR, source relative to --source] per variant. */
-function assetPairs(p: PlannedIcon): Array<[string, string]> {
+function assetPairs(p: PlannedVariant & { large?: PlannedVariant | null }): Array<[string, string]> {
   const pairs: Array<[string, string]> = [[p.light, p.lightSource]];
   if (p.dark && p.darkSource) pairs.push([p.dark, p.darkSource]);
+  if (p.large) pairs.push(...assetPairs(p.large));
   return pairs;
 }
 
 const planned: PlannedIcon[] = [];
 const missingSources: string[] = [];
+
+function planVariant(source: string, destination: string): PlannedVariant | null {
+  if (!existsSync(join(sourceRoot as string, source))) {
+    missingSources.push(source);
+    return null;
+  }
+  const darkRel = source.replace(/\.svg$/, "_dark.svg");
+  const hasDark = existsSync(join(sourceRoot as string, darkRel));
+  return {
+    lightSource: source,
+    darkSource: hasDark ? darkRel : null,
+    light: destination,
+    dark: hasDark ? destination.replace(/\.svg$/, "_dark.svg") : null,
+  };
+}
 const unknownExports: string[] = [];
 const duplicateIcons: string[] = [];
 
@@ -103,22 +130,12 @@ for (const entry of mapping.icons) {
   if (!entry.source) {
     continue;
   }
-  const lightAbs = join(sourceRoot, entry.source);
-  if (!existsSync(lightAbs)) {
-    missingSources.push(entry.source);
-    continue;
-  }
-  const darkRel = entry.source.replace(/\.svg$/, "_dark.svg");
-  const darkAbs = join(sourceRoot, darkRel);
-  const hasDark = existsSync(darkAbs);
-  const destination = entry.destination ?? entry.source;
-  planned.push({
-    icon: entry.icon,
-    lightSource: entry.source,
-    darkSource: hasDark ? darkRel : null,
-    light: destination,
-    dark: hasDark ? destination.replace(/\.svg$/, "_dark.svg") : null,
-  });
+  const base = planVariant(entry.source, entry.destination ?? entry.source);
+  const large = entry.source20
+    ? planVariant(entry.source20, entry.destination20 ?? entry.source20)
+    : null;
+  if (!base || (entry.source20 && !large)) continue;
+  planned.push({ icon: entry.icon, ...base, large });
 }
 
 planned.sort((a, b) => a.icon.localeCompare(b.icon));
@@ -143,12 +160,23 @@ for (const p of planned) {
   if (p.dark) {
     generated += `import ${toIdentifier(p.icon)}Dark from "./idea/${p.dark}?url";\n`;
   }
+  if (p.large) {
+    generated += `import ${toIdentifier(p.icon)}LargeLight from "./idea/${p.large.light}?url";\n`;
+    if (p.large.dark) {
+      generated += `import ${toIdentifier(p.icon)}LargeDark from "./idea/${p.large.dark}?url";\n`;
+    }
+  }
 }
-generated += `\nexport interface IdeaIconAsset {\n  light: string;\n  dark: string;\n}\n\n`;
+generated += `\nexport interface IdeaIconAsset {\n  light: string;\n  dark: string;\n`;
+generated += `  /** IntelliJ @20x20 toolbar and stripe artwork, when it exists. */\n`;
+generated += `  large?: { light: string; dark: string };\n}\n\n`;
 generated += `export const ideaIconAssets: Record<string, IdeaIconAsset> = {\n`;
 for (const p of planned) {
-  const darkId = p.dark ? `${toIdentifier(p.icon)}Dark` : `${toIdentifier(p.icon)}Light`;
-  generated += `  ${p.icon}: { light: ${toIdentifier(p.icon)}Light, dark: ${darkId} },\n`;
+  const id = toIdentifier(p.icon);
+  const darkId = p.dark ? `${id}Dark` : `${id}Light`;
+  const largeDarkId = p.large?.dark ? `${id}LargeDark` : `${id}LargeLight`;
+  const large = p.large ? `, large: { light: ${id}LargeLight, dark: ${largeDarkId} }` : "";
+  generated += `  ${p.icon}: { light: ${id}Light, dark: ${darkId}${large} },\n`;
 }
 generated += `};\n`;
 
@@ -184,5 +212,5 @@ for (const p of planned) {
 }
 writeFileSync(GENERATED_TS_PATH, generated);
 console.log(
-  `Copied ${planned.reduce((n, p) => n + (p.dark ? 2 : 1), 0)} SVGs and emitted idea-assets.generated.ts (${planned.length} icons mapped)`,
+  `Copied ${planned.reduce((n, p) => n + assetPairs(p).length, 0)} SVGs and emitted idea-assets.generated.ts (${planned.length} icons mapped)`,
 );

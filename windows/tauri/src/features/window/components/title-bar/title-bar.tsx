@@ -14,6 +14,7 @@ import { useUIState } from "@/features/window/stores/ui-state.store";
 import { useWorkspaceTabsStore } from "@/features/window/stores/workspace-tabs.store";
 import type { ProjectPickerMode } from "@/features/window/utils/project-picker-mode";
 import { useNativeWindowChrome } from "@/features/window/hooks/use-native-window-chrome";
+import { useProjectGradientColor } from "@/features/window/hooks/use-project-gradient";
 import { useCompactMenuBarDismissal } from "@/features/window/hooks/use-compact-menu-bar-dismissal";
 import { createAppWindow } from "@/features/window/utils/create-app-window";
 import { runTitleBarDrag } from "@/features/window/utils/title-bar-drag";
@@ -45,6 +46,10 @@ import { TitleProjectMenu } from "./title-project-menu";
 import { WindowControls } from "./window-controls";
 import WindowMenuBar from "../window-menu-bar";
 
+// IntelliJ main toolbar buttons: MainToolbar.Button.size 30x30, arc 12 (6px radius). Their icons
+// set size-5 (iconSize 20) themselves: Button's unsized-svg rule outranks a parent [&_svg] override.
+const MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME = "size-[30px] rounded-[6px]";
+
 interface TitleBarProps {
   showMinimal?: boolean;
   showUpdateControl: boolean;
@@ -66,6 +71,7 @@ export const TitleBar = ({
   const handleOpenFolder = useFileSystemStore((state) => state.handleOpenFolder);
   const closeProject = useFileSystemStore((state) => state.closeProject);
   const projectTabs = useWorkspaceTabsStore.use.projectTabs();
+  useProjectGradientColor(projectTabs.find((tab) => tab.isActive)?.path);
   const setIsQuickOpenVisible = useUIState((state) => state.setIsQuickOpenVisible);
   const openSettingsDialog = useUIState((state) => state.openSettingsDialog);
   const branchItem = useFooterGitBranchItem();
@@ -106,16 +112,21 @@ export const TitleBar = ({
 
       try {
         await syncWindowState();
+        // A window opened in the background starts inactive without a focus event.
+        document.documentElement.toggleAttribute("data-window-inactive", !(await window.isFocused()));
         const unlistenResize = await window.onResized(() => {
           void syncWindowState();
         });
-        const unlistenFocus = await window.onFocusChanged(() => {
+        const unlistenFocus = await window.onFocusChanged(({ payload: focused }) => {
+          // Drives the IntelliJ Islands inactive-frame dimming in base.css.
+          document.documentElement.toggleAttribute("data-window-inactive", !focused);
           void syncWindowState();
         });
 
         return () => {
           unlistenResize();
           unlistenFocus();
+          document.documentElement.removeAttribute("data-window-inactive");
         };
       } catch (error) {
         console.error("Error subscribing to window state:", error);
@@ -238,10 +249,11 @@ export const TitleBar = ({
                 onClick={handleCompactMenuOpen}
                 variant="ghost"
                 size="icon-xs"
+                className={MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME}
                 aria-label={t("window.menu")}
                 aria-expanded={false}
               >
-                <MenuIcon />
+                <MenuIcon large className="size-5" />
               </Button>
             </Tooltip>
           )}
@@ -278,12 +290,13 @@ export const TitleBar = ({
       type="button"
       variant="ghost"
       size="icon-xs"
+      className={MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME}
       tooltip={t("workbench.search")}
       tooltipSide="bottom"
       onClick={() => setIsQuickOpenVisible(true)}
       aria-label={t("workbench.search")}
     >
-      <MagnifyingGlassIcon />
+      <MagnifyingGlassIcon large className="size-5" />
     </Button>
   );
 
@@ -292,12 +305,13 @@ export const TitleBar = ({
       type="button"
       variant="ghost"
       size="icon-xs"
+      className={MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME}
       tooltip={t("workbench.settings")}
       tooltipSide="bottom"
       onClick={() => openSettingsDialog()}
       aria-label={t("workbench.settings")}
     >
-      <GearIcon />
+      <GearIcon large className="size-5" />
     </Button>
   );
 
@@ -322,12 +336,13 @@ export const TitleBar = ({
         type="button"
         variant="ghost"
         size="icon-xs"
+        className={MAIN_TOOLBAR_ICON_BUTTON_CLASS_NAME}
         tooltip={t("workbench.moreProjectActions")}
         tooltipSide="bottom"
         onClick={() => onOpenProjectPicker()}
         aria-label={t("workbench.moreProjectActions")}
       >
-        <ListIcon />
+        <ListIcon className="size-5" />
       </Button>
     </ChromeGroup>
   );

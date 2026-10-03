@@ -1,4 +1,9 @@
 import {
+  DEFAULT_CHANGELIST,
+  fileChangelist,
+  type LocalChangelists,
+} from "../../utils/git-changelists";
+import {
   ArchiveIcon as Archive,
   ArrowCounterClockwiseIcon as RotateCcw,
   CaretDownIcon as CaretDown,
@@ -15,7 +20,7 @@ import {
 } from "@/ui/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type React from "react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { ThemedFileIcon } from "@/extensions/icon-themes/components/themed-file-icon";
 import { useFileTreePresentation } from "@/features/file-explorer/hooks/use-file-tree-presentation";
@@ -69,14 +74,15 @@ import {
 import { StashMessageModal } from "../stash/git-stash-modal";
 import { GitFileItem } from "./git-status-file-item";
 import { IDEA_CHECKBOX_CLASS_NAME } from "../../utils/idea-control-styles";
-import {
-  isLabelTruncated,
-  measureLabelNaturalWidth,
-  useGitStatusExpandableHint,
-} from "./use-git-status-expandable-hint";
+import { useGitStatusExpandableHint } from "./use-git-status-expandable-hint";
+import { useTreeContentWidth } from "../../hooks/use-tree-content-width";
 import { showGitPatchDialog } from "../../services/git-patch-dialog-service";
 
 interface GitStatusPanelProps {
+  changelists?: LocalChangelists;
+  onMoveToChangelist?: (files: GitFile[], id: string) => void;
+  changelistsDisabled?: boolean;
+  stagingDisabled?: boolean;
   files: GitFile[];
   repositoryCount?: number;
   collapsedFolders: ReadonlySet<string>;
@@ -147,20 +153,6 @@ const GIT_STATUS_SECTION_HEADER_HEIGHT = 32;
 // IntelliJ lists "Changes" and "Unversioned Files" as top-level tree nodes, so their
 // files sit one level deeper than the node.
 const GIT_STATUS_SECTION_CHILD_DEPTH = 1;
-/**
- * Width a rendered row needs to show its name and count without truncation: the row
- * minus the flexible label area, plus the label parts' natural widths, rounded up with a
- * pixel of slack so fractional text widths never end in an ellipsis. `truncated` tells
- * whether the row is clipped right now.
- */
-export function measureGitStatusRowWidth(row: HTMLElement): { width: number; truncated: boolean } {
-  const label = row.querySelector<HTMLElement>("[data-sidebar-tree-label]");
-  if (!label) return { width: row.offsetWidth, truncated: false };
-  return {
-    width: Math.ceil(row.offsetWidth - label.clientWidth + measureLabelNaturalWidth(label)) + 1,
-    truncated: isLabelTruncated(label),
-  };
-}
 
 /** Include-in-commit state of a group: all, none, or some of its eligible files. */
 function getCommitInclusionState(files: readonly GitFile[]) {
@@ -237,6 +229,10 @@ function logStagingFailure(
 }
 
 const GitStatusPanel = ({
+  changelists,
+  onMoveToChangelist,
+  changelistsDisabled = false,
+  stagingDisabled = false,
   files,
   repositoryCount = 1,
   collapsedFolders,
@@ -322,24 +318,35 @@ const GitStatusPanel = ({
   const sections = useMemo(
     () =>
       repositoryGroups.flatMap((group) => {
-        const presentation = buildGitStatusPresentation(group.files);
-        return ["tracked", "untracked"].map((kind) => {
-          const sectionFiles =
-            kind === "tracked" ? presentation.trackedFiles : presentation.untrackedFiles;
-          return {
-            id: `${group.repoPath}:${kind}`,
-            repoPath: group.repoPath,
-            kind,
-            files: sectionFiles,
-            grouped:
-              kind === "tracked"
-                ? presentation.groupedTrackedFiles
-                : presentation.groupedUntrackedFiles,
-            tree: gitChangesFolderView ? buildGitFolderTree(sectionFiles, true) : null,
-          };
+        const lists = changelists?.lists ?? [{ id: DEFAULT_CHANGELIST, name: "" }];
+        return lists.flatMap((list) => {
+          const listFiles = group.files.filter(
+            (file) => !changelists || fileChangelist(changelists, file, repoPath) === list.id,
+          );
+          const presentation = buildGitStatusPresentation(listFiles);
+          return (list.id === DEFAULT_CHANGELIST ? ["tracked", "untracked"] : ["changelist"]).map(
+            (kind) => {
+              const sectionFiles =
+                kind === "tracked"
+                  ? presentation.trackedFiles
+                  : kind === "untracked"
+                    ? presentation.untrackedFiles
+                    : listFiles;
+              const grouped = buildGitStatusPresentation(sectionFiles);
+              return {
+                id: `${group.repoPath}:${list.id}:${kind}`,
+                repoPath: group.repoPath,
+                kind,
+                list,
+                files: sectionFiles,
+                grouped: { ...grouped.groupedTrackedFiles, untracked: grouped.untrackedFiles },
+                tree: gitChangesFolderView ? buildGitFolderTree(sectionFiles, true) : null,
+              };
+            },
+          );
         });
       }),
-    [repositoryGroups, gitChangesFolderView],
+    [repositoryGroups, gitChangesFolderView, changelists, repoPath],
   );
   const sectionById = useMemo(
     () => new Map(sections.map((section) => [section.id, section])),
@@ -435,7 +442,8 @@ const GitStatusPanel = ({
       if (collapsedSections.has(section)) return;
 
       if (gitChangesFolderView && tree) {
-        for (const node of tree.nodes) appendTreeNode(node, GIT_STATUS_SECTION_CHILD_DEPTH, section);
+        for (const node of tree.nodes)
+          appendTreeNode(node, GIT_STATUS_SECTION_CHILD_DEPTH, section);
         return;
       }
 
@@ -475,49 +483,17 @@ const GitStatusPanel = ({
     sections,
   ]);
 
+  const hasVisibleFiles = visibleFiles.length > 0;
   // IntelliJ's changes tree scrolls horizontally instead of truncating long names. Rows
   // are virtualized and absolutely positioned, so the tree takes the widest width any
   // rendered row has needed; it restarts from the viewport width only when the layout
   // itself changes, so routine status refreshes do not briefly re-truncate every name.
-  const [treeContentWidth, setTreeContentWidth] = useState(0);
-  const hasVisibleFiles = visibleFiles.length > 0;
-  const measureTreeContentWidth = useCallback(() => {
-    const viewport = statusViewportRef.current;
-    if (!viewport) return;
-    // Only rows that are actually clipped widen the tree, so a tree that fits keeps
-    // following the viewport width when the sidebar is resized.
-    let widest = 0;
-    for (const row of viewport.querySelectorAll<HTMLElement>("[data-git-status-row-index]")) {
-      const { width, truncated } = measureGitStatusRowWidth(row);
-      // A row that is already as wide as it claims to need cannot be helped by growing
-      // further; skipping it keeps a mis-measured row from widening the tree forever.
-      if (truncated && width > row.offsetWidth + 1) widest = Math.max(widest, width);
-    }
-    if (widest > 0) setTreeContentWidth((current) => (widest > current ? widest : current));
-  }, []);
-  useLayoutEffect(() => {
-    setTreeContentWidth(0);
-  }, [repoPath, gitChangesFolderView, fileTreePresentation.compactFolders]);
-  useLayoutEffect(() => {
-    measureTreeContentWidth();
+  const treeContentWidth = useTreeContentWidth({
+    viewportRef: statusViewportRef,
+    rowSelector: "[data-git-status-row-index]",
+    resetKey: `${repoPath ?? ""}\u0000${gitChangesFolderView}\u0000${fileTreePresentation.compactFolders}`,
+    enabled: hasVisibleFiles,
   });
-  // Text widths also change without a React render: the panel was hidden (every width
-  // reads 0) and is shown again, the sidebar is resized, or the UI font finishes loading.
-  useEffect(() => {
-    const viewport = statusViewportRef.current;
-    const fonts = globalThis.document?.fonts;
-    const observer =
-      viewport && typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(() => measureTreeContentWidth())
-        : null;
-    if (viewport) observer?.observe(viewport);
-    fonts?.addEventListener?.("loadingdone", measureTreeContentWidth);
-    return () => {
-      observer?.disconnect();
-      fonts?.removeEventListener?.("loadingdone", measureTreeContentWidth);
-    };
-    // The viewport only exists while there are files to list.
-  }, [measureTreeContentWidth, hasVisibleFiles]);
   // Rows still cut off by the viewport edge show their full label on hover, like IntelliJ.
   useGitStatusExpandableHint(statusViewportRef, hasVisibleFiles);
 
@@ -555,6 +531,7 @@ const GitStatusPanel = ({
     filesToStage: GitFile[],
     staged: boolean,
   ): Promise<boolean> => {
+    if (stagingDisabled) return false;
     filesToStage = filesToStage.filter((file) => file.canToggleStaging !== false);
     const repositoryGroups = groupGitFilesByRepository(filesToStage, repoPath);
     if (repositoryGroups.length === 0) return false;
@@ -617,8 +594,13 @@ const GitStatusPanel = ({
     }
   };
 
-  const handleStageAll = () => handleSetFilesStaged(unstagedFiles, true);
-  const handleUnstageAll = () => handleSetFilesStaged(stagedFiles, false);
+  const activeListFiles = (items: GitFile[]) =>
+    items.filter(
+      (file) =>
+        !changelists || fileChangelist(changelists, file, repoPath) === changelists.activeId,
+    );
+  const handleStageAll = () => handleSetFilesStaged(activeListFiles(unstagedFiles), true);
+  const handleUnstageAll = () => handleSetFilesStaged(activeListFiles(stagedFiles), false);
 
   const getSelectionFilePaths = (entries: GitStatusSelectionEntry[]) => [
     ...new Set(entries.flatMap((entry) => entry.filePaths)),
@@ -891,7 +873,13 @@ const GitStatusPanel = ({
   const renderSectionNode = (section: StatusSection) => {
     const sectionData = sectionById.get(section);
     if (!sectionData) return null;
-    const title = t(sectionData.kind === "tracked" ? "git.changesNode" : "git.unversionedFilesNode");
+    const title =
+      (sectionData.kind === "changelist"
+        ? sectionData.list.name
+        : t(sectionData.kind === "tracked" ? "git.changesNode" : "git.unversionedFilesNode")) +
+      (changelists && sectionData.list.id === changelists.activeId
+        ? t("git.changelists.activeSuffix")
+        : "");
     const inclusion = getCommitInclusionState(sectionData.files);
     const count = sectionData.files.length;
     const expanded = !collapsedSections.has(section);
@@ -922,6 +910,7 @@ const GitStatusPanel = ({
             }
             disabled={
               isLoading ||
+              stagingDisabled ||
               inclusion.eligible.length === 0 ||
               sectionData.files.some((file) => stagePendingPaths.has(file.path))
             }
@@ -1047,7 +1036,9 @@ const GitStatusPanel = ({
     if (row.kind === "repository") {
       const groupFiles =
         repositoryGroups.find((group) => group.repoPath === row.repoPath)?.files ?? [];
-      const eligible = groupFiles.filter((file) => file.canToggleStaging !== false);
+      const eligible = activeListFiles(groupFiles).filter(
+        (file) => file.canToggleStaging !== false,
+      );
       const checked = eligible.length > 0 && eligible.every((file) => file.staged);
       return (
         <div className="flex h-full items-center gap-1">
@@ -1067,6 +1058,7 @@ const GitStatusPanel = ({
             onCheckedChange={(staged) => void handleSetFilesStaged(eligible, staged)}
             disabled={
               isLoading ||
+              stagingDisabled ||
               eligible.length === 0 ||
               groupFiles.some((file) => stagePendingPaths.has(file.path))
             }
@@ -1096,7 +1088,10 @@ const GitStatusPanel = ({
           checked={row.file.staged}
           onCheckedChange={(checked) => handleSetCommitPathsSelected([row.file.path], checked)}
           disabled={
-            isLoading || row.file.canToggleStaging === false || stagePendingPaths.has(row.file.path)
+            isLoading ||
+            stagingDisabled ||
+            row.file.canToggleStaging === false ||
+            stagePendingPaths.has(row.file.path)
           }
           showDirectory={row.showDirectory}
           showFileIcon={fileTreePresentation.showIcons}
@@ -1166,6 +1161,7 @@ const GitStatusPanel = ({
             }
             disabled={
               isLoading ||
+              stagingDisabled ||
               entry.files.every((file) => file.canToggleStaging === false) ||
               entry.files.some((file) => stagePendingPaths.has(file.path))
             }
@@ -1388,7 +1384,11 @@ const GitStatusPanel = ({
                 // behind IntelliJ's Group By submenu, with a check on the active one.
                 items={(
                   [
-                    { id: "group-by-directory", folderView: true, label: t("git.groupByDirectory") },
+                    {
+                      id: "group-by-directory",
+                      folderView: true,
+                      label: t("git.groupByDirectory"),
+                    },
                     { id: "flat-list", folderView: false, label: t("git.flatList") },
                   ] as const
                 ).map((option) => ({
@@ -1423,11 +1423,13 @@ const GitStatusPanel = ({
               {unstagedFiles.length > 0 && (
                 <SidebarHeaderIconButton
                   onClick={handleStageAll}
-                  disabled={isLoading}
+                  disabled={isLoading || stagingDisabled}
                   className="disabled:opacity-50"
-                  tooltip={t("git.stageAllChanges")}
+                  tooltip={t(changelists ? "git.changelists.stageActive" : "git.stageAllChanges")}
                   tooltipSide="bottom"
-                  aria-label={t("git.stageAllChanges")}
+                  aria-label={t(
+                    changelists ? "git.changelists.stageActive" : "git.stageAllChanges",
+                  )}
                 >
                   <Plus />
                 </SidebarHeaderIconButton>
@@ -1435,11 +1437,15 @@ const GitStatusPanel = ({
               {stagedFiles.length > 0 && (
                 <SidebarHeaderIconButton
                   onClick={handleUnstageAll}
-                  disabled={isLoading}
+                  disabled={isLoading || stagingDisabled}
                   className="disabled:opacity-50"
-                  tooltip={t("git.unstageAllChanges")}
+                  tooltip={t(
+                    changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges",
+                  )}
                   tooltipSide="bottom"
-                  aria-label={t("git.unstageAllChanges")}
+                  aria-label={t(
+                    changelists ? "git.changelists.unstageActive" : "git.unstageAllChanges",
+                  )}
                 >
                   <Minus />
                 </SidebarHeaderIconButton>
@@ -1501,6 +1507,28 @@ const GitStatusPanel = ({
                 },
               ]
             : [
+                ...(changelists && onMoveToChangelist
+                  ? [
+                      {
+                        id: "move-to-changelist",
+                        onClick: () => {},
+                        label: t("git.changelists.move"),
+                        disabled: changelistsDisabled || isLoading || stagePendingPaths.size > 0,
+                        children: changelists.lists.map((list) => ({
+                          id: list.id,
+                          label:
+                            list.id === DEFAULT_CHANGELIST
+                              ? t("git.changelists.default")
+                              : list.name,
+                          onClick: () =>
+                            onMoveToChangelist(
+                              contextMenuEntries.flatMap((entry) => entry.files),
+                              list.id,
+                            ),
+                        })),
+                      },
+                    ]
+                  : []),
                 ...(contextMenuUnstagedFiles.length > 0
                   ? [
                       {

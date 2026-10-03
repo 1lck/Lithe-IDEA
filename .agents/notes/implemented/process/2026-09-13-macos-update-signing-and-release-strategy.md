@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-更新包的真实性由 Sparkle 的 EdDSA 签名保证，Developer ID 签名是可选的分发能力，不是更新信任的唯一依据。stable 和 preview 完全隔离，回滚只接受内置公钥信任的更新，避免测试版本或伪造清单影响正式用户。
+更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。stable 和 preview 完全隔离，回滚和插件安装只接受内置公钥信任的内容，避免测试版本或伪造清单影响正式用户。
 
 ## 问题
 
@@ -30,6 +30,21 @@ EdDSA 验证更新来源；配置了 Developer ID 时该身份只在构建期导
 runner keychain，用后即删。Developer ID 签名不等于公证，也不保证
 Gatekeeper 首次运行警告消失——这些是独立的发布关注点，更新器不自动
 清除 quarantine。
+
+### 独立官方插件包
+
+PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 Developer ID
+证书”当成是否生成插件包的条件。构建阶段先完成原生 bundle 的代码签名，再由
+`LithePluginPackageSigner` 使用 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 为包内每个文件
+生成 SHA-256 清单和 Ed25519 签名；签名文档本身不进入被签名文件列表，避免验证时
+出现自引用。Lithe 内置 `lithe-official-plugins-v1` 公钥，安装时先验证原生 bundle，
+再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
+
+stable 和 preview 工作流都必须配置同一 repository secret
+`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
+Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
+仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
+secret 并重新生成包，不能只替换 GitHub secret。
 
 ### 全量与差分双轨发布
 
@@ -119,6 +134,10 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   少点一次 Gatekeeper 提示。但这本质上是绕过 macOS 的下载来源追踪
   机制，属于安全职责之外的东西，因此明确不做，交由既有的可信来源
   恢复步骤处理。
+- **要求插件使用 Developer ID 或与宿主同 Team ID 签名**：能复用 Apple
+  的代码签名身份，但会让没有证书的发布环境无法生成独立包，也无法表达“包由
+  Lithe 发布者签发”的信任关系，因此改用包级 Ed25519 清单，同时保留 bundle
+  的原生代码签名校验。
 
 ## 后果
 
@@ -135,6 +154,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。
+- 独立插件包的安装安全性同样依赖客户端内置的 publisher 公钥；没有匹配 secret
+  的 release 构建会失败，普通 debug 构建会跳过需要 publisher 签名的 PHP 包，
+  指定单个 PHP 包构建时也会失败。这样构建目录中不会留下缺少
+  `lithe-plugin-signature.json` 的伪成功包；只有提供私钥的构建才会生成可交给
+  包级验签路径的产物。
 - 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
   逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
   "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。
@@ -146,6 +170,7 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
+./scripts/verify-official-plugins.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
 node scripts/test-download-sparkle-baseline.mjs
@@ -174,4 +199,7 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 - `scripts/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
+- `scripts/build-official-plugins.sh`
+- `macos/Sources/LithePluginPackageSigning/`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `docs/architecture/macos-updates.md`

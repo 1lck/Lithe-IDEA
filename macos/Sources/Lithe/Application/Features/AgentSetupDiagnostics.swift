@@ -142,7 +142,10 @@ extension AgentSetupDiagnostics {
             let canUpdate = cli.installation?.canUpdate ?? true
             if let detected = cli.detected {
                 if isVersion(detected.version, atLeast: cli.minimumVersion) {
-                    checks.append(.init(id: "cli", title: title, status: .pass, message: "\(detected.version) · \(detected.path)"))
+                    // Compatibility does not mean the CLI has the latest model catalog.
+                    checks.append(.init(id: "cli", title: title, status: .pass,
+                                        message: "\(detected.version) · \(detected.path)",
+                                        fix: canUpdate ? .updateCli : nil))
                 } else {
                     checks.append(.init(id: "cli", title: title, status: .warn,
                                         message: Issue.cliTooOld(name: cli.name, minimumVersion: cli.minimumVersion, found: detected.version).message,

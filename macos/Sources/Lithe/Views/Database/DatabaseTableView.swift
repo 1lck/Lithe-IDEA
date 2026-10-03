@@ -5,6 +5,7 @@ import LitheDatabaseModule
 
 struct DatabaseTableView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var drafts: [CellKey: DatabaseValue] = [:]
     @State private var insertedRows: [DatabaseRow] = []
     @State private var selectedRows: Set<Int> = []
@@ -39,11 +40,11 @@ struct DatabaseTableView: View {
     var body: some View {
         VStack(spacing: 0) {
             toolbar
-            if model.databaseFeature.selectedTable != nil {
+            if feature.selectedTable != nil {
                 queryClauseBar
                 dataActionBar
             }
-            if let error = model.databaseFeature.errorMessage, model.databaseFeature.selectedTable != nil {
+            if let error = feature.errorMessage, feature.selectedTable != nil {
                 Label {
                     DatabaseLocalization.error(error)
                 } icon: {
@@ -56,16 +57,16 @@ struct DatabaseTableView: View {
                 .background(LitheTheme.toolHeader)
             }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
-            if model.databaseFeature.selectedTable == nil {
-                DatabaseTableEmptyState(hasConnection: model.databaseFeature.selectedProfile != nil)
-            } else if model.databaseFeature.columns.isEmpty && !model.databaseFeature.isLoading {
+            if feature.selectedTable == nil {
+                DatabaseTableEmptyState(hasConnection: feature.selectedProfile != nil)
+            } else if feature.columns.isEmpty && !feature.isLoading {
                 DatabaseTableEmptyState(hasConnection: true, hasColumns: false)
             } else {
                 grid
             }
         }
         .litheWorkbenchSurface(LitheTheme.editor)
-        .onChange(of: model.databaseFeature.selectedTable) { _ in
+        .onChange(of: feature.selectedTable) { _ in
             discard()
             appliedFilters = []
             appliedSort = []
@@ -73,14 +74,14 @@ struct DatabaseTableView: View {
             filterJoin = .and
             filterConditions = [.init()]
         }
-        .onChange(of: model.databaseFeature.columns) { columns in
+        .onChange(of: feature.columns) { columns in
             if filterConditions.count == 1, filterConditions[0].column.isEmpty {
                 filterConditions[0].column = columns.first ?? ""
             }
         }
         .sheet(isPresented: $showsReplaceSheet) {
             DatabaseReplaceSheet(
-                columns: model.databaseFeature.columns,
+                columns: feature.columns,
                 column: $replaceColumn,
                 searchText: $replaceText,
                 replacementText: $replacementText,
@@ -91,7 +92,7 @@ struct DatabaseTableView: View {
         }
         .sheet(isPresented: $showsBatchUpdateSheet) {
             DatabaseBatchUpdateSheet(
-                columns: model.databaseFeature.columns,
+                columns: feature.columns,
                 selectedCount: selectedRows.count,
                 onApply: applyBatchUpdate
             )
@@ -102,19 +103,19 @@ struct DatabaseTableView: View {
             get: { rowDetailsIndex != nil },
             set: { if !$0 { rowDetailsIndex = nil } }
         )) {
-            if let rowDetailsIndex, model.databaseFeature.rows.indices.contains(rowDetailsIndex) {
+            if let rowDetailsIndex, feature.rows.indices.contains(rowDetailsIndex) {
                 DatabaseRowDetailsSheet(
                     rowNumber: rowDetailsIndex + 1,
-                    columns: model.databaseFeature.columns,
-                    row: model.databaseFeature.rows[rowDetailsIndex]
+                    columns: feature.columns,
+                    row: feature.rows[rowDetailsIndex]
                 )
                 .environment(\.locale, model.settings.language.locale)
                 .id(model.settings.language)
             }
         }
         .fileExporter(isPresented: $showsExporter, document: exportDocument, contentType: exportFormat.contentType, defaultFilename: exportFilename) { result in
-            if case let .failure(error) = result { model.databaseFeature.errorMessage = error.localizedDescription }
-            if let temporaryExportURL { model.databaseFeature.removeTemporaryFile(temporaryExportURL) }
+            if case let .failure(error) = result { feature.errorMessage = error.localizedDescription }
+            if let temporaryExportURL { feature.removeTemporaryFile(temporaryExportURL) }
             temporaryExportURL = nil
             exportDocument = nil
         }
@@ -163,52 +164,52 @@ struct DatabaseTableView: View {
 
     private var toolbar: some View {
         HStack(spacing: 8) {
-            contextCrumb(model.databaseFeature.selectedProfile?.name ?? String(localized: "Database"), icon: "externaldrive.connected.to.line.below")
+            contextCrumb(feature.selectedProfile?.name ?? String(localized: "Database"), icon: "externaldrive.connected.to.line.below")
             Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
             contextCrumb(databaseContextName, icon: "cylinder")
-            if let table = model.databaseFeature.selectedTable {
+            if let table = feature.selectedTable {
                 Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
                 contextCrumb(table, icon: "tablecells", emphasized: true)
-                Text("\(model.databaseFeature.columns.count) fields")
+                Text("\(feature.columns.count) fields")
                     .font(.system(size: 9.5, weight: .medium))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .monospacedDigit()
             }
             Spacer()
             toolbarGroup {
-                Button { model.databaseFeature.workspaceSection = .structure } label: {
+                Button { feature.workspaceSection = .structure } label: {
                     toolbarActionLabel("Table Properties", systemImage: "tablecells")
                 }
                 .buttonStyle(.litheNoPress)
-                .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
+                .disabled(feature.selectedProfile?.kind == .mongodb)
 
                 toolbarDivider
 
                 Menu {
                     Button("Import CSV…") { importFormat = .csv; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                        .disabled(feature.selectedProfile?.readOnly == true)
                     Button("Import JSON…") { importFormat = .json; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                        .disabled(feature.selectedProfile?.readOnly == true)
                     Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                        .disabled(model.databaseFeature.selectedProfile?.readOnly == true || model.databaseFeature.selectedProfile?.kind == .sqlserver)
+                        .disabled(feature.selectedProfile?.readOnly == true || feature.selectedProfile?.kind == .sqlserver)
                     Divider()
                     Button("Export Table as CSV…") { export(.csv) }
                     Button("Export Table as JSON…") { export(.json) }
                     Button("Back Up Database as SQL…") { export(.sql) }
-                        .disabled(model.databaseFeature.selectedProfile?.kind == .sqlserver)
+                        .disabled(feature.selectedProfile?.kind == .sqlserver)
                 } label: {
                     toolbarActionLabel("Data Tools", systemImage: "shippingbox", showsChevron: true)
                 }
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
-                .disabled(model.databaseFeature.selectedProfile?.kind == .mongodb)
+                .disabled(feature.selectedProfile?.kind == .mongodb)
 
                 toolbarDivider
 
                 Menu {
                     Button("Paste TSV from Clipboard") { pasteFromClipboard() }
                     Button("Replace in Current Page…") { showsReplaceSheet = true }
-                        .disabled(model.databaseFeature.rows.isEmpty)
+                        .disabled(feature.rows.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
                         .font(.system(size: 11, weight: .semibold))
@@ -259,7 +260,7 @@ struct DatabaseTableView: View {
                 Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
                     .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                 Menu {
-                    ForEach(model.databaseFeature.columns, id: \.self) { column in
+                    ForEach(feature.columns, id: \.self) { column in
                         Button(column) { jumpTargetColumn = column }
                     }
                 } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
@@ -281,10 +282,10 @@ struct DatabaseTableView: View {
                 .disabled(selectedRows.count != 1)
                 Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
                     .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
-                    .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                    .disabled(feature.selectedProfile?.readOnly == true)
                 Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
                     .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
-                    .disabled(!hasChanges || model.databaseFeature.isLoading || model.databaseFeature.selectedProfile?.readOnly == true)
+                    .disabled(!hasChanges || feature.isLoading || feature.selectedProfile?.readOnly == true)
                 Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
                     .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
                     .disabled(!hasChanges)
@@ -302,21 +303,21 @@ struct DatabaseTableView: View {
                 }
                 .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5, weight: .medium))
-                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                .disabled(feature.selectedProfile?.readOnly == true)
                 Button { showsBatchDeleteConfirmation = true } label: {
                     Label("Delete Selected", systemImage: "trash")
                 }
                 .buttonStyle(.litheNoPress)
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
-                .disabled(model.databaseFeature.selectedProfile?.readOnly == true)
+                .disabled(feature.selectedProfile?.readOnly == true)
             }
             Group {
                 Spacer()
-                Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(model.databaseFeature.currentOffset == 0)
+                Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(feature.currentOffset == 0)
                 Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
                 Button { nextPage() } label: { Image(systemName: "chevron.right") }.litheIconButton().help("Next page")
-                    .disabled(model.databaseFeature.currentOffset + model.databaseFeature.rows.count >= model.databaseFeature.totalRows)
+                    .disabled(feature.currentOffset + feature.rows.count >= feature.totalRows)
             }
         }
         .padding(.horizontal, 12).frame(height: 38).background(LitheTheme.toolHeader.opacity(0.92))
@@ -334,7 +335,7 @@ struct DatabaseTableView: View {
                 .labelsHidden()
                 .frame(width: 104)
                 Spacer()
-                Button { filterConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
+                Button { filterConditions.append(.init(column: feature.columns.first ?? "")) } label: {
                     Label("Add Condition", systemImage: "plus")
                 }
                 .buttonStyle(.litheNoPress)
@@ -348,7 +349,7 @@ struct DatabaseTableView: View {
                     .buttonStyle(.litheNoPress)
                     .help(condition.isEnabled ? "Disable condition" : "Enable condition")
                     Picker("Column", selection: $condition.column) {
-                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
+                        ForEach(feature.columns, id: \.self) { Text($0).tag($0) }
                     }
                     .frame(width: 150)
                     Picker("Operator", selection: $condition.operator) {
@@ -368,7 +369,7 @@ struct DatabaseTableView: View {
             HStack {
                 Button("Clear Filters") { clearFilters() }
                 Spacer()
-                Button("Reset Conditions") { filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")] }
+                Button("Reset Conditions") { filterConditions = [.init(column: feature.columns.first ?? "")] }
                 Button("Apply Filter") { applyFilter(); showsFilterPopover = false }
                     .buttonStyle(.borderedProminent)
             }
@@ -382,7 +383,7 @@ struct DatabaseTableView: View {
             HStack {
                 Text("ORDER BY").font(.system(size: 13, weight: .semibold, design: .monospaced))
                 Spacer()
-                Button { sortConditions.append(.init(column: model.databaseFeature.columns.first ?? "")) } label: {
+                Button { sortConditions.append(.init(column: feature.columns.first ?? "")) } label: {
                     Label("Add Sort", systemImage: "plus")
                 }
                 .buttonStyle(.litheNoPress)
@@ -397,7 +398,7 @@ struct DatabaseTableView: View {
                 HStack(spacing: 8) {
                     Text("\(index + 1)").font(.system(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
                     Picker("Column", selection: $sortConditions[index].column) {
-                        ForEach(model.databaseFeature.columns, id: \.self) { Text($0).tag($0) }
+                        ForEach(feature.columns, id: \.self) { Text($0).tag($0) }
                     }
                     .frame(width: 190)
                     Picker("Direction", selection: $sortConditions[index].descending) {
@@ -500,7 +501,7 @@ struct DatabaseTableView: View {
                 ScrollView([.horizontal, .vertical]) {
                     LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                         Section {
-                            ForEach(Array(model.databaseFeature.rows.enumerated()), id: \.offset) { index, row in
+                            ForEach(Array(feature.rows.enumerated()), id: \.offset) { index, row in
                                 rowView(index: index, row: row, columnWidth: width)
                                     .opacity(deletedRows.contains(index) ? 0.42 : 1)
                             }
@@ -510,7 +511,7 @@ struct DatabaseTableView: View {
                         } header: { header(columnWidth: width) }
                     }
                     .frame(
-                        minWidth: max(geometry.size.width, CGFloat(model.databaseFeature.columns.count) * width + selectionColumnWidth),
+                        minWidth: max(geometry.size.width, CGFloat(feature.columns.count) * width + selectionColumnWidth),
                         minHeight: geometry.size.height,
                         alignment: .topLeading
                     )
@@ -538,7 +539,7 @@ struct DatabaseTableView: View {
             }
             .buttonStyle(.litheNoPress)
             .help(allRowsSelected ? "Deselect all rows on this page" : "Select all rows on this page")
-            ForEach(model.databaseFeature.columns, id: \.self) { column in
+            ForEach(feature.columns, id: \.self) { column in
                 HStack(spacing: 4) {
                     Text(column)
                         .lineLimit(1)
@@ -600,7 +601,7 @@ struct DatabaseTableView: View {
             .background(LitheTheme.toolHeader)
             .disabled(deletedRows.contains(index))
             .litheContextMenu { rowContextMenu(index: index) }
-            ForEach(model.databaseFeature.columns, id: \.self) { column in
+            ForEach(feature.columns, id: \.self) { column in
                 TextField("", text: binding(row: index, column: column, original: row[column]))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
@@ -617,7 +618,7 @@ struct DatabaseTableView: View {
     private func insertedRowView(index: Int, row: DatabaseRow, columnWidth: CGFloat) -> some View {
         HStack(spacing: 0) {
             Image(systemName: "plus").frame(width: selectionColumnWidth, height: 29).background(LitheTheme.success.opacity(0.12))
-            ForEach(model.databaseFeature.columns, id: \.self) { column in
+            ForEach(feature.columns, id: \.self) { column in
                 TextField("Default", text: insertedBinding(row: index, column: column))
                     .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(LitheTheme.success.opacity(0.08))
@@ -636,7 +637,7 @@ struct DatabaseTableView: View {
         var items: [LitheContextMenuItem] = []
         items.append(.action("Row Details", action: { rowDetailsIndex = index }))
         items.append(.separator)
-        items.append(.action("Delete Row", role: .destructive, isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: {
+        items.append(.action("Delete Row", role: .destructive, isEnabled: !(feature.selectedProfile?.readOnly == true), action: {
             deletedRows.insert(index)
             selectedRows.remove(index)
         }))
@@ -645,21 +646,21 @@ struct DatabaseTableView: View {
 
     private func cellContextMenu(row: Int, column: String) -> [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = []
-        items.append(.action("Set NULL", isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: { setNull(row: row, column: column) }))
-        items.append(.action("Set Empty String", isEnabled: !(model.databaseFeature.selectedProfile?.readOnly == true), action: { setEmptyString(row: row, column: column) }))
+        items.append(.action("Set NULL", isEnabled: !(feature.selectedProfile?.readOnly == true), action: { setNull(row: row, column: column) }))
+        items.append(.action("Set Empty String", isEnabled: !(feature.selectedProfile?.readOnly == true), action: { setEmptyString(row: row, column: column) }))
         items.append(.separator)
         items.append(contentsOf: rowContextMenu(index: row))
         return items
     }
 
     private func columnWidth(availableWidth: CGFloat) -> CGFloat {
-        guard !model.databaseFeature.columns.isEmpty else { return 160 }
-        return max(140, floor((availableWidth - selectionColumnWidth) / CGFloat(model.databaseFeature.columns.count)))
+        guard !feature.columns.isEmpty else { return 160 }
+        return max(140, floor((availableWidth - selectionColumnWidth) / CGFloat(feature.columns.count)))
     }
 
     private var selectionColumnWidth: CGFloat { 64 }
     private var selectableRowIndexes: Set<Int> {
-        Set(model.databaseFeature.rows.indices).subtracting(deletedRows)
+        Set(feature.rows.indices).subtracting(deletedRows)
     }
     private var allRowsSelected: Bool {
         !selectableRowIndexes.isEmpty && selectedRows == selectableRowIndexes
@@ -691,21 +692,21 @@ struct DatabaseTableView: View {
 
     private func setNull(row: Int, column: String) {
         let key = CellKey(row: row, column: column)
-        if model.databaseFeature.rows[row][column] == .null { drafts.removeValue(forKey: key) }
+        if feature.rows[row][column] == .null { drafts.removeValue(forKey: key) }
         else { drafts[key] = .null }
     }
 
     private func setEmptyString(row: Int, column: String) {
         let key = CellKey(row: row, column: column)
-        if model.databaseFeature.rows[row][column] == .string("") { drafts.removeValue(forKey: key) }
+        if feature.rows[row][column] == .string("") { drafts.removeValue(forKey: key) }
         else { drafts[key] = .string("") }
     }
 
     private func applyBatchUpdate(column: String, value: String, setNull: Bool) {
-        for rowIndex in selectedRows where model.databaseFeature.rows.indices.contains(rowIndex) && !deletedRows.contains(rowIndex) {
+        for rowIndex in selectedRows where feature.rows.indices.contains(rowIndex) && !deletedRows.contains(rowIndex) {
             let key = CellKey(row: rowIndex, column: column)
             let newValue: DatabaseValue = setNull ? .null : .string(value)
-            if model.databaseFeature.rows[rowIndex][column] == newValue {
+            if feature.rows[rowIndex][column] == newValue {
                 drafts.removeValue(forKey: key)
             } else {
                 drafts[key] = newValue
@@ -714,7 +715,7 @@ struct DatabaseTableView: View {
     }
 
     private func apply() {
-        if model.databaseFeature.selectedProfile?.productionProtection == true, !deletedRows.isEmpty {
+        if feature.selectedProfile?.productionProtection == true, !deletedRows.isEmpty {
             showsProtectedTableChangeConfirmation = true
             return
         }
@@ -724,7 +725,7 @@ struct DatabaseTableView: View {
     private func performApply(confirmed: Bool) {
         let cellDrafts = drafts.map { DatabaseCellDraft(rowIndex: $0.key.row, column: $0.key.column, value: $0.value) }
         Task {
-            if await model.databaseFeature.apply(
+            if await feature.apply(
                 drafts: cellDrafts,
                 insertedRows: insertedRows,
                 deletedIndexes: deletedRows,
@@ -763,7 +764,7 @@ struct DatabaseTableView: View {
         }
     }
     private var databaseContextName: String {
-        guard let profile = model.databaseFeature.selectedProfile else { return String(localized: "Database") }
+        guard let profile = feature.selectedProfile else { return String(localized: "Database") }
         if let database = profile.database.nonEmpty { return database }
         if profile.kind == .sqlite, let filename = profile.path.nonEmpty { return URL(fileURLWithPath: filename).lastPathComponent }
         return profile.kind.rawValue.uppercased()
@@ -774,15 +775,15 @@ struct DatabaseTableView: View {
         return appliedSort.count > 2 ? "ORDER BY · \(summary)…" : "ORDER BY · \(summary)"
     }
     private var pageLabel: String {
-        guard model.databaseFeature.totalRows > 0 else { return "0 / 0" }
-        return "\(model.databaseFeature.currentOffset + 1)-\(model.databaseFeature.currentOffset + model.databaseFeature.rows.count) / \(model.databaseFeature.totalRows)"
+        guard feature.totalRows > 0 else { return "0 / 0" }
+        return "\(feature.currentOffset + 1)-\(feature.currentOffset + feature.rows.count) / \(feature.totalRows)"
     }
     private func applyFilter() {
         appliedFilters = draftFilters
         reloadQuery(offset: 0)
     }
     private func clearFilters() {
-        filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]
+        filterConditions = [.init(column: feature.columns.first ?? "")]
         appliedFilters = []
         reloadQuery(offset: 0)
     }
@@ -792,7 +793,7 @@ struct DatabaseTableView: View {
         reloadQuery(offset: 0)
     }
     private func clearQuery() {
-        filterConditions = [.init(column: model.databaseFeature.columns.first ?? "")]
+        filterConditions = [.init(column: feature.columns.first ?? "")]
         sortConditions = []
         appliedFilters = []
         appliedSort = []
@@ -809,12 +810,12 @@ struct DatabaseTableView: View {
     }
     private func reloadQuery(offset: Int) {
         Task {
-            await model.databaseFeature.loadPage(filters: appliedFilters, sort: appliedSort, offset: offset)
+            await feature.loadPage(filters: appliedFilters, sort: appliedSort, offset: offset)
             discard()
         }
     }
     private func refreshTable() {
-        reloadQuery(offset: model.databaseFeature.currentOffset)
+        reloadQuery(offset: feature.currentOffset)
     }
     private func setSort(column: String, descending: Bool) {
         appliedSort = [DatabaseSort(column: column, descending: descending)]
@@ -830,27 +831,27 @@ struct DatabaseTableView: View {
         }
         return sort.descending ? "arrow.down" : "arrow.up"
     }
-    private func previousPage() { reloadQuery(offset: max(0, model.databaseFeature.currentOffset - model.databaseFeature.pageSize)) }
-    private func nextPage() { reloadQuery(offset: model.databaseFeature.currentOffset + model.databaseFeature.pageSize) }
+    private func previousPage() { reloadQuery(offset: max(0, feature.currentOffset - feature.pageSize)) }
+    private func nextPage() { reloadQuery(offset: feature.currentOffset + feature.pageSize) }
 
     private func pasteFromClipboard() {
         guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
         let lines = text.components(separatedBy: .newlines).filter { !$0.isEmpty }
-        guard !lines.isEmpty, !model.databaseFeature.columns.isEmpty else { return }
+        guard !lines.isEmpty, !feature.columns.isEmpty else { return }
         let anchorRow = pasteAnchor?.row ?? selectedRows.min() ?? 0
-        let anchorColumn = pasteAnchor.flatMap { model.databaseFeature.columns.firstIndex(of: $0.column) } ?? 0
+        let anchorColumn = pasteAnchor.flatMap { feature.columns.firstIndex(of: $0.column) } ?? 0
         for (rowOffset, line) in lines.enumerated() {
             let values = line.components(separatedBy: "\t")
             let targetRow = anchorRow + rowOffset
-            let insertedIndex = targetRow - model.databaseFeature.rows.count
+            let insertedIndex = targetRow - feature.rows.count
             if insertedIndex >= 0 {
                 while insertedRows.count <= insertedIndex { insertedRows.append([:]) }
             }
             for (columnOffset, value) in values.enumerated() {
                 let columnIndex = anchorColumn + columnOffset
-                guard model.databaseFeature.columns.indices.contains(columnIndex) else { continue }
-                let column = model.databaseFeature.columns[columnIndex]
-                if targetRow < model.databaseFeature.rows.count {
+                guard feature.columns.indices.contains(columnIndex) else { continue }
+                let column = feature.columns[columnIndex]
+                if targetRow < feature.rows.count {
                     drafts[CellKey(row: targetRow, column: column)] = .string(value)
                 } else {
                     insertedRows[insertedIndex][column] = .string(value)
@@ -860,11 +861,11 @@ struct DatabaseTableView: View {
     }
 
     private func copySelectedRowsAsTSV() {
-        let indexes = selectedRows.sorted().filter(model.databaseFeature.rows.indices.contains)
+        let indexes = selectedRows.sorted().filter(feature.rows.indices.contains)
         guard !indexes.isEmpty else { return }
-        let columns = model.databaseFeature.columns
+        let columns = feature.columns
         let text = indexes.map { index in
-            columns.map { display(model.databaseFeature.rows[index][$0]) }.joined(separator: "\t")
+            columns.map { display(feature.rows[index][$0]) }.joined(separator: "\t")
         }.joined(separator: "\n")
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -872,8 +873,8 @@ struct DatabaseTableView: View {
 
     private func replaceCurrentPage() {
         guard !replaceText.isEmpty else { return }
-        let columns = replaceColumn.isEmpty ? model.databaseFeature.columns : [replaceColumn]
-        for (rowIndex, row) in model.databaseFeature.rows.enumerated() {
+        let columns = replaceColumn.isEmpty ? feature.columns : [replaceColumn]
+        for (rowIndex, row) in feature.rows.enumerated() {
             for column in columns {
                 guard let value = row[column] else { continue }
                 let current = display(value)
@@ -891,7 +892,7 @@ struct DatabaseTableView: View {
     @State private var importFormat = DatabaseTransferFormat.csv
 
     private var exportFilename: String {
-        let base = exportFormat == .sql ? (model.databaseFeature.selectedProfile?.database.nonEmpty ?? "database") : (model.databaseFeature.selectedTable ?? "table")
+        let base = exportFormat == .sql ? (feature.selectedProfile?.database.nonEmpty ?? "database") : (feature.selectedTable ?? "table")
         return "\(base).\(exportFormat.rawValue)"
     }
 
@@ -899,11 +900,11 @@ struct DatabaseTableView: View {
         exportFormat = format
         Task {
             if format == .sql {
-                guard let url = await model.databaseFeature.exportDataFile(format: format) else { return }
+                guard let url = await feature.exportDataFile(format: format) else { return }
                 temporaryExportURL = url
                 exportDocument = DatabaseTransferDocument(fileURL: url)
             } else {
-                guard let data = await model.databaseFeature.exportData(format: format) else { return }
+                guard let data = await feature.exportData(format: format) else { return }
                 exportDocument = DatabaseTransferDocument(data: data)
             }
             showsExporter = true
@@ -916,19 +917,19 @@ struct DatabaseTableView: View {
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             if importFormat == .sql {
-                let temporaryURL = try model.databaseFeature.prepareImportFile(from: url)
+                let temporaryURL = try feature.prepareImportFile(from: url)
                 stageImport(fileURL: temporaryURL, format: .sql)
                 return
             }
-            stageImport(data: try model.databaseFeature.readImportData(from: url), format: importFormat)
-        } catch { model.databaseFeature.errorMessage = error.localizedDescription }
+            stageImport(data: try feature.readImportData(from: url), format: importFormat)
+        } catch { feature.errorMessage = error.localizedDescription }
     }
 
     private func stageImport(data: Data? = nil, fileURL: URL? = nil, format: DatabaseTransferFormat) {
         pendingImportData = data
         pendingImportURL = fileURL
         pendingImportFormat = format
-        if format == .sql || model.databaseFeature.selectedProfile?.productionProtection == true {
+        if format == .sql || feature.selectedProfile?.productionProtection == true {
             showsProtectedImportConfirmation = true
         } else {
             startPendingImport(confirmed: false)
@@ -944,16 +945,16 @@ struct DatabaseTableView: View {
         pendingImportFormat = nil
         Task {
             if let fileURL {
-                defer { model.databaseFeature.removeTemporaryFile(fileURL) }
-                _ = await model.databaseFeature.importDataFile(fileURL, format: format, confirmed: confirmed)
+                defer { feature.removeTemporaryFile(fileURL) }
+                _ = await feature.importDataFile(fileURL, format: format, confirmed: confirmed)
             } else if let data {
-                _ = await model.databaseFeature.importData(data, format: format, confirmed: confirmed)
+                _ = await feature.importData(data, format: format, confirmed: confirmed)
             }
         }
     }
 
     private func discardPendingImport() {
-        if let pendingImportURL { model.databaseFeature.removeTemporaryFile(pendingImportURL) }
+        if let pendingImportURL { feature.removeTemporaryFile(pendingImportURL) }
         pendingImportData = nil
         pendingImportURL = nil
         pendingImportFormat = nil
@@ -968,25 +969,25 @@ struct DatabaseTableView: View {
 }
 
 struct DatabaseOpenTableTabsView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
-                ForEach(model.databaseFeature.openTableTabs, id: \.self) { table in
+                ForEach(feature.openTableTabs, id: \.self) { table in
                     HStack(spacing: 7) {
                         Image(systemName: "tablecells")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(model.databaseFeature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
+                            .foregroundStyle(feature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
                         Button(table) {
-                            Task { await model.databaseFeature.openTable(table) }
+                            Task { await feature.openTable(table) }
                         }
                         .buttonStyle(.litheNoPress)
                         .font(.system(size: 11, weight: .medium))
                         Button {
-                            let wasSelected = model.databaseFeature.selectedTable == table
-                            if let next = model.databaseFeature.closeTableTab(table), wasSelected {
-                                Task { await model.databaseFeature.openTable(next) }
+                            let wasSelected = feature.selectedTable == table
+                            if let next = feature.closeTableTab(table), wasSelected {
+                                Task { await feature.openTable(next) }
                             }
                         } label: {
                             Image(systemName: "xmark")
@@ -998,7 +999,7 @@ struct DatabaseOpenTableTabsView: View {
                     .padding(.horizontal, 9)
                     .frame(height: 30)
                     .background(
-                        model.databaseFeature.selectedTable == table
+                        feature.selectedTable == table
                             ? LitheTheme.accent.opacity(0.12)
                             : LitheTheme.inputBackground.opacity(0.55)
                     )
@@ -1006,7 +1007,7 @@ struct DatabaseOpenTableTabsView: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 5)
                             .stroke(
-                                model.databaseFeature.selectedTable == table
+                                feature.selectedTable == table
                                     ? LitheTheme.accent.opacity(0.55)
                                     : LitheTheme.panelBorder,
                                 lineWidth: 1

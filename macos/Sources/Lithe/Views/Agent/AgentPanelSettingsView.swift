@@ -391,24 +391,29 @@ private struct AgentDetailView: View {
     private func preflightRow(_ check: AgentPreflightCheck) -> some View {
         let isExpanded = expanded.contains(check.id) || check.status != .pass
         return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                if expanded.contains(check.id) { expanded.remove(check.id) } else { expanded.insert(check.id) }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: 10)
-                    Text(check.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                    Spacer()
-                    AgentStatusBadge(status: check.status)
+            HStack(spacing: 8) {
+                Button {
+                    if expanded.contains(check.id) { expanded.remove(check.id) } else { expanded.insert(check.id) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .frame(width: 10)
+                        Text(check.title)
+                            .font(.system(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Spacer()
+                        AgentStatusBadge(status: check.status)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.litheNoPress)
+                .lithePointer()
+                if check.id == "cli", let fix = check.fix, !isBusy {
+                    fixButton(fix)
+                }
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
             if isExpanded {
                 HStack(alignment: .top, spacing: 8) {
                     Text(check.message)
@@ -419,7 +424,7 @@ private struct AgentDetailView: View {
                         .truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    if let fix = check.fix, !isBusy {
+                    if check.id != "cli", let fix = check.fix, !isBusy {
                         fixButton(fix)
                     }
                 }
@@ -449,6 +454,7 @@ private struct AgentDetailView: View {
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .updateCli:
             Button("Update") { feature.installCli(agent.id) }
+                .accessibilityIdentifier("agent-cli-update-\(agent.id)")
                 .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 8, height: 22, fontSize: 11))
                 .disabled(feature.busyAgentID != nil)
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
@@ -588,6 +594,8 @@ private struct AgentCliUpdateOutcomeView: View {
             Label(String(format: String(localized: "CLI updated to %@"), result.cliVersion),
                   systemImage: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
+            Text("Reconnect this Agent to refresh its model list.")
+                .foregroundStyle(LitheTheme.secondaryText)
             if let warning = result.updaterWarning {
                 Text("The installer reported an error, but the new CLI version was verified.")
                     .foregroundStyle(LitheTheme.warning)
