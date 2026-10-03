@@ -382,6 +382,9 @@ public final class AgentConnectionModel: ObservableObject {
         case "turnCancelling":
             guard let sessionID else { return }
             conversations[sessionID]?.isCancelling = true
+            // Host-initiated cancellation has already rejected these requests.
+            conversations[sessionID]?.pendingPermissions.removeAll()
+            updateAttention()
         case "update":
             guard let sessionID, let update = event["update"] as? [String: Any] else { return }
             apply(update, to: sessionID)
