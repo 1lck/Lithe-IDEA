@@ -381,6 +381,8 @@ export interface ChoiceWithCheckboxResult<T extends string> {
   checked: boolean;
 }
 
+const outlinedChoiceButtonClass = "border border-border bg-transparent hover:bg-accent";
+
 let nextDialogId = 1;
 let enqueueDialog: ((request: PrimitiveDialogRequest) => void) | null = null;
 const pendingDialogs: PrimitiveDialogRequest[] = [];
@@ -637,36 +639,58 @@ function PrimitiveDialogHost({
           if (!open) onClose(() => dialog.resolve(null));
         }}
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogMedia>
-              <Question />
-            </AlertDialogMedia>
-            <AlertDialogTitle>{defaultDialogText(dialog.title)}</AlertDialogTitle>
-            <AlertDialogDescription>{dialog.message}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <label className="flex cursor-pointer items-center gap-2 font-sans ui-text-sm text-foreground sm:pl-12">
-            <Checkbox
-              checked={choiceChecked}
-              onCheckedChange={(checked) => setChoiceChecked(checked === true)}
-            />
-            <span>{dialog.checkboxLabel}</span>
-          </label>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{defaultDialogText(dialog.cancelLabel)}</AlertDialogCancel>
-            {dialog.choices.map((choice) => (
-              <AlertDialogAction
-                key={choice.value}
-                variant={choice.variant ?? "default"}
-                autoFocus={choice.variant === "accent"}
-                onClick={() =>
-                  onClose(() => dialog.resolve({ value: choice.value, checked: choiceChecked }))
-                }
-              >
-                {choice.label}
-              </AlertDialogAction>
-            ))}
-          </AlertDialogFooter>
+        {/* Flat surface: no border, no footer band or divider; the close button is absolutely
+            positioned against the fixed popup. */}
+        <AlertDialogContent className="max-w-md gap-0 border-0 p-5">
+          <AlertDialogCancel
+            variant="ghost"
+            size="icon-xs"
+            className="absolute top-2.5 right-2.5 text-subtle-foreground hover:text-foreground"
+            aria-label={t("ui.closeDialog")}
+          >
+            <X />
+          </AlertDialogCancel>
+          <div className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-3">
+            <span
+              aria-hidden="true"
+              className="col-start-1 row-start-1 flex size-6 items-center justify-center rounded-full bg-primary font-sans text-xs font-semibold text-white"
+            >
+              ?
+            </span>
+            <AlertDialogTitle className="col-start-2 row-start-1 self-center">
+              {defaultDialogText(dialog.title)}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="col-start-2">{dialog.message}</AlertDialogDescription>
+            <label className="col-start-2 flex cursor-pointer items-center gap-2 font-sans ui-text-sm text-foreground">
+              <Checkbox
+                checked={choiceChecked}
+                onCheckedChange={(checked) => setChoiceChecked(checked === true)}
+              />
+              <span>{dialog.checkboxLabel}</span>
+            </label>
+            <AlertDialogFooter className="col-start-2 m-0 mt-2 flex-row flex-wrap justify-start rounded-none border-0 bg-transparent p-0 sm:justify-start">
+              {dialog.choices.map((choice) => (
+                <AlertDialogAction
+                  key={choice.value}
+                  variant={choice.variant ?? "default"}
+                  className={
+                    choice.variant === "accent"
+                      ? "border-transparent bg-primary text-white hover:bg-primary/90"
+                      : outlinedChoiceButtonClass
+                  }
+                  autoFocus={choice.variant === "accent"}
+                  onClick={() =>
+                    onClose(() => dialog.resolve({ value: choice.value, checked: choiceChecked }))
+                  }
+                >
+                  {choice.label}
+                </AlertDialogAction>
+              ))}
+              <AlertDialogCancel className={outlinedChoiceButtonClass}>
+                {defaultDialogText(dialog.cancelLabel)}
+              </AlertDialogCancel>
+            </AlertDialogFooter>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
     );

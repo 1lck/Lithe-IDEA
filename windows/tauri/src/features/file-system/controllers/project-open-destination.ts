@@ -60,8 +60,8 @@ const defaultServices: ProjectOpenDestinationServices = {
         checkboxLabel: t("projectOpen.doNotAskAgain"),
         cancelLabel: t("projectOpen.cancel"),
         choices: [
-          { value: "new-window", label: t("projectOpen.newWindow") },
           { value: "this-window", label: t("projectOpen.thisWindow"), variant: "accent" },
+          { value: "new-window", label: t("projectOpen.newWindow") },
         ],
       },
     );
