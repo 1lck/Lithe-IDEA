@@ -73,6 +73,29 @@ MacServiceContainer
 9. 静态贡献目录可以被工作台读取而不构造模块；模块实例激活后才发布
    实际贡献，休眠、禁用或失败回滚时移除这些贡献。
 
+### 数据库视图在模块释放后的刷新
+
+退出应用或休眠数据库模块时，SwiftUI（macOS 的声明式界面框架）可能先刷新
+已经存在的子视图，再移除父视图。父级检查“模块是否激活”不能保证子视图
+刷新时能力缓存仍存在。#924 的退出崩溃堆栈落在数据库工作区渲染函数；
+该函数原本会强制读取能力缓存，缓存已清空时会触发断言，与报告吻合。
+
+工作台和编辑区入口通过可空的 `databaseFeatureIfActive` 获取当前状态对象，
+再用 SwiftUI 环境传给数据库工作区、侧栏和弹窗。它们只读取、观察这次注入的
+`DatabaseFeatureModel`，不再每次渲染或异步操作恢复时从 `AppModel` 强制取值。
+例如，旧查询视图在模块释放后仍可完成最后一次刷新；模块重新激活时，新视图
+会接收新实例，旧视图的晚到回调不会转而修改新实例。
+
+视图持有状态对象不代表模块继续运行：`prepareForModuleRelease()` 仍在释放
+流程中停止定时器、取消计划任务并使在途请求失效。旧对象只保留到最后一个
+视图或回调放开引用，不把它永久缓存为 `AppModel` 的后备实例。不要通过
+延迟清空能力缓存、只切换侧栏，或访问失败时临时构造模块来掩盖退出竞态；
+这些做法分别依赖刷新时序或破坏按需激活边界。
+
+代价是数据库视图入口必须传入状态对象，弹窗也必须继承同一环境。
+`DatabaseWorkspaceLifecycleTests` 覆盖原生视图在会话关闭后再次渲染、弹窗
+晚到刷新，以及模块休眠后资源清理、旧状态释放和唤醒的新实例隔离。
+
 ### 插件宿主边界
 
 插件只能通过 `PluginHostContext` 按稳定 ID 获取宿主提供的窄协议，不得
@@ -143,6 +166,7 @@ API 也没有以此为前提。Lithe 先采用同进程模块边界和可恢复�
 - `./scripts/verify-shared-contracts.sh`
 - `./scripts/test-macos.sh`
 - `macos/Tests/LitheApplicationKernelTests/ModuleRuntimeTests.swift`
+- `macos/Tests/LitheTests/DatabaseWorkspaceLifecycleTests.swift`
 
 这些检查覆盖禁用模块不调用 factory、依赖顺序、能力冲突、lease 阻塞
 休眠、资源回收、唤醒重建、关闭清理、贡献目录、Safe Mode、隔离恢复和

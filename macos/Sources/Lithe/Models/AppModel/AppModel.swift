@@ -276,17 +276,12 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
     var javaFeature: JavaFeatureModel { featureGraph.java }
     var springFeature: SpringFeatureModel { featureGraph.spring }
     var mybatisFeature: MybatisFeatureModel { featureGraph.mybatis }
-    private var activeDatabaseFeature: DatabaseFeatureModel? {
+    // Views retain this instance in their environment so a final SwiftUI update
+    // remains safe after module shutdown clears the capability cache.
+    var databaseFeatureIfActive: DatabaseFeatureModel? {
         let capability: LitheDatabaseModule.DatabaseModuleCapability? = cachedModuleCapability(.databaseWorkspace)
         return capability?.feature
     }
-    var databaseFeature: DatabaseFeatureModel {
-        guard let activeDatabaseFeature else {
-            preconditionFailure("Database UI accessed before the Database module was activated.")
-        }
-        return activeDatabaseFeature
-    }
-    var isDatabaseModuleActive: Bool { activeDatabaseFeature != nil }
     var moduleSnapshots: [ModuleSnapshot] { services.moduleRuntime.snapshots() }
     var availableSidebarDestinations: [SidebarDestination] {
         SidebarDestination.allCases.filter { destination in
