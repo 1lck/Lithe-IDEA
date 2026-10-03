@@ -4,7 +4,7 @@
 
 ## 先说结论
 
-更新包的真实性由 Sparkle 的 EdDSA 签名保证，Developer ID 签名是可选的分发能力，不是更新信任的唯一依据。stable 和 preview 完全隔离，回滚只接受内置公钥信任的更新，避免测试版本或伪造清单影响正式用户。
+更新包和独立官方插件包的真实性分别由 Sparkle EdDSA 与 Lithe Ed25519 签名保证，Developer ID 签名是可选的分发能力，不是这两类内容信任的唯一依据。stable 和 preview 完全隔离，回滚和插件安装只接受内置公钥信任的内容，避免测试版本或伪造清单影响正式用户。
 
 ## 问题
 
@@ -31,6 +31,21 @@ runner keychain，用后即删。Developer ID 签名不等于公证，也不保�
 Gatekeeper 首次运行警告消失——这些是独立的发布关注点，更新器不自动
 清除 quarantine。
 
+### 独立官方插件包
+
+PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 Developer ID
+证书”当成是否生成插件包的条件。构建阶段先完成原生 bundle 的代码签名，再由
+`LithePluginPackageSigner` 使用 `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 为包内每个文件
+生成 SHA-256 清单和 Ed25519 签名；签名文档本身不进入被签名文件列表，避免验证时
+出现自引用。Lithe 内置 `lithe-official-plugins-v1` 公钥，安装时先验证原生 bundle，
+再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
+
+stable 和 preview 工作流都必须配置同一 repository secret
+`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
+Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
+仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
+secret 并重新生成包，不能只替换 GitHub secret。
+
 ### 全量与差分双轨发布
 
 stable 工作流继续发布 DMG + SHA-256 + `latest-macos.json` 供旧客户端
@@ -40,6 +55,20 @@ stable 工作流继续发布 DMG + SHA-256 + `latest-macos.json` 供旧客户端
 差分基线（排除 preview/draft/当前/更新版本）；缺少基线时只生成全量
 feed，Sparkle 生成不出有效 patch 时也会省略该 delta 并回退到全量
 归档。GitHub Release 的 zip 是差分基线的持久化来源，发布后必须保留。
+
+选中的基线下载失败不能当作“没有基线”跳过。`download-sparkle-baseline.mjs`
+为每个归档最多尝试三次，每次 `gh` 下载限时 120 秒，重试前分别等待 2 秒和
+4 秒；只重试超时、暂时性网络错误和 HTTP 408/429/5xx，永久错误或耗尽重试
+都终止发布。每次尝试独占系统临时目录中 `archives/.baseline-<attempt>/`，
+只有下载成功且非空才移入同次发布的归档输入；失败或取消先结束所属进程，
+再删除 staging（未完成下载的暂存目录），外层脚本退出时清理整个临时目录。
+这些资源绑定选定仓库、tag、渠道和架构，没有可靠的工作树复用身份 stamp，
+任何阶段都不得跨工作树复制，也不写已安装 app。成功下载仍须通过原有
+Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条件。
+
+稳定版 macOS build job 总期限为 75 分钟，打包步骤为 35 分钟，Sparkle
+步骤为 30 分钟，为双架构打包和有界下载重试留出预算。Preview 工作流的
+期限不变；上述下载保护位于两个渠道共用的发布脚本内。
 
 ### Stable 与 Preview 完全隔离
 
@@ -94,6 +123,9 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   但发布 job 需要一个和 build job 一致的身份（build 号绑定
   workflow run number/attempt），只重跑发布 job 会让身份和实际构建
   内容不一致，因此要求重跑全部 job 才分配新身份。
+- **基线下载失败就发布不含该 delta 的全量 feed**：可提高表面成功率，
+  但会把网络故障误判为基线不存在，悄悄减少可用差分更新；改用有界的
+  暂时性错误重试，永久失败仍阻止发布。
 - **回滚客户端信任下载 manifest 里携带的公钥**：实现更灵活，manifest
   format 升级时不需要客户端预置新 key。但这等于让一次网络请求决定
   信任锚点，一旦 manifest 分发被劫持就可以伪造回滚目标，因此回滚
@@ -102,11 +134,17 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   少点一次 Gatekeeper 提示。但这本质上是绕过 macOS 的下载来源追踪
   机制，属于安全职责之外的东西，因此明确不做，交由既有的可信来源
   恢复步骤处理。
+- **要求插件使用 Developer ID 或与宿主同 Team ID 签名**：能复用 Apple
+  的代码签名身份，但会让没有证书的发布环境无法生成独立包，也无法表达“包由
+  Lithe 发布者签发”的信任关系，因此改用包级 Ed25519 清单，同时保留 bundle
+  的原生代码签名校验。
 
 ## 后果
 
 - 贡献者不需要 Apple Developer 账号就能产出可验证来源的差分更新，
   Developer ID 签名和公证仍可作为独立环节按需加入。
+- 暂时性基线下载故障可在本次运行恢复，代价是失败归档最多占用三次
+  下载期限和两次退避等待；持续故障仍需修复或重跑，不能用超长等待掩盖。
 - Stable 和 Preview 用户互不干扰对方的更新节奏和偏好，代价是用户
   从 Preview 切换回 Stable 需要一次显式操作，且可能需要重新设置
   更新检查偏好。
@@ -116,6 +154,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 - 回滚路径的安全性依赖客户端内置公钥永不改变；如果需要轮换
   `SPARKLE_PRIVATE_KEY`，替换 repository secret 本身不够，必须单独
   规划迁移（重签或双签过渡期），否则旧客户端会拒绝新签名的更新。
+- 独立插件包的安装安全性同样依赖客户端内置的 publisher 公钥；没有匹配 secret
+  的 release 构建会失败，普通 debug 构建会跳过需要 publisher 签名的 PHP 包，
+  指定单个 PHP 包构建时也会失败。这样构建目录中不会留下缺少
+  `lithe-plugin-signature.json` 的伪成功包；只有提供私钥的构建才会生成可交给
+  包级验签路径的产物。
 - 需要重新评估的触发条件：如果差分更新的资产数量随架构或渠道增多
   逼近 900 的清理阈值，或者需要支持两个以上的更新渠道，当前基于
   "30 个 build + 3 个 zip 基线"的保留规则需要重新设计。
@@ -127,8 +170,11 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 ./.agents/skills/write-stable-tests/scripts/test-stability-macos.sh --max-seconds 60 -- --filter StableRollbackDiskImageIntegrationTests
 ./scripts/test-macos.sh
 ./scripts/verify-macos-package.sh
+./scripts/verify-official-plugins.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+node scripts/test-download-sparkle-baseline.mjs
+node scripts/test-reuse-worktree-resources.mjs
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
 ```
 
@@ -145,9 +191,15 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 ## 适用范围
 
 - `scripts/prepare-sparkle-tools.sh`
+- `scripts/create-sparkle-update.sh`
+- `scripts/download-sparkle-baseline.mjs`
+- `scripts/test-download-sparkle-baseline.mjs`
 - `scripts/verify-macos-package.sh`
 - `scripts/test-sparkle-update.rb`
 - `scripts/create-macos-update-manifest.rb`
 - `.github/workflows/release-macos.yml`
 - `.github/workflows/release-preview-macos.yml`
+- `scripts/build-official-plugins.sh`
+- `macos/Sources/LithePluginPackageSigning/`
+- `macos/Sources/Lithe/Platform/MacOS/Plugins/MacPluginPackageStore.swift`
 - `docs/architecture/macos-updates.md`

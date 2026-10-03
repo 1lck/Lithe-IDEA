@@ -201,6 +201,16 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
 
 以下目录不应直接复制或跨工作树共享：
 
+- Sparkle 差分基线的单次发布临时目录：
+  `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
+  下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。
+  输入由 GitHub Release 中选定的仓库、tag、stable/preview 渠道和 macOS 架构决定；
+  成功下载不是可复用的版本、平台、架构或工具链 identity stamp，也不替代后续
+  Sparkle 归档、签名与 appcast 校验。失败或取消时先结束所属下载进程，再删除
+  该次 staging；发布脚本退出时删除整个系统临时目录，不写已安装 app。
+  `excludedResources.sparkle-baseline-staging` 经排除路由直接拒绝，任何复制阶段
+  都不得跨工作树复用；每次发布仍从选定的 GitHub Release 下载基线。
+
 - Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
   和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
   执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
@@ -228,7 +238,7 @@ Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 包，指定 PHP 包 ID 的构建会失败，不会留下缺少签名文档的目录。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。

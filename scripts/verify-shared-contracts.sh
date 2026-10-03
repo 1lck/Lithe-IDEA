@@ -143,7 +143,7 @@ fi
   abort "plugin module IDs must be unique" unless owned_modules.uniq.length == owned_modules.length
   entries.each do |plugin|
     abort "plugin API mismatch" unless plugin.fetch("apiVersion") == plugins.fetch("pluginAPIVersion")
-    abort "official plugin signature policy mismatch" unless plugin.fetch("vendor").fetch("signatureRequirement") == "sameTeamAsHost"
+    abort "official plugin signature policy mismatch" unless %w[publisherPackage sameTeamAsHost].include?(plugin.fetch("vendor").fetch("signatureRequirement"))
     abort "plugin module IDs must be sorted" unless plugin.fetch("moduleIDs") == plugin.fetch("moduleIDs").sort
   end
 ' "$plugin_fixture"

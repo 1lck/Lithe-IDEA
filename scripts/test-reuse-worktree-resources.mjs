@@ -75,6 +75,14 @@ try {
     assert.notEqual(rejected.status, 0);
     assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
   });
+  await test("Sparkle baseline staging is never listed or copied between worktrees", { timeout: 15000 }, () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("sparkle-baseline-staging"));
+    const refused = reuse(["--resource", "sparkle-baseline-staging"]);
+    assert.notEqual(refused.status, 0);
+    assert.match(diagnostics(refused), /sparkle-baseline-staging.*\.baseline-.*cannot be reused/);
+  });
   await test("frontend install temp data and dependencies cannot cross worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

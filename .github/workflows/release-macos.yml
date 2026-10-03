@@ -68,7 +68,9 @@ jobs:
     name: Build ${{ matrix.architecture }} release
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 30
+    # Cold packaging took ~24 minutes in v0.5.11, leaving too little time for
+    # three baseline downloads and Sparkle delta generation under the old cap.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -115,31 +117,30 @@ jobs:
             echo "Incomplete Developer ID configuration: provide the certificate or remove the optional identity and password."
             exit 1
           else
-            echo "Developer ID is not configured; using ad-hoc app signing and Sparkle EdDSA update signatures."
+            echo "Developer ID is not configured; using ad-hoc app signing. Official plugin packages use Lithe Ed25519 signatures."
           fi
 
       - name: Build and package the App
+        timeout-minutes: 35
         env:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
+          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before releasing"; exit 1; }
           ./scripts/package-app.sh
-          if [[ -n "${LITHE_CODESIGN_IDENTITY:-}" ]]; then
-            plugin_root=$(LITHE_CODESIGN_IDENTITY="$LITHE_CODESIGN_IDENTITY" \
-              scripts/build-official-plugins.sh \
-              --configuration release \
-              --triple "${LITHE_ARCH}-apple-macosx" \
-              --plugin-id dev.lithe.plugin.php-support \
-              --output "dist/official-plugins/${LITHE_ARCH}")
-            ditto -c -k --sequesterRsrc --keepParent \
-              "$plugin_root/dev.lithe.plugin.php-support" \
-              "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
-          else
-            echo "Developer ID is not configured; skipping externally installable PHP plugin archive."
-          fi
+          plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
+            scripts/build-official-plugins.sh \
+            --configuration release \
+            --triple "${LITHE_ARCH}-apple-macosx" \
+            --plugin-id dev.lithe.plugin.php-support \
+            --output "dist/official-plugins/${LITHE_ARCH}")
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$plugin_root/dev.lithe.plugin.php-support" \
+            "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
           ./scripts/create-dmg.sh
           dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
           (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
@@ -168,15 +169,14 @@ jobs:
               "$app_path/Contents/Info.plist"
           done
           plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
-          if [[ -e "$plugin_archive" ]]; then
-            test -s "$plugin_archive"
-          fi
+          test -s "$plugin_archive"
           lipo "$app_path/Contents/MacOS/Lithe" -verify_arch "$LITHE_ARCH"
           hdiutil imageinfo "$dmg_path" > /dev/null
           test -s "$dmg_path"
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
       - name: Generate signed Sparkle updates
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
           LITHE_ARCH: ${{ matrix.architecture }}
@@ -197,8 +197,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Upload optional PHP plugin archive
-        if: ${{ hashFiles(format('dist/Lithe-PHP-Support-{0}-{1}.zip', needs.prepare.outputs.version, matrix.architecture)) != '' }}
+      - name: Upload PHP plugin archive
         uses: actions/upload-artifact@v7
         with:
           name: macos-php-plugin-${{ matrix.architecture }}
@@ -288,9 +287,8 @@ jobs:
           for architecture in arm64 x86_64; do
             upload_args+=(dist/sparkle-"$architecture"/*)
             plugin_archive="dist/Lithe-PHP-Support-${LITHE_VERSION}-${architecture}.zip"
-            if [[ -e "$plugin_archive" ]]; then
-              upload_args+=("$plugin_archive")
-            fi
+            test -s "$plugin_archive"
+            upload_args+=("$plugin_archive")
           done
 
           create_args+=(--notes-file "$notes_file")
