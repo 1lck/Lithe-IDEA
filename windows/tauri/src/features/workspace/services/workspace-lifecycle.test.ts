@@ -263,6 +263,9 @@ test("replace-active rolls the failed open back and leaves the replaced project 
   expect(disposed).toBe(false);
   expect(active).toBe(oldId);
   expect(tabs.map((tab) => tab.id)).toEqual([oldId]);
+  // The close lock is handed back, so the restored project is fully usable again.
+  expect(isWorkspaceClosing(oldId)).toBe(false);
+  expect(revokedIdeWorkspaces).toEqual([]);
 });
 
 test("replace-active without a previous project tab behaves like attach", async () => {
@@ -305,40 +308,52 @@ test("replace-active reopening the active project keeps it instead of tearing it
   expect(tabs).toHaveLength(1);
 });
 
-test("replace-active keeps the replaced project when the user switches back during initialization", async () => {
+test("replace-active locks the replaced project once confirmed, like IntelliJ's This Window", async () => {
   const oldDescriptor = { path: "C:/projects/old", name: "old" };
   await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
   const oldId = createProjectTabId(oldDescriptor.path);
+  const newId = createProjectTabId(descriptor.path);
 
   let completeInitialize!: (value: boolean) => void;
   const initialization = new Promise<boolean>((resolve) => {
     completeInitialize = resolve;
   });
-  let disposed = false;
+  let initializing!: () => void;
+  const initStarted = new Promise<void>((resolve) => {
+    initializing = resolve;
+  });
+  let disposedWorkspace = "";
   const opening = openWorkspaceRuntime({
     descriptor,
     mode: "replace-active",
     confirmReplaceCurrent: async () => true,
-    disposeReplaced: async () => {
-      disposed = true;
+    disposeReplaced: async (workspaceId) => {
+      disposedWorkspace = workspaceId;
     },
     initialize: async () => {
-      // The user switches back to the old tab once the new project is initializing,
-      // i.e. after the open already activated the new tab.
-      active = oldId;
+      initializing();
       return await initialization;
     },
   });
 
-  completeInitialize(true);
+  try {
+    await initStarted;
+    // The confirmed close is final: the old project cannot be switched back to and edited
+    // while the new one initializes.
+    expect(isWorkspaceClosing(oldId)).toBe(true);
+    expect(await switchWorkspaceRuntime(oldId, { initialize: async () => true })).toBe(false);
+    expect(active).toBe(newId);
+  } finally {
+    completeInitialize(true);
+  }
+
   expect(await opening).toBe(true);
-
-  expect(disposed).toBe(false);
-  expect(tabs.map((tab) => tab.id)).toContain(oldId);
-  expect(released).not.toContain(oldId);
+  expect(disposedWorkspace).toBe(oldId);
+  expect(tabs.map((tab) => tab.id)).toEqual([newId]);
+  expect(released).toContain(oldId);
+  expect(isWorkspaceClosing(oldId)).toBe(false);
 });
-
-test("replace-active re-checks the guard before teardown and keeps the project when declined", async () => {
+test("replace-active asks the unsaved-changes question exactly once", async () => {
   const oldDescriptor = { path: "C:/projects/old", name: "old" };
   await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
   const oldId = createProjectTabId(oldDescriptor.path);
@@ -351,8 +366,7 @@ test("replace-active re-checks the guard before teardown and keeps the project w
       mode: "replace-active",
       confirmReplaceCurrent: async (workspaceId) => {
         confirmedWorkspaces.push(workspaceId);
-        // Confirm at entry, decline at the teardown re-check.
-        return confirmedWorkspaces.length === 1;
+        return true;
       },
       disposeReplaced: async () => {
         disposed = true;
@@ -361,11 +375,11 @@ test("replace-active re-checks the guard before teardown and keeps the project w
     }),
   ).toBe(true);
 
-  expect(confirmedWorkspaces).toEqual([oldId, oldId]);
-  expect(disposed).toBe(false);
-  expect(tabs.map((tab) => tab.id)).toContain(oldId);
+  // A "discard" answer is never asked again: nothing could edit the project after it.
+  expect(confirmedWorkspaces).toEqual([oldId]);
+  expect(disposed).toBe(true);
+  expect(tabs.map((tab) => tab.id)).not.toContain(oldId);
 });
-
 test("replace-active retries with its own semantics after an in-flight attach fails", async () => {
   const oldDescriptor = { path: "C:/projects/old", name: "old" };
   await openWorkspaceRuntime({ descriptor: oldDescriptor, initialize: async () => true });
@@ -392,7 +406,7 @@ test("replace-active retries with its own semantics after an in-flight attach fa
   // The failed attach must not be reused: the replace opens, guards, and tears the old
   // project down itself instead of just returning the failure.
   expect(await replace).toBe(true);
-  expect(confirmedWorkspaces).toEqual([oldId, oldId]);
+  expect(confirmedWorkspaces).toEqual([oldId]);
   expect(disposedWorkspace).toBe(oldId);
   expect(tabs.map((tab) => tab.id)).toEqual([createProjectTabId(descriptor.path)]);
 });
@@ -623,16 +637,40 @@ test("closing the last project shows the welcome workspace before teardown", asy
   expect(tabs).toEqual([]);
 });
 
-test("a failed successor switch never leaves the registry on the removed project", async () => {
+test("a failed successor switch stops the close before anything is revoked", async () => {
   const otherDescriptor = { path: "C:/projects/other", name: "other" };
   await openWorkspaceRuntime({ descriptor: otherDescriptor, initialize: async () => true });
   await openWorkspaceRuntime({ descriptor, initialize: async () => true });
   const id = createProjectTabId(descriptor.path);
+  const otherId = createProjectTabId(otherDescriptor.path);
 
-  // Every switch fails and leaves the registry on the closing project; removal must still
-  // move it off the removed id.
-  await closeWorkspaceRuntime(id, { switchTo: async () => false });
+  let disposed = false;
+  const result = await closeWorkspaceRuntime(id, {
+    switchTo: async (next) => {
+      // Mirrors switchWorkspaceRuntime: activate the successor, fail its initialization,
+      // and roll back onto the closing project, which becomes editable again.
+      active = next;
+      workspaces.set(next, { status: "error" });
+      active = id;
+      return false;
+    },
+    dispose: async () => {
+      disposed = true;
+    },
+  });
 
-  expect(workspaces.has(id)).toBe(false);
-  expect(active).not.toBe(id);
+  expect(result).toBe(false);
+  // The project stays open and usable: no MCP revocation, no teardown, ownership kept.
+  expect(active).toBe(id);
+  expect(disposed).toBe(false);
+  expect(revokedIdeWorkspaces).toEqual([]);
+  expect(released).toEqual([]);
+  expect(tabs.map((tab) => tab.id).sort()).toEqual([id, otherId].sort());
+  expect(workspaces.has(id)).toBe(true);
+  expect(isWorkspaceClosing(id)).toBe(false);
+  // Edits after the rollback are safe, and the user can retry the close.
+  expect(await closeWorkspaceRuntime(id, { switchTo: async (next) => ((active = next), true) })).toBe(
+    true,
+  );
+  expect(tabs.map((tab) => tab.id)).toEqual([otherId]);
 });

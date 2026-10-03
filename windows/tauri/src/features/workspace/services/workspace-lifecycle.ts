@@ -17,7 +17,7 @@ interface OpenWorkspaceRuntimeOptions {
   persistCurrent?: () => void;
   resume?: (workspaceId: string) => Promise<void>;
   mode?: ProjectOpenMode;
-  /** replace-active only: dirty-buffer guard for the workspace being replaced, run after ownership checks but before any state change and again before teardown; returning false aborts that step. */
+  /** replace-active only: dirty-buffer guard for the workspace being replaced, run once after ownership checks and before any state change; returning false aborts the open, returning true commits to closing that workspace. */
   confirmReplaceCurrent?: (workspaceId: string) => Promise<boolean>;
   /** replace-active only: service teardown for the replaced project, injected by the file-system store. */
   disposeReplaced?: (workspaceId: string, path: string) => Promise<void>;
@@ -128,9 +128,25 @@ const pendingWorkspaceOpens = new Map<string, Promise<boolean>>();
 // A project being torn down stays in the tab strip until its services stop (the Java
 // server can wait for its start task). Activation and close are mutually exclusive during
 // that window: switching back would let the user edit buffers that are about to be removed.
+// The lock is taken as soon as the close is confirmed — for a This Window replace that is
+// before the new project opens — and resolves with whether the project was really closed.
 const closingWorkspaces = new Map<string, Promise<boolean>>();
 
 export const isWorkspaceClosing = (workspaceId: string) => closingWorkspaces.has(workspaceId);
+
+const acquireCloseLock = (workspaceId: string) => {
+  let settle!: (closed: boolean) => void;
+  const done = new Promise<boolean>((resolve) => {
+    settle = resolve;
+  });
+  closingWorkspaces.set(workspaceId, done);
+  return (closed: boolean) => {
+    if (closingWorkspaces.get(workspaceId) === done) {
+      closingWorkspaces.delete(workspaceId);
+    }
+    settle(closed);
+  };
+};
 
 export function openWorkspaceRuntime(options: OpenWorkspaceRuntimeOptions): Promise<boolean> {
   const workspaceId = createProjectTabId(options.descriptor.path);
@@ -193,16 +209,24 @@ async function openWorkspaceRuntimeOnce({
       .getState()
       .projectTabs.some((projectTab) => projectTab.id === previousWorkspaceId);
 
+  // This Window follows IntelliJ (ProjectManagerImpl.closeAndDisposeKeepingFrame): the
+  // close confirmation for the current project is the one and only decision point. Once
+  // confirmed the project is closing — locked against activation and editing — and is torn
+  // down after the new project is live. Unlike IntelliJ, a failed open hands the still
+  // intact project back instead of leaving an empty frame.
+  let settleReplacedClose: ((closed: boolean) => void) | undefined;
   if (replacingPrevious && previousWorkspaceId) {
     const releaseFreshClaim = async () => {
       if (!ownedBeforeClaim) {
         await projectWindowRouting.release(workspaceId);
       }
     };
-    if (!confirmReplaceCurrent) {
-      // A replace without a guard would close a possibly-dirty project unseen; abort
-      // loudly instead of silently degrading.
-      console.warn('replace-active open is missing confirmReplaceCurrent; aborting.');
+    if (!confirmReplaceCurrent || isWorkspaceClosing(previousWorkspaceId)) {
+      // A replace without a guard would close a possibly-dirty project unseen, and one
+      // already closing has no project left to replace; abort without any state change.
+      if (!confirmReplaceCurrent) {
+        console.warn("replace-active open is missing confirmReplaceCurrent; aborting.");
+      }
       await releaseFreshClaim();
       return false;
     }
@@ -213,10 +237,11 @@ async function openWorkspaceRuntimeOnce({
       await releaseFreshClaim();
       throw error;
     }
-    if (!confirmed) {
+    if (!confirmed || isWorkspaceClosing(previousWorkspaceId)) {
       await releaseFreshClaim();
       return false;
     }
+    settleReplacedClose = acquireCloseLock(previousWorkspaceId);
   }
 
   if (previousWorkspaceId !== workspaceId) {
@@ -256,37 +281,32 @@ async function openWorkspaceRuntimeOnce({
       workspaceRuntimeRegistry.removeWorkspace(workspaceId);
       await projectWindowRouting.release(workspaceId);
     }
+    // The replaced project was never touched beyond its lock; hand it back.
+    settleReplacedClose?.(false);
     if (shouldRestorePrevious) {
       restorePreviousWorkspace(previousWorkspaceId);
     }
     return false;
   }
 
-  // The new project is live; only now tear the replaced one down. If the user switched
-  // back to the replaced project while the new one initialized, keep both tabs — their
-  // switch says the old project is still wanted, and closing the now-active workspace
-  // without a successor would strand the registry on a removed id. A teardown failure
-  // must not roll the successful open back, so it is logged instead of thrown.
-  if (replacingPrevious && previousWorkspaceId) {
-    const activeAtTeardown = workspaceRuntimeRegistry.getActiveWorkspaceId();
-    if (activeAtTeardown !== workspaceId) {
-      console.debug(
-        `Keeping workspace "${previousWorkspaceId}": the active workspace changed while "${descriptor.name}" opened.`,
-      );
-      return true;
-    }
-
+  // The new project is live; tear the replaced one down. It has been locked since the
+  // confirmation, so nothing could reactivate or edit it and no second question is needed.
+  // A teardown failure must not roll the successful open back, so it is logged instead.
+  if (settleReplacedClose && previousWorkspaceId) {
+    const replacedTab = useWorkspaceTabsStore
+      .getState()
+      .projectTabs.find((projectTab) => projectTab.id === previousWorkspaceId);
     try {
-      // Re-run the guard against the replaced workspace: buffers may have turned dirty
-      // after the first confirm. Declining keeps the old project as a background tab.
-      if (confirmReplaceCurrent && !(await confirmReplaceCurrent(previousWorkspaceId))) {
-        return true;
-      }
-
-      await closeWorkspaceRuntime(previousWorkspaceId, {
-        dispose: (path) => disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
-      });
+      settleReplacedClose(
+        replacedTab
+          ? await closeWorkspaceRuntimeOnce(previousWorkspaceId, replacedTab.path, {
+              dispose: (path) =>
+                disposeReplaced?.(previousWorkspaceId, path) ?? Promise.resolve(),
+            })
+          : false,
+      );
     } catch (error) {
+      settleReplacedClose(false);
       console.warn(`Failed to tear down replaced workspace "${previousWorkspaceId}":`, error);
     }
   }
@@ -363,11 +383,17 @@ export function closeWorkspaceRuntime(
     return closing;
   }
 
-  const closingOnce = closeWorkspaceRuntimeOnce(workspaceId, tab.path, options).finally(() => {
-    closingWorkspaces.delete(workspaceId);
-  });
-  closingWorkspaces.set(workspaceId, closingOnce);
-  return closingOnce;
+  const settle = acquireCloseLock(workspaceId);
+  return closeWorkspaceRuntimeOnce(workspaceId, tab.path, options).then(
+    (closed) => {
+      settle(closed);
+      return closed;
+    },
+    (error: unknown) => {
+      settle(false);
+      throw error;
+    },
+  );
 }
 
 // Activates the tab that will follow the closing one (the same pick removeProjectTab makes),
@@ -398,10 +424,14 @@ async function closeWorkspaceRuntimeOnce(
   // server waits for its start task); with the project inactive and closing-locked nothing
   // can edit it meanwhile, so the caller's dirty guard stays the last word and no question
   // is ever asked after MCP and services are already gone.
-  let switched = true;
   if (workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId) {
     persist?.();
-    switched = await activateSuccessor(workspaceId, { showWelcome, switchTo });
+    // A failed switch rolls back onto this project and makes it editable again, so the
+    // close stops here, before anything is revoked; the project stays fully usable.
+    if (!(await activateSuccessor(workspaceId, { showWelcome, switchTo }))) {
+      console.warn(`Close of workspace "${workspaceId}" stopped: its successor failed to open.`);
+      return false;
+    }
   }
 
   const { disableMcp } = await import("@/features/host-api/mcp-connection");
@@ -409,8 +439,8 @@ async function closeWorkspaceRuntimeOnce(
   await extensionProcessOwner.stop(workspaceId);
   await dispose?.(path);
 
-  // A failed successor switch rolls back onto this project; check again at removal so the
-  // registry never keeps pointing at the removed workspace.
+  // Defensive: nothing can reactivate a closing project, but never leave the registry
+  // pointing at the removed workspace.
   const isActiveAtRemoval = workspaceRuntimeRegistry.getActiveWorkspaceId() === workspaceId;
   useWorkspaceTabsStore.getState().actions.removeProjectTab(workspaceId);
   workspaceRuntimeRegistry.removeWorkspace(workspaceId);
@@ -421,5 +451,5 @@ async function closeWorkspaceRuntimeOnce(
   if (isActiveAtRemoval) {
     return await activateSuccessor(workspaceId, { showWelcome, switchTo });
   }
-  return switched;
+  return true;
 }

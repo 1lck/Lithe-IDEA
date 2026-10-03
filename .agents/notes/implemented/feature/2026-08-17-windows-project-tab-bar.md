@@ -66,26 +66,30 @@ macOS 的同窗口选项就是本地的 Attach 语义（同窗口新开项目 se
 把"替换"保留给 This Window，两个平台的差异记录在
 `shared/platform-feature-matrix/features/workspace-open-switch.json`。
 
-替换由 `openWorkspaceRuntime` 的 `mode: "replace-active"` 实现，时序是：
-claim 窗口归属 → 对旧活动项目做未保存缓冲确认（用户取消或确认异常时，
+替换由 `openWorkspaceRuntime` 的 `mode: "replace-active"` 实现，语义对齐 IntelliJ
+`ProjectManagerImpl.attachToExistingOrOpenInTheSameFrame` → `closeAndDisposeKeepingFrame`：
+**关闭当前项目的确认是唯一决策点**，确认后旧项目就进入关闭状态，之后不再询问。时序是：
+claim 窗口归属 → 对旧活动项目做一次未保存缓冲确认（用户取消或确认异常时，
 若新路径此前在本窗口没有 Tab，则 release 本次新取得的 claim，避免原生
 registry 把它一直路由到本窗口导致其他窗口也打不开；旧项目归属不动）→
-persistCurrent → 走正常 attach 流程（新 Tab 激活、初始化或恢复）→
-**新项目成功后**才用 `closeWorkspaceRuntime` 关闭进入流程时捕获的旧项目 id
-（`wasActive=false` 路径只做服务拆除，不切欢迎页）。初始化失败走既有回滚，
-旧项目原样保留；拆除目标是进入时捕获的 id，初始化期间切换 Tab 不会误关其他
-项目。旧项目的服务拆除与 `closeProject` 共用 `disposeWorkspaceServices`。
+**确认通过立即给旧项目加 closing 锁**（不可切回、不可编辑）→ persistCurrent →
+走正常 attach 流程（新 Tab 激活、初始化或恢复）→ 新项目成功后拆除旧项目
+（撤销 MCP、停止扩展进程与服务、删 Tab、释放归属）。与 IntelliJ 的有意差异：
+IntelliJ 先关旧项目再开新项目，新项目失败时留下空框架；Lithe 在新项目初始化失败时
+释放锁并把仍完好的旧项目原样交还（MCP 与服务从未撤销）。初始化期间用户切到其他
+Tab 不影响拆除（旧项目已锁定，且拆除目标是进入时捕获的 id）。旧项目的服务拆除与
+`closeProject` 共用 `disposeWorkspaceServices`。
 
-关闭与激活互斥：`closeWorkspaceRuntime` 在拆除期间把项目记入 closing 集合，
-Java 服务停止可能要等它的 startTask，期间旧 Tab 仍在但 `switchWorkspaceRuntime`
+关闭与激活互斥：closing 锁由 `closeWorkspaceRuntime` 或上面的替换流程持有，期间旧
+Tab 仍在（Java 服务停止可能要等它的 startTask），但 `switchWorkspaceRuntime`
 / `switchToProject` 直接拒绝激活（不弹失败 toast），同路径的新打开会等关闭结束
 再全新打开，重复关闭复用同一个 promise。关闭当前活动项目时**先离开再拆除**：
-persist 后立即切到后继 Tab（与 `removeProjectTabItems` 的选择一致）或欢迎页，
-之后才撤销 MCP、停止扩展进程和服务。拆除期间项目既不活动又被锁定，无法再编辑，
-调用方的脏缓冲确认就是最后一次询问；不在拆除之后再弹确认，因为那时 MCP 授权和
-服务已撤销，用户取消也无法回到原状态（曾尝试过"拆除后复核"，被评审否决：取消会
-留下 MCP 失效的项目，且与已选"放弃"的缓冲冲突）。删除时若后继切换失败回滚到
-本项目，会按**删除时**的活动项目再次选后继，避免 registry 停在已删除 id。
+persist 后先切到后继 Tab（与 `removeProjectTabItems` 的选择一致）或欢迎页，成功后
+才撤销 MCP、停止扩展进程和服务；**后继切换失败（回滚到本项目、本项目重新可编辑）
+时立即中止关闭并释放锁**，不撤销任何东西，用户可重试。因此调用方的脏缓冲确认就是
+最后一次询问；不在拆除之后再弹确认，因为那时 MCP 授权和服务已撤销，用户取消也
+无法回到原状态（曾尝试过"拆除后复核"，被评审否决：取消会留下 MCP 失效的项目，
+且与已选"放弃"的缓冲冲突）。删除时仍防御性检查活动项目，避免 registry 停在已删除 id。
 
 已知限制与验证状态：WSL 的 `handleOpenWslProject` 已透传 replace 模式
 （拆除复用与 `closeProject` 相同的 `disposeWorkspaceServices`），主路径
