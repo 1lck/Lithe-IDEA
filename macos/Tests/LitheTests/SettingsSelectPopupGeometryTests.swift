@@ -6,12 +6,12 @@ import Testing
 @Suite("Settings select popup")
 struct SettingsSelectPopupGeometryTests {
     @MainActor
-    @Test
-    func valueSelectInsideSharedDropdownKeepsParentOpenAndCleansUp() async throws {
+    @Test(arguments: [true, false])
+    func valueSelectInsideSharedDropdownKeepsParentOpenAndCleansUp(localizesTitles: Bool) async throws {
         let presenter = LitheContextMenuPresenter()
         let host = NSHostingController(rootView: LitheSettingsSelect(
             selection: .constant("First"), options: ["First", "Another"],
-            width: 180, accessibilityLabel: "Nested select", title: { $0 }
+            width: 180, accessibilityLabel: "Nested select", title: { $0 }, localizesTitles: localizesTitles
         ).frame(width: 240, height: 100, alignment: .topLeading).litheContextMenuSurface())
         presenter.show(contentController: host, at: NSPoint(x: 200, y: 500),
                        appearance: NSAppearance(named: .darkAqua), onDismiss: {})

@@ -3,6 +3,7 @@ import LitheGitModule
 
 struct GitChangelistBar: View {
     @ObservedObject var feature: GitFeatureModel
+    @Environment(\.locale) private var locale
     @State private var editing = false
     @State private var editingID: String?
     @State private var name = ""
@@ -12,19 +13,19 @@ struct GitChangelistBar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Picker("ChangeList", selection: Binding(
-                    get: { feature.changelists.activeID },
-                    set: { feature.activateChangelist($0) }
-                )) {
-                    ForEach(feature.changelists.lists) { list in
-                        if list.id == GitLocalChangelists.defaultID {
-                            Text("Default ChangeList").tag(list.id)
-                        } else {
-                            Text(verbatim: list.name).tag(list.id)
-                        }
-                    }
-                }
-                .labelsHidden()
+                LitheSettingsSelect(
+                    selection: Binding(get: { feature.changelists.activeID }, set: { feature.activateChangelist($0) }),
+                    options: feature.changelists.lists.map(\.id),
+                    width: 180,
+                    accessibilityLabel: "ChangeList",
+                    title: { id in
+                        id == GitLocalChangelists.defaultID
+                            ? String(localized: "Default ChangeList", locale: locale)
+                            : feature.changelists.lists.first { $0.id == id }?.name ?? ""
+                    },
+                    localizesTitles: false,
+                    expandsToFitOptions: true
+                )
                 .help("Select the ChangeList to commit")
                 Button { edit(nil) } label: { Image(systemName: "plus") }
                     .help("New ChangeList")

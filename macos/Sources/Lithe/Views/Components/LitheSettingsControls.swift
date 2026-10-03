@@ -91,6 +91,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let width: CGFloat
     private let accessibilityLabel: String
     private let title: (Value) -> String
+    private let localizesTitles: Bool
     private let expandsToFitOptions: Bool
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
@@ -104,6 +105,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         width: CGFloat,
         accessibilityLabel: String,
         title: @escaping (Value) -> String,
+        localizesTitles: Bool = true,
         expandsToFitOptions: Bool = false,
         isAvailable: @escaping (Value) -> Bool = { _ in true },
         onUnavailableSelection: ((Value) -> Void)? = nil
@@ -113,6 +115,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         self.width = width
         self.accessibilityLabel = accessibilityLabel
         self.title = title
+        self.localizesTitles = localizesTitles
         self.expandsToFitOptions = expandsToFitOptions
         self.isAvailable = isAvailable
         self.onUnavailableSelection = onUnavailableSelection
@@ -127,7 +130,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Text(LocalizedStringKey(title(selection)))
+                (localizesTitles ? Text(LocalizedStringKey(title(selection))) : Text(verbatim: title(selection)))
                     .font(LitheTheme.settingsFont)
                     .foregroundStyle(isAvailable(selection) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                     .lineLimit(1)
@@ -151,7 +154,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
-        .accessibilityValue(Text(LocalizedStringKey(title(selection))))
+        .accessibilityValue(localizesTitles ? Text(LocalizedStringKey(title(selection))) : Text(verbatim: title(selection)))
         .onChange(of: options) { _ in
             if isPresented { showPopup() }
         }
@@ -182,6 +185,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             options: options,
             width: popupWidth,
             title: title,
+            localizesTitles: localizesTitles,
             expandsToFitOptions: expandsToFitOptions,
             isAvailable: isAvailable
         )
@@ -211,7 +215,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         guard expandsToFitOptions else { return width }
         let font = LitheTheme.uiNSFont(size: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
-            let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
+            let text = localizesTitles ? String(localized: String.LocalizationValue(title(option)), locale: locale) : title(option)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
         }
         let chromeWidth = 2 * SettingsSelectMetrics.itemHorizontalPadding
@@ -283,6 +287,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     let options: [Value]
     let width: CGFloat
     let title: (Value) -> String
+    let localizesTitles: Bool
     let expandsToFitOptions: Bool
     let isAvailable: (Value) -> Bool
 
@@ -309,7 +314,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     state.onChoose(index)
                 } label: {
                     HStack {
-                        Text(LocalizedStringKey(title(option)))
+                        (localizesTitles ? Text(LocalizedStringKey(title(option))) : Text(verbatim: title(option)))
                             .font(LitheTheme.uiFont(size: SettingsSelectMetrics.fontSize))
                             .foregroundStyle(
                                 isAvailable(option)
