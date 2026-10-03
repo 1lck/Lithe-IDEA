@@ -39,12 +39,12 @@ struct LSPControlCenterView: View {
     private var projectSummary: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(model.projectName)
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(usesChinese
                 ? "仅显示当前项目使用的语言。开关状态会自动为此项目保存，关闭后会停止语言服务器并释放资源，下次打开仍保持关闭。"
                 : "Only languages used by this project are shown. Changes are saved automatically for this project. Turning a language off stops its server, releases its resources, and keeps it off when you reopen the project.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -67,10 +67,10 @@ struct LSPControlCenterView: View {
                     .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(descriptor.displayName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text(statusDescription(for: descriptor, status: status))
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(status == .error ? LitheTheme.error : LitheTheme.secondaryText)
                         .lineLimit(2)
                 }
@@ -110,12 +110,12 @@ struct LSPControlCenterView: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(usesChinese ? "当前项目没有可配置的语言服务器" : "No configurable language servers")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(usesChinese
                 ? "识别到支持的源码语言后，会在这里显示对应设置。"
                 : "Settings appear here when supported source languages are detected.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
         .padding(.vertical, 10)
@@ -126,7 +126,7 @@ struct LSPControlCenterView: View {
             usesChinese ? "语言服务器配置加载异常，当前正在使用兼容配置。" : "Language server configuration is degraded; compatibility settings are in use.",
             systemImage: "exclamationmark.triangle.fill"
         )
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(LitheTheme.warning)
     }
 

@@ -4,11 +4,11 @@ import SwiftUI
 private enum SettingsSelectMetrics {
     static let controlHeight: CGFloat = 28
     static let controlCornerRadius: CGFloat = 4
-    static let fontSize: CGFloat = 12.5
-    static let popupCornerRadius: CGFloat = 8
-    static let itemHeight: CGFloat = 24
-    static let itemHorizontalPadding: CGFloat = 8
-    static let popupPadding: CGFloat = 6
+    static let fontSize: CGFloat = LitheDropdownMetrics.fontSize
+    static let popupCornerRadius: CGFloat = LitheTheme.Metrics.contextMenuCornerRadius
+    static let itemHeight: CGFloat = LitheDropdownMetrics.rowHeight
+    static let itemHorizontalPadding: CGFloat = LitheDropdownMetrics.itemHorizontalPadding
+    static let popupPadding: CGFloat = LitheDropdownMetrics.popupPadding
     static let screenMargin: CGFloat = 24
     static let maximumPopupHeight: CGFloat = 10 * itemHeight + 2 * popupPadding
 }
@@ -64,7 +64,7 @@ struct LitheSettingsSearchField: View {
                     text = ""
                 } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 .buttonStyle(.litheNoPress)
@@ -91,6 +91,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
     private let width: CGFloat
     private let accessibilityLabel: String
     private let title: (Value) -> String
+    private let localizesTitles: Bool
     private let expandsToFitOptions: Bool
     private let isAvailable: (Value) -> Bool
     private let onUnavailableSelection: ((Value) -> Void)?
@@ -104,6 +105,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         width: CGFloat,
         accessibilityLabel: String,
         title: @escaping (Value) -> String,
+        localizesTitles: Bool = true,
         expandsToFitOptions: Bool = false,
         isAvailable: @escaping (Value) -> Bool = { _ in true },
         onUnavailableSelection: ((Value) -> Void)? = nil
@@ -113,6 +115,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         self.width = width
         self.accessibilityLabel = accessibilityLabel
         self.title = title
+        self.localizesTitles = localizesTitles
         self.expandsToFitOptions = expandsToFitOptions
         self.isAvailable = isAvailable
         self.onUnavailableSelection = onUnavailableSelection
@@ -127,7 +130,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Text(LocalizedStringKey(title(selection)))
+                (localizesTitles ? Text(LocalizedStringKey(title(selection))) : Text(verbatim: title(selection)))
                     .font(LitheTheme.settingsFont)
                     .foregroundStyle(isAvailable(selection) ? LitheTheme.primaryText : LitheTheme.tertiaryText)
                     .lineLimit(1)
@@ -135,7 +138,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
                 Spacer(minLength: 8)
 
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .rotationEffect(.degrees(isPresented ? 180 : 0))
             }
@@ -151,7 +154,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .accessibilityLabel(Text(LocalizedStringKey(accessibilityLabel)))
-        .accessibilityValue(Text(LocalizedStringKey(title(selection))))
+        .accessibilityValue(localizesTitles ? Text(LocalizedStringKey(title(selection))) : Text(verbatim: title(selection)))
         .onChange(of: options) { _ in
             if isPresented { showPopup() }
         }
@@ -182,6 +185,7 @@ struct LitheSettingsSelect<Value: Hashable>: View {
             options: options,
             width: popupWidth,
             title: title,
+            localizesTitles: localizesTitles,
             expandsToFitOptions: expandsToFitOptions,
             isAvailable: isAvailable
         )
@@ -209,10 +213,9 @@ struct LitheSettingsSelect<Value: Hashable>: View {
 
     private func preferredPopupWidth(maximumWidth: CGFloat) -> CGFloat {
         guard expandsToFitOptions else { return width }
-        let font = NSFont(name: "Inter-Regular", size: SettingsSelectMetrics.fontSize)
-            ?? NSFont.systemFont(ofSize: SettingsSelectMetrics.fontSize)
+        let font = LitheTheme.uiNSFont(size: SettingsSelectMetrics.fontSize)
         let titleWidth = options.reduce(CGFloat.zero) { widest, option in
-            let text = String(localized: String.LocalizationValue(title(option)), locale: locale)
+            let text = localizesTitles ? String(localized: String.LocalizationValue(title(option)), locale: locale) : title(option)
             return max(widest, (text as NSString).size(withAttributes: [.font: font]).width)
         }
         let chromeWidth = 2 * SettingsSelectMetrics.itemHorizontalPadding
@@ -284,6 +287,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
     let options: [Value]
     let width: CGFloat
     let title: (Value) -> String
+    let localizesTitles: Bool
     let expandsToFitOptions: Bool
     let isAvailable: (Value) -> Bool
 
@@ -299,11 +303,7 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
         }
         .scrollContentBackground(.hidden)
         .frame(width: width, height: state.popupHeight)
-        .litheSettingsControlChrome(
-            background: LitheTheme.settingsPopupBackground,
-            border: LitheTheme.settingsPopupBorder,
-            cornerRadius: SettingsSelectMetrics.popupCornerRadius
-        )
+        .litheContextMenuSurface()
         .clipShape(RoundedRectangle(cornerRadius: SettingsSelectMetrics.popupCornerRadius))
     }
 
@@ -314,8 +314,8 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
                     state.onChoose(index)
                 } label: {
                     HStack {
-                        Text(LocalizedStringKey(title(option)))
-                            .font(.system(size: SettingsSelectMetrics.fontSize))
+                        (localizesTitles ? Text(LocalizedStringKey(title(option))) : Text(verbatim: title(option)))
+                            .font(LitheTheme.uiFont(size: SettingsSelectMetrics.fontSize))
                             .foregroundStyle(
                                 isAvailable(option)
                                     ? (state.highlightedIndex == index ? LitheTheme.settingsSelectionText : LitheTheme.primaryText)
@@ -352,14 +352,6 @@ private struct LitheSettingsSelectPopupContent<Value: Hashable>: View {
 }
 
 struct LitheSettingsSelectPopupGeometry {
-    @MainActor
-    static func isAnchorClick(_ event: NSEvent?, anchorWindow: NSWindow?, anchorFrame: NSRect?) -> Bool {
-        guard let event, event.type == .leftMouseDown,
-              let anchorWindow, let anchorFrame,
-              event.windowNumber == anchorWindow.windowNumber else { return false }
-        return anchorFrame.contains(anchorWindow.convertPoint(toScreen: event.locationInWindow))
-    }
-
     static func frame(anchor: NSRect, size: NSSize, visibleFrame: NSRect) -> NSRect {
         let bounds = visibleFrame.insetBy(dx: 6, dy: 6)
         let width = min(size.width, bounds.width)
@@ -444,6 +436,8 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         self.ownerID = ownerID
         self.onDismiss = onDismiss
         installEventMonitors()
+        panel.setFrame(frame, display: true)
+        anchorWindow.addChildWindow(panel, ordered: .above)
         panel.orderFrontRegardless()
         panel.makeKey()
     }
@@ -458,6 +452,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
         anchorFrame = nil
         let closingPanel = panel
         panel = nil
+        if let closingPanel { closingPanel.parent?.removeChildWindow(closingPanel) }
         closingPanel?.delegate = nil
         closingPanel?.orderOut(nil)
         closingPanel?.close()
@@ -465,7 +460,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     }
 
     func windowDidResignKey(_ notification: Notification) {
-        if !LitheSettingsSelectPopupGeometry.isAnchorClick(
+        if !LitheDropdownAnchorGeometry.isAnchorClick(
             NSApp.currentEvent, anchorWindow: anchorWindow, anchorFrame: anchorFrame
         ) { dismiss() }
     }
@@ -473,7 +468,7 @@ private final class LitheSettingsSelectPopupPresenter: NSObject, NSWindowDelegat
     private func installEventMonitors() {
         localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self else { return event }
-            if event.window !== self.panel && !LitheSettingsSelectPopupGeometry.isAnchorClick(
+            if event.window !== self.panel && !LitheDropdownAnchorGeometry.isAnchorClick(
                 event, anchorWindow: self.anchorWindow, anchorFrame: self.anchorFrame
             ) { self.dismiss() }
             return event
@@ -516,7 +511,7 @@ struct LitheSettingsSegmentedControl<Value: Hashable>: View {
                     selection = option
                 } label: {
                     Text(LocalizedStringKey(title(option)))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(selection == option ? LitheTheme.settingsSelectionText : LitheTheme.secondaryText)
                         .frame(maxWidth: .infinity, minHeight: 24)
                         .contentShape(Rectangle())
@@ -561,7 +556,7 @@ struct LitheSettingsCheckbox: View {
             HStack(spacing: 8) {
                 ZStack {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold))
                         .foregroundStyle(Color.white)
                         .opacity(isOn ? 1 : 0)
                 }
@@ -574,7 +569,7 @@ struct LitheSettingsCheckbox: View {
 
                 if let title {
                     Text(title)
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(LitheTheme.primaryText)
                 }
             }
@@ -647,7 +642,7 @@ struct LitheSettingsStepper<Value>: View where Value: Strideable & Comparable, V
     ) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 9, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                 .foregroundStyle(isDisabled ? LitheTheme.tertiaryText : LitheTheme.secondaryText)
                 .frame(width: 26, height: 26)
                 .contentShape(Rectangle())
@@ -685,7 +680,7 @@ private struct LitheSettingsTextEditorModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .scrollContentBackground(.hidden)
-            .font(.system(size: 12, design: .monospaced))
+            .font(LitheTheme.uiFont(size: 12, design: .monospaced))
             .focused($isFocused)
             .frame(height: height)
             .padding(5)

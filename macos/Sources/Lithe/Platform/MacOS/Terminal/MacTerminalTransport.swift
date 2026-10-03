@@ -7,6 +7,7 @@ import LitheTerminalModule
 /// SwiftTerm's default link handler opens URLs in the system. Lithe needs the
 /// link event so workspace-relative paths can open in its own editor instead.
 final class LitheTerminalView: LocalProcessTerminalView {
+    static let focusDidChange = Notification.Name("LitheTerminalView.focusDidChange")
     var onOpenLink: ((String, [String: String]) -> Void)?
     var onProcessOutput: ((Data) -> Void)?
     private var showsWorkbenchBackground = false
@@ -85,6 +86,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
             super.hasFocus = newValue
             setNativeCursorVisible(newValue && window?.isKeyWindow == true && shellShowsCursor)
             invalidateCursorSurface()
+            notifyFocusChange(newValue && window?.isKeyWindow == true)
         }
     }
 
@@ -96,6 +98,15 @@ final class LitheTerminalView: LocalProcessTerminalView {
     @objc private func windowFocusDidChange() {
         setNativeCursorVisible(hasFocus && shellShowsCursor)
         invalidateCursorSurface()
+        notifyFocusChange(hasFocus)
+    }
+
+    private func notifyFocusChange(_ focused: Bool) {
+        NotificationCenter.default.post(
+            name: Self.focusDidChange,
+            object: self,
+            userInfo: ["focused": focused]
+        )
     }
 
     override func showCursor(source: Terminal) {
@@ -114,6 +125,7 @@ final class LitheTerminalView: LocalProcessTerminalView {
         // its paused Metal surface also needs a frame when no output arrives.
         needsDisplay = true
         for case let renderer as MTKView in subviews {
+            renderer.layer?.isOpaque = false
             if !(renderer.delegate is TerminalMetalFocusDelegate), let delegate = renderer.delegate {
                 let focusDelegate = TerminalMetalFocusDelegate(
                     view: renderer, terminalView: self, renderer: delegate
@@ -148,17 +160,38 @@ final class LitheTerminalView: LocalProcessTerminalView {
 
     func applyThemeColors() {
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let palette = MacTerminalPalette(preferences: UserDefaults.standard.persistentDomain(forName: "com.apple.Terminal"))
+        // The SwiftUI pane supplies the shared editor color or wallpaper.
+        // SwiftTerm's Metal canvas must leave its default cells transparent.
         nativeBackgroundColor = LitheTheme.nsColor(.editor, isDark: isDark)
-            .withAlphaComponent(showsWorkbenchBackground ? 0 : 1)
-        nativeForegroundColor = isDark
-            ? NSColor(srgbRed: 0.86, green: 0.87, blue: 0.89, alpha: 1)
-            : NSColor(srgbRed: 0.15, green: 0.16, blue: 0.18, alpha: 1)
+            .withAlphaComponent(0)
+        layer?.backgroundColor = NSColor.clear.cgColor
+        layer?.isOpaque = false
+        // Terminal.app profiles may use a foreground color that assumes their
+        // own opaque background. The terminal is composited over Lithe's
+        // editor or wallpaper, so keep the default text tied to the app theme.
+        nativeForegroundColor = LitheTheme.nsColor(.primaryText, isDark: isDark)
         caretColor = isDark
             ? NSColor(srgbRed: 0.35, green: 0.67, blue: 0.98, alpha: 1)
             : NSColor(srgbRed: 0.18, green: 0.43, blue: 0.79, alpha: 1)
         selectedTextBackgroundColor = isDark
             ? NSColor(srgbRed: 0.16, green: 0.31, blue: 0.48, alpha: 1)
             : NSColor(srgbRed: 0.69, green: 0.82, blue: 0.98, alpha: 1)
+        // Fall back per entry to the existing palette, including IDEA's
+        // BLOCK_TERMINAL_BLUE and BLOCK_TERMINAL_BLUE_BRIGHT.
+        let ansiColors: [UInt32] = [
+            0x000000, 0x990001, 0x00A603, 0x999900,
+            isDark ? 0x5594FA : 0x225CD6, 0xB200B2, 0x00A5B2, 0xBFBFBF,
+            0x8A898A, 0xE50001, 0x00D800, 0xE5E500,
+            isDark ? 0x3399FF : 0x009DFF, 0xE500E5, 0x00E5E5, 0xE5E5E5
+        ]
+        installColors(ansiColors.enumerated().map { index, fallback in
+            palette.ansiColors[index] ?? SwiftTerm.Color(
+                red: UInt16((fallback >> 16) & 0xff) * 257,
+                green: UInt16((fallback >> 8) & 0xff) * 257,
+                blue: UInt16(fallback & 0xff) * 257
+            )
+        })
         needsDisplay = true
     }
 
@@ -183,6 +216,39 @@ final class LitheTerminalView: LocalProcessTerminalView {
 }
 
 extension LitheTerminalView: WorkbenchBackgroundRendering {}
+
+/// Read only colors from Terminal.app's default profile. Missing entries leave
+/// Lithe's theme and ANSI defaults intact; shell commands and fonts are ignored.
+struct MacTerminalPalette {
+    let textColor: NSColor?
+    let ansiColors: [SwiftTerm.Color?]
+
+    init(preferences: [String: Any]?) {
+        let name = preferences?["Default Window Settings"] as? String ?? ""
+        let profiles = preferences?["Window Settings"] as? [String: [String: Any]]
+        let profile = profiles?[name] ?? [:]
+        textColor = Self.decodeColor(profile["TextColor"])
+        let names = ["Black", "Red", "Green", "Yellow", "Blue", "Magenta", "Cyan", "White"]
+        ansiColors = (names + names.map { "Bright" + $0 }).map { name in
+            guard let color = Self.decodeColor(profile["ANSI\(name)Color"]) else { return nil }
+            return SwiftTerm.Color(
+                red: UInt16((color.redComponent * 65535).rounded()),
+                green: UInt16((color.greenComponent * 65535).rounded()),
+                blue: UInt16((color.blueComponent * 65535).rounded())
+            )
+        }
+    }
+
+    private static func decodeColor(_ value: Any?) -> NSColor? {
+        guard let data = value as? Data,
+              let decoded = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data),
+              let color = decoded.usingColorSpace(.sRGB),
+              [color.redComponent, color.greenComponent, color.blueComponent].allSatisfy({
+                  $0.isFinite && (0...1).contains($0)
+              }) else { return nil }
+        return color
+    }
+}
 
 /// SwiftTerm 1.15's Metal blink timer ignores focus. Draw the inactive cursor
 /// transparently with a steady style, preserving shell state while hiding both
@@ -282,22 +348,7 @@ final class MacTerminalTransport: NSObject, TerminalTransport, @preconcurrency L
     }
 
     private static func preferredTerminalFont() -> NSFont {
-        let size: CGFloat = 12.5
-        let fontNames = [
-            "MesloLGS Nerd Font Mono",
-            "JetBrainsMono Nerd Font Mono",
-            "Hack Nerd Font Mono",
-            "FiraCode Nerd Font Mono",
-            "IosevkaTerm Nerd Font Mono",
-            "Menlo"
-        ]
-
-        for name in fontNames {
-            if let font = NSFont(name: name, size: size) {
-                return font
-            }
-        }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
+        LitheTheme.editorFont(size: 12.5)
     }
 
     func defaultShellPath() -> String {

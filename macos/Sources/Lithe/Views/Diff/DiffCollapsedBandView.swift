@@ -10,18 +10,18 @@ struct DiffCollapsedBandView: View {
         Button(action: onExpand) {
             HStack(spacing: 7) {
                 Image(systemName: "chevron.down.circle")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.accent)
                 Text("\(region.hiddenRowCount) unchanged lines")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Rectangle()
-                    .fill(LitheTheme.divider)
+                    .fill(LitheTheme.Diff.separator)
                     .frame(height: 1)
             }
             .padding(.horizontal, 10)
             .frame(width: contentWidth, height: DiffLayoutMetrics.informationRowHeight, alignment: .leading)
-            .background(LitheTheme.window)
+            .background(LitheTheme.Diff.background)
             .contentShape(Rectangle())
         }
         .buttonStyle(.litheNoPress)

@@ -169,6 +169,67 @@ struct SplitHandleViewTests {
     }
 
     @MainActor
+    @Test(arguments: [false, true])
+    func shortWorkbenchPaneKeepsHeaderAtTopAndBottomCornersVisible(hasRightTool: Bool) throws {
+        let workspace = LitheSplitPaneView(
+            axis: .horizontal, placement: .leading,
+            defaultSize: 100, minimum: 30, maximum: 200,
+            clipsSizedPane: true, showsIdleDivider: false,
+            sized: {
+                VStack(spacing: 0) {
+                    Color.red.frame(height: 40)
+                    Color.green.frame(minHeight: 120)
+                }
+                .workbenchResizablePaneChrome(background: .red, surrounding: .black)
+            },
+            flexible: {
+                Color.blue.frame(minHeight: 90)
+                    .workbenchResizablePaneChrome(background: .blue, surrounding: .black)
+            }
+        )
+        let hosting = NSHostingView(rootView: Group {
+            if hasRightTool {
+                WorkbenchRightToolSplitView(
+                    width: 75, sidebarWidth: 100, isSidebarVisible: true,
+                    hasWorkbenchBackground: false, onCommit: { _ in },
+                    workspace: { workspace },
+                    tool: {
+                        VStack(spacing: 0) {
+                            Color.green.frame(height: 40)
+                            Color.red.frame(minHeight: 120)
+                        }
+                    }
+                )
+            } else {
+                workspace
+            }
+        }.frame(width: 300, height: 30, alignment: .topLeading).clipped().background(Color.black))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 300, height: 30),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = hosting
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds))
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        func color(_ x: Int, _ y: Int) throws -> NSColor {
+            try #require(bitmap.colorAt(
+                x: x * bitmap.pixelsWide / 300, y: y * bitmap.pixelsHigh / 30
+            )?.usingColorSpace(.deviceRGB))
+        }
+        #expect(try color(50, 5).redComponent > 0.9, "The header must remain at the visible top")
+        #expect(try color(98, 28).redComponent < 0.2, "The lower corner must follow the visible height")
+        #expect(try color(hasRightTool ? 218 : 298, 28).blueComponent < 0.2,
+                "The editor corner must follow the visible height")
+        if hasRightTool {
+            #expect(try color(260, 5).greenComponent > 0.5, "The right tool header must remain at the visible top")
+            let corner = try color(298, 28)
+            #expect(corner.greenComponent - corner.redComponent < 0.15,
+                    "The right tool corner must show the surrounding theme rather than green content")
+        }
+    }
+
+    @MainActor
     @Test
     func editorExitDoesNotOverwriteEitherResizeCursor() throws {
         let previousCursor = NSCursor.current
@@ -256,6 +317,78 @@ struct SplitHandleViewTests {
             #expect(starts == 2)
             #expect(ends == [45, -10])
         }
+    }
+
+    @MainActor
+    @Test(arguments: [ColorScheme.dark, .light])
+    func sharedBorderKeepsItsColorDuringHoverAndDrag(scheme: ColorScheme) throws {
+        let previousCursor = NSCursor.current
+        defer { previousCursor.set() }
+        var committed: CGFloat?
+        let host = NSHostingView(rootView: LitheSplitPaneView(
+            axis: .horizontal, placement: .leading,
+            defaultSize: 100, minimum: 50, maximum: 200,
+            dividerColor: LitheTheme.toolWindowBorder(for: scheme), highlightsOnHover: false,
+            onCommit: { committed = $0 },
+            sized: {
+                VStack(spacing: 0) {
+                    Spacer()
+                    LitheToolWindowHeaderDivider()
+                    Spacer()
+                }.background(.black)
+            }, flexible: { Color.black }
+        ).frame(width: 305, height: 100).environment(\.colorScheme, scheme))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 305, height: 100),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        window.contentView = host
+        host.layoutSubtreeIfNeeded()
+        let handle = try #require(cursorRegion(in: host))
+        func event(_ type: NSEvent.EventType, x: CGFloat = 102) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(
+                with: type, location: NSPoint(x: x, y: 50), modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                clickCount: 1, pressure: 0))
+        }
+        func expectBorderColor() throws {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let x = handle.convert(handle.bounds, to: host).midX
+            let pixelX = Int(x * CGFloat(bitmap.pixelsWide) / host.bounds.width)
+            // The 5pt slot centers a 1pt stroke; AppKit can snap that half-point
+            // origin to either adjacent pixel on a 1x host. Inspect the hit slot.
+            let scale = max(1, bitmap.pixelsWide / 305)
+            let colors = ((pixelX - 3 * scale)...(pixelX + 3 * scale)).compactMap {
+                bitmap.colorAt(x: $0, y: bitmap.pixelsHigh / 2)?.usingColorSpace(.deviceRGB)
+            }
+            let color = try #require(colors.max { $0.redComponent < $1.redComponent })
+            // Compare both components in the same native bitmap so the display
+            // color profile affects the shared header and divider identically.
+            let headerColors = ((bitmap.pixelsHigh / 2 - 3 * scale)...(bitmap.pixelsHigh / 2 + 3 * scale)).compactMap {
+                bitmap.colorAt(x: 50 * scale, y: $0)?.usingColorSpace(.deviceRGB)
+            }
+            let header = try #require(headerColors.max { $0.redComponent < $1.redComponent })
+            #expect(header.redComponent > 0.1)
+            #expect(abs(color.redComponent - header.redComponent) < 0.01)
+            #expect(abs(color.greenComponent - header.greenComponent) < 0.01)
+            #expect(abs(color.blueComponent - header.blueComponent) < 0.01)
+        }
+        let release = try event(.leftMouseUp, x: 122)
+        defer { handle.mouseUp(with: release) }
+        try expectBorderColor()
+        let entered = try #require(NSEvent.enterExitEvent(
+            with: .mouseEntered, location: NSPoint(x: 102, y: 50), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 0, trackingNumber: 0, userData: nil))
+        handle.mouseEntered(with: entered)
+        try expectBorderColor()
+        handle.mouseDown(with: try event(.leftMouseDown))
+        handle.mouseDragged(with: try event(.leftMouseDragged, x: 122))
+        try expectBorderColor()
+        handle.mouseUp(with: release)
+        #expect(committed == 120) // Styling must not disable width adjustment.
+        try expectBorderColor()
     }
 
     @MainActor

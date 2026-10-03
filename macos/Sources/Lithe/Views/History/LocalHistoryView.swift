@@ -40,10 +40,10 @@ struct LocalHistoryView: View {
             Image(systemName: "clock.arrow.circlepath")
                 .foregroundStyle(LitheTheme.accent)
             Text("Local History")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(request.fileURL.lastPathComponent)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
             Button {
@@ -78,11 +78,11 @@ struct LocalHistoryView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Changes")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 Text("\(model.localHistoryEntries.count)")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .padding(.horizontal, 12)
@@ -97,7 +97,7 @@ struct LocalHistoryView: View {
             } else if model.localHistoryEntries.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "clock.badge.questionmark")
-                        .font(.system(size: 28, weight: .light))
+                        .font(LitheTheme.uiFont(size: 28, weight: .light))
                     Text("No history recorded yet")
                 }
                 .font(LitheTheme.uiFont)
@@ -112,14 +112,14 @@ struct LocalHistoryView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(LocalizedStringKey(entry.reason.title))
-                                        .font(.system(size: 12, weight: .medium))
+                                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .lineLimit(1)
                                     HStack(spacing: 6) {
                                         Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                                         Text(ByteCountFormatter.string(fromByteCount: Int64(entry.byteCount), countStyle: .file))
                                     }
-                                    .font(.system(size: 10.5))
+                                    .font(LitheTheme.uiFont(size: 10.5))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 .padding(.horizontal, 12)
@@ -174,10 +174,10 @@ struct LocalHistoryView: View {
     private func versionHeader(_ title: String, icon: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: icon)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
         }

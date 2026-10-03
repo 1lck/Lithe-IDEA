@@ -6,7 +6,9 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Search",
-      "macos/Sources/Lithe/Services/Language"
+      "macos/Sources/Lithe/Services/Language",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Tests/LitheTests/LitheSearchFieldStyleTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -19,5 +21,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Search",
-  "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序。"
+  "verification": "使用同一项目和查询 fixture 对比命中路径、行号、列号和结果排序；在 macOS 深浅主题检查搜索框输入、焦点与失焦、工具按钮及文件类型图标；点击侧栏 Search 时第一个输入框不自动获得焦点，使用 Cmd+Shift+F 时仍获得焦点。 Search 查询与文件掩码、Database 连接搜索、Redis Key pattern 和 Nacos 配置/服务搜索均直接使用 Git Log 同源的全局唯一 LitheSearchFieldStyle；在深浅主题核对 36pt 外框、30pt 可见高度、4pt 圆角、1pt 常态边框、2pt 聚焦边框、3pt 外留白及 13pt 常规文字和提示色，确认无局部背景或原生边框叠加，并保留搜索、清除与键盘提交行为。 使用原生 NSHostingView 渲染验证共享 LitheSearchTextField 的占位文字在深浅主题均为 IDEA Component.infoForeground 对应的 #73767C、13pt 常规字重；空输入框单独绘制占位文字，避免 SwiftUI 原生 prompt 替换其颜色与字重，有内容时占位文字消失并保留原生编辑和主文字色。 中文输入法组词期间，即使绑定文本仍为空，共享 LitheSearchTextField 占位文字立即隐藏；取消组词或删空后恢复，确认中文后仍隐藏。原生 setMarkedText 回归覆盖明暗主题和两个输入框互不影响；保留焦点、键盘提交、搜索/过滤语义及占位字号颜色。原生背景观察视图卸载和移出窗口时清理通知，匹配当前窗口的字段编辑器及所属输入区域，不修改业务绑定。 共享搜索字段未聚焦时悬停立即显示文本编辑光标，离开或禁用时恢复箭头；保留中文组词、焦点及键盘动作。"
 }

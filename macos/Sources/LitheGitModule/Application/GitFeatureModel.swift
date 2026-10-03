@@ -778,14 +778,22 @@ package final class GitFeatureModel: ObservableObject {
         diffRows = []
         diffHunks = []
         isLoadingDiff = true
-        let document = await service.diffDocument(
-            for: change,
-            whitespace: gitDiffWhitespaceMode
-        )
+        let document = await diffDocumentProvider(change, gitDiffWhitespaceMode)
         guard selectedChange?.id == change.id else { return }
         selectedDiffPatch = document.patch
         diffRows = document.rows
         diffHunks = document.hunks
+        isLoadingDiff = false
+    }
+
+    package func closeWorkingTreeDiff() {
+        guard selectedChange != nil else { return }
+        // Invalidate the pending preview before clearing its state. A late
+        // result fails the selection guard and cannot leave the module busy.
+        selectedChange = nil
+        selectedDiffPatch = ""
+        diffRows = []
+        diffHunks = []
         isLoadingDiff = false
     }
 
@@ -2055,6 +2063,9 @@ package final class GitFeatureModel: ObservableObject {
     package func closeGitCommitDiff() {
         selectedGitCommitDiffContext = nil
         selectedGitCommitFile = nil
+        // Working-tree/directory previews reuse these buffers after replacing
+        // the history context. Closing its background tab must preserve them.
+        guard selectedChange == nil, branchComparison == nil else { return }
         selectedDiffPatch = ""
         diffRows = []
         diffHunks = []

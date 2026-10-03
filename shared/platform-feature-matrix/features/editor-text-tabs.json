@@ -6,7 +6,8 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Editor",
-      "macos/Sources/Lithe/Models/Editor"
+      "macos/Sources/Lithe/Models/Editor",
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -25,6 +26,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；右键标签页确认关闭分组排在其他操作之前；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 在 Windows 确认编辑器标签栏左上角不再有前进/后退箭头，后退/前进改由 Navigate 菜单与 Ctrl+Alt+←/→ 提供；选中标签为 IntelliJ Islands 圆角块（浅蓝底加蓝边），焦点移到终端、项目树或另一分栏时变为灰底灰边；长文件名标签完整显示不截断。",
+  "verification": "打开、编辑、保存、关闭和恢复多个文本文件，确认光标、脏状态和标签状态；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 macOS 验证 Git Log Repository Diff 与文件/媒体/终端标签共用排序，切换保留 Diff、关闭命令关闭选中内容，标题按当前文件变化；共享 Islands 圆角标签在编辑区/工具窗口鼠标、键盘和窗口失活间呈现蓝色活动或灰色失焦状态，卸载移除焦点观察器。完整工作区视觉验收 pending。 从 Diff 设置菜单关闭时也清理混合标签槽并恢复原文档；通过原生窗口鼠标拖动检查普通文件跨 Repository Diff 重排。 右键标签页确认关闭分组排在其他操作之前；在 macOS 打开无扩展名文本文件，确认标签与项目树图标一致；从外部改为二进制后折叠并展开项目树，确认两处图标更新一致。 在 Windows 确认编辑器标签栏左上角不再有前进/后退箭头，后退/前进改由 Navigate 菜单与 Ctrl+Alt+←/→ 提供；选中标签为 IntelliJ Islands 圆角块（浅蓝底加蓝边），焦点移到终端、项目树或另一分栏时变为灰底灰边；长文件名标签完整显示不截断。 macOS 从历史 Repository Diff 切入工作区 Diff，分别在加载中和完成后按 ⌘W，确认关闭当前工作区预览；关闭后台历史标签不得清空当前补丁或加载状态，也不激活返回文档。",
   "notes": "Windows 编辑器标签按 IntelliJ Islands IslandsTabPainter 绘制：28px 圆角块、6px 圆角、选中填充加 1px 边框、标签间距 8px、无宽度上限；是否置灰按焦点是否位于该标签组判断（对应 EditorTabbedContainer 的 isFocusAncestor）。标签栏不提供前进/后退按钮（IntelliJ 新 UI 同样没有）。Islands 精确色值只写在 Lithe 主题中，其他主题由自身主色、前景和边框色推导。"
 }

@@ -24,7 +24,7 @@ struct LanguageReferencesView: View {
             onMinimize: { model.closeLanguageNavigationResults() }
         ) {
             Text(LocalizedStringKey(model.languageServerStatusMessage))
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
         }
@@ -39,19 +39,19 @@ struct LanguageReferencesView: View {
                     } label: {
                         HStack(spacing: 10) {
                             Image(systemName: "chevron.left.forwardslash.chevron.right")
-                                .font(.system(size: 11))
+                                .font(LitheTheme.uiFont(size: 11))
                                 .foregroundStyle(LitheTheme.accent)
                                 .frame(width: 16)
                             Text(location.displayName)
-                                .font(.system(size: 12.5, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.primaryText)
                             Text(location.displayPath ?? model.relativePath(for: location.url))
-                                .font(.system(size: 10.5))
+                                .font(LitheTheme.uiFont(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .lineLimit(1)
                             Spacer()
                             Text("\(location.line + 1):\(location.utf16Column + 1)")
-                                .font(.system(size: 10.5, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         .padding(.horizontal, 10)
@@ -93,7 +93,7 @@ struct LanguageImplementationChooserView: View {
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Search implementations", text: $query)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
             }
             .padding(.horizontal, 10)
             .frame(height: 34)
@@ -108,15 +108,15 @@ struct LanguageImplementationChooserView: View {
                             HStack(spacing: 9) {
                                 LitheIcon(kind: LitheIcons.kind(for: location.url, isDirectory: false), size: 15)
                                 Text(location.displayName)
-                                    .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 12.5, weight: .medium, design: .monospaced))
                                     .foregroundStyle(LitheTheme.primaryText)
                                 Text(location.displayPath ?? model.relativePath(for: location.url))
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(1)
                                 Spacer()
                                 Text("\(location.line + 1):\(location.utf16Column + 1)")
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                             .padding(.horizontal, 10)

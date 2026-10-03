@@ -464,6 +464,7 @@ struct LitheApp: App {
                 .environmentObject(frameRateMonitor)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .font(LitheTheme.uiFont(.body))
                 // SwiftUI does not consistently re-resolve every existing
                 // LocalizedStringKey when only the locale environment value
                 // changes. Re-identify the root so a language selection takes
@@ -659,6 +660,7 @@ struct LitheApp: App {
                         .environmentObject(frameRateMonitor)
                         .environmentObject(updateChecker)
                         .environment(\.locale, settings.language.locale)
+                        .font(LitheTheme.uiFont(.body))
                         .id("\(windowID.uuidString)-\(settings.language)")
                         .preferredColorScheme(settings.themePreference.preferredColorScheme)
                 }
@@ -676,6 +678,7 @@ struct LitheApp: App {
             .environmentObject(settings)
             .environmentObject(updateChecker)
             .environment(\.locale, settings.language.locale)
+            .font(LitheTheme.uiFont(.body))
         }
         .defaultSize(width: 900, height: 668)
         .windowResizability(.contentMinSize)
@@ -686,6 +689,7 @@ struct LitheApp: App {
                 .environmentObject(model)
                 .environmentObject(updateChecker)
                 .environment(\.locale, settings.language.locale)
+                .font(LitheTheme.uiFont(.body))
                 .id(settings.language)
                 .preferredColorScheme(settings.themePreference.preferredColorScheme)
         }
@@ -710,9 +714,9 @@ private struct ProjectWindowMissingSessionView: View {
     var body: some View {
         VStack(spacing: 12) {
             Text("This project window is no longer available.")
-                .font(.system(size: 15, weight: .medium))
+                .font(LitheTheme.uiFont(size: 15, weight: .medium))
             Text("Its session was closed or could not be restored.")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(.secondary)
             Button("Close Window") {
                 ProjectWindowAppKitDismisser.dismiss(windowID: windowID)

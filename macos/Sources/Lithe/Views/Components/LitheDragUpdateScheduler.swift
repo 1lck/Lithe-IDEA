@@ -1,11 +1,11 @@
 import Foundation
 
-/// Coalesces continuous drag updates to one delivery per main run-loop turn.
+/// Coalesces continuous drag updates while a main-queue delivery is pending.
 ///
 /// Held as `@State` so the bookkeeping never invalidates the host view's body.
-/// Uses `DispatchQueue.main.async` which, during `.eventTracking` mode, drains
-/// at the end of the current run-loop turn with zero added latency — unlike the
-/// 16ms `Task.sleep` pattern which adds a full frame of delay to every update.
+/// This does not pace updates to display refreshes: events arriving after a
+/// delivery can schedule another update before the next frame. Layout must
+/// remain cheap independently of pointer-event coalescing.
 ///
 /// `init` is `nonisolated` so that `@State` default-value initialisation —
 /// which Swift 6.2 treats as a nonisolated context — compiles without a

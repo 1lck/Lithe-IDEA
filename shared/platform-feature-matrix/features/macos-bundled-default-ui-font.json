@@ -1,0 +1,29 @@
+{
+  "id": "macos-bundled-default-ui-font",
+  "area": "界面",
+  "group": "全局字体",
+  "capability": "macOS 界面默认使用随安装包分发的 Inter，编辑器、终端和显式等宽内容保留 JetBrains Mono 2.304，SwiftUI 与 AppKit 共用字体入口",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/MacBundledFontRegistry.swift",
+      "macos/Resources/Fonts",
+      "macos/Sources/Lithe/LitheApp.swift",
+      "macos/Sources/Lithe/Platform/MacOS/MonacoWorkbenchEditor.swift",
+      "macos/EditorFrontend/index.html",
+      "scripts/verify-macos-package.sh",
+      "macos/Tests/LitheTests/BundledUIFontTests.swift"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src"
+    ]
+  },
+  "owner": "macOS UI",
+  "verification": "在未安装 Inter 或 JetBrains Mono 的 macOS 上安装构建包，检查欢迎页、主工作区、设置、Search、Database、Git、Commit 及菜单使用 Inter；Project 树使用 13pt；编辑器和终端使用 JetBrains Mono，显式等宽内容保留等宽字形；输入中文时系统回退字形正常，各控件原有字号、字重、输入/选中操作不变；安装包 Fonts 目录包含 Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态字型及许可/作者信息，CoreText 按 process 范围注册打包字体；UI 的 Regular、Medium、SemiBold、Bold 和 Black 请求分别匹配真实 Inter 字型，SwiftUI 不重复加权；WebKit 从同一只读 Fonts 目录加载，字体加载后重新度量 Monaco；比较字体文件清单及 SHA-256，确认启动和使用不会修改签名 bundle。Windows 本次不变。 TextStyle 字体入口须保留显式 monospaced design，caption 与 headline 均验证等宽字型。"
+}

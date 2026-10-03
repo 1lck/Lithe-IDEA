@@ -24,7 +24,7 @@ struct LanguageTestsView: View {
 
             if let message = service.errorMessage {
                 Text(localization.error(message))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.error)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(8)
@@ -120,23 +120,23 @@ struct LanguageTestsView: View {
             EmptyView()
         case .running:
             Label(localization.text("Running"), systemImage: "circle.fill")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.success)
         case .passed:
             Label(localization.text("Passed"), systemImage: "checkmark.circle.fill")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.success)
         case .failed:
             Label(localization.text("Failed"), systemImage: "xmark.circle.fill")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
         case .timedOut:
             Label(localization.text("Timed Out"), systemImage: "clock.badge.exclamationmark")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
         case .cancelled:
             Label(localization.text("Cancelled"), systemImage: "stop.circle.fill")
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.warning)
         }
     }
@@ -164,7 +164,7 @@ struct LanguageTestsView: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text("Tests")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Spacer(minLength: 0)
                 Button {
@@ -210,7 +210,7 @@ struct LanguageTestsView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold))
                         .frame(width: 10)
                     providerIcon(for: descriptor)
                         .frame(width: 14, height: 14)
@@ -218,10 +218,10 @@ struct LanguageTestsView: View {
                         .lineLimit(1)
                     Spacer(minLength: 0)
                     Text(String(itemCount(items)))
-                        .font(.system(size: 10))
+                        .font(LitheTheme.uiFont(size: 10))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 6)
@@ -245,11 +245,11 @@ struct LanguageTestsView: View {
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: testItemIcon(item))
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(item.depth > 0 ? LitheTheme.accent : LitheTheme.secondaryText)
                     .frame(width: 16)
                 Text(item.label)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -313,17 +313,17 @@ struct LanguageTestsView: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 Image(systemName: testItemIcon(item))
-                    .font(.system(size: 20))
+                    .font(LitheTheme.uiFont(size: 20))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 34, height: 34)
                     .background(LitheTheme.accent.opacity(0.10))
                     .clipShape(RoundedRectangle(cornerRadius: 7))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.label)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                         .textSelection(.enabled)
                     Text(providerName(for: item.providerID))
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer(minLength: 8)
@@ -354,11 +354,11 @@ struct LanguageTestsView: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 14) {
                 Text("Scope")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(width: 90, alignment: .trailing)
                 Text(scopeDescription(item))
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .textSelection(.enabled)
                     .lineLimit(1)
             }
@@ -375,11 +375,11 @@ struct LanguageTestsView: View {
                plan.label == item.label {
                 HStack(alignment: .firstTextBaseline, spacing: 14) {
                     Text("Command")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 90, alignment: .trailing)
                     Text(commandDescription(plan.launchPlan))
-                        .font(.system(size: 11.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                         .textSelection(.enabled)
                         .lineLimit(2)
                 }
@@ -393,7 +393,7 @@ struct LanguageTestsView: View {
     private func testResultSummary(_ results: LanguageTestResults) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             Text(localization.text("Results"))
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 90, alignment: .trailing)
             HStack(spacing: 8) {
@@ -401,7 +401,7 @@ struct LanguageTestsView: View {
                 resultCount("Failed", results.failures + results.errors, color: LitheTheme.error)
                 resultCount("Skipped", results.skipped, color: LitheTheme.warning)
             }
-            .font(.system(size: 11.5, design: .monospaced))
+            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
         }
     }
 
@@ -413,7 +413,7 @@ struct LanguageTestsView: View {
     private func testFailureList(_ failures: [LanguageTestFailureDetail]) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(localization.text("Failures"))
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             ForEach(failures) { failure in
                 Button {
@@ -429,11 +429,11 @@ struct LanguageTestsView: View {
                             .foregroundStyle(failure.kind == "error" ? LitheTheme.warning : LitheTheme.error)
                         VStack(alignment: .leading, spacing: 1) {
                             Text(failure.name)
-                                .font(.system(size: 11.5, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                                 .lineLimit(1)
                             if let message = failure.message, !message.isEmpty {
                                 Text(message)
-                                    .font(.system(size: 10.5))
+                                    .font(LitheTheme.uiFont(size: 10.5))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(2)
                             }
@@ -441,7 +441,7 @@ struct LanguageTestsView: View {
                         Spacer(minLength: 0)
                         if let fileURL = failure.fileURL {
                             Text(fileURL.lastPathComponent + (failure.line.map { ":\($0)" } ?? ""))
-                                .font(.system(size: 10, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .lineLimit(1)
                         }
@@ -503,7 +503,7 @@ struct LanguageTestsView: View {
             LitheIcon(kind: kind, size: 14)
         } else {
             Image(systemName: "chevron.left.forwardslash.chevron.right")
-                .font(.system(size: 10, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
         }
     }
@@ -532,10 +532,10 @@ struct LanguageTestsView: View {
     private func emptyState(_ message: String) -> some View {
         VStack(spacing: 10) {
             Image(systemName: "checkmark.seal")
-                .font(.system(size: 28))
+                .font(LitheTheme.uiFont(size: 28))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(message)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)

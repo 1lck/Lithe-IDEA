@@ -3,10 +3,9 @@ import LitheGitModule
 
 struct BranchSwitcherPopover: View {
     enum Metrics {
-        static let popupWidth: CGFloat = 375
-        static let searchBarHeight: CGFloat = 56
-        static let actionRowHeight: CGFloat = 30
-        static let branchRowHeight: CGFloat = 28
+        static let popupWidth = LitheDropdownMetrics.branchMinimumWidth
+        static let searchBarHeight: CGFloat = 48
+        static let branchRowHeight = LitheDropdownMetrics.rowHeight
         static let branchGroupHeaderHeight: CGFloat = 24
         static let branchListHeight: CGFloat = 240
     }
@@ -23,6 +22,8 @@ struct BranchSwitcherPopover: View {
     let onCompareReferences: (GitReference, GitReference) async -> Void
 
     @State private var searchQuery = ""
+    @State private var collapsedSections: Set<String> = []
+    @State private var expandedRecentGroups: Set<String> = []
     @State private var expandedLocalGroups: Set<String> = []
     @State private var expandedRemoteGroups: Set<String> = []
     @FocusState private var searchFocused: Bool
@@ -30,86 +31,65 @@ struct BranchSwitcherPopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             searchBar
-            popupDivider
             actions
             popupDivider
             branchList
         }
         .frame(width: Metrics.popupWidth, alignment: .leading)
-        .litheRoundedControlBackground(
-            LitheTheme.popupBackground,
-            cornerRadius: LitheTheme.Metrics.popupCornerRadius
-        )
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-                .stroke(LitheTheme.panelBorder, lineWidth: 1)
+        .task {
+            expandedRecentGroups = Set(recentNamespaceGroups.map(\.id))
         }
-        .onAppear { searchFocused = true }
     }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 8) {
-                LitheSystemIcon(systemImage: "magnifyingglass")
-                    .font(.system(size: 13))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Search for branches and actions", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
+        HStack(spacing: 6) {
+            HStack(spacing: 2) {
+                LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: LitheDropdownMetrics.iconSize,
+                              preservesOriginalColors: true)
+                LitheSearchTextField("Search for branches and actions", text: $searchQuery)
                     .focused($searchFocused)
                 if !searchQuery.isEmpty {
-                    Button {
-                        searchQuery = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 12))
-                            .foregroundStyle(LitheTheme.secondaryText)
+                    Button { searchQuery = "" } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: LitheDropdownMetrics.iconSize,
+                                      preservesOriginalColors: true)
                     }
-                    .buttonStyle(.litheNoPress)
-                    .lithePointer()
-                    .help("Clear search")
+                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                    .padding(.leading, 1)
+                    .accessibilityLabel("Clear search")
                 }
             }
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-            )
+            // GitBranchesPopupBase passes Popup.BACKGROUND to the same search
+            // wrapper used by Git Log; opening the tree doesn't focus its editor.
+            .litheSearchField(isFocused: searchFocused, background: LitheTheme.popupBackground)
+            .accessibilityIdentifier("branch-popup-search")
 
             Button(action: onManageBranches) {
-                LitheSystemIcon(systemImage: "arrow.up.left.and.arrow.down.right")
+                LitheIDEAIcon(resourcePath: "expui/vcs/fetch.svg", size: LitheDropdownMetrics.iconSize,
+                              preservesOriginalColors: true)
             }
-            .litheIconButton()
-            .foregroundStyle(LitheTheme.secondaryText)
+            .buttonStyle(LitheIconButtonStyle(size: 24, cornerRadius: LitheDropdownMetrics.rowCornerRadius))
             .help("Open Git branches")
 
             Button(action: onManageBranches) {
-                LitheSystemIcon(systemImage: "gearshape")
+                LitheIDEAIcon(resourcePath: "expui/general/settings.svg", size: LitheDropdownMetrics.iconSize,
+                              preservesOriginalColors: true)
             }
-            .litheIconButton()
-            .foregroundStyle(LitheTheme.secondaryText)
+            .buttonStyle(LitheIconButtonStyle(size: 24, cornerRadius: LitheDropdownMetrics.rowCornerRadius))
             .help("Git branch options")
         }
-        .padding(.leading, 13)
-        .padding(.trailing, 13)
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.top, 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frame(height: Metrics.searchBarHeight)
-        .background {
-            topRoundedSectionBackground(LitheTheme.toolHeader)
-        }
     }
 
     private var actions: some View {
-        VStack(spacing: 1) {
+        VStack(spacing: 0) {
             // Keep the default command palette focused like IDEA. Fetch remains
             // discoverable through the search field without taking a permanent row.
             if !normalizedQuery.isEmpty && actionMatches("Fetch") {
-                actionRow("Fetch", icon: "arrow.down.to.line", shortcut: nil) {
+                actionRow("Fetch", icon: "expui/vcs/fetch.svg", shortcut: nil) {
                     isPresented = false
                     Task { await feature.fetchGit() }
                 }
@@ -117,7 +97,7 @@ struct BranchSwitcherPopover: View {
             }
 
             if actionMatches("Update Project") {
-                actionRow("Update Project…", icon: "arrow.down.left", shortcut: "⌘T") {
+                actionRow("Update Project…", icon: "expui/vcs/update.svg", shortcut: "⌘T") {
                     guard let current = feature.currentGitReference else { return }
                     isPresented = false
                     Task { await feature.updateCurrentBranch(current) }
@@ -126,11 +106,11 @@ struct BranchSwitcherPopover: View {
             }
 
             if actionMatches("Commit") {
-                actionRow("Commit…", icon: "slider.horizontal.3", shortcut: "⌘K", action: onCommit)
+                actionRow("Commit…", icon: "expui/vcs/commit.svg", shortcut: "⌘K", action: onCommit)
             }
 
             if actionMatches("Push") {
-                actionRow("Push…", icon: "arrow.up.right", shortcut: "⇧⌘K") {
+                actionRow("Push…", icon: "expui/vcs/push.svg", shortcut: "⇧⌘K") {
                     guard let current = feature.currentGitReference else { return }
                     onPush(current)
                 }
@@ -142,7 +122,7 @@ struct BranchSwitcherPopover: View {
             }
 
             if actionMatches("New Branch") {
-                actionRow("New Branch…", icon: "plus", shortcut: "⌥⌘N") {
+                actionRow("New Branch…", icon: "expui/general/add.svg", shortcut: "⌥⌘N") {
                     guard let current = feature.currentGitReference else { return }
                     onNewBranch(current)
                 }
@@ -150,221 +130,169 @@ struct BranchSwitcherPopover: View {
             }
 
             if actionMatches("Checkout Tag or Revision") {
-                actionRow("Checkout Tag or Revision…", icon: "number", shortcut: nil, action: onCheckoutRevision)
+                actionRow("Checkout Tag or Revision…", icon: nil, shortcut: nil, action: onCheckoutRevision)
             }
         }
-        .padding(.horizontal, 8)
+        .padding(.horizontal, LitheDropdownMetrics.popupPadding)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var branchList: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .bold))
-                Text(LocalizedStringKey(searchQuery.isEmpty ? "Recent" : "Branches"))
-                    .font(.system(size: 12.5, weight: .semibold))
-                Spacer()
-                if feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
-                    ProgressView().controlSize(.mini)
-                }
-            }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 14)
-            .frame(height: Metrics.branchGroupHeaderHeight)
-
-            Group {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if filteredReferences.isEmpty {
                     Text(LocalizedStringKey(feature.isLoadingGitHistory ? "Loading branches…" : "No matching branches"))
                         .font(LitheTheme.uiFont)
                         .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if searchQuery.isEmpty {
-                                ForEach(recentReferenceRows) { row in
-                                    branchRow(row.reference, indented: false, presentation: .recent)
-                                }
-
-                                if !recentReferences.isEmpty && !filteredReferences.isEmpty {
-                                    popupDivider.padding(.vertical, 6)
-                                }
-
-                                groupedBranchRows
-                            } else {
-                                ForEach(searchResultRows) { row in
-                                    branchRow(row.reference, indented: false, presentation: .searchResult)
+                        .frame(maxWidth: .infinity, minHeight: Metrics.branchRowHeight)
+                } else if normalizedQuery.isEmpty {
+                    if !recentReferences.isEmpty {
+                        branchSectionHeader("Recent")
+                        if !collapsedSections.contains("Recent") {
+                            ForEach(recentReferenceRows.filter { localNamespace(for: $0.reference) == nil }) { row in
+                                branchRow(row.reference, indented: true, presentation: .recent)
+                            }
+                            ForEach(recentNamespaceGroups) { group in
+                                namespaceRow(group, expandedGroups: $expandedRecentGroups)
+                                if expandedRecentGroups.contains(group.id) {
+                                    ForEach(group.rows) { row in
+                                        branchRow(row.reference, indented: true, presentation: .namespaceChild)
+                                    }
                                 }
                             }
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.bottom, 8)
+                    }
+                    groupedBranchRows
+                } else {
+                    // Filtering searches every section without losing its expansion state.
+                    ForEach(searchResultRows) { row in
+                        branchRow(row.reference, indented: false, presentation: .searchResult)
                     }
                 }
             }
-            .frame(height: Metrics.branchListHeight)
+            .padding(.horizontal, LitheDropdownMetrics.popupPadding)
+            .padding(.vertical, LitheDropdownMetrics.popupPadding)
         }
+        .frame(height: Metrics.branchListHeight)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background {
-            bottomRoundedSectionBackground(LitheTheme.sidebar)
-        }
     }
 
     private func actionRow(
         _ title: String,
-        icon: String,
+        icon: String?,
         shortcut: String?,
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 18)
+            HStack(spacing: 8) {
+                if let icon {
+                    LitheIDEAIcon(resourcePath: icon, size: LitheDropdownMetrics.iconSize,
+                                  preservesOriginalColors: true)
+                } else {
+                    Color.clear.frame(width: LitheDropdownMetrics.iconSize, height: LitheDropdownMetrics.iconSize)
+                }
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 13))
-                    .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 if let shortcut {
                     Text(shortcut)
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize, weight: .regular))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: Metrics.actionRowHeight)
-            .litheRowHover(
-                cornerRadius: 6,
-                hoverBackground: LitheTheme.subtleSelection
-            )
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheDropdownRowStyle())
     }
 
     @ViewBuilder
     private var groupedBranchRows: some View {
         if !localReferences.isEmpty {
             branchSectionHeader("Local")
-
-            ForEach(localRootRows) { row in
-                branchRow(row.reference, indented: true, presentation: .grouped)
-            }
-
-            ForEach(localNamespaceGroups) { group in
-                localNamespaceRow(group)
-                if expandedLocalGroups.contains(group.id) {
-                    ForEach(group.rows) { row in
-                        branchRow(row.reference, indented: true, presentation: .namespaceChild)
+            if !collapsedSections.contains("Local") {
+                ForEach(localRootRows) { row in
+                    branchRow(row.reference, indented: true, presentation: .grouped)
+                }
+                ForEach(localNamespaceGroups) { group in
+                    namespaceRow(group, expandedGroups: $expandedLocalGroups)
+                    if expandedLocalGroups.contains(group.id) {
+                        ForEach(group.rows) { row in
+                            branchRow(row.reference, indented: true, presentation: .namespaceChild)
+                        }
                     }
                 }
             }
         }
-
         if !remoteRootGroups.isEmpty {
             branchSectionHeader("Remote")
-
-            ForEach(remoteRootGroups) { group in
-                remoteRootRow(group)
-                if expandedRemoteGroups.contains(group.id) {
-                    ForEach(remoteRows(in: group)) { row in
-                        branchRow(row.reference, indented: true, presentation: .remoteChild)
+            if !collapsedSections.contains("Remote") {
+                ForEach(remoteRootGroups) { group in
+                    namespaceRow(group, expandedGroups: $expandedRemoteGroups)
+                    if expandedRemoteGroups.contains(group.id) {
+                        ForEach(remoteRows(in: group)) { row in
+                            branchRow(row.reference, indented: true, presentation: .remoteChild)
+                        }
                     }
                 }
             }
         }
-
         if !tagRows.isEmpty {
             branchSectionHeader("Tags")
-            ForEach(tagRows) { row in
-                branchRow(row.reference, indented: true, presentation: .grouped)
+            if !collapsedSections.contains("Tags") {
+                ForEach(tagRows) { row in
+                    branchRow(row.reference, indented: true, presentation: .grouped)
+                }
             }
         }
     }
 
     private func branchSectionHeader(_ title: String) -> some View {
-        HStack(spacing: 7) {
-            Image(systemName: "chevron.down")
-                .font(.system(size: 8, weight: .bold))
-            Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .medium))
+        let collapsed = collapsedSections.contains(title)
+        return Button {
+            if collapsed { collapsedSections.remove(title) }
+            else { collapsedSections.insert(title) }
+        } label: {
+            HStack(spacing: 7) {
+                LitheIDEAIcon(resourcePath: collapsed ? "expui/general/chevronRight.svg" : "expui/general/chevronDown.svg",
+                              size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)
+                Text(LocalizedStringKey(title))
+                Spacer()
+                if title == "Recent", feature.isLoadingGitHistory || feature.isPerformingBranchOperation {
+                    ProgressView().controlSize(.mini)
+                }
+            }
+            .frame(height: Metrics.branchGroupHeaderHeight)
         }
-        .foregroundStyle(LitheTheme.secondaryText)
-        .padding(.horizontal, 14)
-        .frame(height: Metrics.branchGroupHeaderHeight)
+        .buttonStyle(LitheDropdownRowStyle())
+        .accessibilityIdentifier("branch-section-" + title)
+        .accessibilityValue(Text(collapsed ? "Collapsed" : "Expanded"))
     }
 
-    private func localNamespaceRow(_ group: BranchPopupGroup) -> some View {
-        return Button {
-            if expandedLocalGroups.contains(group.id) {
-                expandedLocalGroups.remove(group.id)
+    private func namespaceRow(_ group: BranchPopupGroup, expandedGroups: Binding<Set<String>>) -> some View {
+        Button {
+            if expandedGroups.wrappedValue.contains(group.id) {
+                expandedGroups.wrappedValue.remove(group.id)
             } else {
-                expandedLocalGroups.insert(group.id)
+                expandedGroups.wrappedValue.insert(group.id)
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: expandedLocalGroups.contains(group.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 12)
-                Image(systemName: "folder")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 17)
+                LitheIDEAIcon(resourcePath: expandedGroups.wrappedValue.contains(group.id)
+                              ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg",
+                              size: LitheDropdownMetrics.iconSize, preservesOriginalColors: true)
+                LitheIDEAIcon(resourcePath: "expui/nodes/folder.svg", size: LitheDropdownMetrics.iconSize,
+                              preservesOriginalColors: true)
                 Text(group.title)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
+                    .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
             }
-            .padding(.leading, 8)
-            .padding(.trailing, 9)
+            .padding(.leading, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: Metrics.branchRowHeight)
             .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 5, hoverBackground: LitheTheme.subtleSelection)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-    }
-
-    private func remoteRootRow(_ group: BranchPopupGroup) -> some View {
-        return Button {
-            if expandedRemoteGroups.contains(group.id) {
-                expandedRemoteGroups.remove(group.id)
-            } else {
-                expandedRemoteGroups.insert(group.id)
-            }
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: expandedRemoteGroups.contains(group.id) ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 12)
-                Image(systemName: "cloud")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 17)
-                Text(group.title)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(LitheTheme.primaryText)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                Spacer()
-            }
-            .padding(.leading, 8)
-            .padding(.trailing, 9)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: Metrics.branchRowHeight)
-            .contentShape(Rectangle())
-            .litheRowHover(cornerRadius: 5, hoverBackground: LitheTheme.subtleSelection)
-        }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheDropdownRowStyle())
     }
 
     /// A branch line. Clicking it opens the reference's action menu instead of
@@ -375,38 +303,31 @@ struct BranchSwitcherPopover: View {
         indented: Bool,
         presentation: BranchRowPresentation
     ) -> some View {
-        let highlightsCurrent = presentation == .recent && reference.isCurrent
-
         return BranchActionMenuRow(
             label: {
                 HStack(spacing: 8) {
-                    Image(systemName: referenceIcon(reference, marksCurrent: presentation == .recent))
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(highlightsCurrent ? LitheTheme.warning : LitheTheme.secondaryText)
-                        .frame(width: 17)
+                    LitheIDEAIcon(resourcePath: referenceIcon(reference), size: LitheDropdownMetrics.iconSize,
+                                  preservesOriginalColors: true)
                     Text(branchDisplayName(reference, presentation: presentation))
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(LitheTheme.primaryText)
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 10)
                     if let upstream = reference.upstreamShortName {
                         Text(upstream)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(LitheTheme.secondaryText)
+                            .font(LitheTheme.uiFont(size: LitheDropdownMetrics.fontSize))
+                            .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
                     }
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheIDEAIcon(resourcePath: "expui/general/chevronRight.svg", size: LitheDropdownMetrics.iconSize,
+                                  preservesOriginalColors: true)
                 }
-                .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation))
-                .padding(.trailing, 9)
+                .padding(.leading, branchRowLeadingPadding(indented: indented, presentation: presentation)
+                         - LitheDropdownMetrics.itemHorizontalPadding)
+                .padding(.trailing, 1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .frame(height: Metrics.branchRowHeight)
-                .background(highlightsCurrent ? LitheTheme.subtleSelection : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
                 .contentShape(Rectangle())
                 // Branch and upstream names are truncated to keep the row width
                 // fixed, so the untruncated pair is only reachable on hover.
@@ -427,47 +348,44 @@ struct BranchSwitcherPopover: View {
     /// The per-reference action list, ordered like IDEA's branch menu: creation
     /// and comparison first, then checkout and integration, then destructive
     /// entries last.
-    @ViewBuilder
-    private func branchActionMenu(for reference: GitReference) -> some View {
-        Button("New Branch from '\(reference.shortName)'…") {
+    @LitheMenuItemsBuilder
+    private func branchActionMenu(for reference: GitReference) -> [LitheContextMenuItem] {
+        LitheContextMenuItem.action("New Branch from '\(reference.shortName)'…") {
             dismissAndRun { onNewBranch(reference) }
         }
 
-        Button("Show Diff with Working Tree") {
+        LitheContextMenuItem.action("Show Diff with Working Tree") {
             dismissAndRun { Task { await onCompareWithWorkingTree(reference) } }
         }
 
         if let current = feature.currentGitReference, current.id != reference.id {
-            Button("Compare with Current Branch") {
+            LitheContextMenuItem.action("Compare with Current Branch") {
                 dismissAndRun { Task { await onCompareReferences(reference, current) } }
             }
         }
 
         if !reference.isCurrent {
-            Divider()
-
-            Button("Checkout") {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Checkout") {
                 dismissAndRun { Task { await feature.checkoutReference(reference) } }
             }
         }
 
         if reference.kind == .local {
-            Divider()
-
-            Button("Update") {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Update") {
                 dismissAndRun { Task { await feature.updateCurrentBranch(reference) } }
             }
             .disabled(!reference.isCurrent)
 
-            Button("Push…") {
+            LitheContextMenuItem.action("Push…") {
                 dismissAndRun { onPush(reference) }
             }
         }
 
         if reference.kind == .local, !reference.isCurrent {
-            Divider()
-
-            Button("Delete", role: .destructive) {
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Delete", role: .destructive) {
                 dismissAndRun { onDelete(reference) }
             }
         }
@@ -521,8 +439,12 @@ struct BranchSwitcherPopover: View {
             }
     }
 
-    private var localNamespaceGroups: [BranchPopupGroup] {
-        let grouped = Dictionary(grouping: localReferences.compactMap { reference -> (String, GitReference)? in
+    private var localNamespaceGroups: [BranchPopupGroup] { namespaceGroups(in: localReferences) }
+
+    private var recentNamespaceGroups: [BranchPopupGroup] { namespaceGroups(in: recentReferences) }
+
+    private func namespaceGroups(in references: [GitReference]) -> [BranchPopupGroup] {
+        let grouped = Dictionary(grouping: references.compactMap { reference -> (String, GitReference)? in
             guard let namespace = localNamespace(for: reference) else { return nil }
             return (namespace, reference)
         }) { $0.0 }
@@ -592,39 +514,15 @@ struct BranchSwitcherPopover: View {
         normalizedQuery.isEmpty || title.localizedCaseInsensitiveContains(normalizedQuery)
     }
 
-    private func topRoundedSectionBackground(_ color: Color) -> some View {
-        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-            .fill(color)
-            .overlay(alignment: .bottom) {
-                Rectangle()
-                    .fill(color)
-                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
-            }
-    }
-
     private var popupDivider: some View {
         Rectangle()
             .fill(LitheTheme.divider.opacity(0.55))
             .frame(height: 1)
     }
 
-    private func bottomRoundedSectionBackground(_ color: Color) -> some View {
-        RoundedRectangle(cornerRadius: LitheTheme.Metrics.popupCornerRadius)
-            .fill(color)
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(color)
-                    .frame(height: LitheTheme.Metrics.popupCornerRadius)
-            }
-    }
-
-    private func referenceIcon(_ reference: GitReference, marksCurrent: Bool) -> String {
-        if marksCurrent, reference.isCurrent { return "star" }
-        switch reference.kind {
-        case .local: return "point.3.connected.trianglepath.dotted"
-        case .remote: return "cloud"
-        case .tag: return "tag"
-        }
+    private func referenceIcon(_ reference: GitReference) -> String {
+        if reference.isCurrent { return "dvcs/currentBranchLabel.svg" }
+        return reference.kind == .tag ? "dvcs/branchLabel.svg" : "expui/general/vcs.svg"
     }
 
     private func branchDisplayName(
@@ -644,34 +542,20 @@ struct BranchSwitcherPopover: View {
     }
 }
 
-/// A branch row that surfaces its actions through a native pop-up menu rather
-/// than a direct checkout.
-///
-/// Using `SwiftUI.Menu` with `.menuStyle(.borderlessButton)` produces a native
-/// NSMenu, which works correctly inside the outer popover, positions itself to
-/// avoid screen edges, and provides the hover-safety path that IDEA exposes:
-/// once any row's menu is open, moving the cursor to another row opens that
-/// menu immediately without a click.
-private struct BranchActionMenuRow<Label: View, MenuContent: View>: View {
+/// A branch row opens its actions in the shared product dropdown.
+private struct BranchActionMenuRow<Label: View>: View {
     @ViewBuilder let label: () -> Label
-    @ViewBuilder let menuContent: () -> MenuContent
-
-    @State private var isHovering = false
+    @LitheMenuItemsBuilder let menuContent: () -> [LitheContextMenuItem]
 
     var body: some View {
-        SwiftUI.Menu {
+        LitheMenu(opensToSide: true) {
             menuContent()
         } label: {
             label()
-                .background(isHovering ? LitheTheme.subtleSelection : .clear)
-                .clipShape(RoundedRectangle(cornerRadius: 5))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(LitheDropdownRowStyle())
         // Constrain to the list width so the menu button does not stretch.
         .fixedSize(horizontal: false, vertical: true)
-        .lithePointer()
-        .onHover { isHovering = $0 }
     }
 }
 
@@ -717,10 +601,10 @@ struct TopBarNewBranchDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("New Branch")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Create from '\(reference.shortName)'.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("Branch name", text: $branchName)
                 .textFieldStyle(.roundedBorder)
@@ -729,7 +613,7 @@ struct TopBarNewBranchDialog: View {
             Toggle("Checkout branch after creation", isOn: $checkout)
                 .toggleStyle(.checkbox)
                 .lithePointer()
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -770,17 +654,17 @@ struct CheckoutRevisionDialog: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Checkout Tag or Revision")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text("Enter a tag name, branch name, commit hash, or other Git revision.")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField("Tag or revision", text: $revision)
                 .textFieldStyle(.roundedBorder)
                 .focused($fieldFocused)
                 .onSubmit(submit)
             Text("The repository will be opened in detached HEAD state.")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
             HStack {
                 Spacer()

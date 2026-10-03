@@ -26,7 +26,7 @@ private struct GitIdentitySettingsPane: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Text("Commit identity").font(.system(size: 15, weight: .semibold))
+            Text("Commit identity").font(LitheTheme.uiFont(size: 15, weight: .semibold))
             Text("Git records this name and email in new commits. These settings do not change existing commits.")
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             LitheSettingsSegmentedControl(
@@ -42,7 +42,7 @@ private struct GitIdentitySettingsPane: View {
                  : LocalizedStringKey("Repository identity overrides inherited global values. Clear an override to use inherited settings."))
                 .font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
             if let root = feature.repositorySetupRoot {
-                Text(root.path).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
+                Text(root.path).font(LitheTheme.uiFont(size: 11, design: .monospaced)).textSelection(.enabled)
                 if editor.state?.isRepository == false && scope == .local {
                     Text("Initialize this project from Git before saving repository-specific identity.")
                         .foregroundStyle(LitheTheme.warning).font(LitheTheme.smallFont)
@@ -71,7 +71,7 @@ private struct GitIdentitySettingsPane: View {
     private func identityField(_ field: GitIdentityField, title: LocalizedStringKey,
                                draft: Binding<String>, configured: String?, effective: String?) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(title).font(.system(size: 12, weight: .medium))
+            Text(title).font(LitheTheme.uiFont(size: 12, weight: .medium))
             HStack {
                 TextField(title, text: draft).litheSettingsTextField()
                 Button("Save") { save(field) }
@@ -81,12 +81,12 @@ private struct GitIdentitySettingsPane: View {
             }
             .disabled(editor.isBusy || editor.state == nil || (scope == .local && editor.state?.isRepository != true))
             if let effective, !effective.isEmpty {
-                Text("Effective value: \(effective)").font(.system(size: 11)).foregroundStyle(LitheTheme.secondaryText)
+                Text("Effective value: \(effective)").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
             } else {
-                Text("No effective value configured").font(.system(size: 11)).foregroundStyle(LitheTheme.warning)
+                Text("No effective value configured").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.warning)
             }
             if editor.savedField == field {
-                Text("Git configuration saved").font(.system(size: 11)).foregroundStyle(LitheTheme.accent)
+                Text("Git configuration saved").font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.accent)
             }
         }
     }

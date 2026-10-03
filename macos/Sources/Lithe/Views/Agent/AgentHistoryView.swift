@@ -4,7 +4,8 @@ import LitheCoreContracts
 
 enum AgentHistoryFilter: String, CaseIterable {
     case all, favorites, removed
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .all: "All conversations"
         case .favorites: "Favorites"
@@ -78,7 +79,7 @@ struct AgentHistoryView: View {
                 Text("Conversation history").fontWeight(.medium)
             }
             .foregroundStyle(AgentPanelStyle.secondary)
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .padding(.horizontal, 20)
             .frame(height: 44)
             .background(AgentPanelStyle.header)
@@ -99,7 +100,7 @@ struct AgentHistoryView: View {
                     Text("Exporting conversations…")
                     Spacer()
                     Button("Cancel") { history.cancelExport() }.buttonStyle(.litheNoPress)
-                }.font(.system(size: 12)).padding(12)
+                }.font(LitheTheme.uiFont(size: 12)).padding(12)
             }
             if sessions.isEmpty {
                 emptyState
@@ -146,26 +147,31 @@ struct AgentHistoryView: View {
                         selectedIDs = selected.count == sessions.count ? [] : Set(visibleIDs)
                     }.disabled(sessions.isEmpty)
                     Spacer(minLength: 0)
-                    Menu {
-                        Button("Export conversations") { history.export(selected) }
+                    LitheMenu {
+                        LitheContextMenuItem.action("Export conversations") { history.export(selected) }
                             .disabled(!history.canExport(selected))
-                        Button("Add to favorites") { history.setFavorite(selected, true) }
-                        Button("Remove from favorites") { history.setFavorite(selected, false) }
-                        Divider()
-                        Button(filter == .removed ? "Restore conversations" : "Remove from history") {
+                        LitheContextMenuItem.action("Add to favorites") { history.setFavorite(selected, true) }
+                        LitheContextMenuItem.action("Remove from favorites") { history.setFavorite(selected, false) }
+                        LitheContextMenuItem.separator
+                        LitheContextMenuItem.action(
+                            filter == .removed ? "Restore conversations" : "Remove from history"
+                        ) {
                             if filter == .removed {
                                 if history.setHidden(selected, false) { selectedIDs = [] }
                             } else {
                                 pendingRemovalIDs = selected
                             }
                         }
-                    } label: { Text("Manage selected") }
+                    } label: {
+                        Text("Manage selected")
+                    }
+                    .buttonStyle(.litheNoPress)
                         .disabled(selected.isEmpty)
-                }.font(.system(size: 11)).buttonStyle(.litheNoPress)
+                }.font(LitheTheme.uiFont(size: 11)).buttonStyle(.litheNoPress)
             }
             if filter == .removed {
                 Text("Removed conversations are hidden only in Lithe. The Agent's original records are kept.")
-                    .font(.system(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                    .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
@@ -177,13 +183,13 @@ struct AgentHistoryView: View {
             Text(isSelecting
                  ? String(format: String(localized: "%d selected"), selected.count)
                  : String(format: String(localized: "%d conversations"), sessions.count))
-                .font(.system(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
+                .font(LitheTheme.uiFont(size: 12)).foregroundStyle(AgentPanelStyle.secondary)
             Spacer(minLength: 0)
             Button {
                 isSelecting.toggle(); selectedIDs = []; editingID = nil
             } label: {
                 Label(isSelecting ? "Done" : "Select", systemImage: "checklist")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
             }.buttonStyle(.bordered).controlSize(.small)
                 .accessibilityIdentifier("agent-history-select")
             Button { feature.refreshSessions() } label: {
@@ -207,15 +213,18 @@ struct AgentHistoryView: View {
                         .buttonStyle(.litheNoPress).help("Clear search")
                 } else { Image(systemName: "magnifyingglass") }
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .padding(.horizontal, 10).frame(height: 28)
             .overlay(RoundedRectangle(cornerRadius: 4).stroke(AgentPanelStyle.border))
-            Menu {
-                Picker("History filter", selection: $filter) {
-                    ForEach(AgentHistoryFilter.allCases, id: \.self) { Text($0.title).tag($0) }
+            LitheMenu {
+                for mode in AgentHistoryFilter.allCases {
+                    LitheContextMenuItem.action(mode.menuTitle, checked: mode == filter) { filter = mode }
                 }
-            } label: { Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease") }
-                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            } label: {
+                Image(systemName: filter == .favorites ? "star.fill" : "line.3.horizontal.decrease")
+            }
+            .buttonStyle(.litheNoPress)
+                .fixedSize()
                 .frame(width: 24).help(filter.title)
                 .accessibilityIdentifier("agent-history-filter")
         }.foregroundStyle(AgentPanelStyle.secondary)
@@ -315,14 +324,14 @@ private struct AgentHistoryRow: View {
                     icon("xmark", "Cancel", onCancel)
                 } else {
                     Button(action: isSelecting ? onToggleSelection : onOpen) {
-                        Text(title).font(.system(size: 14, weight: .semibold))
+                        Text(title).font(LitheTheme.uiFont(size: 14, weight: .semibold))
                             .lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                     }.buttonStyle(.litheNoPress).lithePointer()
                         .disabled(!isSelecting && !canOpen).help(title)
                     if let date = AgentHistoryPresentation.date(session.updatedAt) {
                         Text(date, format: .relative(presentation: .named, unitsStyle: .abbreviated))
-                            .font(.system(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+                            .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
                             .lineLimit(1).fixedSize()
                             .help(date.formatted(date: .abbreviated, time: .shortened))
                     }
@@ -334,7 +343,7 @@ private struct AgentHistoryRow: View {
                         .lineLimit(1)
                     Text("·")
                 }
-                Text(String(session.id.prefix(8))).font(.system(size: 10, design: .monospaced))
+                Text(String(session.id.prefix(8))).font(LitheTheme.uiFont(size: 10, design: .monospaced))
                     .help(session.id)
                 icon(isCopied ? "checkmark" : "doc.on.doc", "Copy session ID", onCopy)
                     .accessibilityIdentifier("agent-history-copy-\(session.id)")
@@ -353,7 +362,7 @@ private struct AgentHistoryRow: View {
                     .accessibilityElement(children: .contain)
                 }
             }
-            .font(.system(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
+            .font(LitheTheme.uiFont(size: 11)).foregroundStyle(AgentPanelStyle.secondary)
         }
         .foregroundStyle(AgentPanelStyle.text)
         .padding(.horizontal, 20).padding(.vertical, 14)
@@ -364,7 +373,7 @@ private struct AgentHistoryRow: View {
     }
 
     private func icon(_ name: String, _ title: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
-        Button(action: action) { Image(systemName: name).font(.system(size: 11)).frame(width: 22, height: 22) }
+        Button(action: action) { Image(systemName: name).font(LitheTheme.uiFont(size: 11)).frame(width: 22, height: 22) }
             .buttonStyle(.litheNoPress).lithePointer().help(title).accessibilityLabel(title)
     }
 }

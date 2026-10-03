@@ -22,9 +22,9 @@ struct EditorSoftWrapToggle: View {
         } label: {
             ZStack(alignment: .bottomTrailing) {
                 Image(systemName: "text.justify.leading")
-                    .font(.system(size: 12, weight: .regular))
+                    .font(LitheTheme.uiFont(size: 12, weight: .regular))
                 Image(systemName: "arrow.turn.down.left")
-                    .font(.system(size: 6.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 6.5, weight: .semibold))
                     .offset(x: 2, y: 1)
             }
         }

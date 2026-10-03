@@ -72,13 +72,13 @@ struct ProjectReplaceView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Text("Replace in Files")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer()
 
             Toggle("File mask:", isOn: $isFileMaskEnabled)
                 .toggleStyle(ProjectReplaceCheckboxStyle())
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             TextField("*.java", text: $options.fileMask)
@@ -138,12 +138,12 @@ struct ProjectReplaceView: View {
     ) -> some View {
         HStack(spacing: 8) {
             Image(systemName: systemImage)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 16)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(.system(size: 12.5))
+                .font(LitheTheme.uiFont(size: 12.5))
                 .focused($focusedField, equals: field)
                 .projectReplaceTextCursor()
             HStack(spacing: 3) { accessory() }
@@ -170,7 +170,7 @@ struct ProjectReplaceView: View {
                 ProgressView().controlSize(.small)
             }
             Text("\(feature.projectReplacementFiles.count) files, \(feature.projectReplacementFiles.reduce(0) { $0 + $1.matchCount }) matches")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
         }
@@ -249,7 +249,7 @@ struct ProjectReplaceView: View {
         } else {
             VStack(spacing: 8) {
                 Image(systemName: "doc.text.magnifyingglass")
-                    .font(.system(size: 28, weight: .light))
+                    .font(LitheTheme.uiFont(size: 28, weight: .light))
                 Text(previewNeedsRefresh ? "File changed. Run Preview again to refresh results." : (query.isEmpty ? "Enter text to preview project changes" : "No replacement matches"))
             }
             .font(LitheTheme.uiFont)
@@ -273,11 +273,11 @@ struct ProjectReplaceView: View {
                         Text(match.after).foregroundStyle(LitheTheme.primaryText)
                     }
                 }
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 (Text(ProjectReplacementPreviewText.highlighted(file.relativePath, query: query, options: optionsForPreview)) + Text("  \(match.line)"))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -367,7 +367,7 @@ private struct ProjectReplaceOptionButton: View {
             isOn.toggle()
         } label: {
             Text(title)
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(isOn ? LitheTheme.primaryText : LitheTheme.secondaryText)
                 .padding(.horizontal, 5)
                 .frame(height: 22)
@@ -409,7 +409,7 @@ private struct ProjectReplaceCheckboxStyle: ToggleStyle {
                     .overlay {
                         if configuration.isOn {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .bold))
+                                .font(LitheTheme.uiFont(size: 9, weight: .bold))
                                 .foregroundStyle(.white)
                         }
                     }
@@ -429,7 +429,7 @@ private struct ProjectReplaceButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .medium))
+            .font(LitheTheme.uiFont(size: 12, weight: .medium))
             .foregroundStyle(foreground)
             .padding(.horizontal, 12)
             .frame(height: 28)

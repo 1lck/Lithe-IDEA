@@ -13,6 +13,8 @@ import { ready } from "./workbench";
 import { acquireEditorModelSource, sourcePositionAt } from "@lithe/editor/model-source";
 import { editor as monacoEditor, languages, Range, Selection, Uri } from "monaco-editor/esm/vs/editor/editor.api.js";
 import { mouseInputCases } from "./mouse-input.integration";
+import { contextMenuCases } from "./context-menu.integration";
+import { IContextMenuService } from "monaco-editor/esm/vs/platform/contextview/browser/contextView.js";
 import { imeInputCases } from "./ime-input.integration";
 
 // Real WebKit integration, using the exact workbench bundle and the existing
@@ -33,6 +35,7 @@ async function verify() {
     await operation();
     cases.push({ name, durationMs: performance.now() - started });
   }
+  for (const test of contextMenuCases) await check(test.name, async () => test.run());
   for (const test of mouseInputCases) await check(test.name, async () => test.run());
   for (const test of imeInputCases) await check(test.name, async () => test.run());
   await check("diff projections preserve sparse source lines and release read-only models", async () => {
@@ -273,6 +276,26 @@ async function verify() {
   await send({ type: "open", text: source });
   await window.lithe.activate({ id: "A", text: source, revision: 0, language: "java", readonly: false, focus: false });
   const editor = monacoEditor.getEditors()[0];
+  await check("editor context menu routes existing Monaco actions to the native host", async () => {
+    const service = StandaloneServices.get(IContextMenuService) as any;
+    let listener: { dispose(): void } | undefined;
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const hidden = new Promise<void>((resolve, reject) => {
+        deadline = setTimeout(() => reject(new Error("Native menu did not close within five seconds")), 5000);
+        listener = service.onDidHideContextMenu(resolve);
+      });
+      editor.focus();
+      editor.trigger("probe", "editor.action.showContextMenu", {});
+      await hidden;
+    } finally {
+      listener?.dispose();
+      if (deadline !== undefined) clearTimeout(deadline);
+    }
+    const menu = await send({ type: "lastContextMenu" });
+    assert(menu.items.length > 0 && menu.items.some((item: any) => item.id === "lithe.goToDefinition"), `lost existing resolved editor actions: ${JSON.stringify(menu.items?.map((item: any) => ({ id: item.id, title: item.title })))}`);
+    assert(!document.querySelector(".monaco-menu-container"), "Monaco web menu still covers the shared native menu");
+  });
   const model = editor.getModel()!;
   await check("workbench edit queue and save barrier preserve CRLF and UTF-16", async () => {
     editor.executeEdits("integration", [{ range: new Range(2, 8, 2, 10), text: "日本語🙂" }]);

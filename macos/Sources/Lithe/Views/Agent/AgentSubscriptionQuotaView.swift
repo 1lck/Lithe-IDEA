@@ -32,7 +32,7 @@ struct AgentSubscriptionQuotaView: View {
                      ?? String(localized: "Quota —"))
                     .monospacedDigit().lineLimit(1)
             }
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .foregroundStyle(stale ? AgentPanelStyle.muted : color)
             .fixedSize()
             .padding(.vertical, 4)

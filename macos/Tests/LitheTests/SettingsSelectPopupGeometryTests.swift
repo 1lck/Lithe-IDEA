@@ -6,6 +6,54 @@ import Testing
 @Suite("Settings select popup")
 struct SettingsSelectPopupGeometryTests {
     @MainActor
+    @Test(arguments: [true, false])
+    func valueSelectInsideSharedDropdownKeepsParentOpenAndCleansUp(localizesTitles: Bool) async throws {
+        let presenter = LitheContextMenuPresenter()
+        let host = NSHostingController(rootView: LitheSettingsSelect(
+            selection: .constant("First"), options: ["First", "Another"],
+            width: 180, accessibilityLabel: "Nested select", title: { $0 }, localizesTitles: localizesTitles
+        ).frame(width: 240, height: 100, alignment: .topLeading).litheContextMenuSurface())
+        presenter.show(contentController: host, at: NSPoint(x: 200, y: 500),
+                       appearance: NSAppearance(named: .darkAqua), onDismiss: {})
+        let parent = try #require(host.view.window)
+        host.view.layoutSubtreeIfNeeded()
+        func popup() -> NSPanel? {
+            parent.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible }
+        }
+        defer {
+            if let panel = popup(), let escape = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: panel.windowNumber, context: nil, characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53
+            ) { NSApp.sendEvent(escape) }
+            presenter.dismiss()
+        }
+        let point = NSPoint(x: 80, y: host.view.isFlipped ? 14 : host.view.bounds.height - 14)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            NSApp.sendEvent(try #require(NSEvent.mouseEvent(
+                with: type, location: host.view.convert(point, to: nil), modifierFlags: [],
+                timestamp: 0, windowNumber: parent.windowNumber, context: nil,
+                eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+            )))
+        }
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(1))
+        while popup() == nil && clock.now < deadline { await Task.yield() }
+        let child = try #require(popup(), "Value selector must open as a child of the shared popup")
+        #expect(parent.isVisible)
+        #expect(child.parent === parent)
+        #expect(child.animationBehavior == .none)
+        NSApp.sendEvent(try #require(NSEvent.keyEvent(
+            with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: child.windowNumber, context: nil, characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53
+        )))
+        #expect(!child.isVisible)
+        #expect(child.parent == nil)
+        #expect(parent.isVisible, "Esc closes only the nested selection")
+    }
+
+    @MainActor
     @Test
     func popupClosesOnItsTriggerAndBlankSpaceButSwitchesToAnotherSelect() async throws {
         let host = NSHostingView(rootView: HStack(spacing: 20) {
@@ -94,16 +142,16 @@ struct SettingsSelectPopupGeometryTests {
             ))
         }
 
-        #expect(LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 100, y: 214)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 260, y: 214)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 300, y: 50)), anchorWindow: window, anchorFrame: anchor
         ))
-        #expect(!LitheSettingsSelectPopupGeometry.isAnchorClick(
+        #expect(!LitheDropdownAnchorGeometry.isAnchorClick(
             try click(at: NSPoint(x: 100, y: 214), type: .rightMouseDown),
             anchorWindow: window, anchorFrame: anchor
         ))

@@ -1397,6 +1397,7 @@
 "Commit History (%lld)" = "提交历史（%lld 条）";
 "Basic Information" = "基本信息";
 "Path" = "路径";
+"Paths" = "路径";
 "Branch" = "分支";
 "HEAD" = "HEAD";
 "Role" = "类型";
@@ -2613,6 +2614,17 @@
 
 "MCP Configuration" = "MCP 配置";
 "Open a project to configure MCP access for agents." = "打开项目后，可在这里配置 Agent 的 MCP 访问权限。";
+
+"%lld more notifications" = "还有 %lld 条通知";
+"1 more notification" = "还有 1 条通知";
+
+"Open notification history" = "打开通知历史";
+
+"Dismiss notification" = "关闭通知";
+
+"Collapse notification" = "收起通知";
+
+"Expand notification" = "展开通知";
 
 // Local Git ChangeLists
 "ChangeList" = "更改列表";

@@ -4,6 +4,7 @@ import LitheDatabaseModule
 struct RedisWorkspaceView: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var pattern = "*"
+    @FocusState private var patternFocused: Bool
     @State private var stringDraft = ""
     @State private var hashDraft = "{}"
     @State private var ttlDraft = ""
@@ -65,21 +66,21 @@ struct RedisWorkspaceView: View {
     private var workspaceHeader: some View {
         HStack(spacing: 10) {
             Image(systemName: "square.stack.3d.up.fill")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 .foregroundStyle(Color(red: 0.86, green: 0.22, blue: 0.20))
                 .frame(width: 28, height: 28)
                 .background(Color.red.opacity(0.12))
                 .clipShape(RoundedRectangle(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Redis Key Browser").font(.system(size: 12.5, weight: .semibold))
+                Text("Redis Key Browser").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Text("Incremental SCAN only — no full keyspace load")
-                    .font(.system(size: 9.5))
+                    .font(LitheTheme.uiFont(size: 9.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
             if let profile {
                 Text("DB \(profile.database.isEmpty ? "0" : profile.database)")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .padding(.horizontal, 8).padding(.vertical, 5)
                     .background(LitheTheme.inputBackground)
@@ -105,9 +106,9 @@ struct RedisWorkspaceView: View {
     private var keyBrowser: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                TextField("Key pattern, e.g. user:*", text: $pattern)
-                    .textFieldStyle(.plain)
-                    .litheSearchField(isFocused: false)
+                LitheSearchTextField("Key pattern, e.g. user:*", text: $pattern)
+                    .focused($patternFocused)
+                    .litheSearchField(isFocused: patternFocused)
                     .onSubmit { Task { await feature.loadRedisKeys(pattern: pattern) } }
                 Button { Task { await feature.loadRedisKeys(pattern: pattern) } } label: { Image(systemName: "magnifyingglass") }
                     .litheIconButton().help("Search keys with SCAN")
@@ -126,7 +127,7 @@ struct RedisWorkspaceView: View {
                 VStack(spacing: 9) {
                     ProgressView().controlSize(.small)
                     Text("Scanning keys…")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -147,15 +148,15 @@ struct RedisWorkspaceView: View {
                             } label: {
                                 HStack(spacing: 8) {
                                     Image(systemName: redisTypeSymbol(key.type))
-                                        .font(.system(size: 10, weight: .medium))
+                                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
                                         .foregroundStyle(redisTypeColor(key.type))
                                         .frame(width: 22, height: 22)
                                         .background(redisTypeColor(key.type).opacity(0.12))
                                         .clipShape(RoundedRectangle(cornerRadius: 5))
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(key.key).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                                        Text(key.key).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
                                         Text("\(key.type.uppercased()) · \(redisTTLText(key.ttl)) · \(redisSizeText(key.size))")
-                                            .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
+                                            .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                                     }
                                     Spacer(minLength: 0)
                                 }
@@ -173,7 +174,7 @@ struct RedisWorkspaceView: View {
                         Task { await feature.loadRedisKeys(pattern: pattern, reset: false) }
                     } label: {
                         Label("Load next scan page", systemImage: "arrow.down.circle")
-                            .font(.system(size: 10.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                             .frame(maxWidth: .infinity).padding(.vertical, 9)
                     }
                     .buttonStyle(.litheNoPress).lithePointer()
@@ -196,9 +197,9 @@ struct RedisWorkspaceView: View {
                         .background(redisTypeColor(detail.type).opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 7))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(detail.key).font(.system(size: 12.5, weight: .semibold)).textSelection(.enabled)
+                        Text(detail.key).font(LitheTheme.uiFont(size: 12.5, weight: .semibold)).textSelection(.enabled)
                         Text("\(detail.type.uppercased()) · \(redisSizeText(detail.size)) · \(redisTTLText(detail.ttl))")
-                            .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                            .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer()
                     Button { request(.deleteKey(detail.key)) } label: { Image(systemName: "trash") }
@@ -258,14 +259,14 @@ struct RedisWorkspaceView: View {
         VStack(alignment: .leading, spacing: 8) {
             specializedSectionTitle("String value", systemImage: "text.alignleft")
             TextEditor(text: $stringDraft)
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(7).frame(minHeight: 230)
                 .litheRoundedControlBackground(LitheTheme.inputBackground)
                 .overlay { RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius).stroke(LitheTheme.panelBorder, lineWidth: 1) }
             HStack {
                 Text("Saving preserves the existing TTL unless you set one above.")
-                    .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Save value") { request(.saveString(detail.key, stringDraft, ttlForSave)) }
                     .buttonStyle(LithePrimaryButtonStyle())
@@ -277,9 +278,9 @@ struct RedisWorkspaceView: View {
         VStack(alignment: .leading, spacing: 8) {
             specializedSectionTitle("Hash fields", systemImage: "curlybraces.square")
             Text("Edit the field/value mapping as a JSON object. Saving replaces this Hash while preserving its TTL.")
-                .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
             TextEditor(text: $hashDraft)
-                .font(.system(size: 12, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                 .scrollContentBackground(.hidden)
                 .padding(7).frame(minHeight: 230)
                 .litheRoundedControlBackground(LitheTheme.inputBackground)
@@ -352,6 +353,8 @@ private enum RedisPendingAction {
 
 struct NacosWorkspaceView: View {
     @EnvironmentObject private var feature: DatabaseFeatureModel
+    private enum SearchField: Hashable { case dataID, configGroup, service, serviceGroup }
+    @FocusState private var focusedSearch: SearchField?
     @State private var section: NacosSection = .configs
     @State private var dataIDSearch = ""
     @State private var groupSearch = ""
@@ -419,12 +422,12 @@ struct NacosWorkspaceView: View {
     private var workspaceHeader: some View {
         HStack(spacing: 10) {
             Image(systemName: "slider.horizontal.3")
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(Color.teal)
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold)).foregroundStyle(Color.teal)
                 .frame(width: 28, height: 28).background(Color.teal.opacity(0.12)).clipShape(RoundedRectangle(cornerRadius: 7))
             VStack(alignment: .leading, spacing: 1) {
-                Text("Nacos Configuration & Services").font(.system(size: 12.5, weight: .semibold))
+                Text("Nacos Configuration & Services").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Text("Namespace \(profile?.database.isEmpty == false ? profile!.database : "public")")
-                    .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
             Button { Task { await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch); await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch) } } label: { Image(systemName: "arrow.clockwise") }
@@ -438,14 +441,18 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Data ID", text: $dataIDSearch).textFieldStyle(.roundedBorder)
-                    TextField("Group", text: $groupSearch).textFieldStyle(.roundedBorder)
+                    LitheSearchTextField("Data ID", text: $dataIDSearch)
+                        .focused($focusedSearch, equals: .dataID)
+                        .litheSearchField(isFocused: focusedSearch == .dataID)
+                    LitheSearchTextField("Group", text: $groupSearch)
+                        .focused($focusedSearch, equals: .configGroup)
+                        .litheSearchField(isFocused: focusedSearch == .configGroup)
                     Button { Task { await feature.loadNacosConfigs(dataId: dataIDSearch, group: groupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()
                 }
                 .padding(10)
                 HStack {
                     Text("\(feature.nacosConfigTotalCount) configurations")
-                        .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                     Spacer()
                     Button("New") {
                         feature.nacosSelectedConfig = nil
@@ -460,9 +467,9 @@ struct NacosWorkspaceView: View {
                         ForEach(feature.nacosConfigs) { config in
                             Button { Task { await feature.loadNacosConfig(dataId: config.dataId, group: config.group) } } label: {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(config.dataId).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
+                                    Text(config.dataId).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
                                     Text("\(config.group)\(config.type.map { " · \($0)" } ?? "")")
-                                        .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
+                                        .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1)
                                 }
                                 .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -493,12 +500,12 @@ struct NacosWorkspaceView: View {
             .padding(12).litheWorkbenchSurface(LitheTheme.toolHeader)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             TextEditor(text: $draftContent)
-                .font(.system(size: 12, design: .monospaced)).scrollContentBackground(.hidden)
+                .font(LitheTheme.uiFont(size: 12, design: .monospaced)).scrollContentBackground(.hidden)
                 .padding(12).litheWorkbenchSurface(LitheTheme.editor)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack {
                 Text(feature.nacosSelectedConfig == nil ? "Create a configuration" : "Edit configuration")
-                    .font(.system(size: 10)).foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: 10)).foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Publish configuration") { request(.publish(draftDataID, draftGroup, draftContent, draftType)) }
                     .buttonStyle(LithePrimaryButtonStyle())
@@ -513,20 +520,24 @@ struct NacosWorkspaceView: View {
         HStack(spacing: 0) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    TextField("Service", text: $serviceSearch).textFieldStyle(.roundedBorder)
-                    TextField("Group", text: $serviceGroupSearch).textFieldStyle(.roundedBorder)
+                    LitheSearchTextField("Service", text: $serviceSearch)
+                        .focused($focusedSearch, equals: .service)
+                        .litheSearchField(isFocused: focusedSearch == .service)
+                    LitheSearchTextField("Group", text: $serviceGroupSearch)
+                        .focused($focusedSearch, equals: .serviceGroup)
+                        .litheSearchField(isFocused: focusedSearch == .serviceGroup)
                     Button { Task { await feature.loadNacosServices(serviceName: serviceSearch, group: serviceGroupSearch) } } label: { Image(systemName: "magnifyingglass") }.litheIconButton()
                 }.padding(10)
                 Text("\(feature.nacosServiceTotalCount) services")
-                    .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.bottom, 8)
+                    .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10).padding(.bottom, 8)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 2) {
                         ForEach(feature.nacosServices) { service in
                             Button { Task { await feature.loadNacosInstances(serviceName: service.name, group: service.group) } } label: {
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(service.name).font(.system(size: 11.5, weight: .medium)).lineLimit(1)
-                                    Text("\(service.group) · \(service.clusterCount) clusters").font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                                    Text(service.name).font(LitheTheme.uiFont(size: 11.5, weight: .medium)).lineLimit(1)
+                                    Text("\(service.group) · \(service.clusterCount) clusters").font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                                 }
                                 .padding(.horizontal, 9).frame(height: 42).frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -541,9 +552,9 @@ struct NacosWorkspaceView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack {
                     Label("Service instances", systemImage: "server.rack")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     Spacer()
-                    Text("\(feature.nacosInstances.count) instances").font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                    Text("\(feature.nacosInstances.count) instances").font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                 }.padding(12).litheWorkbenchSurface(LitheTheme.toolHeader)
                 Rectangle().fill(LitheTheme.divider).frame(height: 1)
                 if feature.nacosInstances.isEmpty {
@@ -556,12 +567,12 @@ struct NacosWorkspaceView: View {
                                 HStack(spacing: 10) {
                                     Circle().fill(instance.healthy ? Color.green : LitheTheme.error).frame(width: 8, height: 8)
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text("\(instance.ip):\(instance.port)").font(.system(size: 11.5, weight: .medium)).textSelection(.enabled)
+                                        Text("\(instance.ip):\(instance.port)").font(LitheTheme.uiFont(size: 11.5, weight: .medium)).textSelection(.enabled)
                                         Text("\(instance.clusterName ?? "DEFAULT") · \(instance.enabled ? "enabled" : "disabled") · \(instance.ephemeral ? "ephemeral" : "persistent")")
-                                            .font(.system(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
+                                            .font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.secondaryText)
                                     }
                                     Spacer()
-                                    Text(instance.healthy ? "Healthy" : "Unhealthy").font(.system(size: 9.5, weight: .medium)).foregroundStyle(instance.healthy ? Color.green : LitheTheme.error)
+                                    Text(instance.healthy ? "Healthy" : "Unhealthy").font(LitheTheme.uiFont(size: 9.5, weight: .medium)).foregroundStyle(instance.healthy ? Color.green : LitheTheme.error)
                                 }
                                 .padding(10).background(LitheTheme.inputBackground.opacity(0.72)).clipShape(RoundedRectangle(cornerRadius: 7))
                             }
@@ -603,14 +614,14 @@ private enum NacosPendingAction { case publish(String, String, String, String), 
 
 @ViewBuilder
 private func specializedSectionTitle(_ title: LocalizedStringKey, systemImage: String) -> some View {
-    Label(title, systemImage: systemImage).font(.system(size: 11, weight: .semibold)).foregroundStyle(LitheTheme.primaryText)
+    Label(title, systemImage: systemImage).font(LitheTheme.uiFont(size: 11, weight: .semibold)).foregroundStyle(LitheTheme.primaryText)
 }
 
 private func specializedEmptyState(symbol: String, title: LocalizedStringKey, detail: LocalizedStringKey) -> some View {
     VStack(spacing: 9) {
-        Image(systemName: symbol).font(.system(size: 25, weight: .light)).foregroundStyle(LitheTheme.tertiaryText)
-        Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(LitheTheme.secondaryText)
-        Text(detail).font(.system(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText).multilineTextAlignment(.center).frame(maxWidth: 340)
+        Image(systemName: symbol).font(LitheTheme.uiFont(size: 25, weight: .light)).foregroundStyle(LitheTheme.tertiaryText)
+        Text(title).font(LitheTheme.uiFont(size: 12, weight: .semibold)).foregroundStyle(LitheTheme.secondaryText)
+        Text(detail).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.tertiaryText).multilineTextAlignment(.center).frame(maxWidth: 340)
     }
     .padding(22)
 }
@@ -620,7 +631,7 @@ private func specializedErrorBanner(message: String, retry: @escaping () -> Void
         Image(systemName: "exclamationmark.triangle.fill")
             .foregroundStyle(LitheTheme.error)
         Text(message)
-            .font(.system(size: 10.5))
+            .font(LitheTheme.uiFont(size: 10.5))
             .foregroundStyle(LitheTheme.primaryText)
             .lineLimit(3)
             .textSelection(.enabled)

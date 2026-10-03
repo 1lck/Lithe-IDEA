@@ -2,12 +2,15 @@
   "id": "java-maven-toolbar-tooltips",
   "area": "Java",
   "group": "Java/Maven",
-  "capability": "Maven 工具栏图标悬停说明",
+  "capability": "Maven 工具栏提示；macOS 使用 IDEA 原色 SVG、共享按钮与单行树样式",
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Run/MavenView.swift",
       "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
-      "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift"
+      "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift",
+      "macos/Resources/IDEAIcons/NOTICE.txt",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Tests/LitheTests/AgentMavenAppearanceTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -20,5 +23,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Java / Maven",
-  "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。"
+  "verification": "在 macOS 和 Windows 的 Maven 工具窗口逐一悬停运行、执行目标、重新加载、跳过测试、折叠和设置图标，确认提示与动作一致、提示框宽度适配文字；再检查禁用按钮和窄窗口中的提示换行与边缘约束。 macOS 对照 Community c7f91397 的 Islands 明暗主题，核对 16pt 原色图标、22pt 按钮及 hover/pressed、Skip tests 选中、禁用、默认箭头；展开项目/生命周期/依赖，检查 24pt 行高、同一行说明、焦点与非焦点选中，双击运行、右键菜单和窄宽度仍正常。"
 }

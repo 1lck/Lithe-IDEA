@@ -5,7 +5,8 @@
   "capability": "表数据编辑、CRUD 与导出",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Database"
+      "macos/Sources/Lithe/Views/Database",
+      "macos/Sources/Lithe/Views/Database/DatabaseTableView.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -18,5 +19,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Database",
-  "verification": "验证新增、编辑、删除、事务失败、复制和结果导出。"
+  "verification": "验证新增、编辑、删除、事务失败、复制和结果导出。 macOS 中文界面使用同时包含 Name、名称、Type 列的表，检查筛选、排序、批量更新和替换的列名保持原样；替换的 All columns 固定选项保留本地化，选择列后只修改对应列。"
 }

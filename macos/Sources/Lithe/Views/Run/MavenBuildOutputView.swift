@@ -30,19 +30,19 @@ struct MavenBuildOutputView: View {
                     ProgressView()
                         .controlSize(.mini)
                     Text(runningTitle)
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 } else if feature.taskState == .cancelled {
                     Label("Cancelled", systemImage: "stop.circle.fill")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                 } else if let exitCode = feature.lastExitCode {
                     Label(
                         exitCode == 0 ? "Succeeded" : "Failed",
                         systemImage: exitCode == 0 ? "checkmark.circle.fill" : "xmark.circle.fill"
                     )
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(exitCode == 0 ? LitheTheme.success : LitheTheme.error)
                 }
 
@@ -62,7 +62,7 @@ struct MavenBuildOutputView: View {
                 .help("Clear build output")
                 if !feature.issues.isEmpty {
                     Label("\(feature.issues.count)", systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                 }
             }
@@ -96,9 +96,9 @@ struct MavenBuildOutputView: View {
                                 .frame(width: 15)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(issue.locationTitle)
-                                    .font(.system(size: 11.5, weight: .medium))
+                                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                                 Text(issue.message)
-                                    .font(.system(size: 11))
+                                    .font(LitheTheme.uiFont(size: 11))
                                     .foregroundStyle(LitheTheme.secondaryText)
                                     .lineLimit(2)
                             }

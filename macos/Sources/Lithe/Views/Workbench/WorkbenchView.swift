@@ -8,7 +8,7 @@ enum WorkbenchLayoutMetrics {
     static let workspaceTrailingInset = rightActivityBarWidth
 }
 
-private enum ActivityBarMetrics {
+enum ActivityBarMetrics {
     static let width: CGFloat = 40
     static let rightWidth = WorkbenchLayoutMetrics.rightActivityBarWidth
     static let buttonWidth: CGFloat = 30
@@ -19,10 +19,25 @@ private enum ActivityBarMetrics {
     static let toolViewportHeight: CGFloat = 280
 }
 
+/// Shared 30pt paint area centered in the activity rail's 37×40pt slot.
+struct LitheActivityBarButtonStyle: ButtonStyle {
+    var isSelected = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: ActivityBarMetrics.buttonWidth, height: ActivityBarMetrics.buttonHeight)
+            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.selection)
+            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
+            .contentShape(Rectangle())
+            .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+    }
+}
+
 private enum WorkbenchWorkspaceMetrics {
     static let paneInset: CGFloat = 0
     static let paneSpacing: CGFloat = SplitHandleView.thickness
     static let paneCornerRadius: CGFloat = 10
+    static let minimumPaneHeight = CGFloat(WorkbenchLayout.minimumPaneSize)
 }
 
 private enum WorkbenchTopBarMetrics {
@@ -56,24 +71,6 @@ private extension EnvironmentValues {
     var workbenchToolbarGlow: Color {
         get { self[WorkbenchToolbarGlowKey.self] }
         set { self[WorkbenchToolbarGlowKey.self] = newValue }
-    }
-}
-
-private enum WorkbenchPopoverLayoutMetrics {
-    static let leadingOverlap: CGFloat = 10
-    static let viewportMargin: CGFloat = 8
-    static let arrowWidth: CGFloat = 22
-    static let arrowHeight: CGFloat = 12
-}
-
-private struct WorkbenchPopoverArrow: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.midX, y: rect.minY))
-        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-        path.closeSubpath()
-        return path
     }
 }
 
@@ -197,28 +194,6 @@ final class ProjectReplaceKeyMonitorView: NSView {
     }
 }
 
-private struct ProjectSwitcherButtonBoundsPreferenceKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-
-    static func reduce(
-        value: inout Anchor<CGRect>?,
-        nextValue: () -> Anchor<CGRect>?
-    ) {
-        value = nextValue() ?? value
-    }
-}
-
-private struct BranchSwitcherButtonBoundsPreferenceKey: PreferenceKey {
-    static var defaultValue: Anchor<CGRect>?
-
-    static func reduce(
-        value: inout Anchor<CGRect>?,
-        nextValue: () -> Anchor<CGRect>?
-    ) {
-        value = nextValue() ?? value
-    }
-}
-
 struct WorkbenchView: View {
     private let moduleUIRegistry = WorkbenchModuleUIComposition.builtIn
     @EnvironmentObject private var model: AppModel
@@ -316,6 +291,19 @@ struct WorkbenchView: View {
         }
         .onAppear {
             updateWorkbenchBackgroundImage(model.workbenchBackgroundFeature.imageData)
+            model.setNotificationsApplicationActive(NSApplication.shared.isActive)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            model.setNotificationsApplicationActive(true)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            model.setNotificationsApplicationActive(false)
+        }
+        .onChange(of: isNotificationCenterPresented) { isPresented in
+            if isPresented {
+                model.dismissNotificationBalloons()
+                model.markAllNotificationsRead()
+            }
         }
         .onReceive(model.workbenchBackgroundFeature.$imageData) { data in
             updateWorkbenchBackgroundImage(data)
@@ -494,64 +482,21 @@ struct WorkbenchView: View {
                     + "Git will refuse if it contains unmerged work."
             )
         }
-        .overlayPreferenceValue(ProjectSwitcherButtonBoundsPreferenceKey.self) { bounds in
-            GeometryReader { geometry in
-                if isProjectSwitcherPresented, let bounds {
-                    projectSwitcherOverlay(
-                        buttonFrame: geometry[bounds],
-                        viewportSize: geometry.size
-                    )
-                }
-            }
-        }
-        .overlayPreferenceValue(BranchSwitcherButtonBoundsPreferenceKey.self) { bounds in
-            GeometryReader { geometry in
-                if isBranchSwitcherPresented, let bounds {
-                    branchSwitcherOverlay(
-                        buttonFrame: geometry[bounds],
-                        viewportSize: geometry.size
-                    )
-                }
-            }
-        }
         .overlay(alignment: .bottomTrailing) {
             if !model.activeNotifications.isEmpty {
-                VStack(alignment: .trailing, spacing: 8) {
-                    ForEach(model.activeNotifications) { notification in
-                        HStack(alignment: .center, spacing: 10) {
-                            Image(systemName: "info.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(LitheTheme.accent)
-                            Text(LocalizedStringKey(notification.message))
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            Button {
-                                model.dismissNotification(notification.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .semibold))
-                                    .foregroundStyle(LitheTheme.tertiaryText)
-                            }
-                            .buttonStyle(.litheNoPress)
-                            .frame(width: 16, height: 16)
-                            .contentShape(Rectangle())
-                            .litheRowHover(cornerRadius: LitheTheme.Metrics.cornerRadius, animation: nil)
-                            .accessibilityLabel("Dismiss notification")
+                VStack(alignment: .trailing, spacing: 2 * LitheTheme.Notification.shadowInset) {
+                    // IDEA keeps the oldest balloon at the bottom; new messages grow upward.
+                    ForEach(model.activeNotifications.reversed()) { notification in
+                        WorkbenchNotificationBanner(message: notification.message,
+                            collapsedCount: notification.collapsedCount,
+                            showHistory: { isNotificationCenterPresented = true }) {
+                            model.dismissNotification(notification.id)
                         }
-                        .padding(.leading, 12)
-                        .padding(.trailing, 6)
-                        .padding(.vertical, 10)
-                        .frame(minWidth: 280, maxWidth: 360, alignment: .topLeading)
-                        .background(LitheTheme.notificationBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 7))
-                        .contentShape(RoundedRectangle(cornerRadius: 7))
+                        .onHover { model.setNotificationHovered(notification.id, isHovered: $0) }
                     }
                 }
-                .onHover { model.setNotificationStackHovered($0) }
-                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + 12)
-                .padding(.bottom, 38)
+                .padding(.trailing, WorkbenchLayoutMetrics.rightActivityBarWidth + LitheTheme.Notification.edgeInset)
+                .padding(.bottom, LitheTheme.Metrics.statusBarHeight + LitheTheme.Notification.edgeInset)
             }
         }
         .overlay {
@@ -664,18 +609,18 @@ struct WorkbenchView: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         .foregroundStyle(isActive ? LitheTheme.accent : LitheTheme.secondaryText)
 
                     Text(projectModel.projectName)
-                        .font(.system(size: 12.5, weight: isActive ? .semibold : .medium))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: isActive ? .semibold : .medium))
                         .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
 
                     AgentAttentionIndicator(model: projectModel)
 
                     if let documentName = projectModel.activeDocument?.displayName {
                         Text("· \(documentName)")
-                            .font(.system(size: 11.5))
+                            .font(LitheTheme.uiFont(size: 11.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
                 }
@@ -692,7 +637,7 @@ struct WorkbenchView: View {
                 projectSessions.closeProject(projectModel.id)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             .buttonStyle(LitheIconButtonStyle())
@@ -748,30 +693,26 @@ struct WorkbenchView: View {
                     )
 
                     Text(model.projectName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
 
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.leading, WorkbenchTopBarMetrics.projectAvatarLeadingInset)
                 .padding(.trailing, 10)
                 .frame(height: 30)
-                .litheRowHover(
-                    isActive: isProjectSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+                .litheRowHover(isActive: isProjectSwitcherPresented, cornerRadius: 6,
+                               activeBackground: LitheTheme.hoverBackground)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
             .accessibilityIdentifier("project-switcher-\(model.id.uuidString)")
-            .anchorPreference(
-                key: ProjectSwitcherButtonBoundsPreferenceKey.self,
-                value: .bounds
-            ) { $0 }
+            // Anchor at the full toolbar slot, leaving its margin below the painted button.
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
+            .litheDropdown(isPresented: instantProjectSwitcherPresentation) { projectSwitcherContent }
 
             Button {
                 updateSwitcherPresentation(
@@ -787,31 +728,26 @@ struct WorkbenchView: View {
                     )
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(model.currentBranch)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .padding(.horizontal, 9)
                 .frame(height: 32)
-                .litheRowHover(
-                    isActive: isBranchSwitcherPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
+                .litheRowHover(isActive: isBranchSwitcherPresented, cornerRadius: 6,
+                               activeBackground: LitheTheme.hoverBackground)
             }
             .buttonStyle(.litheNoPress)
             .lithePointer()
-            .anchorPreference(
-                key: BranchSwitcherButtonBoundsPreferenceKey.self,
-                value: .bounds
-            ) { $0 }
+            .frame(height: LitheTheme.Metrics.toolbarHeight)
+            .litheDropdown(isPresented: instantBranchSwitcherPresentation, searchOnTyping: true) { branchSwitcherContent }
 
             Spacer(minLength: 22)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 runConfigurationPicker
                 runLaunchButton
                 debugLaunchButton
@@ -819,10 +755,6 @@ struct WorkbenchView: View {
                     stopExecutionButton
                 }
             }
-
-            UpdateControl(compact: true)
-            backgroundPickerButton
-
         }
         .padding(.leading, WorkbenchTopBarMetrics.leadingInset)
         .padding(.trailing, 10)
@@ -837,33 +769,7 @@ struct WorkbenchView: View {
         }
     }
 
-    private func projectSwitcherOverlay(
-        buttonFrame: CGRect,
-        viewportSize: CGSize
-    ) -> some View {
-        let popupMetrics = ProjectSwitcherLayoutMetrics.self
-        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
-        let placement = workbenchPopoverPlacement(
-            buttonFrame: buttonFrame,
-            viewportWidth: viewportSize.width,
-            popupWidth: popupMetrics.width
-        )
-
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { updateSwitcherPresentation(project: false) }
-
-            ZStack(alignment: .topLeading) {
-                WorkbenchPopoverArrow()
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        WorkbenchPopoverArrow()
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
-                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
-
+    private var projectSwitcherContent: some View {
                 ProjectSwitcherPopover(
                     isPresented: instantProjectSwitcherPresentation,
                     onNewProject: {
@@ -883,46 +789,13 @@ struct WorkbenchView: View {
                         model.openProject(project.url)
                     }
                 )
-                .environmentObject(model)
-                .lithePopupChrome()
-                .padding(.top, chromeMetrics.arrowHeight - 1)
-            }
-            .offset(x: placement.popupX, y: buttonFrame.maxY)
-        }
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
-        .onExitCommand { updateSwitcherPresentation(project: false) }
+        .environmentObject(model)
+        .environmentObject(projectSessions)
+        .environment(\.projectWindowScope, projectWindowScope)
     }
 
-    private func branchSwitcherOverlay(
-        buttonFrame: CGRect,
-        viewportSize: CGSize
-    ) -> some View {
-        let popupMetrics = BranchSwitcherPopover.Metrics.self
-        let chromeMetrics = WorkbenchPopoverLayoutMetrics.self
-        let placement = workbenchPopoverPlacement(
-            buttonFrame: buttonFrame,
-            viewportWidth: viewportSize.width,
-            popupWidth: popupMetrics.popupWidth
-        )
-
-        return ZStack(alignment: .topLeading) {
-            Color.clear
-                .contentShape(Rectangle())
-                .onTapGesture { updateSwitcherPresentation(branch: false) }
-
-            ZStack(alignment: .topLeading) {
-                WorkbenchPopoverArrow()
-                    .fill(LitheTheme.popupBackground)
-                    .overlay {
-                        WorkbenchPopoverArrow()
-                            .stroke(LitheTheme.panelBorder, lineWidth: 1)
-                    }
-                    .frame(width: chromeMetrics.arrowWidth, height: chromeMetrics.arrowHeight)
-                    .offset(x: placement.arrowCenterX - (chromeMetrics.arrowWidth / 2))
-
+    private var branchSwitcherContent: some View {
+        Group {
                 if let feature = model.gitFeatureIfActive {
                     BranchSwitcherPopover(
                         feature: feature,
@@ -961,21 +834,13 @@ struct WorkbenchView: View {
                             await model?.showComparison(from: $0, to: $1)
                         }
                     )
-                    .padding(.top, chromeMetrics.arrowHeight - 1)
+
                 } else {
                     ProgressView()
-                        .frame(width: popupMetrics.popupWidth, height: popupMetrics.branchListHeight)
-                        .lithePopupChrome()
-                        .padding(.top, chromeMetrics.arrowHeight - 1)
+                        .frame(width: BranchSwitcherPopover.Metrics.popupWidth, height: BranchSwitcherPopover.Metrics.branchListHeight)
+
                 }
-            }
-            .offset(x: placement.popupX, y: buttonFrame.maxY)
         }
-        .transaction { transaction in
-            transaction.animation = nil
-            transaction.disablesAnimations = true
-        }
-        .onExitCommand { updateSwitcherPresentation(branch: false) }
         .task {
             let feature = await model.activateGitModule()
             guard !Task.isCancelled else { return }
@@ -985,25 +850,6 @@ struct WorkbenchView: View {
             }
             await feature.refreshGitHistory()
         }
-    }
-
-    private func workbenchPopoverPlacement(
-        buttonFrame: CGRect,
-        viewportWidth: CGFloat,
-        popupWidth: CGFloat
-    ) -> (popupX: CGFloat, arrowCenterX: CGFloat) {
-        let metrics = WorkbenchPopoverLayoutMetrics.self
-        let desiredX = buttonFrame.minX - metrics.leadingOverlap
-        let maximumX = max(
-            metrics.viewportMargin,
-            viewportWidth - popupWidth - metrics.viewportMargin
-        )
-        let popupX = min(max(desiredX, metrics.viewportMargin), maximumX)
-        let arrowCenterX = min(
-            max(buttonFrame.midX - popupX, metrics.arrowWidth),
-            popupWidth - metrics.arrowWidth
-        )
-        return (popupX, arrowCenterX)
     }
 
     private var instantProjectSwitcherPresentation: Binding<Bool> {
@@ -1068,19 +914,16 @@ struct WorkbenchView: View {
         } label: {
             LitheIDEAIcon(
                 resourcePath: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
-                    ? "debugger/rerun.svg"
-                    : "debugger/run.svg",
+                    ? "expui/run/rerun_stroke.svg"
+                    : "expui/run/run_stroke.svg",
                 size: 16,
                 fallbackSystemImage: model.runFeatureIfActive?.isSelectedConfigurationRunning == true
                     ? "arrow.clockwise"
-                    : "play.fill",
-                preservesOriginalColors: true
+                    : "play.fill"
             )
-                .frame(width: 28, height: 28)
-                .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+                .foregroundStyle(LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityLabel(model.runFeatureIfActive?.isSelectedConfigurationRunning == true ? "Rerun selected configuration" : "Run selected configuration")
         .accessibilityIdentifier("run-selected-run-configuration")
@@ -1092,17 +935,14 @@ struct WorkbenchView: View {
         } label: {
             LitheIDEAIcon(
                 resourcePath: isDebugSessionActive
-                    ? "debugger/restartDebug.svg"
-                    : "debugger/debug.svg",
+                    ? "expui/run/restartDebug_stroke.svg"
+                    : "expui/run/debug_stroke.svg",
                 size: 16,
-                fallbackSystemImage: "ladybug.fill",
-                preservesOriginalColors: true
+                fallbackSystemImage: "ladybug.fill"
             )
-            .frame(width: 28, height: 28)
-            .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+            .foregroundStyle(LitheTheme.MainToolbar.runIcon)
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityLabel(isDebugSessionActive ? "Rerun or show Debug session" : "Debug selected run configuration")
         .accessibilityIdentifier("debug-selected-run-configuration")
@@ -1144,34 +984,29 @@ struct WorkbenchView: View {
         Button {
             isRunConfigurationPickerPresented.toggle()
         } label: {
-            HStack(spacing: 8) {
-                RunConfigurationIcon(
-                    kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
-                    size: 14
-                )
-                Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
-                    .font(.system(size: 11.5, weight: .medium))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
+            HStack(spacing: 2) {
+                HStack(spacing: 6) {
+                    RunConfigurationIcon(
+                        kind: model.runFeatureIfActive?.selectedConfiguration?.kind ?? .currentFile,
+                        size: LitheTheme.MainToolbar.iconSize
+                    )
+                    Text(model.runFeatureIfActive?.selectedConfiguration?.name ?? "Current File")
+                        .font(LitheTheme.MainToolbar.font)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                LitheIDEAIcon(resourcePath: "expui/general/chevronDown.svg", size: 16)
+                    .foregroundStyle(LitheTheme.MainToolbar.icon)
             }
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 4)
-            .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
-            .frame(height: 30)
-            .contentShape(Rectangle())
+            .foregroundStyle(LitheTheme.MainToolbar.foreground)
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
         }
-        .buttonStyle(.litheNoPress)
-        .frame(minWidth: 160, maxWidth: 190, alignment: .leading)
-        .frame(height: 30)
-        .litheRowHover(isActive: false, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
+        .buttonStyle(LitheMainToolbarButtonStyle(insets: LitheTheme.MainToolbar.runInsets))
         .help("Select run configuration for Run or Debug")
         .accessibilityLabel("Select run configuration for Run or Debug")
         .accessibilityIdentifier("run-configuration-picker")
-        .popover(isPresented: $isRunConfigurationPickerPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isRunConfigurationPickerPresented) {
             runConfigurationSelectionPanel
         }
     }
@@ -1182,7 +1017,7 @@ struct WorkbenchView: View {
         let visibleConfigurations = [RunConfiguration.currentFile] + services
         return VStack(alignment: .leading, spacing: 6) {
             Text("Run configurations")
-                .font(.system(size: 11, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 10)
                 .padding(.top, 6)
@@ -1192,7 +1027,7 @@ struct WorkbenchView: View {
                         if configuration.id == services.first?.id {
                             Divider().padding(.vertical, 3)
                             Text("Services")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.horizontal, 10)
@@ -1205,53 +1040,40 @@ struct WorkbenchView: View {
                             HStack(spacing: 10) {
                                 RunConfigurationIcon(kind: configuration.kind, size: 16)
                                 Text(configuration.name)
-                                    .font(.system(size: 12, weight: .medium))
                                     .lineLimit(1)
                                     .truncationMode(.middle)
                                 Spacer(minLength: 12)
                                 Image(systemName: "checkmark")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                     .opacity(isSelected ? 1 : 0)
                             }
                             .foregroundStyle(LitheTheme.primaryText)
-                            .padding(.horizontal, 10)
-                            .frame(height: 34)
+                            .frame(minHeight: LitheDropdownMetrics.rowHeight)
                             .contentShape(Rectangle())
-                            .litheRowHover(isActive: isSelected, cornerRadius: 6, activeBackground: LitheTheme.subtleSelection)
                         }
-                        .buttonStyle(.litheNoPress)
+                        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected))
                         .help(configuration.name)
                         .accessibilityAddTraits(isSelected ? .isSelected : [])
                     }
                 }
             }
-            .frame(height: min(CGFloat(visibleConfigurations.count) * 37 + (services.isEmpty ? 0 : 28), 296))
+            .frame(height: min(CGFloat(visibleConfigurations.count) * (LitheDropdownMetrics.rowHeight + 3) + (services.isEmpty ? 0 : 28), 296))
         }
-        .padding(8)
+        .padding(LitheDropdownMetrics.popupPadding)
         .frame(width: 280)
-        .background(LitheTheme.editor)
     }
 
     private var backgroundPickerButton: some View {
-        Button {
+        activityToolButton(
+            ideaAssetPath: "expui/actions/viewAsImage.svg",
+            help: "Change workbench background",
+            tooltipPlacement: .leading,
+            isSelected: isBackgroundPickerPresented
+        ) {
             isBackgroundPickerPresented.toggle()
-        } label: {
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: 30, height: 30)
-                .litheRowHover(
-                    isActive: isBackgroundPickerPresented,
-                    cornerRadius: 6,
-                    activeBackground: LitheTheme.subtleSelection
-                )
         }
-        .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .foregroundStyle(LitheTheme.secondaryText)
-        .help("Change workbench background")
-        .accessibilityLabel("Change workbench background")
         .accessibilityIdentifier("workbench-background-picker")
-        .popover(isPresented: $isBackgroundPickerPresented, arrowEdge: .bottom) {
+        .litheDropdown(isPresented: $isBackgroundPickerPresented, opensUpward: true) {
             WorkbenchBackgroundPicker {
                 isBackgroundPickerPresented = false
             }
@@ -1281,7 +1103,8 @@ struct WorkbenchView: View {
                                     height: ActivityBarMetrics.buttonHeight
                                 )
                                 .litheRowHover(
-                                    isActive: model.workbenchFeature.selectedSidebar == destination,
+                                    isActive: model.workbenchFeature.isSidebarVisible
+                                        && model.workbenchFeature.selectedSidebar == destination,
                                     cornerRadius: 6,
                                     activeBackground: LitheTheme.selection
                                 )
@@ -1290,10 +1113,12 @@ struct WorkbenchView: View {
                         }
                         .buttonStyle(.litheNoPress)
                         .disabled(!destination.isAvailable)
-                        .foregroundStyle(model.workbenchFeature.selectedSidebar == destination ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+                        .foregroundStyle(model.workbenchFeature.isSidebarVisible
+                            && model.workbenchFeature.selectedSidebar == destination
+                                ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
                         .workbenchHoverHelp(
                             Text(destination.isAvailable
-                                 ? LocalizedStringKey(destination.title)
+                                 ? LocalizedStringKey(destination == .changes ? "Commit" : destination.title)
                                  : LocalizedStringKey("Pull Requests integration is under development")),
                             placement: .trailing
                         )
@@ -1349,9 +1174,6 @@ struct WorkbenchView: View {
         VStack(spacing: 0) {
             Button {
                 isNotificationCenterPresented.toggle()
-                if isNotificationCenterPresented {
-                    model.markAllNotificationsRead()
-                }
             } label: {
                 ZStack(alignment: .topTrailing) {
                     LitheIDEAIcon(
@@ -1384,7 +1206,7 @@ struct WorkbenchView: View {
             )
             .workbenchHoverHelp(Text("Notifications"), placement: .leading)
             .accessibilityLabel("Notifications")
-            .popover(isPresented: $isNotificationCenterPresented, arrowEdge: .trailing) {
+            .litheDropdown(isPresented: $isNotificationCenterPresented) {
                 WorkbenchNotificationCenterView()
                     .environmentObject(model)
             }
@@ -1411,6 +1233,8 @@ struct WorkbenchView: View {
                 }
             }
             Spacer()
+            UpdateControl(compact: true)
+            backgroundPickerButton
         }
         .frame(width: ActivityBarMetrics.rightWidth)
         .background(frameChromeBackground)
@@ -1482,49 +1306,23 @@ struct WorkbenchView: View {
                 resourcePath: ideaAssetPath,
                 size: ActivityBarMetrics.iconSize
             )
-            .frame(
-                width: ActivityBarMetrics.buttonWidth,
-                height: ActivityBarMetrics.buttonHeight
-            )
-            .litheRowHover(
-                isActive: isSelected,
-                cornerRadius: 6,
-                activeBackground: LitheTheme.selection
-            )
-            .frame(width: ActivityBarMetrics.slotWidth, height: ActivityBarMetrics.slotHeight)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.litheNoPress)
-        .foregroundStyle(isSelected ? LitheTheme.toolWindowSelectedText : LitheTheme.toolWindowButtonText)
+        .buttonStyle(LitheActivityBarButtonStyle(isSelected: isSelected))
         .workbenchHoverHelp(Text(LocalizedStringKey(help)), placement: tooltipPlacement)
         .accessibilityLabel(Text(LocalizedStringKey(help)))
     }
 
     @ViewBuilder
     private var workspaceArea: some View {
-        if isDockedSidebarVisible {
-            WorkbenchRightToolSplitView(
-                width: mavenPaneWidth,
-                hasWorkbenchBackground: model.workbenchBackgroundFeature.hasImage,
-                showsFrameGradient: usesIDEAFrameExperiment,
-                onCommit: { width in
-                    mavenPaneWidth = width
-                    saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
-                },
-                workspace: { workspaceContent },
-                tool: {
-                    moduleUIRegistry.selectedToolContent(from: dockedSidebarContributions, model: model)
-                        .equatable()
-                }
-            )
-        } else {
-            workspaceContent
-        }
+        workspaceContent
     }
 
     private var workspaceContent: some View {
         WorkbenchWorkspaceSplitView(
             sidebarWidth: sidebarWidth,
+            isSidebarVisible: model.workbenchFeature.isSidebarVisible,
+            rightToolWidth: mavenPaneWidth,
+            isRightToolVisible: isDockedSidebarVisible,
             topPaneHeight: topPaneHeight,
             isBottomToolVisible: isBottomToolVisible,
             actions: WorkbenchWorkspaceSplitActions(
@@ -1538,6 +1336,10 @@ struct WorkbenchView: View {
                 },
                 onBottomToolMinimize: {
                     model.closeGitLog()
+                },
+                onRightToolWidthCommitted: { width in
+                    mavenPaneWidth = width
+                    saveLayout(sidebarWidth: sidebarWidth, topPaneHeight: topPaneHeight)
                 }
             ),
             showsBottomToolMinimize: model.workbenchFeature.isVisible(.gitLog),
@@ -1548,7 +1350,8 @@ struct WorkbenchView: View {
             },
             editor: {
                 Group {
-                    if model.workbenchFeature.selectedSidebar == .pullRequests {
+                    if model.workbenchFeature.isSidebarVisible,
+                       model.workbenchFeature.selectedSidebar == .pullRequests {
                         if LitheFeatureAvailability.githubPullRequests {
                             GitHubPullRequestDetailView()
                         } else {
@@ -1573,6 +1376,10 @@ struct WorkbenchView: View {
                         .equatable()
                     }
                 }
+            },
+            rightTool: {
+                moduleUIRegistry.selectedToolContent(from: dockedSidebarContributions, model: model)
+                    .equatable()
             }
         )
     }
@@ -1734,7 +1541,7 @@ struct WorkbenchView: View {
 
     private var breadcrumbSeparator: some View {
         Image(systemName: "chevron.right")
-            .font(.system(size: 7, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 7, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText.opacity(0.72))
     }
 
@@ -1742,45 +1549,36 @@ struct WorkbenchView: View {
         HStack(spacing: 14) {
             EditorCaretPositionLabel(chrome: model.editorChrome) { model.showGoToLine() }
             if let document = model.activeDocument, document.url.isFileURL {
-                Menu {
-                    Section("Reopen with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.reopenDocument(document, with: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.readEncoding == encoding {
-                                        Spacer()
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
+                LitheMenu {
+                    LitheContextMenuItem.heading("Reopen with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsRead) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.readEncoding == encoding
+                        ) {
+                            model.reopenDocument(document, with: encoding)
                         }
                     }
-                    Divider()
-                    Section("Save with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.saveDocument(document, encoding: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.saveEncoding == encoding {
-                                        Spacer()
-                                        Image(systemName: "checkmark")
-                                    }
-                                }
-                            }
-                            .disabled(document.isReadOnly)
+
+                    LitheContextMenuItem.separator
+
+                    LitheContextMenuItem.heading("Save with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsWrite) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.saveEncoding == encoding
+                        ) {
+                            model.saveDocument(document, encoding: encoding)
                         }
+                        .disabled(document.isReadOnly)
                     }
+
                 } label: {
                     Text(document.readEncoding.displayName)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
                 .fixedSize()
                 .help("File encoding")
             }
@@ -1863,7 +1661,7 @@ private struct WorkbenchNotificationCenterView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("Notifications")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
 
                 Spacer()
@@ -1872,7 +1670,7 @@ private struct WorkbenchNotificationCenterView: View {
                     model.clearNotifications()
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(
                     model.notifications.isEmpty
                         ? LitheTheme.tertiaryText
@@ -1890,10 +1688,10 @@ private struct WorkbenchNotificationCenterView: View {
             if model.notifications.isEmpty {
                 VStack(spacing: 8) {
                     Image(systemName: "bell")
-                        .font(.system(size: 22, weight: .regular))
+                        .font(LitheTheme.uiFont(size: 22, weight: .regular))
                         .foregroundStyle(LitheTheme.tertiaryText)
                     Text("No notifications")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1903,18 +1701,18 @@ private struct WorkbenchNotificationCenterView: View {
                         ForEach(model.notifications) { notification in
                             HStack(alignment: .top, spacing: 10) {
                                 Image(systemName: "info.circle.fill")
-                                    .font(.system(size: 13))
+                                    .font(LitheTheme.uiFont(size: 13))
                                     .foregroundStyle(LitheTheme.accent)
                                     .padding(.top, 2)
 
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(LocalizedStringKey(notification.message))
-                                        .font(.system(size: 12))
+                                        .font(LitheTheme.uiFont(size: 12))
                                         .foregroundStyle(LitheTheme.primaryText)
                                         .fixedSize(horizontal: false, vertical: true)
 
                                     Text(notification.createdAt.formatted(date: .omitted, time: .shortened))
-                                        .font(.system(size: 10.5))
+                                        .font(LitheTheme.uiFont(size: 10.5))
                                         .foregroundStyle(LitheTheme.tertiaryText)
                                 }
 
@@ -1933,7 +1731,6 @@ private struct WorkbenchNotificationCenterView: View {
             }
         }
         .frame(width: 340, height: 360)
-        .background(LitheTheme.raised)
         .onAppear {
             model.markAllNotificationsRead()
         }
@@ -1952,10 +1749,14 @@ private struct WorkbenchWorkspaceSplitActions {
     let onSidebarWidthCommitted: (CGFloat) -> Void
     let onTopPaneHeightCommitted: (CGFloat) -> Void
     let onBottomToolMinimize: () -> Void
+    let onRightToolWidthCommitted: (CGFloat) -> Void
 }
 
-private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View>: View {
+private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTool: View, RightTool: View>: View {
     let sidebarWidth: CGFloat
+    let isSidebarVisible: Bool
+    let rightToolWidth: CGFloat
+    let isRightToolVisible: Bool
     let topPaneHeight: CGFloat?
     let isBottomToolVisible: Bool
     let actions: WorkbenchWorkspaceSplitActions
@@ -1965,12 +1766,16 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     let sidebar: Sidebar
     let editor: Editor
     let bottomTool: BottomTool
+    let rightTool: RightTool
 
     @State private var liveSidebarWidth: CGFloat
     @State private var liveTopPaneHeight: CGFloat?
 
     init(
         sidebarWidth: CGFloat,
+        isSidebarVisible: Bool,
+        rightToolWidth: CGFloat,
+        isRightToolVisible: Bool,
         topPaneHeight: CGFloat?,
         isBottomToolVisible: Bool,
         actions: WorkbenchWorkspaceSplitActions,
@@ -1979,9 +1784,13 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         showsFrameGradient: Bool,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder editor: () -> Editor,
-        @ViewBuilder bottomTool: () -> BottomTool
+        @ViewBuilder bottomTool: () -> BottomTool,
+        @ViewBuilder rightTool: () -> RightTool
     ) {
         self.sidebarWidth = sidebarWidth
+        self.isSidebarVisible = isSidebarVisible
+        self.rightToolWidth = rightToolWidth
+        self.isRightToolVisible = isRightToolVisible
         self.topPaneHeight = topPaneHeight
         self.isBottomToolVisible = isBottomToolVisible
         self.actions = actions
@@ -1991,6 +1800,7 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
         self.sidebar = sidebar()
         self.editor = editor()
         self.bottomTool = bottomTool()
+        self.rightTool = rightTool()
         _liveSidebarWidth = State(initialValue: sidebarWidth)
         _liveTopPaneHeight = State(initialValue: topPaneHeight)
     }
@@ -1998,39 +1808,44 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
     var body: some View {
         let _ = LitheSignpost.bodyEvaluated("WorkbenchWorkspaceSplitView")
         GeometryReader { geometry in
+            let contentWidth = max(0, geometry.size.width - WorkbenchWorkspaceMetrics.paneInset * 2)
+            let resolvedRightToolWidth = isRightToolVisible ? WorkbenchRightToolGeometry.resolvedWidth(
+                rightToolWidth, in: contentWidth, sidebarWidth: sidebarWidth, isSidebarVisible: isSidebarVisible
+            ) : 0
             let availableTopWidth = max(
                 0,
-                geometry.size.width
-                    - (WorkbenchWorkspaceMetrics.paneInset * 2)
-                    - WorkbenchWorkspaceMetrics.paneSpacing
+                contentWidth - WorkbenchWorkspaceMetrics.paneSpacing
+                    - (isRightToolVisible ? resolvedRightToolWidth + WorkbenchWorkspaceMetrics.paneSpacing : 0)
             )
-            let minimumSidebarWidth = CGFloat(WorkbenchLayout.minimumSidebarWidth)
-            let minimumEditorWidth: CGFloat = 400
-            let maximumSidebarWidth = max(
-                minimumSidebarWidth,
-                min(520, availableTopWidth - minimumEditorWidth)
-            )
+            let minimumEditorWidth = CGFloat(WorkbenchLayout.minimumPaneSize)
+            let maximumSidebarWidth = max(0, availableTopWidth - minimumEditorWidth)
+            let minimumSidebarWidth = min(CGFloat(WorkbenchLayout.minimumPaneSize), maximumSidebarWidth)
             let resolvedSidebarWidth = constrained(
                 liveSidebarWidth,
                 minimum: minimumSidebarWidth,
                 maximum: maximumSidebarWidth
             )
 
-            let minimumTopPaneHeight: CGFloat = 220
-            let minimumGitPaneHeight: CGFloat = 260
-            let maximumTopPaneHeight = max(
-                minimumTopPaneHeight,
-                geometry.size.height
-                    - WorkbenchWorkspaceMetrics.paneSpacing
-                    - minimumGitPaneHeight
+            let availablePaneHeight = max(0, geometry.size.height - WorkbenchWorkspaceMetrics.paneSpacing)
+            let minimumTopPaneHeight = min(
+                WorkbenchWorkspaceMetrics.minimumPaneHeight,
+                availablePaneHeight / 2
             )
+            let maximumTopPaneHeight = availablePaneHeight - minimumTopPaneHeight
             let resolvedTopPaneHeight = constrained(
                 liveTopPaneHeight ?? max(255, geometry.size.height * 0.40),
                 minimum: minimumTopPaneHeight,
                 maximum: maximumTopPaneHeight
             )
 
-            let topContent: AnyView = AnyView(
+            let editorPane = editor
+                .workbenchResizablePaneChrome(
+                    background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
+                    surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
+                    roundsCorners: !hasWorkbenchBackground,
+                    showsFrameGradient: showsFrameGradient
+                )
+            let mainContent: AnyView = isSidebarVisible ? AnyView(
                 LitheSplitPaneView(
                     axis: .horizontal,
                     placement: .leading,
@@ -2040,7 +1855,10 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                     clipsSizedPane: true,
                     trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                     showsIdleDivider: false,
-                    onCommit: actions.onSidebarWidthCommitted,
+                    onCommit: { width in
+                        guard liveSidebarWidth <= maximumSidebarWidth || width < maximumSidebarWidth else { return }
+                        actions.onSidebarWidthCommitted(width)
+                    },
                     sized: {
                         sidebar
                             .workbenchResizablePaneChrome(
@@ -2051,17 +1869,22 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                             )
                     },
                     flexible: {
-                        editor
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .workbenchPaneChrome(
-                                background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
-                                surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
-                                roundsCorners: !hasWorkbenchBackground,
-                                showsFrameGradient: showsFrameGradient
-                            )
+                        editorPane
                     }
                 )
-            )
+            ) : AnyView(editorPane)
+            let topContent: AnyView = isRightToolVisible ? AnyView(
+                WorkbenchRightToolSplitView(
+                    width: rightToolWidth,
+                    sidebarWidth: sidebarWidth,
+                    isSidebarVisible: isSidebarVisible,
+                    hasWorkbenchBackground: hasWorkbenchBackground,
+                    showsFrameGradient: showsFrameGradient,
+                    onCommit: actions.onRightToolWidthCommitted,
+                    workspace: { mainContent },
+                    tool: { rightTool }
+                )
+            ) : mainContent
 
             Group {
                 if isBottomToolVisible {
@@ -2071,9 +1894,15 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         defaultSize: resolvedTopPaneHeight,
                         minimum: minimumTopPaneHeight,
                         maximum: maximumTopPaneHeight,
+                        flexibleMinimum: 0,
+                        clipsSizedPane: true,
                         trackBackground: hasWorkbenchBackground ? LitheTheme.titlebar.opacity(0.7) : .clear,
                         showsIdleDivider: false,
-                        onCommit: actions.onTopPaneHeightCommitted,
+                        onCommit: { height in
+                            guard (liveTopPaneHeight ?? 0) <= maximumTopPaneHeight
+                                    || height < maximumTopPaneHeight else { return }
+                            actions.onTopPaneHeightCommitted(height)
+                        },
                         sized: {
                             topContent
                                 .padding(.horizontal, WorkbenchWorkspaceMetrics.paneInset)
@@ -2081,7 +1910,8 @@ private struct WorkbenchWorkspaceSplitView<Sidebar: View, Editor: View, BottomTo
                         },
                         flexible: {
                             bottomTool
-                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+                                .clipped()
                                 .workbenchPaneChrome(
                                     background: hasWorkbenchBackground ? Color.clear : LitheTheme.editor,
                                     surrounding: hasWorkbenchBackground ? Color.clear : LitheTheme.titlebar,
@@ -2428,7 +2258,7 @@ struct WorkbenchBackgroundPicker: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label("Workbench background", systemImage: "photo.on.rectangle.angled")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 Spacer()
                 Button(action: dismiss) {
                     Image(systemName: "xmark")
@@ -2439,7 +2269,7 @@ struct WorkbenchBackgroundPicker: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 Text("Built-in backgrounds")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
 
                 LazyVGrid(
@@ -2472,7 +2302,7 @@ struct WorkbenchBackgroundPicker: View {
                 Spacer(minLength: 0)
 
                 Text(model.workbenchBackgroundFeature.displayName ?? "No background image selected")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                     .frame(maxWidth: 112, alignment: .trailing)
@@ -2482,10 +2312,10 @@ struct WorkbenchBackgroundPicker: View {
                 VStack(alignment: .leading, spacing: 5) {
                     HStack {
                         Text("Workbench background opacity")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         Spacer()
                         Text("\(Int((settings.workbenchBackgroundOpacity * 100).rounded()))%")
-                            .font(.system(size: 11.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                     Slider(value: $settings.workbenchBackgroundOpacity, in: 0.05...1.0, step: 0.01)
@@ -2494,7 +2324,6 @@ struct WorkbenchBackgroundPicker: View {
         }
         .padding(14)
         .frame(width: 356)
-        .background(LitheTheme.popupBackground)
     }
 
     private func presetButton(_ preset: WorkbenchBackgroundPreset) -> some View {
@@ -2516,7 +2345,7 @@ struct WorkbenchBackgroundPicker: View {
                             )
                     }
                 Text(LocalizedStringKey(preset.title))
-                    .font(.system(size: 10.5, weight: isSelected ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? LitheTheme.primaryText : LitheTheme.secondaryText)
             }
             .frame(width: 100)

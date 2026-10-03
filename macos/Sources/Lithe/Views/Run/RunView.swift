@@ -84,12 +84,12 @@ struct RunView: View {
     private var configurationSetupView: some View {
         VStack(spacing: 14) {
             Image(systemName: "play.slash")
-                .font(.system(size: 28))
+                .font(LitheTheme.uiFont(size: 28))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(configurationSetupTitle)
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text(configurationSetupMessage)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -110,7 +110,7 @@ struct RunView: View {
                 }
             } else if feature.recoveryAction == .upgradeApplication {
                 Label("Update Lithe to use this configuration version.", systemImage: "arrow.down.app")
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.warning)
             } else if feature.recoveryAction != .none {
                 Button {
@@ -214,9 +214,9 @@ struct RunView: View {
                 .foregroundStyle(LitheTheme.warning)
             VStack(alignment: .leading, spacing: 2) {
                 Text(notice.title)
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 Text(notice.message)
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
             }
@@ -272,7 +272,7 @@ struct RunView: View {
                     .controlSize(.mini)
             } else if selectedSessionID == nil, feature.isRunning {
                 Label("Running", systemImage: "circle.fill")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.success)
             } else if selectedSessionID == nil, let exitCode = feature.lastExitCode {
                 sessionStatus(isRunning: false, exitCode: exitCode)
@@ -280,7 +280,7 @@ struct RunView: View {
 
             if !browser.checkedIDs.isEmpty {
                 Text(String(format: String(localized: "%lld selected"), Int64(browser.checkedIDs.count)))
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                 Button(action: runCheckedConfigurations) {
                     Label("Run selected", systemImage: "play.fill")
@@ -405,7 +405,7 @@ struct RunView: View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(feature.portConflicts) { conflict in
                 Label(conflict.title, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
                     .lineLimit(2)
             }
@@ -497,7 +497,7 @@ struct RunView: View {
         } else {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
-                    Text("Services").font(.system(size: 11, weight: .semibold))
+                    Text("Services").font(LitheTheme.uiFont(size: 11, weight: .semibold))
                     Spacer(minLength: 0)
                     Button { isConfigurationListCollapsed = true } label: {
                         Image(systemName: "chevron.left")
@@ -560,7 +560,7 @@ struct RunView: View {
             .buttonStyle(.litheNoPress)
             .lithePointer()
         }
-        .font(.system(size: 11.5))
+        .font(LitheTheme.uiFont(size: 11.5))
         .padding(.horizontal, 6)
         .frame(height: 30)
         .background(browser.scope == scope ? LitheTheme.subtleSelection : .clear)
@@ -577,13 +577,13 @@ struct RunView: View {
                 Spacer(minLength: 0)
                 Text(String(entries.count)).foregroundStyle(LitheTheme.secondaryText)
             }
-            .font(.system(size: 11, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 11, weight: .semibold))
             .padding(.horizontal, 12)
             .frame(height: 30)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             if entries.isEmpty {
                 Text("No configurations in this scope")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .padding(12)
@@ -619,7 +619,7 @@ struct RunView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                     RunConfigurationIcon(kind: group.iconKind, size: 14)
                     Text(String(localized: String.LocalizationValue(group.title)))
                     Spacer(minLength: 0)
@@ -632,7 +632,7 @@ struct RunView: View {
             .help(isCollapsed ? "Expand" : "Collapse")
             .accessibilityValue(isCollapsed ? "Collapsed" : "Expanded")
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
         .padding(.horizontal, 6)
         .frame(height: 28)
     }
@@ -641,7 +641,7 @@ struct RunView: View {
         let state = browser.checkState(for: entries)
         return Button { browser.toggle(entries) } label: {
             Image(systemName: state == .checked ? "checkmark.square.fill" : state == .mixed ? "minus.square.fill" : "square")
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(state == .unchecked ? LitheTheme.secondaryText : LitheTheme.accent)
                 .frame(width: 18, height: 24)
                 .contentShape(Rectangle())
@@ -763,7 +763,7 @@ struct RunView: View {
             HStack(spacing: 8) {
                 RunConfigurationIcon(kind: configuration.kind, size: 16)
                 Text(configuration.name)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     .lineLimit(1)
                     .help(configuration.name)
                 Spacer(minLength: 8)
@@ -805,7 +805,7 @@ struct RunView: View {
     private func contentTabButton(_ title: LocalizedStringKey, tab: ContentTab, systemImage: String) -> some View {
         Button { contentTab = tab } label: {
             Label(title, systemImage: systemImage)
-                .font(.system(size: 11, weight: contentTab == tab ? .semibold : .regular))
+                .font(LitheTheme.uiFont(size: 11, weight: contentTab == tab ? .semibold : .regular))
                 .foregroundStyle(contentTab == tab ? LitheTheme.accent : LitheTheme.secondaryText)
                 .frame(height: 30)
                 .overlay(alignment: .bottom) {
@@ -841,7 +841,7 @@ struct RunView: View {
             VStack(alignment: .leading, spacing: 14) {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Configuration details")
-                        .font(.system(size: 11.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     Spacer(minLength: 8)
                     Button {
                         editInSettings(configuration)
@@ -932,12 +932,12 @@ struct RunView: View {
     ) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
             Text(label)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .trailing)
 
             Text(value)
-                .font(.system(size: 11.5, design: monospaced ? .monospaced : .default))
+                .font(LitheTheme.uiFont(size: 11.5, design: monospaced ? .monospaced : .default))
                 .foregroundStyle(LitheTheme.primaryText)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -947,13 +947,13 @@ struct RunView: View {
     private func configurationLinkRow(_ label: LocalizedStringKey, url: URL) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 14) {
             Text(label)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(width: 118, alignment: .trailing)
 
             Link(destination: url) {
                 Label(url.absoluteString, systemImage: "arrow.up.right.square")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
             }
             .foregroundStyle(LitheTheme.accent)
             .help("Open service in browser")
@@ -976,7 +976,7 @@ struct RunView: View {
         }
 
         return Text(title)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 8)
             .frame(height: 22)
@@ -1013,7 +1013,7 @@ struct RunView: View {
                 )
             }
         }
-        .font(.system(size: 11.5, weight: .medium))
+        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
         .foregroundStyle(isRunning || exitCode == 0 ? LitheTheme.success : LitheTheme.error)
     }
 
@@ -1080,7 +1080,7 @@ struct RunView: View {
                             .accessibilityLabel("Open service on port " + portText)
                         }
                     }
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                 }
@@ -1117,7 +1117,7 @@ struct RunView: View {
                     .disabled(feature.configurationStatus != .ready || feature.isLoadingProject)
                 }
         }
-        .font(.system(size: 12))
+        .font(LitheTheme.uiFont(size: 12))
         .foregroundStyle(LitheTheme.primaryText)
         .padding(.horizontal, 8)
         .frame(maxWidth: .infinity, alignment: .leading)

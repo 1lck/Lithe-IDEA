@@ -24,10 +24,12 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     @Published var selectedSidebar: SidebarDestination = .project {
         didSet {
+            isSidebarVisible = true
             guard oldValue != selectedSidebar else { return }
             sidebarSelectionHandler?(selectedSidebar)
         }
     }
+    @Published private(set) var isSidebarVisible = true
     @Published var isSettingsPresented = false
     @Published private(set) var requestedSettingsCategory: SettingsCategory = .general
     /// Increments with every request, so an open Settings window moves to the
@@ -123,5 +125,9 @@ final class WorkbenchFeatureModel: ObservableObject {
 
     func setSelectedSidebar(_ destination: SidebarDestination) {
         selectedSidebar = destination
+    }
+
+    func hideSidebar() {
+        isSidebarVisible = false
     }
 }

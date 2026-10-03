@@ -6,7 +6,16 @@
   "macos": {
     "evidence": [
       "macos/Sources/Lithe/Views/Git",
-      "macos/Sources/Lithe/Views/Diff"
+      "macos/Sources/Lithe/Views/Diff",
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Tests/LitheTests/DiffAppearanceTests.swift",
+      "macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift",
+      "macos/Sources/Lithe/Views/Diff/DiffUnifiedPaneView.swift",
+      "macos/Tests/LitheTests/DiffScrollSynchronizationTests.swift",
+      "macos/Sources/Lithe/Models/Diff/DiffSplitLayout.swift",
+      "macos/Sources/LitheGitModule/Application/GitFeatureModel.swift",
+      "macos/Sources/Lithe/Models/AppModel/AppModel+WorkbenchClose.swift",
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -22,6 +31,6 @@
     "verificationStatus": "pending"
   },
   "owner": "Git",
-  "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭；在 Windows 单文件工作区 Diff 中点击折叠条展开省略的未改动代码，确认 Diff 保持打开且每个修改块仍可单独暂存；在 Windows 未暂存单文件 Diff 中点击某个修改块的“回滚”，确认弹出确认框、取消不改文件、确认后只恢复该块且暂存区不变，最后一块回滚后文件从状态中消失时 Diff 关闭；暂存区、历史、分支比较与新增/未跟踪文件不显示回滚按钮。 在 Windows 从提交面板点击未提交文件，确认差异标签标题为「提交: 文件名」（英文为 Commit: <file>）并显示差异图标，悬停显示完整标题；在提交面板切换到另一个文件时同一标签标题随之更新；从编辑器 gutter 打开整文件差异时标题保持「未提交的更改」。",
+  "verification": "验证新增、删除、重命名、二进制和多文件 Diff 的展示与定位；从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭。 调整下方 Git Log 或终端高度时，上方 Diff 的全文测量、折叠和双栏规划不随尺寸重复计算；核对 GitCommitDiffReviewView、DiffReviewView 和共享 DiffPaneView 的新增/删除单栏、双栏、搜索/折叠/差异选择及收缩恢复行为。 长 Diff 双栏只创建可见区域附近的行；用 1,200 行夹具检查初始视口、滚动到末行和连续改变可见高度。 macOS 原生双栏 Diff 按 IDEA Islands/Darcula 配色显示新增绿、删除灰、修改蓝；JetBrains Mono Regular 13pt 与 22pt 行高；原版/新版行号分别固定在中央两侧，单侧增删后仍对应各自源文件行号。核对深浅外观、中央 1pt 分隔线、横向滚动和非等宽拖动后的连接带位置；单栏增删同步使用该配色。 双栏代码通过原生 NSTextView 连续选中，深色/浅色光标行号分别使用 A1A3AB/767A8A；整行修改背景按 IDEA 混合淡化，词内使用原修改色。分隔条允许先隐藏代码、再隐藏行号，双向完全收起后可恢复；窄窗口无负尺寸。1,200 行组件回归连续调整 60 次，检查文字存储不重建且固定容器排版不失效、透明定位/连接带不拦截代码点击。组件绘制耗时仅作诊断，完整应用的连续拖动视觉验收仍 pending。 历史提交 Diff 两行顶部显示紧凑工具栏与父/当前提交短哈希，左版本附中间省略的路径；隐藏补丁区块头，设置菜单保留词内高亮和关闭。切换单栏后版本标题上下排列，正文按旧/新顺序显示修改，左侧双源行号，仍可连续选中/复制。两侧滚动条按各自完整代码流标出增删改，点击跳至变更；纵向按视口三分之一锚点映射已有差异边界，匹配行连接带随滚动变平。检查真实原生 clip 偏移、标记颜色/点击、通知卸载和文字缓存不重建，保留共享折叠/区块操作。 历史提交页顶部按 Islands 独立工具栏层验证：40pt 内容、上 2pt/左右 6pt 留白与 6pt 圆角；版本标题四边 6pt 内边距、29pt 行高、1pt TEARLINE 底边；路径 13pt Regular/#73767C。布局选择由一个父外框及选中项边框绘制，检查未选项不重复描边、实际深浅像素和原生点击切换。 Windows 实现未改；完整工作区视觉与连续滚动性能验收保持 pending。 macOS 连续修改加多行插入、反向删除使用同一个左右源范围配对；纯插入/删除仍为绿/灰。检查行号、连接带、标记与整块正文一致，词内单侧变化使用增删色，滚动后空范围边界保留 1pt 线。 历史提交工具栏复用现有打开文件、当前提交内文件导航和 DiffCollapse，首尾/单文件箭头及删除文件打开入口禁用；双栏/单栏折叠、单区域展开和切换文件状态清理。版本标题使用真实布局高度，比较实际原生代码行转换到连接带的坐标，初始及滚动均无 29pt 偏移；中央宽度 24pt，源行号按真实字型测量并共享最大宽度，右数字不进入折叠空白区。Diff 错误条使用 14pt 宽标记（右 x=4、左 x=0），末行端点和 2pt 最小高度，滑块覆盖与点击定位保留。 Diff 正文和连接带不得绘制到工具栏或左右侧栏，平直连接带与行号区使用相同的排他行末端；差异导航不绘制蓝色竖线。只保留右侧纵向 thumb，左侧保留变更标记；真实窗口鼠标拖动右侧和底部横向 thumb 均改变代码偏移。嵌套工作区中将中央分隔条拖至两端后再次拉回，确认命中区域留在 Diff 内且外层面板不移动。多行调用重排按整段左右文本计算内部高亮，避免逐行配对造成绿色/灰色碎片；保留纯单侧内部变化颜色。 核对相邻等行数修改只高亮各行变化参数，正文保持淡色、中央保持原修改色；深浅主题下以 0/0.25/0.5/0.75pt 偏移验证相邻行背景无细缝。 中央连接带端点与行号填充采用相同设备像素覆盖范围；1×/2× 与小数滚动/拖动坐标下检查平直块跨中央区域无边框或接缝，保留曲线抗锯齿。 从源代码管理打开已修改和未跟踪文件的工作区 Diff 后保持静止，确认 Diff 不会自动关闭，且只在文件不再出现在 Git 状态中时关闭；在 Windows 单文件工作区 Diff 中点击折叠条展开省略的未改动代码，确认 Diff 保持打开且每个修改块仍可单独暂存；在 Windows 未暂存单文件 Diff 中点击某个修改块的“回滚”，确认弹出确认框、取消不改文件、确认后只恢复该块且暂存区不变，最后一块回滚后文件从状态中消失时 Diff 关闭；暂存区、历史、分支比较与新增/未跟踪文件不显示回滚按钮。 在 Windows 从提交面板点击未提交文件，确认差异标签标题为「提交: 文件名」（英文为 Commit: <file>）并显示差异图标，悬停显示完整标题；在提交面板切换到另一个文件时同一标签标题随之更新；从编辑器 gutter 打开整文件差异时标题保持「未提交的更改」。 macOS 在工作区或目录 Diff 加载中及加载完成后，分别通过 ⌘W 和关闭按钮退出，确认补丁和加载状态被清理，迟到结果不恢复预览，已有暂存更改时 AI 提交信息按钮恢复可用，Git 模块不因已关闭的 Diff 被判定为忙碌；关闭后台历史标签仍保留当前工作区预览。",
   "notes": "Windows 提交面板打开的工作区差异对齐 IntelliJ 提交差异预览标签（VcsBundle commit.editor.diff.preview.title）。gutter 入口打开的是整文件差异，与 IntelliJ 的 Diff for Range 不同，因此不使用 Commit 标题。"
 }

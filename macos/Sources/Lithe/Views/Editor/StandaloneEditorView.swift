@@ -120,13 +120,13 @@ struct StandaloneEditorView: View {
     private func failureView(_ failure: StandaloneFileOpenFailure) -> some View {
         VStack(spacing: 10) {
             LitheSystemIcon(systemImage: "doc.text.magnifyingglass")
-                .font(.system(size: 26))
+                .font(LitheTheme.uiFont(size: 26))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(failure.title)
-                .font(.system(size: 14, weight: .medium))
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(failure.detail)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -156,7 +156,7 @@ struct StandaloneEditorView: View {
                     size: 14
                 )
                 Text(document.displayName)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 if document.isDirty {
@@ -165,39 +165,36 @@ struct StandaloneEditorView: View {
                         .frame(width: 6, height: 6)
                 }
                 Spacer()
-                Menu {
-                    Section("Reopen with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsRead), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.reopenDocument(document, with: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.readEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
-                                }
-                            }
+                LitheMenu {
+                    LitheContextMenuItem.heading("Reopen with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsRead) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.readEncoding == encoding
+                        ) {
+                            model.reopenDocument(document, with: encoding)
                         }
                     }
-                    Divider()
-                    Section("Save with Encoding") {
-                        ForEach(DocumentEncoding.catalog.filter(\.supportsWrite), id: \.id) { descriptor in
-                            let encoding = descriptor.id
-                            Button {
-                                model.saveDocument(document, encoding: encoding)
-                            } label: {
-                                HStack {
-                                    Text(descriptor.displayName)
-                                    if document.saveEncoding == encoding { Spacer(); Image(systemName: "checkmark") }
-                                }
-                            }
-                            .disabled(document.isReadOnly)
+
+                    LitheContextMenuItem.separator
+
+                    LitheContextMenuItem.heading("Save with Encoding")
+
+                    for descriptor in DocumentEncoding.catalog.filter(\.supportsWrite) {
+                        let encoding = descriptor.id
+                        LitheContextMenuItem.action(
+                            descriptor.displayName, checked: document.saveEncoding == encoding
+                        ) {
+                            model.saveDocument(document, encoding: encoding)
                         }
+                        .disabled(document.isReadOnly)
                     }
+
                 } label: {
                     Text(document.readEncoding.displayName)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
                 .fixedSize()
                 .help("File encoding")
                 if document.url.pathExtension.lowercased() == "svg" {
@@ -226,12 +223,12 @@ struct StandaloneEditorView: View {
                     .frame(width: 104)
                 }
                 Text(document.url.path)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lineLimit(1)
             } else {
                 Text(model.standaloneFileURL?.lastPathComponent ?? "Opening file…")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
         }

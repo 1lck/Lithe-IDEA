@@ -60,7 +60,7 @@ struct RunConfigurationEditorView: View {
                 Button("Cancel", action: onClose)
                 if let saveError {
                     Text(saveError)
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(2)
                         .frame(maxWidth: 250, alignment: .trailing)
@@ -108,7 +108,7 @@ struct RunConfigurationEditorView: View {
     private var saveScopeSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Save scope")
-                .font(.system(size: 12, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Picker("Save scope", selection: $saveScope) {
                 Text("This Mac").tag(RunConfigurationSaveScope.local)
@@ -118,7 +118,7 @@ struct RunConfigurationEditorView: View {
             Text(saveScope == .local
                  ? String(localized: "Saved in .lithe/run/local.json and excluded from Git.")
                  : String(localized: "Saved in .lithe/run/configurations.json for the whole team. Local JDK paths are never shared."))
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -129,16 +129,16 @@ struct RunConfigurationEditorView: View {
             RunConfigurationIcon(kind: configuration.kind, size: 18)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Run Configuration")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Text(configuration.name)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
             }
             Spacer()
             Button(action: onClose) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
             }
             .litheIconButton()
             .help("Close run configuration")
@@ -152,7 +152,7 @@ struct RunConfigurationEditorView: View {
     private var configurationSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Configuration")
-                .font(.system(size: 12, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             summaryRow(title: "Type", value: configuration.kind.title)
             summaryRow(title: "Effective source", value: sourceTitle)
@@ -176,7 +176,7 @@ struct RunConfigurationEditorView: View {
     private var runtimeSection: some View {
         section(title: "Configuration overrides") {
             Text("These overrides affect only this run configuration. Clear a path to inherit the project environment.")
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
             if effectiveCapabilities.contains(.javaRuntime) {
                 pathRow(
@@ -260,7 +260,7 @@ struct RunConfigurationEditorView: View {
     private var projectToolchainSection: some View {
         section(title: "Project environment") {
             Text("Run configurations inherit the project JDK and Maven unless overridden below.")
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(LitheTheme.secondaryText)
             Button("Configure project JDK and Maven…") {
                 onClose()
@@ -293,7 +293,7 @@ struct RunConfigurationEditorView: View {
     private var environmentSection: some View {
         section(title: "Environment") {
             TextEditor(text: $environmentText)
-                .font(.system(size: 11.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                 .frame(minHeight: 72)
                 .padding(5)
                 .litheRoundedControlBackground(LitheTheme.inputBackground, cornerRadius: 5)
@@ -302,7 +302,7 @@ struct RunConfigurationEditorView: View {
                         .stroke(LitheTheme.divider, lineWidth: 1)
                 }
             Text("One NAME=value entry per line")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -333,7 +333,7 @@ struct RunConfigurationEditorView: View {
                     }
                     .toggleStyle(.checkbox)
                     .lithePointer()
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.primaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -347,7 +347,7 @@ struct RunConfigurationEditorView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 12, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             content()
         }
@@ -363,7 +363,7 @@ struct RunConfigurationEditorView: View {
                 .textSelection(.enabled)
             Spacer(minLength: 0)
         }
-        .font(.system(size: 12))
+        .font(LitheTheme.uiFont(size: 12))
     }
 
     private func pathRow(
@@ -385,7 +385,7 @@ struct RunConfigurationEditorView: View {
             .litheIconButton()
             .help(chooseHelp)
         }
-        .font(.system(size: 12))
+        .font(LitheTheme.uiFont(size: 12))
     }
 
     private func argumentField(
@@ -395,7 +395,7 @@ struct RunConfigurationEditorView: View {
     ) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             TextField(LocalizedStringKey(placeholder), text: text)
                 .textFieldStyle(.roundedBorder)

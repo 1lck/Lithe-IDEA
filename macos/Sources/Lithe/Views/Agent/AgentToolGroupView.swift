@@ -25,13 +25,13 @@ struct AgentToolGroupView: View {
             Button { expanded.toggle() } label: {
                 HStack(spacing: 8) {
                     Text("Tool activity (\(messages.count))")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     summary
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 10))
+                        .font(LitheTheme.uiFont(size: 10))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 .padding(.horizontal, 10)
@@ -103,7 +103,7 @@ struct AgentToolGroupView: View {
                     }
                     .frame(width: 16)
                     Text(message.text)
-                        .font(.system(size: 11, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)

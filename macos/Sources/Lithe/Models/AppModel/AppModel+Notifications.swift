@@ -13,8 +13,16 @@ extension AppModel {
         notificationFeature.show(message)
     }
 
-    func setNotificationStackHovered(_ isHovered: Bool) {
-        notificationFeature.setHovered(isHovered)
+    func setNotificationHovered(_ id: UUID, isHovered: Bool) {
+        notificationFeature.setHovered(id, isHovered: isHovered)
+    }
+
+    func setNotificationsApplicationActive(_ isActive: Bool) {
+        notificationFeature.setApplicationActive(isActive)
+    }
+
+    func dismissNotificationBalloons() {
+        notificationFeature.dismissAll()
     }
 
     func dismissNotification(_ id: UUID) {

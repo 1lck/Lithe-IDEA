@@ -22,6 +22,7 @@ struct DatabaseSidebarView: View {
     @State private var editingProfile: DatabaseProfile?
     @State private var connectionEditorPresentationID = UUID()
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     /// Folders start expanded, while this set records the user's explicit
     /// collapsed state. Keeping the negative state avoids refreshes reopening
     /// folders behind the user's back.
@@ -64,36 +65,31 @@ struct DatabaseSidebarView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Image(systemName: "cylinder.split.1x2")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 22, height: 22)
                     .background(LitheTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Connections").font(.system(size: 12.5, weight: .semibold))
+                    Text("Connections").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Text("Connections: \(feature.profiles.count)")
-                        .font(.system(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
                 if let selected = feature.selectedProfile,
                    selected.kind == .mysql || selected.kind == .mariadb {
-                    Menu {
-                        Button("Refresh databases") {
+                    LitheMenu {
+                        LitheContextMenuItem.action("Refresh databases") {
                             Task { await feature.refreshDatabases() }
                         }
-                        Divider()
+                        LitheContextMenuItem.separator
                         if feature.databaseOptions.isEmpty {
-                            Text("No databases loaded")
+                            LitheContextMenuItem.heading("No databases loaded")
                         } else {
-                            ForEach(feature.databaseOptions, id: \.self) { database in
-                                Button {
+                            for database in feature.databaseOptions {
+                                LitheContextMenuItem.action(database, checked: selected.database == database) {
                                     Task { await feature.selectDatabase(database, for: selected) }
-                                } label: {
-                                    HStack {
-                                        Text(database)
-                                        if selected.database == database { Image(systemName: "checkmark") }
-                                    }
                                 }
                             }
                         }
@@ -115,76 +111,72 @@ struct DatabaseSidebarView: View {
                     .litheIconButton()
                     .help("Refresh connection structure")
                     .disabled(feature.selectedProfile == nil)
+                LitheSidebarHideButton(title: "Database") {
+                    model.workbenchFeature.hideSidebar()
+                }
             }
             .foregroundStyle(LitheTheme.primaryText).padding(.leading, 10).padding(.trailing, 5)
             .frame(height: 42)
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             HStack(spacing: 6) {
-                HStack(spacing: 7) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10.5, weight: .medium))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                    TextField("Search connections", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 11.5))
+                HStack(spacing: 2) {
+                    LitheIDEAIcon(resourcePath: "expui/general/search.svg", size: 16,
+                                  fallbackSystemImage: "magnifyingglass", preservesOriginalColors: true)
+                    LitheSearchTextField("Search connections", text: $searchText)
+                        .focused($searchFocused)
                     if !searchText.isEmpty {
                         Button { searchText = "" } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 11))
-                                .foregroundStyle(LitheTheme.tertiaryText)
+                            LitheIDEAIcon(resourcePath: "expui/general/closeSmall.svg", size: 16,
+                                          fallbackSystemImage: "xmark", preservesOriginalColors: true)
                         }
-                        .buttonStyle(.litheNoPress)
+                        .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                        .padding(.leading, 1)
                         .help("Clear search")
+                        .accessibilityLabel("Clear search")
                     }
                 }
-                .padding(.horizontal, 9)
-                .frame(maxWidth: .infinity, minHeight: 31)
-                .background(LitheTheme.inputBackground.opacity(0.72))
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-                .overlay { RoundedRectangle(cornerRadius: 6).stroke(LitheTheme.panelBorder.opacity(0.55), lineWidth: 1) }
+                .litheSearchField(isFocused: searchFocused)
+                .frame(maxWidth: .infinity)
 
                 HStack(spacing: 0) {
-                    Menu {
-                        Button("All database types") { kindFilter = nil }
-                        Divider()
-                        ForEach(DatabaseKind.allCases, id: \.self) { kind in
-                            Button {
+                    LitheMenu {
+                        LitheContextMenuItem.action("All database types") { kindFilter = nil }
+                        LitheContextMenuItem.separator
+                        for kind in DatabaseKind.allCases {
+                            LitheContextMenuItem.action(
+                                kind.displayName, icon: AnyView(DatabaseBrandIcon(kind: kind, size: 13))
+                            ) {
                                 kindFilter = kind
-                            } label: {
-                                Label {
-                                    Text(kind.displayName)
-                                } icon: {
-                                    DatabaseBrandIcon(kind: kind, size: 13)
-                                }
                             }
                         }
                     } label: {
-                        Image(systemName: kindFilter == nil ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(kindFilter == nil ? LitheTheme.secondaryText : LitheTheme.accent)
-                            .frame(width: 29, height: 31)
+                        Image(
+                            systemName: kindFilter == nil
+                                ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill"
+                        )
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+                        .foregroundStyle(kindFilter == nil ? LitheTheme.secondaryText : LitheTheme.accent)
+                        .frame(width: 29, height: 31)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .help("Filter database type")
 
                     Rectangle().fill(LitheTheme.divider).frame(width: 1, height: 17)
 
-                    Menu {
-                        Picker("Sort connections", selection: $connectionSort) {
-                            ForEach(DatabaseConnectionSort.allCases) { mode in
-                                Text(mode.title).tag(mode)
+                    LitheMenu {
+                        for mode in DatabaseConnectionSort.allCases {
+                            LitheContextMenuItem.action(mode.menuTitle, checked: mode == connectionSort) {
+                                connectionSort = mode
                             }
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
-                            .font(.system(size: 10.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .frame(width: 29, height: 31)
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .help("Sort connections")
                 }
                 .background(LitheTheme.inputBackground.opacity(0.72))
@@ -207,7 +199,7 @@ struct DatabaseSidebarView: View {
             }
             if feature.isLoading { ProgressView().controlSize(.small).padding(8) }
             if let error = feature.errorMessage {
-                DatabaseLocalization.error(error).font(.system(size: 10.5)).foregroundStyle(LitheTheme.error).padding(8).lineLimit(4)
+                DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.error).padding(8).lineLimit(4)
             }
         }
         .sheet(isPresented: $showsConnectionEditor) {
@@ -301,15 +293,15 @@ struct DatabaseSidebarView: View {
     private var emptyConnections: some View {
         VStack(spacing: 10) {
             Image(systemName: "cylinder.split.1x2")
-                .font(.system(size: 18, weight: .medium))
+                .font(LitheTheme.uiFont(size: 18, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
                 .frame(width: 44, height: 44)
                 .background(LitheTheme.accent.opacity(0.12))
                 .clipShape(Circle())
             Text("No database connections")
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
             Text("Add a connection to browse tables, run SQL, and manage data.")
-                .font(.system(size: 10))
+                .font(LitheTheme.uiFont(size: 10))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -344,7 +336,7 @@ struct DatabaseSidebarView: View {
 
         if !rootProfiles.isEmpty {
             Text("Unfiled connections")
-                .font(.system(size: 9.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .textCase(.uppercase)
                 .padding(.top, feature.folders.isEmpty ? 3 : 9)
@@ -362,9 +354,9 @@ struct DatabaseSidebarView: View {
         } else if (!searchQuery.isEmpty || kindFilter != nil) && !hasVisibleFolders {
             VStack(spacing: 6) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 Text("No connections match your search.")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
             }
             .foregroundStyle(LitheTheme.tertiaryText)
             .frame(maxWidth: .infinity)
@@ -372,9 +364,9 @@ struct DatabaseSidebarView: View {
         } else if feature.profiles.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "cylinder.split.1x2")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                 Text("No database connections")
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
             }
             .foregroundStyle(LitheTheme.tertiaryText)
             .frame(maxWidth: .infinity)
@@ -398,20 +390,20 @@ struct DatabaseSidebarView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 8.5, weight: .bold))
+                            .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                             .foregroundStyle(LitheTheme.tertiaryText)
                             .frame(width: 12)
                         Image(systemName: "folder.fill")
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                             .foregroundStyle(LitheTheme.warning)
                             .frame(width: 15)
                         Text(folder.name)
                             .lineLimit(1)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                         Spacer(minLength: 4)
                         if totalCount > 0 {
                             Text("\(totalCount)")
-                                .font(.system(size: 9.5, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                         }
                     }
@@ -483,7 +475,7 @@ struct DatabaseSidebarView: View {
                     toggleProfile(profile)
                 } label: {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8.5, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(width: 18, height: 30)
                 }
@@ -500,21 +492,21 @@ struct DatabaseSidebarView: View {
                         DatabaseBrandIcon(kind: profile.kind, size: 15)
                         Text(profile.name)
                             .lineLimit(1)
-                            .font(.system(size: 11.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         if profile.readOnly {
                             Image(systemName: "lock.fill")
-                                .font(.system(size: 7.5))
+                                .font(LitheTheme.uiFont(size: 7.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         if profile.productionProtection {
                             Image(systemName: "shield.fill")
-                                .font(.system(size: 8))
+                                .font(LitheTheme.uiFont(size: 8))
                                 .foregroundStyle(LitheTheme.warning)
                         }
                         Spacer(minLength: 4)
                         Text(profile.kind.displayName)
                             .lineLimit(1)
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.tertiaryText)
                         connectionStatusIndicator(profile)
                     }
@@ -551,11 +543,11 @@ struct DatabaseSidebarView: View {
             } label: {
                 HStack(spacing: 6) {
                     Image(systemName: databaseExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8.5, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .frame(width: 12)
                     Image(systemName: "cylinder")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                     Group {
                         if profile.database.isEmpty {
@@ -564,7 +556,7 @@ struct DatabaseSidebarView: View {
                             Text(verbatim: profile.database)
                         }
                     }
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .lineLimit(1)
                     Spacer()
                 }
@@ -618,9 +610,9 @@ struct DatabaseSidebarView: View {
             if !collapsedObjectKinds.contains(.tables), feature.tables.isEmpty && !feature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     Text(profile.kind == .mongodb ? "Refresh this connection to load its collections." : "Refresh this connection to load its database objects.")
-                        .font(.system(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -643,15 +635,15 @@ struct DatabaseSidebarView: View {
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                                 .frame(width: 12)
                             Image(systemName: profile.kind == .mongodb ? "doc.on.doc" : "tablecells")
-                                .font(.system(size: 10.5, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                                 .foregroundStyle(LitheTheme.success)
                                 .frame(width: 14)
                             Text(table)
-                                .font(.system(size: 10.8, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 10.8, weight: .medium))
                                 .lineLimit(1)
                             Spacer(minLength: 0)
                         }
@@ -677,7 +669,7 @@ struct DatabaseSidebarView: View {
                             HStack(spacing: 7) {
                                 ProgressView().controlSize(.mini)
                                 Text("Loading table metadata…")
-                                    .font(.system(size: 9.5))
+                                    .font(LitheTheme.uiFont(size: 9.5))
                                     .foregroundStyle(LitheTheme.tertiaryText)
                             }
                             .padding(.leading, indent + 48)
@@ -698,7 +690,7 @@ struct DatabaseSidebarView: View {
                     DisclosureGroup {
                         ForEach(Array(entries.enumerated()), id: \.offset) { _, row in
                             Text(objectLabel(row))
-                                .font(.system(size: 10.5))
+                                .font(LitheTheme.uiFont(size: 10.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .lineLimit(1)
                                 .padding(.leading, 34)
@@ -714,7 +706,7 @@ struct DatabaseSidebarView: View {
                         } icon: {
                             Image(systemName: kind.symbol)
                         }
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                     }
                     .padding(.leading, indent + 10)
@@ -731,10 +723,10 @@ struct DatabaseSidebarView: View {
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: collapsedObjectKinds.contains(kind) ? "chevron.right" : "chevron.down")
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                     .frame(width: 12)
                 Image(systemName: kind.symbol)
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(title)
                 Spacer()
                 Text("\(count)")
@@ -744,7 +736,7 @@ struct DatabaseSidebarView: View {
                     .background(LitheTheme.badgeBackground)
                     .clipShape(Capsule())
             }
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.vertical, 5)
             .padding(.leading, indent)
@@ -769,20 +761,20 @@ struct DatabaseSidebarView: View {
     ) -> some View {
         HStack(spacing: 7) {
             Image(systemName: symbol)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(tint)
                 .frame(width: 14)
             Text(title)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .lineLimit(1)
             if let detail {
                 Text(verbatim: detail)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .lineLimit(1)
             }
             Spacer()
             Text("\(count)")
-                .font(.system(size: 9.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.tertiaryText)
         }
         .padding(.leading, indent)
@@ -1128,7 +1120,7 @@ struct DatabaseSidebarView: View {
                 .accessibilityLabel("Connected")
         case .failed:
             Image(systemName: "exclamationmark.triangle.fill")
-                .font(.system(size: 10, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10, weight: .semibold))
                 .foregroundStyle(LitheTheme.warning)
                 .frame(width: 12, height: 12)
                 .help("Connection failed")
@@ -1261,16 +1253,16 @@ private struct DatabaseDBXImportSheet: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "square.and.arrow.down")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 14, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                     .frame(width: 30, height: 30)
                     .background(LitheTheme.accent.opacity(0.12))
                     .clipShape(RoundedRectangle(cornerRadius: 7))
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Import Connections from DBX")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     Text("Connections are saved without testing them. Passwords are stored in Keychain.")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -1294,7 +1286,7 @@ private struct DatabaseDBXImportSheet: View {
             HStack {
                 if plan != nil {
                     Text("\(selectedIDs.count) connections selected")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .monospacedDigit()
                 }
@@ -1326,13 +1318,13 @@ private struct DatabaseDBXImportSheet: View {
         VStack(spacing: 14) {
             Spacer()
             Image(systemName: isEncrypted ? "lock.doc" : "doc.text.magnifyingglass")
-                .font(.system(size: 24, weight: .medium))
+                .font(LitheTheme.uiFont(size: 24, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
             Text(isEncrypted ? "Encrypted DBX Export" : "Reading DBX Export")
-                .font(.system(size: 13, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .semibold))
             if isEncrypted {
                 Text("Enter the password used when this connection file was exported from DBX.")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 360)
@@ -1343,7 +1335,7 @@ private struct DatabaseDBXImportSheet: View {
             }
             if let errorMessage {
                 DatabaseLocalization.text(errorMessage)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.error)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 420)
@@ -1371,7 +1363,7 @@ private struct DatabaseDBXImportSheet: View {
                 Spacer()
                 if plan.wasEncrypted {
                     Label("Passwords decrypted", systemImage: "lock.open.fill")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10, weight: .medium))
                         .foregroundStyle(LitheTheme.success)
                 }
             }
@@ -1392,9 +1384,9 @@ private struct DatabaseDBXImportSheet: View {
                                 .foregroundStyle(LitheTheme.warning)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text("Unsupported DBX database types")
-                                    .font(.system(size: 11, weight: .semibold))
+                                    .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                 Text(plan.unsupportedTypes.sorted(by: { $0.key < $1.key }).map { "\($0.key) × \($0.value)" }.joined(separator: ", "))
-                                    .font(.system(size: 10.5, design: .monospaced))
+                                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                                     .foregroundStyle(LitheTheme.secondaryText)
                             }
                             Spacer()
@@ -1410,8 +1402,8 @@ private struct DatabaseDBXImportSheet: View {
 
     private func summaryValue(_ value: Int, label: LocalizedStringKey) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("\(value)").font(.system(size: 13, weight: .semibold, design: .monospaced))
-            Text(label).font(.system(size: 9.5)).foregroundStyle(LitheTheme.tertiaryText)
+            Text("\(value)").font(LitheTheme.uiFont(size: 13, weight: .semibold, design: .monospaced))
+            Text(label).font(LitheTheme.uiFont(size: 9.5)).foregroundStyle(LitheTheme.tertiaryText)
         }
     }
 
@@ -1424,7 +1416,7 @@ private struct DatabaseDBXImportSheet: View {
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: candidate.isDuplicate ? "minus.circle" : (isSelected ? "checkmark.square.fill" : "square"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(candidate.isDuplicate ? LitheTheme.tertiaryText : (isSelected ? LitheTheme.accent : LitheTheme.secondaryText))
                     .frame(width: 18)
                 DatabaseBrandIcon(kind: candidate.profile.kind, size: 18)
@@ -1432,32 +1424,32 @@ private struct DatabaseDBXImportSheet: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 7) {
                         Text(candidate.profile.name)
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                             .lineLimit(1)
                         if candidate.isDuplicate {
                             Text("Duplicate")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
                                 .foregroundStyle(LitheTheme.tertiaryText)
                         } else if !candidate.warnings.isEmpty {
                             Text("Review")
-                                .font(.system(size: 9, weight: .medium))
+                                .font(LitheTheme.uiFont(size: 9, weight: .medium))
                                 .foregroundStyle(LitheTheme.warning)
                         }
                     }
                     Text(candidateSubtitle(candidate.profile))
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                     ForEach(candidate.warnings, id: \.self) { warning in
                         DatabaseLocalization.text(warning)
-                            .font(.system(size: 9.5))
+                            .font(LitheTheme.uiFont(size: 9.5))
                             .foregroundStyle(LitheTheme.warning)
                             .lineLimit(1)
                     }
                 }
                 Spacer()
                 Text(candidate.profile.kind.displayName)
-                    .font(.system(size: 9.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
                     .foregroundStyle(LitheTheme.tertiaryText)
             }
             .padding(.horizontal, 10)
@@ -1507,7 +1499,8 @@ private enum DatabaseConnectionSort: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .name: "Name"
         case .databaseType: "Database type"
@@ -1597,16 +1590,16 @@ private struct DatabaseFolderEditor: View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "folder.fill")
-                    .font(.system(size: 15, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 15, weight: .medium))
                     .foregroundStyle(LitheTheme.warning)
                     .frame(width: 34, height: 34)
                     .background(LitheTheme.warning.opacity(0.14))
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(folder == nil ? "New Folder" : "Rename Folder")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                     Text(folder == nil ? "Keep connections organized in the sidebar." : "Update the folder name without changing its connections.")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -1621,7 +1614,7 @@ private struct DatabaseFolderEditor: View {
                     .onSubmit(save)
                 if let validationMessage {
                     DatabaseLocalization.error(validationMessage)
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.error)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -1731,9 +1724,9 @@ struct DatabaseConnectionEditor: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 2) {
                     Text(profile == nil ? "Add Database Connection" : "Edit Database Connection")
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                     Text("Configure connection and safety options.")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -1744,17 +1737,10 @@ struct DatabaseConnectionEditor: View {
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             Form {
                 TextField("Name", text: $name)
-                Picker("Engine", selection: $kind) {
-                    Text("MySQL").tag(DatabaseKind.mysql)
-                    Text("MariaDB").tag(DatabaseKind.mariadb)
-                    Text("PostgreSQL").tag(DatabaseKind.postgresql)
-                    Text("SQLite").tag(DatabaseKind.sqlite)
-                    Text("SQL Server").tag(DatabaseKind.sqlserver)
-                    Text("MongoDB").tag(DatabaseKind.mongodb)
-                    Text("Redis").tag(DatabaseKind.redis)
-                    Text("Nacos").tag(DatabaseKind.nacos)
+                LabeledContent("Engine") {
+                    LitheSettingsSelect(selection: $kind, options: DatabaseKind.allCases, width: 240, accessibilityLabel: "Engine", title: { $0.displayName })
                 }
-                    .pickerStyle(.menu)
+
                 if kind == .sqlite { TextField("Database file path", text: $path) }
                 else {
                     TextField(kind == .mongodb ? "Host or MongoDB URI" : "Host", text: $host)
@@ -1774,17 +1760,17 @@ struct DatabaseConnectionEditor: View {
                             }
                         if let redisDatabaseValidationMessage {
                             Text(redisDatabaseValidationMessage)
-                                .font(.system(size: 10.5))
+                                .font(LitheTheme.uiFont(size: 10.5))
                                 .foregroundStyle(LitheTheme.error)
                         }
                         Text("Leave the database index at 0 for the standard Redis database.")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     } else if kind == .nacos {
                         TextField("Namespace ID (optional)", text: $database)
                         TextField("API context path", text: $path)
                         Text("Use /nacos for a standard Nacos server, or / for a reverse proxy at its root.")
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     } else {
                         TextField("Database name", text: $database)
@@ -1792,11 +1778,8 @@ struct DatabaseConnectionEditor: View {
                     Toggle("Use TLS", isOn: $ssl)
                 }
                 DisclosureGroup(isExpanded: $safetyExpanded) {
-                    Picker("Folder", selection: $folderID) {
-                        Text("No folder").tag(UUID?.none)
-                        ForEach(feature.folders) { folder in
-                            Text(folder.name).tag(UUID?.some(folder.id))
-                        }
+                    LabeledContent("Folder") {
+                        LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + feature.folders.map { Optional($0.id) }, width: 240, accessibilityLabel: "Folder", title: { id in feature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
                     }
                     TextField("Color hex (optional)", text: $colorHex)
                     Toggle("Read-only connection", isOn: $readOnly)
@@ -1827,7 +1810,7 @@ struct DatabaseConnectionEditor: View {
                 }
             .padding(.top, 2)
             }.formStyle(.grouped).scrollContentBackground(.hidden)
-            if let error = feature.errorMessage { DatabaseLocalization.error(error).font(.system(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
+            if let error = feature.errorMessage { DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 8) {
                 Spacer()

@@ -189,7 +189,7 @@ enum LitheIcons {
         let directory = path.deletingLastPathComponent
         let filename = path.lastPathComponent as NSString
         let resourceName = filename.deletingPathExtension
-        let darkFilename = "\(resourceName)_dark.\(filename.pathExtension)"
+        let darkFilename = "\(resourceName)_dark.\(filename.pathExtension.isEmpty ? "svg" : filename.pathExtension)"
         return directory.isEmpty ? darkFilename : "\(directory)/\(darkFilename)"
     }
 
@@ -201,7 +201,7 @@ enum LitheIcons {
         let directory = path.deletingLastPathComponent
         let filename = path.lastPathComponent as NSString
         let resourceName = filename.deletingPathExtension
-        let lightFilename = "\(resourceName)_light.\(filename.pathExtension)"
+        let lightFilename = "\(resourceName)_light.\(filename.pathExtension.isEmpty ? "svg" : filename.pathExtension)"
         return directory.isEmpty ? lightFilename : "\(directory)/\(lightFilename)"
     }
 
@@ -498,7 +498,7 @@ enum LitheIcons {
         let resourceName = filename.deletingPathExtension
         guard let url = Bundle.main.url(
             forResource: resourceName,
-            withExtension: filename.pathExtension,
+            withExtension: filename.pathExtension.isEmpty ? "svg" : filename.pathExtension,
             subdirectory: "IDEAIcons/\(directory)"
         ), let image = NSImage(contentsOf: url) else {
             return nil
@@ -594,6 +594,7 @@ struct LitheIDEAIcon: View {
     @Environment(\.colorScheme) private var colorScheme
     let resourcePath: String
     var size: CGFloat = 14
+    var width: CGFloat? = nil
     var fallbackSystemImage: String?
     var preservesOriginalColors = false
 
@@ -604,20 +605,20 @@ struct LitheIDEAIcon: View {
                     .renderingMode(.original)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: size, height: size)
+                    .frame(width: width ?? size, height: size)
             } else {
                 Image(nsImage: image)
                     .renderingMode(.template)
                     .resizable()
                     .interpolation(.high)
-                    .frame(width: size, height: size)
+                    .frame(width: width ?? size, height: size)
             }
         } else if let fallbackSystemImage {
             Image(systemName: fallbackSystemImage)
-                .font(.system(size: size, weight: .medium))
-                .frame(width: size, height: size)
+                .font(LitheTheme.uiFont(size: size, weight: .medium))
+                .frame(width: width ?? size, height: size)
         } else {
-            Color.clear.frame(width: size, height: size)
+            Color.clear.frame(width: width ?? size, height: size)
         }
     }
 
@@ -649,7 +650,7 @@ struct LitheSystemIcon: View {
             )
         } else {
             Image(systemName: systemImage)
-                .font(.system(size: size, weight: .medium))
+                .font(LitheTheme.uiFont(size: size, weight: .medium))
                 .frame(width: size, height: size)
         }
     }
@@ -667,7 +668,7 @@ private struct LetterBadgeIcon: View {
             Circle()
                 .strokeBorder(color.opacity(0.85), lineWidth: max(1, size / 14))
             Text(letter)
-                .font(.system(size: size * 0.60, weight: .bold, design: .rounded))
+                .font(LitheTheme.uiFont(size: size * 0.60, weight: .bold, design: .rounded))
                 .foregroundStyle(color)
         }
         .frame(width: size, height: size)
@@ -697,7 +698,7 @@ private struct DocumentIcon: View {
             EmptyView()
         case .letter(let letter):
             Text(letter)
-                .font(.system(size: size * 0.44, weight: .bold, design: .rounded))
+                .font(LitheTheme.uiFont(size: size * 0.44, weight: .bold, design: .rounded))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .lines:
@@ -712,12 +713,12 @@ private struct DocumentIcon: View {
             .offset(y: size * 0.10)
         case .angleBrackets:
             Text("< >")
-                .font(.system(size: size * 0.34, weight: .heavy, design: .monospaced))
+                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .braces:
             Text("{ }")
-                .font(.system(size: size * 0.34, weight: .heavy, design: .monospaced))
+                .font(LitheTheme.uiFont(size: size * 0.34, weight: .heavy, design: .monospaced))
                 .foregroundStyle(accent)
                 .offset(y: size * 0.11)
         case .picture:

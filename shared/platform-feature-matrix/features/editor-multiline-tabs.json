@@ -5,7 +5,9 @@
   "capability": "多行标签与标签导航",
   "macos": {
     "evidence": [
-      "macos/Sources/Lithe/Views/Editor"
+      "macos/Sources/Lithe/Views/Editor",
+      "macos/Tests/LitheTests/EditorTabOrderFeatureModelTests.swift",
+      "macos/Sources/Lithe/Views/Editor/EditorTabFrameStore.swift"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
@@ -18,5 +20,5 @@
     "verificationStatus": "pending"
   },
   "owner": "Editor",
-  "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。"
+  "verification": "打开足够多文件触发多行标签，确认滚动、切换、关闭和活动文件保持。 单行和多行文件、媒体与 Repository Diff 复用固定标签栏坐标手势，原生窗口按下/移动/松开检查 .gitignore 与 Diff 双向跨行重排；终端跨工具窗口仍使用原生载荷。 普通文件/媒体/Repository Diff 共用独立浮动标签预览，可沿两个方向离开标签栏再返回；移除蓝色插入竖线，以原尺寸圆角占位表示落点，临时显示重排在松开时才提交。单/多行核对无裁剪、90% 预览、原字型图标、Esc 后同次拖动不重启、栏外释放恢复顺序，结束/卸载清理窗口及事件监视器；原生组件验证不替代完整工作区验收。 标签拖动开始、换位、松开与取消直接完成，无透明度渐变/弹簧；原生浮动窗口禁用系统动画，事件回归使用未额外屏蔽动画的测试宿主。 从标签上边缘而非中心抓取，在标签栏上缘返回并松开，真实鼠标位置决定栏内外及跨行落点；单行/多行及文件/Repository Diff 双向重排均通过原生事件回归。"
 }

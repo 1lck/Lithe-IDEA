@@ -9,6 +9,7 @@ struct ChangesSidebarView: View {
     let draft: CommitDraftFeatureModel
     let commitWorkflow: CommitWorkflowCoordinator
     @EnvironmentObject private var settings: AppSettings
+    @Environment(\.colorScheme) private var colorScheme
     let workbench: WorkbenchFeatureModel
     let hasBackgroundImage: Bool
     let selectChange: (GitChange) -> Void
@@ -19,6 +20,7 @@ struct ChangesSidebarView: View {
     let copyPath: (URL, Bool) -> Void
     let showSettings: (SettingsCategory) -> Void
     @State private var selectedTab = CommitTab.commit
+    @State private var commitToolActive = false
     @State private var changelistExpanded: [String: Bool] = [:]
     @State private var repositoryExpanded: [String: Bool] = [:]
     @State private var stashMessage = "WIP"
@@ -35,7 +37,6 @@ struct ChangesSidebarView: View {
         let _ = LitheSignpost.bodyEvaluated("ChangesSidebarView")
         VStack(spacing: 0) {
             tabHeader
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
             GitChangesOperationStatus(feature: feature, editor: feature.interactiveRebase)
 
@@ -49,7 +50,7 @@ struct ChangesSidebarView: View {
                         Image(systemName: "exclamationmark.triangle.fill")
                             .foregroundStyle(LitheTheme.warning)
                         Text("Stash restore needs attention")
-                            .font(.system(size: 11.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                         Spacer(minLength: 0)
                         Button("Review") { feature.showStashRestoreConflictNotice() }
@@ -72,6 +73,7 @@ struct ChangesSidebarView: View {
             }
         }
         .background(hasBackgroundImage ? Color.clear : LitheTheme.sidebar)
+        .background(LitheToolWindowActivityTracker(isActive: $commitToolActive))
         .onAppear {
             selectRequestedStashIfNeeded()
             if let id = feature.selectedChange?.id {
@@ -150,25 +152,24 @@ struct ChangesSidebarView: View {
                     selectedTab = tab
                 } label: {
                     Text(LocalizedStringKey(tab.title))
-                        .font(.system(size: LitheTheme.Commit.toolbarFontSize, weight: tab == selectedTab ? .semibold : .regular))
+                        .font(LitheTheme.uiFont(size: LitheTheme.Commit.toolbarFontSize, weight: .regular))
                         .foregroundStyle(tab == selectedTab ? LitheTheme.primaryText : LitheTheme.secondaryText)
                         .padding(.horizontal, LitheTheme.Commit.tabItemHorizontalPadding)
-                        .padding(.vertical, LitheTheme.Commit.tabItemVerticalPadding)
-                        .litheRowHover(
-                            isActive: tab == selectedTab,
-                            cornerRadius: LitheTheme.Metrics.cornerRadius,
-                            activeBackground: LitheTheme.subtleSelection,
-                            hoverBackground: LitheTheme.hoverBackground
-                        )
+                        .frame(height: 28)
                 }
                 .buttonStyle(.litheNoPress)
+                .modifier(LitheToolWindowTabStyle(isSelected: tab == selectedTab, isActive: commitToolActive))
             }
             Spacer()
             GitPatchToolbar(feature: feature)
+            LitheSidebarHideButton(title: "Commit") { workbench.hideSidebar() }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 40)
+        .padding(.trailing, 10)
+        .frame(height: 41)
         .background(hasBackgroundImage ? Color.clear : LitheTheme.toolHeader)
+        .overlay(alignment: .bottom) {
+            LitheToolWindowHeaderDivider()
+        }
     }
 
     private var commitContent: some View {
@@ -187,7 +188,6 @@ struct ChangesSidebarView: View {
 
             VStack(spacing: 0) {
                 commitToolbar
-                Rectangle().fill(LitheTheme.divider).frame(height: 1)
 
                 LitheSplitPaneView(
                     axis: .vertical,
@@ -195,6 +195,8 @@ struct ChangesSidebarView: View {
                     defaultSize: Self.defaultCommitAreaHeight,
                     minimum: minimumCommitHeight,
                     maximum: maximumCommitHeight,
+                    dividerColor: LitheTheme.toolWindowBorder(for: colorScheme),
+                    highlightsOnHover: false,
                     sized: {
                         CommitAreaView(feature: feature, draft: draft, commitWorkflow: commitWorkflow,
                                        hasBackgroundImage: hasBackgroundImage, showSettings: showSettings)
@@ -221,14 +223,14 @@ struct ChangesSidebarView: View {
             HStack(spacing: 6) {
                 TextField("Save message", text: $stashMessage)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .padding(.horizontal, 7)
                     .frame(height: 27)
                     .litheRoundedControlBackground(LitheTheme.inputBackground, cornerRadius: 4)
 
                 Toggle("Untracked", isOn: $includeUntracked)
                     .toggleStyle(.checkbox)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .fixedSize()
 
                 Button {
@@ -279,10 +281,10 @@ struct ChangesSidebarView: View {
             if feature.gitStashes.isEmpty && feature.gitShelves.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "archivebox")
-                        .font(.system(size: 28, weight: .light))
+                        .font(LitheTheme.uiFont(size: 28, weight: .light))
                     Text("No saved changes")
                     Text("Stash or shelf changes here to switch branches safely.")
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .multilineTextAlignment(.center)
                 }
                 .font(LitheTheme.uiFont)
@@ -321,7 +323,7 @@ struct ChangesSidebarView: View {
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(stash.message.isEmpty ? stash.reference : stash.message)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     HStack(spacing: 5) {
@@ -333,7 +335,7 @@ struct ChangesSidebarView: View {
                         Text("·")
                         Text(stash.date)
                     }
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(1)
                 }
@@ -368,7 +370,7 @@ struct ChangesSidebarView: View {
     private func savedChangesSectionHeader(_ title: String) -> some View {
         HStack {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 10.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.secondaryText)
             Spacer()
         }
@@ -387,11 +389,11 @@ struct ChangesSidebarView: View {
                     .frame(width: 18)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(shelf.message)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .lineLimit(1)
                     Text("\(shelf.paths.count) file(s) · \(shelf.createdAt.formatted(date: .abbreviated, time: .shortened))")
-                        .font(.system(size: 10))
+                        .font(LitheTheme.uiFont(size: 10))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                 }
@@ -424,27 +426,40 @@ struct ChangesSidebarView: View {
             Button {
                 Task { await feature.refreshGit() }
             } label: {
-                LitheSystemIcon(systemImage: "arrow.clockwise")
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/refresh.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "arrow.clockwise",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
             .help("Refresh changes")
 
             Button {
                 pendingDiscardSelection = selectedChanges
             } label: {
-                LitheSystemIcon(systemImage: "arrow.uturn.backward", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/vcs/revert.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "arrow.uturn.backward",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
-            .disabled(selectedChanges.isEmpty)
+            .litheToolbarIconButton(isEnabled: !selectedChanges.isEmpty)
             .help("Discard selected change")
 
             Button {
                 Task { await feature.stageAllChanges() }
             } label: {
-                LitheSystemIcon(systemImage: "square.and.arrow.down", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/download.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "square.and.arrow.down",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
-            .disabled(feature.activeChangelistChanges.isEmpty || feature.isCommitting || feature.changelistStorageFailed)
+            .litheToolbarIconButton(isEnabled: !feature.activeChangelistChanges.isEmpty && !feature.isCommitting && !feature.changelistStorageFailed)
             .help("Stage all files in current ChangeList")
 
             Button {
@@ -452,10 +467,14 @@ struct ChangesSidebarView: View {
                     selectChange(first)
                 }
             } label: {
-                LitheSystemIcon(systemImage: "eye", size: LitheTheme.Commit.actionIconSize)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/show.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "eye",
+                    preservesOriginalColors: true
+                )
             }
-            .litheIconButton()
-            .disabled(feature.gitChanges.isEmpty)
+            .litheToolbarIconButton(isEnabled: !feature.gitChanges.isEmpty)
             .help("Preview first change")
 
             Spacer()
@@ -467,28 +486,30 @@ struct ChangesSidebarView: View {
                     Label("Clear conflict filter", systemImage: "line.3.horizontal.decrease.circle")
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.warning)
                 .lithePointer()
             }
 
             if feature.availableRepositoryRoots.count > 1 {
-                Menu {
-                    ForEach(feature.availableRepositoryRoots, id: \.self) { root in
-                        Button(root.path) {
+                LitheMenu {
+                    for root in feature.availableRepositoryRoots {
+                        LitheContextMenuItem.action(root.path) {
                             Task { await feature.selectRepository(root) }
                         }
                     }
                 } label: {
-                    Label(feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive")
-                        .lineLimit(1)
+                    Label(
+                        feature.gitRepositoryRoot?.lastPathComponent ?? "Repository", systemImage: "externaldrive"
+                    )
+                    .lineLimit(1)
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
                 .help("Select repository for commits and branch operations")
             }
 
             Text(feature.currentBranch)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
         }
@@ -501,7 +522,7 @@ struct ChangesSidebarView: View {
             if feature.gitChanges.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "checkmark.circle")
-                        .font(.system(size: 27, weight: .light))
+                        .font(LitheTheme.uiFont(size: 27, weight: .light))
                         .foregroundStyle(LitheTheme.success)
                     Text("Working tree is clean")
                 }
@@ -511,7 +532,7 @@ struct ChangesSidebarView: View {
             } else if displayedChanges.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "line.3.horizontal.decrease.circle")
-                        .font(.system(size: 27, weight: .light))
+                        .font(LitheTheme.uiFont(size: 27, weight: .light))
                         .foregroundStyle(LitheTheme.warning)
                     Text("No files match the conflict filter")
                     Button("Show all changes") { feature.clearGitConflictFilter() }
@@ -539,7 +560,7 @@ struct ChangesSidebarView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
@@ -557,7 +578,7 @@ struct ChangesSidebarView: View {
                     }
                 }
                 .padding(.horizontal, 8)
-                .padding(.vertical, 8)
+                .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
@@ -577,7 +598,7 @@ struct ChangesSidebarView: View {
                     repositoryExpanded[repositoryID] = !isExpanded
                 } label: {
                     Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .frame(width: 10, height: 26)
                         .contentShape(Rectangle())
                 }
@@ -588,7 +609,7 @@ struct ChangesSidebarView: View {
                     setStaging(activeChanges, !allChangesStaged(activeChanges))
                 } label: {
                     Image(systemName: stagingSymbol(for: activeChanges))
-                        .font(.system(size: 16))
+                        .font(LitheTheme.uiFont(size: 16))
                         .foregroundStyle(
                             activeChanges.contains(where: isEffectivelyStaged)
                                 ? LitheTheme.accent
@@ -610,17 +631,17 @@ struct ChangesSidebarView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "folder.fill")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
                             .foregroundStyle(GitRepositoryColor.color(
                                 for: repository.root,
                                 in: feature.availableRepositoryRoots
                             ))
                         Text(repositoryDisplayName(repository.root))
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                             .lineLimit(1)
                         Text("\(repository.changes.count)")
-                            .font(.system(size: 11))
+                            .font(LitheTheme.uiFont(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Spacer(minLength: 0)
                     }
@@ -675,7 +696,7 @@ struct ChangesSidebarView: View {
                     expanded.wrappedValue.toggle()
                 } label: {
                     Image(systemName: expanded.wrappedValue ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 8, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 8, weight: .bold))
                         .frame(width: 10, height: 24)
                         .contentShape(Rectangle())
                 }
@@ -686,7 +707,7 @@ struct ChangesSidebarView: View {
                     setStaging(changes, !allChangesStaged(changes))
                 } label: {
                     Image(systemName: stagingSymbol(for: changes))
-                        .font(.system(size: 16))
+                        .font(LitheTheme.uiFont(size: 16))
                         .foregroundStyle(changes.contains(where: isEffectivelyStaged) ? LitheTheme.accent : LitheTheme.secondaryText)
                         .frame(width: 18, height: 24)
                         .contentShape(Rectangle())
@@ -706,10 +727,10 @@ struct ChangesSidebarView: View {
                                 Text(verbatim: list.name)
                             }
                         }
-                            .font(.system(size: 12.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.primaryText)
                         Text("\(changes.count) files")
-                            .font(.system(size: 11))
+                            .font(LitheTheme.uiFont(size: 11))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Spacer()
                     }
@@ -763,7 +784,7 @@ struct ChangesSidebarView: View {
                 setStaging(targets, !isEffectivelyStaged(change))
             } label: {
                 Image(systemName: isEffectivelyStaged(change) ? "checkmark.square.fill" : "square")
-                    .font(.system(size: 16))
+                    .font(LitheTheme.uiFont(size: 16))
                     .foregroundStyle(isEffectivelyStaged(change) ? LitheTheme.accent : LitheTheme.secondaryText)
                     .frame(width: 28, height: changeRowHeight)
                     .contentShape(Rectangle())
@@ -779,21 +800,21 @@ struct ChangesSidebarView: View {
             } label: {
                 HStack(spacing: 7) {
                     Image(systemName: change.kind.symbol)
-                        .font(.system(size: 9, weight: .bold))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold))
                         .foregroundStyle(statusColor(change))
                         .frame(width: 17, height: 17)
                         .background(statusColor(change).opacity(0.12))
                         .clipShape(RoundedRectangle(cornerRadius: 3))
                         .help(LocalizedStringKey(change.kind.title))
                     Text(changeDisplayName(change))
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                         .foregroundStyle(fileNameColor(change))
                         .strikethrough(change.kind == .deleted, color: statusColor(change))
                         .lineLimit(1)
                         .layoutPriority(1)
                     if !change.canToggleStaging {
                         Text("Uncommitted submodule changes")
-                            .font(.caption).foregroundStyle(LitheTheme.secondaryText)
+                            .font(LitheTheme.uiFont(.caption)).foregroundStyle(LitheTheme.secondaryText)
                     }
                     let parent = parentPathText(
                         change,
@@ -801,7 +822,7 @@ struct ChangesSidebarView: View {
                     )
                     if showsParentPath, !parent.isEmpty {
                         Text(parent)
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .lineLimit(1)
                     }
@@ -1052,11 +1073,11 @@ private struct GitOperationBanner: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
                 Text(LocalizedStringKey(operation.kind.inProgressTitle))
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 if let reference = operation.reference {
                     Text(verbatim: "— \(reference)")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer(minLength: 0)
@@ -1072,7 +1093,7 @@ private struct GitOperationBanner: View {
                     Text("All conflicts resolved. Continue to finish, or abort to undo.")
                 }
             }
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .foregroundStyle(LitheTheme.secondaryText)
             .fixedSize(horizontal: false, vertical: true)
 
@@ -1101,7 +1122,7 @@ private struct GitOperationBanner: View {
 
                 Spacer(minLength: 0)
             }
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .controlSize(.small)
         }
         .padding(.horizontal, 12)
@@ -1123,13 +1144,13 @@ private struct GitStashRestoreConflictBanner: View {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(LitheTheme.warning)
                 Text("Local changes were restored with conflicts")
-                    .font(.system(size: 11.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer(minLength: 0)
             }
 
             Text("Your local changes are safe in \(conflict.stashReference). The \(Text(LocalizedStringKey(conflict.operationTitle))) is incomplete. Resolve the conflicts, then drop this stash manually.")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .fixedSize(horizontal: false, vertical: true)
 

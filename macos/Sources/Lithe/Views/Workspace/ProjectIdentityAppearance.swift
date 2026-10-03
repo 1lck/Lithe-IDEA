@@ -91,7 +91,8 @@ struct ProjectAvatarBadge: View {
     var body: some View {
         let appearance = ProjectIdentityAppearance(colorIndex: colorIndex, isDark: colorScheme == .dark)
         Text(ProjectIdentityAppearance.initials(for: name))
-            .font(.system(size: max(10, size * 0.35), weight: .bold, design: .rounded))
+            // Community AvatarUtils New UI: JetBrains Mono DemiBold, 13pt at 20pt.
+            .font(LitheTheme.uiFont(size: floor(13 * size / 20), weight: .semibold, design: .monospaced))
             .foregroundStyle(.white)
             .frame(width: size, height: size)
             .background {

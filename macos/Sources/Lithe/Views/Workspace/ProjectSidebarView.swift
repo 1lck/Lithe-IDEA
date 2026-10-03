@@ -37,6 +37,10 @@ struct ProjectSidebarView: View {
     @State private var selection = ProjectTreeSelection()
     @State private var selectedContent: ProjectSidebarContent = .project
     @State private var dependencyRefreshRevision = 0
+    @State private var isHeaderHovered = false
+    private enum HeaderAction: Hashable { case reveal, refresh }
+    @FocusState private var focusedHeaderAction: HeaderAction?
+    @AccessibilityFocusState private var accessibleHeaderAction: HeaderAction?
 
     private func selectedURLs(in root: FileNode) -> [URL] {
         ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths)
@@ -158,10 +162,10 @@ struct ProjectSidebarView: View {
             } else if let error = model.workspaceLoadErrorMessage {
                 VStack(spacing: 10) {
                     Image(systemName: "folder.badge.questionmark")
-                        .font(.system(size: 22, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 22, weight: .medium))
                         .foregroundStyle(LitheTheme.warning)
                     Text("Could not load project")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                     Text(LocalizedStringKey(error))
                         .font(LitheTheme.smallFont)
                         .foregroundStyle(LitheTheme.secondaryText)
@@ -221,32 +225,26 @@ struct ProjectSidebarView: View {
 
     private var sidebarHeader: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(ProjectSidebarContent.allCases) { content in
-                    Button {
-                        selectedContent = content
-                    } label: {
-                        if selectedContent == content {
-                            Label(LocalizedStringKey(content.title), systemImage: "checkmark")
-                        } else {
-                            Text(LocalizedStringKey(content.title))
-                        }
-                    }
+            LitheMenu {
+                ProjectSidebarContent.allCases.map { content in
+                    LitheContextMenuItem.action(content.title) { selectedContent = content }
                 }
             } label: {
                 HStack(spacing: 8) {
                     Text(LocalizedStringKey(selectedContent.title))
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/chevronDown.svg",
+                        size: 14,
+                        fallbackSystemImage: "chevron.down",
+                        preservesOriginalColors: true
+                    )
                 }
                 .frame(height: 28)
                 .contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton)
-            .tint(LitheTheme.primaryText)
+            .buttonStyle(.plain)
             .fixedSize()
             .help("Switch project view")
             .accessibilityIdentifier("project-sidebar-view-selector")
@@ -257,9 +255,20 @@ struct ProjectSidebarView: View {
                 Button {
                     model.revealInProjectTree(activeURL)
                 } label: {
-                    LitheSystemIcon(systemImage: "scope")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/locate.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "scope",
+                        preservesOriginalColors: true
+                    )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .reveal
+                             || accessibleHeaderAction == .reveal ? 1 : 0)
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
+                .focused($focusedHeaderAction, equals: .reveal)
+                .accessibilityFocused($accessibleHeaderAction, equals: .reveal)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Reveal Active File in Project Tree")
                 .help("Reveal Active File in Project Tree")
             }
             if selectedContent == .dependencies {
@@ -279,14 +288,32 @@ struct ProjectSidebarView: View {
                 Button {
                     Task { await model.refreshWorkspace() }
                 } label: {
-                    LitheSystemIcon(systemImage: "arrow.clockwise")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/refresh.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "arrow.clockwise",
+                        preservesOriginalColors: true
+                    )
+                    .opacity(isHeaderHovered || focusedHeaderAction == .refresh
+                             || accessibleHeaderAction == .refresh ? 1 : 0)
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
+                .focused($focusedHeaderAction, equals: .refresh)
+                .accessibilityFocused($accessibleHeaderAction, equals: .refresh)
+                .accessibilityHidden(false)
+                .accessibilityLabel("Refresh")
                 .help("Refresh")
             }
+            LitheSidebarHideButton(title: selectedContent.title) {
+                model.workbenchFeature.hideSidebar()
+            }
         }
-        .padding(.horizontal, 12)
+        .padding(.leading, LitheTheme.Metrics.projectTreeContentHorizontalInset)
+        .padding(.trailing, 12)
         .frame(height: 39)
+        .contentShape(Rectangle())
+        .onHover { isHeaderHovered = $0 }
+        .animation(.easeInOut(duration: 0.18), value: isHeaderHovered)
     }
 
     private var renameRequest: Binding<ProjectItemEditRequest?> {
@@ -541,14 +568,19 @@ private struct FileNodeRow: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(.system(size: 8, weight: .bold))
-                    .frame(width: 10)
-                    .foregroundStyle(LitheTheme.secondaryText)
+                LitheIDEAIcon(
+                    resourcePath: isExpanded
+                        ? "expui/general/chevronDown.svg"
+                        : "expui/general/chevronRight.svg",
+                    size: 16,
+                    fallbackSystemImage: isExpanded ? "chevron.down" : "chevron.right",
+                    preservesOriginalColors: true
+                )
+                .frame(width: 10)
                 LitheIcon(kind: directoryIconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize, height: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize, weight: depth == 0 ? .semibold : .regular))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -598,7 +630,7 @@ private struct FileNodeRow: View {
                 LitheIcon(kind: resolvedJavaIconKind ?? resolvedFileIconKind ?? node.iconKind, size: LitheTheme.Metrics.treeIconSize)
                     .frame(width: LitheTheme.Metrics.treeIconSize)
                 Text(node.name)
-                    .font(.system(size: LitheTheme.Metrics.treeFontSize))
+                    .font(LitheTheme.uiFont(size: LitheTheme.Metrics.treeFontSize))
                     .foregroundStyle(gitStatusColor ?? LitheTheme.primaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -606,7 +638,7 @@ private struct FileNodeRow: View {
                 Spacer(minLength: 4)
                 if let status = gitStatus.change(for: node.url) {
                     Text(status.displayStatus)
-                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9, weight: .bold, design: .monospaced))
                         .foregroundStyle(gitStatusColor ?? LitheTheme.secondaryText)
                         .accessibilityLabel(status.kind.title)
                 }
@@ -1049,12 +1081,12 @@ private struct ProjectItemNameDialogContent: View {
     var body: some View {
         VStack(spacing: 8) {
             Text(LocalizedStringKey(title))
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
 
             TextField("Name", text: $name)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .padding(.horizontal, 8)
                 .frame(height: 30)
                 .foregroundStyle(LitheTheme.primaryText)
@@ -1105,10 +1137,10 @@ private struct ProjectItemNameDialog: View {
         VStack(alignment: .leading, spacing: 16) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(LocalizedStringKey(title))
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(LocalizedStringKey(message))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
 

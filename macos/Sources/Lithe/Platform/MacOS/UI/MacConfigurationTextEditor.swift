@@ -63,7 +63,7 @@ final class MacConfigurationTextView: NSTextView {
         importsGraphics = false
         allowsUndo = true
         drawsBackground = false
-        font = .monospacedSystemFont(ofSize: 11, weight: .regular)
+        font = LitheTheme.uiNSFont(size: 11, weight: .regular)
         textContainerInset = NSSize(width: 6, height: 6)
         isVerticallyResizable = true
         isHorizontallyResizable = false

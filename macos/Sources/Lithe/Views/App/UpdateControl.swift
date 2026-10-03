@@ -10,6 +10,72 @@ struct UpdateControl: View {
     }
 
     var body: some View {
+        if compact {
+            compactButton
+        } else {
+            Group {
+                switch updateChecker.status {
+                case .available, .waitingForTermination:
+                    statusContent.buttonStyle(LitheSecondaryButtonStyle())
+                default:
+                    statusContent.buttonStyle(.litheNoPress)
+                }
+            }
+            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+            .lithePointer()
+        }
+    }
+
+    private var compactButton: some View {
+        Button {
+            switch updateChecker.status {
+            case .available:
+                updateChecker.presentDetails()
+            case .waitingForTermination:
+                Task { await updateChecker.retryInstallation() }
+            case .failed:
+                if updateChecker.updateInfo != nil { updateChecker.presentDetails() }
+                else { checkForUpdates() }
+            case .idle, .upToDate:
+                checkForUpdates()
+            case .checking, .downloading, .installing:
+                break
+            }
+        } label: {
+            if isBusy {
+                ProgressView().controlSize(.small)
+                    .frame(width: ActivityBarMetrics.iconSize, height: ActivityBarMetrics.iconSize)
+            } else {
+                LitheIDEAIcon(resourcePath: "expui/general/refresh.svg", size: ActivityBarMetrics.iconSize)
+            }
+        }
+        .buttonStyle(LitheActivityBarButtonStyle())
+        .disabled(isBusy)
+        .workbenchHoverHelp(Text(compactTitle), placement: .leading)
+        .accessibilityLabel(Text(compactTitle))
+        .accessibilityIdentifier("workbench-update")
+    }
+
+    private var isBusy: Bool {
+        switch updateChecker.status {
+        case .checking, .downloading, .installing: true
+        default: false
+        }
+    }
+
+    private var compactTitle: LocalizedStringKey {
+        switch updateChecker.status {
+        case .available(let version, _): "Update to \(version)"
+        case .checking: "Checking for updates…"
+        case .downloading(let version, _): "Downloading \(version)…"
+        case .waitingForTermination: "Continue Installation"
+        case .installing: "Installing update…"
+        case .failed: "Retry update"
+        case .idle, .upToDate: "Check for Updates"
+        }
+    }
+
+    private var statusContent: some View {
         Group {
             switch updateChecker.status {
             case .available(let version, _):
@@ -23,14 +89,13 @@ struct UpdateControl: View {
                               systemImage: "arrow.down.circle.fill")
                     }
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
             case .checking:
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.small)
                     Text("Checking for updates…")
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .downloading(let version, let progress):
                 // The title bar has room for a single row; the Welcome sidebar does
                 // not, so the version text wraps onto its own line below the bar.
@@ -51,21 +116,20 @@ struct UpdateControl: View {
                         Text("Downloading \(version)…")
                     }
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .waitingForTermination:
                 Button {
                     Task { await updateChecker.retryInstallation() }
                 } label: {
                     Label("Continue Installation", systemImage: "arrow.clockwise")
                 }
-                .buttonStyle(LitheSecondaryButtonStyle())
             case .installing(let version):
                 HStack(spacing: 5) {
                     ProgressView()
                         .controlSize(.small)
                     Text(compact ? "Installing…" : "Installing update \(version)…")
                 }
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             case .failed(_, let message):
                 Button {
                     if updateChecker.updateInfo != nil {
@@ -76,21 +140,21 @@ struct UpdateControl: View {
                 } label: {
                     Label(compact ? "Update failed" : "Retry update", systemImage: "exclamationmark.triangle")
                 }
-                .buttonStyle(.litheNoPress)
                 .foregroundStyle(LitheTheme.warning)
                 .help(message)
             case .idle, .upToDate:
                 Button {
                     checkForUpdates()
                 } label: {
-                    Label("Check for Updates", systemImage: "arrow.clockwise")
+                    HStack(spacing: 6) {
+                        LitheIDEAIcon(resourcePath: "actions/refresh.svg", size: 16, fallbackSystemImage: "arrow.clockwise")
+                        Text("Check for Updates")
+                    }
+                    .padding(.horizontal, compact ? 6 : 0)
                 }
-                .buttonStyle(.litheNoPress)
-                .foregroundStyle(LitheTheme.secondaryText)
+                .foregroundStyle(compact ? LitheTheme.MainToolbar.foreground : LitheTheme.secondaryText)
             }
         }
-        .font(.system(size: compact ? 11.5 : 10.5, weight: .medium))
-        .lithePointer()
     }
 
     private func checkForUpdates() {
@@ -110,7 +174,7 @@ struct UpdateDetailsView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(LocalizedStringKey(updateChecker.isPreview ? "Preview Update" : "Software Update"))
-                        .font(.system(size: 16, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 16, weight: .semibold))
                     if let updateInfo = updateChecker.updateInfo {
                         if updateInfo.isPreview {
                             Text("Build \(updateInfo.currentBuild ?? "") → \(updateInfo.targetBuild ?? "")")
@@ -147,7 +211,7 @@ struct UpdateDetailsView: View {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 12) {
                             Text("This preview contains changes that have not been officially released and may be unstable.")
-                                .font(.system(size: 12.5))
+                                .font(LitheTheme.uiFont(size: 12.5))
                                 .foregroundStyle(LitheTheme.secondaryText)
                                 .fixedSize(horizontal: false, vertical: true)
                             statusContent()
@@ -159,11 +223,11 @@ struct UpdateDetailsView: View {
                     let releaseNotes = updateInfo.releaseNotes?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Release notes")
-                            .font(.system(size: 12, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                             .foregroundStyle(LitheTheme.secondaryText)
                         if releaseNotes.isEmpty {
                             Text("Release notes are not included with this update.")
-                                .font(.system(size: 12.5))
+                                .font(LitheTheme.uiFont(size: 12.5))
                                 .foregroundStyle(LitheTheme.primaryText)
                         } else {
                             UpdateReleaseNotesView(markdown: releaseNotes)
@@ -277,7 +341,7 @@ private struct UpdateReleaseNotesView: View {
                 ReleaseNotesWebView(html: renderedHTML, isDark: colorScheme == .dark)
             } else if renderingError != nil {
                 Text("Release notes could not be displayed. Open the release page to read them.")
-                    .font(.system(size: 12.5))
+                    .font(LitheTheme.uiFont(size: 12.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             } else {
                 ProgressView("Loading release notes…")

@@ -2,7 +2,8 @@ import Combine
 import Foundation
 
 private enum WorkbenchNotificationTiming {
-    static let displayDuration: Duration = .seconds(4)
+    // NotificationsManagerImpl's ordinary balloon timeout (Community New UI).
+    static let displayDuration: Duration = .seconds(10)
     static let maximumVisibleCount = 3
     static let maximumHistoryCount = 100
 }
@@ -19,7 +20,16 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
     private var dismissalTasks: [UUID: Task<Void, Never>] = [:]
     private var dismissalDeadlines: [UUID: ContinuousClock.Instant] = [:]
     private var remainingDurations: [UUID: Duration] = [:]
-    private(set) var isHovered = false
+    private var hoveredIDs: Set<UUID> = []
+    private var isApplicationActive = true
+    private let now: () -> ContinuousClock.Instant
+    private let sleep: (Duration) async throws -> Void
+
+    init(now: @escaping () -> ContinuousClock.Instant = { ContinuousClock().now },
+         sleep: @escaping (Duration) async throws -> Void = { try await Task.sleep(for: $0) }) {
+        self.now = now
+        self.sleep = sleep
+    }
 
     deinit {
         dismissalTasks.values.forEach { $0.cancel() }
@@ -38,39 +48,43 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         if activeNotifications.count > WorkbenchNotificationTiming.maximumVisibleCount {
             let removed = activeNotifications.removeFirst()
             cancelDismissal(for: removed.id)
+            // All current Lithe messages are timeline notifications. Like
+            // ActionCenterBalloonLayout, attach overflow to the oldest survivor.
+            activeNotifications[0].collapsedCount = min(removed.collapsedCount + 1,
+                notifications.count - activeNotifications.count)
         }
 
-        if isHovered {
-            remainingDurations[notification.id] = WorkbenchNotificationTiming.displayDuration
-        } else {
-            scheduleDismissal(
-                for: notification,
-                after: WorkbenchNotificationTiming.displayDuration
-            )
+        scheduleDismissal(for: notification, after: WorkbenchNotificationTiming.displayDuration)
+    }
+
+    func setHovered(_ id: UUID, isHovered: Bool) {
+        guard let notification = activeNotifications.first(where: { $0.id == id }),
+              hoveredIDs.contains(id) != isHovered else { return }
+        if isHovered { hoveredIDs.insert(id); pauseDismissal(id) }
+        else { hoveredIDs.remove(id); resumeDismissal(notification) }
+    }
+
+    func setApplicationActive(_ isActive: Bool) {
+        guard isApplicationActive != isActive else { return }
+        isApplicationActive = isActive
+        for notification in activeNotifications {
+            if isActive { resumeDismissal(notification) }
+            else { pauseDismissal(notification.id) }
         }
     }
 
-    func setHovered(_ isHovered: Bool) {
-        guard self.isHovered != isHovered else { return }
-        self.isHovered = isHovered
-
-        if isHovered {
-            let now = ContinuousClock().now
-            for notification in activeNotifications {
-                if let deadline = dismissalDeadlines.removeValue(forKey: notification.id) {
-                    remainingDurations[notification.id] = now < deadline
-                        ? now.duration(to: deadline)
-                        : .zero
-                }
-                dismissalTasks.removeValue(forKey: notification.id)?.cancel()
-            }
-        } else {
-            for notification in activeNotifications {
-                let remaining = remainingDurations.removeValue(forKey: notification.id)
-                    ?? WorkbenchNotificationTiming.displayDuration
-                scheduleDismissal(for: notification, after: remaining)
-            }
+    private func pauseDismissal(_ id: UUID) {
+        if let deadline = dismissalDeadlines.removeValue(forKey: id) {
+            let instant = now()
+            remainingDurations[id] = instant < deadline ? instant.duration(to: deadline) : .zero
         }
+        dismissalTasks.removeValue(forKey: id)?.cancel()
+    }
+
+    private func resumeDismissal(_ notification: WorkbenchNotification) {
+        guard isApplicationActive, !hoveredIDs.contains(notification.id),
+              let remaining = remainingDurations.removeValue(forKey: notification.id) else { return }
+        scheduleDismissal(for: notification, after: remaining)
     }
 
     func dismiss(_ id: UUID) {
@@ -87,12 +101,17 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
 
     func clear() {
         notifications.removeAll()
+        dismissAll()
+    }
+
+    /// Closing balloons never deletes the notification-center history.
+    func dismissAll() {
         activeNotifications.removeAll()
         dismissalTasks.values.forEach { $0.cancel() }
         dismissalTasks.removeAll()
         dismissalDeadlines.removeAll()
         remainingDurations.removeAll()
-        isHovered = false
+        hoveredIDs.removeAll()
     }
 
     private func scheduleDismissal(
@@ -100,16 +119,21 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         after duration: Duration
     ) {
         dismissalTasks[notification.id]?.cancel()
-        let deadline = ContinuousClock().now.advanced(by: duration)
+        guard isApplicationActive, !hoveredIDs.contains(notification.id) else {
+            remainingDurations[notification.id] = duration
+            return
+        }
+        let deadline = now().advanced(by: duration)
         dismissalDeadlines[notification.id] = deadline
+        let sleep = self.sleep
         dismissalTasks[notification.id] = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: duration)
+                try await sleep(duration)
             } catch {
                 return
             }
-            guard let self,
-                  !self.isHovered,
+            guard !Task.isCancelled, let self,
+                  self.isApplicationActive, !self.hoveredIDs.contains(notification.id),
                   self.dismissalDeadlines[notification.id] == deadline else {
                 return
             }
@@ -121,5 +145,6 @@ final class WorkbenchNotificationFeatureModel: ObservableObject {
         dismissalTasks.removeValue(forKey: id)?.cancel()
         dismissalDeadlines.removeValue(forKey: id)
         remainingDurations.removeValue(forKey: id)
+        hoveredIDs.remove(id)
     }
 }

@@ -174,12 +174,28 @@ private struct MonacoWorkbenchSurface: NSViewRepresentable {
 
 final class MonacoWorkbenchAssets: NSObject, WKURLSchemeHandler {
     let root: URL
-    init(root: URL) { self.root = root.standardizedFileURL.resolvingSymlinksInPath() }
+    let fontsRoot: URL?
+    init(root: URL, fontsRoot: URL? = Bundle.main.resourceURL?.appendingPathComponent("Fonts")) {
+        self.root = root.standardizedFileURL.resolvingSymlinksInPath()
+        self.fontsRoot = fontsRoot?.standardizedFileURL.resolvingSymlinksInPath()
+    }
     func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
         do {
             guard let url = task.request.url, url.scheme == "lithe-editor", url.host == "app" else { throw CocoaError(.fileReadNoPermission) }
-            let file = root.appendingPathComponent(url.path).standardizedFileURL.resolvingSymlinksInPath()
-            guard file.path.hasPrefix(root.path + "/") else { throw CocoaError(.fileReadNoPermission) }
+            // WebKit has its own process and cannot rely on CoreText's process-local registration.
+            // Serve the same signed, read-only font files without widening editor asset access.
+            let assetRoot: URL
+            let assetPath: String
+            if url.path.hasPrefix("/fonts/") {
+                guard let fontsRoot, url.pathExtension == "ttf" else { throw CocoaError(.fileReadNoPermission) }
+                assetRoot = fontsRoot
+                assetPath = String(url.path.dropFirst("/fonts/".count))
+            } else {
+                assetRoot = root
+                assetPath = url.path
+            }
+            let file = assetRoot.appendingPathComponent(assetPath).standardizedFileURL.resolvingSymlinksInPath()
+            guard file.path.hasPrefix(assetRoot.path + "/") else { throw CocoaError(.fileReadNoPermission) }
             let data = try Data(contentsOf: file)
             let types = ["html": "text/html", "js": "application/javascript", "css": "text/css", "ttf": "font/ttf"]
             task.didReceive(HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": types[file.pathExtension] ?? "application/octet-stream"])!)
@@ -225,6 +241,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     private var loadingInterval: LitheSignpost.State?
     private struct DocumentReference { weak var value: EditorDocument? }
     private var webView: WKWebView?
+    private let contextMenu = MonacoEditorContextMenu()
     private weak var model: AppModel?
     private var documentReferences: [String: DocumentReference] = [:]
     private var documents: [String: EditorDocument] { documentReferences.compactMapValues(\.value) }
@@ -309,10 +326,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
         guard let selected, let container = mounts[selected]?.container else {
             viewOwnerID = nil; latestUpdate = nil
             markdownScrollBinding = nil; markdownScrollID = nil; markdownScrollRevision = nil
+            contextMenu.dismiss()
             webView?.removeFromSuperview()
             return
         }
         if viewOwnerID != selected {
+            contextMenu.dismiss()
             let isPreview = mounts[selected]?.isPreview == true
             if isPreview && !currentMountIsPreview && ready { call("window.lithe.suspendMain()") }
             if !isPreview && currentMountIsPreview { needsMainRestore = true }
@@ -893,6 +912,16 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             }
             reply(["ok": true], nil); return
         }
+        if type == "contextMenu" {
+            guard !failed, let webView, webView.window != nil else { reply(["selected": NSNull()], nil); return }
+            do {
+                let request = try MonacoEditorContextMenu.Request.decode(body)
+                contextMenu.show(request, in: webView) { key, handled in
+                    reply(["selected": key as Any? ?? NSNull(), "handled": handled], nil)
+                }
+            } catch { reply(nil, "Invalid editor context menu") }
+            return
+        }
         if type == "failure" { fail(body["message"] as? String ?? "Editor failed"); reply(["ok": true], nil); return }
         // Import completion may arrive after its document has closed. The
         // notification still explains where the already saved asset went.
@@ -1390,6 +1419,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
 
     private func fail(_ message: String) {
         failed = true
+        contextMenu.dismiss()
         model?.showNotification("Editor: \(message)")
     }
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -1399,6 +1429,7 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error.localizedDescription) }
 
     isolated deinit {
+        contextMenu.dismiss()
         gitLoads.values.forEach { $0.cancel() }
         blameLoads.values.forEach { $0.cancel() }
         webView?.stopLoading()
