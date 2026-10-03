@@ -156,6 +156,8 @@ pub(super) fn inspect_root(root: &str) -> Result<GitCommitState, CoreError> {
             "diff",
             "--cached",
             "--name-only",
+            // Scope guards must inspect both the deletion and addition of a rename.
+            "--no-renames",
             "--ignore-submodules=none",
             "-z",
         ],
