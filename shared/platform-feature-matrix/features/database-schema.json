@@ -1,0 +1,22 @@
+{
+  "id": "database-schema",
+  "area": "数据库",
+  "group": "数据库工作区",
+  "capability": "Schema、表与列浏览",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/database"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Database",
+  "verification": "展开数据库、Schema、表和列，验证刷新、筛选和空结果展示。"
+}

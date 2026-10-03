@@ -1,0 +1,23 @@
+{
+  "id": "ai-chat-providers",
+  "area": "AI",
+  "group": "AI 对话",
+  "capability": "多 Provider 与工作区范围",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/AI"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/ai/services/providers",
+      "windows/tauri/src/features/ai/lib/ai-workspace-scope.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "AI",
+  "verification": "Windows 验证 Provider 切换、凭据边界、工作区范围和模型错误提示。"
+}

@@ -31,7 +31,7 @@ Lithe 把“如何解码当前编辑器文本”和“下一次写入磁盘使�
 3. 在 Windows `DocumentEncoding::codec` 和 `parse` 中添加 `encoding_rs` 映射及别名。
 4. 按能力过滤读取和保存菜单；只读或只写编码不能出现在不支持的操作中。
 5. 增加原始字节 fixture（见 `shared/fixtures/documents/encoding-explicit-reopen-v1.json`），覆盖显式错码读取、保存后字节、BOM 和不可表示字符错误。
-6. 增加 macOS、Windows 的目录一致性测试，并更新 `docs/development/platform-parity-matrix.md` 的验证场景。
+6. 增加 macOS、Windows 的目录一致性测试，并更新 `shared/platform-feature-matrix/features/` 中对应能力的验证场景。
 7. 如果编码会进入工作区会话，保持新旧字段的解码兼容；不要把读写状态重新合并成一个字段。
 
 平台适配器不得把编码转换复制到 SwiftUI、React 或 Monaco 层。编辑器只处理 Unicode 文本和编码目录描述，原生适配器负责字节边界、大小限制、身份指纹和原子写入。自动识别仍然严格拒绝无法验证的字节，避免把 GBK 误判成 UTF-8；文件监听先比较原始字节指纹，再使用当前读取编码解码；用户主动重新打开必须执行显式解码，并允许替换字符表达选错编码的结果。

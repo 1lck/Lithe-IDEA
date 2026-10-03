@@ -1,0 +1,28 @@
+{
+  "id": "java-maven-profiles-dependencies",
+  "area": "Java",
+  "group": "Java/Maven",
+  "capability": "Profile 与依赖树",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Run",
+      "macos/Sources/Lithe/Services/Java",
+      "macos/Sources/LitheExecutionModule/Services/MavenService.swift",
+      "macos/Sources/Lithe/Platform/MacOS/Persistence/MacMavenDependencyOutputStore.swift",
+      "rust/lithe-core/src/project/maven_dependency_tree.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/maven",
+      "windows/tauri/src-tauri/src/maven.rs",
+      "rust/lithe-core/src/project/maven_dependency_tree.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Java / Maven",
+  "verification": "切换 Maven profile 并刷新依赖树，确认模块归属、顺序、版本冲突/重复/依赖管理标注和错误边界；在依赖节点超过 6,000 个的项目中确认依赖树完整加载。 Windows 在 Maven 面板展开「依赖项」应直接加载依赖树，失败时显示宿主返回的真实原因，而不是通用的“无法加载 Maven 依赖”（#970）。"
+}

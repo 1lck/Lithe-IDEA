@@ -6,6 +6,11 @@ import { installHappyDom } from "@/test-utils/happy-dom";
 import type { EditorContent } from "@/features/panes/types/pane-content.types";
 import { isImageFile, isKnownTextFile } from "@/features/file-system/controllers/file-utils";
 
+// Bun module mocks outlive this file, so keep a copy of the real locale module and put it
+// back in afterAll; otherwise later files in the same run render with this stub. Import it
+// before the DOM is installed because its store graph calls the Tauri window API when a
+// window exists. The buffer store cannot be captured this way for the same reason.
+const realLocaleProviderModule = { ...(await import("@/i18n/locale-provider")) };
 const restoreDom = installHappyDom();
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 const previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
@@ -69,6 +74,7 @@ afterEach(async () => {
   store.setState({ buffers: [buffer] });
 });
 afterAll(() => {
+  mock.module("@/i18n/locale-provider", () => realLocaleProviderModule);
   actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
   globalThis.ResizeObserver = previousResizeObserver;
   globalThis.DOMRect = previousDOMRect;

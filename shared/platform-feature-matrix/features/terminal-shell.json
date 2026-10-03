@@ -1,0 +1,27 @@
+{
+  "id": "terminal-shell",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "Shell 发现与配置",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Terminal",
+      "macos/Sources/Lithe/Views/App/SettingsView.swift",
+      "macos/Sources/Lithe/Services"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal",
+      "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
+      "windows/tauri/src/features/settings/lib/default-shell-options.ts",
+      "windows/tauri/src-tauri"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "验证设置页默认 Shell 选项与终端「新建终端」菜单检测到的 Shell 一致、可选 Git Bash 并生效，以及环境变量、工作目录和不可用 Shell 的提示。"
+}

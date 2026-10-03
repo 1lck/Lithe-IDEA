@@ -1,0 +1,22 @@
+{
+  "id": "git-branches-remotes",
+  "area": "版本控制",
+  "group": "Git",
+  "capability": "分支、标签与远程",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/git"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Git",
+  "verification": "创建、切换、合并分支并查看标签和远程，确认冲突与认证失败可恢复。"
+}

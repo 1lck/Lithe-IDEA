@@ -29,6 +29,6 @@ struct AgentFileReferenceList: View {
             .padding(.horizontal, 8)
         }
         .scrollIndicators(.hidden)
-        .frame(height: 34)
+        .frame(height: AgentComposerMetrics.fileHeight)
     }
 }

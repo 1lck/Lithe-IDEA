@@ -1,0 +1,24 @@
+{
+  "id": "file-explorer",
+  "area": "工作区",
+  "group": "项目浏览",
+  "capability": "项目文件树与资源打开",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace/ProjectSidebarView.swift",
+      "macos/Sources/Lithe/Models/Workspace"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/file-explorer",
+      "windows/tauri/src/features/sidebar"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "浏览目录、展开/折叠、打开资源并在文件变更后刷新树。"
+}

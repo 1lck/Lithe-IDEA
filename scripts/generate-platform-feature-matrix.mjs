@@ -1,14 +1,25 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
-const sourcePath = resolve(root, "shared/platform-feature-matrix.json");
-const outputPath = resolve(root, "docs/development/platform-parity-matrix.md");
-const csvOutputPath = resolve(root, "docs/development/platform-parity-matrix.csv");
+const sourcePath = resolve(root, "shared/platform-feature-matrix");
+const outputIndex = process.argv.indexOf("--output-dir");
+if (outputIndex !== -1 && !process.argv[outputIndex + 1]) throw new Error("--output-dir requires a path");
+const outputDir = resolve(root, outputIndex === -1 ? ".artifacts/platform-feature-matrix" : process.argv[outputIndex + 1]);
+const outputPath = resolve(outputDir, "platform-parity-matrix.md");
+const csvOutputPath = resolve(outputDir, "platform-parity-matrix.csv");
 const checkOnly = process.argv.includes("--check");
-const source = JSON.parse(readFileSync(sourcePath, "utf8"));
+const source = JSON.parse(readFileSync(resolve(sourcePath, "metadata.json"), "utf8"));
+if (source.schemaVersion !== 4 || Object.hasOwn(source, "features")) throw new Error("expected split matrix schema version 4");
+const featureDir = resolve(sourcePath, "features");
+source.features = readdirSync(featureDir).sort().map((name) => {
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*\.json$/.test(name)) throw new Error(`invalid feature filename: ${name}`);
+  const feature = JSON.parse(readFileSync(resolve(featureDir, name), "utf8"));
+  if (`${feature.id}.json` !== name) throw new Error(`feature ID must match filename: ${name}`);
+  return feature;
+});
 const statusDefinitions = source.statusDefinitions;
 const implementationDefinitions = statusDefinitions?.implementation;
 const verificationDefinitions = statusDefinitions?.verification;
@@ -95,7 +106,7 @@ const areaSections = areaGroups.flatMap(({ area, features: areaFeatures }) => [
 const markdown = [
   "# macOS / Windows 功能对齐矩阵",
   "",
-  "> 本页由 `shared/platform-feature-matrix.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。",
+  "> 本页由 `shared/platform-feature-matrix/features/*.json` 自动生成。不要直接编辑本文件；新增或变更功能时更新源数据，再运行 `node scripts/generate-platform-feature-matrix.mjs`。",
   "",
   `- 最后复核：${source.lastReviewed}`,
   `- 盘点状态：${source.review.status}（${source.review.method}）`,
@@ -148,15 +159,24 @@ const csvRows = features.map((feature) => [
 ]);
 const csv = [csvHeader, ...csvRows].map((row) => row.map(escapeCsv).join(",")).join("\n") + "\n";
 
+// Escape every source string: PR-controlled capability text must remain inert in published HTML.
+const escapeHtml = (value) => value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+const renderPlatformHtml = (entry) => `<strong>${escapeHtml(implementationDefinitions[entry.implementationStatus].label)}</strong><br>${escapeHtml(verificationDefinitions[entry.verificationStatus].label)}<details><summary>证据路径</summary><pre>${escapeHtml(entry.evidence.join("\n"))}</pre></details>`;
+const html = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lithe 功能矩阵</title>
+<style>body{font:16px system-ui;margin:2rem;line-height:1.6}table{border-collapse:collapse;width:100%}th,td{border:1px solid #888;padding:.5rem;text-align:left;vertical-align:top}pre{white-space:pre-wrap;overflow-wrap:anywhere}td{min-width:8rem}small{overflow-wrap:anywhere}.table{overflow-x:auto}</style>
+<h1>Lithe 功能矩阵</h1><p>数据版本：${escapeHtml(process.env.GITHUB_SHA ?? "本地工作树")}</p>
+<p><a href="platform-parity-matrix.md">Markdown</a> · <a href="platform-parity-matrix.csv">CSV</a> · <a href="platform-feature-matrix.json">JSON</a></p>
+<p>macOS：${escapeHtml(renderCounts("macos"))}</p><p>Windows：${escapeHtml(renderCounts("windows"))}</p>
+<p>实现状态与运行验证相互独立；代码存在不代表已通过实机验收。</p>
+<div class="table"><table><thead><tr><th>分类</th><th>能力</th><th>macOS</th><th>Windows</th><th>负责人</th><th>验证方式 / 备注</th></tr></thead>
+<tbody>${features.map((feature) => `<tr><td>${escapeHtml(feature.area)} / ${escapeHtml(feature.group)}</td><td>${escapeHtml(feature.capability)}<br><small>${escapeHtml(feature.id)}</small></td><td>${renderPlatformHtml(feature.macos)}</td><td>${renderPlatformHtml(feature.windows)}</td><td>${escapeHtml(feature.owner)}</td><td>${escapeHtml(feature.verification)}<br>${escapeHtml(feature.notes ?? "")}</td></tr>`).join("\n")}</tbody></table></div></html>\n`;
 if (checkOnly) {
-  const existingMarkdown = readFileSync(outputPath, "utf8");
-  const existingCsv = readFileSync(csvOutputPath, "utf8");
-  if (existingMarkdown !== markdown) throw new Error(`generated Markdown is stale: ${outputPath}`);
-  if (existingCsv !== csv) throw new Error(`generated CSV is stale: ${csvOutputPath}`);
-  console.log("platform feature matrix is up to date");
+  console.log(`validated ${features.length} platform capabilities`);
 } else {
+  mkdirSync(outputDir, { recursive: true });
   writeFileSync(outputPath, markdown);
   writeFileSync(csvOutputPath, csv);
-  console.log(`generated ${outputPath}`);
-  console.log(`generated ${csvOutputPath}`);
+  writeFileSync(resolve(outputDir, "platform-feature-matrix.json"), JSON.stringify(source, null, 2) + "\n");
+  writeFileSync(resolve(outputDir, "index.html"), html);
+  console.log(`generated matrix views in ${outputDir}`);
 }

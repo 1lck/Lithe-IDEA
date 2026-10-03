@@ -325,6 +325,10 @@ fn serialized_events_match_the_shared_fixture() {
         "toolCallUpdate",
         "sessionInfo",
         "usageUpdate",
+        "agentThoughtChunk",
+        "plan",
+        "availableCommands",
+        "currentModeUpdate",
     ] {
         let update = &events[name]["update"];
         let parsed: agent_client_protocol::schema::v1::SessionUpdate =

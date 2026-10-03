@@ -1,0 +1,23 @@
+{
+  "id": "ai-chat-history",
+  "area": "AI",
+  "group": "AI 对话",
+  "capability": "对话历史、置顶与归档",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Platform/MacOS/AI"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/ai/services/ai-chat-history-service.ts",
+      "windows/tauri/src/features/layout/components/sidebar/sidebar-history.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "AI",
+  "verification": "Windows 验证历史加载、重命名、置顶、归档、删除和重启后持久化。"
+}

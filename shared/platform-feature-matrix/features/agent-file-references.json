@@ -1,0 +1,28 @@
+{
+  "id": "agent-file-references",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "从 Finder 或项目树拖入文件到 Agent 输入框，文件选择器、可移除标签、多文件去重和数量限制、文件引用随消息发送及失败保留草稿",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Agent/AgentComposerView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentFileReferenceList.swift",
+      "macos/Sources/LitheAgentConversationModule/Application/AgentFileReference.swift",
+      "macos/Tests/LitheTests/AgentFileReferenceTests.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "rust/lithe-agent-host/src/tests.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "rust/lithe-agent-host/src/prompt.rs",
+      "shared/fixtures/agent/acp-events-v1.json"
+    ],
+    "implementationStatus": "partial",
+    "verificationStatus": "pending"
+  },
+  "owner": "Agent",
+  "verification": "macOS：从 Finder、项目树拖入临时文件（多文件、中文/空格名）到输入区与上下文栏，检查高亮和可移除标签、去重、数量限制、会话切换和发送失败保留草稿；用隔离项目验证文字+文件与纯文件发送、历史加载后引用正确送到原会话、Agent 读取与权限流程。图片按文件引用处理，无多模态上传。Windows 原生拖放和 Claude 端到端待验证。"
+}

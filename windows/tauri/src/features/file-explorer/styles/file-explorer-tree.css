@@ -123,6 +123,12 @@
   height: 12px;
 }
 
+/* IntelliJ chevrons are drawn at their native 16px with a 1px stroke. */
+.file-tree-container .file-tree-row [data-sidebar-tree-disclosure][data-variant="idea"] svg {
+  width: 16px;
+  height: 16px;
+}
+
 .file-tree-container .file-tree-node-icon {
   width: var(--file-tree-icon-size) !important;
   height: var(--file-tree-icon-size) !important;

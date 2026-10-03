@@ -1,0 +1,22 @@
+{
+  "id": "terminal-interaction",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "复制粘贴、搜索与调整大小",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Terminal"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/terminal"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "验证复制粘贴、终端搜索、调整面板大小和高频输入不丢失。"
+}

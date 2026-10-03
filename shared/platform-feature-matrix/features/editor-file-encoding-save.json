@@ -1,0 +1,27 @@
+{
+  "area": "编辑器",
+  "group": "文本编辑",
+  "owner": "Editor",
+  "id": "editor-file-encoding-save",
+  "capability": "按指定编码保存文本文件",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchView.swift",
+      "macos/Sources/Lithe/Views/Editor/StandaloneEditorView.swift",
+      "macos/Sources/Lithe/Application/Features/DocumentFeatureModel.swift",
+      "macos/Sources/Lithe/Platform/MacOS/FileSystem/MacDocumentEncoding.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/command-palette/components/encoding-picker.tsx",
+      "windows/tauri/src/features/editor/stores/editor-app.store.ts",
+      "windows/tauri/crates/project/src/document_file.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "verification": "在 macOS 和 Windows 实机验证 UTF-8、UTF-8 BOM 与 GBK/GB18030 的自动识别，并分别验证 Shift JIS、Windows-1252 的指定编码重新打开、编码转换保存、脏文件选择和外部修改保护。"
+}

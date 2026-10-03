@@ -1,0 +1,29 @@
+{
+  "id": "agent-reasoning-display",
+  "area": "AI",
+  "group": "Agent 对话",
+  "capability": "Agent 上报的思考内容（ACP agent_thought_chunk）显示为独立的可折叠思考块，流式输出时展开、回复或工具到达后收起，不并入回复正文，导出 Markdown 时以引用块保留",
+  "macos": {
+    "evidence": [
+      "macos/Sources/LitheAgentConversationModule/Application/AgentConnectionModel.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentSessionGuidanceViews.swift",
+      "macos/Tests/LitheTests/AgentThoughtTranscriptTests.swift",
+      "macos/Tests/LitheTests/AgentConversationFeatureModelTests.swift",
+      "shared/fixtures/agent/acp-events-v1.json",
+      "macos/Tests/LitheTests/AgentConversationPresentationTests.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTranscriptView.swift",
+      "macos/Sources/Lithe/Views/Agent/AgentTurnStatisticsView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features"
+    ],
+    "implementationStatus": "missing",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Agent",
+  "verification": "macOS：使用会上报思考内容的 Agent 与思考强度发送需要推理的问题，确认思考块在流式输出时展开显示“思考中…”，底部等待行显示“回复中…”并保留本轮计时，回复或工具调用到达后自动收起为“思考过程”，手动展开后保持；搜索不匹配的文字使思考行消失后，清空搜索仍恢复手动展开状态，切换会话不串用偏好、关闭会话后释放偏好；思考与回复交替时顺序正确且文本不混合；手动收起思考块后搜索其内容，命中时仍展开，搜索期间保持可见，清空搜索后恢复手动折叠状态；加载历史会话后思考块与实时流一致；导出 Markdown 中思考以引用块出现，历史消息数不计思考。在窄宽面板及深浅主题检查长文本换行与可读性。Windows Agent 对话 UI 尚未实现。"
+}

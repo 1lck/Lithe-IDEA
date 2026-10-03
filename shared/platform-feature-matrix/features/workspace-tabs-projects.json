@@ -1,0 +1,27 @@
+{
+  "id": "workspace-tabs-projects",
+  "area": "工作区",
+  "group": "工作区生命周期",
+  "capability": "多项目与多标签",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Workspace",
+      "macos/Sources/Lithe/Views/Editor"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/workspace",
+      "windows/tauri/src/features/tabs",
+      "windows/tauri/src-tauri/src/project_windows.rs",
+      "windows/tauri/src-tauri/src/project_window_registry.rs",
+      "windows/tauri/src/features/window/services/project-window-router.ts"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Workspace",
+  "verification": "同时打开多个项目和文件，确认标签、项目上下文和关闭恢复行为。 Windows 重复打开同一本地目录（含大小写、分隔符和目录链接别名）时，恢复并聚焦已有窗口及项目标签；连续打开只产生一个窗口，关闭或打开失败后可以重试。"
+}

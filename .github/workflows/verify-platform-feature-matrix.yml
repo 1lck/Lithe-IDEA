@@ -2,9 +2,11 @@ name: Verify Platform Feature Matrix
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches:
       - main
+      - preview
   workflow_dispatch:
 
 permissions:
@@ -18,6 +20,7 @@ jobs:
   verify:
     name: Verify and publish matrix views
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -29,7 +32,10 @@ jobs:
         with:
           node-version: 20
 
-      - name: Verify source data and generated views
+      - name: Test matrix tooling
+        run: node --test scripts/test-platform-feature-matrix.mjs
+
+      - name: Verify source data
         run: ./scripts/verify-platform-feature-matrix.sh
 
       - name: Require matrix updates for platform changes
@@ -40,30 +46,20 @@ jobs:
           MATRIX_UPDATE_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'matrix-exempt') }}
         run: ./scripts/verify-platform-feature-matrix-change.sh
 
-      - name: Add matrix links to job summary
-        env:
-          REPOSITORY: ${{ github.repository }}
-          REVISION: ${{ github.sha }}
-          SERVER_URL: ${{ github.server_url }}
-        shell: bash
-        run: |
-          {
-            echo "### Platform feature matrix"
-            echo ""
-            echo "The committed views are available from this revision:"
-            echo "- [Markdown view](${SERVER_URL}/${REPOSITORY}/blob/${REVISION}/docs/development/platform-parity-matrix.md)"
-            echo "- [CSV view / download](${SERVER_URL}/${REPOSITORY}/raw/${REVISION}/docs/development/platform-parity-matrix.csv)"
-            echo ""
-            echo "The same files are attached as a downloadable workflow artifact."
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Generate matrix views
+        run: node scripts/generate-platform-feature-matrix.mjs
 
       - name: Upload matrix views
+        id: matrix
         uses: actions/upload-artifact@v4
         with:
           name: platform-feature-matrix-${{ github.run_id }}
-          path: |
-            shared/platform-feature-matrix.json
-            docs/development/platform-parity-matrix.md
-            docs/development/platform-parity-matrix.csv
+          path: .artifacts/platform-feature-matrix/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Add matrix links to job summary
+        env:
+          ARTIFACT_URL: ${{ steps.matrix.outputs.artifact-url }}
+        run: |
+          echo "Download the matrix for this revision: [HTML, Markdown, CSV and JSON](${ARTIFACT_URL})" >> "$GITHUB_STEP_SUMMARY"

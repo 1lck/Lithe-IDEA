@@ -14,6 +14,7 @@ import {
   GearIcon,
   MinusIcon,
   PlayIcon,
+  RunToolWindowIcon,
   StopIcon,
   TrashIcon,
   WarningIcon,
@@ -33,7 +34,7 @@ import {
 } from "../utils/run-configuration";
 import { RunServicesMenu } from "./run-services-menu";
 import { RunConfigurationListSplit } from "./run-configuration-list-split";
-import { JavaCupIcon, RunIcon } from "./run-icon";
+import { JavaCupIcon } from "./run-icon";
 import { RunOutputText } from "./run-output-text";
 import { JavaLaunchDecisionBanner } from "./java-launch-decision";
 import { useMavenStore } from "@/features/maven/stores/maven.store";
@@ -204,7 +205,7 @@ export default function RunPane() {
         </div>
       ) : null}
       <div className="flex h-(--lithe-pane-header-height) shrink-0 items-center gap-2 border-border/70 border-b px-3">
-        <RunIcon className="size-4 text-subtle-foreground" />
+        <RunToolWindowIcon className="size-4 text-subtle-foreground" />
         <div className="min-w-0 flex-1 truncate font-medium ui-text-sm">
           {t("run.title")} {projectName}
         </div>
@@ -338,7 +339,7 @@ export default function RunPane() {
 
       {status !== "ready" ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
-          <RunIcon className="size-8 text-subtle-foreground" />
+          <RunToolWindowIcon className="size-8 text-subtle-foreground" />
           <div className="font-medium">{status === "missing" ? t("run.missingTitle") : t("run.invalidTitle")}</div>
           <div className="max-w-md text-subtle-foreground ui-text-sm">
             {status === "missing" ? t("run.missingMessage") : invalidMessage}

@@ -1,0 +1,22 @@
+{
+  "id": "github-reviews-comments",
+  "area": "协作",
+  "group": "GitHub",
+  "capability": "Review 与评论",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/GitHub"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/github"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "GitHub",
+  "verification": "创建、查看和回复 Review/评论，确认权限错误和网络失败不会丢失草稿。"
+}

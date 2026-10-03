@@ -1,0 +1,22 @@
+{
+  "id": "references-pane",
+  "area": "编辑器",
+  "group": "代码结构",
+  "capability": "引用结果面板与引用跳转",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Language/JavaReferencesView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/references"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Language Tooling",
+  "verification": "从符号发起引用查询，验证结果分组、文件定位、关闭和重新查询。"
+}

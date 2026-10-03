@@ -1,0 +1,25 @@
+{
+  "id": "diagnostics-workspace",
+  "area": "可观测性",
+  "group": "诊断与日志",
+  "capability": "工作区诊断与问题面板",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Application/Features/DiagnosticsFeatureModel.swift",
+      "macos/Sources/Lithe/Views/Language/JavaProblemsView.swift"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/features/diagnostics",
+      "windows/tauri/src/features/logging",
+      "windows/tauri/src/ui/dialog.tsx"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Diagnostics",
+  "verification": "制造多个来源的错误和警告，验证筛选、排序、定位和清除。"
+}

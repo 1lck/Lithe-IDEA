@@ -257,6 +257,53 @@ struct PluginPackageStoreTests {
     }
 
     @Test
+    func officialPublisherPackageCannotDowngradeSignatureRequirement() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("lithe-php-plugin-policy-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let verifier = TestPluginSignatureVerifier()
+        let store = MacPluginPackageStore(
+            rootURL: root.appendingPathComponent("installed", isDirectory: true),
+            verifier: verifier
+        )
+        let package = try makePHPPluginPackage(
+            root: root,
+            name: "downgraded-policy",
+            version: BuiltInPluginCatalog.hostVersion
+        )
+        let manifestURL = package.appendingPathComponent("plugin.json")
+        let decoder = JSONDecoder()
+        let manifest = try decoder.decode(
+            PluginManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        let downgradedManifest = PluginManifest(
+            id: manifest.id,
+            displayName: manifest.displayName,
+            version: manifest.version,
+            hostCompatibility: manifest.hostCompatibility,
+            vendor: PluginVendor(
+                id: manifest.vendor.id,
+                displayName: manifest.vendor.displayName,
+                signatureRequirement: .sameTeamAsHost
+            ),
+            entrypoint: manifest.entrypoint,
+            modules: manifest.modules,
+            languageSupports: manifest.languageSupports ?? []
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(downgradedManifest).write(to: manifestURL, options: .atomic)
+
+        #expect(throws: PluginPackageStoreError.officialSignatureRequirementMismatch(
+            OfficialPluginCatalog.phpPluginID
+        )) {
+            _ = try store.installPackage(from: package)
+        }
+        #expect(verifier.verifiedVersions.isEmpty)
+    }
+
+    @Test
     func requiredPluginCannotBeUninstalled() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)

@@ -123,6 +123,13 @@ Swift 单元、插件和数据库 CI 通道复用已有 Cargo 下载缓存；包
 
 ### 独立工作树的本地编译
 
+功能矩阵生成物 `.artifacts/platform-feature-matrix/`（CI Pages 使用
+`<runner-temp>/lithe-agent-notes-site/platform-feature-matrix/`）不允许跨工作树复用。
+它依赖当前 checkout 的能力记录、证据路径及提交信息，没有可靠的版本、平台、
+架构或工具链 identity stamp；任何复制阶段都应排除。资源清单的
+`excludedResources.platform-feature-matrix` 由复用脚本直接拒绝。目标工作树运行
+`node scripts/generate-platform-feature-matrix.mjs`，校验源数据后重新生成。
+
 IDE MCP helper 由 `scripts/build-ide-mcp.sh`（macOS）和
 `scripts/build-windows-ide-mcp.mjs`（Windows Tauri 构建前）从当前源码与
 `rust/Cargo.lock` 构建。`dist/ide-mcp/`、`rust/target/windows-ide-mcp/` 和
@@ -171,6 +178,13 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `.swift-version` 和 `.lithe-integrity.json` 校验。
 - `.artifacts/bun-cache/`：Bun 下载缓存；按 `bun.lock`、Bun 版本和缓存完整性
   清单校验。
+  Windows 的每次依赖安装在独立 worker 中执行；worker 在启动 Bun 前加入
+  Job Object（Windows 用于管理整棵子进程树的对象），退出时终止残留安装脚本。
+  每次安装默认有 300 秒本地期限，超时终止 worker 及其子进程；
+  安装失败后先释放子进程，再清理部分依赖与缓存，并只进行一次冷安装重试；
+  文件锁释放有 10 秒本地期限。`node_modules`、两个 workspace 的依赖目录和
+  `.artifacts/bun-tmp` 是安装过程的可变状态，不跨 worktree 复制；进程句柄只在
+  worker 内存中存活，不增加下载目录，不写发行资源，也不影响签名或增量更新。
 - `.artifacts/jdtls-downloads/`：JDTLS、Lombok、Java Debug/Test 和 license。
 - `.artifacts/jdk-downloads/`：各平台与架构的 bundled JDK 下载归档。
 - `.artifacts/php-language-server-downloads/`：按
@@ -206,7 +220,7 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   identity stamp，任何复制阶段都禁止共享。资源清单 `jdt-maven-settings` 显式排除，
   复用脚本直接拒绝该资源，不进入下载或生成物校验路由。
 
-PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端用内置公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 包，指定 PHP 包 ID 的构建会失败，不会留下缺少签名文档的目录。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
+PHP 插件包在 `.build/<triple>/<configuration>/OfficialPlugins` 中独立构建，绑定宿主 API、Swift 工具链、架构和签名，通过 `LitheOfficialPluginVerifier` 验证；发布配置还要求 repository secret `LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`，由 `LithePluginPackageSigner` 对完整包生成 `lithe-plugin-signature.json`，客户端按宿主内置官方插件策略和 publisher 公钥验证后才允许安装。该 secret 的值是与客户端内置公钥匹配的 base64 编码 32 字节 Ed25519 私钥，可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 配置；私钥文件和 shell 历史都不得进入仓库或日志。没有该 key 时，普通 debug 全量构建会跳过 PHP 包，指定 PHP 包 ID 的构建会失败，不会留下缺少签名文档的目录。无可靠 identity stamp，不跨工作树复制。插件安装后的 Intelephense 位于
 `<app-support>/Lithe/Plugins/<plugin-id>/versions/<version>/PhpSupport.bundle/Contents/Resources/LanguageServers/php`，由插件版本目录拥有，重装、回滚和卸载随插件一起处理，不是工作树构建缓存。PHPUnit 测试夹具的 `shared/fixtures/phpunit-project/vendor` 也由当前工作树独立安装。以上项目在资源清单 `excludedResources` 中明确排除，复用脚本会拒绝显式复制请求。
 
 如果后续新增可复用资源，必须同步更新注册表、校验器、脚本测试和本节说明。

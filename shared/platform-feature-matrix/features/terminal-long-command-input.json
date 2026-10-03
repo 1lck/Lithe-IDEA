@@ -1,0 +1,24 @@
+{
+  "id": "terminal-long-command-input",
+  "area": "工作台",
+  "group": "终端",
+  "capability": "Windows Shell 超长命令输入",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Terminal"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/crates/terminal/src/connection.rs",
+      "windows/tauri/src-tauri/src/terminal.rs"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "owner": "Terminal",
+  "verification": "在 Windows cmd.exe 和 PowerShell 中执行超过 Shell 单行限制的 IDE 多行命令，确认脚本执行、原始命令内容和终端关闭后的临时文件清理。",
+  "notes": "仅在 IDE 后端为 cmd.exe/PowerShell 的超长多行文本创建一次性脚本；不修改系统 Shell 配置。"
+}

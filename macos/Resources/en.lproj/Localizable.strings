@@ -1154,6 +1154,8 @@
 "Search models" = "Search models";
 "No matching models" = "No matching models";
 "Thinking level" = "Thinking level";
+"Responding…" = "Responding…";
+"Plan %lld/%lld" = "Plan %lld/%lld";
 "Speed" = "Speed";
 "Fast" = "Fast";
 "Approval mode" = "Approval mode";

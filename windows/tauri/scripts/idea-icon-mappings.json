@@ -332,7 +332,7 @@
     },
     {
       "icon": "FilesIcon",
-      "source": "expui/general/listFiles.svg"
+      "source": "expui/toolwindows/project.svg"
     },
     {
       "icon": "FlipHorizontalIcon",
@@ -396,8 +396,7 @@
     },
     {
       "icon": "GitGraphIcon",
-      "source": null,
-      "note": "no confident IntelliJ platform asset; lucide fallback"
+      "source": "expui/toolwindows/vcs.svg"
     },
     {
       "icon": "GitMergeIcon",
@@ -530,6 +529,10 @@
       "note": "no confident IntelliJ platform asset; lucide fallback"
     },
     {
+      "icon": "MenuIcon",
+      "source": "expui/general/menu.svg"
+    },
+    {
       "icon": "MicrophoneIcon",
       "source": null,
       "note": "no confident IntelliJ platform asset; lucide fallback"
@@ -643,6 +646,10 @@
       "source": "expui/general/add.svg"
     },
     {
+      "icon": "ProblemsToolWindowIcon",
+      "source": "expui/toolwindows/problems.svg"
+    },
+    {
       "icon": "PulseIcon",
       "source": null,
       "note": "no confident IntelliJ platform asset; lucide fallback"
@@ -692,6 +699,10 @@
       "icon": "RowsPlusTopIcon",
       "source": null,
       "note": "no confident IntelliJ platform asset; lucide fallback"
+    },
+    {
+      "icon": "RunToolWindowIcon",
+      "source": "expui/toolwindows/run.svg"
     },
     {
       "icon": "ScissorsIcon",
@@ -780,8 +791,9 @@
     },
     {
       "icon": "TerminalWindowIcon",
-      "source": null,
-      "note": "no confident IntelliJ platform asset; lucide fallback"
+      "source": "../../jewel/samples/showcase/src/main/resources/icons/terminal.svg",
+      "destination": "expui/toolwindows/terminal.svg",
+      "note": "IDEA terminal tool window glyph; only present under Jewel showcase resources in the community checkout"
     },
     {
       "icon": "TextAaIcon",
