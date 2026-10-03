@@ -5,6 +5,58 @@ import Testing
 
 struct PluginPackageStoreTests {
     @Test
+    func externalAdHocPluginRequiresExplicitOptInAndAdHocManifest() {
+        #expect(MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            isOptedIn: true,
+            signatureRequirement: .adHocAllowed,
+            pluginTeamIdentifier: nil,
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: true
+        ))
+        #expect(!MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            isOptedIn: false,
+            signatureRequirement: .adHocAllowed,
+            pluginTeamIdentifier: nil,
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: true
+        ))
+        #expect(!MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            isOptedIn: true,
+            signatureRequirement: .sameTeamAsHost,
+            pluginTeamIdentifier: nil,
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: true
+        ))
+        #expect(!MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            isOptedIn: true,
+            signatureRequirement: .adHocAllowed,
+            pluginTeamIdentifier: nil,
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: false
+        ))
+        #expect(!MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: OfficialPluginCatalog.phpPluginID,
+            isOptedIn: true,
+            signatureRequirement: .adHocAllowed,
+            pluginTeamIdentifier: "PLUGINTEAM",
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: true
+        ))
+        #expect(!MacOfficialPluginSignatureVerifier.allowsAdHocExternalPlugin(
+            pluginID: PluginID("dev.example.plugin.untrusted"),
+            isOptedIn: true,
+            signatureRequirement: .adHocAllowed,
+            pluginTeamIdentifier: nil,
+            hostTeamIdentifier: nil,
+            pluginBundleIsExternal: true
+        ))
+    }
+
+    @Test
     func bundledOfficialPluginIsVisibleWithoutAUserInstallation() throws {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("lithe-plugin-store-\(UUID().uuidString)", isDirectory: true)

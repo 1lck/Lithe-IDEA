@@ -511,6 +511,34 @@ final class MacPluginPackageStore {
 }
 
 struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
+    private let allowsAdHocExternalPluginPackages: Bool
+
+    init(allowsAdHocExternalPluginPackages: Bool? = nil) {
+        if let allowsAdHocExternalPluginPackages {
+            self.allowsAdHocExternalPluginPackages = allowsAdHocExternalPluginPackages
+        } else {
+            self.allowsAdHocExternalPluginPackages = Bundle.main.object(
+                forInfoDictionaryKey: "LitheAllowAdHocExternalPlugins"
+            ) as? Bool ?? false
+        }
+    }
+
+    static func allowsAdHocExternalPlugin(
+        pluginID: PluginID,
+        isOptedIn: Bool,
+        signatureRequirement: PluginSignatureRequirement,
+        pluginTeamIdentifier: String?,
+        hostTeamIdentifier: String?,
+        pluginBundleIsExternal: Bool
+    ) -> Bool {
+        pluginID == OfficialPluginCatalog.phpPluginID
+            && isOptedIn
+            && signatureRequirement == .adHocAllowed
+            && pluginTeamIdentifier == nil
+            && hostTeamIdentifier == nil
+            && pluginBundleIsExternal
+    }
+
     func verify(packageAt packageURL: URL, manifest: PluginManifest) throws {
         guard manifest.entrypoint.kind == .nativeBundle else {
             throw PluginPackageStoreError.unsupportedEntrypoint(manifest.id)
@@ -534,13 +562,25 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         }
         let pluginTeam = try teamIdentifier(for: pluginCode)
         let hostTeam = try teamIdentifier(for: hostCode)
+        let hostBundlePath = Bundle.main.bundleURL.standardizedFileURL.path + "/"
         if let pluginTeam, let hostTeam {
             guard pluginTeam == hostTeam else {
                 throw PluginPackageStoreError.signingTeamMismatch
             }
             return
         }
-        let hostBundlePath = Bundle.main.bundleURL.standardizedFileURL.path + "/"
+
+        if Self.allowsAdHocExternalPlugin(
+            pluginID: manifest.id,
+            isOptedIn: allowsAdHocExternalPluginPackages,
+            signatureRequirement: manifest.vendor.signatureRequirement,
+            pluginTeamIdentifier: pluginTeam,
+            hostTeamIdentifier: hostTeam,
+            pluginBundleIsExternal: !pluginBundleURL.path.hasPrefix(hostBundlePath)
+        ) {
+            return
+        }
+
         guard pluginTeam == nil,
               hostTeam == nil,
               pluginBundleURL.path.hasPrefix(hostBundlePath) else {

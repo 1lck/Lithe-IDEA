@@ -11,7 +11,7 @@
   "vendor": {
     "id": "dev.lithe",
     "displayName": "Lithe",
-    "signatureRequirement": "sameTeamAsHost"
+    "signatureRequirement": "adHocAllowed"
   },
   "entrypoint": {
     "kind": "nativeBundle",

@@ -10,6 +10,11 @@ on:
         description: "Semantic version to release, for example 0.1.0"
         required: true
         type: string
+      allow_adhoc_external_plugins:
+        description: "Allow ad-hoc signed external PHP plugin packages (preview only)"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -127,11 +132,15 @@ jobs:
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          LITHE_ALLOW_ADHOC_EXTERNAL_PLUGINS: ${{ inputs.allow_adhoc_external_plugins == true && '1' || '0' }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
           ./scripts/package-app.sh
-          if [[ -n "${LITHE_CODESIGN_IDENTITY:-}" ]]; then
-            plugin_root=$(LITHE_CODESIGN_IDENTITY="$LITHE_CODESIGN_IDENTITY" \
+          if [[ -n "${LITHE_CODESIGN_IDENTITY:-}" || "${LITHE_ALLOW_ADHOC_EXTERNAL_PLUGINS:-0}" == "1" ]]; then
+            if [[ -z "${LITHE_CODESIGN_IDENTITY:-}" ]]; then
+              echo "WARNING: building an ad-hoc signed external PHP plugin preview package."
+            fi
+            plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
               scripts/build-official-plugins.sh \
               --configuration release \
               --triple "${LITHE_ARCH}-apple-macosx" \

@@ -165,6 +165,12 @@ else
 fi
 
 cp "$INFO_PLIST" "$APP_DIR/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Delete :LitheAllowAdHocExternalPlugins" \
+    "$APP_DIR/Contents/Info.plist" 2>/dev/null || true
+if [[ "${LITHE_ALLOW_ADHOC_EXTERNAL_PLUGINS:-0}" == "1" ]]; then
+    /usr/libexec/PlistBuddy -c "Add :LitheAllowAdHocExternalPlugins bool true" \
+        "$APP_DIR/Contents/Info.plist"
+fi
 zsh "$ROOT_DIR/scripts/embed-sparkle.sh" "$APP_DIR"
 zsh "$ROOT_DIR/scripts/configure-sparkle-app.sh" "$APP_DIR/Contents/Info.plist" "$ARCH"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP_DIR/Contents/Info.plist"
