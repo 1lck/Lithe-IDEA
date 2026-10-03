@@ -29,5 +29,5 @@
     "verificationStatus": "pending"
   },
   "owner": "PHP Support",
-  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
+  "verification": "macOS 在干净安装上打开插件管理，确认可从当前发行渠道下载并安装 PHP、失败时可从磁盘导入；安装后重启，在 LSP 界面只控制当前项目开关和状态，验证重装、卸载均在重启后生效且用户工具保留。对官方 PHP 包将 plugin.json 的 signatureRequirement 从 publisherPackage 篡改为 sameTeamAsHost，确认 MacPluginPackageStore 在调用包 verifier 前按宿主 OfficialPluginCatalog 拒绝策略降级；删除或篡改 lithe-plugin-signature.json、manifest、版本或任意签名覆盖文件时也必须拒绝；用 preview key/channel 签名的包必须被 stable 客户端拒绝，反向同样拒绝。Windows 从独立 .lithe-extension 文件导入，默认禁用；启用后重启确认能恢复，卸载后重启确认不恢复。"
 }

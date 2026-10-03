@@ -73,7 +73,7 @@ PHP 支持由用户选择安装和启用，主程序不携带 PHP 插件包、No
 - `MacRuntimeToolDiscoveryTests`：验证启用的 PHP 插件版本目录优先提供 Intelephense launcher。
 - `PluginPackageStoreTests/reinstallCanReplaceTheActiveVersionOnlyAfterValidation`：验证重装不会绕过签名校验，并在校验完成后替换当前版本。
 - `prepare-php-language-server.sh`：按 JSON 清单下载、校验并组装 Intelephense 运行包；插件版本目录删除时一并删除 launcher 和缓存文件。
-- `.github/workflows/release-macos.yml` 和 `.github/workflows/release-preview-macos.yml`：每个架构都发布 PHP 插件 zip；`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY` 缺失或不匹配时工作流失败，避免发布无法被客户端识别的包。
+- `.github/workflows/release-macos.yml` 和 `.github/workflows/release-preview-macos.yml`：每个架构都发布 PHP 插件 zip；stable / preview 分别使用 `LITHE_PLUGIN_PACKAGE_STABLE_PRIVATE_KEY` 与 `LITHE_PLUGIN_PACKAGE_PREVIEW_PRIVATE_KEY`，preview 公钥由 `LITHE_PLUGIN_PACKAGE_PREVIEW_PUBLIC_KEY` 注入客户端；签名绑定 channel，任一渠道密钥缺失、不匹配或跨渠道使用都会失败。
 - `./scripts/test-macos.sh --filter LithePhpSupportModuleTests`：模块、路径与禁用清理测试。
 - `LITHE_RUN_PHP_INTEGRATION=1 ./scripts/test-macos.sh --filter RealPhpIntegrationTests`：真实工具测试；先在 `shared/fixtures/phpunit-project` 执行 `composer install`，并提供 Node.js 与插件组装出的 Intelephense launcher。
 - Windows 前端测试包含禁用时不扫描、Composer 数组、下载取消、在途启动后禁用及跨工作区进程隔离。Windows native 测试与实际应用启动必须在 Windows 环境执行；Linux 交叉编译不等于运行验收。

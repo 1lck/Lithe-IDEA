@@ -7,17 +7,25 @@ import Foundation
 /// Apple's code-signing identity. Native bundle validation remains required so
 /// malformed or unsigned bundles cannot be loaded.
 public enum PluginPackageSignature {
-    public static let schemaVersion = 1
+    public static let schemaVersion = 2
     public static let algorithm = "ed25519"
-    public static let keyID = "lithe-official-plugins-v1"
-    /// Base64-encoded public key trusted for official separately distributed plugins.
-    public static let publisherPublicKeyBase64 = "5g83oIZu4TjOQr5g9KJcrNd2pgdXyEnvhJIXtrPoPyw="
     public static let signatureFileName = "lithe-plugin-signature.json"
+    public static let stablePublisherPublicKeyBase64 = "5g83oIZu4TjOQr5g9KJcrNd2pgdXyEnvhJIXtrPoPyw="
+
+    public enum Channel: String, Codable, Sendable {
+        case stable
+        case preview
+    }
+
+    public static func keyID(for channel: Channel) -> String {
+        "lithe-official-plugins-\(channel.rawValue)-v1"
+    }
 
     public struct Document: Codable, Equatable, Sendable {
         public let schemaVersion: Int
         public let algorithm: String
         public let keyID: String
+        public let channel: Channel
         public let pluginID: String
         public let pluginVersion: String
         public let files: [String: String]
@@ -26,7 +34,8 @@ public enum PluginPackageSignature {
         public init(
             schemaVersion: Int = PluginPackageSignature.schemaVersion,
             algorithm: String = PluginPackageSignature.algorithm,
-            keyID: String = PluginPackageSignature.keyID,
+            channel: Channel,
+            keyID: String? = nil,
             pluginID: String,
             pluginVersion: String,
             files: [String: String],
@@ -34,7 +43,8 @@ public enum PluginPackageSignature {
         ) {
             self.schemaVersion = schemaVersion
             self.algorithm = algorithm
-            self.keyID = keyID
+            self.channel = channel
+            self.keyID = keyID ?? PluginPackageSignature.keyID(for: channel)
             self.pluginID = pluginID
             self.pluginVersion = pluginVersion
             self.files = files
@@ -81,6 +91,7 @@ public enum PluginPackageSignature {
         packageAt packageURL: URL,
         pluginID: String,
         pluginVersion: String,
+        channel: Channel,
         privateKey: Curve25519.Signing.PrivateKey,
         fileManager: FileManager = .default
     ) throws -> Document {
@@ -91,9 +102,11 @@ public enum PluginPackageSignature {
         let payload = canonicalPayload(
             pluginID: pluginID,
             pluginVersion: pluginVersion,
+            channel: channel,
             files: files
         )
         return Document(
+            channel: channel,
             pluginID: pluginID,
             pluginVersion: pluginVersion,
             files: files,
@@ -105,13 +118,15 @@ public enum PluginPackageSignature {
         packageAt packageURL: URL,
         pluginID: String,
         pluginVersion: String,
+        expectedChannel: Channel,
         document: Document,
         publicKey: Curve25519.Signing.PublicKey,
         fileManager: FileManager = .default
     ) throws {
         guard document.schemaVersion == schemaVersion,
               document.algorithm == algorithm,
-              document.keyID == keyID,
+              document.channel == expectedChannel,
+              document.keyID == keyID(for: expectedChannel),
               document.pluginID == pluginID,
               document.pluginVersion == pluginVersion,
               let signature = Data(base64Encoded: document.signature),
@@ -135,6 +150,7 @@ public enum PluginPackageSignature {
         let payload = canonicalPayload(
             pluginID: document.pluginID,
             pluginVersion: document.pluginVersion,
+            channel: document.channel,
             files: document.files
         )
         guard publicKey.isValidSignature(signature, for: payload) else {
@@ -217,12 +233,14 @@ public enum PluginPackageSignature {
     private static func canonicalPayload(
         pluginID: String,
         pluginVersion: String,
+        channel: Channel,
         files: [String: String]
     ) -> Data {
         var lines = [
             "schemaVersion=\(schemaVersion)",
             "algorithm=\(algorithm)",
-            "keyID=\(keyID)",
+            "keyID=\(keyID(for: channel))",
+            "channel=\(channel.rawValue)",
             "pluginID=\(token(pluginID))",
             "pluginVersion=\(token(pluginVersion))"
         ]

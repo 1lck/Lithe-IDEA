@@ -124,14 +124,24 @@ jobs:
         timeout-minutes: 35
         env:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
-          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
           LITHE_ARCH: ${{ matrix.architecture }}
           LITHE_VERSION: ${{ needs.prepare.outputs.version }}
           LITHE_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
         run: |
           test -n "$LITHE_SPARKLE_PUBLIC_KEY" || { echo "Configure SPARKLE_PUBLIC_KEY before releasing"; exit 1; }
-          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_PRIVATE_KEY before releasing"; exit 1; }
           ./scripts/package-app.sh
+          ./scripts/create-dmg.sh
+          dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
+          (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
+
+      - name: Build signed stable PHP plugin archive
+        env:
+          LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_STABLE_PRIVATE_KEY }}
+          LITHE_PLUGIN_PACKAGE_CHANNEL: stable
+          LITHE_ARCH: ${{ matrix.architecture }}
+          LITHE_VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          test -n "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" || { echo "Configure LITHE_PLUGIN_PACKAGE_STABLE_PRIVATE_KEY before releasing"; exit 1; }
           plugin_root=$(LITHE_CODESIGN_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}" \
             scripts/build-official-plugins.sh \
             --configuration release \
@@ -141,9 +151,6 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             "$plugin_root/dev.lithe.plugin.php-support" \
             "dist/Lithe-PHP-Support-${LITHE_VERSION}-${LITHE_ARCH}.zip"
-          ./scripts/create-dmg.sh
-          dmg_name="Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg"
-          (cd dist && shasum -a 256 "$dmg_name" > "$dmg_name.sha256")
 
       - name: Verify the bundle and disk image
         env:

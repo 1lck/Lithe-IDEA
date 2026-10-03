@@ -40,11 +40,15 @@ PHP Support 作为独立 GitHub Release asset 发布，不再把“能否使用 
 出现自引用。Lithe 内置 `lithe-official-plugins-v1` 公钥，安装时先验证原生 bundle，
 再验证完整包清单、插件 ID 和版本，任一文件被替换都会拒绝安装。
 
-stable 和 preview 工作流都必须配置同一 repository secret
-`LITHE_PLUGIN_PACKAGE_PRIVATE_KEY`。它是与客户端内置公钥匹配的 base64 编码 32 字节
-Ed25519 私钥；可用 `gh secret set LITHE_PLUGIN_PACKAGE_PRIVATE_KEY --repo 1lck/Lithe-IDEA < /secure/path/lithe-plugin-package-private-key.base64` 写入 GitHub，私钥只在构建 runner 的标准输入中使用，不能写入
-仓库、release asset 或日志。公钥轮换需要先发布能识别新 key ID 的客户端，再更新
-secret 并重新生成包，不能只替换 GitHub secret。
+stable 和 preview 使用独立 publisher 信任根。Stable 客户端内置
+`lithe-official-plugins-stable-v1` 公钥；stable workflow 只读取
+`LITHE_PLUGIN_PACKAGE_STABLE_PRIVATE_KEY`。Preview 客户端由公开仓库变量
+`LITHE_PLUGIN_PACKAGE_PREVIEW_PUBLIC_KEY` 注入 preview 公钥，preview workflow 只读取
+`LITHE_PLUGIN_PACKAGE_PREVIEW_PRIVATE_KEY`。签名文档把 `stable` / `preview` channel 和
+对应 key ID 一并纳入 Ed25519 payload，因此跨渠道复制合法签名包也会被拒绝。两个私钥
+都只注入独立插件签名 step，并通过 signer 标准输入使用，不暴露给 app、Sparkle、Rust、
+Node/Bun 或 DMG 构建子进程。公钥轮换必须先发布信任新 key ID / public key 的对应渠道
+客户端，再更新该渠道 secret；不能用 preview 私钥替代 stable 私钥。
 
 ### 全量与差分双轨发布
 

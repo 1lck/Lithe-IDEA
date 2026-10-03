@@ -15,6 +15,7 @@ struct PluginPackageSignatureTests {
             packageAt: root,
             pluginID: "dev.example.plugin",
             pluginVersion: "0.3.0",
+            channel: .stable,
             privateKey: privateKey
         )
         try PluginPackageSignature.write(document, to: root)
@@ -23,6 +24,7 @@ struct PluginPackageSignatureTests {
             packageAt: root,
             pluginID: "dev.example.plugin",
             pluginVersion: "0.3.0",
+            expectedChannel: .stable,
             document: document,
             publicKey: privateKey.publicKey
         )
@@ -39,6 +41,7 @@ struct PluginPackageSignatureTests {
             packageAt: root,
             pluginID: "dev.example.plugin",
             pluginVersion: "0.3.0",
+            channel: .stable,
             privateKey: privateKey
         )
         try PluginPackageSignature.write(document, to: root)
@@ -60,6 +63,34 @@ struct PluginPackageSignatureTests {
     }
 
     @Test
+    func packageSignedForOneChannelIsRejectedByTheOtherChannel() throws {
+        let root = try makePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let privateKey = try #require(
+            try? Curve25519.Signing.PrivateKey(rawRepresentation: Data(repeating: 4, count: 32))
+        )
+        let document = try PluginPackageSignature.makeDocument(
+            packageAt: root,
+            pluginID: "dev.example.plugin",
+            pluginVersion: "0.3.0",
+            channel: .preview,
+            privateKey: privateKey
+        )
+        try PluginPackageSignature.write(document, to: root)
+
+        #expect(throws: PluginPackageSignature.Error.invalidDocument) {
+            try PluginPackageSignature.verify(
+                packageAt: root,
+                pluginID: "dev.example.plugin",
+                pluginVersion: "0.3.0",
+                expectedChannel: .stable,
+                document: document,
+                publicKey: privateKey.publicKey
+            )
+        }
+    }
+
+    @Test
     func addingAFileAfterSigningIsRejected() throws {
         let root = try makePackage()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -70,6 +101,7 @@ struct PluginPackageSignatureTests {
             packageAt: root,
             pluginID: "dev.example.plugin",
             pluginVersion: "0.3.0",
+            channel: .stable,
             privateKey: privateKey
         )
         try PluginPackageSignature.write(document, to: root)

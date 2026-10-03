@@ -592,7 +592,22 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
         } catch {
             throw PluginPackageStoreError.invalidPackageSignature("The signature document could not be decoded.")
         }
-        guard let publicKeyData = Data(base64Encoded: PluginPackageSignature.publisherPublicKeyBase64),
+        let channel: PluginPackageSignature.Channel = {
+            let value = Bundle.main.object(forInfoDictionaryKey: "LitheUpdateChannel") as? String
+            return value == PluginPackageSignature.Channel.preview.rawValue ? .preview : .stable
+        }()
+        let publicKeyBase64: String
+        switch channel {
+        case .stable:
+            publicKeyBase64 = PluginPackageSignature.stablePublisherPublicKeyBase64
+        case .preview:
+            guard let value = Bundle.main.object(forInfoDictionaryKey: "LithePluginPackagePublicKey") as? String,
+                  !value.isEmpty else {
+                throw PluginPackageStoreError.invalidPackageSignature("The preview publisher public key is missing.")
+            }
+            publicKeyBase64 = value
+        }
+        guard let publicKeyData = Data(base64Encoded: publicKeyBase64),
               let publicKey = try? Curve25519.Signing.PublicKey(rawRepresentation: publicKeyData) else {
             throw PluginPackageStoreError.invalidPackageSignature("The embedded public key is invalid.")
         }
@@ -601,6 +616,7 @@ struct MacOfficialPluginSignatureVerifier: PluginPackageSignatureVerifying {
                 packageAt: packageURL,
                 pluginID: manifest.id.rawValue,
                 pluginVersion: manifest.version.description,
+                expectedChannel: channel,
                 document: document,
                 publicKey: publicKey
             )

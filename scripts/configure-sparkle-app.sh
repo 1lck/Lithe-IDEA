@@ -17,6 +17,10 @@ fi
 /usr/libexec/PlistBuddy -c "Add :LitheUpdateChannel string $channel" "$plist"
 /usr/libexec/PlistBuddy -c "Add :SUDefaultsDomain string app.lithe.desktop.sparkle.$channel" "$plist"
 /usr/libexec/PlistBuddy -c "Add :LitheUpdateReleaseURL string $release_url" "$plist"
+if [[ "$channel" == preview ]]; then
+    : "${LITHE_PLUGIN_PACKAGE_PUBLIC_KEY:?Preview builds require LITHE_PLUGIN_PACKAGE_PUBLIC_KEY}"
+    /usr/libexec/PlistBuddy -c "Add :LithePluginPackagePublicKey string $LITHE_PLUGIN_PACKAGE_PUBLIC_KEY" "$plist"
+fi
 if [[ -n "${LITHE_SPARKLE_PUBLIC_KEY:-}" ]]; then
     [[ "$architecture" == arm64 || "$architecture" == x86_64 ]] || { print -u2 -- "Sparkle feeds require an architecture-specific app"; exit 1; }
     /usr/libexec/PlistBuddy -c "Add :SUPublicEDKey string $LITHE_SPARKLE_PUBLIC_KEY" "$plist"

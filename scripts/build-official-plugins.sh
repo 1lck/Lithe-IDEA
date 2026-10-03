@@ -8,6 +8,7 @@ TRIPLE=""
 OUTPUT_DIR=""
 SIGNING_IDENTITY="${LITHE_CODESIGN_IDENTITY:--}"
 PLUGIN_ID=""
+PLUGIN_CHANNEL="${LITHE_PLUGIN_PACKAGE_CHANNEL:-${LITHE_UPDATE_CHANNEL:-stable}}"
 BUNDLED_ONLY=false
 
 while [[ $# -gt 0 ]]; do
@@ -24,6 +25,14 @@ done
 if [[ "$CONFIGURATION" != "debug" && "$CONFIGURATION" != "release" ]]; then
     print -u2 -- "Unsupported configuration: $CONFIGURATION"
     exit 2
+fi
+if [[ "$PLUGIN_CHANNEL" != "stable" && "$PLUGIN_CHANNEL" != "preview" ]]; then
+    print -u2 -- "Unsupported plugin package channel: $PLUGIN_CHANNEL"
+    exit 2
+fi
+if [[ "$PLUGIN_CHANNEL" == "preview" && -z "${LITHE_PLUGIN_PACKAGE_PUBLIC_KEY:-}" ]]; then
+    print -u2 -- "Preview plugin packages require LITHE_PLUGIN_PACKAGE_PUBLIC_KEY"
+    exit 1
 fi
 case "$TRIPLE" in
     arm64-apple-macosx) TARGET="arm64-apple-macosx13.0" ;;
@@ -147,8 +156,9 @@ for plugin_source in "$ROOT_DIR"/Plugins/mac/Official/*(/N); do
                 exit 1
             }
         fi
-        print -rn -- "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" | "$signer_binary" "$package_dir"
-        "$signer_binary" --verify "$package_dir"
+        print -rn -- "$LITHE_PLUGIN_PACKAGE_PRIVATE_KEY" | \
+            "$signer_binary" --channel "$PLUGIN_CHANNEL" "$package_dir"
+        "$signer_binary" --verify --channel "$PLUGIN_CHANNEL" "$package_dir"
     fi
 done
 
