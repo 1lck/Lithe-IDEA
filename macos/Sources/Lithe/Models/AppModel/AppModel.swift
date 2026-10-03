@@ -1401,9 +1401,9 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         Task { await gitFeature.finishToggleStaging(change, staged: staged) }
     }
 
-    func setStaging(_ changes: [GitChange], staged: Bool) {
+    func setStaging(_ changes: [GitChange], staged: Bool, includeWorkingTreeChanges: Bool = false) {
         guard let gitFeature = gitFeatureIfActive else { return }
-        let pendingChanges = gitFeature.beginSetStaging(changes, staged: staged)
+        let pendingChanges = gitFeature.beginSetStaging(changes, staged: staged, includeWorkingTreeChanges: includeWorkingTreeChanges)
         Task { await gitFeature.finishSetStaging(pendingChanges, staged: staged) }
     }
 
