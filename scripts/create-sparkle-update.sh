@@ -39,7 +39,7 @@ else
 fi
 while IFS=$'\t' read -r tag name; do
     [[ -n "$tag" ]] || continue
-    gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "$name" --dir "$archives"
+    node scripts/download-sparkle-baseline.mjs "$GITHUB_REPOSITORY" "$tag" "$name" "$archives"
 done < "$temporary/baselines"
 
 if [[ "$channel" == stable ]]; then

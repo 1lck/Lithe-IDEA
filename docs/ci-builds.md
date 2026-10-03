@@ -193,6 +193,16 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
 
 以下目录不应直接复制或跨工作树共享：
 
+- Sparkle 差分基线的单次发布临时目录：
+  `<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/` 保存每次 `gh`
+  下载尝试，只有命令成功且文件非空才移入同次发布的 `archives/<selected-baseline>.zip`。
+  输入由 GitHub Release 中选定的仓库、tag、stable/preview 渠道和 macOS 架构决定；
+  成功下载不是可复用的版本、平台、架构或工具链 identity stamp，也不替代后续
+  Sparkle 归档、签名与 appcast 校验。失败或取消时先结束所属下载进程，再删除
+  该次 staging；发布脚本退出时删除整个系统临时目录，不写已安装 app。
+  `excludedResources.sparkle-baseline-staging` 经排除路由直接拒绝，任何复制阶段
+  都不得跨工作树复用；每次发布仍从选定的 GitHub Release 下载基线。
+
 - Java 启动临时文件：`<system-temp>/lithe-run/launch-<pid>-<counter>.argfile`
   和同目录的 `.classpath.jar` 由平台启动 adapter 为单次执行独占创建，包含该次
   执行的绝对类路径、工作目录、JDK 版本及编码语义，没有可复用的版本、平台、架构
