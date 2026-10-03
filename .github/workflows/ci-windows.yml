@@ -309,7 +309,7 @@ jobs:
         shell: pwsh
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
-          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

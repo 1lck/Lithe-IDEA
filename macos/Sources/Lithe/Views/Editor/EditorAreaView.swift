@@ -102,8 +102,9 @@ struct EditorAreaView: View {
         ZStack(alignment: .top) {
             Group {
                 if model.workbenchFeature.selectedSidebar == .database {
-                    if model.isDatabaseModuleActive {
+                    if let feature = model.databaseFeatureIfActive {
                         DatabaseWorkspaceView()
+                            .environmentObject(feature)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     } else {
                         ProgressView()

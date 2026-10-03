@@ -17,6 +17,7 @@ private struct DatabaseTableContextAction {
 
 struct DatabaseSidebarView: View {
     @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var showsConnectionEditor = false
     @State private var editingProfile: DatabaseProfile?
     @State private var connectionEditorPresentationID = UUID()
@@ -71,24 +72,24 @@ struct DatabaseSidebarView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5))
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Connections").font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
-                    Text("Connections: \(model.databaseFeature.profiles.count)")
+                    Text("Connections: \(feature.profiles.count)")
                         .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.tertiaryText)
                 }
                 Spacer()
-                if let selected = model.databaseFeature.selectedProfile,
+                if let selected = feature.selectedProfile,
                    selected.kind == .mysql || selected.kind == .mariadb {
                     LitheMenu {
                         LitheContextMenuItem.action("Refresh databases") {
-                            Task { await model.databaseFeature.refreshDatabases() }
+                            Task { await feature.refreshDatabases() }
                         }
                         LitheContextMenuItem.separator
-                        if model.databaseFeature.databaseOptions.isEmpty {
+                        if feature.databaseOptions.isEmpty {
                             LitheContextMenuItem.heading("No databases loaded")
                         } else {
-                            for database in model.databaseFeature.databaseOptions {
+                            for database in feature.databaseOptions {
                                 LitheContextMenuItem.action(database, checked: selected.database == database) {
-                                    Task { await model.databaseFeature.selectDatabase(database, for: selected) }
+                                    Task { await feature.selectDatabase(database, for: selected) }
                                 }
                             }
                         }
@@ -109,7 +110,7 @@ struct DatabaseSidebarView: View {
                 Button { refreshSelectedConnection() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
                     .litheIconButton()
                     .help("Refresh connection structure")
-                    .disabled(model.databaseFeature.selectedProfile == nil)
+                    .disabled(feature.selectedProfile == nil)
                 LitheSidebarHideButton(title: "Database") {
                     model.workbenchFeature.hideSidebar()
                 }
@@ -187,7 +188,7 @@ struct DatabaseSidebarView: View {
 
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 1) {
-                    if model.databaseFeature.profiles.isEmpty && model.databaseFeature.folders.isEmpty {
+                    if feature.profiles.isEmpty && feature.folders.isEmpty {
                         emptyConnections
                     } else {
                         connectionTree
@@ -196,8 +197,8 @@ struct DatabaseSidebarView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(5)
             }
-            if model.databaseFeature.isLoading { ProgressView().controlSize(.small).padding(8) }
-            if let error = model.databaseFeature.errorMessage {
+            if feature.isLoading { ProgressView().controlSize(.small).padding(8) }
+            if let error = feature.errorMessage {
                 DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.error).padding(8).lineLimit(4)
             }
         }
@@ -221,7 +222,7 @@ struct DatabaseSidebarView: View {
         }
         .alert("Remove folder?", isPresented: $showsFolderDeletionConfirmation, presenting: folderPendingDeletion) { folder in
             Button("Remove Folder", role: .destructive) {
-                model.databaseFeature.removeFolder(folder)
+                feature.removeFolder(folder)
                 folderPendingDeletion = nil
             }
             Button("Cancel", role: .cancel) { folderPendingDeletion = nil }
@@ -230,7 +231,7 @@ struct DatabaseSidebarView: View {
         }
         .alert("Remove connection?", isPresented: $showsProfileDeletionConfirmation, presenting: profilePendingDeletion) { profile in
             Button("Remove Connection", role: .destructive) {
-                model.databaseFeature.remove(profile)
+                feature.remove(profile)
                 profilePendingDeletion = nil
             }
             Button("Cancel", role: .cancel) { profilePendingDeletion = nil }
@@ -247,8 +248,8 @@ struct DatabaseSidebarView: View {
             Button("Clear Current Redis DB", role: .destructive) {
                 pendingRedisProfile = nil
                 Task {
-                    if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-                    _ = await model.databaseFeature.flushRedisDatabase(confirmed: true)
+                    if feature.selectedProfileID != profile.id { await feature.select(profile) }
+                    _ = await feature.flushRedisDatabase(confirmed: true)
                 }
             }
             Button("Cancel", role: .cancel) { pendingRedisProfile = nil }
@@ -262,8 +263,8 @@ struct DatabaseSidebarView: View {
             Text("Restoring a SQL backup or importing into a protected connection can modify database data. A recovery snapshot will be created first.")
         }
         .fileExporter(isPresented: $showsExporter, document: exportDocument, contentType: exportFormat.contentType, defaultFilename: exportFilename) { result in
-            if case let .failure(error) = result { model.databaseFeature.errorMessage = error.localizedDescription }
-            if let temporaryExportURL { model.databaseFeature.removeTemporaryFile(temporaryExportURL) }
+            if case let .failure(error) = result { feature.errorMessage = error.localizedDescription }
+            if let temporaryExportURL { feature.removeTemporaryFile(temporaryExportURL) }
             temporaryExportURL = nil; exportDocument = nil
         }
         .fileImporter(isPresented: $showsImporter, allowedContentTypes: [importFormat.contentType]) { result in
@@ -272,7 +273,7 @@ struct DatabaseSidebarView: View {
         .fileImporter(isPresented: $showsDBXImporter, allowedContentTypes: [.json]) { result in
             importDBXFile(result)
         }
-        .onChange(of: model.databaseFeature.selectedProfileID) { selectedID in
+        .onChange(of: feature.selectedProfileID) { selectedID in
             if let selectedID { expandedProfileIDs = [selectedID] }
         }
     }
@@ -282,10 +283,10 @@ struct DatabaseSidebarView: View {
             let url = try result.get()
             let accessed = url.startAccessingSecurityScopedResource()
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            dbxImportData = try model.databaseFeature.readImportData(from: url)
+            dbxImportData = try feature.readImportData(from: url)
             showsDBXImportSheet = true
         } catch {
-            model.databaseFeature.errorMessage = error.localizedDescription
+            feature.errorMessage = error.localizedDescription
         }
     }
 
@@ -323,7 +324,7 @@ struct DatabaseSidebarView: View {
     @ViewBuilder
     private var connectionTree: some View {
         let rootProfiles = unfiledProfiles
-        let hasVisibleFolders = model.databaseFeature.folders.contains { folder in
+        let hasVisibleFolders = feature.folders.contains { folder in
             isFolderVisible(folder)
         }
 
@@ -338,7 +339,7 @@ struct DatabaseSidebarView: View {
                 .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .textCase(.uppercase)
-                .padding(.top, model.databaseFeature.folders.isEmpty ? 3 : 9)
+                .padding(.top, feature.folders.isEmpty ? 3 : 9)
                 .padding(.horizontal, 9)
                 .dropDestination(for: String.self) { items, _ in
                     moveDroppedProfile(items, to: nil)
@@ -360,7 +361,7 @@ struct DatabaseSidebarView: View {
             .foregroundStyle(LitheTheme.tertiaryText)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 20)
-        } else if model.databaseFeature.profiles.isEmpty {
+        } else if feature.profiles.isEmpty {
             VStack(spacing: 6) {
                 Image(systemName: "cylinder.split.1x2")
                     .font(LitheTheme.uiFont(size: 13, weight: .medium))
@@ -466,7 +467,7 @@ struct DatabaseSidebarView: View {
 
     private func profileRow(_ profile: DatabaseProfile, indent: CGFloat = 0) -> some View {
         let isExpanded = expandedProfileIDs.contains(profile.id)
-        let isSelected = model.databaseFeature.selectedProfileID == profile.id
+        let isSelected = feature.selectedProfileID == profile.id
 
         return VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 0) {
@@ -584,14 +585,14 @@ struct DatabaseSidebarView: View {
                 title: "Redis database",
                 detail: profile.database.isEmpty ? "0" : profile.database,
                 symbol: "square.stack.3d.up",
-                count: model.databaseFeature.redisKeys.count,
+                count: feature.redisKeys.count,
                 indent: indent
             )
             .litheContextMenu { redisDatabaseContextMenu(profile) }
         } else {
-            sidebarLeaf(title: "Configurations", symbol: "doc.text", count: model.databaseFeature.nacosConfigs.count, indent: indent)
+            sidebarLeaf(title: "Configurations", symbol: "doc.text", count: feature.nacosConfigs.count, indent: indent)
                 .litheContextMenu { nacosContextMenu(profile) }
-            sidebarLeaf(title: "Services", symbol: "network", count: model.databaseFeature.nacosServices.count, indent: indent)
+            sidebarLeaf(title: "Services", symbol: "network", count: feature.nacosServices.count, indent: indent)
                 .litheContextMenu { nacosContextMenu(profile) }
         }
     }
@@ -599,14 +600,14 @@ struct DatabaseSidebarView: View {
     @ViewBuilder
     private func databaseObjects(for profile: DatabaseProfile, indent: CGFloat) -> some View {
         if profile.kind.supportsDataGrid {
-            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", count: model.databaseFeature.tables.count, indent: indent)
+            objectSectionHeader(kind: .tables, title: profile.kind == .mongodb ? "Collections" : "Tables", count: feature.tables.count, indent: indent)
                 .litheContextMenu {
                     var items: [LitheContextMenuItem] = []
                     if profile.kind == .mongodb { items.append(.action("Refresh Collections", action: { refresh(profile) })) }
                     else { items.append(contentsOf: tableGroupContextMenu(profile)) }
                     return items
                 }
-            if !collapsedObjectKinds.contains(.tables), model.databaseFeature.tables.isEmpty && !model.databaseFeature.isLoading {
+            if !collapsedObjectKinds.contains(.tables), feature.tables.isEmpty && !feature.isLoading {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(profile.kind == .mongodb ? "No collections yet" : "No tables yet")
                         .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
@@ -624,13 +625,13 @@ struct DatabaseSidebarView: View {
                 .padding(.top, 6)
             }
             if !collapsedObjectKinds.contains(.tables) {
-                ForEach(model.databaseFeature.tables, id: \.self) { table in
+                ForEach(feature.tables, id: \.self) { table in
                     let tableKey = "\(profile.id.uuidString)|\(table)"
                     let isExpanded = expandedTableKey == tableKey
                     Button {
                         expandedTableKey = isExpanded ? nil : tableKey
-                        model.databaseFeature.selectedTable = table
-                        Task { await model.databaseFeature.openTable(table) }
+                        feature.selectedTable = table
+                        Task { await feature.openTable(table) }
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
@@ -655,7 +656,7 @@ struct DatabaseSidebarView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                     .lithePointer()
-                    .litheRowHover(isActive: model.databaseFeature.selectedTable == table)
+                    .litheRowHover(isActive: feature.selectedTable == table)
                     .litheContextMenu {
                         var items: [LitheContextMenuItem] = []
                         if profile.kind == .mongodb { items.append(contentsOf: mongoCollectionContextMenu(profile, collection: table)) }
@@ -663,8 +664,8 @@ struct DatabaseSidebarView: View {
                         return items
                     }
 
-                    if isExpanded, model.databaseFeature.selectedTable == table {
-                        if model.databaseFeature.isLoading {
+                    if isExpanded, feature.selectedTable == table {
+                        if feature.isLoading {
                             HStack(spacing: 7) {
                                 ProgressView().controlSize(.mini)
                                 Text("Loading table metadata…")
@@ -674,17 +675,17 @@ struct DatabaseSidebarView: View {
                             .padding(.leading, indent + 48)
                             .frame(height: 24)
                         } else {
-                            sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "list.bullet.indent", count: model.databaseFeature.columns.count, indent: indent + 36, tint: LitheTheme.success)
-                            sidebarLeaf(title: "Indexes", symbol: "key", count: model.databaseFeature.indexes.count, indent: indent + 36, tint: LitheTheme.warning)
+                            sidebarLeaf(title: profile.kind == .mongodb ? "Fields" : "Columns", symbol: "list.bullet.indent", count: feature.columns.count, indent: indent + 36, tint: LitheTheme.success)
+                            sidebarLeaf(title: "Indexes", symbol: "key", count: feature.indexes.count, indent: indent + 36, tint: LitheTheme.warning)
                             if profile.kind != .mongodb {
-                                sidebarLeaf(title: "Foreign Keys", symbol: "link", count: model.databaseFeature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
+                                sidebarLeaf(title: "Foreign Keys", symbol: "link", count: feature.foreignKeys.count, indent: indent + 36, tint: LitheTheme.accent)
                             }
                         }
                     }
                 }
             }
             ForEach(profile.kind == .mongodb ? [] : DatabaseObjectKind.allCases.filter { $0 != .tables }, id: \.self) { kind in
-                let entries = model.databaseFeature.objects[kind] ?? []
+                let entries = feature.objects[kind] ?? []
                 if !entries.isEmpty {
                     DisclosureGroup {
                         ForEach(Array(entries.enumerated()), id: \.offset) { _, row in
@@ -785,29 +786,29 @@ struct DatabaseSidebarView: View {
 
     private func moveDroppedProfile(_ items: [String], to folderID: UUID?) -> Bool {
         guard let rawID = items.first, let profileID = UUID(uuidString: rawID),
-              let profile = model.databaseFeature.profiles.first(where: { $0.id == profileID }) else {
+              let profile = feature.profiles.first(where: { $0.id == profileID }) else {
             return false
         }
-        model.databaseFeature.move(profile, toFolder: folderID)
+        feature.move(profile, toFolder: folderID)
         targetedFolderID = nil
         isUnfiledDropTarget = false
         return true
     }
 
     private var rootFolders: [DatabaseConnectionFolder] {
-        model.databaseFeature.folders.filter { $0.parentID == nil }
+        feature.folders.filter { $0.parentID == nil }
     }
 
     private func childFolders(of folder: DatabaseConnectionFolder) -> [DatabaseConnectionFolder] {
-        model.databaseFeature.folders.filter { $0.parentID == folder.id }
+        feature.folders.filter { $0.parentID == folder.id }
     }
 
     private func connectionContextMenu(_ profile: DatabaseProfile) -> [LitheContextMenuItem] {
         var items: [LitheContextMenuItem] = []
-        let status = model.databaseFeature.connectionStatus(for: profile)
+        let status = feature.connectionStatus(for: profile)
         items.append(.action(status == .connected ? "Disconnect" : "Connect", isEnabled: !(status == .connecting), action: {
             if status == .connected {
-                model.databaseFeature.disconnect(profile)
+                feature.disconnect(profile)
             } else {
                 selectProfile(profile, expand: true)
             }
@@ -823,11 +824,11 @@ struct DatabaseSidebarView: View {
         }))
         items.append(.submenu("Move to Folder", items: {
             var submenuItems: [LitheContextMenuItem] = []
-            submenuItems.append(.action("Move to root", isEnabled: !(profile.folderID == nil), action: { model.databaseFeature.move(profile, toFolder: nil) }))
-            if !model.databaseFeature.folders.isEmpty {
+            submenuItems.append(.action("Move to root", isEnabled: !(profile.folderID == nil), action: { feature.move(profile, toFolder: nil) }))
+            if !feature.folders.isEmpty {
                 submenuItems.append(.separator)
-                for folder in model.databaseFeature.folders {
-                    submenuItems.append(.action(folder.name, isEnabled: !(profile.folderID == folder.id), action: { model.databaseFeature.move(profile, toFolder: folder.id) }))
+                for folder in feature.folders {
+                    submenuItems.append(.action(folder.name, isEnabled: !(profile.folderID == folder.id), action: { feature.move(profile, toFolder: folder.id) }))
                 }
             }
             submenuItems.append(.separator)
@@ -838,7 +839,7 @@ struct DatabaseSidebarView: View {
             }))
             return submenuItems
         }()))
-        items.append(.action("Duplicate Connection", action: { _ = model.databaseFeature.duplicate(profile) }))
+        items.append(.action("Duplicate Connection", action: { _ = feature.duplicate(profile) }))
         items.append(.separator)
         items.append(.action("Remove Connection", role: .destructive, action: {
             profilePendingDeletion = profile
@@ -849,23 +850,23 @@ struct DatabaseSidebarView: View {
 
     private func refresh(_ profile: DatabaseProfile) {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            else if profile.kind.supportsDataGrid { await model.databaseFeature.refreshTables() }
-            else if profile.kind == .redis { await model.databaseFeature.loadRedisKeys(pattern: "") }
-            else { await model.databaseFeature.loadNacosConfigs(dataId: "", group: ""); await model.databaseFeature.loadNacosServices(serviceName: "", group: "") }
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            else if profile.kind.supportsDataGrid { await feature.refreshTables() }
+            else if profile.kind == .redis { await feature.loadRedisKeys(pattern: "") }
+            else { await feature.loadNacosConfigs(dataId: "", group: ""); await feature.loadNacosServices(serviceName: "", group: "") }
         }
     }
 
     private func refreshSelectedConnection() {
-        guard let profile = model.databaseFeature.selectedProfile else { return }
+        guard let profile = feature.selectedProfile else { return }
         refresh(profile)
     }
 
     private func openSQLQuery(_ profile: DatabaseProfile, sql: String = "") {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            model.databaseFeature.addSQLTab(sql: sql)
-            model.databaseFeature.workspaceSection = .sql
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            feature.addSQLTab(sql: sql)
+            feature.workspaceSection = .sql
         }
     }
 
@@ -883,7 +884,7 @@ struct DatabaseSidebarView: View {
         if profile.kind != .sqlserver {
             items.append(.action("Import SQL Backup…", isEnabled: !(profile.readOnly), action: {
                 Task {
-                    if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+                    if feature.selectedProfileID != profile.id { await feature.select(profile) }
                     importFormat = .sql; pendingImportFormat = .sql; showsImporter = true
                 }
             }))
@@ -909,8 +910,8 @@ struct DatabaseSidebarView: View {
         items.append(.separator)
         items.append(.action("Refresh", action: {
             Task {
-                if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-                await model.databaseFeature.openTable(collection)
+                if feature.selectedProfileID != profile.id { await feature.select(profile) }
+                await feature.openTable(collection)
             }
         }))
         return items
@@ -987,10 +988,10 @@ struct DatabaseSidebarView: View {
 
     private func openTable(_ profile: DatabaseProfile, table: String, section: DatabaseWorkspaceSection, sql: String = "") {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            await model.databaseFeature.openTable(table)
-            if !sql.isEmpty { model.databaseFeature.addSQLTab(sql: sql) }
-            model.databaseFeature.workspaceSection = section
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            await feature.openTable(table)
+            if !sql.isEmpty { feature.addSQLTab(sql: sql) }
+            feature.workspaceSection = section
         }
     }
 
@@ -1000,20 +1001,20 @@ struct DatabaseSidebarView: View {
             ? "DELETE FROM \(quotedIdentifier(action.table, kind: action.profile.kind));"
             : "DROP TABLE \(quotedIdentifier(action.table, kind: action.profile.kind));"
         Task {
-            if model.databaseFeature.selectedProfileID != action.profile.id { await model.databaseFeature.select(action.profile) }
-            model.databaseFeature.addSQLTab(sql: sql)
-            model.databaseFeature.workspaceSection = .sql
-            guard let tabID = model.databaseFeature.selectedSQLTabID else { return }
-            await model.databaseFeature.runSQL(in: tabID, confirmedRisk: true)
-            if action.kind == .clear { await model.databaseFeature.openTable(action.table) }
-            else { await model.databaseFeature.refreshTables() }
+            if feature.selectedProfileID != action.profile.id { await feature.select(action.profile) }
+            feature.addSQLTab(sql: sql)
+            feature.workspaceSection = .sql
+            guard let tabID = feature.selectedSQLTabID else { return }
+            await feature.runSQL(in: tabID, confirmedRisk: true)
+            if action.kind == .clear { await feature.openTable(action.table) }
+            else { await feature.refreshTables() }
         }
     }
 
     private func beginImport(_ format: DatabaseTransferFormat, profile: DatabaseProfile, table: String?) {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            if let table { await model.databaseFeature.openTable(table) }
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            if let table { await feature.openTable(table) }
             importFormat = format
             pendingImportFormat = format
             showsImporter = true
@@ -1022,10 +1023,10 @@ struct DatabaseSidebarView: View {
 
     private func exportTable(_ profile: DatabaseProfile, table: String, format: DatabaseTransferFormat) {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
-            await model.databaseFeature.openTable(table)
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
+            await feature.openTable(table)
             exportFormat = format
-            guard let data = await model.databaseFeature.exportData(format: format) else { return }
+            guard let data = await feature.exportData(format: format) else { return }
             exportDocument = DatabaseTransferDocument(data: data)
             showsExporter = true
         }
@@ -1033,9 +1034,9 @@ struct DatabaseSidebarView: View {
 
     private func exportDatabase(_ profile: DatabaseProfile) {
         Task {
-            if model.databaseFeature.selectedProfileID != profile.id { await model.databaseFeature.select(profile) }
+            if feature.selectedProfileID != profile.id { await feature.select(profile) }
             exportFormat = .sql
-            guard let url = await model.databaseFeature.exportDataFile(format: .sql) else { return }
+            guard let url = await feature.exportDataFile(format: .sql) else { return }
             temporaryExportURL = url
             exportDocument = DatabaseTransferDocument(fileURL: url)
             showsExporter = true
@@ -1043,7 +1044,7 @@ struct DatabaseSidebarView: View {
     }
 
     private var exportFilename: String {
-        let base = model.databaseFeature.selectedProfile?.database.isEmpty == false ? model.databaseFeature.selectedProfile?.database ?? "database" : "database"
+        let base = feature.selectedProfile?.database.isEmpty == false ? feature.selectedProfile?.database ?? "database" : "database"
         return "\(base).\(exportFormat.rawValue)"
     }
 
@@ -1054,18 +1055,18 @@ struct DatabaseSidebarView: View {
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             let format = pendingImportFormat ?? importFormat
             if format == .sql {
-                let temporaryURL = try model.databaseFeature.prepareImportFile(from: url)
+                let temporaryURL = try feature.prepareImportFile(from: url)
                 pendingImportURL = temporaryURL
             } else {
-                pendingImportData = try model.databaseFeature.readImportData(from: url)
+                pendingImportData = try feature.readImportData(from: url)
             }
             pendingImportFormat = format
-            if format == .sql || model.databaseFeature.selectedProfile?.productionProtection == true {
+            if format == .sql || feature.selectedProfile?.productionProtection == true {
                 showsProtectedImportConfirmation = true
             } else {
                 performPendingImport(confirmed: false)
             }
-        } catch { model.databaseFeature.errorMessage = error.localizedDescription }
+        } catch { feature.errorMessage = error.localizedDescription }
     }
 
     private func performPendingImport(confirmed: Bool) {
@@ -1075,16 +1076,16 @@ struct DatabaseSidebarView: View {
         pendingImportData = nil; pendingImportURL = nil; pendingImportFormat = nil
         Task {
             if let fileURL {
-                defer { model.databaseFeature.removeTemporaryFile(fileURL) }
-                _ = await model.databaseFeature.importDataFile(fileURL, format: format, confirmed: confirmed)
+                defer { feature.removeTemporaryFile(fileURL) }
+                _ = await feature.importDataFile(fileURL, format: format, confirmed: confirmed)
             } else if let data {
-                _ = await model.databaseFeature.importData(data, format: format, confirmed: confirmed)
+                _ = await feature.importData(data, format: format, confirmed: confirmed)
             }
         }
     }
 
     private func discardPendingImport() {
-        if let pendingImportURL { model.databaseFeature.removeTemporaryFile(pendingImportURL) }
+        if let pendingImportURL { feature.removeTemporaryFile(pendingImportURL) }
         pendingImportData = nil; pendingImportURL = nil; pendingImportFormat = nil
     }
 
@@ -1096,7 +1097,7 @@ struct DatabaseSidebarView: View {
 
     @ViewBuilder
     private func connectionStatusIndicator(_ profile: DatabaseProfile) -> some View {
-        let status = model.databaseFeature.connectionStatus(for: profile)
+        let status = feature.connectionStatus(for: profile)
         switch status {
         case .idle:
             Circle()
@@ -1129,7 +1130,7 @@ struct DatabaseSidebarView: View {
 
     private func selectProfile(_ profile: DatabaseProfile, expand: Bool) {
         if expand { expandedProfileIDs = [profile.id] }
-        Task { await model.databaseFeature.select(profile) }
+        Task { await feature.select(profile) }
     }
 
     private func toggleProfile(_ profile: DatabaseProfile) {
@@ -1142,7 +1143,7 @@ struct DatabaseSidebarView: View {
     }
 
     private func collapseAll() {
-        collapsedFolderIDs = Set(model.databaseFeature.folders.map(\.id))
+        collapsedFolderIDs = Set(feature.folders.map(\.id))
         expandedProfileIDs.removeAll()
         collapsedObjectKinds = Set(DatabaseObjectKind.allCases)
         expandedTableKey = nil
@@ -1153,8 +1154,8 @@ struct DatabaseSidebarView: View {
     }
 
     private var unfiledProfiles: [DatabaseProfile] {
-        sorted(model.databaseFeature.profiles.filter { profile in
-            guard profile.folderID == nil || !model.databaseFeature.folders.contains(where: { $0.id == profile.folderID }) else {
+        sorted(feature.profiles.filter { profile in
+            guard profile.folderID == nil || !feature.folders.contains(where: { $0.id == profile.folderID }) else {
                 return false
             }
             return profileMatchesSearch(profile)
@@ -1162,7 +1163,7 @@ struct DatabaseSidebarView: View {
     }
 
     private func allProfiles(in folder: DatabaseConnectionFolder) -> [DatabaseProfile] {
-        model.databaseFeature.profiles.filter { $0.folderID == folder.id }
+        feature.profiles.filter { $0.folderID == folder.id }
     }
 
     private func recursiveProfileCount(in folder: DatabaseConnectionFolder) -> Int {
@@ -1235,7 +1236,7 @@ struct DatabaseSidebarView: View {
 }
 
 private struct DatabaseDBXImportSheet: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @Environment(\.dismiss) private var dismiss
 
     let data: Data
@@ -1293,7 +1294,7 @@ private struct DatabaseDBXImportSheet: View {
                 Button("Cancel") { dismiss() }
                 if let plan {
                     Button("Import Selected") {
-                        let count = model.databaseFeature.importDBXConnections(plan: plan, selectedIDs: selectedIDs)
+                        let count = feature.importDBXConnections(plan: plan, selectedIDs: selectedIDs)
                         if count > 0 { dismiss() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -1474,7 +1475,7 @@ private struct DatabaseDBXImportSheet: View {
         errorMessage = nil
         let data = data
         let passphrase = isEncrypted ? passphrase : nil
-        let profiles = model.databaseFeature.profiles
+        let profiles = feature.profiles
         Task {
             do {
                 let parsed = try await Task.detached {
@@ -1571,7 +1572,7 @@ extension Color {
 }
 
 private struct DatabaseFolderEditor: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @Binding var isPresented: Bool
     let folder: DatabaseConnectionFolder?
     let parentID: UUID?
@@ -1641,20 +1642,20 @@ private struct DatabaseFolderEditor: View {
     private func save() {
         let didSave: Bool
         if let folder {
-            didSave = model.databaseFeature.renameFolder(folder, to: name)
+            didSave = feature.renameFolder(folder, to: name)
         } else {
-            didSave = model.databaseFeature.createFolder(name: name, parentID: parentID)
+            didSave = feature.createFolder(name: name, parentID: parentID)
         }
         if didSave {
             isPresented = false
         } else {
-            validationMessage = model.databaseFeature.errorMessage
+            validationMessage = feature.errorMessage
         }
     }
 }
 
 struct DatabaseConnectionEditor: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @Binding var isPresented: Bool
     @State private var name = ""
     @State private var kind = DatabaseKind.mysql
@@ -1778,7 +1779,7 @@ struct DatabaseConnectionEditor: View {
                 }
                 DisclosureGroup(isExpanded: $safetyExpanded) {
                     LabeledContent("Folder") {
-                        LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + model.databaseFeature.folders.map { Optional($0.id) }, width: 240, accessibilityLabel: "Folder", title: { id in model.databaseFeature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
+                        LitheSettingsSelect(selection: $folderID, options: [UUID?.none] + feature.folders.map { Optional($0.id) }, width: 240, accessibilityLabel: "Folder", title: { id in feature.folders.first { $0.id == id }?.name ?? String(localized: "No folder") })
                     }
                     TextField("Color hex (optional)", text: $colorHex)
                     Toggle("Read-only connection", isOn: $readOnly)
@@ -1809,7 +1810,7 @@ struct DatabaseConnectionEditor: View {
                 }
             .padding(.top, 2)
             }.formStyle(.grouped).scrollContentBackground(.hidden)
-            if let error = model.databaseFeature.errorMessage { DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
+            if let error = feature.errorMessage { DatabaseLocalization.error(error).font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.error).padding(.horizontal, 16) }
             Rectangle().fill(LitheTheme.divider).frame(height: 1)
             HStack(spacing: 8) {
                 Spacer()
@@ -1819,12 +1820,12 @@ struct DatabaseConnectionEditor: View {
                     connect()
                 } label: {
                     HStack(spacing: 6) {
-                        if model.databaseFeature.isLoading { ProgressView().controlSize(.small) }
-                        Text(model.databaseFeature.isLoading ? "Connecting…" : "Connect")
+                        if feature.isLoading { ProgressView().controlSize(.small) }
+                        Text(feature.isLoading ? "Connecting…" : "Connect")
                     }
                 }
                     .buttonStyle(LithePrimaryButtonStyle())
-                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || model.databaseFeature.isLoading)
+                    .disabled(name.isEmpty || (kind == .sqlite ? path.isEmpty : host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) || redisDatabaseValidationMessage != nil || feature.isLoading)
             }
             .padding(.horizontal, 16)
             .frame(height: 58)
@@ -1844,31 +1845,31 @@ struct DatabaseConnectionEditor: View {
             }
         }
         .onAppear {
-            model.databaseFeature.errorMessage = nil
+            feature.errorMessage = nil
             if let profile {
-                hasSavedPassword = model.databaseFeature.hasSavedPassword(for: profile)
+                hasSavedPassword = feature.hasSavedPassword(for: profile)
             }
         }
-        .onDisappear { model.databaseFeature.errorMessage = nil }
+        .onDisappear { feature.errorMessage = nil }
         .frame(width: 500, height: kind == .sqlite ? 640 : (kind.supportsDataGrid ? 750 : 710)).background(LitheTheme.raised)
     }
 
     private func cancel() {
-        model.databaseFeature.errorMessage = nil
+        feature.errorMessage = nil
         isPresented = false
     }
 
     private func connect() {
         if let redisDatabaseValidationMessage {
-            model.databaseFeature.errorMessage = redisDatabaseValidationMessage
+            feature.errorMessage = redisDatabaseValidationMessage
             return
         }
         let candidate = DatabaseProfile(id: profile?.id ?? UUID(), name: name, kind: kind, host: host, port: UInt16(port) ?? 0, username: username, database: database, path: path, ssl: ssl, group: "", folderID: folderID, colorHex: colorHex, readOnly: readOnly, productionProtection: productionProtection, maskSensitiveFields: maskSensitiveFields, sensitiveColumnPatterns: sensitiveColumnPatterns.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }, caCertificatePath: ssl ? caCertificatePath : "", serverName: ssl ? serverName : "", sshHost: usesSSHTunnel ? sshHost : "", sshPort: usesSSHTunnel ? (UInt16(sshPort) ?? 22) : 0, sshUsername: usesSSHTunnel ? sshUsername : "", sshKeyPath: usesSSHTunnel ? sshKeyPath : "", sshLocalPort: usesSSHTunnel ? (UInt16(sshLocalPort) ?? 0) : 0, proxyURL: usesSSHTunnel ? proxyURL : "")
         Task {
             let saved = if profile == nil {
-                await model.databaseFeature.add(candidate, password: password)
+                await feature.add(candidate, password: password)
             } else {
-                await model.databaseFeature.update(candidate, password: password.isEmpty ? nil : password)
+                await feature.update(candidate, password: password.isEmpty ? nil : password)
             }
             if saved { isPresented = false }
         }

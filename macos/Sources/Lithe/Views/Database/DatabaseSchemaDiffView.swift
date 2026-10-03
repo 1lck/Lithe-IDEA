@@ -3,7 +3,7 @@ import SwiftUI
 import LitheDatabaseModule
 
 struct DatabaseSchemaDiffView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var sourceID: UUID?
     @State private var targetID: UUID?
     @State private var diff: DatabaseSchemaDiffResult?
@@ -13,13 +13,13 @@ struct DatabaseSchemaDiffView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                LitheSettingsSelect(selection: $sourceID, options: [UUID?.none] + model.databaseFeature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Source", title: { id in model.databaseFeature.profiles.first { $0.id == id }?.name ?? String(localized: "Source connection") })
+                LitheSettingsSelect(selection: $sourceID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Source", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Source connection") })
                 .frame(maxWidth: 220)
 
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
 
-                LitheSettingsSelect(selection: $targetID, options: [UUID?.none] + model.databaseFeature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Target", title: { id in model.databaseFeature.profiles.first { $0.id == id }?.name ?? String(localized: "Target connection") })
+                LitheSettingsSelect(selection: $targetID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Target", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Target connection") })
                 .frame(maxWidth: 220)
 
                 Button { compare() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
@@ -75,7 +75,7 @@ struct DatabaseSchemaDiffView: View {
                 Button { requestMigration(diff) } label: { Label("Apply", systemImage: "play.fill") }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .disabled(diff.items.isEmpty || model.databaseFeature.isLoading)
+                    .disabled(diff.items.isEmpty || feature.isLoading)
             }
             .padding(.horizontal, 10)
             .frame(height: 42)
@@ -110,17 +110,17 @@ struct DatabaseSchemaDiffView: View {
     }
 
     private func setDefaults() {
-        guard model.databaseFeature.profiles.count >= 2 else { return }
-        if sourceID == nil { sourceID = model.databaseFeature.profiles[0].id }
-        if targetID == nil { targetID = model.databaseFeature.profiles[1].id }
+        guard feature.profiles.count >= 2 else { return }
+        if sourceID == nil { sourceID = feature.profiles[0].id }
+        if targetID == nil { targetID = feature.profiles[1].id }
     }
 
     private func compare() {
         guard let sourceID, let targetID, sourceID != targetID else { return }
         isComparing = true
         Task {
-            let source = await model.databaseFeature.loadSchemaSnapshot(profileID: sourceID)
-            let target = await model.databaseFeature.loadSchemaSnapshot(profileID: targetID)
+            let source = await feature.loadSchemaSnapshot(profileID: sourceID)
+            let target = await feature.loadSchemaSnapshot(profileID: targetID)
             if let source, let target { diff = DatabaseSchemaDiffEngine.compare(source: source, target: target) }
             isComparing = false
         }
@@ -137,9 +137,9 @@ struct DatabaseSchemaDiffView: View {
     private func applyMigration() {
         guard let diff, let targetID else { return }
         Task {
-            if await model.databaseFeature.applySchemaMigration(diff, targetProfileID: targetID, confirmed: true) {
-                let source = await model.databaseFeature.loadSchemaSnapshot(profileID: diff.source.profileID)
-                let target = await model.databaseFeature.loadSchemaSnapshot(profileID: diff.target.profileID)
+            if await feature.applySchemaMigration(diff, targetProfileID: targetID, confirmed: true) {
+                let source = await feature.loadSchemaSnapshot(profileID: diff.source.profileID)
+                let target = await feature.loadSchemaSnapshot(profileID: diff.target.profileID)
                 if let source, let target { self.diff = DatabaseSchemaDiffEngine.compare(source: source, target: target) }
             }
         }

@@ -3,6 +3,7 @@ import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.typ
 import type { GitDiff, GitFile, GitStatus } from "../types/git.types";
 import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
 import {
+  loadWorkingTreeFileDiff,
   refreshWorkingTreeFileDiff,
   type WorkingTreeDiffBufferPort,
 } from "./working-tree-diff-refresh";
@@ -80,6 +81,32 @@ function deferred<T>() {
 }
 
 describe("refreshWorkingTreeFileDiff", () => {
+  test("opening and refreshing a partially staged file preserve HEAD-to-worktree semantics", async () => {
+    const calls: unknown[][] = [];
+    const dependencies = {
+      loadStaged: async () => { throw new Error("Whole-file review must not switch to index-only diff"); },
+      loadWorktree: async (...args: Parameters<typeof import("../api/git-diff-api").getWorkingTreePathDiff>) => {
+        calls.push(args);
+        return diffWithLines(2);
+      },
+    };
+    const target = { ...TARGET, hasStagedChanges: true };
+    const initial = await loadWorkingTreeFileDiff(target, dependencies);
+    const buffers = bufferPort(createSingleFileWorkingTreeDiff({
+      repoPath: REPO, fileKey: FILE_KEY, diff: initial!, target,
+    }));
+    await refreshWorkingTreeFileDiff({ bufferId: BUFFER_ID, fileKey: FILE_KEY }, {
+      buffers: buffers.port,
+      loadStatus: async () => status([statusFile({ staged: true, worktree: true })]),
+      loadDiff: (repoPath, filePath, untracked, originalPath, staged) =>
+        loadWorkingTreeFileDiff({ repoPath, filePath, untracked, originalPath, staged }, dependencies),
+    });
+    expect(calls).toEqual([
+      [REPO, TARGET.filePath, false, undefined, true],
+      [REPO, TARGET.filePath, false, undefined, true],
+    ]);
+    expect(buffers.current()?.workingTreeTargets?.[FILE_KEY]?.hasStagedChanges).toBe(true);
+  });
   test("reloads an untracked file with the snapshot semantics used to open it", async () => {
     // Regression for #773: the old index-based refresh found no diff for
     // untracked files and closed the tab right after it opened.

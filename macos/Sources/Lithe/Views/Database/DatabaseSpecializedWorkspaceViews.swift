@@ -2,7 +2,7 @@ import SwiftUI
 import LitheDatabaseModule
 
 struct RedisWorkspaceView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     @State private var pattern = "*"
     @FocusState private var patternFocused: Bool
     @State private var stringDraft = ""
@@ -12,7 +12,6 @@ struct RedisWorkspaceView: View {
     @State private var pendingAction: RedisPendingAction?
     @State private var showsWriteConfirmation = false
 
-    private var feature: DatabaseFeatureModel { model.databaseFeature }
     private var profile: DatabaseProfile? { feature.selectedProfile }
 
     var body: some View {
@@ -353,7 +352,7 @@ private enum RedisPendingAction {
 }
 
 struct NacosWorkspaceView: View {
-    @EnvironmentObject private var model: AppModel
+    @EnvironmentObject private var feature: DatabaseFeatureModel
     private enum SearchField: Hashable { case dataID, configGroup, service, serviceGroup }
     @FocusState private var focusedSearch: SearchField?
     @State private var section: NacosSection = .configs
@@ -368,7 +367,6 @@ struct NacosWorkspaceView: View {
     @State private var pendingAction: NacosPendingAction?
     @State private var showsWriteConfirmation = false
 
-    private var feature: DatabaseFeatureModel { model.databaseFeature }
     private var profile: DatabaseProfile? { feature.selectedProfile }
 
     var body: some View {
