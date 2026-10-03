@@ -36,6 +36,36 @@ jobs:
         shell: bash
         run: ./scripts/test-classify-ci-changes.sh
 
+      - name: Test Sparkle baseline download reliability
+        timeout-minutes: 2
+        run: |
+          mkdir -p .artifacts/test-stability
+          node --test --test-reporter=spec --test-reporter-destination=stdout \
+            --test-reporter=junit --test-reporter-destination=.artifacts/test-stability/sparkle-baseline.junit.xml \
+            scripts/test-download-sparkle-baseline.mjs scripts/test-reuse-worktree-resources.mjs
+
+      - name: Generate Sparkle download timing report
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import { parseJUnitCases } from './.agents/skills/write-stable-tests/scripts/parse-junit-cases.mjs';
+          import { writeTestReportArtifacts } from './.agents/skills/write-stable-tests/scripts/generate-test-report.mjs';
+          const stem = '.artifacts/test-stability/sparkle-baseline';
+          const tests = parseJUnitCases(fs.readFileSync(`${stem}.junit.xml`, 'utf8'));
+          if (tests.length === 0) throw new Error('Missing Sparkle download test results');
+          fs.writeFileSync(`${stem}.json`, JSON.stringify({ runner: 'node', warnMs: 1000, maxMs: 15000, tests }));
+          writeTestReportArtifacts(`${stem}.json`);
+          NODE
+
+      - name: Upload Sparkle download timing report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-stability-sparkle-baseline
+          path: .artifacts/test-stability/
+          if-no-files-found: error
+
       - name: Resolve comparison base
         id: base
         env:

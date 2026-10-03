@@ -68,7 +68,9 @@ jobs:
     name: Build ${{ matrix.architecture }} release
     needs: prepare
     runs-on: macos-26
-    timeout-minutes: 30
+    # Cold packaging took ~24 minutes in v0.5.11, leaving too little time for
+    # three baseline downloads and Sparkle delta generation under the old cap.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -119,6 +121,7 @@ jobs:
           fi
 
       - name: Build and package the App
+        timeout-minutes: 35
         env:
           LITHE_SPARKLE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
           LITHE_PLUGIN_PACKAGE_PRIVATE_KEY: ${{ secrets.LITHE_PLUGIN_PACKAGE_PRIVATE_KEY }}
@@ -173,6 +176,7 @@ jobs:
           (cd dist && shasum -a 256 -c "Lithe-${LITHE_VERSION}-${LITHE_ARCH}.dmg.sha256")
 
       - name: Generate signed Sparkle updates
+        timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
           LITHE_ARCH: ${{ matrix.architecture }}

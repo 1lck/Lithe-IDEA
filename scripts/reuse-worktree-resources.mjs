@@ -368,8 +368,8 @@ async function main() {
 
   const selected = options.resources.length > 0
     ? options.resources.map((identifier) => {
-      // Generated matrix views, runtime snapshots, per-execution Java launch files and isolated plugin
-      // packages take this rejection route, never a content-hash validator.
+      // Generated matrix views, runtime snapshots, per-execution Java launch files, Sparkle baseline
+      // staging and isolated plugin packages take this rejection route, never a content-hash validator.
       // Identical bytes do not establish transferable execution ownership.
       if (excludedResources.some((resource) => resource.id === identifier)) {
         const excluded = excludedResources.find((resource) => resource.id === identifier);

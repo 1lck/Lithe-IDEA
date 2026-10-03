@@ -56,6 +56,20 @@ stable 工作流继续发布 DMG + SHA-256 + `latest-macos.json` 供旧客户端
 feed，Sparkle 生成不出有效 patch 时也会省略该 delta 并回退到全量
 归档。GitHub Release 的 zip 是差分基线的持久化来源，发布后必须保留。
 
+选中的基线下载失败不能当作“没有基线”跳过。`download-sparkle-baseline.mjs`
+为每个归档最多尝试三次，每次 `gh` 下载限时 120 秒，重试前分别等待 2 秒和
+4 秒；只重试超时、暂时性网络错误和 HTTP 408/429/5xx，永久错误或耗尽重试
+都终止发布。每次尝试独占系统临时目录中 `archives/.baseline-<attempt>/`，
+只有下载成功且非空才移入同次发布的归档输入；失败或取消先结束所属进程，
+再删除 staging（未完成下载的暂存目录），外层脚本退出时清理整个临时目录。
+这些资源绑定选定仓库、tag、渠道和架构，没有可靠的工作树复用身份 stamp，
+任何阶段都不得跨工作树复制，也不写已安装 app。成功下载仍须通过原有
+Sparkle 处理和发布校验，不改变签名、哈希或 appcast 的接受条件。
+
+稳定版 macOS build job 总期限为 75 分钟，打包步骤为 35 分钟，Sparkle
+步骤为 30 分钟，为双架构打包和有界下载重试留出预算。Preview 工作流的
+期限不变；上述下载保护位于两个渠道共用的发布脚本内。
+
 ### Stable 与 Preview 完全隔离
 
 Preview 使用独立的 `LitheUpdateChannel=preview`、独立的
@@ -109,6 +123,9 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
   但发布 job 需要一个和 build job 一致的身份（build 号绑定
   workflow run number/attempt），只重跑发布 job 会让身份和实际构建
   内容不一致，因此要求重跑全部 job 才分配新身份。
+- **基线下载失败就发布不含该 delta 的全量 feed**：可提高表面成功率，
+  但会把网络故障误判为基线不存在，悄悄减少可用差分更新；改用有界的
+  暂时性错误重试，永久失败仍阻止发布。
 - **回滚客户端信任下载 manifest 里携带的公钥**：实现更灵活，manifest
   format 升级时不需要客户端预置新 key。但这等于让一次网络请求决定
   信任锚点，一旦 manifest 分发被劫持就可以伪造回滚目标，因此回滚
@@ -126,6 +143,8 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 
 - 贡献者不需要 Apple Developer 账号就能产出可验证来源的差分更新，
   Developer ID 签名和公证仍可作为独立环节按需加入。
+- 暂时性基线下载故障可在本次运行恢复，代价是失败归档最多占用三次
+  下载期限和两次退避等待；持续故障仍需修复或重跑，不能用超长等待掩盖。
 - Stable 和 Preview 用户互不干扰对方的更新节奏和偏好，代价是用户
   从 Preview 切换回 Stable 需要一次显式操作，且可能需要重新设置
   更新检查偏好。
@@ -154,6 +173,8 @@ bundle identifier、展示版本、可执行文件架构、渠道和最低系统
 ./scripts/verify-official-plugins.sh
 sparkle_tools=$(zsh scripts/prepare-sparkle-tools.sh)
 ruby scripts/test-sparkle-update.rb "$sparkle_tools"
+node scripts/test-download-sparkle-baseline.mjs
+node scripts/test-reuse-worktree-resources.mjs
 actionlint .github/workflows/release-macos.yml .github/workflows/release-preview-macos.yml .github/workflows/ci-macos.yml
 ```
 
@@ -170,6 +191,9 @@ Sparkle 版本间升级、缺失/损坏的 delta、下载中断、权限不足�
 ## 适用范围
 
 - `scripts/prepare-sparkle-tools.sh`
+- `scripts/create-sparkle-update.sh`
+- `scripts/download-sparkle-baseline.mjs`
+- `scripts/test-download-sparkle-baseline.mjs`
 - `scripts/verify-macos-package.sh`
 - `scripts/test-sparkle-update.rb`
 - `scripts/create-macos-update-manifest.rb`
