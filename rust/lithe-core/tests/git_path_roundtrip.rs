@@ -42,7 +42,11 @@ fn run(command: &mut Command) -> String {
         || {},
         |_, _| {},
     );
-    assert!(result.failure.is_none(), "{command:?}: {:?}", result.failure);
+    assert!(
+        result.failure.is_none(),
+        "{command:?}: {:?}",
+        result.failure
+    );
     assert!(
         result.status.is_some_and(|status| status.success()),
         "{}",
