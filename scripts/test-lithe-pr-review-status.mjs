@@ -4,6 +4,7 @@ import test from "node:test";
 import {
     determineReviewStatus,
     getReviewLabelChanges,
+    hasOutstandingChangesRequestedReviews,
     REVIEW_LABELS,
 } from "./pr-review-status.mjs";
 
@@ -75,6 +76,98 @@ test("keeps a review request when another requested reviewer is outstanding", ()
     }), REVIEW_LABELS.needsReview);
 });
 
+test("keeps another reviewer's changes request after an approval", () => {
+    assert.equal(determineReviewStatus({
+        action: "submitted",
+        eventName: "pull_request_review",
+        reviewState: "approved",
+        reviews: [
+            {
+                id: 1,
+                state: "CHANGES_REQUESTED",
+                submitted_at: "2026-10-03T11:00:00Z",
+                user: { login: "alice" },
+            },
+            {
+                id: 2,
+                state: "APPROVED",
+                submitted_at: "2026-10-03T11:05:00Z",
+                user: { login: "bob" },
+            },
+        ],
+    }), REVIEW_LABELS.needsChanges);
+});
+
+test("treats a later review from the same reviewer as the effective state", () => {
+    assert.equal(hasOutstandingChangesRequestedReviews([
+        {
+            id: 1,
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        },
+        {
+            id: 2,
+            state: "APPROVED",
+            submitted_at: "2026-10-03T11:05:00Z",
+            user: { login: "alice" },
+        },
+    ]), false);
+});
+
+test("preserves other changes requests when one reviewer is requested again", () => {
+    const reviews = [
+        {
+            id: 1,
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        },
+        {
+            id: 2,
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-10-03T11:05:00Z",
+            user: { login: "bob" },
+        },
+    ];
+    assert.equal(determineReviewStatus({
+        action: "review_requested",
+        eventName: "pull_request",
+        hasOutstandingReviewers: true,
+        reviews,
+        requestedReviewerLogins: ["alice"],
+    }), REVIEW_LABELS.needsChanges);
+    assert.equal(determineReviewStatus({
+        action: "review_requested",
+        eventName: "pull_request",
+        hasOutstandingReviewers: true,
+        reviews: [reviews[0]],
+        requestedReviewerLogins: ["alice"],
+    }), REVIEW_LABELS.needsReview);
+});
+
+test("does not let a delayed old review overwrite a renewed review request", () => {
+    assert.equal(determineReviewStatus({
+        action: "submitted",
+        eventName: "pull_request_review",
+        hasOutstandingReviewers: true,
+        reviewState: "changes_requested",
+        reviews: [{
+            id: 1,
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        }],
+        currentReview: {
+            id: 1,
+            state: "CHANGES_REQUESTED",
+            submitted_at: "2026-10-03T11:00:00Z",
+            user: { login: "alice" },
+        },
+        requestedReviewerLogins: ["alice"],
+    }), REVIEW_LABELS.needsReview);
+});
+
 test("does not let a review comment or code push erase the current state", () => {
     assert.equal(determineReviewStatus({
         action: "commented",
@@ -131,7 +224,11 @@ test("workflow uses trusted base code and only owns review labels", async () => 
     assert.match(workflow, /uses: actions\/download-artifact@v4/);
     assert.match(workflow, /ref: \$\{\{ steps\.event\.outputs\.base-sha \}\}/);
     assert.doesNotMatch(workflow, /github\.event\.pull_request\.head\.sha/);
-    assert.match(workflow, /context\.payload\.workflow_run\.pull_requests/);
+    assert.match(workflow, /github\.rest\.actions\.getWorkflowRun/);
+    assert.match(workflow, /workflowPullRequests\.length === 0/);
+    assert.match(workflow, /workflowRun\.head_sha === payload\.pull_request\.head\.sha/);
+    assert.match(workflow, /github\.rest\.pulls\.getReview/);
+    assert.match(workflow, /github\.paginate\(github\.rest\.pulls\.listReviews/);
     assert.match(workflow, /actions: read/);
     assert.match(workflow, /issues: write/);
     assert.match(workflow, /pull-requests: read/);

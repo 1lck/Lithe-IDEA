@@ -29,6 +29,59 @@ function normalizeLabels(labels) {
         .filter(Boolean);
 }
 
+function normalizeReviewerLogin(reviewer) {
+    const login = typeof reviewer === "string" ? reviewer : reviewer?.login;
+    return typeof login === "string" && login.length > 0 ? login.toLowerCase() : null;
+}
+
+function normalizeReviewState(state) {
+    return typeof state === "string" ? state.toLowerCase() : null;
+}
+
+function reviewOrder(review) {
+    const submittedAt = Date.parse(review?.submitted_at ?? review?.submittedAt ?? "");
+    const reviewId = Number(review?.id);
+    return [
+        Number.isFinite(submittedAt) ? submittedAt : Number.NEGATIVE_INFINITY,
+        Number.isFinite(reviewId) ? reviewId : Number.NEGATIVE_INFINITY,
+    ];
+}
+
+function isReviewAfter(left, right) {
+    const leftOrder = reviewOrder(left);
+    const rightOrder = reviewOrder(right);
+    return leftOrder[0] > rightOrder[0] ||
+        (leftOrder[0] === rightOrder[0] && leftOrder[1] >= rightOrder[1]);
+}
+
+function latestReviewsByReviewer(reviews) {
+    const latestReviews = new Map();
+    for (const review of reviews ?? []) {
+        const reviewerLogin = normalizeReviewerLogin(review?.user ?? review?.author);
+        if (!reviewerLogin) {
+            continue;
+        }
+        const previousReview = latestReviews.get(reviewerLogin);
+        if (!previousReview || isReviewAfter(review, previousReview)) {
+            latestReviews.set(reviewerLogin, review);
+        }
+    }
+    return latestReviews;
+}
+
+export function hasOutstandingChangesRequestedReviews(reviews = [], requestedReviewerLogins = []) {
+    const requestedReviewers = new Set(
+        (requestedReviewerLogins ?? [])
+            .map(normalizeReviewerLogin)
+            .filter(Boolean),
+    );
+
+    return [...latestReviewsByReviewer(reviews).entries()].some(([reviewerLogin, review]) =>
+        normalizeReviewState(review?.state) === "changes_requested" &&
+        !requestedReviewers.has(reviewerLogin)
+    );
+}
+
 export function currentReviewStatus(labels) {
     const currentLabels = normalizeLabels(labels);
     if (currentLabels.includes(REVIEW_LABELS.needsChanges)) {
@@ -45,36 +98,53 @@ export function determineReviewStatus({
     draft = false,
     eventName,
     hasOutstandingReviewers = false,
+    reviews = [],
+    currentReview = null,
+    requestedReviewerLogins = [],
     pullRequestState = "open",
     reviewState = null,
     currentLabels = [],
 }) {
     const currentStatus = currentReviewStatus(currentLabels);
+    const reviewHistory = currentReview ? [...reviews, currentReview] : reviews;
+    const hasOutstandingChangesRequested = hasOutstandingChangesRequestedReviews(
+        reviewHistory,
+        requestedReviewerLogins,
+    );
+    const reviewSubmittedChangesRequested =
+        eventName === "pull_request_review" &&
+        action === "submitted" &&
+        normalizeReviewState(reviewState) === "changes_requested";
+    const hasChangesRequestedState = hasOutstandingChangesRequested ||
+        (reviewHistory.length === 0 && reviewSubmittedChangesRequested);
 
     if (pullRequestState === "closed" || action === "closed" || action === "converted_to_draft" || draft) {
         return null;
     }
 
     if (eventName === "pull_request_review") {
-        if (action === "submitted" && reviewState === "changes_requested") {
-            return REVIEW_LABELS.needsChanges;
-        }
-        if (action === "submitted" && reviewState === "approved") {
+        if (action === "submitted" || action === "dismissed") {
+            if (hasChangesRequestedState) {
+                return REVIEW_LABELS.needsChanges;
+            }
             return hasOutstandingReviewers ? REVIEW_LABELS.needsReview : null;
-        }
-        if (action === "dismissed") {
-            return REVIEW_LABELS.needsReview;
         }
         return currentStatus;
     }
 
     if (eventName === "pull_request") {
-        if (REVIEW_REQUEST_ACTIONS.has(action)) {
+        if (REVIEW_REQUEST_ACTIONS.has(action) && action !== "review_requested") {
             return REVIEW_LABELS.needsReview;
         }
+        if (action === "review_requested") {
+            return hasChangesRequestedState
+                ? REVIEW_LABELS.needsChanges
+                : REVIEW_LABELS.needsReview;
+        }
         if (action === "review_request_removed") {
-            if (currentStatus === REVIEW_LABELS.needsChanges) {
-                return currentStatus;
+            if (hasChangesRequestedState ||
+                (reviewHistory.length === 0 && currentStatus === REVIEW_LABELS.needsChanges)) {
+                return REVIEW_LABELS.needsChanges;
             }
             return hasOutstandingReviewers ? REVIEW_LABELS.needsReview : null;
         }

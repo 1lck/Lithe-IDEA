@@ -60,12 +60,17 @@ variable `LITHE_ALLOWED_REVIEWERS`，值为 GitHub 用户名组成的 JSON 数�
 
 非 Draft PR 创建、重新打开、标记为 Ready for review 或再次申请 review 时，会进入
 `review:needs-review`。收到 `Request changes` 后切换为 `review:needs-changes`。作者只 push
-新提交不会自动切回等待 review；作者再次明确申请 review 后才会切回。Review 通过且没有
-其他待处理 reviewer 时，工作流会清理 review 标签，由维护者按仓库规则直接合入。
+新提交不会自动切回等待 review；作者再次明确申请 review 后才会切回。多人 review 时，任一
+仍有效且未被再次申请的 `Request changes` 都会保留；只有所有修改请求都被新的审查取代或
+撤销后，Review 通过且没有其他待处理 reviewer 时，工作流才会清理 review 标签，由维护者
+按仓库规则直接合入。
 
 生命周期事件由 `pull_request_target` 处理；`pull_request_review` 先由无写权限的
 observer 采集，再由 `workflow_run` 在受信任的工作流中同步标签，以兼容 fork PR 的只读
-`GITHUB_TOKEN`。同步工作流只 checkout PR 的 base SHA 中的可信脚本，不执行 PR 分支代码；
-它只拥有维护 review 标签所需的 Issue 写权限，并保留其他标签不变。由于 GitHub 只从仓库
-默认分支触发 `workflow_run`，该工作流合入 `preview` 后还需要同步到默认分支 `main`，
-fork PR 的 review 状态流转才会完整生效。
+`GITHUB_TOKEN`。同步流程通过受信任的 workflow run 元数据、GitHub API 中的 PR 和 Review
+记录校验事件；当 fork PR 的 `workflow_run.pull_requests` 为空时，使用 run 的 head 元数据
+和 API 重新定位 PR，不会因此丢弃合法事件。状态同步会读取 reviewer 的最新有效审查，避免
+多人 Review 或延迟到达的旧事件覆盖较新的重新申请 Review。同步工作流只 checkout PR 的
+base SHA 中的可信脚本，不执行 PR 分支代码；它只拥有维护 review 标签所需的 Issue 写权限，
+并保留其他标签不变。由于 GitHub 只从仓库默认分支触发 `workflow_run`，该工作流合入
+`preview` 后还需要同步到默认分支 `main`，fork PR 的 review 状态流转才会完整生效。
