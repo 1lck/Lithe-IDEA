@@ -641,7 +641,7 @@ function PrimitiveDialogHost({
       >
         {/* Flat surface: no border, no footer band or divider; the close button is absolutely
             positioned against the fixed popup. */}
-        <AlertDialogContent className="max-w-md gap-0 border-0 p-5">
+        <AlertDialogContent className="max-w-lg gap-0 border-0 p-5">
           <AlertDialogCancel
             variant="ghost"
             size="icon-xs"
@@ -668,7 +668,7 @@ function PrimitiveDialogHost({
               />
               <span>{dialog.checkboxLabel}</span>
             </label>
-            <AlertDialogFooter className="col-start-2 m-0 mt-2 flex-row flex-wrap justify-start rounded-none border-0 bg-transparent p-0 sm:justify-start">
+            <AlertDialogFooter className="col-span-2 m-0 mt-2 flex flex-row flex-wrap justify-center gap-2 rounded-none border-0 bg-transparent p-0 sm:flex-row sm:justify-center">
               {dialog.choices.map((choice) => (
                 <AlertDialogAction
                   key={choice.value}
