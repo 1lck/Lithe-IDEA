@@ -29,6 +29,16 @@
   ],
   "excludedResources": [
     {
+      "id": "sparkle-baseline-staging",
+      "reusable": false,
+      "locations": [
+        "<system-temp>/<sparkle-run>/archives/.baseline-<attempt>/",
+        "<system-temp>/<sparkle-run>/archives/<selected-baseline>.zip"
+      ],
+      "identity": "One macOS release invocation owns the selected repository, release tag, channel and archive architecture; no reliable version/platform/architecture/toolchain reuse identity stamp",
+      "reason": "Each gh download attempt uses fresh staging and promotes only a successful nonempty archive into the same invocation's Sparkle inputs. Failed or cancelled attempts release their process and staging; the release script removes the enclosing temporary directory on exit. Never copy or share these transient inputs across worktrees at any stage; published GitHub Release archives remain the baseline source."
+    },
+    {
       "id": "frontend-install-state",
       "reusable": false,
       "locations": ["node_modules", "windows/tauri/node_modules", "frontend/editor/node_modules", ".artifacts/bun-tmp"],
