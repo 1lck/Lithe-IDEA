@@ -394,6 +394,7 @@ public final class AgentConnectionModel: ObservableObject {
                   let requestID = event["requestId"] as? String,
                   let request = event["request"] as? [String: Any] else { return }
             let prompt = permissionPrompt(requestID, request, sessionID: sessionID)
+            markResponseProgress(.waiting, in: sessionID)
             conversations[sessionID, default: AgentConversation()].enqueuePermission(prompt)
             updateAttention()
         case "turnFinished":
@@ -502,9 +503,11 @@ public final class AgentConnectionModel: ObservableObject {
             applyConfiguration(update["configOptions"], to: sessionID)
         case "agent_message_chunk":
             guard let text = Self.text(of: update) else { return }
+            if !text.isEmpty { markResponseProgress(.responding, in: sessionID) }
             buffer(text, role: .agent, in: sessionID)
         case "agent_thought_chunk":
             guard let text = Self.text(of: update) else { return }
+            if !text.isEmpty { markResponseProgress(.thinking, in: sessionID) }
             buffer(text, role: .thought, in: sessionID)
         case "plan":
             guard let plan = AgentPlan.parse(update) else { return }
@@ -528,7 +531,21 @@ public final class AgentConnectionModel: ObservableObject {
             guard let toolCallID = update["toolCallId"] as? String else { return }
             flushPendingText()
             upsertTool(toolCallID, update: update, in: sessionID)
+            markResponseProgress(.waiting, in: sessionID)
         case "session_info_update":
+            // codex-acp 1.13.1 forwards retries in metadata without a title.
+            // Consume the explicit flag, never infer retries from a silent timer
+            // or show raw provider errors that may contain private routing data.
+            if conversations[sessionID]?.isResponding == true,
+               conversations[sessionID]?.isCancelling != true,
+               let metadata = update["_meta"] as? [String: Any],
+               let codex = metadata["codex"] as? [String: Any],
+               let error = codex["error"] as? [String: Any], error["willRetry"] as? Bool == true,
+               let turnID = error["turnId"] as? String, !turnID.isEmpty,
+               turnID != conversations[sessionID]?.previousRetryTurnID {
+                conversations[sessionID]?.retryTurnID = turnID
+                conversations[sessionID]?.responsePhase = .retrying
+            }
             guard let title = update["title"] as? String, !title.isEmpty else { return }
             if let index = sessions.firstIndex(where: { $0.id == sessionID }) {
                 sessions[index].title = title
@@ -538,6 +555,14 @@ public final class AgentConnectionModel: ObservableObject {
         default:
             break
         }
+    }
+
+    private func markResponseProgress(_ status: AgentResponseStatus, in sessionID: String) {
+        guard conversations[sessionID]?.isResponding == true,
+              conversations[sessionID]?.isCancelling != true,
+              conversations[sessionID]?.responsePhase != status else { return }
+        // Keep text-chunk publication coalesced; only phase transitions publish.
+        conversations[sessionID]?.responsePhase = status
     }
 
     private func applyConfiguration(_ value: Any?, to sessionID: String) {
@@ -615,6 +640,8 @@ public final class AgentConnectionModel: ObservableObject {
         conversation.messages.append(message)
         conversation.activeTurn = AgentTurnStatistics(id: message.id, startedAt: prompt.submittedAt)
         conversation.isResponding = true
+        conversation.responsePhase = .waiting
+        conversation.retryTurnID = nil
         conversation.errorMessage = nil
         conversations[sessionID] = conversation
         return true

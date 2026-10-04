@@ -555,3 +555,10 @@ file. Debug uses HotSwap with DevTools automatic restart disabled at JVM launch.
 Remote attach and non-JDT launches have no update action in this first version.
 No installed resources or new runtime caches are written: output remains in
 JDT-owned workspace build paths and the existing platform-owned JDT state.
+
+### Agent 响应状态展示
+
+- 状态与已观察到的 ACP 进度一致：准备会话、等待响应、收到推理、收到回复、本轮工具执行、等待授权、明确重试和正在停止。静默时长不能证明正在推理或重试，已回放的历史工具不属于当前轮次。
+- 固定 codex-acp 的 `session_info_update._meta.codex.error.willRetry == true` 和非空 `turnId` 是 macOS 重试显示的证据；该通知可能没有 `title`。共享样例 `codexRetry` 由官方 ACP SDK 往返验证，Host 继续透传元数据，不新增请求/事件种类或网络重试策略。
+- 状态隔离到会话，新进度清除重试显示，完成/失败/断连清理本轮状态，正在停止时不因迟到进度回退；不得显示未经脱敏的原始错误或从文本猜测重试次数。请求仍等待上游完成/取消确认，既有十分钟 prompt 上限和十秒取消上限不变。
+- 这次交付 macOS 展示；Windows 对话 UI 的消费与真实验收仍待完成。展示状态只在内存中，不写入 bundle、安装目录或上游历史。

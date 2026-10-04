@@ -2646,3 +2646,13 @@
 "A ChangeList with this name already exists." = "已存在同名的更改列表。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
 "Selected ChangeList or staged files changed before generation finished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";
+
+"Waiting for Agent response…" = "等待 Agent 响应…";
+
+"Preparing conversation…" = "正在准备对话…";
+
+"Running tools…" = "正在执行工具…";
+
+"Waiting for permission…" = "等待授权…";
+
+"Agent is retrying…" = "Agent 正在重试…";

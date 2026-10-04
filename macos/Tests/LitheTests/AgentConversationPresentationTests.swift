@@ -259,9 +259,14 @@ struct AgentConversationPresentationTests {
 
     @Test
     func activeThoughtKeepsOneThinkingLabelAndTheWaitingTimer() {
-        #expect(AgentThinkingRow().status == String(localized: "Thinking…"))
-        #expect(AgentThinkingRow(hasStreamingThought: true).status == String(localized: "Responding…"))
-        #expect(AgentThinkingRow(isCancelling: true, hasStreamingThought: true).status == String(localized: "Stopping…"))
+        #expect(AgentResponseStatusRow().status == String(localized: "Waiting for Agent response…"))
+        #expect(AgentResponseStatusRow(responseStatus: .thinking).status == String(localized: "Thinking…"))
+        #expect(AgentResponseStatusRow(responseStatus: .thinking, hasStreamingThought: true).status == String(localized: "Responding…"))
+        #expect(AgentResponseStatusRow(responseStatus: .stopping, hasStreamingThought: true).status == String(localized: "Stopping…"))
+        #expect(AgentResponseStatusRow(responseStatus: .preparing).status == String(localized: "Preparing conversation…"))
+        #expect(AgentResponseStatusRow(responseStatus: .retrying).status == String(localized: "Agent is retrying…"))
+        #expect(AgentResponseStatusRow(responseStatus: .runningTools).status == String(localized: "Running tools…"))
+        #expect(AgentResponseStatusRow(responseStatus: .waitingForPermission).status == String(localized: "Waiting for permission…"))
     }
 
     @Test

@@ -86,7 +86,7 @@ struct AgentTranscriptView: View {
         let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
             .filter { $0.matches(searchText) }
         // Only reasoning that is still streaming opens by default.
-        let liveThoughtID = conversation?.isResponding == true && messages.last?.role == .thought
+        let liveThoughtID = conversation?.responseStatus == .thinking && messages.last?.role == .thought
             ? messages.last?.id : nil
         VStack(spacing: 0) {
             if conversation?.isLoading != true && messages.isEmpty && feature.pendingNewConversationPrompt == nil {
@@ -152,8 +152,8 @@ struct AgentTranscriptView: View {
                                     .id("pending")
                             }
                             if conversation?.isResponding == true || feature.isCreatingSession {
-                                AgentThinkingRow(
-                                    isCancelling: conversation?.isCancelling == true,
+                                AgentResponseStatusRow(
+                                    responseStatus: conversation?.responseStatus ?? .preparing,
                                     startedAt: conversation?.activeTurn?.startedAt ?? feature.pendingNewConversationStartedAt,
                                     hasStreamingThought: liveThoughtID != nil
                                 ).id("responding")
