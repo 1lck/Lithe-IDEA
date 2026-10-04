@@ -1,6 +1,12 @@
 import Foundation
 
 struct MacWorkspaceFileOperations: WorkspaceFileOperations {
+    private let moveToTrash: @Sendable (URL) throws -> URL
+
+    init(moveToTrash: @escaping @Sendable (URL) throws -> URL = { try MacWorkspaceFileOperations.systemTrash($0) }) {
+        self.moveToTrash = moveToTrash
+    }
+
     var supportsDocumentEncoding: Bool { true }
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation {
         MacDocumentObservation(urls: urls, onChange: onChange)
@@ -166,6 +172,50 @@ struct MacWorkspaceFileOperations: WorkspaceFileOperations {
     func trashItem(at url: URL) throws {
         var resultingURL: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
+    }
+
+    func trashDocument(at url: URL, expectedIdentity: String) throws -> DocumentTrashResult {
+        try Self.documentWriteLock.withLock {
+            guard let current = try readDocumentBytes(from: url),
+                  MacDocumentEncoding.identity(current) == expectedIdentity else { return .conflict }
+            let trashed = try moveToTrash(url)
+            // External writers do not participate in our save lock. Validate the
+            // actual moved object, including link/type checks, then recover it on
+            // conflict. Never overwrite a file concurrently recreated at `url`.
+            let moved: Data?
+            do { moved = try readDocumentBytes(from: trashed) }
+            catch {
+                try restoreTrashedItem(trashed, to: url)
+                throw error
+            }
+            guard let moved, MacDocumentEncoding.identity(moved) == expectedIdentity else {
+                try restoreTrashedItem(trashed, to: url)
+                return .conflict
+            }
+            return .trashed
+        }
+    }
+
+    private func restoreTrashedItem(_ trashed: URL, to original: URL) throws {
+        do { try FileManager.default.moveItem(at: trashed, to: original) }
+        catch {
+            // Preserve both versions if the original path has been recreated.
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSLocalizedDescriptionKey: String(localized: "Rollback could not restore the changed file. It remains at \(trashed.path). Restore it manually before retrying."),
+                NSUnderlyingErrorKey: error,
+            ])
+        }
+    }
+
+    private static func systemTrash(_ url: URL) throws -> URL {
+        var resultingURL: NSURL?
+        try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
+        guard let resultingURL else {
+            throw CocoaError(.fileWriteUnknown, userInfo: [
+                NSLocalizedDescriptionKey: String(localized: "Rollback could not verify the moved file. Check the Trash before retrying."),
+            ])
+        }
+        return resultingURL as URL
     }
 
     func writeText(_ text: String, to url: URL) throws {

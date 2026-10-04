@@ -2673,3 +2673,5 @@
 "The Agent did not provide enough original content to safely roll back this file." = "Agent 未提供足够的原始内容，无法安全回撤此文件。";
 "Wait for the Agent file rollback to finish." = "请等待 Agent 文件回撤完成。";
 "The reported file changes have been updated. Review them again before rolling back." = "Agent 上报的文件修改已更新，请重新确认后再回撤。";
+"Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying." = "回撤时无法恢复发生冲突的文件，文件仍保留在 %@。请先手动恢复再重试。";
+"Rollback could not verify the moved file. Check the Trash before retrying." = "回撤时无法核对已移动的文件，请先检查废纸篓再重试。";

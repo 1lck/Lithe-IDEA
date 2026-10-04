@@ -634,6 +634,9 @@ public final class AgentConnectionModel: ObservableObject {
         pendingText[sessionID] = nil
         // The agent replays the whole history, so rebuild it from scratch.
         var conversation = AgentConversation()
+        // Review decisions belong to the open tab, not the connection. Replayed
+        // evidence still has to match the acknowledged version or exact prefix.
+        conversation.reviewedFileChanges = loadBackups[sessionID]?.reviewedFileChanges ?? [:]
         conversation.isLoading = true
         conversations[sessionID] = conversation
         if !sendCommand(["kind": "loadSession", "token": token, "sessionId": sessionID]) {

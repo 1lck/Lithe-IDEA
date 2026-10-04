@@ -155,6 +155,123 @@ struct AgentEditRestorerTests {
         }
     }
 
+    @Test func creationRollbackRejectsATerminalSymlinkToAnotherWorkspaceFile() async throws {
+        try await withWorkspace { workspace, files in
+            let url = workspace.appendingPathComponent("a.txt")
+            let target = workspace.appendingPathComponent("b.txt")
+            let recovered = workspace.appendingPathComponent("recovered.txt")
+            try Data("created".utf8).write(to: target)
+            try FileManager.default.createSymbolicLink(at: url, withDestinationURL: target)
+            let adapter = ReviewFileOperations(native: files, recovered: recovered)
+            await #expect(throws: (any Error).self) {
+                try await MacAgentEditRestorer(fileOperations: adapter).restore(creation(), in: workspace)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target.path)
+            #expect(try String(contentsOf: target, encoding: .utf8) == "created")
+            #expect(!files.fileExists(at: recovered))
+        }
+    }
+
+    @Test func creationRollbackPreservesANativeSaveAfterItsLastSnapshot() async throws {
+        try await withWorkspace { workspace, files in
+            let url = workspace.appendingPathComponent("a.txt")
+            let recovered = workspace.appendingPathComponent("recovered.txt")
+            try Data("created".utf8).write(to: url)
+            let adapter = ReviewFileOperations(native: files, recovered: recovered, beforeTrash: { url in
+                // Snapshot -> native guarded save -> rollback commit, without a timer.
+                let result = try files.writeDocumentText("saved by editor", to: url, expectedContent: "created")
+                guard case .saved = result else { throw AgentEditRestoreError.changed }
+            })
+            await #expect(throws: AgentEditRestoreError.self) {
+                try await MacAgentEditRestorer(fileOperations: adapter).restore(creation(), in: workspace)
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == "saved by editor")
+            #expect(!files.fileExists(at: recovered))
+        }
+    }
+
+    @Test func creationRollbackRestoresAnExternalReplacementMovedAfterValidation() async throws {
+        try await withWorkspace { workspace, _ in
+            let url = workspace.appendingPathComponent("a.txt")
+            let recovered = workspace.appendingPathComponent("recovered.txt")
+            try Data("created".utf8).write(to: url)
+            let files = MacWorkspaceFileOperations(moveToTrash: { source in
+                // Validated snapshot -> external replacement -> actual move.
+                try Data("external version".utf8).write(to: source, options: .atomic)
+                try FileManager.default.moveItem(at: source, to: recovered)
+                return recovered
+            })
+            await #expect(throws: AgentEditRestoreError.self) {
+                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == "external version")
+            #expect(!files.fileExists(at: recovered))
+        }
+    }
+
+    @Test func creationRollbackRestoresALinkReplacedDuringTheTrashOperation() async throws {
+        try await withWorkspace { workspace, _ in
+            let url = workspace.appendingPathComponent("a.txt")
+            let target = workspace.appendingPathComponent("b.txt")
+            let recovered = workspace.appendingPathComponent("recovered.txt")
+            try Data("created".utf8).write(to: url)
+            try Data("created".utf8).write(to: target)
+            let files = MacWorkspaceFileOperations(moveToTrash: { source in
+                try FileManager.default.removeItem(at: source)
+                try FileManager.default.createSymbolicLink(at: source, withDestinationURL: target)
+                try FileManager.default.moveItem(at: source, to: recovered)
+                return recovered
+            })
+            await #expect(throws: CocoaError.self) {
+                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+            }
+            #expect(try FileManager.default.destinationOfSymbolicLink(atPath: url.path) == target.path)
+            #expect(try String(contentsOf: target, encoding: .utf8) == "created")
+            #expect(!files.fileExists(at: recovered))
+        }
+    }
+
+    @Test func trashConflictPreservesBothVersionsWhenTheOriginalPathIsRecreated() async throws {
+        try await withWorkspace { workspace, _ in
+            let url = workspace.appendingPathComponent("a.txt")
+            let recovered = workspace.appendingPathComponent("recovered.txt")
+            try Data("created".utf8).write(to: url)
+            let files = MacWorkspaceFileOperations(moveToTrash: { source in
+                try Data("external version".utf8).write(to: source, options: .atomic)
+                try FileManager.default.moveItem(at: source, to: recovered)
+                try Data("recreated version".utf8).write(to: source, options: .withoutOverwriting)
+                return recovered
+            })
+            do {
+                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+                Issue.record("A conflict requiring manual recovery must not acknowledge rollback")
+            } catch {
+                #expect(error.localizedDescription.contains(recovered.path))
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == "recreated version")
+            #expect(try String(contentsOf: recovered, encoding: .utf8) == "external version")
+        }
+    }
+
+    @Test func failedTrashDoesNotRemoveOrAcknowledgeTheCreatedFile() async throws {
+        try await withWorkspace { workspace, _ in
+            let url = workspace.appendingPathComponent("a.txt")
+            try Data("created".utf8).write(to: url)
+            let files = MacWorkspaceFileOperations(moveToTrash: { _ in throw CocoaError(.fileWriteNoPermission) })
+            await #expect(throws: CocoaError.self) {
+                try await MacAgentEditRestorer(fileOperations: files).restore(creation(), in: workspace)
+            }
+            #expect(try String(contentsOf: url, encoding: .utf8) == "created")
+        }
+    }
+
+    private func creation() -> AgentFileChange {
+        var created = change([("", "created")])
+        created.diffs[0].oldText = nil
+        created.diffs[0].operation = "add"
+        return created
+    }
+
     private func change(_ versions: [(String, String)], path: String = "a.txt") -> AgentFileChange {
         var result = AgentFileChange(path: path)
         result.diffs = versions.map { .init(path: path, oldText: $0.0, newText: $0.1, isTruncated: false) }
@@ -175,6 +292,7 @@ private struct ReviewFileOperations: WorkspaceFileOperations {
     let native: MacWorkspaceFileOperations
     let recovered: URL
     var concurrentText: String?
+    var beforeTrash: (@Sendable (URL) throws -> Void)?
     func fileExists(at url: URL) -> Bool { native.fileExists(at: url) }
     func isDirectory(at url: URL) -> Bool { native.isDirectory(at: url) }
     func createFile(at url: URL) throws { try native.createFile(at: url) }
@@ -182,7 +300,18 @@ private struct ReviewFileOperations: WorkspaceFileOperations {
     func copyItem(at sourceURL: URL, to destinationURL: URL) throws { try native.copyItem(at: sourceURL, to: destinationURL) }
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws { try native.moveItem(at: sourceURL, to: destinationURL) }
     func removeItem(at url: URL) throws { try native.removeItem(at: url) }
-    func trashItem(at url: URL) throws { try native.moveItem(at: url, to: recovered) }
+    func trashItem(at url: URL) throws {
+        try beforeTrash?(url)
+        try native.moveItem(at: url, to: recovered)
+    }
+    func trashDocument(at url: URL, expectedIdentity: String) throws -> DocumentTrashResult {
+        try beforeTrash?(url)
+        let files = MacWorkspaceFileOperations(moveToTrash: { source in
+            try native.moveItem(at: source, to: recovered)
+            return recovered
+        })
+        return try files.trashDocument(at: url, expectedIdentity: expectedIdentity)
+    }
     func writeText(_ text: String, to url: URL) throws { try native.writeText(text, to: url) }
     func readText(from url: URL) throws -> String { try native.readText(from: url) }
     func readDocumentDetails(from url: URL, encoding: DocumentEncoding?) throws -> DocumentReadDetails? {

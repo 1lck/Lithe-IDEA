@@ -1404,3 +1404,5 @@
 "The Agent did not provide enough original content to safely roll back this file." = "The Agent did not provide enough original content to safely roll back this file.";
 "Wait for the Agent file rollback to finish." = "Wait for the Agent file rollback to finish.";
 "The reported file changes have been updated. Review them again before rolling back." = "The reported file changes have been updated. Review them again before rolling back.";
+"Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying." = "Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying.";
+"Rollback could not verify the moved file. Check the Trash before retrying." = "Rollback could not verify the moved file. Check the Trash before retrying.";

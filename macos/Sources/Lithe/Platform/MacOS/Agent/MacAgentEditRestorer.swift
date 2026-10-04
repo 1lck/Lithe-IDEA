@@ -24,7 +24,10 @@ struct MacAgentEditRestorer: AgentEditRestoring {
         let root = workspace.standardizedFileURL.resolvingSymlinksInPath()
         let location = AgentToolDetails.Location(path: change.path)
         guard let lexicalURL = location.fileURL(in: workspace) else { throw AgentEditRestoreError.outsideWorkspace }
-        let url = lexicalURL.resolvingSymlinksInPath()
+        // Resolve parents for containment, but leave the selected terminal object
+        // intact so the document adapter can reject a replacement symbolic link.
+        let url = lexicalURL.deletingLastPathComponent().resolvingSymlinksInPath()
+            .appendingPathComponent(lexicalURL.lastPathComponent)
         guard url.pathComponents.starts(with: root.pathComponents), url.pathComponents.count > root.pathComponents.count else {
             throw AgentEditRestoreError.outsideWorkspace
         }
@@ -64,11 +67,12 @@ struct MacAgentEditRestorer: AgentEditRestoring {
             case .conflict: throw AgentEditRestoreError.changed
             }
         } else if let disk {
-            let latest = try fileOperations.readDocumentDetails(from: url, encoding: nil)
-            guard latest?.identity == disk.identity, latest?.text == disk.text else { throw AgentEditRestoreError.changed }
+            guard let identity = disk.identity else { throw AgentEditRestoreError.unavailable }
             try cancellation.check()
             // New files go to recoverable Trash, never permanent deletion.
-            try fileOperations.trashItem(at: url)
+            guard case .trashed = try fileOperations.trashDocument(at: url, expectedIdentity: identity) else {
+                throw AgentEditRestoreError.changed
+            }
         }
     }
 }

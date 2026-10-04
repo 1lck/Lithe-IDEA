@@ -649,6 +649,76 @@ struct AgentConversationFeatureModelTests {
     }
 
     @Test
+    func fileReviewBaselinesSurviveReconnectAndHistoryReplay() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.selectSession("session-1")
+            try feature.receive(event("sessionLoaded", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try receiveEdit(feature, id: "first", old: "A", new: "B")
+            let first = try #require(reviewActivity(feature).files.first)
+            feature.keepFileChanges([first], in: "session-1")
+
+            await feature.stop()
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let load = try #require(transport.connections[1].commands.last)
+            #expect(load["kind"] as? String == "loadSession")
+            try receiveEdit(feature, id: "first", old: "A", new: "B")
+            try feature.receive(event("sessionLoaded", ["token": load["token"] as Any]))
+            #expect(reviewActivity(feature).files.isEmpty)
+
+            try receiveEdit(feature, id: "later", old: "B", new: "C")
+            let later = reviewActivity(feature).files
+            var restoredText: String?
+            await feature.restoreFileChanges(later, in: "session-1") { change in
+                restoredText = change.diffs.first?.oldText
+            }
+            #expect(restoredText == "B", "Rollback must preserve the edit kept before reconnect")
+            #expect(reviewActivity(feature).files.isEmpty)
+
+            await feature.stop()
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let replayToken = transport.connections[2].commands.last?["token"] as Any
+            try receiveEdit(feature, id: "first", old: "A", new: "B")
+            try receiveEdit(feature, id: "later", old: "B", new: "C")
+            try feature.receive(event("sessionLoaded", ["token": replayToken]))
+            #expect(reviewActivity(feature).files.isEmpty, "Successfully rolled-back versions must stay acknowledged")
+
+            feature.closeConversation("session-1")
+            feature.selectSession("session-1")
+            let reopenedToken = transport.connections[2].commands.last?["token"] as Any
+            try receiveEdit(feature, id: "first", old: "A", new: "B")
+            try feature.receive(event("sessionLoaded", ["token": reopenedToken]))
+            #expect(reviewActivity(feature).files.count == 1, "Closing the tab releases its local review baseline")
+        }
+    }
+
+    @Test
+    func replayedChangedEvidenceIsNotHiddenByTheRetainedReviewBaseline() async throws {
+        try await withReconnectableFeature { feature, transport in
+            feature.selectSession("session-1")
+            try feature.receive(event("sessionLoaded", ["token": transport.connections[0].commands.last?["token"] as Any]))
+            try receiveEdit(feature, id: "first", old: "A", new: "B")
+            feature.keepFileChanges(reviewActivity(feature).files, in: "session-1")
+            await feature.stop()
+            try feature.connect(configuration: configuration)
+            try feature.receive(event("ready"))
+            feature.prepareConversation()
+            let failedLoad = transport.connections[1].commands.last?["token"] as Any
+            try receiveEdit(feature, id: "first", old: "A", new: "partial replay")
+            try feature.receive(event("requestFailed", ["token": failedLoad, "message": "Replay failed"]))
+            #expect(reviewActivity(feature).files.isEmpty, "A failed replay restores the acknowledged transcript")
+            feature.prepareConversation()
+            let load = transport.connections[1].commands.last?["token"] as Any
+            try receiveEdit(feature, id: "first", old: "A", new: "different")
+            try feature.receive(event("sessionLoaded", ["token": load]))
+            #expect(reviewActivity(feature).files.first?.diffs.first?.newText == "different")
+        }
+    }
+
+    @Test
     func providerReconnectRecreatesUnpromptedSessionsAndKeepsHistoryTabs() async throws {
         try await withReconnectableFeature { feature, transport in
             feature.selectSession("session-2")
@@ -1071,6 +1141,17 @@ struct AgentConversationFeatureModelTests {
         #expect(feature.connectionState == .connecting)
         try feature.receive(event("ready"))
         return (feature, transport.connections[0])
+    }
+
+    private func reviewActivity(_ feature: AgentConnectionModel) -> AgentActivity {
+        let conversation = feature.selectedConversation ?? AgentConversation()
+        return AgentActivity(messages: conversation.messages, reviewed: conversation.reviewedFileChanges)
+    }
+
+    private func receiveEdit(_ feature: AgentConnectionModel, id: String, old: String, new: String) throws {
+        let update: [String: Any] = ["sessionUpdate": "tool_call", "toolCallId": id, "kind": "edit",
+            "status": "completed", "content": [["type": "diff", "path": "a.txt", "oldText": old, "newText": new]]]
+        try feature.receive(event("toolCall", ["update": update]))
     }
 
     private func withReconnectableFeature(
