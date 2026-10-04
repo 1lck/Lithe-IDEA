@@ -36,7 +36,9 @@ fi
 bun install --frozen-lockfile --filter @lithe/editor --cwd "$root"
 bun "$root/macos/Experiments/Monaco/build.ts" "$monaco_dir" "${build_args[@]}"
 swiftc -O -swift-version 5 -framework AppKit -framework WebKit \
-    "$root/macos/Experiments/Monaco/main.swift" -o "$output/LitheMonacoProbe"
+    "$root/macos/Experiments/Monaco/main.swift" \
+    "$root/macos/Sources/Lithe/Platform/MacOS/MonacoDocumentMessage.swift" \
+    -o "$output/LitheMonacoProbe"
 swift --version > "$output/toolchain.txt" 2>&1
 child_pid=""
 cleanup() {
