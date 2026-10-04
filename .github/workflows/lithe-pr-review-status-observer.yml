@@ -1,0 +1,31 @@
+name: Lithe PR review status observer
+
+on:
+  pull_request_review:
+    types:
+      - submitted
+      - dismissed
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lithe-pr-review-status-observer-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    if: github.event.pull_request != null
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Copy the review event payload
+        run: cp "$GITHUB_EVENT_PATH" "$RUNNER_TEMP/pull-request-review.json"
+
+      - name: Upload the review event payload
+        uses: actions/upload-artifact@v4
+        with:
+          name: lithe-pr-review-event
+          path: ${{ runner.temp }}/pull-request-review.json
+          if-no-files-found: error
+          retention-days: 1

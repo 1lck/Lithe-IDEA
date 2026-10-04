@@ -1,0 +1,278 @@
+name: Lithe PR review status
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - ready_for_review
+      - converted_to_draft
+      - reopened
+      - review_requested
+      - review_request_removed
+      - closed
+  workflow_run:
+    workflows:
+      - Lithe PR review status observer
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: lithe-pr-review-status-${{ github.event.pull_request.number || github.event.workflow_run.pull_requests[0].number || github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Download the unprivileged review event
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: lithe-pr-review-event
+          path: ${{ runner.temp }}/lithe-pr-review-event
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: Resolve the pull request and trusted base revision
+        id: event
+        uses: actions/github-script@v7
+        env:
+          REVIEW_EVENT_PATH: ${{ runner.temp }}/lithe-pr-review-event/pull-request-review.json
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require("node:fs");
+            const isReviewEvent = context.eventName === "workflow_run";
+            const payload = isReviewEvent
+              ? JSON.parse(fs.readFileSync(process.env.REVIEW_EVENT_PATH, "utf8"))
+              : context.payload;
+            const repositoryName = `${context.repo.owner}/${context.repo.repo}`;
+            const pullNumber = Number(payload.pull_request?.number);
+            let workflowRun = null;
+
+            if (!Number.isInteger(pullNumber) || pullNumber < 1) {
+              core.setFailed("The review event did not identify a pull request.");
+              return;
+            }
+
+            if (isReviewEvent) {
+              workflowRun = (await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: context.payload.workflow_run.id,
+              })).data;
+              if (
+                workflowRun.name !== "Lithe PR review status observer" ||
+                workflowRun.event !== "pull_request_review" ||
+                workflowRun.repository?.full_name !== repositoryName
+              ) {
+                core.setFailed("The completed workflow run is not the trusted review observer.");
+                return;
+              }
+              if (
+                payload.repository?.full_name !== repositoryName ||
+                payload.pull_request?.base?.repo?.full_name !== repositoryName
+              ) {
+                core.setFailed("The review event does not belong to this repository.");
+                return;
+              }
+              if (payload.action !== "submitted" && payload.action !== "dismissed") {
+                core.setFailed(`Unsupported review action: ${payload.action ?? "missing"}`);
+                return;
+              }
+            }
+
+            const pullRequest = (await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullNumber,
+            })).data;
+
+            if (
+              pullRequest.number !== pullNumber ||
+              pullRequest.base.repo.full_name !== repositoryName
+            ) {
+              core.setFailed("The pull request does not target this repository.");
+              return;
+            }
+
+            if (isReviewEvent) {
+              const workflowPullRequests = workflowRun.pull_requests ?? [];
+              const belongsToWorkflowRun = workflowPullRequests.some(
+                (workflowPullRequest) => workflowPullRequest.number === pullNumber,
+              );
+              const normalizeRepositoryName = (repository) =>
+                typeof repository?.full_name === "string"
+                  ? repository.full_name.toLowerCase()
+                  : null;
+              const runHeadRepository = normalizeRepositoryName(workflowRun.head_repository);
+              const pullRequestHeadRepository = normalizeRepositoryName(pullRequest.head?.repo);
+              const matchesApiPullRequest =
+                workflowRun.head_sha === pullRequest.head?.sha &&
+                workflowRun.head_branch === pullRequest.head?.ref &&
+                runHeadRepository !== null &&
+                runHeadRepository === pullRequestHeadRepository;
+              if (
+                !matchesApiPullRequest ||
+                (workflowPullRequests.length > 0 && !belongsToWorkflowRun)
+              ) {
+                core.setFailed("The review event does not match the completed workflow run.");
+                return;
+              }
+
+              const reviewId = Number(payload.review?.id);
+              if (!Number.isInteger(reviewId) || reviewId < 1) {
+                core.setFailed("The review event did not identify a review.");
+                return;
+              }
+              const review = (await github.rest.pulls.getReview({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pullNumber,
+                review_id: reviewId,
+              })).data;
+              if (
+                String(review.user?.id ?? "") !== String(payload.review?.user?.id ?? "") ||
+                review.user?.login?.toLowerCase() !== payload.review?.user?.login?.toLowerCase()
+              ) {
+                core.setFailed("The review event does not match the API review record.");
+                return;
+              }
+              core.setOutput("review-id", String(review.id));
+              core.setOutput("review-user-login", review.user.login);
+              core.setOutput("review-submitted-at", review.submitted_at ?? payload.review.submitted_at ?? "");
+              core.setOutput("review-state", review.state?.toLowerCase() ?? payload.review?.state?.toLowerCase() ?? "");
+            } else {
+              core.setOutput("review-id", "");
+              core.setOutput("review-user-login", "");
+              core.setOutput("review-submitted-at", "");
+              core.setOutput("review-state", "");
+            }
+
+            core.setOutput("pull-number", String(pullNumber));
+            core.setOutput("base-sha", pullRequest.base.sha);
+            core.setOutput("event-name", isReviewEvent ? "pull_request_review" : "pull_request");
+            core.setOutput("action", payload.action ?? "");
+
+      - name: Check out trusted review tooling
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.event.outputs.base-sha }}
+          fetch-depth: 1
+          sparse-checkout: scripts/pr-review-status.mjs
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+
+      - name: Synchronize review status label
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const path = require("node:path");
+            const { pathToFileURL } = require("node:url");
+            const { determineReviewStatus, getReviewLabelChanges, REVIEW_LABEL_DEFINITIONS } =
+              await import(pathToFileURL(path.join(process.env.GITHUB_WORKSPACE, "scripts/pr-review-status.mjs")).href);
+            const { owner, repo } = context.repo;
+            const pullNumber = Number(process.env.PULL_REQUEST_NUMBER);
+            const pullRequest = (await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: pullNumber,
+            })).data;
+            const reviews = await github.paginate(github.rest.pulls.listReviews, {
+              owner,
+              repo,
+              pull_number: pullNumber,
+              per_page: 100,
+            });
+            const currentLabels = pullRequest.labels ?? [];
+            const hasOutstandingReviewers =
+              (pullRequest.requested_reviewers ?? []).length > 0 ||
+              (pullRequest.requested_teams ?? []).length > 0;
+            const requestedReviewerLogins = (pullRequest.requested_reviewers ?? [])
+              .map((reviewer) => reviewer.login)
+              .filter(Boolean);
+            const reviewId = Number(process.env.REVIEW_ID);
+            const currentReview = Number.isInteger(reviewId) && reviewId > 0
+              ? {
+                  id: reviewId,
+                  state: process.env.REVIEW_ACTION === "dismissed"
+                    ? "dismissed"
+                    : process.env.REVIEW_STATE || null,
+                  submitted_at: process.env.REVIEW_SUBMITTED_AT || null,
+                  user: { login: process.env.REVIEW_USER_LOGIN },
+                }
+              : null;
+            const nextStatus = determineReviewStatus({
+              action: process.env.REVIEW_ACTION,
+              draft: pullRequest.draft === true,
+              eventName: process.env.REVIEW_EVENT_NAME,
+              hasOutstandingReviewers,
+              reviews,
+              currentReview,
+              requestedReviewerLogins,
+              pullRequestState: pullRequest.state,
+              reviewState: process.env.REVIEW_STATE || null,
+              currentLabels,
+            });
+            const { add, remove } = getReviewLabelChanges(currentLabels, nextStatus);
+
+            for (const name of remove) {
+              try {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: pullNumber, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            }
+
+            for (const name of add) {
+              const definition = REVIEW_LABEL_DEFINITIONS[name];
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner,
+                  repo,
+                  name,
+                  color: definition.color,
+                  description: definition.description,
+                }).catch((createError) => {
+                  if (createError.status !== 422) throw createError;
+                });
+              }
+            }
+
+            if (add.length > 0) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: pullNumber, labels: add });
+            }
+
+            core.info(`PR #${pullNumber} review status: ${nextStatus ?? "none"}`);
+        env:
+          PULL_REQUEST_NUMBER: ${{ steps.event.outputs.pull-number }}
+          REVIEW_EVENT_NAME: ${{ steps.event.outputs.event-name }}
+          REVIEW_ACTION: ${{ steps.event.outputs.action }}
+          REVIEW_STATE: ${{ steps.event.outputs.review-state }}
+          REVIEW_ID: ${{ steps.event.outputs.review-id }}
+          REVIEW_USER_LOGIN: ${{ steps.event.outputs.review-user-login }}
+          REVIEW_SUBMITTED_AT: ${{ steps.event.outputs.review-submitted-at }}
