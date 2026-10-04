@@ -373,6 +373,53 @@ async function verify() {
     await window.lithe.retain([]);
     assert(monacoEditor.getModels().length === 0, "bulk close retained models");
   });
+  await check("closed-document view notifications cancel without locking surviving editors", async () => {
+    for (const split of [false, true]) {
+      const closedID = split ? "closed-secondary" : "closed-primary";
+      const survivorID = `${closedID}-survivor`, text = "retained";
+      const focusTarget = document.createElement("button");
+      document.body.append(focusTarget);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await send({ type: "open", id: closedID, text });
+        await send({ type: "open", id: survivorID, text });
+        await window.lithe.activate({ id: split ? survivorID : closedID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        if (split) await window.lithe.showSecondary({ id: closedID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        const staleView = split ? monacoEditor.getEditors().find(view => view !== editor)! : editor;
+        focusTarget.focus();
+        // Close native ownership while the browser still displays the model,
+        // then deliver real Monaco focus/cursor events before model disposal.
+        await send({ type: "closeFixtureDocument", documentID: closedID });
+        staleView.focus();
+        staleView.setPosition({ lineNumber: 1, column: 2 });
+        await Promise.race([send({ type: "awaitClosedDocumentNotification" }), new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(new Error("Closed-document notification did not reach the host")), 2000);
+        })]);
+        // Text and save acknowledgments must still reject lost ownership.
+        await assertRejects(() => send({ type: "edit", id: closedID, baseRevision: 0, changes: [] }),
+          "closed-document edit was silently acknowledged");
+        await assertRejects(() => send({ type: "save", id: closedID }),
+          "closed-document save was silently acknowledged");
+        if (split) window.lithe.hideSecondary();
+        await window.lithe.activate({ id: survivorID, text, revision: 0,
+          language: "plaintext", readonly: false, focus: true });
+        await window.lithe.retain([survivorID]);
+        assert(!editor.getOption(monacoEditor.EditorOption.readOnly), "stale view notification locked the live editor");
+        editor.executeEdits("integration", [{ range: new Range(1, 1, 1, 9), text: "still editable" }]);
+        const snapshot = await window.lithe.freeze(survivorID);
+        assert(snapshot.text === "still editable", "surviving document no longer synchronized edits");
+        assert(getComputedStyle(document.getElementById("error")!).display === "none", "stale view notification showed a fatal banner");
+        window.lithe.unlock(survivorID);
+      } finally {
+        if (deadline !== undefined) clearTimeout(deadline);
+        focusTarget.remove();
+        window.lithe.hideSecondary();
+        await window.lithe.retain([]);
+      }
+    }
+  });
   await check("large Java model opens once and reuses its view state", async () => {
     const text = "class Large {\n" + Array.from({ length: 10_000 }, (_, i) => `    int field${i}; // 中文 😀`).join("\n") + "\n}";
     const opened = await window.lithe.activate({ id: "large", text, revision: 0, language: "java", readonly: false });

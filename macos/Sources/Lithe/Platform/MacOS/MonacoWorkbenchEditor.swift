@@ -929,8 +929,12 @@ private final class MonacoWorkbenchSession: NSObject, ObservableObject, WKNaviga
             if let message = body["message"] as? String { model?.showNotification(message) }
             reply(["ok": true], nil); return
         }
-        guard let id = body["id"] as? String, let document = currentDocument(id), let revision = revisions[id] else {
-            reply(nil, "Document closed"); return
+        guard let id = body["id"] as? String else {
+            reply(nil, "Missing editor document identifier"); return
+        }
+        guard let document = currentDocument(id), let revision = revisions[id] else {
+            MonacoDocumentMessage.replyToClosedDocument(type: type, reply: reply)
+            return
         }
         let context = MonacoDocumentContext(document: document, revision: revision, workspaceURL: model?.workspaceURL)
         // Text edits still belong to the same buffer after a move, and saves must
