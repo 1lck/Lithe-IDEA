@@ -15,6 +15,7 @@ import {
 import { getMultiDiffSectionKey } from "../../utils/multi-diff-search";
 import { resolveDiffViewMode } from "../../utils/git-diff-split-layout";
 import MonacoGitDiff, { type MonacoGitDiffHandle } from "./monaco-git-diff";
+import IndependentCommitDiff from "./independent-commit-diff";
 import { CommitFileDiffToolbar } from "./commit-file-diff-toolbar";
 import { BinaryDiffViewer } from "./git-diff-binary";
 import ImageDiffViewer from "./git-diff-image";
@@ -138,6 +139,11 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
           <ImageDiffViewer diff={diff} fileName={fileName} onClose={() => {}} />
         ) : diff.is_binary ? (
           <BinaryDiffViewer fileName={fileName} />
+        ) : viewMode === "split" ? (
+          <IndependentCommitDiff ref={editor} diff={diff} sourceRepoPath={multiDiff.repoPath}
+            showWhitespace={showWhitespace} highlightWords={highlightWords}
+            startAtFirstDifference={startAtFirstDifference} onNavigationChange={onNavigationChange}
+            onSplitLayout={onSplitLayout} />
         ) : (
           <MonacoGitDiff
             ref={editor}

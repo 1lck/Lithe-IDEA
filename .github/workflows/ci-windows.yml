@@ -303,6 +303,10 @@ jobs:
         run: |
           $runner = ".agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs"
           $previewTests = @(
+            "src/features/git/utils/monaco-diff-rows.test.ts",
+            "src/features/git/utils/commit-diff-chrome-geometry.test.ts",
+            "src/features/git/utils/independent-commit-diff.test.ts",
+            "src/features/git/components/diff/independent-commit-diff-surface.test.ts",
             "src/features/git/hooks/use-commit-file-preview.test.tsx",
             "src/features/git/utils/commit-file-diff-navigation.test.ts",
             "src/features/git/components/diff/commit-file-diff-toolbar.test.tsx",

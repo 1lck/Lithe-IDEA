@@ -66,7 +66,7 @@ const rowKind = (line: GitDiffLine): ReviewRow["kind"] =>
 
 /** Preserve patch order and identity. Monaco aligns the projections, while
  * search results continue to address the original Git line array. */
-export function monacoDiffRows(diff: GitDiff): ReviewRow[] {
+export function monacoDiffRows(diff: GitDiff, options: { hideHunkHeaders?: boolean } = {}): ReviewRow[] {
   const derived = fullContextHunks(diff);
   if (derived) {
     // The single full-file header carries no information worth a row, and its
@@ -90,9 +90,10 @@ export function monacoDiffRows(diff: GitDiff): ReviewRow[] {
   }
 
   let hunkID: string | null = null;
-  return diff.lines.map((line, index) => {
+  return diff.lines.flatMap((line, index) => {
     if (line.line_type === "header") hunkID = `hunk-${index}`;
-    return {
+    if (options.hideHunkHeaders && line.line_type === "header") return [];
+    return [{
       id: `line-${index}`,
       oldLine: line.old_line_number ?? null,
       newLine: line.new_line_number ?? null,
@@ -100,7 +101,7 @@ export function monacoDiffRows(diff: GitDiff): ReviewRow[] {
       right: line.line_type === "removed" ? null : line.content,
       kind: rowKind(line),
       hunkID,
-    };
+    }];
   });
 }
 

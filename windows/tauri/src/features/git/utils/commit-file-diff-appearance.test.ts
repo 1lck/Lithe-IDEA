@@ -17,3 +17,10 @@ test("Diff default row spacing scales with font zoom and preserves a custom line
     ignoreHorizontalScrollbarInContentHeight: true,
   });
 });
+
+test("repository diff leaves five font-scaled rows of bottom space without synthetic text", () => {
+  expect(commitDiffEditorAppearance(14, 20).padding).toEqual({ top: 0, bottom: 110 });
+  expect(commitDiffEditorAppearance(28, 40).padding?.bottom).toBe(220);
+  expect(commitDiffEditorAppearance(14, 30).padding?.bottom).toBe(150);
+  expect(commitDiffEditorAppearance(14, 20).scrollBeyondLastLine).toBe(false);
+});

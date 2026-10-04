@@ -50,6 +50,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
+    "diff": "8.0.2",
     "dompurify": "^3.4.11",
     "effect": "^3.22.0",
     "embla-carousel-react": "^8.6.0",

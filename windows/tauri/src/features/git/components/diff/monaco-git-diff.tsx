@@ -79,7 +79,7 @@ export default function MonacoGitDiff({
   const [error, setError] = useState<string>();
   const [actionFailed, setActionFailed] = useState(false);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
-  const rows = useMemo(() => monacoDiffRows(diff), [diff]);
+  const rows = useMemo(() => monacoDiffRows(diff, { hideHunkHeaders: repositoryPreview }), [diff, repositoryPreview]);
   const sourcePath = diff.new_path || diff.file_path || diff.old_path || "";
   const fullContext = diff.is_full_context === true;
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });

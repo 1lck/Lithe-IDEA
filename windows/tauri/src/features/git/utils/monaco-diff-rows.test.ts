@@ -31,6 +31,18 @@ const gitDefaultHunks = parse([
 ].join("\n"));
 
 describe("shared Monaco diff rows", () => {
+  test("repository previews omit sparse hunk headers but retain source identity and staging hunks", () => {
+    const original = monacoDiffRows(gitDefaultHunks);
+    const hidden = monacoDiffRows(gitDefaultHunks, { hideHunkHeaders: true });
+    expect(hidden).toEqual(original.filter(row => row.kind !== "information"));
+    expect(hidden[0].id).toBe("line-1");
+    expect(hidden[0].oldLine).toBe(1);
+    expect(hidden[0].newLine).toBe(1);
+    expect(monacoDiffHunk(gitDefaultHunks, hidden[0].hunkID!)?.lines[0].line_type).toBe("header");
+    expect(original.some(row => row.left?.startsWith("@@"))).toBe(true);
+    const text = { ...gitDefaultHunks, lines: [{ line_type: "context" as const, content: "@@ is actual content", old_line_number: 1, new_line_number: 1 }] };
+    expect(monacoDiffRows(text, { hideHunkHeaders: true })[0].left).toBe("@@ is actual content");
+  });
   test("matches the cross-platform sparse patch fixture", () => {
     expect(monacoDiffRows(fixture.gitDiff as GitDiff)).toEqual(fixture.rows as ReviewRow[]);
   });

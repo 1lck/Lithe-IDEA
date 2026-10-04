@@ -5,18 +5,32 @@ import { DEFAULT_CODE_FONT_SIZE } from "@/features/settings/config/typography-de
 // DiffLayoutMetrics.rowHeight and LitheScrollBarStyle.editorThickness in the macOS reference.
 const DIFF_DEFAULT_ROW_HEIGHT = 22;
 const DIFF_SCROLLBAR_WIDTH = 18;
+// EditorSettingsState.editor.virtual.lines defaults to five in IDEA.
+const DIFF_BOTTOM_CONTEXT_LINES = 5;
 
-export function commitDiffEditorAppearance(fontSize: number, lineHeight: number): editor.IDiffEditorOptions {
+export function commitDiffEditorAppearance(
+  fontSize: number,
+  lineHeight: number,
+): editor.IDiffEditorOptions {
   const defaultHeight = Math.ceil(fontSize * EDITOR_CONSTANTS.LINE_HEIGHT_MULTIPLIER);
+  const diffLineHeight =
+    lineHeight === defaultHeight
+      ? Math.ceil((fontSize * DIFF_DEFAULT_ROW_HEIGHT) / DEFAULT_CODE_FONT_SIZE)
+      : lineHeight;
   return {
     // The Diff has its own change overview; the code-editor ruler otherwise
     // paints an opaque canvas underneath each native scrollbar.
     overviewRulerLanes: 0,
     overviewRulerBorder: false,
+    // A patch projection is not a complete source file. Its overview describes
+    // the comparison, not diagnostics or symbol occurrences for synthetic text.
+    renderValidationDecorations: "off",
+    occurrencesHighlight: "off",
+    selectionHighlight: false,
     // Respect a custom line height; scale the Diff default with the configured font/zoom.
-    lineHeight: lineHeight === defaultHeight
-      ? Math.ceil(fontSize * DIFF_DEFAULT_ROW_HEIGHT / DEFAULT_CODE_FONT_SIZE)
-      : lineHeight,
+    lineHeight: diffLineHeight,
+    scrollBeyondLastLine: false,
+    padding: { top: 0, bottom: DIFF_BOTTOM_CONTEXT_LINES * diffLineHeight },
     scrollbar: {
       vertical: "visible",
       horizontal: "visible",
