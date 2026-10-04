@@ -225,10 +225,17 @@ public final class AgentConnectionModel: ObservableObject {
 
     public func setConfigOption(_ id: String, value: String) {
         guard let sessionID = selectedSessionID, let conversation = conversations[sessionID],
-              conversation.isAttached, !conversation.isResponding, !conversation.isLoading,
+              conversation.isAttached, !conversation.isLoading,
               conversation.pendingConfigToken == nil,
               let option = conversation.configOptions.first(where: { $0.id == id }),
-              option.choices.contains(where: { $0.id == value }), option.currentValue != value else { return }
+              option.choices.contains(where: { $0.id == value }) else { return }
+        if conversation.isResponding {
+            // Do not change the running turn's model or its outstanding tool permissions.
+            conversations[sessionID]?.queuedConfigValues[id] = option.currentValue == value ? nil : value
+            conversations[sessionID]?.configurationError = nil
+            return
+        }
+        guard option.currentValue != value else { return }
         let token = makeToken()
         conversations[sessionID]?.pendingConfigToken = token
         conversations[sessionID]?.configurationError = nil
@@ -285,7 +292,9 @@ public final class AgentConnectionModel: ObservableObject {
         }
         let conversation = conversations[sessionID] ?? AgentConversation()
         guard !conversation.isResponding else { throw AgentConversationError.sessionBusy }
-        guard conversation.pendingConfigToken == nil else { throw AgentConversationError.configurationPending }
+        guard conversation.pendingConfigToken == nil, conversation.queuedConfigValues.isEmpty else {
+            throw AgentConversationError.configurationPending
+        }
         if conversation.isLoading {
             queuedPrompts[sessionID] = prompt
         } else if conversation.isAttached {
@@ -383,9 +392,20 @@ public final class AgentConnectionModel: ObservableObject {
                 startPrompt(prompt, in: sessionID)
             }
         case "sessionConfigured":
-            guard let sessionID, conversations[sessionID]?.pendingConfigToken == token else { return }
+            guard let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token else { return }
             applyConfiguration(event["configOptions"], to: sessionID)
             conversations[sessionID]?.pendingConfigToken = nil
+            if let id = conversations[sessionID]?.pendingQueuedConfigID {
+                let requested = conversations[sessionID]?.queuedConfigValues[id]
+                let confirmed = conversations[sessionID]?.configOptions.first { $0.id == id }?.currentValue
+                conversations[sessionID]?.pendingQueuedConfigID = nil
+                guard requested == confirmed else {
+                    failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent did not confirm the selected session setting."))
+                    return
+                }
+                conversations[sessionID]?.queuedConfigValues[id] = nil
+                applyQueuedConfiguration(in: sessionID)
+            }
         case "turnCancelling":
             guard let sessionID else { return }
             conversations[sessionID]?.isCancelling = true
@@ -415,6 +435,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.errorMessage = stopReasonMessage(event["stopReason"] as? String)
             updateAttention()
+            applyQueuedConfiguration(in: sessionID)
         case "requestFailed":
             requestFailed(token: token, sessionID: sessionID, message: event["message"] as? String ?? String(localized: "The Agent request failed."))
         case "stopped":
@@ -455,7 +476,7 @@ public final class AgentConnectionModel: ObservableObject {
             historyError = message
         } else if let sessionID, let token, conversations[sessionID]?.pendingConfigToken == token {
             conversations[sessionID]?.pendingConfigToken = nil
-            conversations[sessionID]?.configurationError = message
+            failQueuedConfiguration(in: sessionID, message: message)
         } else if let token, token == createToken {
             queuedPrompts.removeValue(forKey: token)
             createToken = nil
@@ -479,6 +500,7 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.pendingPermissions.removeAll()
             conversations[sessionID]?.errorMessage = message
             updateAttention()
+            applyQueuedConfiguration(in: sessionID)
         } else {
             errorMessage = message
         }
@@ -580,6 +602,46 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[sessionID]?.contextUsage = nil
         }
         conversations[sessionID, default: AgentConversation()].configOptions = options
+    }
+
+    /// Submit next-turn choices only after the Host has released this session's prompt.
+    private func applyQueuedConfiguration(in sessionID: String) {
+        guard let conversation = conversations[sessionID], conversation.isAttached,
+              !conversation.isResponding, !conversation.isLoading,
+              conversation.pendingConfigToken == nil, !conversation.queuedConfigValues.isEmpty else { return }
+        // A model acknowledgement can replace the available reasoning/speed choices.
+        // Revalidate each remaining choice against that latest complete option list.
+        let ordered = conversation.configOptions.filter { $0.category == "model" }
+            + conversation.configOptions.filter { $0.category != "model" }
+        for option in ordered {
+            guard let value = conversations[sessionID]?.queuedConfigValues[option.id] else { continue }
+            if option.currentValue == value {
+                conversations[sessionID]?.queuedConfigValues[option.id] = nil
+                continue
+            }
+            guard option.choices.contains(where: { $0.id == value }) else {
+                failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent no longer supports the selected session setting."))
+                return
+            }
+            let token = makeToken()
+            conversations[sessionID]?.pendingConfigToken = token
+            conversations[sessionID]?.pendingQueuedConfigID = option.id
+            if !sendCommand(["kind": "setConfigOption", "token": token, "sessionId": sessionID,
+                             "configId": option.id, "value": value]) {
+                conversations[sessionID]?.pendingConfigToken = nil
+                failQueuedConfiguration(in: sessionID, message: errorMessage ?? AgentConversationError.notConnected.localizedDescription)
+            }
+            return
+        }
+        if conversations[sessionID]?.queuedConfigValues.isEmpty == false {
+            failQueuedConfiguration(in: sessionID, message: String(localized: "The Agent no longer supports the selected session setting."))
+        }
+    }
+
+    private func failQueuedConfiguration(in sessionID: String, message: String) {
+        conversations[sessionID]?.queuedConfigValues.removeAll()
+        conversations[sessionID]?.pendingQueuedConfigID = nil
+        conversations[sessionID]?.configurationError = message
     }
 
     private func append(_ text: String, role: AgentConversationMessage.Role, to sessionID: String) {
@@ -728,6 +790,8 @@ public final class AgentConnectionModel: ObservableObject {
             conversations[id]?.interruptPendingTools()
             conversations[id]?.isCancelling = false
             conversations[id]?.pendingConfigToken = nil
+            conversations[id]?.queuedConfigValues.removeAll()
+            conversations[id]?.pendingQueuedConfigID = nil
             conversations[id]?.isLoading = false
             conversations[id]?.isAttached = false
             conversations[id]?.pendingPermissions.removeAll()

@@ -757,9 +757,19 @@ fn verified_coordinates(
 /// parent can ship a framework plugin to itself without making the whole reactor
 /// runnable.
 
+/// Maven's default `<groupId>` for a plugin declaration that omits one. The
+/// `Plugin` model initializes the field to this value, so a bare artifactId is
+/// never resolved against another group.
+const DEFAULT_PLUGIN_GROUP: &str = "org.apache.maven.plugins";
+
 #[derive(Debug, Clone)]
 /// Visibility matches `DeclaredModule`, which is re-exported crate-wide.
 pub(crate) struct BuildPlugin {
+    /// The group Maven resolves the plugin under. A declaration that omits
+    /// `<groupId>` gets Maven's default of `org.apache.maven.plugins`, so a
+    /// bare `spring-boot-maven-plugin` names a different plugin than
+    /// `org.springframework.boot:spring-boot-maven-plugin`.
+    pub(crate) group_id: String,
     pub(crate) artifact_id: String,
     pub(crate) inherited: bool,
 }
@@ -767,6 +777,8 @@ pub(crate) struct BuildPlugin {
 #[derive(Debug, Default)]
 /// Configuration buffered until the owning build plugin's `artifactId` is known.
 struct PendingBuildPlugin {
+    /// `<groupId>`; absent means Maven's default of `org.apache.maven.plugins`.
+    group_id: Option<String>,
     artifact_id: Option<String>,
     /// `<inherited>`; absent means Maven's default of `true`.
     inherited: Option<bool>,
@@ -800,10 +812,17 @@ pub struct DeclaredModule {
 impl DeclaredModule {
     /// Reports whether this module applies a build plugin, whether it declares
     /// the plugin itself or inherits it from `<parent>`.
-    pub fn applies_plugin(&self, artifact_id: &str) -> bool {
+    ///
+    /// A plugin is identified by `groupId:artifactId`. Maven gives a declaration
+    /// that omits `<groupId>` the default `org.apache.maven.plugins`, so a bare
+    /// `spring-boot-maven-plugin` names a different artifact than
+    /// `org.springframework.boot:spring-boot-maven-plugin` -- matching on the
+    /// artifactId alone would hand the module a framework whose goal it never
+    /// applied.
+    pub fn applies_plugin(&self, group_id: &str, artifact_id: &str) -> bool {
         self.plugins
             .iter()
-            .any(|plugin| plugin.artifact_id == artifact_id)
+            .any(|plugin| plugin.group_id == group_id && plugin.artifact_id == artifact_id)
     }
 
     /// `pom` packaging is an aggregator: it produces no artifact to run, so a
@@ -976,9 +995,9 @@ fn merge_inherited(own: &[BuildPlugin], inherited: &[BuildPlugin]) -> Vec<BuildP
     let mut merged = own.to_vec();
     for plugin in inherited {
         if plugin.inherited
-            && !merged
-                .iter()
-                .any(|existing| existing.artifact_id == plugin.artifact_id)
+            && !merged.iter().any(|existing| {
+                existing.group_id == plugin.group_id && existing.artifact_id == plugin.artifact_id
+            })
         {
             merged.push(plugin.clone());
         }
@@ -2285,6 +2304,11 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     // Only `<build><plugins>` counts. A plugin under
                     // `<pluginManagement>` pins a version for children without
                     // applying it, and one under `<reporting>` never runs.
+                    "project/build/plugins/plugin/groupId" => {
+                        if let Some(plugin) = pending_build_plugin.as_mut() {
+                            plugin.group_id = non_empty(text.clone());
+                        }
+                    }
                     "project/build/plugins/plugin/artifactId" => {
                         if let Some(plugin) = pending_build_plugin.as_mut() {
                             plugin.artifact_id = non_empty(text.clone());
@@ -2298,8 +2322,11 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                     "project/build/plugins/plugin" => {
                         if let Some(plugin) = pending_build_plugin.take() {
                             if let Some(artifact_id) = plugin.artifact_id {
-                                match artifact_id.as_str() {
-                                    "maven-compiler-plugin" => {
+                                let group_id = plugin
+                                    .group_id
+                                    .unwrap_or_else(|| DEFAULT_PLUGIN_GROUP.to_string());
+                                match (group_id.as_str(), artifact_id.as_str()) {
+                                    ("org.apache.maven.plugins", "maven-compiler-plugin") => {
                                         value.generated_source_directories.extend(
                                             plugin.compiler_generated_source_directories,
                                         );
@@ -2307,13 +2334,14 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                             plugin.compiler_generated_test_source_directories,
                                         );
                                     }
-                                    "build-helper-maven-plugin" => {
+                                    ("org.codehaus.mojo", "build-helper-maven-plugin") => {
                                         value.generated_source_directories
                                             .extend(plugin.build_helper_source_directories);
                                         value.generated_test_source_directories
                                             .extend(plugin.build_helper_test_source_directories);
                                     }
-                                    "maven-surefire-plugin" | "maven-failsafe-plugin" => {
+                                    ("org.apache.maven.plugins", "maven-surefire-plugin")
+                                    | ("org.apache.maven.plugins", "maven-failsafe-plugin") => {
                                         value
                                             .test_report_directories
                                             .extend(plugin.reports_directories);
@@ -2321,6 +2349,7 @@ fn descriptor(path: &Path) -> Result<Option<Descriptor>, CoreError> {
                                     _ => {}
                                 }
                                 value.plugins.push(BuildPlugin {
+                                    group_id,
                                     inherited: plugin.inherited.unwrap_or(true),
                                     artifact_id,
                                 });

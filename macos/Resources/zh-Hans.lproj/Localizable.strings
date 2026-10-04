@@ -2684,3 +2684,6 @@
 "Waiting for permission…" = "等待授权…";
 
 "Agent is retrying…" = "Agent 正在重试…";
+"Changes apply to the next turn." = "修改将在下一轮对话生效。";
+"The Agent did not confirm the selected session setting." = "Agent 未确认所选会话设置。";
+"The Agent no longer supports the selected session setting." = "Agent 已不再支持所选会话设置。";

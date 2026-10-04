@@ -5,8 +5,54 @@ import Testing
 @testable import LitheAgentConversationModule
 
 @MainActor
-@Suite("Agent selector layout")
+@Suite("Agent selector layout", .serialized)
 struct AgentSessionSelectorLayoutTests {
+    @Test
+    func respondingComposerOpensPermissionAndModelChoicesInBothThemes() async throws {
+        let options = [
+            AgentSessionConfigOption(id: "mode", name: "Mode", category: "mode", currentValue: "manual",
+                choices: [.init(id: "manual", name: "Manual"), .init(id: "auto", name: "Auto")]),
+            AgentSessionConfigOption(id: "model", name: "Model", category: "model", currentValue: "model-a",
+                choices: [.init(id: "model-a", name: "Model A"), .init(id: "model-b", name: "Model B")])
+        ]
+        for scheme in [ColorScheme.dark, .light] {
+            var selections: [String: String] = [:]
+            let host = NSHostingView(rootView: AgentComposerView(
+                agents: [], selectedAgent: .init(id: "codex-acp", name: "Codex"),
+                isResponding: true, isBlocked: false, onSend: { _, _ in }, onCancel: {},
+                onSelectAgent: { _ in }, onOpenSettings: {}, onError: { _ in },
+                configOptions: options, onSetConfig: { selections[$0] = $1 }
+            ).environment(\.colorScheme, scheme))
+            let window = makeWindow(host, size: NSSize(width: 540, height: 200))
+            defer {
+                // Detaching the anchors dismisses their panels and removes event monitors.
+                window.contentView = nil
+                window.close()
+            }
+            for (category, value) in [("mode", "auto"), ("model", "model-b")] {
+                try #require(await waitUntil {
+                    host.layoutSubtreeIfNeeded()
+                    return dropdownAnchors(in: host).count == 3
+                }, "The composer must lay out the Agent, approval and model triggers")
+                // Shared dropdown anchors have the real trigger geometry; avoid guessed pixel offsets.
+                let anchors = dropdownAnchors(in: host).sorted {
+                    $0.convert($0.bounds, to: host).minX < $1.convert($1.bounds, to: host).minX
+                }
+                let trigger = anchors[category == "mode" ? 1 : 2]
+                try click(NSPoint(x: trigger.bounds.midX, y: trigger.bounds.midY), in: trigger, window: window)
+                try #require(await waitUntil { popup(in: window) != nil }, "A native click must open the shared dropdown while responding")
+                let panel = try #require(popup(in: window))
+                let content = try #require(panel.contentView)
+                let scroll = try #require(scrollView(in: content))
+                let document = try #require(scroll.documentView)
+                let rowHeight = document.bounds.height / 2
+                try click(NSPoint(x: 100, y: rowHeight * 1.5), in: document, window: panel)
+                #expect(await waitUntil { selections[category] == value }, "The open dropdown must preserve its selection callback")
+                #expect(await waitUntil { popup(in: window) == nil }, "Choosing a value must dismiss the dropdown")
+            }
+        }
+    }
+
     @Test
     func twoLinePermissionDescriptionsHaveRoomAndKeepTheirSelectionAction() async throws {
         let description = "批准后才能修改文件。\n其他操作继续遵守权限规则。"
@@ -94,6 +140,15 @@ struct AgentSessionSelectorLayoutTests {
     private func scrollView(in view: NSView) -> NSScrollView? {
         if let scroll = view as? NSScrollView { return scroll }
         return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+    }
+
+    private func dropdownAnchors(in view: NSView) -> [LitheDropdownAnchorView] {
+        if let anchor = view as? LitheDropdownAnchorView { return [anchor] }
+        return view.subviews.flatMap { dropdownAnchors(in: $0) }
+    }
+
+    private func popup(in window: NSWindow) -> NSPanel? {
+        window.childWindows?.compactMap { $0 as? NSPanel }.first { $0.isVisible }
     }
 
     private func click(_ point: NSPoint, in view: NSView, window: NSWindow) throws {

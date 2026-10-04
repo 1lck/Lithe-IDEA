@@ -14,11 +14,13 @@
   "windows": {
     "evidence": [
       "windows/tauri/src/features",
-      "shared/fixtures/lsp"
+      "shared/fixtures/lsp",
+      "windows/tauri/src/features/editor/engines/monaco/definition-link.test.ts",
+      "windows/tauri/src/features/editor/engines/monaco/definition-link-scheduler.test.ts"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Language Tooling",
-  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。"
+  "verification": "验证定义、引用、语义标记和 UTF-16 文本编辑的坐标转换。 Windows 验证 Ctrl+点击临时失败后无需修改源码即可重试成功，服务重启或文档重新连接后不复用旧位置，切换编辑器时丢弃迟到结果。"
 }

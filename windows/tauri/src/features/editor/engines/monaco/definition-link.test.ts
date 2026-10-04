@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import type * as Monaco from "monaco-editor";
 import { installHappyDom } from "@/test-utils/happy-dom";
 
@@ -30,18 +30,31 @@ function deferred<T>() {
 // `lspClient.getDefinition`. Stub it to return a controllable promise so the
 // async-interleaving regression test can hold the response and observe the
 // surface-deactivation check.
+let available = true;
+let preparationFailure: Error | null = null;
+let definitionCalls = 0;
+let navigationContext = "java:ready:attachment-1";
+let navigationContextReads = 0;
 let getDefinitionDeferred: { promise: Promise<unknown>; resolve: (value: unknown) => void } | null = null;
 mock.module("@/features/editor/lsp/lsp-client", () => ({
-  isDocumentFeatureAvailable: () => true,
+  isDocumentFeatureAvailable: () => available,
   LspClient: {
     getInstance: () => ({
-      getDocumentAvailability: () => ({ definition: "ready" }),
+      getDocumentNavigationContextKey: () => { navigationContextReads += 1; return navigationContext; },
+      getDocumentAvailability: () => ({ phase: available ? "ready" : "preparing", feature: "supported" }),
+      ensureDocumentReady: async () => {
+        if (preparationFailure) throw preparationFailure;
+      },
       getDefinition: () => {
+        definitionCalls += 1;
         getDefinitionDeferred = deferred<unknown>();
         return getDefinitionDeferred.promise;
       },
     }),
   },
+}));
+mock.module("@/features/editor/lsp/lombok-accessor-navigation", () => ({
+  resolveLombokAccessorDefinition: async () => null,
 }));
 mock.module("@/utils/frontend-trace", () => ({
   frontendTrace: () => undefined,
@@ -61,7 +74,15 @@ mock.module("@/extensions/registry/extension-registry", () => ({
 // hoist ahead of `installHappyDom()`).
 const restoreDom = installHappyDom();
 const { registerMonacoDefinitionLinkGesture } = await import("./definition-link");
+const { useLspStore } = await import("@/features/editor/lsp/stores/lsp.store");
 afterAll(() => restoreDom());
+beforeEach(() => {
+  available = true;
+  preparationFailure = null;
+  definitionCalls = 0;
+  navigationContext = "java:ready:attachment-1";
+  getDefinitionDeferred = null;
+});
 
 interface Disposable {
   dispose: () => void;
@@ -194,4 +215,156 @@ describe("definition link gesture", () => {
 
     gesture.dispose();
   });
+
+  const targetLocation = (name: string) => [{
+    uri: `file:///project/${name}.java`,
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+  }];
+  const position = { lineNumber: 1, column: 3 } as Monaco.Position;
+  const createClickableGesture = () => registerMonacoDefinitionLinkGesture({
+    editor: createStubEditor().editor,
+    model: {
+      ...createStubModel(),
+      getWordAtPosition: () => ({ startColumn: 1, endColumn: 5 }),
+      getValue: () => "Main",
+    } as unknown as Monaco.editor.ITextModel,
+    documentTarget: javaTarget,
+    workspaceScope: { workspaceId: "project", root: "/project" },
+  });
+  const completeDefinition = (locations: unknown) => {
+    expect(getDefinitionDeferred).not.toBeNull();
+    getDefinitionDeferred!.resolve(locations);
+  };
+
+  test.each([{ first: null }, { first: [] }])("retries a transient empty definition without editing the source (%j)", async ({ first }) => {
+    const gesture = createClickableGesture();
+    try {
+      const firstClick = gesture.resolveForClick(position);
+      completeDefinition(first);
+      expect((await firstClick)?.locations).toEqual([]);
+      const secondClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("Recovered"));
+      expect((await secondClick)?.locations).toEqual(targetLocation("Recovered"));
+      expect(definitionCalls).toBe(2);
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test("retries the same word after preparation fails and the service recovers", async () => {
+    const gesture = createClickableGesture();
+    try {
+      available = false;
+      preparationFailure = new Error("Java import failed");
+      expect((await gesture.resolveForClick(position))?.locations).toEqual([]);
+      expect(definitionCalls).toBe(0);
+      available = true;
+      preparationFailure = null;
+      const recoveredClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("Recovered"));
+      expect((await recoveredClick)?.locations).toEqual(targetLocation("Recovered"));
+      expect(definitionCalls).toBe(1);
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test.each(["lifecycle", "attachment"])("invalidates successful locations on %s changes", async (change) => {
+    const gesture = createClickableGesture();
+    try {
+      const firstClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("Old"));
+      await firstClick;
+      expect((await gesture.resolveForClick(position))?.locations).toEqual(targetLocation("Old"));
+      expect(definitionCalls).toBe(1);
+      navigationContext = `java:ready:new-${change}`;
+      const actions = useLspStore.getState().actions;
+      if (change === "lifecycle") actions.updateLanguageLifecycle("java", "fullyReady");
+      else actions.markDocumentStateChanged();
+      const newClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("New"));
+      expect((await newClick)?.locations).toEqual(targetLocation("New"));
+      expect(definitionCalls).toBe(2);
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test("does not reuse locations after context changes without a store notification", async () => {
+    const gesture = createClickableGesture();
+    try {
+      const firstClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("Old"));
+      await firstClick;
+      // Capability events and adapter snapshots can change independently of the UI store.
+      navigationContext = "java:ready:changed-capabilities";
+      const newClick = gesture.resolveForClick(position);
+      expect(definitionCalls).toBe(2);
+      completeDefinition(targetLocation("New"));
+      expect((await newClick)?.locations).toEqual(targetLocation("New"));
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test("discards in-flight locations after context changes without a store notification", async () => {
+    const gesture = createClickableGesture();
+    try {
+      const oldClick = gesture.resolveForClick(position);
+      navigationContext = "java:ready:changed-capabilities";
+      completeDefinition(targetLocation("Old"));
+      expect(await oldClick).toBeNull();
+      const newClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("New"));
+      expect((await newClick)?.locations).toEqual(targetLocation("New"));
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test("discards in-flight locations when the language service restarts", async () => {
+    const gesture = createClickableGesture();
+    try {
+      const oldClick = gesture.resolveForClick(position);
+      navigationContext = "java:starting:attachment-2";
+      useLspStore.getState().actions.updateLanguageLifecycle("java", "starting");
+      completeDefinition(targetLocation("Old"));
+      expect(await oldClick).toBeNull();
+      const newClick = gesture.resolveForClick(position);
+      completeDefinition(targetLocation("New"));
+      expect((await newClick)?.locations).toEqual(targetLocation("New"));
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+  test("unrelated language-service changes do not discard the active click", async () => {
+    const gesture = createClickableGesture();
+    try {
+      const click = gesture.resolveForClick(position);
+      useLspStore.getState().actions.updateLanguageLifecycle("unrelated-typescript", "starting");
+      useLspStore.getState().actions.markDocumentStateChanged();
+      completeDefinition(targetLocation("Target"));
+      expect((await click)?.locations).toEqual(targetLocation("Target"));
+      expect(definitionCalls).toBe(1);
+    } finally {
+      gesture.dispose();
+      getDefinitionDeferred?.resolve([]);
+    }
+  });
+
+  test("disposing the gesture removes its language-service subscription", () => {
+    const gesture = createClickableGesture();
+    gesture.dispose();
+    const readsAfterDispose = navigationContextReads;
+    navigationContext = "java:stopped";
+    useLspStore.getState().actions.markDocumentStateChanged();
+    expect(navigationContextReads).toBe(readsAfterDispose);
+  });
+
 });

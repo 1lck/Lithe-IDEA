@@ -1065,6 +1065,20 @@ export class LspClient {
     return getLspSessionSnapshot({ filePath }) !== null;
   }
 
+  /** Opaque identity for definition caches; unrelated documents must not cancel a click. */
+  getDocumentNavigationContextKey(target: LspDocumentTargetInput): string {
+    const document = normalizeLspDocumentTarget(target);
+    const session = getLspSessionSnapshot(document);
+    const fileKey = trackedFileKey(lspSessionFilePath(document));
+    return JSON.stringify([
+      session?.id,
+      session?.phase,
+      session?.featureState,
+      this.fileAttachmentIds.get(fileKey),
+      this.documents.get(fileKey)?.phase,
+    ]);
+  }
+
   getDocumentAvailability(
     target: LspDocumentTargetInput,
     feature?: string,

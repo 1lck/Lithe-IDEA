@@ -118,7 +118,8 @@ pub struct StartServerRequest {
     pub java_runtimes: Vec<JavaRuntimeCandidate>,
     #[serde(default = "default_initialize_timeout")]
     pub initialize_timeout_milliseconds: u64,
-    /// Maximum silence while waiting for a provider-specific readiness signal.
+    /// Quiet-progress warning threshold while waiting for provider readiness.
+    /// The historical wire name is retained; only the absolute cap terminates import.
     #[serde(default = "default_service_ready_idle_timeout")]
     pub service_ready_idle_timeout_milliseconds: u64,
     /// Absolute safety cap for provider-specific preparation even while active.
@@ -3642,7 +3643,10 @@ impl RuntimeSession {
     }
 
     fn expire_deadlines(&self) {
-        let now = Instant::now();
+        self.expire_deadlines_at(Instant::now());
+    }
+
+    fn expire_deadlines_at(&self, now: Instant) {
         let mut cancellations = Vec::new();
         let mut initialize_timeout = false;
         let mut service_ready_timeout = None;
@@ -3676,6 +3680,21 @@ impl RuntimeSession {
                     .java_preparation
                     .as_mut()
                     .and_then(|diagnostics| diagnostics.take_timeout(now));
+                if service_ready_timeout.is_none() {
+                    let warning = state
+                        .java_preparation
+                        .as_mut()
+                        .and_then(|diagnostics| diagnostics.take_idle_warning(now));
+                    if let Some(detail) = warning {
+                        push_log_event(
+                            self,
+                            &mut state,
+                            "warning",
+                            "Java workspace import has not reported progress; still waiting for ServiceReady",
+                            Some(detail),
+                        );
+                    }
+                }
             }
 
             let expired: Vec<_> = state
@@ -6379,15 +6398,40 @@ mod tests {
     }
 
     #[test]
-    fn java_preparation_timeout_covers_project_import() {
+    fn java_quiet_import_remains_alive_until_service_ready() {
         let mut harness = Harness::start(|request| {
             request.provider_id = "java".to_string();
-            request.initialize_timeout_milliseconds = 1_000;
-            request.service_ready_idle_timeout_milliseconds = 40;
-            request.service_ready_absolute_timeout_milliseconds = 5_000;
         });
         harness.server.complete_initialize(ready_capabilities());
         assert!(harness.server.await_notification("initialized"));
+        let session = harness.session();
+        // A quiet m2e batch is not a heartbeat failure. Advance only the deadline
+        // clock so the test needs neither a real project nor a 46-second sleep.
+        session.expire_deadlines_at(Instant::now() + Duration::from_secs(46));
+        harness.await_event(|event| {
+            event.message.as_deref() == Some(
+            "Java workspace import has not reported progress; still waiting for ServiceReady",
+        )
+        });
+        assert_eq!(harness.snapshot().state, LspLifecycleState::Initializing);
+        harness.server.send(json!({
+            "jsonrpc": "2.0", "method": "language/status",
+            "params": { "type": "ServiceReady" }
+        }));
+        harness.await_state(LspLifecycleState::Ready);
+        assert!(!harness.events.iter().any(|event| event.error.is_some()));
+    }
+
+    #[test]
+    fn java_preparation_absolute_timeout_covers_quiet_project_import() {
+        let mut harness = Harness::start(|request| {
+            request.provider_id = "java".to_string();
+        });
+        harness.server.complete_initialize(ready_capabilities());
+        assert!(harness.server.await_notification("initialized"));
+        harness
+            .session()
+            .expire_deadlines_at(Instant::now() + Duration::from_secs(601));
         harness.await_state(LspLifecycleState::Failed);
 
         let failure = harness
@@ -6397,10 +6441,10 @@ mod tests {
             .expect("project import timeout should be reported");
         assert_eq!(failure.code, "serviceReadyTimeout");
         assert_eq!(failure.stage, "serviceReady");
-        assert!(failure
-            .underlying_message
-            .as_deref()
-            .is_some_and(|detail| detail.contains("\"classification\":\"noProgressStall\"")));
+        let detail: Value =
+            serde_json::from_str(failure.underlying_message.as_deref().unwrap()).unwrap();
+        assert_eq!(detail["timeoutKind"], "absolute");
+        assert_eq!(detail["classification"], "noProgressStall");
     }
 
     #[test]

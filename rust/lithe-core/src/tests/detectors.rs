@@ -325,7 +325,7 @@ fn every_builtin_detector_produces_a_launch_plan() {
     .unwrap();
     fs::write(
         root.join("maven/pom.xml"),
-        "<project><artifactId>maven-app</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>maven-app</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -449,7 +449,7 @@ fn detectors_extend_a_java_project_without_disturbing_its_configurations() {
     .unwrap();
     fs::write(
         root.join("backend-api/pom.xml"),
-        "<project><artifactId>backend-api</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>backend-api</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1047,7 +1047,7 @@ fn maven_detector_finds_the_module_that_applies_the_boot_plugin() {
     .unwrap();
     fs::write(
         root.join("backend/pom.xml"),
-        "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>backend</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1102,7 +1102,7 @@ fn maven_detector_reads_modules_the_directory_walk_prunes() {
     .unwrap();
     fs::write(
         root.join("build/pom.xml"),
-        "<project><artifactId>builder-service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>builder-service</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -1126,7 +1126,7 @@ fn maven_detector_ignores_plugins_that_are_declared_but_not_applied() {
     fs::create_dir_all(&root).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><artifactId>lib</artifactId><build><pluginManagement><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><version>3.2.0</version></plugin></plugins></pluginManagement></build></project>",
+        "<project><artifactId>lib</artifactId><build><pluginManagement><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>3.2.0</version></plugin></plugins></pluginManagement></build></project>",
     )
     .unwrap();
 
@@ -1149,12 +1149,12 @@ fn maven_detector_skips_the_aggregator_that_configures_its_children() {
     fs::create_dir_all(root.join("service-a")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-a</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-a</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("service-a/pom.xml"),
-        "<project><artifactId>service-a</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>service-a</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -1178,7 +1178,7 @@ fn maven_detector_keeps_modules_that_share_an_artifact_id() {
     let root = temporary_root("detect-maven-artifact-collision");
     fs::create_dir_all(root.join("team-a/gateway")).unwrap();
     fs::create_dir_all(root.join("team-b/gateway")).unwrap();
-    let boot = "<build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>";
+    let boot = "<build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build>";
     fs::write(
         root.join("pom.xml"),
         "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>team-a/gateway</module><module>team-b/gateway</module></modules></project>",
@@ -1226,7 +1226,7 @@ fn maven_detector_produces_the_same_ids_whatever_paths_the_caller_passes() {
     .unwrap();
     fs::write(
         root.join("backend/pom.xml"),
-        "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>backend</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1285,14 +1285,22 @@ fn maven_detector_separates_the_frameworks_by_the_plugin_each_module_applies() {
         "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>boot-api</module><module>quarkus-api</module><module>micronaut-api</module><module>plain-lib</module></modules></project>",
     )
     .unwrap();
-    for (module, plugin) in [
-        ("boot-api", "spring-boot-maven-plugin"),
-        ("quarkus-api", "quarkus-maven-plugin"),
-        ("micronaut-api", "micronaut-maven-plugin"),
+    for (module, group, plugin) in [
+        (
+            "boot-api",
+            "org.springframework.boot",
+            "spring-boot-maven-plugin",
+        ),
+        ("quarkus-api", "io.quarkus", "quarkus-maven-plugin"),
+        (
+            "micronaut-api",
+            "io.micronaut.build",
+            "micronaut-maven-plugin",
+        ),
     ] {
         fs::write(
             root.join(module).join("pom.xml"),
-            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin><artifactId>{plugin}</artifactId></plugin></plugins></build></project>"),
+            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin><groupId>{group}</groupId><artifactId>{plugin}</artifactId></plugin></plugins></build></project>"),
         )
         .unwrap();
     }
@@ -1337,6 +1345,62 @@ fn maven_detector_separates_the_frameworks_by_the_plugin_each_module_applies() {
             .any(|item| item["name"] == "plain-lib" && item["execution"] == "service"),
         "{configurations:?}"
     );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A plugin is `groupId:artifactId`. Maven fills a missing group with
+/// `org.apache.maven.plugins`, so a same-named plugin under another group and a
+/// bare `spring-boot-maven-plugin` are *other* artifacts: only the real
+/// coordinate makes a module a service.
+#[test]
+fn maven_detector_matches_plugins_by_coordinates_not_by_artifact_id_alone() {
+    let root = temporary_root("detect-maven-plugin-coordinates");
+    for module in ["custom-group", "bare-name", "expression-group", "real-boot"] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>custom-group</module><module>bare-name</module><module>expression-group</module><module>real-boot</module></modules></project>",
+    )
+    .unwrap();
+    for (module, plugin) in [
+        (
+            "custom-group",
+            "<groupId>com.example</groupId><artifactId>spring-boot-maven-plugin</artifactId>",
+        ),
+        ("bare-name", "<artifactId>spring-boot-maven-plugin</artifactId>"),
+        (
+            "expression-group",
+            "<groupId>${boot.group}</groupId><artifactId>spring-boot-maven-plugin</artifactId>",
+        ),
+        (
+            "real-boot",
+            "<groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId>",
+        ),
+    ] {
+        fs::write(
+            root.join(module).join("pom.xml"),
+            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin>{plugin}</plugin></plugins></build></project>"),
+        )
+        .unwrap();
+    }
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    assert!(
+        ids.contains(&"spring-boot.maven:real-boot".to_string()),
+        "{ids:?}"
+    );
+    for module in ["custom-group", "bare-name", "expression-group"] {
+        assert!(
+            !ids.iter().any(|id| id.contains(module)),
+            "{module} in {ids:?}"
+        );
+    }
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -1451,7 +1515,7 @@ fn only_spring_boot_carries_a_main_class_into_its_goal() {
     .unwrap();
     fs::write(
         root.join("api/pom.xml"),
-        "<project><artifactId>api</artifactId><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>api</artifactId><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     // A stray annotated class in a Quarkus module: still a runnable main class,
@@ -1683,7 +1747,7 @@ fn maven_detector_inherits_the_boot_plugin_from_the_aggregator() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1712,7 +1776,7 @@ fn maven_detector_inherits_the_boot_plugin_across_several_levels() {
     fs::create_dir_all(root.join("team/service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>team</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>team</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1747,7 +1811,7 @@ fn maven_detector_does_not_inherit_a_plugin_managed_parent() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><pluginManagement><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></pluginManagement></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><pluginManagement><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></pluginManagement></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1776,12 +1840,12 @@ fn maven_detector_does_not_treat_aggregation_as_inheritance() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("service-web/pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>service-web</artifactId><version>1.0</version><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>service-web</artifactId><version>1.0</version><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -1809,14 +1873,14 @@ fn maven_detector_does_not_match_a_parent_by_artifact_id_alone() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     // The module really inherits `com.external:parent:2.0` from outside the
     // reactor and brings its own framework.
     fs::write(
         root.join("service-web/pom.xml"),
-        "<project><parent><groupId>com.external</groupId><artifactId>parent</artifactId><version>2.0</version><relativePath>../../external-parent/pom.xml</relativePath></parent><artifactId>service-web</artifactId><version>2.0</version><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.external</groupId><artifactId>parent</artifactId><version>2.0</version><relativePath>../../external-parent/pom.xml</relativePath></parent><artifactId>service-web</artifactId><version>2.0</version><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -1846,12 +1910,12 @@ fn maven_detector_does_not_inherit_from_a_different_parent_version() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("service-web/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>parent</artifactId><version>2.0</version></parent><artifactId>service-web</artifactId><version>2.0</version><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>parent</artifactId><version>2.0</version></parent><artifactId>service-web</artifactId><version>2.0</version><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -1881,12 +1945,12 @@ fn maven_detector_inherits_from_the_reactor_module_its_coordinates_name() {
     .unwrap();
     fs::write(
         root.join("boot-parent/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version></parent><groupId>com.example</groupId><artifactId>shared-parent</artifactId><version>1.0</version><packaging>pom</packaging><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version></parent><groupId>com.example</groupId><artifactId>shared-parent</artifactId><version>1.0</version><packaging>pom</packaging><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("quarkus-parent/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version></parent><groupId>com.other</groupId><artifactId>shared-parent</artifactId><version>1.0</version><packaging>pom</packaging><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>root</artifactId><version>1.0</version></parent><groupId>com.other</groupId><artifactId>shared-parent</artifactId><version>1.0</version><packaging>pom</packaging><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1921,7 +1985,7 @@ fn maven_detector_stops_at_a_plugin_that_opts_out_of_inheritance() {
     fs::create_dir_all(root.join("service-web")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>parent</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>service-web</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1950,12 +2014,12 @@ fn maven_detector_keeps_a_plugin_stopped_across_several_levels() {
     fs::create_dir_all(root.join("b/c/d")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>b</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>b</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("b/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version></parent><artifactId>b</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>c</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version></parent><artifactId>b</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>c</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -1987,12 +2051,12 @@ fn maven_detector_restores_a_plugin_the_child_declares_itself() {
     fs::create_dir_all(root.join("b/c/d")).unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>b</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>b</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
         root.join("b/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version></parent><artifactId>b</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>c</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>a</artifactId><version>1.0</version></parent><artifactId>b</artifactId><version>1.0</version><packaging>pom</packaging><modules><module>c</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><inherited>false</inherited></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -2002,7 +2066,7 @@ fn maven_detector_restores_a_plugin_the_child_declares_itself() {
     .unwrap();
     fs::write(
         root.join("b/c/d/pom.xml"),
-        "<project><parent><groupId>com.example</groupId><artifactId>c</artifactId><version>1.0</version></parent><artifactId>d</artifactId><version>1.0</version><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><parent><groupId>com.example</groupId><artifactId>c</artifactId><version>1.0</version></parent><artifactId>d</artifactId><version>1.0</version><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
 
@@ -2079,6 +2143,218 @@ fn maven_detector_still_inherits_through_literal_coordinates() {
         .collect::<Vec<_>>();
 
     assert_eq!(ids, vec!["spring-boot.maven:service-web".to_string()]);
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// A parent hands plugins down by `groupId:artifactId` as well, so a fake
+/// `spring-boot-maven-plugin` under another group is inherited and ignored
+/// rather than turning its children into Spring Boot services.
+#[test]
+fn maven_detector_inherits_plugins_by_coordinates_not_by_artifact_id_alone() {
+    let root = temporary_root("detect-maven-inherit-coordinates");
+    for module in ["quarkus-module", "plain-module"] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version><packaging>pom</packaging><modules><module>quarkus-module</module><module>plain-module</module></modules><build><plugins><plugin><groupId>com.example</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("quarkus-module/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>quarkus-module</artifactId><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("plain-module/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>plain-module</artifactId></project>",
+    )
+    .unwrap();
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    assert!(
+        ids.contains(&"quarkus.maven:quarkus-module".to_string()),
+        "{ids:?}"
+    );
+    assert!(!ids.iter().any(|id| id.contains("spring-boot")), "{ids:?}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Control for the rule above: a child's same-named plugin does not hide the
+/// real coordinate its parent hands down, because the two are different
+/// plugins -- the inherited `org.springframework.boot` one still applies.
+#[test]
+fn maven_detector_child_declaration_does_not_hide_a_same_named_inherited_plugin() {
+    let root = temporary_root("detect-maven-inherit-same-name");
+    for module in ["service-web", "plain-inherit"] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version><packaging>pom</packaging><modules><module>service-web</module><module>plain-inherit</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("service-web/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>service-web</artifactId><build><plugins><plugin><groupId>com.acme</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("plain-inherit/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>plain-inherit</artifactId></project>",
+    )
+    .unwrap();
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    assert!(
+        ids.contains(&"spring-boot.maven:service-web".to_string()),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"spring-boot.maven:plain-inherit".to_string()),
+        "{ids:?}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Quarkus republishes its Maven plugin under the platform group and Micronaut 4
+/// moved to `io.micronaut.maven`; both coordinates of each framework are
+/// official, so both select the provider -- while a same-named plugin under any
+/// other group still selects nothing.
+#[test]
+fn maven_detector_accepts_every_official_coordinate_of_a_framework() {
+    let root = temporary_root("detect-maven-official-coordinates");
+    for module in [
+        "quarkus-core",
+        "quarkus-platform",
+        "micronaut-build",
+        "micronaut-maven",
+        "not-official",
+    ] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>quarkus-core</module><module>quarkus-platform</module><module>micronaut-build</module><module>micronaut-maven</module><module>not-official</module></modules></project>",
+    )
+    .unwrap();
+    for (module, group, plugin) in [
+        ("quarkus-core", "io.quarkus", "quarkus-maven-plugin"),
+        (
+            "quarkus-platform",
+            "io.quarkus.platform",
+            "quarkus-maven-plugin",
+        ),
+        (
+            "micronaut-build",
+            "io.micronaut.build",
+            "micronaut-maven-plugin",
+        ),
+        (
+            "micronaut-maven",
+            "io.micronaut.maven",
+            "micronaut-maven-plugin",
+        ),
+        ("not-official", "com.example", "quarkus-maven-plugin"),
+    ] {
+        fs::write(
+            root.join(module).join("pom.xml"),
+            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin><groupId>{group}</groupId><artifactId>{plugin}</artifactId></plugin></plugins></build></project>"),
+        )
+        .unwrap();
+    }
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    assert!(
+        ids.contains(&"quarkus.maven:quarkus-core".to_string()),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"quarkus.maven:quarkus-platform".to_string()),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"micronaut.maven:micronaut-build".to_string()),
+        "{ids:?}"
+    );
+    assert!(
+        ids.contains(&"micronaut.maven:micronaut-maven".to_string()),
+        "{ids:?}"
+    );
+    assert!(!ids.iter().any(|id| id.contains("not-official")), "{ids:?}");
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// The platform coordinates are what a generated project typically relies on:
+/// the plugin sits in the parent and the children only name `<parent>`, so the
+/// inherited pair must resolve for either official group.
+#[test]
+fn maven_detector_inherits_every_official_coordinate_from_a_parent() {
+    let root = temporary_root("detect-maven-official-inheritance");
+    for module in ["quarkus-parent", "micronaut-parent"] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    for module in [
+        "quarkus-parent/quarkus-service",
+        "micronaut-parent/micronaut-service",
+    ] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version><packaging>pom</packaging><modules><module>quarkus-parent</module><module>micronaut-parent</module></modules></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("quarkus-parent/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>quarkus-parent</artifactId><packaging>pom</packaging><modules><module>quarkus-service</module></modules><build><plugins><plugin><groupId>io.quarkus.platform</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("micronaut-parent/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>platform</artifactId><version>1</version></parent><artifactId>micronaut-parent</artifactId><packaging>pom</packaging><modules><module>micronaut-service</module></modules><build><plugins><plugin><groupId>io.micronaut.maven</groupId><artifactId>micronaut-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("quarkus-parent/quarkus-service/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>quarkus-parent</artifactId><version>1</version></parent><artifactId>quarkus-service</artifactId></project>",
+    )
+    .unwrap();
+    fs::write(
+        root.join("micronaut-parent/micronaut-service/pom.xml"),
+        "<project><parent><groupId>com.acme</groupId><artifactId>micronaut-parent</artifactId><version>1</version></parent><artifactId>micronaut-service</artifactId></project>",
+    )
+    .unwrap();
+
+    let ids = generated_configurations(&root)
+        .into_iter()
+        .filter_map(|item| item["id"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        ids,
+        vec![
+            "micronaut.maven:micronaut-service".to_string(),
+            "quarkus.maven:quarkus-service".to_string()
+        ],
+        "{ids:?}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }

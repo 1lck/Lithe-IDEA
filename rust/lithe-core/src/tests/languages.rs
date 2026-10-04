@@ -294,7 +294,7 @@ fn maven_scan_expands_custom_build_directory_and_execution_scoped_sources() {
     .expect("custom build pom should be writable");
     fs::write(
         root.join("execution-scoped/pom.xml"),
-        r#"<project><artifactId>execution-scoped</artifactId><build><plugins><plugin><executions><execution><id>add-generated</id><configuration><sources><source>target/generated-sources/openapi</source></sources><testSources><testSource>target/generated-test-sources/fixtures</testSource></testSources></configuration></execution></executions><artifactId>build-helper-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+        r#"<project><artifactId>execution-scoped</artifactId><build><plugins><plugin><groupId>org.codehaus.mojo</groupId><executions><execution><id>add-generated</id><configuration><sources><source>target/generated-sources/openapi</source></sources><testSources><testSource>target/generated-test-sources/fixtures</testSource></testSources></configuration></execution></executions><artifactId>build-helper-maven-plugin</artifactId></plugin></plugins></build></project>"#,
     )
     .expect("execution-scoped pom should be writable");
 
@@ -1668,4 +1668,183 @@ fn generated_maven_settings_discard_child_elements_of_the_replaced_repository() 
         generated,
         "<settings><localRepository>/new</localRepository></settings>"
     );
+}
+
+/// The generated-source extraction identifies a plugin by `groupId:artifactId`
+/// as well: an explicit `org.apache.maven.plugins` compiler contributes its
+/// directories, while a same-named plugin under another group and one whose
+/// group is still an expression contribute nothing.
+#[test]
+/// The generated-source extraction identifies a plugin by `groupId:artifactId`
+/// as well: explicit official coordinates of the compiler and build-helper
+/// plugins contribute their directories, while same-named plugins under another
+/// group and ones whose group is still an expression contribute nothing.
+#[test]
+fn maven_scan_requires_the_official_coordinate_for_source_root_plugins() {
+    let root = temporary_root("maven-scan-plugin-coordinates");
+    for module in [
+        "official",
+        "custom",
+        "expression",
+        "bh-official",
+        "bh-custom",
+    ] {
+        fs::create_dir_all(root.join(module)).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>demo</artifactId><packaging>pom</packaging><modules><module>official</module><module>custom</module><module>expression</module><module>bh-official</module><module>bh-custom</module></modules></project>",
+    )
+    .unwrap();
+    for (module, group, directory) in [
+        (
+            "official",
+            "org.apache.maven.plugins",
+            "target/generated-sources/official",
+        ),
+        ("custom", "com.example", "target/generated-sources/custom"),
+        (
+            "expression",
+            "${plugin.group}",
+            "target/generated-sources/expression",
+        ),
+    ] {
+        fs::write(
+            root.join(module).join("pom.xml"),
+            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin><groupId>{group}</groupId><artifactId>maven-compiler-plugin</artifactId><configuration><generatedSourcesDirectory>{directory}</generatedSourcesDirectory></configuration></plugin></plugins></build></project>"),
+        )
+        .unwrap();
+    }
+    for (module, group) in [
+        ("bh-official", "org.codehaus.mojo"),
+        ("bh-custom", "com.example"),
+    ] {
+        fs::write(
+            root.join(module).join("pom.xml"),
+            format!("<project><artifactId>{module}</artifactId><build><plugins><plugin><groupId>{group}</groupId><executions><execution><id>add-generated</id><configuration><sources><source>target/generated-sources/bh</source></sources></configuration></execution></executions><artifactId>build-helper-maven-plugin</artifactId></plugin></plugins></build></project>"),
+        )
+        .unwrap();
+    }
+
+    let request = serde_json::json!({
+        "id": "maven-scan-plugin-coordinates",
+        "command": "maven.scan",
+        "payload": {"root": root, "paths": ["official/pom.xml"]}
+    });
+    let response: Value = serde_json::from_str(&execute_json(&request.to_string()))
+        .expect("Maven response should be JSON");
+    assert_eq!(response["ok"], true, "{response}");
+
+    let modules = response["data"]["modules"].as_array().unwrap();
+    assert_eq!(modules.len(), 5, "{response}");
+    let paths = |index: usize| -> Vec<String> {
+        modules[index]["sourceRoots"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|value| value["path"].as_str().map(str::to_string))
+            .collect()
+    };
+    assert!(
+        paths(0).contains(&"target/generated-sources/official".to_string()),
+        "{response}"
+    );
+    assert!(
+        paths(3).contains(&"target/generated-sources/bh".to_string()),
+        "{response}"
+    );
+    for index in [1_usize, 2, 4] {
+        assert!(
+            !paths(index)
+                .iter()
+                .any(|path| path.starts_with("target/generated-sources/")),
+            "module {index} must not contribute generated roots: {response}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+/// Reports are read from the directories of plugins identified by
+/// `groupId:artifactId`: the official Surefire/Failsafe coordinates contribute
+/// their custom `reportsDirectory`, a same-named plugin under another group does
+/// not, so its reports stay unread.
+#[test]
+fn maven_test_results_require_the_official_coordinate_for_report_plugins() {
+    let root = temporary_root("maven-test-report-coordinates");
+    for module in ["official-report", "custom-report"] {
+        fs::create_dir_all(root.join(module).join("build/reports")).unwrap();
+    }
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>official-report</module><module>custom-report</module></modules></project>",
+    )
+    .unwrap();
+    for (module, group) in [
+        ("official-report", "org.apache.maven.plugins"),
+        ("custom-report", "com.example"),
+    ] {
+        fs::write(
+            root.join(module).join("pom.xml"),
+            format!("<project><artifactId>{module}</artifactId><build><directory>build</directory><plugins><plugin><groupId>{group}</groupId><artifactId>maven-surefire-plugin</artifactId><configuration><reportsDirectory>${{project.build.directory}}/reports</reportsDirectory></configuration></plugin><plugin><groupId>{group}</groupId><artifactId>maven-failsafe-plugin</artifactId><configuration><reportsDirectory>${{project.build.directory}}/reports</reportsDirectory></configuration></plugin></plugins></build></project>"),
+        )
+        .unwrap();
+    }
+    let set_modified = |path: &std::path::Path, seconds: u64| {
+        fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|file| {
+                file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(seconds))
+            })
+            .expect("report timestamp");
+    };
+    for (module, class_name) in [
+        ("official-report", "demo.OfficialTest"),
+        ("custom-report", "demo.CustomTest"),
+    ] {
+        let report = root
+            .join(module)
+            .join(format!("build/reports/TEST-{class_name}.xml"));
+        fs::write(
+            &report,
+            format!("<testsuite name=\"{class_name}\"><testcase name=\"creates\" classname=\"{class_name}\"/></testsuite>"),
+        )
+        .unwrap();
+        set_modified(&report, 1_700_000_010);
+    }
+
+    for (module, class_name, expected) in [
+        (
+            "official-report",
+            "demo.OfficialTest",
+            serde_json::json!([{ "className": "demo.OfficialTest", "method": "creates", "status": "passed", "message": null, "invocations": 1 }]),
+        ),
+        ("custom-report", "demo.CustomTest", serde_json::json!([])),
+    ] {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({
+                "id": "maven-test-report-coordinates",
+                "command": "maven.testResults",
+                "payload": {
+                    "root": root,
+                    "output": "",
+                    "reports": {
+                        "module": module,
+                        "classes": [class_name],
+                        "notBeforeMillis": 1_700_000_000_000_u64
+                    }
+                }
+            })
+            .to_string(),
+        ))
+        .expect("report response should be JSON");
+        assert_eq!(response["ok"], true, "{response}");
+        assert_eq!(
+            response["data"]["testCases"], expected,
+            "{module}: {response}"
+        );
+    }
+
+    fs::remove_dir_all(root).unwrap();
 }

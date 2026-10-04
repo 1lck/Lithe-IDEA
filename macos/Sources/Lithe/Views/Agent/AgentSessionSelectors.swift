@@ -62,6 +62,7 @@ struct AgentSessionSelectors: View {
     let options: [AgentSessionConfigOption]
     let agentName: String?
     let isDisabled: Bool
+    var appliesToNextTurn = false
     let onSelect: (String, String) -> Void
     @State private var showsModels = false
     @State private var showsModes = false
@@ -85,7 +86,7 @@ struct AgentSessionSelectors: View {
                     }
                 }
                 .buttonStyle(.litheNoPress)
-                .help(AgentSessionSelectorPresentation.localized(mode.name))
+                .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.") : AgentSessionSelectorPresentation.localized(mode.name))
                 .accessibilityLabel(Text("Approval mode"))
                 .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(mode))
                 .accessibilityIdentifier("agent-session-mode-selector")
@@ -102,7 +103,7 @@ struct AgentSessionSelectors: View {
                     }
                 }
                 .buttonStyle(.litheNoPress)
-                .help(model.currentLabel)
+                .help(appliesToNextTurn ? String(localized: "Changes apply to the next turn.") : model.currentLabel)
                 .accessibilityLabel(Text("Model"))
                 .accessibilityValue(model.currentLabel)
                 .accessibilityIdentifier("agent-session-model-selector")

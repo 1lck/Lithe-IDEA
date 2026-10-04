@@ -1415,3 +1415,6 @@
 "Waiting for permission…" = "Waiting for permission…";
 
 "Agent is retrying…" = "Agent is retrying…";
+"Changes apply to the next turn." = "Changes apply to the next turn.";
+"The Agent did not confirm the selected session setting." = "The Agent did not confirm the selected session setting.";
+"The Agent no longer supports the selected session setting." = "The Agent no longer supports the selected session setting.";

@@ -122,7 +122,8 @@ struct AgentComposerView: View {
                 AgentSessionSelectors(
                     options: configOptions,
                     agentName: selectedAgent?.name,
-                    isDisabled: isBlocked || isResponding || isConfiguring,
+                    isDisabled: isBlocked || isConfiguring,
+                    appliesToNextTurn: isResponding,
                     onSelect: onSetConfig
                 )
                 .id(sessionID ?? selectedAgent?.id)

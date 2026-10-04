@@ -91,6 +91,18 @@ public struct AgentConversation: Equatable, Sendable {
     public var isCancelling = false
     public var configOptions: [AgentSessionConfigOption] = []
     public var pendingConfigToken: String?
+    /// Choices for the next turn, separate from the Agent-confirmed configuration.
+    var queuedConfigValues: [String: String] = [:]
+    var pendingQueuedConfigID: String?
+    public var displayConfigOptions: [AgentSessionConfigOption] {
+        configOptions.map { option in
+            var displayed = option
+            if let value = queuedConfigValues[option.id], option.choices.contains(where: { $0.id == value }) {
+                displayed.currentValue = value
+            }
+            return displayed
+        }
+    }
     public var configurationError: String?
     /// A new process must load this session before prompting it again.
     public var isAttached = false

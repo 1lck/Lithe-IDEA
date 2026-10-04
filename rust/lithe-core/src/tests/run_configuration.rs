@@ -154,7 +154,7 @@ fn run_configuration_commands_generate_merge_and_plan() {
     fs::create_dir_all(root.join("src/main/java/com/example"))
         .expect("source directory should be creatable");
     fs::write(root.join("src/main/java/com/example/App.java"), "package com.example; @SpringBootApplication class App { public static void main(String[] args) {} }").expect("source should be writable");
-    fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
+    fs::write(root.join("pom.xml"), "<project><artifactId>demo</artifactId><properties><maven.compiler.release>21</maven.compiler.release></properties><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>").expect("pom should be writable");
 
     let request = serde_json::json!({"id":"generate","command":"runConfig.generate","payload":{"root":root,"paths":["src/main/java/com/example/App.java"],"modulePaths":[]}});
     let generated: Value = serde_json::from_str(&execute_json(&request.to_string()))
@@ -300,7 +300,7 @@ fn run_configuration_generation_uses_a_maven_project_below_the_workspace() {
     .unwrap();
     fs::write(
         root.join("projects/demo/service/pom.xml"),
-        r#"<project><artifactId>service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+        r#"<project><artifactId>service</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
     )
     .unwrap();
     fs::write(root.join("projects/demo/mvnw"), "#!/bin/sh\n").unwrap();
@@ -2170,6 +2170,186 @@ fn run_configuration_inspection_invalidates_an_older_generator_revision() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A workspace generated under revision 9 still carries the old classification:
+/// the loose match put `fake-b` into the document as a Spring Boot service.
+/// Upgrading must revert it -- the surviving service keeps its id and override,
+/// and the override of the removed fake service becomes an orphan diagnosis
+/// instead of disappearing silently.
+#[test]
+fn run_configuration_regeneration_keeps_surviving_ids_and_orphans_removed_overrides() {
+    let root = temporary_root("run-config-regenerate-orphans");
+    fs::create_dir_all(root.join("service-a")).unwrap();
+    fs::create_dir_all(root.join("fake-b")).unwrap();
+    fs::create_dir_all(root.join(".lithe/run")).unwrap();
+    fs::write(
+        root.join("pom.xml"),
+        "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>service-a</module><module>fake-b</module></modules></project>",
+    )
+    .unwrap();
+    // The platform coordinate is the modern official one and keeps working.
+    fs::write(
+        root.join("service-a/pom.xml"),
+        "<project><artifactId>service-a</artifactId><build><plugins><plugin><groupId>io.quarkus.platform</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+    // A same-named plugin under a custom group: revision 9 called this a Spring
+    // Boot service, the coordinate fix does not.
+    fs::write(
+        root.join("fake-b/pom.xml"),
+        "<project><artifactId>fake-b</artifactId><build><plugins><plugin><groupId>com.example</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+    )
+    .unwrap();
+
+    let call = |id: &str, command: &str, payload: Value| -> Value {
+        let response: Value = serde_json::from_str(&execute_json(
+            &serde_json::json!({ "id": id, "command": command, "payload": payload }).to_string(),
+        ))
+        .unwrap();
+        assert_eq!(response["ok"], true, "{response}");
+        response["data"].clone()
+    };
+
+    let generated = call(
+        "generate-before-upgrade",
+        "runConfig.generate",
+        serde_json::json!({"root": root}),
+    );
+    let mut document = generated["generated"].clone();
+    {
+        let configurations = document["configurations"].as_array().unwrap();
+        assert!(configurations
+            .iter()
+            .any(|value| value["id"] == "quarkus.maven:service-a"));
+        assert!(!configurations
+            .iter()
+            .any(|value| value["id"] == "spring-boot.maven:fake-b"));
+    }
+    // Put back what revision 9 would have written: the loose match called fake-b
+    // a Spring Boot service, so the old document contains it whole.
+    let mut fake = document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "quarkus.maven:service-a")
+        .expect("generated service should exist")
+        .clone();
+    fake["id"] = serde_json::json!("spring-boot.maven:fake-b");
+    fake["name"] = serde_json::json!("fake-b");
+    fake["provider"] = serde_json::json!("spring-boot.maven");
+    fake["source"] = serde_json::json!("fake-b/pom.xml");
+    fake["extensions"]["maven"]["module"] = serde_json::json!("fake-b");
+    document["configurations"]
+        .as_array_mut()
+        .unwrap()
+        .push(fake);
+    document["generator"]["fingerprint"] = serde_json::json!(generator_fingerprint_for_revision(
+        &document["generator"]["inputs"],
+        "9",
+    ));
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+    fs::write(
+        root.join(".lithe/run/local.json"),
+        r#"{"version":2,"configurations":[{"id":"quarkus.maven:service-a","extensions":{"maven":{"jvmArguments":["-Xmx2g"]}}},{"id":"spring-boot.maven:fake-b","extensions":{"maven":{"jvmArguments":["-Xmx1g"]}}}]}"#,
+    )
+    .unwrap();
+
+    // Before upgrading, both services resolve and both overrides apply -- the
+    // fake service is not an orphan yet.
+    let before = call(
+        "resolve-before-upgrade",
+        "runConfig.resolve",
+        serde_json::json!({"root": root}),
+    );
+    let fake_before = before["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "spring-boot.maven:fake-b")
+        .unwrap_or_else(|| panic!("old fake service missing: {before}"));
+    assert_eq!(
+        fake_before["extensions"]["maven"]["jvmArguments"],
+        serde_json::json!(["-Xmx1g"])
+    );
+    assert!(
+        !before["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "orphanedOverride"),
+        "{before}"
+    );
+
+    let inspected = call(
+        "inspect-after-upgrade",
+        "runConfig.inspect",
+        serde_json::json!({"root": root}),
+    );
+    assert!(
+        inspected["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "staleFingerprint"),
+        "{inspected}"
+    );
+
+    // Regeneration keeps the surviving id and drops the fake service.
+    let regenerated = call(
+        "generate-after-upgrade",
+        "runConfig.generate",
+        serde_json::json!({"root": root}),
+    );
+    let document = regenerated["generated"].clone();
+    assert!(document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value["id"] == "quarkus.maven:service-a"));
+    assert!(!document["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value["id"] == "spring-boot.maven:fake-b"));
+    fs::write(
+        root.join(".lithe/run/generated.json"),
+        serde_json::to_string(&document).unwrap(),
+    )
+    .unwrap();
+
+    // The surviving override still applies; the removed service override is
+    // reported as an orphan rather than dropped.
+    let resolved = call(
+        "resolve-after-upgrade",
+        "runConfig.resolve",
+        serde_json::json!({"root": root}),
+    );
+    let service = resolved["configurations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|value| value["id"] == "quarkus.maven:service-a")
+        .unwrap_or_else(|| panic!("surviving service missing: {resolved}"));
+    assert_eq!(
+        service["extensions"]["maven"]["jvmArguments"],
+        serde_json::json!(["-Xmx2g"])
+    );
+    assert!(
+        resolved["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value["code"] == "orphanedOverride"
+                && value["id"] == "spring-boot.maven:fake-b"),
+        "{resolved}"
+    );
+
+    fs::remove_dir_all(root).unwrap();
+}
+
 fn generator_fingerprint_for_revision(inputs: &Value, revision: &str) -> String {
     let inputs = serde_json::from_value::<BTreeMap<String, String>>(inputs.clone()).unwrap();
     let mut digest = Sha256::new();
@@ -2574,7 +2754,7 @@ fn hybrid_project_scopes_node_diagnostics_to_npm_configurations() {
     .unwrap();
     fs::write(
         root.join("pom.xml"),
-        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "<project><artifactId>demo</artifactId><properties><java.version>21</java.version></properties><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
     )
     .unwrap();
     fs::write(
@@ -3657,7 +3837,7 @@ fn working_directory_override_keeps_reactor_module_configurations() {
     .unwrap();
     fs::write(
         root.join("shop-web/pom.xml"),
-        r#"<project><artifactId>shop-web</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
+        r#"<project><artifactId>shop-web</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"#,
     )
     .unwrap();
     fs::write(

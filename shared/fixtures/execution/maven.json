@@ -17,7 +17,7 @@
       "payload": { "root": "/workspace", "paths": ["backend/src/main/java/com/demo/DemoApplication.java"] },
       "workspace": {
         "pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>backend</module><module>shared-lib</module></modules></project>",
-        "backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
         "shared-lib/pom.xml": "<project><artifactId>shared-lib</artifactId></project>",
         "backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n"
       },
@@ -48,7 +48,7 @@
       "payload": { "root": "/workspace", "paths": ["projects/demo/backend/src/main/java/com/demo/DemoApplication.java", "samples/Standalone.java"] },
       "workspace": {
         "projects/demo/pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>backend</module></modules></project>",
-        "projects/demo/backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "projects/demo/backend/pom.xml": "<project><artifactId>backend</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
         "projects/demo/backend/src/main/java/com/demo/DemoApplication.java": "package com.demo;\n@SpringBootApplication\npublic class DemoApplication { public static void main(String[] a) {} }\n",
         "samples/Standalone.java": "public class Standalone { public static void main(String[] a) {} }\n"
       },
@@ -79,7 +79,7 @@
       "payload": { "root": "/workspace" },
       "workspace": {
         "pom.xml": "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>build</module></modules></project>",
-        "build/pom.xml": "<project><artifactId>builder-service</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+        "build/pom.xml": "<project><artifactId>builder-service</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
       },
       "expected": {
         "configurations": [
@@ -98,8 +98,8 @@
       "command": "runConfig.generate",
       "payload": { "root": "/workspace" },
       "workspace": {
-        "pom.xml": "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-a</module></modules><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
-        "service-a/pom.xml": "<project><artifactId>service-a</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+        "pom.xml": "<project><artifactId>parent</artifactId><packaging>pom</packaging><modules><module>service-a</module></modules><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "service-a/pom.xml": "<project><artifactId>service-a</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
       },
       "expected": {
         "configurations": [
@@ -119,8 +119,8 @@
       "payload": { "root": "/workspace" },
       "workspace": {
         "pom.xml": "<project><artifactId>root</artifactId><packaging>pom</packaging><modules><module>team-a/gateway</module><module>team-b/gateway</module></modules></project>",
-        "team-a/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
-        "team-b/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
+        "team-a/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "team-b/gateway/pom.xml": "<project><artifactId>gateway</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>"
       },
       "expected": {
         "configurations": [
@@ -142,7 +142,7 @@
       "command": "runConfig.generate",
       "payload": { "root": "/workspace" },
       "workspace": {
-        "pom.xml": "<project><artifactId>lib</artifactId><build><pluginManagement><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId><version>3.2.0</version></plugin></plugins></pluginManagement></build></project>"
+        "pom.xml": "<project><artifactId>lib</artifactId><build><pluginManagement><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>3.2.0</version></plugin></plugins></pluginManagement></build></project>"
       },
       "expected": {
         "configurations": [],
@@ -153,10 +153,12 @@
       "command": "runConfig.generate",
       "payload": { "root": "/workspace" },
       "workspace": {
-        "pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>boot-api</module><module>quarkus-api</module><module>micronaut-api</module></modules></project>",
-        "boot-api/pom.xml": "<project><artifactId>boot-api</artifactId><build><plugins><plugin><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
-        "quarkus-api/pom.xml": "<project><artifactId>quarkus-api</artifactId><build><plugins><plugin><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
-        "micronaut-api/pom.xml": "<project><artifactId>micronaut-api</artifactId><build><plugins><plugin><artifactId>micronaut-maven-plugin</artifactId></plugin></plugins></build></project>"
+        "pom.xml": "<project><artifactId>platform</artifactId><packaging>pom</packaging><modules><module>boot-api</module><module>quarkus-api</module><module>micronaut-api</module><module>quarkus-platform-api</module><module>micronaut-maven-api</module></modules></project>",
+        "boot-api/pom.xml": "<project><artifactId>boot-api</artifactId><build><plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "quarkus-api/pom.xml": "<project><artifactId>quarkus-api</artifactId><build><plugins><plugin><groupId>io.quarkus</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "micronaut-api/pom.xml": "<project><artifactId>micronaut-api</artifactId><build><plugins><plugin><groupId>io.micronaut.build</groupId><artifactId>micronaut-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "quarkus-platform-api/pom.xml": "<project><artifactId>quarkus-platform-api</artifactId><build><plugins><plugin><groupId>io.quarkus.platform</groupId><artifactId>quarkus-maven-plugin</artifactId></plugin></plugins></build></project>",
+        "micronaut-maven-api/pom.xml": "<project><artifactId>micronaut-maven-api</artifactId><build><plugins><plugin><groupId>io.micronaut.maven</groupId><artifactId>micronaut-maven-plugin</artifactId></plugin></plugins></build></project>"
       },
       "expected": {
         "configurations": [
@@ -177,6 +179,18 @@
             "provider": "micronaut.maven",
             "execution": "service",
             "extensions": { "maven": { "module": "micronaut-api" } }
+          },
+          {
+            "id": "quarkus.maven:quarkus-platform-api",
+            "provider": "quarkus.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "quarkus-platform-api" } }
+          },
+          {
+            "id": "micronaut.maven:micronaut-maven-api",
+            "provider": "micronaut.maven",
+            "execution": "service",
+            "extensions": { "maven": { "module": "micronaut-maven-api" } }
           }
         ],
         "reason": "The plugin decides the framework, and the framework decides the provider, because each goal takes its arguments under different property names."
