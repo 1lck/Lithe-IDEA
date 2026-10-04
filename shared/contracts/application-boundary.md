@@ -27,6 +27,17 @@ tools and permission waits, and freeze elapsed time at completion, failure or di
 Missing usage and unmeasured replayed history remain unknown. See the
 [Agent host contract](rust-core-api.md) and `fixtures/agent/acp-events-v1.json`.
 
+Agent activity presentation uses the selected session's reported plan, pending
+tools and file diffs. Review acknowledgements are local to the exact reported
+version; later edits remain reviewable and start after the acknowledged prefix.
+Reported excerpts and missing original content are not full-file snapshots.
+Native rollback is an explicit user action: preserve dirty editor buffers,
+reject paths outside the workspace and ambiguous or incomplete evidence, retain
+unrelated text, and use guarded native writes preserving encoding. Creation
+requires explicit evidence before recoverable removal; restoring a deletion
+requires the path to remain absent. Batch failures retain unprocessed changes.
+These presentation actions do not add Agent Host commands or persist chat history.
+
 | Feature | Shared input/output | Platform-owned implementation |
 | --- | --- | --- |
 | Workspace | visible snapshot, relative paths, file metadata, deterministic ordering | workspace root selection, native dialogs, and watchers |

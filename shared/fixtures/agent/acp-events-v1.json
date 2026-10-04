@@ -86,6 +86,18 @@
       "sessionId": "session-1",
       "update": { "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "1 test passed" } }], "rawOutput": { "exitCode": 0 } }
     },
+    "fileEdit": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call", "toolCallId": "edit-1", "title": "Edit sample.txt", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "sample.txt", "oldText": "before\n", "newText": "after\n", "_meta": { "kind": "update", "jetbrains": { "air": { "version": 1, "diffStats": { "version": 1, "added": 1, "removed": 1 } } } } }] }
+    },
+    "claudeFileCreated": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-create", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "created.txt", "newText": "created" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "create", "filePath": "created.txt", "content": "created\n", "originalFile": null, "structuredPatch": [] } } } }
+    },
+    "claudeFileWriteUpdated": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "tool_call_update", "toolCallId": "write-update", "kind": "edit", "status": "completed", "content": [{ "type": "diff", "path": "updated.txt", "oldText": "before", "newText": "after" }], "_meta": { "claudeCode": { "toolName": "Write", "toolResponse": { "type": "update", "filePath": "updated.txt", "content": "after\n", "originalFile": "before\n", "structuredPatch": [] } } } }
+    },
     "sessionInfo": {
       "kind": "update",
       "sessionId": "session-1",

@@ -37,6 +37,10 @@ public final class AgentConnectionModel: ObservableObject {
     @Published public private(set) var isRefreshingSessions = false
     @Published public private(set) var historyError: String?
     @Published public private(set) var errorMessage: String?
+    @Published public private(set) var fileReviewSessionID: String?
+    @Published public private(set) var fileReviewError: String?
+    @Published public private(set) var fileReviewErrorSessionID: String?
+    private var fileReviewTask: Task<Void, Never>?
 
     /// Called when any conversation starts or stops waiting for a permission
     /// decision, so a background project can signal it.
@@ -123,6 +127,8 @@ public final class AgentConnectionModel: ObservableObject {
 
     /// Stop the agent and wait for its process tree to exit.
     public func stop() async {
+        fileReviewTask?.cancel()
+        if let fileReviewTask { await fileReviewTask.value }
         let old = detachConnection(failure: nil)
         await old?.close()
         if let closeTask { await closeTask.value }
@@ -261,6 +267,7 @@ public final class AgentConnectionModel: ObservableObject {
     }
 
     public func send(_ text: String, files: [AgentFileReference] = []) throws {
+        guard fileReviewSessionID == nil else { throw AgentConversationError.fileReviewInProgress }
         let prompt = AgentPrompt(
             text: text.trimmingCharacters(in: .whitespacesAndNewlines),
             files: try AgentFileReference.adding(files.map(\.url), to: []),
@@ -785,6 +792,8 @@ public enum AgentConversationError: LocalizedError, Equatable {
     case cannotResume
     case configurationPending
     case sessionBusy
+    case fileReviewInProgress
+    case fileReviewChanged
     case sendFailed(String)
 
     public var errorDescription: String? {
@@ -799,8 +808,55 @@ public enum AgentConversationError: LocalizedError, Equatable {
         case .sessionStopping: String(localized: "The previous Agent is still stopping. Try again shortly.")
         case .cannotResume: String(localized: "This Agent cannot reopen earlier conversations. Start a new conversation.")
         case .sessionBusy: String(localized: "The Agent is still responding in this conversation.")
+        case .fileReviewInProgress: String(localized: "Wait for the Agent file rollback to finish.")
+        case .fileReviewChanged: String(localized: "The reported file changes have been updated. Review them again before rolling back.")
         case .sendFailed(let message): message
         case .configurationPending: String(localized: "Wait for the Agent configuration to finish updating.")
         }
+    }
+}
+
+extension AgentConnectionModel {
+    /// Files have already been saved by the Agent. Keeping an exact version
+    /// acknowledges its review without changing the transcript or editor buffers.
+    public func keepFileChanges(_ changes: [AgentFileChange], in sessionID: String) {
+        guard fileReviewSessionID == nil, let conversation = conversations[sessionID], !conversation.isResponding else { return }
+        let current = AgentActivity(messages: conversation.messages, reviewed: conversation.reviewedFileChanges).files
+        let complete = AgentActivity(messages: conversation.messages).files
+        for change in changes where !change.isPending && current.contains(change) {
+            conversations[sessionID]?.reviewedFileChanges[change.path] = complete.first { $0.path == change.path }
+        }
+    }
+
+    /// The connection owns the native restoration job and awaits it at shutdown.
+    /// A batch acknowledges each success; failed and newer versions stay visible.
+    public func restoreFileChanges(
+        _ changes: [AgentFileChange], in sessionID: String,
+        restore: @escaping @MainActor (AgentFileChange) async throws -> Void
+    ) async {
+        guard fileReviewSessionID == nil else { return }
+        fileReviewSessionID = sessionID
+        fileReviewError = nil
+        fileReviewErrorSessionID = sessionID
+        let job = Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                for change in changes {
+                    try Task.checkCancellation()
+                    guard let conversation = self.conversations[sessionID], !conversation.isResponding,
+                          change.canRevert, AgentActivity(messages: conversation.messages, reviewed: conversation.reviewedFileChanges).files.contains(change) else {
+                        throw AgentConversationError.fileReviewChanged
+                    }
+                    let snapshot = AgentActivity(messages: conversation.messages).files.first { $0.path == change.path }
+                    try await restore(change)
+                    self.conversations[sessionID]?.reviewedFileChanges[change.path] = snapshot
+                }
+            } catch is CancellationError { }
+            catch { self.fileReviewError = error.localizedDescription }
+        }
+        fileReviewTask = job
+        await withTaskCancellationHandler { await job.value } onCancel: { job.cancel() }
+        fileReviewTask = nil
+        fileReviewSessionID = nil
     }
 }

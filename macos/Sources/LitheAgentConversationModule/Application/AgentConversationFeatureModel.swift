@@ -44,6 +44,9 @@ public final class AgentConversationFeatureModel: ObservableObject {
     }
 
     public var hasActiveConnection: Bool { connections.values.contains { $0.hasActiveConnection } }
+    public var hasRespondingConversation: Bool {
+        connections.values.contains { connection in connection.conversations.values.contains { $0.isResponding || $0.isLoading } }
+    }
 
     /// The shell creates its module runtime before opening a project. Bind the
     /// actual project before any history UI is created, including setup failures.

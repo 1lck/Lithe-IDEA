@@ -6,6 +6,7 @@ struct AgentToolGroupView: View {
     let messages: [AgentConversationMessage]
     let searchText: String
     let onOpenFile: (AgentToolDetails.Location) -> Void
+    var initiallyExpanded = false
 
     @State private var expanded = false
     @State private var expandedToolID: String?
@@ -63,7 +64,7 @@ struct AgentToolGroupView: View {
             RoundedRectangle(cornerRadius: 6)
                 .stroke(failedCount > 0 ? LitheTheme.error.opacity(0.7) : LitheTheme.panelBorder, lineWidth: 1)
         )
-        .onAppear { if !searchText.isEmpty { expanded = true } }
+        .onAppear { if initiallyExpanded || !searchText.isEmpty { expanded = true } }
         .onChange(of: searchText) { _ in if !searchText.isEmpty { expanded = true } }
     }
 

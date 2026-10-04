@@ -645,6 +645,7 @@ final class MacServiceContainer {
             store: store,
             fileStorage: fileStorage,
             fileOperations: fileOperations,
+            agentEditRestorer: MacAgentEditRestorer(fileOperations: fileOperations),
             binaryFileViewerRegistry: binaryFileViewerRegistry,
             projectRuntimeService: runtimeService,
             gitWatchContextProvider: gitWatchContextProvider,

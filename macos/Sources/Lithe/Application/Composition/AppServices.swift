@@ -37,6 +37,7 @@ final class AppServices {
     let store: any KeyValueStore
     let fileStorage: any FileStorage
     let fileOperations: any WorkspaceFileOperations
+    let agentEditRestorer: any AgentEditRestoring
     /// Empty by default; binary support exists only after an explicit registration.
     let binaryFileViewerRegistry: BinaryFileViewerRegistry
     let projectRuntimeService: ProjectRuntimeService
@@ -79,6 +80,7 @@ final class AppServices {
         store: any KeyValueStore,
         fileStorage: any FileStorage,
         fileOperations: any WorkspaceFileOperations,
+        agentEditRestorer: any AgentEditRestoring = UnavailableAgentEditRestorer(),
         binaryFileViewerRegistry: BinaryFileViewerRegistry,
         projectRuntimeService: ProjectRuntimeService,
         gitWatchContextProvider: any GitWatchContextProviding,
@@ -127,6 +129,7 @@ final class AppServices {
         self.store = store
         self.fileStorage = fileStorage
         self.fileOperations = fileOperations
+        self.agentEditRestorer = agentEditRestorer
         self.binaryFileViewerRegistry = binaryFileViewerRegistry
         self.projectRuntimeService = projectRuntimeService
         self.gitWatchContextProvider = gitWatchContextProvider

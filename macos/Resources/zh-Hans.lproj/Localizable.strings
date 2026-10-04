@@ -2646,3 +2646,30 @@
 "A ChangeList with this name already exists." = "已存在同名的更改列表。";
 "The default ChangeList cannot be renamed." = "默认更改列表不能重命名。";
 "Selected ChangeList or staged files changed before generation finished" = "生成完成前，当前更改列表或暂存文件已变化，已丢弃旧的提交说明";
+
+// Agent activity panels and file review
+"Open file" = "打开文件";
+"No tasks have been reported yet." = "Agent 尚未上报任务。";
+"No tools are running." = "当前没有运行中的工具。";
+"No file edits to review." = "没有待查看的文件修改。";
+"Roll back all" = "回撤全部";
+"Keep all" = "保留全部";
+"The Agent already saved these files. Mark the current changes as reviewed." = "Agent 已将修改写入文件；此操作将当前修改标为已确认。";
+"Show Agent diff" = "查看 Agent 修改差异";
+"Roll back Agent changes" = "回撤 Agent 修改";
+"Original content is missing or incomplete." = "原始内容缺失或不完整，无法安全回撤。";
+"Roll back Agent changes?" = "回撤 Agent 的修改？";
+"Roll back" = "回撤";
+"Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "仅回撤 Agent 上报的修改；有冲突或未保存编辑的文件会保留。";
+"Reported change" = "上报的修改";
+"Agent-reported changes; excerpts may not include the entire file." = "此处展示 Agent 上报的修改，片段可能不包含完整文件。";
+"The Agent diff is too large to display completely. Rollback is unavailable." = "Agent 差异过大，无法完整展示或安全回撤。";
+"This diff has too many lines for comparison. Showing the reported before and after text." = "差异行数过多，显示 Agent 上报的修改前后文本。";
+"Before" = "修改前";
+"After" = "修改后";
+"Agent change rollback is unavailable." = "当前无法回撤 Agent 修改。";
+"The file has changed since the Agent edit. Open the diff and review it manually." = "文件内容与 Agent 修改存在冲突，请打开差异手动确认。";
+"This file has unsaved editor changes. Save or discard them before rolling back the Agent edit." = "此文件有未保存的编辑，请先保存或放弃后再回撤 Agent 修改。";
+"The Agent did not provide enough original content to safely roll back this file." = "Agent 未提供足够的原始内容，无法安全回撤此文件。";
+"Wait for the Agent file rollback to finish." = "请等待 Agent 文件回撤完成。";
+"The reported file changes have been updated. Review them again before rolling back." = "Agent 上报的文件修改已更新，请重新确认后再回撤。";

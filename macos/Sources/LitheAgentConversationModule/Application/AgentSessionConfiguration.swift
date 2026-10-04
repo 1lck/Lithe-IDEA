@@ -44,6 +44,8 @@ public struct AgentToolDetails: Equatable, Sendable {
         public var path: String
         public var line: Int?
 
+        public init(path: String, line: Int? = nil) { self.path = path; self.line = line }
+
         public func fileURL(in workspace: URL) -> URL? {
             let root = workspace.standardizedFileURL
             let url = URL(fileURLWithPath: path, relativeTo: root).standardizedFileURL
@@ -57,11 +59,26 @@ public struct AgentToolDetails: Equatable, Sendable {
         public var text: String
     }
 
+    /// Structured evidence is kept separate from the shortened display text.
+    /// Some agents report only a changed excerpt, so this is not a disk snapshot.
+    public struct Diff: Equatable, Sendable {
+        public var path: String
+        public var oldText: String?
+        public var newText: String
+        public var isTruncated: Bool
+        /// Explicit upstream creation/deletion metadata; null oldText alone is
+        /// insufficient because Claude can report an inserted excerpt that way.
+        public var operation: String?
+        public var additions: Int?
+        public var deletions: Int?
+    }
+
     public var kind: String?
     public var input: String?
     public var output: String?
     public var locations: [Location] = []
     public var content: [Content] = []
+    public var diffs: [Diff] = []
     public var isEmpty: Bool { input == nil && output == nil && locations.isEmpty && content.isEmpty }
     static let textLimit = 32_768
 
@@ -76,6 +93,21 @@ public struct AgentToolDetails: Equatable, Sendable {
             }
         }
         if let content = update["content"] as? [[String: Any]] {
+            diffs = content.prefix(100).compactMap { item in
+                guard item["type"] as? String == "diff", let path = item["path"] as? String,
+                      let new = item["newText"] as? String else { return nil }
+                let old = item["oldText"] as? String
+                let metadata = item["_meta"] as? [String: Any]
+                let jetbrains = metadata?["jetbrains"] as? [String: Any]
+                let air = jetbrains?["air"] as? [String: Any]
+                let stats = air?["diffStats"] as? [String: Any]
+                let validStats = stats?["version"] as? Int == 1
+                return Diff(path: path, oldText: old.map(Self.bounded), newText: Self.bounded(new),
+                            isTruncated: content.count > 100 || new.count > Self.textLimit || (old?.count ?? 0) > Self.textLimit,
+                            operation: metadata?["kind"] as? String,
+                            additions: validStats ? (stats?["added"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil,
+                            deletions: validStats ? (stats?["removed"] as? Int).flatMap { $0 >= 0 ? $0 : nil } : nil)
+            }
             self.content = content.prefix(100).compactMap { item in
                 switch item["type"] as? String {
                 case "content":
@@ -94,6 +126,25 @@ public struct AgentToolDetails: Equatable, Sendable {
                     return Content(title: String(localized: "Terminal"), text: item["terminalId"] as? String ?? "")
                 default: return nil
                 }
+            }
+        }
+        // The pinned Claude adapter forwards the SDK's public FileWriteOutput
+        // in tool metadata. Prefer its complete text over newline-less hunks;
+        // the explicit create type distinguishes a new file from an insertion.
+        if let metadata = update["_meta"] as? [String: Any],
+           let claude = metadata["claudeCode"] as? [String: Any], claude["toolName"] as? String == "Write",
+           let response = claude["toolResponse"] as? [String: Any],
+           let type = response["type"] as? String, let path = response["filePath"] as? String, !path.isEmpty,
+           let new = response["content"] as? String {
+            let old = response["originalFile"] as? String
+            if type == "create" || (type == "update" && old != nil) {
+                var reported = AgentFileChange(path: path)
+                reported.diffs = diffs.filter { $0.path == path }
+                let completeStats = !reported.diffs.contains(where: \.isTruncated)
+                diffs = [Diff(path: path, oldText: type == "create" ? nil : old.map(Self.bounded),
+                    newText: Self.bounded(new), isTruncated: new.count > Self.textLimit || (old?.count ?? 0) > Self.textLimit,
+                    operation: type == "create" ? "add" : "update",
+                    additions: completeStats ? reported.additions : nil, deletions: completeStats ? reported.deletions : nil)]
             }
         }
     }
