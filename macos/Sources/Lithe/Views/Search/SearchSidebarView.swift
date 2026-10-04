@@ -2,6 +2,7 @@ import SwiftUI
 import LitheSearchModule
 
 struct SearchSidebarView: View {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: SearchFeatureModel
     @ObservedObject var session: SearchSessionFeatureModel
     let openReplace: (ProjectSearchOptions) -> Void
@@ -10,56 +11,69 @@ struct SearchSidebarView: View {
     let copyPath: (URL, Bool) -> Void
     let searchProject: (ProjectSearchOptions) async -> Void
     @FocusState private var searchFocused: Bool
+    @FocusState private var fileMaskFocused: Bool
     @State private var searchOptions = ProjectSearchOptions.default
 
     var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Text("Search")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Spacer()
                 if feature.isSearching {
                     ProgressView().controlSize(.mini)
                 }
+                LitheSidebarHideButton(title: "Search") {
+                    model.workbenchFeature.hideSidebar()
+                }
             }
-            .padding(.horizontal, 13)
-            .frame(height: 44)
+            .padding(.horizontal, 12)
+            .frame(height: 39)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: dismissSearchFieldFocus)
 
-            HStack(spacing: 7) {
-                LitheSystemIcon(systemImage: "magnifyingglass")
-                    .foregroundStyle(LitheTheme.secondaryText)
-                TextField("Search files and contents", text: $session.query)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12.5))
+            HStack(spacing: 2) {
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/search.svg",
+                    size: LitheTheme.Metrics.toolbarIconSize,
+                    fallbackSystemImage: "magnifyingglass",
+                    preservesOriginalColors: true
+                )
+                LitheSearchTextField("Search files and contents", text: $session.query)
                     .focused($searchFocused)
+                    .lineLimit(1)
                 if !session.query.isEmpty {
                     Button {
                         session.query = ""
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
+                        LitheIDEAIcon(
+                            resourcePath: "expui/general/closeSmall.svg",
+                            size: LitheTheme.Metrics.toolbarIconSize,
+                            fallbackSystemImage: "xmark",
+                            preservesOriginalColors: true
+                        )
                     }
-                    .litheIconButton()
-                    .foregroundStyle(LitheTheme.secondaryText)
+                    .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                    .padding(.leading, 1)
+                    .help("Clear search")
                 }
                 Button {
                     openReplace(searchOptions)
                 } label: {
-                    Image(systemName: "arrow.left.arrow.right")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/actions/replace.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "arrow.left.arrow.right",
+                        preservesOriginalColors: true
+                    )
                 }
-                .litheIconButton()
+                .litheToolbarIconButton()
                 .help("Replace in project")
 
                 searchOptionsMenu
             }
-            .padding(.horizontal, 9)
-            .frame(height: 32)
-            .background(LitheTheme.inputBackground)
-            .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-            .overlay {
-                RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                    .stroke(LitheTheme.inputBorder, lineWidth: 1)
-            }
+            .litheSearchField(isFocused: searchFocused)
             .padding(.horizontal, 10)
             .padding(.bottom, 6)
 
@@ -72,17 +86,21 @@ struct SearchSidebarView: View {
             if session.query.isEmpty {
                 VStack(spacing: 9) {
                     Image(systemName: "text.magnifyingglass")
-                        .font(.system(size: 28, weight: .light))
+                        .font(LitheTheme.uiFont(size: 28, weight: .light))
                     Text("Search across the project")
                 }
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .onTapGesture(perform: dismissSearchFieldFocus)
             } else if feature.searchResults.isEmpty && !feature.isSearching {
                 Text("No matches")
                     .font(LitheTheme.uiFont)
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onTapGesture(perform: dismissSearchFieldFocus)
             } else {
                 ScrollView {
                     LazyVStack(spacing: 0) {
@@ -92,9 +110,14 @@ struct SearchSidebarView: View {
                             } label: {
                                 VStack(alignment: .leading, spacing: 3) {
                                     HStack(spacing: 6) {
-                                        LitheSystemIcon(systemImage: "doc.text")
+                                        LitheIcon(
+                                            kind: LitheIcons.kind(forFilePath: result.url.path),
+                                            size: LitheTheme.Metrics.treeIconSize
+                                        )
                                         Text(result.url.lastPathComponent)
-                                            .font(.system(size: 12.5, weight: .medium))
+                                            .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
                                         Spacer()
                                         if let line = result.line {
                                             Text(":\(line)")
@@ -102,7 +125,7 @@ struct SearchSidebarView: View {
                                         }
                                     }
                                     Text(result.preview)
-                                        .font(.system(size: 11.5, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .lineLimit(2)
                                 }
@@ -113,6 +136,9 @@ struct SearchSidebarView: View {
                                 .contentShape(Rectangle())
                             }
                             .buttonStyle(.litheNoPress)
+                            .litheRowHover(
+                                cornerRadius: LitheTheme.Metrics.projectTreeSelectionCornerRadius
+                            )
                             .lithePointer()
                             .litheContextMenu {
                                 [
@@ -132,10 +158,10 @@ struct SearchSidebarView: View {
                                     ])
                                 ]
                             }
-                            Rectangle().fill(LitheTheme.divider).frame(height: 1)
                         }
                     }
                 }
+                .simultaneousGesture(TapGesture().onEnded { _ in dismissSearchFieldFocus() })
             }
         }
         .task(id: "\(session.query)|\(searchOptions.cacheKey)") {
@@ -143,54 +169,77 @@ struct SearchSidebarView: View {
             guard !Task.isCancelled else { return }
             await searchProject(searchOptions)
         }
-        .onAppear { searchFocused = true }
+        .onAppear(perform: focusSearchFieldIfRequested)
         // 侧栏已经打开时再次按 Cmd+Shift+F，靠令牌变化把焦点移回输入框。
-        .onChange(of: session.sidebarFocusRequest) { _ in searchFocused = true }
+        .onChange(of: session.sidebarFocusRequest) { _ in focusSearchFieldIfRequested() }
+    }
+
+    private func focusSearchFieldIfRequested() {
+        guard session.sidebarFocusRequest > 0 else { return }
+        session.sidebarFocusRequest = 0
+        searchFocused = true
     }
 
     private var fileMaskField: some View {
-        HStack(spacing: 7) {
-            LitheSystemIcon(systemImage: "line.3.horizontal.decrease")
+        HStack(spacing: 2) {
+            LitheIDEAIcon(
+                resourcePath: "expui/general/filter.svg",
+                size: LitheTheme.Metrics.toolbarIconSize,
+                fallbackSystemImage: "line.3.horizontal.decrease",
+                preservesOriginalColors: false
+            )
                 .foregroundStyle(
                     searchOptions.fileMask.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent
                 )
-            TextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
-                .textFieldStyle(.plain)
-                .font(.system(size: 12))
+            LitheSearchTextField("File mask, e.g. *.java, *.kt", text: $searchOptions.fileMask)
+                .focused($fileMaskFocused)
                 .help("Comma-separated glob patterns. Empty searches every file.")
             if !searchOptions.fileMask.isEmpty {
                 Button {
                     searchOptions.fileMask = ""
                 } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    LitheIDEAIcon(
+                        resourcePath: "expui/general/closeSmall.svg",
+                        size: LitheTheme.Metrics.toolbarIconSize,
+                        fallbackSystemImage: "xmark",
+                        preservesOriginalColors: true
+                    )
                 }
-                .litheIconButton()
-                .foregroundStyle(LitheTheme.secondaryText)
+                .buttonStyle(LitheIconButtonStyle(size: 20, cornerRadius: 4))
+                .padding(.leading, 1)
+                .help("Clear file mask")
             }
         }
-        .padding(.horizontal, 9)
-        .frame(height: 28)
-        .background(LitheTheme.inputBackground)
-        .clipShape(RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius))
-        .overlay {
-            RoundedRectangle(cornerRadius: LitheTheme.Metrics.controlCornerRadius)
-                .stroke(LitheTheme.inputBorder, lineWidth: 1)
-        }
+        .litheSearchField(isFocused: fileMaskFocused)
     }
 
     private var searchOptionsMenu: some View {
-        Menu {
-            Toggle("Match Case", isOn: $searchOptions.caseSensitive)
-            Toggle("Whole Words", isOn: $searchOptions.wholeWords)
-            Toggle("Regular Expression", isOn: $searchOptions.regularExpression)
+        LitheMenu {
+            LitheContextMenuItem.toggle("Match Case", isOn: $searchOptions.caseSensitive)
+            LitheContextMenuItem.toggle("Whole Words", isOn: $searchOptions.wholeWords)
+            LitheContextMenuItem.toggle("Regular Expression", isOn: $searchOptions.regularExpression)
         } label: {
-            Image(systemName: "slider.horizontal.3")
-                .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
+            LitheIDEAIcon(
+                resourcePath: "expui/general/settings.svg",
+                size: LitheTheme.Metrics.toolbarIconSize,
+                fallbackSystemImage: "slider.horizontal.3",
+                preservesOriginalColors: false
+            )
+            .foregroundStyle(searchOptions == .default ? LitheTheme.secondaryText : LitheTheme.accent)
+            .frame(
+                width: LitheTheme.Metrics.toolbarIconButtonSize,
+                height: LitheTheme.Metrics.toolbarIconButtonSize
+            )
+            .contentShape(Rectangle())
+            .litheRowHover()
         }
-        .menuStyle(.borderlessButton)
-        .lithePointer()
+        .buttonStyle(.litheNoPress)
+        .fixedSize()
         .help("Search options")
+    }
+
+    private func dismissSearchFieldFocus() {
+        searchFocused = false
+        fileMaskFocused = false
     }
 }

@@ -191,6 +191,14 @@ SHA-256；Cargo、SwiftPM 和 Bun 使用各自的 lockfile、版本与完整性�
   `Plugins/mac/Official/PhpSupport/language-server.json` 下载并校验的
   Intelephense tarball；它只服务当前工作树的插件打包，不能复制解压结果。
 
+Inter 4.1 的 18 个静态 OTF（内部版本 4.001）及许可、JetBrains Mono 2.304 的 16 个静态 TTF、OFL 和作者信息位于 Git 跟踪的
+`macos/Resources/Fonts`。它们与平台架构和工具链无关，随工作树检出，不从另一个
+工作树的产物或已签名 app 复用；注册表将 `bundled-ui-fonts` 排除，复用脚本拒绝
+复制。打包脚本在签名前复制到 `Contents/Resources/Fonts`，资源门禁检查全部字型；
+`BundledUIFontTests` 检查版本、CoreText process 注册、字号/字重、SwiftUI 字体及
+注册前后的文件清单与 SHA-256。运行时仅只读注册和 WebKit 加载，不修改 bundle，
+不影响 Sparkle delta 的发布基线。
+
 以下目录不应直接复制或跨工作树共享：
 
 - Sparkle 差分基线的单次发布临时目录：

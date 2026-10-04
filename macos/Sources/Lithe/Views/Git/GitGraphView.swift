@@ -1,6 +1,38 @@
 import AppKit
+import CoreText
 import SwiftUI
 import LitheGitModule
+
+/// Display-only formatting uses the app language, retaining the parsed commit instant.
+enum GitLogDatePresentation {
+    private static let twentyFourHour = formatter("yyyy/MM/dd HH:mm")
+    private static let twelveHour = formatter("yyyy/MM/dd hh:mm a")
+
+    private static func formatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = format
+        formatter.amSymbol = "AM"
+        formatter.pmSymbol = "PM"
+        return formatter
+    }
+
+    static func components(_ value: String, locale: Locale) -> (text: String, period: String?) {
+        guard let date = GitLogQuery.parseCommitDate(value) else { return (value, nil) }
+        if locale.language.languageCode?.identifier == "en" {
+            let text = twelveHour.string(from: date)
+            return (String(text.dropLast(3)), String(text.suffix(2)))
+        }
+        return (twentyFourHour.string(from: date), nil)
+    }
+
+    static func string(_ value: String, locale: Locale) -> String {
+        let parts = components(value, locale: locale)
+        return parts.text + (parts.period.map { " " + $0 } ?? "")
+    }
+}
 
 /// Commit-row callbacks are grouped so that a row receives one stable value
 /// instead of four freshly allocated closures per redraw. Rows are compared by
@@ -54,6 +86,8 @@ struct GitGraphPresentation: Sendable {
     let rows: [GitGraphRow]
     let routingSnapshot: GitGraphRoutingSnapshot
     let hasMissingParents: Bool
+    var referenceGroups: [String: GitGraphReferenceGroup] = [:]
+    var currentBranchHashes: Set<String> = []
 
     static let empty = GitGraphPresentation(
         rows: [],
@@ -63,12 +97,14 @@ struct GitGraphPresentation: Sendable {
 }
 
 struct GitGraphView: View {
+    @Environment(\.displayScale) private var displayScale
     @Environment(\.locale) private var locale
     let presentation: GitGraphPresentation
     let selectedHash: String?
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
     var selectedHashes: Set<String>? = nil
+    var isFocused = true
 
     private let rowHeight = GitGraphGeometry.rowHeight
 
@@ -78,16 +114,18 @@ struct GitGraphView: View {
                 ForEach(presentation.rows) { row in
                     GitGraphRowView(
                         row: row,
-                        graphWidth: GitGraphGeometry.rowWidth(row, recommendedLaneCount: presentation.routingSnapshot.recommendedLaneCount),
+                        graphWidth: GitGraphGeometry.titleOffset(row, recommendedLaneCount: presentation.routingSnapshot.recommendedLaneCount),
                         rowHeight: rowHeight,
                         isSelected: selectedHashes?.contains(row.commit.hash) ?? (selectedHash == row.commit.hash),
                         showCommitDecorations: showCommitDecorations,
-                        actions: actions
+                        actions: actions,
+                        isFocused: isFocused,
+                        isCurrentBranch: presentation.currentBranchHashes.contains(row.commit.hash)
                     )
                     .equatable()
                     .overlay(alignment: .topLeading) {
                         ForEach(row.printElements.filter { $0.hasArrow && $0.targetHash != nil }) { element in
-                            let rect = GitGraphGeometry.arrowHitRect(for: element, rowHeight: rowHeight)
+                            let rect = GitGraphGeometry.arrowHitRect(for: element, rowHeight: rowHeight, backingScale: displayScale)
                             let target = element.targetHash ?? ""
                             let title = gitLocalizedFormat(
                                 element.direction == .down ? "Go to parent commit %@" : "Go to child commit %@",
@@ -114,7 +152,7 @@ struct GitGraphView: View {
                         Image(systemName: "ellipsis")
                         Text("Older commits are outside the loaded history")
                     }
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.leading, maximumGraphWidth + 6)
@@ -138,9 +176,9 @@ struct GitGraphView: View {
     }
 }
 
-/// Native viewport for the middle commit list. The commit rows remain hosted
-/// by one SwiftUI document view so their existing actions and accessibility
-/// stay intact, while wheel movement is handled entirely by AppKit.
+/// Native viewport for the middle commit list. Resizing only changes the clip
+/// bounds; the cached graph and commit rows paint the visible region like
+/// IDEA's VcsLogGraphTable, without laying out a SwiftUI view for each row.
 struct GitGraphScrollView: NSViewRepresentable {
     let presentation: GitGraphPresentation
     let selectedHash: String?
@@ -149,6 +187,10 @@ struct GitGraphScrollView: NSViewRepresentable {
     let isLoadingMore: Bool
     let actions: GitGraphRowActions
     let onLoadMore: () -> Void
+    var selectedHashes: Set<String>? = nil
+    var isFocused = true
+    var navigationHash: String? = nil
+    var navigationID: UUID? = nil
 
     private let rowHeight = GitGraphGeometry.rowHeight
 
@@ -174,7 +216,9 @@ struct GitGraphScrollView: NSViewRepresentable {
             canLoadMore: canLoadMore,
             isLoadingMore: isLoadingMore,
             actions: actions,
-            onLoadMore: onLoadMore
+            onLoadMore: onLoadMore,
+            selectedHashes: selectedHashes,
+            isFocused: isFocused
         )
         return scrollView
     }
@@ -186,9 +230,11 @@ struct GitGraphScrollView: NSViewRepresentable {
         canLoadMore: Bool,
         isLoadingMore: Bool,
         actions: GitGraphRowActions,
-        onLoadMore: @escaping () -> Void
+        onLoadMore: @escaping () -> Void,
+        selectedHashes: Set<String>? = nil,
+        isFocused: Bool = true
     ) -> NSScrollView {
-        let scrollView = NSScrollView()
+        let scrollView = GitGraphScrollNSView()
         scrollView.drawsBackground = false
         scrollView.borderType = .noBorder
         scrollView.hasHorizontalScroller = false
@@ -206,7 +252,9 @@ struct GitGraphScrollView: NSViewRepresentable {
             canLoadMore: canLoadMore,
             isLoadingMore: isLoadingMore,
             actions: actions,
-            onLoadMore: onLoadMore
+            onLoadMore: onLoadMore,
+            selectedHashes: selectedHashes,
+            isFocused: isFocused
         )
         documentView.autoresizingMask = [.width]
         scrollView.documentView = documentView
@@ -224,17 +272,22 @@ struct GitGraphScrollView: NSViewRepresentable {
             canLoadMore: canLoadMore,
             isLoadingMore: isLoadingMore,
             actions: actions,
-            onLoadMore: onLoadMore
+            onLoadMore: onLoadMore,
+            selectedHashes: selectedHashes,
+            isFocused: isFocused
         )
         let width = max(nsView.contentView.bounds.width, 1)
         documentView.updateLayout(width: width, viewportHeight: nsView.contentView.bounds.height)
 
+        if documentView.revealNavigation(hash: navigationHash, id: navigationID) {
+            return
+        }
         if selectionChanged,
            let selectedIndex = presentation.rows.firstIndex(where: { $0.commit.hash == selectedHash }) {
             // Selection changes are the only updates that should move the
             // viewport. Appending a history page must leave the user's
             // current scroll position untouched.
-            nsView.contentView.scrollToVisible(
+            documentView.scrollToVisible(
                 NSRect(
                     x: 0,
                     y: CGFloat(selectedIndex) * rowHeight,
@@ -256,6 +309,25 @@ struct GitGraphScrollView: NSViewRepresentable {
     }
 }
 
+final class GitGraphScrollNSView: NSScrollView {
+    override func keyDown(with event: NSEvent) {
+        // NSScrollView otherwise consumes Up/Down as scrolling instead of
+        // commit selection, including Shift range selection.
+        if event.keyCode == 125 || event.keyCode == 126,
+           let document = documentView as? GitGraphScrollDocumentView {
+            document.moveSelection(by: event.keyCode == 125 ? 1 : -1, modifiers: event.modifierFlags)
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    override func layout() {
+        super.layout()
+        guard let document = documentView as? GitGraphScrollDocumentView else { return }
+        document.updateLayout(width: contentView.bounds.width, viewportHeight: contentView.bounds.height)
+    }
+}
+
 final class GitGraphScrollDocumentView: NSView {
     private let graphView = GitGraphNSView()
     private let commitRowsView = GitGraphCommitRowsNSView()
@@ -273,6 +345,7 @@ final class GitGraphScrollDocumentView: NSView {
     private var onLoadMore: (() -> Void)?
     private var rowCount = 0
     private var graphWidth: CGFloat = 30
+    private var navigationID: UUID?
     private let rowHeight = GitGraphGeometry.rowHeight
 
     override var isFlipped: Bool { true }
@@ -281,11 +354,13 @@ final class GitGraphScrollDocumentView: NSView {
         super.init(frame: frameRect)
         addSubview(commitRowsView)
         addSubview(graphView)
+        setAccessibilityRole(.list)
+        setAccessibilityLabel("Git Log")
         loadMoreButton.setButtonType(.momentaryPushIn)
         loadMoreButton.isBordered = false
         loadMoreButton.bezelStyle = .inline
         loadMoreButton.alignment = .center
-        loadMoreButton.font = NSFont.systemFont(ofSize: 11.5, weight: .medium)
+        loadMoreButton.font = LitheTheme.uiNSFont(size: 11.5, weight: .medium)
         loadMoreButton.contentTintColor = LitheTheme.nsColor(.accent, isDark: false)
         addSubview(loadMoreButton)
     }
@@ -302,7 +377,9 @@ final class GitGraphScrollDocumentView: NSView {
         canLoadMore: Bool,
         isLoadingMore: Bool,
         actions: GitGraphRowActions,
-        onLoadMore: @escaping () -> Void
+        onLoadMore: @escaping () -> Void,
+        selectedHashes: Set<String>? = nil,
+        isFocused: Bool = true
     ) -> Bool {
         let localeChanged = self.locale != locale
         self.locale = locale
@@ -346,6 +423,11 @@ final class GitGraphScrollDocumentView: NSView {
                 rowHeight: rowHeight
             )
         }
+        // Selection and focus are cheap drawing state, independent of graph data.
+        commitRowsView.updateSelection(selectedHashes ?? Set(selectedHash.map { [$0] } ?? []), isFocused: isFocused)
+        commitRowsView.updateCurrentBranchHashes(presentation.currentBranchHashes)
+        commitRowsView.updateReferenceGroups(presentation.referenceGroups)
+        graphView.onNavigateHash = actions.onNavigateHash
         if graphChanged || rowsChanged || selectionChanged || showDecorationsChanged {
             commitRowsView.update(
                 rows: presentation.rows,
@@ -389,10 +471,40 @@ final class GitGraphScrollDocumentView: NSView {
         if loadMoreButton.frame != buttonFrame { loadMoreButton.frame = buttonFrame }
     }
 
+    func moveSelection(by offset: Int, modifiers: NSEvent.ModifierFlags) {
+        let current = rows.firstIndex { $0.commit.hash == selectedHash }
+        let index = current.map { $0 + offset } ?? (offset > 0 ? 0 : rows.count - 1)
+        guard rows.indices.contains(index) else { return }
+        commitRowsView.select(rowIndex: index, modifiers: modifiers)
+        scrollToVisible(CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight))
+    }
+
+    @discardableResult
+    func revealNavigation(hash: String?, id: UUID?) -> Bool {
+        guard let id, navigationID != id else { return false }
+        navigationID = id
+        guard let index = rows.firstIndex(where: { $0.commit.hash == hash }), let scroll = enclosingScrollView else { return false }
+        let previous = scroll.contentView.bounds.origin
+        let target = CGFloat(index) * rowHeight - (scroll.contentView.bounds.height - rowHeight) / 2
+        scroll.contentView.setBoundsOrigin(GitGraphScrollView.preservedScrollOrigin(
+            previous: CGPoint(x: previous.x, y: target), documentHeight: bounds.height,
+            viewportHeight: scroll.contentView.bounds.height))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        return true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        guard canLoadMore || hasMissingParents else { return }
         let firstFooterRow = CGFloat(presentationRowCount) * rowHeight
         let missingParentsHeight = hasMissingParents ? rowHeight : 0
         let footerY = firstFooterRow + missingParentsHeight
+        if hasMissingParents, dirtyRect.maxY >= firstFooterRow {
+            let text = gitLocalizedFormat("Older commits are outside the loaded history", locale: locale)
+            (text as NSString).draw(in: CGRect(x: graphWidth + 6, y: firstFooterRow + 6,
+                width: max(0, bounds.width - graphWidth - 12), height: rowHeight), withAttributes: [
+                    .font: LitheTheme.uiNSFont(size: 10.5), .foregroundColor: NSColor(LitheTheme.tertiaryText)
+                ])
+        }
         guard dirtyRect.maxY >= footerY else { return }
         let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let divider = LitheTheme.nsColor(.divider, isDark: isDark)
@@ -427,6 +539,33 @@ final class GitGraphScrollDocumentView: NSView {
         return super.menu(for: event)
     }
 
+    override func accessibilityChildren() -> [Any]? {
+        rows.enumerated().map { index, row in
+            let element = GitGraphAccessibilityRow()
+            element.setAccessibilityParent(self)
+            element.setAccessibilityRole(.button)
+            element.setAccessibilityLabel("\(row.commit.subject), \(row.commit.authorName), \(GitLogDatePresentation.string(row.commit.date, locale: locale))")
+            element.setAccessibilitySelected(commitRowsView.isSelected(row.commit.hash))
+            element.setAccessibilityFrameInParentSpace(CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight))
+            element.onPress = { [weak self] in self?.commitRowsView.select(rowIndex: index) }
+            let arrows = row.printElements.filter { $0.hasArrow && $0.targetHash != nil }.map { edge in
+                let arrow = GitGraphAccessibilityRow()
+                arrow.setAccessibilityParent(element)
+                arrow.setAccessibilityRole(.button)
+                let hash = edge.targetHash ?? ""
+                arrow.setAccessibilityLabel(gitLocalizedFormat(
+                    edge.direction == .down ? "Go to parent commit %@" : "Go to child commit %@",
+                    String(hash.prefix(8)), locale: locale))
+                arrow.setAccessibilityFrameInParentSpace(GitGraphGeometry.arrowHitRect(for: edge,
+                    rowHeight: rowHeight, backingScale: window?.backingScaleFactor ?? 1))
+                arrow.onPress = { [weak self] in self?.graphView.onNavigateHash?(hash) }
+                return arrow
+            }
+            element.setAccessibilityChildren(arrows)
+            return element
+        } + (canLoadMore ? [loadMoreButton] : [])
+    }
+
     private var presentationRowCount: Int {
         max(0, rowCount - (hasMissingParents ? 1 : 0))
     }
@@ -435,6 +574,11 @@ final class GitGraphScrollDocumentView: NSView {
         super.layout()
         updateLayout(width: bounds.width, viewportHeight: bounds.height)
     }
+}
+
+private final class GitGraphAccessibilityRow: NSAccessibilityElement {
+    var onPress: (() -> Void)?
+    override func accessibilityPerformPress() -> Bool { onPress?(); return onPress != nil }
 }
 
 private final class GitGraphLoadMoreButtonTarget: NSObject {
@@ -449,7 +593,8 @@ private final class GitGraphLoadMoreButtonTarget: NSObject {
     }
 }
 
-final class GitGraphCommitRowsNSView: NSView {
+final class GitGraphCommitRowsNSView: NSView, NSViewToolTipOwner {
+    private var currentBranchHashes: Set<String> = []
     private var locale = Locale.current
     private var rows: [GitGraphRow] = []
     private var selectedHash: String?
@@ -460,7 +605,10 @@ final class GitGraphCommitRowsNSView: NSView {
     private var actions: GitGraphRowActions?
     private var drawingStyle: DrawingStyle?
     private var hoveredIndex: Int?
-    private var labelWidthCache: [String: CGFloat] = [:]
+    private var selectedHashes: Set<String>? = nil
+    private var isFocused = true
+    private var referenceGroups: [String: GitGraphReferenceGroup] = [:]
+    private var dateTextCache: [String: (text: String, period: String?)] = [:]
 
     override var isFlipped: Bool { true }
 
@@ -479,8 +627,8 @@ final class GitGraphCommitRowsNSView: NSView {
                 || self.graphWidth != graphWidth
                 || self.recommendedLaneCount != recommendedLaneCount
                 || self.rowHeight != rowHeight else { return }
+        if self.rows != rows { dateTextCache.removeAll(keepingCapacity: true) }
         self.rows = rows
-        labelWidthCache.removeAll(keepingCapacity: true)
         self.selectedHash = selectedHash
         self.showDecorations = showDecorations
         self.graphWidth = graphWidth
@@ -490,16 +638,32 @@ final class GitGraphCommitRowsNSView: NSView {
         needsDisplay = true
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let local = convert(point, from: superview)
-        let row = Int(floor(local.y / rowHeight))
-        if rows.indices.contains(row), local.x < GitGraphGeometry.rowWidth(rows[row], recommendedLaneCount: recommendedLaneCount) {
-            return nil
-        }
-        return super.hitTest(point)
+    func isSelected(_ hash: String) -> Bool { selectedHashes?.contains(hash) ?? (selectedHash == hash) }
+
+    func updateReferenceGroups(_ groups: [String: GitGraphReferenceGroup]) {
+        guard referenceGroups != groups else { return }
+        referenceGroups = groups
+        needsDisplay = true
+    }
+
+    func updateCurrentBranchHashes(_ hashes: Set<String>) {
+        guard currentBranchHashes != hashes else { return }
+        currentBranchHashes = hashes
+        needsDisplay = true
+    }
+
+    func updateSelection(_ hashes: Set<String>, isFocused: Bool) {
+        guard selectedHashes != hashes || self.isFocused != isFocused else { return }
+        selectedHashes = hashes
+        self.isFocused = isFocused
+        needsDisplay = true
     }
 
     func updateActions(_ actions: GitGraphRowActions, locale: Locale = .current) {
+        if self.locale != locale {
+            dateTextCache.removeAll(keepingCapacity: true)
+            needsDisplay = true
+        }
         self.locale = locale
         self.actions = actions
     }
@@ -507,12 +671,13 @@ final class GitGraphCommitRowsNSView: NSView {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         drawingStyle = nil
-        labelWidthCache.removeAll(keepingCapacity: true)
         needsDisplay = true
     }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
+        removeAllToolTips()
+        if !visibleRect.isEmpty { addToolTip(visibleRect, owner: self, userData: nil) }
         for area in trackingAreas { removeTrackingArea(area) }
         addTrackingArea(NSTrackingArea(
             rect: bounds,
@@ -520,6 +685,13 @@ final class GitGraphCommitRowsNSView: NSView {
             owner: self,
             userInfo: nil
         ))
+    }
+
+    func view(_ view: NSView, stringForToolTip tag: NSView.ToolTipTag, point: NSPoint,
+              userData data: UnsafeMutableRawPointer?) -> String {
+        // Resolve when AppKit displays the tip, including after scrolling under
+        // a stationary pointer. One native tooltip region serves the viewport.
+        referenceTooltip(at: point) ?? ""
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -544,46 +716,65 @@ final class GitGraphCommitRowsNSView: NSView {
 
     override func draw(_ dirtyRect: NSRect) {
         guard !rows.isEmpty, let style = resolvedDrawingStyle() else { return }
-        let first = max(0, Int(floor(dirtyRect.minY / rowHeight)))
-        let last = min(rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        let visible = dirtyRect.intersection(bounds)
+        guard !visible.isEmpty else { return }
+        let first = max(0, Int(floor(visible.minY / rowHeight)))
+        let last = min(rows.count - 1, Int(ceil(visible.maxY / rowHeight)))
         guard first <= last else { return }
         let context = NSGraphicsContext.current?.cgContext
 
+        let dateWidth = style.dateWidth(locale: locale)
         for index in first...last {
             let row = rows[index]
-            let textStart = GitGraphGeometry.rowWidth(row, recommendedLaneCount: recommendedLaneCount)
+            let textStart = GitGraphGeometry.titleOffset(row, recommendedLaneCount: recommendedLaneCount)
+            let foreground = GitGraphColor.commitForeground(
+                parentCount: row.commit.parentHashes.count, isSelected: isSelected(row.commit.hash),
+                normal: style.primary, isDark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            )
             let rect = CGRect(x: 0, y: CGFloat(index) * rowHeight, width: bounds.width, height: rowHeight)
-            if selectedHash == row.commit.hash {
-                style.selection.setFill()
+            if isSelected(row.commit.hash) {
+                (isFocused ? style.selection : style.inactiveSelection).setFill()
                 NSBezierPath(rect: rect).fill()
             } else if hoveredIndex == index {
+                if currentBranchHashes.contains(row.commit.hash) {
+                    style.currentBranch.setFill()
+                    NSBezierPath(rect: rect).fill()
+                }
                 style.hover.setFill()
                 NSBezierPath(rect: rect).fill()
+            } else if currentBranchHashes.contains(row.commit.hash) {
+                style.currentBranch.setFill()
+                NSBezierPath(rect: rect).fill()
             }
+            let label = referenceLayout(row, in: rect, style: style)
+            let labelsWidth = label?.rect.width ?? 0
             drawText(
                 row.commit.subject,
-                in: CGRect(x: textStart, y: rect.minY, width: max(0, rect.width - textStart - 230), height: rowHeight),
+                in: CGRect(x: textStart, y: rect.minY, width: max(0, rect.width - textStart - dateWidth - 120 - labelsWidth), height: rowHeight),
                 font: style.body,
-                color: row.commit.parentHashes.count > 1 && selectedHash != row.commit.hash ? style.merge : style.primary
+                color: foreground
             )
             drawText(
                 row.commit.authorName,
-                in: CGRect(x: max(0, rect.maxX - 222), y: rect.minY, width: 104, height: rowHeight),
+                in: CGRect(x: max(0, rect.maxX - dateWidth - 112), y: rect.minY, width: 104, height: rowHeight),
                 font: style.meta,
-                color: style.secondary
+                color: foreground
             )
-            drawText(
-                row.commit.date,
-                in: CGRect(x: max(0, rect.maxX - 118), y: rect.minY, width: 110, height: rowHeight),
-                font: style.monoMeta,
-                color: style.secondary,
-                alignment: .right
-            )
-            if showDecorations, !row.labels.isEmpty {
-                drawLabels(row.labels, in: rect, style: style, context: context)
+            let date = dateTextCache[row.commit.date] ?? GitLogDatePresentation.components(row.commit.date, locale: locale)
+            dateTextCache[row.commit.date] = date
+            let periodWidth = date.period == nil ? 0 : style.meridiemWidth + 4
+            drawText(date.text,
+                in: CGRect(x: max(0, rect.maxX - dateWidth - 8), y: rect.minY, width: dateWidth - periodWidth, height: rowHeight),
+                font: style.date, color: foreground, alignment: .right)
+            if let period = date.period {
+                drawText(period,
+                    in: CGRect(x: rect.maxX - style.meridiemWidth - 8, y: rect.minY,
+                               width: style.meridiemWidth, height: rowHeight),
+                    font: style.date, color: foreground, alignment: .right)
             }
-            style.divider.setFill()
-            NSBezierPath(rect: CGRect(x: 0, y: rect.maxY - 1, width: rect.width, height: 1)).fill()
+            if showDecorations, !row.labels.isEmpty {
+                drawLabels(row, layout: label, style: style, context: context)
+            }
         }
     }
 
@@ -613,41 +804,82 @@ final class GitGraphCommitRowsNSView: NSView {
         return nil
     }
 
-    private func drawLabels(_ labels: [GitGraphLabel], in rect: CGRect, style: DrawingStyle, context: CGContext?) {
-        var x = max(0, rect.width - 230)
-        for label in labels.reversed() {
-            let measuredWidth = labelWidthCache[label.title] ?? {
-                let value = (label.title as NSString).size(withAttributes: [.font: style.meta]).width + 14
-                labelWidthCache[label.title] = value
-                return value
-            }()
-            let width = min(130, max(28, measuredWidth))
-            x -= width + 5
-            style.labelBackground.setFill()
-            NSBezierPath(roundedRect: CGRect(x: x, y: rect.midY - 8, width: width, height: 16), xRadius: 4, yRadius: 4).fill()
-            drawText(label.title, in: CGRect(x: x + 7, y: rect.minY, width: width - 10, height: rect.height), font: style.meta, color: style.primary)
-        }
+    private func referenceLayout(_ row: GitGraphRow, in rect: CGRect, style: DrawingStyle)
+        -> (group: GitGraphReferenceGroup, text: String, rect: CGRect)? {
+        guard showDecorations, !row.labels.isEmpty else { return nil }
+        let group = referenceGroups[row.commit.hash] ?? GitGraphReferenceGroup(labels: row.labels)
+        let start = GitGraphGeometry.titleOffset(row, recommendedLaneCount: recommendedLaneCount)
+        let end = max(start, rect.width - style.dateWidth(locale: locale) - 120)
+        let columnWidth = end - start
+        let subjectWidth = (row.commit.subject as NSString).size(withAttributes: [.font: style.body]).width
+        let available = max(0, min(columnWidth - subjectWidth, columnWidth / 3))
+        let text = group.shortenedTitle(availableWidth: available - group.iconWidth(height: style.referenceIconHeight) - 9, font: style.reference)
+        let textWidth = ceil((text as NSString).size(withAttributes: [.font: style.reference]).width)
+        let width = min(columnWidth, group.iconWidth(height: style.referenceIconHeight) + (text.isEmpty ? 0 : textWidth + 1) + 8)
+        return (group, text, CGRect(x: end - width, y: rect.minY, width: width, height: rowHeight))
     }
 
-    private static let leftParagraphStyle: NSParagraphStyle = {
-        let style = NSMutableParagraphStyle()
-        style.alignment = .left
-        style.lineBreakMode = .byTruncatingTail
-        return style.copy() as! NSParagraphStyle
-    }()
+    func referenceTooltip(at point: CGPoint) -> String? {
+        let index = Int(floor(point.y / rowHeight))
+        guard rows.indices.contains(index), let style = resolvedDrawingStyle(),
+              let layout = referenceLayout(rows[index], in: CGRect(x: 0, y: CGFloat(index) * rowHeight,
+                  width: bounds.width, height: rowHeight), style: style), layout.rect.contains(point) else { return nil }
+        return layout.group.tooltip
+    }
 
-    private static let rightParagraphStyle: NSParagraphStyle = {
-        let style = NSMutableParagraphStyle()
-        style.alignment = .right
-        style.lineBreakMode = .byTruncatingTail
-        return style.copy() as! NSParagraphStyle
-    }()
+    private func drawLabels(_ row: GitGraphRow,
+                            layout: (group: GitGraphReferenceGroup, text: String, rect: CGRect)?,
+                            style: DrawingStyle, context: CGContext?) {
+        guard let layout, let context else { return }
+        let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let background = isSelected(row.commit.hash) ? (isFocused ? style.selection : style.inactiveSelection)
+            : currentBranchHashes.contains(row.commit.hash) ? style.currentBranch : NSColor(LitheTheme.editor)
+        let size = style.referenceIconHeight
+        context.saveGState()
+        context.clip(to: layout.rect)
+        for (index, kind) in layout.group.iconKinds.reversed().enumerated() {
+            context.saveGState()
+            context.translateBy(x: layout.rect.minX + 4 + CGFloat(index) * size / 6.25 * 2, y: layout.rect.midY - size / 2)
+            context.addPath(GitReferenceTagIcon.path(in: CGSize(width: size, height: size)).cgPath)
+            context.setFillColor(background.cgColor)
+            context.setStrokeColor(GitGraphColor.reference(kind, isDark: isDark).cgColor)
+            context.setLineWidth(size / 16)
+            context.setLineJoin(.round)
+            context.drawPath(using: .fillStroke)
+            if index == layout.group.iconKinds.count - 1 {
+                context.setFillColor(GitGraphColor.reference(kind, isDark: isDark).cgColor)
+                context.fillEllipse(in: CGRect(x: 9.5 * size / 16, y: 4.5 * size / 16, width: size / 8, height: size / 8))
+            }
+            context.restoreGState()
+        }
+        drawText(layout.text, in: CGRect(x: layout.rect.minX + 5 + layout.group.iconWidth(height: style.referenceIconHeight), y: layout.rect.minY,
+                 width: max(0, layout.rect.width - layout.group.iconWidth(height: style.referenceIconHeight) - 9), height: layout.rect.height),
+                 font: style.reference, color: style.referenceText)
+        context.restoreGState()
+    }
 
     private func drawText(_ text: String, in rect: CGRect, font: NSFont, color: NSColor, alignment: NSTextAlignment = .left) {
-        guard rect.width > 0 else { return }
-        let paragraph = alignment == .right ? Self.rightParagraphStyle : Self.leftParagraphStyle
-        let height = ceil(font.ascender - font.descender)
-        (text as NSString).draw(in: CGRect(x: rect.minX, y: rect.midY - height / 2, width: rect.width, height: height), withAttributes: [.font: font, .foregroundColor: color, .paragraphStyle: paragraph])
+        guard rect.width > 0, let context = NSGraphicsContext.current?.cgContext else { return }
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: color]
+        let fullLine = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: attributes))
+        let token = CTLineCreateWithAttributedString(NSAttributedString(string: "…", attributes: attributes))
+        let line = CTLineGetTypographicBounds(fullLine, nil, nil, nil) > rect.width
+            ? CTLineCreateTruncatedLine(fullLine, Double(rect.width), .end, token) ?? token
+            : fullLine
+        let width = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        let x = alignment == .right ? rect.maxX - width : rect.minX
+        let baseline = rect.minY + GitGraphGeometry.textBaseline(for: font, height: rect.height)
+        context.saveGState()
+        defer { context.restoreGState() }
+        context.clip(to: rect)
+        // SimpleColoredComponent defaults fractional metrics off; use pixel-aligned glyph origins.
+        context.setShouldSubpixelPositionFonts(false)
+        // Draw at the shared integer baseline rather than centering an AppKit text rectangle.
+        context.translateBy(x: x, y: baseline)
+        context.scaleBy(x: 1, y: -1)
+        context.textMatrix = .identity
+        context.textPosition = .zero
+        CTLineDraw(line, context)
     }
 
     private func resolvedDrawingStyle() -> DrawingStyle? {
@@ -659,30 +891,36 @@ final class GitGraphCommitRowsNSView: NSView {
     }
 
     private struct DrawingStyle {
-        let body = NSFont.systemFont(ofSize: 12.5)
-        let meta = NSFont.systemFont(ofSize: 11.5)
-        let monoMeta = NSFont.monospacedSystemFont(ofSize: 11.5, weight: .regular)
+        let body = LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize)
+        let meta = LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize)
+        let date = LitheTheme.GitLog.dateFont
+        let meridiemWidth = LitheTheme.GitLog.meridiemWidth
+        let englishDateWidth = LitheTheme.GitLog.dateColumnWidth(locale: Locale(identifier: "en"))
+        let twentyFourHourDateWidth = LitheTheme.GitLog.dateColumnWidth(locale: Locale(identifier: "zh-Hans"))
+
+        func dateWidth(locale: Locale) -> CGFloat {
+            locale.language.languageCode?.identifier == "en" ? englishDateWidth : twentyFourHourDateWidth
+        }
+        let reference = LitheTheme.uiNSFont(size: LitheTheme.GitLog.fontSize - 1)
+        var referenceIconHeight: CGFloat { ceil(reference.ascender) + ceil(-reference.descender) + ceil(reference.leading) }
+        let referenceText = NSColor(LitheTheme.GitLog.referenceText)
         let primary: NSColor
-        let merge: NSColor
-        let secondary: NSColor
-        let divider: NSColor
         let selection: NSColor
+        let inactiveSelection = NSColor(LitheTheme.Tree.inactiveSelection)
         let hover: NSColor
-        let labelBackground: NSColor
+        let currentBranch: NSColor
 
         init(isDark: Bool) {
-            primary = LitheTheme.nsColor(.primaryText, isDark: isDark)
-            merge = GitGraphColor.mergeForeground(isDark: isDark)
-            secondary = LitheTheme.nsColor(.secondaryText, isDark: isDark)
-            divider = LitheTheme.nsColor(.divider, isDark: isDark)
-            selection = LitheTheme.nsColor(.accent, isDark: isDark).withAlphaComponent(0.16)
-            hover = LitheTheme.nsColor(.toolHeader, isDark: isDark).withAlphaComponent(0.55)
-            labelBackground = LitheTheme.nsColor(.toolHeader, isDark: isDark)
+            currentBranch = GitGraphColor.currentBranchBackground(isDark: isDark)
+            primary = NSColor(LitheTheme.searchFieldText)
+            selection = NSColor(LitheTheme.GitLog.rowBackground(selected: true, hovered: false))
+            hover = NSColor(LitheTheme.GitLog.rowBackground(selected: false, hovered: true))
         }
     }
 }
 
 private struct GitGraphRowView: View, Equatable {
+    @Environment(\.locale) private var locale
     @Environment(\.colorScheme) private var colorScheme
     let row: GitGraphRow
     let graphWidth: CGFloat
@@ -690,6 +928,8 @@ private struct GitGraphRowView: View, Equatable {
     let isSelected: Bool
     let showCommitDecorations: Bool
     let actions: GitGraphRowActions
+    var isFocused = true
+    var isCurrentBranch = false
 
     @State private var isHovered = false
 
@@ -699,6 +939,8 @@ private struct GitGraphRowView: View, Equatable {
             && lhs.rowHeight == rhs.rowHeight
             && lhs.isSelected == rhs.isSelected
             && lhs.showCommitDecorations == rhs.showCommitDecorations
+            && lhs.isFocused == rhs.isFocused
+            && lhs.isCurrentBranch == rhs.isCurrentBranch
     }
 
     var body: some View {
@@ -708,10 +950,8 @@ private struct GitGraphRowView: View, Equatable {
 
                 HStack(spacing: 0) {
                     Text(row.commit.subject)
-                        .font(.system(size: 12.5, weight: .regular))
-                        .foregroundStyle(row.commit.parentHashes.count > 1 && !isSelected
-                            ? Color(nsColor: GitGraphColor.mergeForeground(isDark: colorScheme == .dark))
-                            : LitheTheme.primaryText)
+                        .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
+                        .foregroundStyle(foregroundColor)
                         .lineLimit(1)
 
                     if showCommitDecorations, !row.labels.isEmpty {
@@ -728,15 +968,23 @@ private struct GitGraphRowView: View, Equatable {
                 .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(row.commit.authorName)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(LitheTheme.secondaryText)
+                    .font(LitheTheme.uiFont(size: LitheTheme.GitLog.fontSize))
+                    .foregroundStyle(foregroundColor)
                     .lineLimit(1)
                     .frame(width: 104, alignment: .leading)
 
-                Text(row.commit.date)
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 118, alignment: .trailing)
+                let date = GitLogDatePresentation.components(row.commit.date, locale: locale)
+                HStack(spacing: 4) {
+                    Text(verbatim: date.text)
+                    if let period = date.period {
+                        Text(verbatim: period)
+                            .frame(width: LitheTheme.GitLog.meridiemWidth, alignment: .trailing)
+                    }
+                }
+                .font(Font(LitheTheme.GitLog.dateFont))
+                .foregroundStyle(foregroundColor)
+                .lineLimit(1)
+                .frame(width: LitheTheme.GitLog.dateColumnWidth(locale: locale), alignment: .trailing)
             }
             .padding(.trailing, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -750,40 +998,45 @@ private struct GitGraphRowView: View, Equatable {
         .litheContextMenu { actions.contextMenuItems(for: row.commit) }
     }
 
+    private var foregroundColor: Color {
+        Color(nsColor: GitGraphColor.commitForeground(
+            parentCount: row.commit.parentHashes.count, isSelected: isSelected,
+            normal: NSColor(LitheTheme.searchFieldText), isDark: colorScheme == .dark
+        ))
+    }
+
     private var backgroundColor: Color {
-        if isSelected { return LitheTheme.selection }
-        if isHovered { return LitheTheme.hoverBackground }
-        return .clear
+        if isCurrentBranch && !isSelected && !isHovered {
+            Color(nsColor: GitGraphColor.currentBranchBackground(isDark: colorScheme == .dark))
+        } else {
+            LitheTheme.GitLog.rowBackground(selected: isSelected, hovered: isHovered, focused: isFocused)
+        }
     }
 }
 
-private struct GitGraphLabelView: View {
+struct GitGraphLabelView: View {
+    @Environment(\.colorScheme) private var colorScheme
     let label: GitGraphLabel
+    var fontSize: CGFloat = LitheTheme.GitLog.fontSize - 1
+    var height: CGFloat = GitGraphGeometry.rowHeight
 
     var body: some View {
         HStack(spacing: 2) {
             GitReferenceTagIcon(color: accentColor)
                 .frame(width: 12, height: 12)
             Text(label.title)
-                .font(.system(size: 11, weight: .regular))
-                .foregroundStyle(LitheTheme.primaryText.opacity(0.9))
+                .font(LitheTheme.uiFont(size: fontSize))
+                .foregroundStyle(LitheTheme.GitLog.referenceText)
                 .lineLimit(1)
         }
         .padding(.leading, 3)
         .padding(.trailing, 4)
-        .frame(height: 17)
-        .background(LitheTheme.primaryText.opacity(0.055))
-        .clipShape(RoundedRectangle(cornerRadius: 3))
+        .frame(height: height)
     }
 
-    private var accentColor: Color {
-        switch label.kind {
-        case .head: return LitheTheme.accent
-        case .branch: return LitheTheme.success
-        case .remote: return Color(red: 0.55, green: 0.70, blue: 0.96)
-        case .tag: return LitheTheme.warning
-        }
-    }
+    private var accentColor: Color { Color(nsColor: GitGraphColor.reference(label.kind, isDark: colorScheme == .dark)) }
+
+
 }
 
 private struct GitReferenceTagIcon: View {
@@ -791,27 +1044,31 @@ private struct GitReferenceTagIcon: View {
 
     var body: some View {
         Canvas { context, size in
-            let scale = min(size.width, size.height) / 6.25
-            let origin = CGPoint(
-                x: (size.width - 5.25 * scale) / 2,
-                y: (size.height - 5 * scale) / 2
-            )
-            var path = Path()
-            path.move(to: CGPoint(x: origin.x, y: origin.y))
-            path.addLine(to: CGPoint(x: origin.x + 2 * scale, y: origin.y))
-            path.addLine(to: CGPoint(x: origin.x + 5 * scale, y: origin.y + 3 * scale))
-            path.addLine(to: CGPoint(x: origin.x + 3 * scale, y: origin.y + 5 * scale))
-            path.addLine(to: CGPoint(x: origin.x, y: origin.y + 2 * scale))
-            path.closeSubpath()
-            path.addEllipse(in: CGRect(
-                x: origin.x + scale,
-                y: origin.y + scale,
-                width: scale,
-                height: scale
-            ))
-            context.fill(path, with: .color(color), style: FillStyle(eoFill: true))
+            context.stroke(Self.path(in: size), with: .color(color), lineWidth: size.width / 16)
+            context.fill(Path(ellipseIn: CGRect(x: size.width * 9.5 / 16, y: size.height * 4.5 / 16,
+                width: size.width / 8, height: size.height / 8)), with: .color(color))
         }
         .accessibilityHidden(true)
+    }
+
+    static func path(in size: CGSize) -> Path {
+        // Community TagPainter: the New UI outlined currentBranch icon.
+        let scale = min(size.width, size.height) / 16
+        var path = Path()
+        path.move(to: CGPoint(x: 13.4495, y: 7.5001))
+        path.addLine(to: CGPoint(x: 7.01028, y: 13.9394))
+        path.addCurve(to: CGPoint(x: 6.30317, y: 13.9394), control1: CGPoint(x: 6.81502, y: 14.1347), control2: CGPoint(x: 6.49843, y: 14.1347))
+        path.addLine(to: CGPoint(x: 2.06053, y: 9.69679))
+        path.addCurve(to: CGPoint(x: 2.06053, y: 8.98968), control1: CGPoint(x: 1.86527, y: 9.50152), control2: CGPoint(x: 1.86527, y: 9.18494))
+        path.addLine(to: CGPoint(x: 8.49978, y: 2.55035))
+        path.addCurve(to: CGPoint(x: 8.92404, y: 2.40893), control1: CGPoint(x: 8.61106, y: 2.43907), control2: CGPoint(x: 8.76824, y: 2.38667))
+        path.addLine(to: CGPoint(x: 12.6363, y: 2.93926))
+        path.addCurve(to: CGPoint(x: 13.0606, y: 3.36352), control1: CGPoint(x: 12.8563, y: 2.97069), control2: CGPoint(x: 13.0292, y: 3.14354))
+        path.addLine(to: CGPoint(x: 13.5909, y: 7.07584))
+        path.addCurve(to: CGPoint(x: 13.4495, y: 7.5001), control1: CGPoint(x: 13.6132, y: 7.23163), control2: CGPoint(x: 13.5608, y: 7.38882))
+        path.closeSubpath()
+        path = path.applying(CGAffineTransform(scaleX: scale, y: scale))
+        return path
     }
 }
 
@@ -837,21 +1094,19 @@ final class GitGraphNSView: NSView {
     private var snapshot = GitGraphRoutingSnapshot(rows: [], laneCount: 0)
     private var graphWidth: CGFloat = 0
     private var rowHeight = GitGraphGeometry.rowHeight
-    private let laneLineWidth = GitGraphGeometry.lineWidth
+    private var backingScale: CGFloat { window?.backingScaleFactor ?? 1 }
 
     override var isOpaque: Bool { false }
     override var isFlipped: Bool { true }
 
     func navigationTarget(at point: CGPoint) -> String? {
         let row = Int(floor(point.y / rowHeight))
-        // Expanded arrows end on a shared row boundary. At that exact pixel,
-        // also check the preceding row's down arrow instead of losing its tip
-        // to floor() and CGRect's exclusive upper bound.
-        let candidates = point.y == CGFloat(row) * rowHeight ? [row, row - 1] : [row]
+        // Pixel alignment can move diagonal tips across a logical row boundary.
+        let candidates = [row, row - 1, row + 1]
         for candidate in candidates where snapshot.rows.indices.contains(candidate) {
-            let local = CGPoint(x: point.x, y: min(rowHeight.nextDown, point.y - CGFloat(candidate) * rowHeight))
+            let local = CGPoint(x: point.x, y: point.y - CGFloat(candidate) * rowHeight)
             if let target = snapshot.rows[candidate].printElements.first(where: {
-                $0.hasArrow && $0.targetHash != nil && GitGraphGeometry.arrowHitRect(for: $0, rowHeight: rowHeight).contains(local)
+                $0.hasArrow && $0.targetHash != nil && GitGraphGeometry.arrowHitRect(for: $0, rowHeight: rowHeight, backingScale: backingScale).contains(local)
             })?.targetHash { return target }
         }
         return nil
@@ -872,22 +1127,29 @@ final class GitGraphNSView: NSView {
         needsDisplay = true
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         guard let context = NSGraphicsContext.current?.cgContext else { return }
         context.setShouldAntialias(true)
+        let paint = GitGraphGeometry.PaintMetrics(rowHeight: rowHeight,
+            backingScale: abs(context.convertToDeviceSpace(CGSize(width: 1, height: 1)).width))
 
-        let firstRow = max(0, Int(floor(dirtyRect.minY / rowHeight)))
-        let lastRow = min(snapshot.rows.count - 1, Int(ceil(dirtyRect.maxY / rowHeight)))
+        let visible = dirtyRect.intersection(bounds)
+        guard !visible.isEmpty else { return }
+        let firstRow = max(0, Int(floor(visible.minY / rowHeight)))
+        let lastRow = min(snapshot.rows.count - 1, Int(ceil(visible.maxY / rowHeight)))
         guard firstRow <= lastRow else { return }
 
         for index in firstRow...lastRow {
             let row = snapshot.rows[index]
             let top = CGFloat(index) * rowHeight
-            let centerY = top + rowHeight / 2
-            let currentX = x(for: row.nodeLane)
 
             for element in row.printElements {
-                let segment = GitGraphGeometry.line(for: element, rowHeight: rowHeight)
+                let segment = paint.line(for: element)
                 let start = CGPoint(x: segment.start.x, y: top + segment.start.y)
                 let end = CGPoint(x: segment.end.x, y: top + segment.end.y)
                 context.saveGState()
@@ -899,22 +1161,17 @@ final class GitGraphNSView: NSView {
                     context.setLineDash(phase: dash / 2, lengths: [dash, space])
                 }
                 let edgeColor = color(for: element.colorIndex)
-                stroke(line(from: start, to: end), color: edgeColor, width: laneLineWidth, context: context)
+                stroke(line(from: start, to: end), color: edgeColor, width: paint.lineWidth, context: context)
                 if element.hasArrow {
-                    let length = max(1, hypot(end.x - start.x, end.y - start.y))
-                    let vx = (start.x - end.x) / length * rowHeight * 0.3
-                    let vy = (start.y - end.y) / length * rowHeight * 0.3
-                    for sign: CGFloat in [-1, 1] {
-                        let tip = CGPoint(x: end.x + vx * sqrt(0.7) - sign * vy * sqrt(0.3),
-                                          y: end.y + sign * vx * sqrt(0.3) + vy * sqrt(0.7))
-                        stroke(line(from: end, to: tip), color: edgeColor, width: laneLineWidth, context: context)
+                    for arm in paint.arrowArms(for: element) {
+                        let tip = CGPoint(x: arm.x, y: top + arm.y)
+                        stroke(line(from: end, to: tip), color: edgeColor, width: paint.lineWidth, context: context)
                     }
                 }
                 context.restoreGState()
             }
 
-            let nodeSize = GitGraphGeometry.nodeDiameter
-            let nodeRect = CGRect(x: currentX - nodeSize / 2, y: centerY - nodeSize / 2, width: nodeSize, height: nodeSize)
+            let nodeRect = paint.nodeRect(lane: row.nodeLane).offsetBy(dx: 0, dy: top)
             context.setFillColor(color(for: row.nodeColorIndex).cgColor)
             context.fillEllipse(in: nodeRect)
         }
@@ -932,6 +1189,24 @@ final class GitGraphNSView: NSView {
         return self
     }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard onNavigateHash != nil else { return }
+        let visible = visibleRect.intersection(bounds)
+        guard !visible.isEmpty else { return }
+        let first = max(0, Int(floor(visible.minY / rowHeight)) - 1)
+        let last = min(snapshot.rows.count - 1, Int(ceil(visible.maxY / rowHeight)) + 1)
+        guard first <= last else { return }
+        for index in first...last {
+            for edge in snapshot.rows[index].printElements where edge.hasArrow && edge.targetHash != nil {
+                let target = GitGraphGeometry.arrowHitRect(for: edge, rowHeight: rowHeight,
+                    backingScale: window?.backingScaleFactor ?? 1).offsetBy(dx: 0, dy: CGFloat(index) * rowHeight)
+                    .intersection(visible)
+                if !target.isEmpty { addCursorRect(target, cursor: .pointingHand) }
+            }
+        }
+    }
+
     override func mouseDown(with event: NSEvent) {
         guard !event.modifierFlags.contains(.control),
               let hash = navigationTarget(at: convert(event.locationInWindow, from: nil)),
@@ -941,8 +1216,6 @@ final class GitGraphNSView: NSView {
         }
         onNavigateHash(hash)
     }
-
-    private func x(for lane: Int) -> CGFloat { GitGraphGeometry.leftPadding + CGFloat(lane) * GitGraphGeometry.laneSpacing }
 
     private func line(from start: CGPoint, to end: CGPoint) -> CGPath {
         let path = CGMutablePath()

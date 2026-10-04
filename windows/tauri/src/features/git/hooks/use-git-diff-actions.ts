@@ -174,6 +174,7 @@ export function useGitDiffActions({
             fileKeys: [],
             initiallyExpandedFileKey: fileKey,
             workingTreeTargets,
+            commitPreview: true,
             isLoading: true,
             indexingProgress: {
               processed: 0,
@@ -211,6 +212,7 @@ export function useGitDiffActions({
               initialProcessed: 1,
               initiallyExpandedFileKey: fileKey,
               workingTreeTargets,
+              commitPreview: true,
             });
           })();
           return;
@@ -234,6 +236,7 @@ export function useGitDiffActions({
           fileKey,
           diff,
           title: t(WORKING_TREE_TITLES.all),
+          commitPreview: true,
         });
 
         openDiffBuffer("diff://working-tree/all-files", t(WORKING_TREE_TITLES.all), selectedDiff);

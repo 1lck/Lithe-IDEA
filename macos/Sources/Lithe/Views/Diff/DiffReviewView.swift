@@ -34,7 +34,7 @@ struct DiffReviewView: View {
                 }
             }
         }
-        .litheWorkbenchSurface(LitheTheme.editor)
+        .litheWorkbenchSurface(LitheTheme.Diff.background)
         .onChange(of: feature.diffRows.count) { _ in
             selectedDifferenceIndex = 0
             selectedDiffSearchIndex = 0
@@ -53,17 +53,17 @@ struct DiffReviewView: View {
     private var diffTab: some View {
         HStack(spacing: 7) {
             LitheSystemIcon(systemImage: "doc.text")
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(fileIconColor)
             Text(change.url.lastPathComponent)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             HStack(spacing: 4) {
                 Image(systemName: change.kind.symbol)
-                    .font(.system(size: 8, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8, weight: .bold))
                 Text(LocalizedStringKey(change.kind.title.uppercased()))
-                    .font(.system(size: 8.5, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
             }
             .foregroundStyle(changeKindColor)
             .padding(.horizontal, 6)
@@ -71,7 +71,7 @@ struct DiffReviewView: View {
             .background(changeKindColor.opacity(0.10))
             .clipShape(RoundedRectangle(cornerRadius: 4))
             Text(change.isStaged && !change.hasWorkingTreeChange ? "STAGED" : "WORKING TREE")
-                .font(.system(size: 8.5, weight: .bold))
+                .font(LitheTheme.uiFont(size: 8.5, weight: .bold))
                 .foregroundStyle(change.isStaged ? LitheTheme.success : LitheTheme.warning)
                 .padding(.horizontal, 6)
                 .frame(height: 18)
@@ -79,10 +79,10 @@ struct DiffReviewView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 4))
             Spacer()
             Button {
-                feature.selectedChange = nil
+                feature.closeWorkingTreeDiff()
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .semibold))
             }
             .litheIconButton()
             .help("Close diff")
@@ -128,25 +128,20 @@ struct DiffReviewView: View {
                     systemImage: usesSingleFileDiff ? "doc.text" : "rectangle.split.2x1"
                 )
 
-                Menu {
-                    ForEach(GitDiffWhitespaceMode.allCases) { mode in
-                        Button {
+                LitheMenu {
+                    for mode in GitDiffWhitespaceMode.allCases {
+                        LitheContextMenuItem.action(mode.title, checked: feature.gitDiffWhitespaceMode == mode) {
                             Task {
                                 selectedDifferenceIndex = 0
                                 await feature.reloadSelectedChangeDiff(whitespace: mode)
-                            }
-                        } label: {
-                            if feature.gitDiffWhitespaceMode == mode {
-                                Label(LocalizedStringKey(mode.title), systemImage: "checkmark")
-                            } else {
-                                Text(LocalizedStringKey(mode.title))
                             }
                         }
                     }
                 } label: {
                     toolbarLabel(feature.gitDiffWhitespaceMode.title, systemImage: "textformat")
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.litheNoPress)
+
                 .lithePointer()
                 .fixedSize()
                 .help("Whitespace comparison")
@@ -184,13 +179,13 @@ struct DiffReviewView: View {
                     toolbarDivider
 
                     Text(change.path)
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .frame(maxWidth: 260, alignment: .leading)
 
                     Text(differenceStarts.count == 1 ? "1 difference" : "\(differenceStarts.count) differences")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                         .padding(.horizontal, 7)
 
@@ -237,9 +232,9 @@ struct DiffReviewView: View {
     private func toolbarLabel(_ title: String, systemImage: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(LitheTheme.primaryText)
@@ -273,14 +268,14 @@ struct DiffReviewView: View {
     private func versionLabel(_ title: String, path: String, systemImage: String) -> some View {
         HStack(spacing: 7) {
             Image(systemName: systemImage)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(LocalizedStringKey(title))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
             Text(path)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .lineLimit(1)
             Spacer(minLength: 8)
@@ -302,7 +297,7 @@ struct DiffReviewView: View {
     private var emptyState: some View {
         VStack(spacing: 9) {
             Image(systemName: "doc.richtext")
-                .font(.system(size: 30, weight: .light))
+                .font(LitheTheme.uiFont(size: 30, weight: .light))
             Text("No textual diff available")
         }
         .font(LitheTheme.uiFont)
@@ -313,42 +308,45 @@ struct DiffReviewView: View {
     private func diffContent(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 0) {
             diffCanvas(proxy: proxy)
-            Rectangle().fill(LitheTheme.divider).frame(width: 1)
-            DiffMapView(rows: feature.diffRows) { rowID in
-                // The tick may sit inside a fold, so pin it open first.
-                mapTargetRowID = rowID
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    proxy.scrollTo(rowID, anchor: .center)
+            if usesSingleFileDiff {
+                Rectangle().fill(LitheTheme.divider).frame(width: 1)
+                DiffMapView(rows: feature.diffRows) { rowID in
+                    // The tick may sit inside a fold, so pin it open first.
+                    mapTargetRowID = rowID
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        proxy.scrollTo(rowID, anchor: .center)
+                    }
                 }
             }
         }
     }
 
     private func diffCanvas(proxy: ScrollViewProxy) -> some View {
-        GeometryReader { geometry in
-            let contentWidth = DiffLayoutMetrics.contentWidth(
-                rows: feature.diffRows,
-                viewportWidth: geometry.size.width,
-                minimumWidth: usesSingleFileDiff ? 680 : 980,
-                paneCount: usesSingleFileDiff ? 1 : 2
-            )
-
-            let kinds = feature.diffRows.map(effectiveKind)
-            let indexByRow = differenceIndexByRow
-            let displayRows = collapsePlan(kinds: kinds)
-            let layoutRows = displayRows.map(\.layoutRow)
-            let layoutKinds = displayRows.map { displayRow in
-                switch displayRow {
-                case let .row(_, index): return kinds[index]
-                case .collapsed: return DiffRowKind.information
-                }
+        let measuredWidth = DiffLayoutMetrics.contentWidth(
+            rows: feature.diffRows, viewportWidth: 0,
+            minimumWidth: usesSingleFileDiff ? 680 : 980,
+            paneCount: usesSingleFileDiff ? 1 : 2)
+        let kinds = feature.diffRows.map(effectiveKind)
+        let indexByRow = differenceIndexByRow
+        let displayRows = collapsePlan(kinds: kinds)
+        let layoutRows = displayRows.map(\.layoutRow)
+        let layoutKinds = displayRows.map { displayRow in
+            switch displayRow {
+            case let .row(_, index): return kinds[index]
+            case .collapsed: return DiffRowKind.information
             }
+        }
+
+        let layout = usesSingleFileDiff ? nil : DiffSplitLayout.plan(displayRows: displayRows, kinds: layoutKinds, gutterWidth: DiffLayoutMetrics.lineNumberGutterWidth(rows: feature.diffRows))
+        let measuredHeight = usesSingleFileDiff ? DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds) : 0
+        return GeometryReader { geometry in
+            let contentWidth = max(geometry.size.width, measuredWidth)
 
             if usesSingleFileDiff {
                 ScrollView(.horizontal) {
                     ScrollView(.vertical) {
                         let contentHeight = max(
-                            DiffLayoutMetrics.contentHeight(rows: layoutRows, kinds: layoutKinds),
+                            measuredHeight,
                             geometry.size.height
                         )
                         LazyVStack(spacing: 0) {
@@ -372,15 +370,15 @@ struct DiffReviewView: View {
                     .frame(width: contentWidth, height: geometry.size.height, alignment: .topLeading)
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             } else {
                 DiffSplitPaneView(
                     displayRows: displayRows,
                     kinds: layoutKinds,
+                    layout: layout,
                     fileExtension: change.url.pathExtension,
                     contentWidth: contentWidth,
                     viewportWidth: geometry.size.width,
-                    minimumHeight: geometry.size.height,
                     highlightsWords: highlightsWords,
                     selectedRowIDs: Set(indexByRow.compactMap { entry in
                         entry.value == selectedDifferenceIndex ? entry.key : nil
@@ -399,7 +397,7 @@ struct DiffReviewView: View {
                     }
                 }
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .background(LitheTheme.editor)
+                .background(LitheTheme.Diff.background)
             }
         }
     }
@@ -461,12 +459,12 @@ struct DiffReviewView: View {
     private func diffSearchControl(proxy: ScrollViewProxy) -> some View {
         HStack(spacing: 4) {
             LitheSystemIcon(systemImage: "magnifyingglass")
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             TextField("Search diff", text: $diffSearchQuery)
                 .textFieldStyle(.plain)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .frame(width: 145)
                 .focused($diffSearchFocused)
                 .macReturnKeyHandler(isEnabled: diffSearchFocused) { isShiftPressed in
@@ -477,7 +475,7 @@ struct DiffReviewView: View {
                 }
 
             Text(diffSearchLabel)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .frame(minWidth: 34, alignment: .trailing)
                 .monospacedDigit()
@@ -652,7 +650,7 @@ struct DiffReviewView: View {
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             if let kind, kind.isDifference {
                 Image(systemName: centerSymbol(for: kind))
-                    .font(.system(size: 9, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .bold))
                     .foregroundStyle(isSelected ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
@@ -699,9 +697,9 @@ struct SingleFileDiffRowView: View {
         if row.kind == .information {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
             }
@@ -709,23 +707,23 @@ struct SingleFileDiffRowView: View {
             .padding(.horizontal, 12)
             .frame(height: 27)
             .frame(maxWidth: .infinity)
-            .background(LitheTheme.diffInformationBackground.opacity(isSearchMatch ? 0.92 : 1))
+            .background(LitheTheme.Diff.separator)
             .overlay(searchMatchOverlay)
         } else {
             HStack(spacing: 0) {
                 Text(lineNumber.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(changeColor.opacity(0.82))
+                    .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                    .foregroundStyle(LitheTheme.Diff.lineNumber)
                     .frame(
                         width: DiffLayoutMetrics.singlePaneLineNumberColumnWidth,
                         alignment: .trailing
                     )
                     .padding(.trailing, DiffLayoutMetrics.singlePaneLineNumberTrailingPadding)
                     .frame(maxHeight: .infinity)
-                    .background(changeColor.opacity(0.13))
+                    .background(changeColor)
 
                 Rectangle()
-                    .fill(changeColor.opacity(0.82))
+                    .fill(isAddition ? LitheTheme.Diff.insertedStripe : LitheTheme.Diff.deletedStripe)
                     .frame(width: DiffLayoutMetrics.changeMarkerWidth)
 
                 Text(
@@ -737,14 +735,14 @@ struct SingleFileDiffRowView: View {
                         highlightsWords: false
                     )
                 )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, DiffLayoutMetrics.singlePaneTextHorizontalPadding)
             }
-            .frame(height: 24)
+            .frame(height: DiffLayoutMetrics.rowHeight)
             .frame(maxWidth: .infinity)
-            .background(changeColor.opacity(isSelectedDifference ? 0.31 : 0.25 + (isSearchMatch ? 0.06 : 0)))
+            .background(changeColor)
             .overlay(alignment: .leading) {
                 if isSelectedDifference {
                     Rectangle().fill(LitheTheme.accent).frame(width: 2)
@@ -771,7 +769,7 @@ struct SingleFileDiffRowView: View {
     }
 
     private var changeColor: Color {
-        isAddition ? LitheTheme.success : LitheTheme.error
+        isAddition ? LitheTheme.Diff.inserted : LitheTheme.Diff.deleted
     }
 }
 
@@ -812,9 +810,9 @@ struct DiffRowView: View {
         if kind == .information {
             HStack(spacing: 8) {
                 Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
+                    .font(LitheTheme.uiFont(size: 10))
                 Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                     .lineLimit(1)
                 Spacer()
             }
@@ -885,7 +883,7 @@ struct DiffRowView: View {
                 Spacer(minLength: 0)
             } else {
                 Text(number.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                     .foregroundStyle(lineNumberColor(side: side))
                     .frame(width: DiffLayoutMetrics.lineNumberColumnWidth, alignment: .trailing)
                     .padding(.trailing, DiffLayoutMetrics.lineNumberTrailingPadding)
@@ -905,7 +903,7 @@ struct DiffRowView: View {
                         highlightsWords: highlightsWords && kind == .changed
                     )
                 )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
+                .font(LitheTheme.uiFont(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -931,7 +929,7 @@ struct DiffRowView: View {
             Rectangle().fill(LitheTheme.divider).frame(width: 1)
             if kind.isDifference {
                 Image(systemName: centerSymbol)
-                    .font(.system(size: 9, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 9, weight: .bold))
                     .foregroundStyle(isSelectedDifference ? LitheTheme.accent : LitheTheme.secondaryText)
             }
         }
@@ -1018,21 +1016,37 @@ struct DiffRowView: View {
 }
 
 enum DiffLayoutMetrics {
-    static let rowHeight: CGFloat = 24
+    static let rowHeight: CGFloat = 22
     static let informationRowHeight: CGFloat = 27
-    static let centerGutterWidth: CGFloat = 34
+    // Community registry diff.divider.width; DiffSplitter uses this logical width.
+    static let dividerWidth: CGFloat = 24
+    static var lineNumberGutterWidth: CGFloat { lineNumberGutterWidth(maximumLine: 999) }
+    static func lineNumberGutterWidth(rows: [DiffRow]) -> CGFloat {
+        lineNumberGutterWidth(maximumLine: rows.reduce(1) { max($0, $1.oldLine ?? 0, $1.newLine ?? 0) })
+    }
+    static func lineNumberGutterWidth(maximumLine: Int) -> CGFloat {
+        // EditorGutterLayout New UI: empty annotations 4, pre-number gap 4,
+        // number area (at least the 16pt breakpoint slot), post-number gap 4,
+        // folding anchor 9 + 2, extra painter 8 + separator 1. Diff gutters
+        // share the maximum source-number width; no action icon area is reserved.
+        let number = ceil(NSAttributedString(string: String(maximumLine),
+            attributes: [.font: LitheTheme.editorFont(size: textFontSize)]).size().width)
+        return max(16, number) + lineNumberChromeWidth
+    }
+    static var centerGutterWidth: CGFloat { lineNumberGutterWidth * 2 + dividerWidth }
 
-    /// Fixed chrome ahead of the text in a single pane: line-number column,
-    /// its trailing padding, the change marker bar, and the text insets.
+    /// Line numbers are pinned on both sides of the central divider; only
+    /// text insets scroll with each source pane.
     static let lineNumberColumnWidth: CGFloat = 47
     static let lineNumberTrailingPadding: CGFloat = 8
+    static let lineNumberChromeWidth: CGFloat = 32
+    static let gutterCodeEdgeWidth: CGFloat = 3
     static let changeMarkerWidth: CGFloat = 3
     static let textHorizontalPadding: CGFloat = 8
-    static let textFontSize: CGFloat = 12.5
+    static let textFontSize: CGFloat = 13
 
     static var paneChromeWidth: CGFloat {
-        lineNumberColumnWidth + lineNumberTrailingPadding + changeMarkerWidth
-            + textHorizontalPadding * 2
+        textHorizontalPadding * 2
     }
 
     /// `SingleFileDiffRowView` uses a wider line-number column and text inset
@@ -1049,7 +1063,7 @@ enum DiffLayoutMetrics {
     /// Advance of one character in the diff's monospaced font. Measured once
     /// because every glyph in a monospaced face shares the same advance.
     static let characterWidth: CGFloat = {
-        let font = NSFont.monospacedSystemFont(ofSize: textFontSize, weight: .regular)
+        let font = LitheTheme.editorFont(size: textFontSize, weight: .regular)
         let width = NSAttributedString(string: "0", attributes: [.font: font]).size().width
         return width > 0 ? width : textFontSize * 0.6
     }()
@@ -1091,7 +1105,7 @@ enum DiffLayoutMetrics {
         let panes = CGFloat(max(1, paneCount))
         let textWidth = CGFloat(longestLineLength(rows: rows)) * characterWidth
         let chrome = paneCount > 1 ? paneChromeWidth : singlePaneChromeWidth
-        let gutter = paneCount > 1 ? centerGutterWidth : 0
+        let gutter = paneCount > 1 ? lineNumberGutterWidth(rows: rows) * 2 + dividerWidth : 0
         let measured = (chrome + textWidth) * panes + gutter
         return max(minimumWidth, viewportWidth, measured)
     }
@@ -1391,13 +1405,24 @@ enum DiffSyntaxHighlighter {
         let color: Color
     }
 
-    private static var keywordColor: Color { LitheTheme.skill }
-    private static var typeColor: Color { LitheTheme.accent }
-    private static var stringColor: Color { LitheTheme.success }
-    private static var numberColor: Color { LitheTheme.warning }
-    private static var commentColor: Color { LitheTheme.secondaryText }
-    private static var tagColor: Color { LitheTheme.warning }
-    private static var baseColor: Color { LitheTheme.primaryText }
+    // Reuse the editor's configured syntax colors instead of UI status colors.
+    private static func syntaxColor(_ keyPath: KeyPath<SyntaxHighlightingPalette, NSColor>) -> Color {
+        Color(nsColor: NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let base = CodeEditorPalette(isDark: dark, theme: LitheTheme.activeTheme)
+            return SyntaxHighlightingColorConfiguration.bundled.palette(formatID: nil, base: base)[keyPath: keyPath]
+        })
+    }
+    private static let keywordColor = syntaxColor(\.keyword)
+    private static let typeColor = syntaxColor(\.type)
+    private static let stringColor = syntaxColor(\.string)
+    private static let numberColor = syntaxColor(\.number)
+    private static let commentColor = syntaxColor(\.comment)
+    private static let tagColor = syntaxColor(\.annotation)
+    private static let baseColor = Color(nsColor: NSColor(name: nil) { appearance in
+        CodeEditorPalette(isDark: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+                          theme: LitheTheme.activeTheme).text
+    })
 
     private static let keywords: Set<String> = [
         "class", "struct", "enum", "protocol", "extension", "func", "let", "var", "if", "else",
@@ -1414,9 +1439,17 @@ enum DiffSyntaxHighlighter {
         side: DiffSide,
         highlightsWords: Bool
     ) -> AttributedString {
+        let pair = highlightsWords && otherText != nil
+            ? DiffSplitLayout.InlineHighlight.compare(side == .left ? text : otherText!, side == .left ? otherText! : text)
+            : (left: nil, right: nil)
+        return styled(text, fileExtension: fileExtension, highlight: side == .left ? pair.left : pair.right)
+    }
+
+    static func styled(_ text: String, fileExtension: String, highlight: DiffSplitLayout.InlineHighlight?) -> AttributedString {
         let tokens = tokenize(text, fileExtension: fileExtension.lowercased())
-        let highlightRange = highlightsWords ? changedRange(in: text, comparedTo: otherText) : nil
-        let highlightColor = side == .left ? Color.red.opacity(0.38) : Color.green.opacity(0.34)
+        let highlightRange = highlight?.range
+        let highlightColor = highlight?.kind == .addition ? LitheTheme.Diff.inserted
+            : highlight?.kind == .removal ? LitheTheme.Diff.deleted : LitheTheme.Diff.modifiedWord
         var result = AttributedString()
         var globalOffset = 0
 
@@ -1460,27 +1493,6 @@ enum DiffSyntaxHighlighter {
             segment.backgroundColor = background
         }
         result += segment
-    }
-
-    private static func changedRange(in text: String, comparedTo otherText: String?) -> Range<Int>? {
-        guard let otherText else { return nil }
-        let source = Array(text)
-        let comparison = Array(otherText)
-        var prefix = 0
-        let sharedCount = min(source.count, comparison.count)
-        while prefix < sharedCount, source[prefix] == comparison[prefix] {
-            prefix += 1
-        }
-
-        var suffix = 0
-        while suffix < sharedCount - prefix,
-              source[source.count - suffix - 1] == comparison[comparison.count - suffix - 1] {
-            suffix += 1
-        }
-
-        let end = source.count - suffix
-        guard prefix < end else { return nil }
-        return prefix..<end
     }
 
     private static func tokenize(_ text: String, fileExtension: String) -> [Token] {

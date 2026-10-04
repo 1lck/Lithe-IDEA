@@ -13,23 +13,13 @@ struct DatabaseSchemaDiffView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Picker("Source", selection: $sourceID) {
-                    Text("Source connection").tag(Optional<UUID>.none)
-                    ForEach(feature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $sourceID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Source", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Source connection") })
                 .frame(maxWidth: 220)
 
                 Image(systemName: "arrow.right")
                     .foregroundStyle(LitheTheme.secondaryText)
 
-                Picker("Target", selection: $targetID) {
-                    Text("Target connection").tag(Optional<UUID>.none)
-                    ForEach(feature.profiles) { profile in
-                        Text(profile.name).tag(Optional(profile.id))
-                    }
-                }
+                LitheSettingsSelect(selection: $targetID, options: [UUID?.none] + feature.profiles.map { Optional($0.id) }, width: 220, accessibilityLabel: "Target", title: { id in feature.profiles.first { $0.id == id }?.name ?? String(localized: "Target connection") })
                 .frame(maxWidth: 220)
 
                 Button { compare() } label: { Image(systemName: "arrow.triangle.2.circlepath") }
@@ -72,9 +62,9 @@ struct DatabaseSchemaDiffView: View {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("\(diff.source.profileName) -> \(diff.target.profileName)")
-                        .font(.system(size: 12.5, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                     Text("Changes: \(diff.items.count)")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -101,13 +91,13 @@ struct DatabaseSchemaDiffView: View {
                         HStack(spacing: 6) {
                             Image(systemName: item.isDestructive ? "exclamationmark.triangle.fill" : "arrow.right.circle")
                                 .foregroundStyle(item.isDestructive ? LitheTheme.warning : LitheTheme.accent)
-                            Text(LocalizedStringKey(item.kind.title)).font(.system(size: 11.5, weight: .semibold))
-                            Text(item.table).font(.system(size: 11.5, design: .monospaced))
+                            Text(LocalizedStringKey(item.kind.title)).font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
+                            Text(item.table).font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                             Spacer()
-                            DatabaseLocalization.schemaDiffDetail(item).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
+                            DatabaseLocalization.schemaDiffDetail(item).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText)
                         }
                         Text(item.sql)
-                            .font(.system(size: 10.5, design: .monospaced))
+                            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                             .foregroundStyle(LitheTheme.secondaryText)
                             .textSelection(.enabled)
                             .lineLimit(4)

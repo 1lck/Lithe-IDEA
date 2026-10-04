@@ -64,6 +64,17 @@ function reuse(extraArguments = []) {
 }
 
 try {
+  await test("bundled UI fonts come from Git and cannot be copied from worktree artifacts", { timeout: 15000 }, async () => {
+    const listed = run(process.execPath, [reuseScript, "--list"]);
+    assertSucceeded(listed);
+    assert.ok(!listed.stdout.includes("bundled-ui-fonts"));
+    const registry = JSON.parse(await fs.readFile(path.join(scriptDirectory, "worktree-resources.json"), "utf8"));
+    const fonts = registry.excludedResources.find(resource => resource.id === "bundled-ui-fonts");
+    assert.match(fonts.identity, /Inter 4\.1.*18 static OTF.*JetBrains Mono 2\.304.*16 static TTF/);
+    const rejected = run(process.execPath, [reuseScript, "--source", sourceRoot, "--resource", "bundled-ui-fonts"]);
+    assert.notEqual(rejected.status, 0);
+    assert.match(rejected.stderr, /bundled-ui-fonts is isolated/);
+  });
   await test("Sparkle baseline staging is never listed or copied between worktrees", { timeout: 15000 }, () => {
     const listed = run(process.execPath, [reuseScript, "--list"]);
     assertSucceeded(listed);

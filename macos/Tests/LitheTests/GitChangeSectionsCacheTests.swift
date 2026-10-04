@@ -125,6 +125,23 @@ struct GitChangeSectionsCacheTests {
     }
 
     @Test
+    func movingFilesRegroupsTheCacheWithoutChangingStatusOrHidingOtherLists() {
+        let config = change("application.yaml")
+        let code = change("feature.swift")
+        let changes = [config, code]
+        let cache = GitChangeSectionsCache()
+        var lists = GitLocalChangelists()
+        _ = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
+        lists.lists.append(GitLocalChangelist(id: "local", name: "Local"))
+        lists.move([config], to: "local")
+        let sections = cache.sections(changes: changes, conflictFilterPaths: [], changelists: lists)
+        #expect(sections.displayed == changes)
+        #expect(sections.changelists.map(\.id) == ["default", "local"])
+        #expect(sections.changelists[0].changes == [code])
+        #expect(sections.repositories[0].changelists[1].changes == [config])
+    }
+
+    @Test
     func conflictFilterRemovesEmptyRepositories() {
         let secondRoot = URL(fileURLWithPath: "/tmp/second-repo")
         let first = change("first.swift")

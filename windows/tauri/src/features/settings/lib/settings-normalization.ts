@@ -3,6 +3,7 @@ import { normalizeCommitAI } from "@/features/git/types/ai-commit";
 import { normalizeOllamaBaseUrl } from "@/features/ai/lib/ollama-endpoint";
 import { normalizeV0DesignSystems } from "./v0-design-system-profiles";
 import { isKeybindingPreset } from "@/features/keymaps/defaults/keybinding-presets";
+import { deriveProjectOpenDestinationFromLegacy } from "./settings-migrations";
 import {
   DEFAULT_AI_AUTOCOMPLETE_MODEL_ID,
   DEFAULT_AI_MODEL_ID,
@@ -155,6 +156,11 @@ const WINDOW_CHROME_DENSITIES = new Set<Settings["windowChromeDensity"]>([
   "comfortable",
 ]);
 const FILE_TREE_SORT_ORDERS = new Set<Settings["fileTreeSortOrder"]>(["folders-first", "name"]);
+const PROJECT_OPEN_DESTINATIONS = new Set<Settings["projectOpenDefaultDestination"]>([
+  "this-window",
+  "new-window",
+  "attach",
+]);
 const EXTERNAL_EDITOR_MODES = new Set<Settings["externalEditor"]>([
   "none",
   "nvim",
@@ -294,6 +300,24 @@ function normalizeFileTreeSortOrder(value: unknown): Settings["fileTreeSortOrder
   return FILE_TREE_SORT_ORDERS.has(value as Settings["fileTreeSortOrder"])
     ? (value as Settings["fileTreeSortOrder"])
     : defaultSettings.fileTreeSortOrder;
+}
+
+// Accepts the retired openFoldersInNewWindow boolean from legacy imports so an old export
+// still resolves to the destination whose behavior it used to select. An explicit valid
+// destination always wins; the legacy key only fills a missing one.
+function normalizeProjectOpenDestination(
+  value: unknown,
+  legacyOpenFoldersInNewWindow: unknown,
+): Settings["projectOpenDefaultDestination"] {
+  if (PROJECT_OPEN_DESTINATIONS.has(value as Settings["projectOpenDefaultDestination"])) {
+    return value as Settings["projectOpenDefaultDestination"];
+  }
+
+  if (legacyOpenFoldersInNewWindow !== undefined && legacyOpenFoldersInNewWindow !== null) {
+    return deriveProjectOpenDestinationFromLegacy(legacyOpenFoldersInNewWindow);
+  }
+
+  return defaultSettings.projectOpenDefaultDestination;
 }
 
 function normalizeExternalEditor(
@@ -520,6 +544,11 @@ export function normalizeSettings(settings: Settings): Settings {
   normalizedSettings.fileTreeSortOrder = normalizeFileTreeSortOrder(
     (normalizedSettings as { fileTreeSortOrder?: unknown }).fileTreeSortOrder,
   );
+  normalizedSettings.projectOpenDefaultDestination = normalizeProjectOpenDestination(
+    (normalizedSettings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination,
+    (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow,
+  );
+  delete (normalizedSettings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow;
   normalizedSettings.activityRailWidth = normalizeBoundedWidth(
     normalizedSettings.activityRailWidth,
     defaultSettings.activityRailWidth,
@@ -641,6 +670,10 @@ export function normalizeSettingValue<K extends keyof Settings>(
 
   if (key === "fileTreeSortOrder") {
     return normalizeFileTreeSortOrder(value) as Settings[K];
+  }
+
+  if (key === "projectOpenDefaultDestination") {
+    return normalizeProjectOpenDestination(value, undefined) as Settings[K];
   }
 
   if (key === "activityRailWidth") {

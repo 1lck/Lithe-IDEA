@@ -5,10 +5,34 @@ https://github.com/JetBrains/intellij-community/tree/master/platform/icons/src
 https://github.com/JetBrains/intellij-community/tree/master/plugins/maven/src/main/resources/images
 https://github.com/JetBrains/intellij-community/tree/master/plugins/terminal/resources/icons/expui/toolwindow
 
-The expui and terminal activity-bar assets were copied from IntelliJ Community
+The existing expui and terminal activity-bar assets were copied from IntelliJ Community
 revision 158b854d47ac9af2bbd99c0d7c354a5875cb6f81. The Database button uses
 Community's Data View icon because the Database tool-window icon is not part of
 the Community icon set.
+The Search sidebar expui/general/search, closeSmall, filter, settings, and
+expui/actions/replace light/dark assets were copied from Community revision
+233ba81d5f6ec3f90ebd3be3159f425ecc3073ff.
+The Git Log branch toolbar's expui/vcs/update light/dark icons come from
+Community's platform/icons/src/expui/vcs resources.
+Its expui/general/delete light/dark icons come from Community's
+platform/icons/src/expui/general resources.
+The Git Log branch stripe's chevronLeft and chevronRight light/dark icons come
+from the same expui/general directory; IDEA maps its legacy ArrowCollapse and
+ArrowExpand action names to these ExpUI resources.
+
+The Git Log reference tree's expui/general/vcs and dvcs/currentBranchLabel,
+dvcs/branchLabel light/dark assets were copied from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. The source paths are
+platform/icons/src/expui/general/vcs*.svg and
+platform/dvcs-impl/shared/resources/icons/new/{currentBranchLabel,branchLabel}*.svg.
+PlatformIconMappings maps AllIcons.Vcs.BranchNode to expui/general/vcs.svg.
+
+The Commit composer history light/dark assets were copied from Community
+revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade:
+platform/icons/src/expui/general/history.svg and history_dark.svg.
+Its existing AI generation action uses the Community magic-wand light/dark
+assets from platform/icons/src/expui/diff/magicResolveToolbar*.svg at the same
+revision; this is an open-source generic icon, not a JetBrains AI product logo.
 
 The source project and these resources are distributed under the Apache License
 2.0. Lithe does not include JetBrains product logos or external third-party
@@ -16,3 +40,61 @@ plugin icons. See LICENSE-APACHE-2.0.txt for the license text.
 
 Exception: toolwindows/toolWindowAgent.svg is an original Lithe icon, not an
 imported JetBrains asset. It follows the Lithe repository license.
+
+The Git Log commit details preview uses expui/general/previewVertically
+light/dark assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. PlatformIconMappings maps the
+legacy actions/previewDetails.svg to this resource.
+
+The Monaco editor context menu uses unmodified expui/general/{cut,copy,paste}
+and expui/actions/reformatCode light/dark SVG assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Their action mappings come from
+intellij.platform.ide.impl.actions.xml, intellij.platform.lang.impl.actions.xml
+and platform/icons/src/PlatformIconMappings.json.
+
+The top-bar Project and Branch dropdowns use unmodified 16pt light/dark
+expui/general/open, expui/vcs/{commit,push} and
+expui/nodes/folder SVG assets from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Existing add, search, closeSmall,
+settings, vcs, fetch, chevron and dvcs/currentBranchLabel resources are reused.
+
+The historical commit Diff toolbar uses unmodified expui/general/{up,down,locked}
+and expui/diff/{sideBySide,unified} light/dark SVGs from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. Up/down follow PlatformIconMappings action mappings.
+
+Commit Diff file navigation reuses Community expui/general/{left,right} SVGs
+(and their _dark variants), mapped from Actions.Back/Forward by
+PlatformIconMappings.json at c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+Open in Editor and Collapse Unchanged Fragments reuse edit/collapseAll.
+
+The Git Console vertical toolbar uses unmodified expui/general/{search,softWrap,
+scrollDown,delete,copy} and expui/run/stop light/dark SVGs from Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade. VcsConsoleView, ScrollToTheEndToolbarAction,
+ClearConsoleAction and PlatformIconMappings supply the action mappings.
+
+Maven toolbar/tree additions use Community revision
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade, including dark variants:
+- platform/icons/src/expui/{run/{run,showIgnored},general/runAnything,
+  build/taskGroup,nodes/{library,libraryFolder}}.svg
+- plugins/maven/src/main/resources/images/expui/{build/{mavenProject,mavenProfiles},
+  toolwindow/maven}.svg (stored under maven/expui)
+- platform/external-system-impl/resources/icons/newui/task.svg
+  (stored as maven/task.svg)
+Copyright JetBrains s.r.o. and contributors; Apache License 2.0.
+
+The main-toolbar expui/run/*_stroke.svg and expui/general/chevronDown.svg assets
+come from Community revision c7f91397daa3a961b4e78bc634fe467a0a7d9ade, under
+platform/icons/src/. Stroke variants are template-tinted with RunWidget tokens
+instead of recoloring the filled debugger assets. These upstream stroke assets
+are shared by light and dark themes.
+The expui/actions/viewAsImage.svg and viewAsImage_dark.svg pair comes from the
+same revision and provides the workbench background image action.
+The fileTypes/text.svg and text_dark.svg pair comes from expui/fileTypes at
+the same revision; the earlier single asset contained only the dark palette.
+
+Notification balloons use unmodified expui/status/info and expui/general/close
+light/dark SVG assets from Community c7f91397daa3a961b4e78bc634fe467a0a7d9ade.
+PlatformIconMappings maps General.BalloonInformation and Ide.Notification.Close
+to these resources. Notification layout/theme tokens follow the same revision.
+The expui/general/chevronUp.svg and chevronUp_dark.svg pair is from that same
+revision and supplies the notification content collapse action.

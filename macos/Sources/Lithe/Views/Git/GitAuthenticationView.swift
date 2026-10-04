@@ -21,13 +21,13 @@ private struct GitAuthenticationView: View {
     @State private var submitted = false
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Git authentication").font(.headline)
+            Text("Git authentication").font(LitheTheme.uiFont(.headline))
             Text(verbatim: challenge.prompt).textSelection(.enabled)
             if challenge.attempt > 1 { Text("Git requested credentials again. Check the previous answer.").foregroundStyle(LitheTheme.warning) }
             if challenge.retry { Text("Retry uses Lithe authentication for this operation only.") }
             else if challenge.secret { SecureField("Password or passphrase", text: $answer).textFieldStyle(.roundedBorder) }
             else { TextField("Response", text: $answer).textFieldStyle(.roundedBorder) }
-            Text("This response is sent only to the running Git operation.").font(.caption).foregroundStyle(.secondary)
+            Text("This response is sent only to the running Git operation.").font(LitheTheme.uiFont(.caption)).foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel") { submit(nil) }.keyboardShortcut(.cancelAction)

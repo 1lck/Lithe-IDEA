@@ -37,6 +37,12 @@ function applyWindowTransparency(enabled: boolean) {
 
 }
 
+function applyProjectGradient(enabled: boolean) {
+  if (typeof document === "undefined") return;
+
+  document.documentElement.setAttribute("data-project-gradient", enabled ? "enabled" : "disabled");
+}
+
 function applyUiPreferences(
   settings: Pick<Settings, "reduceMotion" | "showStatusBar" | "windowChromeDensity">,
 ) {
@@ -170,6 +176,7 @@ async function syncOllamaApiKey() {
 export function applySettingsSideEffects(settings: Settings) {
   cacheFontSettings(settings);
   applyWindowTransparency(settings.windowTransparency);
+  applyProjectGradient(settings.differentiateProjects);
   applyUiPreferences(settings);
   void applyTheme(resolveEffectiveTheme(settings));
   if (settings.syncSystemTheme) {
@@ -216,6 +223,10 @@ export function applySettingSideEffect<K extends keyof Settings>(
 
   if (key === "windowTransparency") {
     applyWindowTransparency(value as boolean);
+  }
+
+  if (key === "differentiateProjects") {
+    applyProjectGradient(value as boolean);
   }
 
   if (key === "reduceMotion" || key === "showStatusBar" || key === "windowChromeDensity") {

@@ -13,12 +13,12 @@ struct AgentFileReferenceList: View {
                         Image(systemName: "doc")
                         Text(file.name).lineLimit(1).truncationMode(.middle).frame(maxWidth: 160)
                         Button { onRemove(file.id) } label: {
-                            Image(systemName: "xmark").font(.system(size: 9))
+                            Image(systemName: "xmark").font(LitheTheme.uiFont(size: 9))
                         }
                         .buttonStyle(.litheNoPress)
                         .accessibilityLabel(String(format: String(localized: "Remove file %@"), file.name))
                     }
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(AgentPanelStyle.text)
                     .padding(.horizontal, 7)
                     .padding(.vertical, 5)

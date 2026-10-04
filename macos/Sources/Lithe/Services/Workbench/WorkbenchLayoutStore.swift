@@ -1,10 +1,10 @@
 import Foundation
 
 struct WorkbenchLayout: Codable, Sendable {
-    static let minimumSidebarWidth: Double = 30
+    // IDEA's ide.mainSplitter.min.size applies to each outer pane and the editor.
+    static let minimumPaneSize: Double = 30
+    static let minimumSidebarWidth = minimumPaneSize
     static let defaultMavenPaneWidth: Double = 360
-    static let minimumMavenPaneWidth: Double = 300
-    static let maximumMavenPaneWidth: Double = 760
     let sidebarWidth: Double
     let topPaneHeight: Double?
     let mavenPaneWidth: Double?
@@ -28,9 +28,9 @@ struct WorkbenchLayoutStore {
     func load(for workspaceURL: URL) -> WorkbenchLayout {
         guard let data = store.data(forKey: key(for: workspaceURL)),
               let layout = try? JSONDecoder().decode(WorkbenchLayout.self, from: data),
-              layout.sidebarWidth >= WorkbenchLayout.minimumSidebarWidth,
-              layout.sidebarWidth <= 520,
-              layout.mavenPaneWidth.map({ $0.isFinite && $0 > 0 && $0 <= WorkbenchLayout.maximumMavenPaneWidth }) ?? true else {
+              layout.sidebarWidth.isFinite,
+              layout.sidebarWidth >= WorkbenchLayout.minimumPaneSize,
+              layout.mavenPaneWidth.map({ $0.isFinite && $0 >= WorkbenchLayout.minimumPaneSize }) ?? true else {
             return Self.defaultLayout
         }
         return layout

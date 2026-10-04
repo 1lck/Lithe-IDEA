@@ -46,7 +46,7 @@ struct AgentComposerView: View {
         } editor: {
             TextField("Message the Agent", text: $completion.draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
                 .foregroundStyle(AgentPanelStyle.text)
                 .lineLimit(1...)
                 .focused($isFocused)
@@ -97,7 +97,7 @@ struct AgentComposerView: View {
                 AgentSubscriptionQuotaView(quota: subscriptionQuota, account: subscriptionAccount, failure: quotaFailure)
             }
         }
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .padding(.horizontal, 10)
         .frame(height: AgentComposerMetrics.contextHeight - 2)
@@ -132,7 +132,7 @@ struct AgentComposerView: View {
                     AgentBrandIcon(name: selectedAgent?.name, size: 12, style: .brand)
                     Text(model).lineLimit(1).truncationMode(.middle)
                 }
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
                 .foregroundStyle(AgentPanelStyle.secondary)
                 .padding(.horizontal, 4)
                 .help(model)
@@ -140,7 +140,7 @@ struct AgentComposerView: View {
             Spacer(minLength: 0)
             Button(action: isResponding ? onCancel : send) {
                 Image(systemName: isResponding ? "stop.fill" : "paperplane")
-                    .font(.system(size: 13))
+                    .font(LitheTheme.uiFont(size: 13))
                     .foregroundStyle(isResponding ? LitheTheme.error : (hasContent ? AgentPanelStyle.text : AgentPanelStyle.muted))
                     .frame(width: 26, height: 26)
                     .background(AgentPanelStyle.context, in: RoundedRectangle(cornerRadius: 4))
@@ -157,37 +157,21 @@ struct AgentComposerView: View {
     }
 
     private var agentMenu: some View {
-        Menu {
-            if agents.isEmpty {
-                Text("No Agent is set up yet")
-            } else {
-                // The native picker owns the selection checkmark separately
-                // from each item's brand image.
-                Picker("Choose an Agent", selection: Binding(
-                    get: { selectedAgent?.id },
-                    set: { if let id = $0 { onSelectAgent(id) } }
-                )) {
-                    ForEach(agents) { agent in
-                        Label {
-                            Text(agent.name)
-                        } icon: {
-                            AgentBrandIcon(name: agent.name, size: 16, style: .brand)
-                        }
-                        .tag(Optional(agent.id))
-                    }
+        LitheMenu {
+            if agents.isEmpty { LitheContextMenuItem.heading("No Agent is set up yet") }
+            for agent in agents {
+                LitheContextMenuItem.action(agent.name, checked: agent.id == selectedAgent?.id) {
+                    onSelectAgent(agent.id)
                 }
-                .pickerStyle(.inline)
-                .labelsHidden()
             }
-            Divider()
-            Button("Agent Settings…", action: onOpenSettings)
+            LitheContextMenuItem.separator
+            LitheContextMenuItem.action("Agent Settings…", action: onOpenSettings)
         } label: {
             AgentBrandIcon(name: selectedAgent?.name, size: 18, style: .brand)
                 .foregroundStyle(AgentPanelStyle.secondary)
                 .frame(width: 28, height: 28)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
+        .buttonStyle(.litheNoPress)
         .fixedSize()
         .help(selectedAgent?.name ?? String(localized: "Choose an Agent"))
         .accessibilityLabel("Switch Agent")

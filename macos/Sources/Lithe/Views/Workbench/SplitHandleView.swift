@@ -16,6 +16,7 @@ struct SplitHandleView: View {
 
     let axis: LitheSplitAxis
     let trackBackground: Color
+    let dividerColor: Color
     let showsIdleDivider: Bool
     let highlightsOnHover: Bool
     let onDragStarted: () -> Void
@@ -30,6 +31,7 @@ struct SplitHandleView: View {
     init(
         axis: LitheSplitAxis,
         trackBackground: Color = .clear,
+        dividerColor: Color = LitheTheme.divider,
         showsIdleDivider: Bool = true,
         highlightsOnHover: Bool = true,
         onDragStarted: @escaping () -> Void,
@@ -38,6 +40,7 @@ struct SplitHandleView: View {
     ) {
         self.axis = axis
         self.trackBackground = trackBackground
+        self.dividerColor = dividerColor
         self.showsIdleDivider = showsIdleDivider
         self.highlightsOnHover = highlightsOnHover
         self.onDragStarted = onDragStarted
@@ -119,7 +122,7 @@ struct SplitHandleView: View {
     private var dividerLine: some View {
         if showsIdleDivider {
             let color = isDragging && highlightsOnHover ? LitheTheme.primaryText
-                : (isHovering && highlightsOnHover ? LitheTheme.secondaryText : LitheTheme.divider)
+                : (isHovering && highlightsOnHover ? LitheTheme.secondaryText : dividerColor)
             if axis == .horizontal {
                 Rectangle()
                     .fill(color)

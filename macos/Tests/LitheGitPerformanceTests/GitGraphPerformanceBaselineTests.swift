@@ -623,7 +623,7 @@ struct GitGraphPerformanceBaselineTests {
         print(
             "Git commit file-tree native rows: total=\(items.count), visible=\(visibleRange.count), samples=\(samples.count), median=\(String(format: "%.3f", median))ms, p95=\(String(format: "%.3f", p95))ms"
         )
-        #expect(visibleRange.count <= 17)
+        #expect(visibleRange.count <= Int(ceil(dirtyRect.height / GitCommitFileTreeNSView.rowHeight)) + 1)
         #expect(median < 30)
         #expect(p95 < 100)
     }

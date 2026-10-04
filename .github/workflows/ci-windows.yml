@@ -232,6 +232,10 @@ jobs:
           bun test src/features/file-explorer/lib/java-clipboard-class.test.ts src/features/file-explorer/lib/paste-java-class-from-clipboard.test.ts
           node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-file-watcher.json -- src/features/file-system/services/file-watcher-listener.test.ts src/features/file-system/stores/file-watcher.store.test.ts
 
+      - name: Test workspace open, replace, and close lifecycle
+        shell: pwsh
+        run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-lifecycle.json -- src/features/workspace/services/workspace-lifecycle.test.ts src/features/window/services/project-window-router.test.ts
+
       - name: Test Git gutter changes and inline review lifecycle
         shell: pwsh
         run: node .agents/skills/write-stable-tests/scripts/run-bun-tests-with-timing.mjs --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-gutter.json -- src/features/git/utils/git-gutter-changes.test.ts src/features/editor/engines/monaco/git-gutter-peek-session.test.ts
@@ -312,6 +316,8 @@ jobs:
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-commit.json -- git-workspace-commit git-status-api.test.ts git-status-model.test.ts ai-commit-context.test.ts working-tree-diff-refresh.test.ts file-context-menu-git-file-items.test.ts
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-workspace-status.json -- git-workspace-status-panel.test.tsx
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-changelists.json -- git-changelists.store.test.ts git-changelist-bar.test.tsx
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Test terminal discovery, default shell, profiles, and tab layout

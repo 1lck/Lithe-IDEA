@@ -5,7 +5,11 @@ import {
   getDefaultSettingsSnapshot,
 } from "@/features/settings/config/default-settings";
 import type { Settings } from "@/features/settings/types/settings.types";
-import { findRetiredSettingsKeys, migrateHiddenPatternDefaults } from "./settings-migrations";
+import {
+  findRetiredSettingsKeys,
+  migrateHiddenPatternDefaults,
+  migrateProjectOpenDestination,
+} from "./settings-migrations";
 
 let storeInstance: Store | null = null;
 let storePromise: Promise<Store> | null = null;
@@ -17,8 +21,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 async function initializeStoreDefaults(store: Store) {
   const migration = migrateHiddenPatternDefaults(new Map(await store.entries<unknown>()));
-  const entries = migration.entries;
-  const changes = [...migration.changes];
+  const projectOpenMigration = migrateProjectOpenDestination(migration.entries);
+  const entries = projectOpenMigration.entries;
+  const changes = [...migration.changes, ...projectOpenMigration.changes];
   const retiredKeys = findRetiredSettingsKeys(entries);
   for (const key of retiredKeys) entries.delete(key);
 

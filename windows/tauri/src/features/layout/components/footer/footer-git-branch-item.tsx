@@ -36,7 +36,7 @@ export function useFooterGitBranchItem(): ChromeItem<FooterLeadingItemId> | null
         behind={footerGitStatus.behind}
         repoPath={footerRepoPath}
         paletteTarget
-        triggerSurface="footer"
+        triggerSurface="toolbar"
         onBranchChange={async () => {
           const status = await getGitStatus(footerRepoPath);
           actions.setWorkspaceGitStatus(status, footerRepoPath);

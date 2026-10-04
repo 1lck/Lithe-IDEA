@@ -69,7 +69,8 @@ const GitOperationBanner = ({ repoPath }: GitOperationBannerProps) => {
 
   return (
     <div
-      className="flex flex-col gap-2 border-b border-border bg-raised px-3 py-2.5"
+      // IntelliJ Islands editor notifications are 7px-inset cards with a 12px arc.
+      className="mx-[7px] my-1 flex flex-col gap-2 rounded-[6px] border border-border bg-raised px-3 py-2.5"
       role="status"
       data-testid="git-operation-banner"
     >

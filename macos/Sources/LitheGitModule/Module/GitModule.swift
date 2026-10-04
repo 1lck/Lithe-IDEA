@@ -17,6 +17,7 @@ public final class GitModule: LitheModule {
 
     public let manifest = moduleManifest
     private let operations: any GitOperations
+    private let changelistStorage: (any GitChangelistStorage)?
     private let shelfStorage: any GitShelfStorage
     private let performanceLogger: any GitPerformanceLogger
     private let patchFileAccess: (any GitPatchFileAccess)?
@@ -28,8 +29,10 @@ public final class GitModule: LitheModule {
         shelfStorage: any GitShelfStorage,
         performanceLogger: any GitPerformanceLogger = NullGitPerformanceLogger(),
         patchFileAccess: (any GitPatchFileAccess)? = nil,
-        executionJournal: GitExecutionJournal? = nil
+        executionJournal: GitExecutionJournal? = nil,
+        changelistStorage: (any GitChangelistStorage)? = nil
     ) {
+        self.changelistStorage = changelistStorage
         self.operations = operations
         self.shelfStorage = shelfStorage
         self.performanceLogger = performanceLogger
@@ -42,7 +45,8 @@ public final class GitModule: LitheModule {
         let feature = GitFeatureModel(
             service: GitService(operations: operations, performanceLogger: performanceLogger),
             shelveService: ShelveService(storage: shelfStorage),
-            executionJournal: executionJournal
+            executionJournal: executionJournal,
+            changelistStorage: changelistStorage
         )
         feature.patchExchange.fileAccess = patchFileAccess
         feature.configureModuleLeases { reason in

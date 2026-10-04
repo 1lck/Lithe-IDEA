@@ -34,7 +34,7 @@ struct HTMLPreviewView: View {
                 }
             } label: {
                 Image(systemName: "arrow.up.right.square")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .frame(width: 24, height: 24)
             }
             .disabled(isOpeningBrowser)

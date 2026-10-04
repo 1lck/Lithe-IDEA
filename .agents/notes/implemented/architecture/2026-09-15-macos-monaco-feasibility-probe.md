@@ -600,6 +600,12 @@ Swift 同步桥接把内部位置字段编码为 `character`，Rust 要求 `utf1
 共用资源构建。代价是新增一条需要逐步收敛的 Web 桥接路径。独立宿主仍仅保存实验副本；
 工作台版通过 Lithe 保存真实文件，不能把两者的保存行为混淆。
 工作台同步字体大小、字体族、明暗外观、原生配色主题、背景透明状态及折行。
+默认字体跟随全局 JetBrains Mono 2.304。WebKit 的网页进程不会继承原生进程的
+CoreText 注册，因此 `MonacoWorkbenchAssets` 从安装包现有 `Fonts` 目录只读
+提供 TTF；编辑器 HTML 用 `@font-face` 引用同一字型，加载后重新度量 Monaco。
+字体路径必须校验目录边界、真实路径与扩展名，不能为了取字体开放安装目录的
+任意文件。具体资源所有权见
+[全局字体决策](../feature/2026-09-30-macos-bundled-ui-font.md)。
 默认语法和语义颜色读取原生 `color-mappings.json`，不复制一套色值；Monaco
 表面、光标、选择、行号和引导线读取原生宿主解析后的主题颜色。
 

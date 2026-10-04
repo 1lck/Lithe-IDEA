@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 import LitheTerminalModule
 
 struct TerminalView: View {
     @ObservedObject var feature: TerminalFeatureModel
     @EnvironmentObject private var model: AppModel
+    @State private var terminalToolActive = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,24 +23,54 @@ struct TerminalView: View {
             }
         )
         .litheWorkbenchSurface(LitheTheme.editor)
+        .background(LitheToolWindowActivityTracker(isActive: $terminalToolActive))
+        .onAppear {
+            terminalToolActive = (model.activeToolTerminalSession?.nativeView as? LitheTerminalView)?.hasFocus == true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: LitheTerminalView.focusDidChange)) { notification in
+            guard let view = notification.object as? LitheTerminalView,
+                  view === model.activeToolTerminalSession?.nativeView else { return }
+            guard let focused = notification.userInfo?["focused"] as? Bool else { return }
+            terminalToolActive = focused
+        }
     }
 
     private var terminalToolbar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "terminal")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(LitheTheme.secondaryText)
+        HStack(spacing: 0) {
             Text("Terminal")
-                .font(.system(size: 12.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 13, weight: .bold))
                 .foregroundStyle(LitheTheme.primaryText)
+                // ToolWindow.headerLabelLeftRightInsets supplies 16pt after the title.
+                .padding(.trailing, 16)
 
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 3) {
+                HStack(spacing: 0) {
                     ForEach(model.toolTerminalSessions) { terminalSession in
                         terminalTab(terminalSession)
+                            // IslandsTabPainter paints 4pt inside each tab's layout bounds.
+                            .padding(.horizontal, 4)
                     }
+                    Button {
+                        _ = model.createTerminalSession()
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/add.svg", size: 16,
+                                      fallbackSystemImage: "plus", preservesOriginalColors: true)
+                    }
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
+                    .help("New terminal session")
+
+                    LitheMenu {
+                        shellMenuItems
+                    } label: {
+                        LitheIDEAIcon(resourcePath: "expui/general/chevronDownLarge.svg", size: 16,
+                                      fallbackSystemImage: "chevron.down", preservesOriginalColors: true)
+                    }
+                    .litheToolbarIconButton()
+                    .padding(.horizontal, 2)
+                    .help("Detect shells and create a new terminal")
+                    .accessibilityLabel("New terminal with shell")
                 }
-                .padding(.horizontal, 2)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -49,105 +81,50 @@ struct TerminalView: View {
                 }
             )
 
-            if let session = model.activeToolTerminalSession {
-                TerminalStatusView(session: session)
-            }
-
-            Button {
-                _ = model.createTerminalSession()
+            LitheMenu {
+                terminalActionsMenuItems
             } label: {
-                Image(systemName: "plus")
+                LitheIDEAIcon(resourcePath: "expui/general/moreVertical.svg", size: 16,
+                              fallbackSystemImage: "ellipsis", preservesOriginalColors: true)
             }
-            .litheIconButton()
-            .help("New terminal session")
-
-            Menu {
-                Button("New Default Terminal") { _ = model.createTerminalSession() }
-                Divider()
-                ForEach(feature.availableShells, id: \.self) { shell in
-                    Button("New \(shellLabel(for: shell))") {
-                        _ = model.createTerminalSession(shellPath: shell)
-                    }
-                }
-                Divider()
-                Button("Detect Installed Shells") { feature.refreshAvailableShells() }
-            } label: {
-                Image(systemName: "chevron.down")
-            }
-            .menuStyle(.borderlessButton)
-            .lithePointer()
-            .menuIndicator(.hidden)
-            .frame(width: 26, height: 28)
-            .contentShape(Rectangle())
-            .foregroundStyle(LitheTheme.secondaryText)
-            .help("Detect shells and create a new terminal")
-            .accessibilityLabel("New terminal with shell")
-
-            Menu {
-                if let session = model.activeToolTerminalSession {
-                    Button("Interrupt", action: session.interrupt)
-                    Button("Restart") {
-                        session.restart()
-                        session.focus()
-                    }
-                    .disabled(session.isManagedProcess)
-                    Button("Clear", action: session.clear)
-                    Divider()
-                    Button("Move to Editor") {
-                        model.moveTerminalToEditor(session.id)
-                    }
-                    Button("Close Terminal") {
-                        model.requestCloseTerminalSession(session)
-                    }
-                } else {
-                    Button("No Terminal Sessions") {}
-                        .disabled(true)
-                }
-            } label: {
-                LitheSystemIcon(systemImage: "ellipsis.vertical")
-            }
-            .menuStyle(.borderlessButton)
-            .lithePointer()
-            .menuIndicator(.hidden)
-            .frame(width: 28, height: 28)
-            .contentShape(Rectangle())
-            .foregroundStyle(LitheTheme.secondaryText)
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Terminal actions")
 
             Button {
                 model.workbenchFeature.setVisibility(.terminal, isVisible: false)
             } label: {
-                Image(systemName: "minus")
+                LitheIDEAIcon(resourcePath: "expui/general/hide.svg", size: 16,
+                              fallbackSystemImage: "minus", preservesOriginalColors: true)
             }
-            .litheIconButton()
+            .litheToolbarIconButton()
+            .padding(.horizontal, 2)
             .help("Hide Terminal tool window")
         }
         .padding(.leading, 12)
-        .padding(.trailing, 7)
-        .frame(height: LitheTheme.Metrics.toolWindowHeaderHeight)
+        .padding(.trailing, 8)
+        .frame(height: 41)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(LitheTheme.divider).frame(height: 1)
+            LitheToolWindowHeaderDivider()
         }
     }
 
     private func terminalTab(_ session: TerminalSession) -> some View {
-        let isActive = model.activeToolTerminalSession?.id == session.id
+        let isSelected = model.activeToolTerminalSession?.id == session.id
+        let title = terminalTabTitle(for: session)
 
-        return HStack(spacing: 1) {
+        return HStack(spacing: 0) {
             HStack(spacing: 6) {
-                Image(systemName: "terminal")
-                    .font(.system(size: 10, weight: .medium))
                 TerminalToolTabTitle(
                     session: session,
-                    fallbackTitle: feature.terminalTitle(for: session),
-                    isActive: isActive
+                    fallbackTitle: title
                 )
             }
-            .foregroundStyle(isActive ? LitheTheme.primaryText : LitheTheme.secondaryText)
-            .padding(.leading, 9)
-            .padding(.trailing, 5)
-            .frame(height: 26)
+            .foregroundStyle(LitheTheme.primaryText)
+            .padding(.leading, 8)
+            .padding(.trailing, 3)
+            .frame(height: 28)
             .contentShape(Rectangle())
             .contentShape(
                 .dragPreview,
@@ -163,30 +140,19 @@ struct TerminalView: View {
                 terminalTabDragPreview(session)
             }
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(feature.terminalTitle(for: session))
+            .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
+            .help(title)
             .accessibilityAction {
                 model.selectTerminalSession(session)
             }
 
-            Button {
+            LitheToolWindowTabCloseButton {
                 model.requestCloseTerminalSession(session)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
             }
-            .buttonStyle(.litheNoPress)
-            .help("Close \(feature.terminalTitle(for: session))")
+            .help("Close \(title)")
         }
-        .background(isActive ? LitheTheme.subtleSelection : .clear)
-        .overlay {
-            RoundedRectangle(cornerRadius: 5)
-                .stroke(isActive ? LitheTheme.inputFocusBorder : .clear, lineWidth: 1)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .modifier(LitheToolWindowTabStyle(isSelected: isSelected, isActive: terminalToolActive))
         .background {
             GeometryReader { geometry in
                 Color.clear
@@ -217,7 +183,10 @@ struct TerminalView: View {
                 })
             ]
         }
-        .lithePointer()
+    }
+
+    private func terminalTabTitle(for session: TerminalSession) -> String {
+        feature.toolTabTitle(for: session, orderedSessions: model.toolTerminalSessions)
     }
 
     @ViewBuilder
@@ -229,7 +198,7 @@ struct TerminalView: View {
                 .padding(8)
         } else {
             Image(systemName: "terminal")
-                .font(.system(size: 34, weight: .ultraLight))
+                .font(LitheTheme.uiFont(size: 34, weight: .ultraLight))
                 .foregroundStyle(LitheTheme.tertiaryText)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
@@ -245,10 +214,10 @@ struct TerminalView: View {
     private func terminalTabDragPreview(_ session: TerminalSession) -> some View {
         HStack(spacing: 7) {
             Image(systemName: "terminal")
-                .font(.system(size: 11, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
-            Text(feature.terminalTitle(for: session))
-                .font(.system(size: 12, weight: .medium))
+            Text(terminalTabTitle(for: session))
+                .font(LitheTheme.uiFont(size: 12, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(1)
         }
@@ -263,55 +232,49 @@ struct TerminalView: View {
         let name = URL(fileURLWithPath: path).lastPathComponent
         return path == "/bin/\(name)" ? name : "\(name) (\(path))"
     }
-}
 
-private struct TerminalStatusView: View {
-    @ObservedObject var session: TerminalSession
-
-    var body: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            HStack(spacing: 5) {
-                Circle()
-                    .fill(session.isRunning ? Color.green : LitheTheme.secondaryText)
-                    .frame(width: 6, height: 6)
-
-                Text(session.displayTitle)
-                    .lineLimit(1)
-
-                if let directory = session.displayDirectory {
-                    Text(directory)
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .lineLimit(1)
-                }
-
-                if let exitCode = session.lastExitCode {
-                    Text("Exit \(exitCode)")
-                        .foregroundStyle(exitCode == 0 ? Color.green : Color.orange)
-                }
-
-                if let elapsed = session.elapsedDescription(at: context.date) {
-                    Text(elapsed)
-                        .monospacedDigit()
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                }
+    private var shellMenuItems: [LitheContextMenuItem] {
+        var items: [LitheContextMenuItem] = [
+            .action("New Default Terminal") { _ = model.createTerminalSession() }
+        ]
+        if !feature.availableShells.isEmpty {
+            items.append(.separator)
+            items += feature.availableShells.map { shell in
+                .action("New \(shellLabel(for: shell))") { _ = model.createTerminalSession(shellPath: shell) }
             }
-            .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(LitheTheme.secondaryText)
-            .lineLimit(1)
-            .frame(maxWidth: 240, alignment: .trailing)
-            .help("Command-click a file path or URL to open it")
         }
+        items += [
+            .separator,
+            .action("Detect Installed Shells") { feature.refreshAvailableShells() }
+        ]
+        return items
+    }
+
+    private var terminalActionsMenuItems: [LitheContextMenuItem] {
+        guard let session = model.activeToolTerminalSession else {
+            return [.action("No Terminal Sessions", isEnabled: false, action: {})]
+        }
+        return [
+            .action("Interrupt", action: session.interrupt),
+            .action("Restart", isEnabled: !session.isManagedProcess) {
+                session.restart()
+                session.focus()
+            },
+            .action("Clear", action: session.clear),
+            .separator,
+            .action("Move to Editor") { model.moveTerminalToEditor(session.id) },
+            .action("Close Terminal") { model.requestCloseTerminalSession(session) }
+        ]
     }
 }
 
 private struct TerminalToolTabTitle: View {
     @ObservedObject var session: TerminalSession
     let fallbackTitle: String
-    let isActive: Bool
 
     var body: some View {
-        Text(session.processTitle.flatMap { $0.isEmpty ? nil : $0 } ?? fallbackTitle)
-            .font(.system(size: 11.5, weight: isActive ? .semibold : .medium))
+        Text(session.isManagedProcess ? session.processTitle ?? fallbackTitle : fallbackTitle)
+            .font(LitheTheme.uiFont(size: 13, weight: .regular))
             .lineLimit(1)
     }
 }

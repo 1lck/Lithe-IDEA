@@ -213,8 +213,11 @@ function GeneralPanel() {
               const patch = getProjectOpenPreferencePatch(
                 event.target.value as ProjectOpenPreference,
               );
-              if (patch.openFoldersInNewWindow !== undefined) {
-                void updateSetting("openFoldersInNewWindow", patch.openFoldersInNewWindow);
+              if (patch.projectOpenDefaultDestination !== undefined) {
+                void updateSetting(
+                  "projectOpenDefaultDestination",
+                  patch.projectOpenDefaultDestination,
+                );
               }
               void updateSetting("askWhereToOpenProjects", patch.askWhereToOpenProjects ?? true);
             }}
@@ -222,6 +225,7 @@ function GeneralPanel() {
             <option value="ask">{t("settings.mac.askEveryTime")}</option>
             <option value="this-window">{t("settings.mac.thisWindow")}</option>
             <option value="new-window">{t("settings.mac.newWindow")}</option>
+            <option value="attach">{t("settings.mac.attach")}</option>
           </select>
         </SettingsRow>
       </SettingsGroup>

@@ -101,16 +101,16 @@ struct LanguageServerSetupView: View {
     private var setupHeader: some View {
         HStack(spacing: 10) {
             Image(systemName: "wrench.and.screwdriver")
-                .font(.system(size: 15, weight: .medium))
+                .font(LitheTheme.uiFont(size: 15, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
                 .frame(width: 28, height: 28)
                 .background(RoundedRectangle(cornerRadius: 6).fill(LitheTheme.subtleSelection))
             VStack(alignment: .leading, spacing: 1) {
                 Text(copy.title)
-                    .font(.system(size: 13.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 13.5, weight: .semibold))
                     .foregroundStyle(LitheTheme.primaryText)
                 Text(copy.subtitle)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer(minLength: 0)
@@ -123,13 +123,9 @@ struct LanguageServerSetupView: View {
     private var providerPicker: some View {
         VStack(alignment: .leading, spacing: 6) {
             sectionTitle(copy.languageServer)
-            Picker(copy.languageServer, selection: $selectedProviderID) {
-                ForEach(providers) { descriptor in
-                    Text(descriptor.displayName).tag(descriptor.id)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
+            LitheSettingsSelect(selection: $selectedProviderID, options: providers.map(\.id), width: 200, accessibilityLabel: copy.languageServer, title: { id in providers.first { $0.id == id }?.displayName ?? id })
+
+
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -144,10 +140,10 @@ struct LanguageServerSetupView: View {
                     .padding(.top, 4)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(executableStatusTitle)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 12, weight: .semibold))
                         .foregroundStyle(LitheTheme.primaryText)
                     Text(resolvedExecutable?.executableURL.path ?? expectedCommands)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(2)
                         .truncationMode(.middle)
@@ -155,7 +151,7 @@ struct LanguageServerSetupView: View {
                 Spacer(minLength: 0)
                 if let source = resolvedExecutable?.source {
                     Text(source.displayName)
-                        .font(.system(size: 9.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 7)
                         .frame(height: 20)
@@ -168,16 +164,16 @@ struct LanguageServerSetupView: View {
             ForEach(Array(candidates.dropFirst().prefix(2))) { candidate in
                 HStack(spacing: 7) {
                     Image(systemName: "arrow.turn.down.right")
-                        .font(.system(size: 9))
+                        .font(LitheTheme.uiFont(size: 9))
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text(candidate.executableURL.path)
-                        .font(.system(size: 10, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10, design: .monospaced))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .lineLimit(1)
                         .truncationMode(.middle)
                     Spacer(minLength: 0)
                     Text(candidate.source.displayName)
-                        .font(.system(size: 9.5))
+                        .font(LitheTheme.uiFont(size: 9.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
@@ -193,7 +189,7 @@ struct LanguageServerSetupView: View {
                     clearOverride()
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
                 .disabled(tools.customExecutablePath(for: selectedProviderID) == nil)
             }
@@ -201,7 +197,7 @@ struct LanguageServerSetupView: View {
             HStack(spacing: 7) {
                 TextField(copy.pathPlaceholder, text: $executablePathDraft)
                     .textFieldStyle(.roundedBorder)
-                    .font(.system(size: 11, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 11, design: .monospaced))
                 Button {
                     browseForExecutable()
                 } label: {
@@ -217,7 +213,7 @@ struct LanguageServerSetupView: View {
             }
 
             Text(validationMessage ?? copy.pathHint)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(validationMessage == nil ? LitheTheme.secondaryText : LitheTheme.error)
                 .lineLimit(2)
         }
@@ -227,7 +223,7 @@ struct LanguageServerSetupView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(copy.installation)
             Text(copy.installationHint)
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             HStack(spacing: 8) {
@@ -280,7 +276,7 @@ struct LanguageServerSetupView: View {
 
     private func statusMessage(_ message: String, color: Color) -> some View {
         Text(message)
-            .font(.system(size: 10.5, design: .monospaced))
+            .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
             .foregroundStyle(color)
             .lineLimit(3)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -290,7 +286,7 @@ struct LanguageServerSetupView: View {
 
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
-            .font(.system(size: 10.5, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 10.5, weight: .semibold))
             .foregroundStyle(LitheTheme.secondaryText)
     }
 

@@ -68,8 +68,8 @@ struct KeyboardShortcutSettingsView: View {
                 accessibilityLabel: "Keymap",
                 title: { $0.title }
             )
-            Menu {
-                Button("Restore All Defaults") {
+            LitheMenu {
+                LitheContextMenuItem.action("Restore All Defaults") {
                     cancelEditing()
                     feature.resetAll()
                 }
@@ -77,8 +77,8 @@ struct KeyboardShortcutSettingsView: View {
                 LitheSystemIcon(systemImage: "gearshape", size: 16)
                     .foregroundStyle(LitheTheme.secondaryText)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
+            .buttonStyle(.litheNoPress)
+
             .tint(LitheTheme.secondaryText)
             .frame(width: 26)
             .accessibilityLabel("Restore All Defaults")
@@ -109,29 +109,35 @@ struct KeyboardShortcutSettingsView: View {
             .help("Collapse All")
             .accessibilityLabel("Collapse All")
 
-            Menu {
+            LitheMenu {
                 if let selectedCommandID,
-                   let command = LitheCommandCatalog.command(id: selectedCommandID) {
-                    Button("Add Shortcut") {
+                    let command = LitheCommandCatalog.command(id: selectedCommandID)
+                {
+                    LitheContextMenuItem.action("Add Shortcut") {
                         expandedGroups.insert(command.group)
                         beginEditing(commandID: selectedCommandID, bindingIndex: nil)
                     }
-                    ForEach(Array(feature.effectiveBindings(for: selectedCommandID).enumerated()), id: \.offset) { index, binding in
-                        Button("Remove \(binding.displayText)") {
+                    for (index, binding) in Array(
+                        feature.effectiveBindings(for: selectedCommandID).enumerated())
+                    {
+                        LitheContextMenuItem.action("Remove \(binding.displayText)") {
                             removeBinding(commandID: selectedCommandID, index: index)
                         }
                     }
                     if feature.isCustomized(selectedCommandID) {
-                        Button("Restore Default") {
+                        LitheContextMenuItem.action("Restore Default") {
                             cancelEditing()
                             feature.resetCommand(selectedCommandID)
                         }
                     }
                 }
             } label: {
-                LitheIDEAIcon(resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil", preservesOriginalColors: true)
+                LitheIDEAIcon(
+                    resourcePath: "expui/general/edit.svg", size: 16, fallbackSystemImage: "pencil",
+                    preservesOriginalColors: true)
             }
-            .menuStyle(.borderlessButton)
+            .buttonStyle(.litheNoPress)
+
             .tint(LitheTheme.secondaryText)
             .disabled(selectedCommandID == nil)
             .help("Edit Shortcuts")
@@ -145,7 +151,7 @@ struct KeyboardShortcutSettingsView: View {
             .frame(width: 244)
             .accessibilityLabel("Search actions or shortcuts")
         }
-        .font(.system(size: 12))
+        .font(LitheTheme.uiFont(size: 12))
         .buttonStyle(.litheNoPress)
         .foregroundStyle(LitheTheme.secondaryText)
         .padding(.horizontal, 16)
@@ -169,7 +175,7 @@ struct KeyboardShortcutSettingsView: View {
                         .rotationEffect(.degrees(isExpanded(section.group) ? 90 : 0))
                     LitheIcon(kind: .folder, size: 16)
                     Text(LocalizedStringKey(section.group.rawValue))
-                        .font(.system(size: 12.5))
+                        .font(LitheTheme.uiFont(size: 12.5))
                     Spacer()
                 }
                 .foregroundStyle(LitheTheme.primaryText)
@@ -200,7 +206,7 @@ struct KeyboardShortcutSettingsView: View {
                 } label: {
                     HStack(spacing: 0) {
                         Text(LocalizedStringKey(command.title))
-                            .font(.system(size: 12.5))
+                            .font(LitheTheme.uiFont(size: 12.5))
                             .lineLimit(1)
                         Spacer(minLength: 8)
                     }
@@ -250,7 +256,7 @@ struct KeyboardShortcutSettingsView: View {
                     } icon: {
                         Image(systemName: "exclamationmark.triangle.fill")
                     }
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.warning)
                     .padding(.leading, 31)
                 }
@@ -264,7 +270,7 @@ struct KeyboardShortcutSettingsView: View {
             if bindings.isEmpty {
                 Button("Not Assigned") { beginEditing(commandID: command.id, bindingIndex: nil) }
                     .buttonStyle(.litheNoPress)
-                    .font(.system(size: 12))
+                    .font(LitheTheme.uiFont(size: 12))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .lithePointer()
             } else {
@@ -286,7 +292,7 @@ struct KeyboardShortcutSettingsView: View {
             HStack(spacing: 2) {
                 ForEach(Array(keycapLabels(for: binding).enumerated()), id: \.offset) { _, label in
                     Text(label)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium, design: .rounded))
                         .frame(minWidth: 14, minHeight: 17)
                         .padding(.horizontal, 2)
                         .litheSettingsControlChrome(cornerRadius: 3)
@@ -318,9 +324,9 @@ struct KeyboardShortcutSettingsView: View {
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "keyboard.badge.ellipsis")
-                .font(.system(size: 28))
+                .font(LitheTheme.uiFont(size: 28))
             Text("No matching commands")
-                .font(.system(size: 13, weight: .medium))
+                .font(LitheTheme.uiFont(size: 13, weight: .medium))
         }
         .foregroundStyle(LitheTheme.secondaryText)
         .frame(maxWidth: .infinity)

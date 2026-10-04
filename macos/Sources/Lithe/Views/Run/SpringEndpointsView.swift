@@ -36,17 +36,17 @@ struct SpringEndpointsView: View {
                             Button { model.openSpringEndpoint(endpoint) } label: {
                                 HStack(spacing: 9) {
                                     Text(endpoint.httpMethods.joined(separator: ","))
-                                        .font(.system(size: 10.5, weight: .bold, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 10.5, weight: .bold, design: .monospaced))
                                         .foregroundStyle(methodColor(endpoint.httpMethods.first))
                                         .frame(width: 58, alignment: .leading)
                                     Text(endpoint.route)
-                                        .font(.system(size: 12.5, weight: .medium, design: .monospaced))
+                                        .font(LitheTheme.uiFont(size: 12.5, weight: .medium, design: .monospaced))
                                     Text("\(endpoint.controller).\(endpoint.method)")
-                                        .font(.system(size: 10.5))
+                                        .font(LitheTheme.uiFont(size: 10.5))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                     Spacer()
                                     Text(model.relativePath(for: endpoint.url))
-                                        .font(.system(size: 10.5))
+                                        .font(LitheTheme.uiFont(size: 10.5))
                                         .foregroundStyle(LitheTheme.secondaryText)
                                         .lineLimit(1)
                                 }

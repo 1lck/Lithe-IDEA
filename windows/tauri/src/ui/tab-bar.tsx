@@ -156,6 +156,8 @@ export type TabBarOrientation = "horizontal" | "vertical";
 
 export interface TabProps extends HTMLAttributes<HTMLDivElement> {
   isActive: boolean;
+  /** Whether the owning tab group has focus; an unfocused group greys its selection underline. */
+  isGroupActive?: boolean;
   isDragged?: boolean;
   action?: ReactNode;
   variant?: TabVariant;
@@ -173,7 +175,7 @@ const tabVariants = cva(
       variant: {
         default: "border border-transparent",
         connected:
-          "min-h-(--lithe-tab-height) rounded-(--lithe-chrome-radius) border-0 active:scale-100",
+          "min-h-(--lithe-tab-height) rounded-[6px] border border-transparent active:scale-100",
       },
       active: {
         true: "",
@@ -201,24 +203,34 @@ const tabVariants = cva(
         className: "text-subtle-foreground/90 hover:bg-accent hover:text-foreground",
       },
       {
-        // IntelliJ editor tabs use a slim accent on the content-facing edge;
-        // the tab stays on the editor surface instead of becoming a filled pill.
+        // Mirrors IntelliJ IslandsTabPainter: a 28px chip with a 12px arc (6px radius),
+        // tinted fill and 1px border (underlinedTabBackground / underlinedBorderColor).
         variant: "connected",
         active: true,
         className:
-          "z-10 bg-transparent text-foreground shadow-none hover:bg-accent/35 before:absolute before:inset-x-1.5 before:bottom-0 before:h-[3px] before:rounded-t-sm before:bg-primary before:content-['']",
+          "z-10 border-(--editor-tab-selected-border) bg-(--editor-tab-selected-bg) text-foreground shadow-none hover:bg-(--editor-tab-selected-bg)",
       },
       {
+        // IntelliJ dims unselected tab labels (unselectedAlpha = 0.75).
         variant: "connected",
         active: false,
-        className: "text-foreground/75 hover:bg-accent/50 hover:text-foreground",
+        className: "text-foreground/75 hover:bg-(--editor-tab-hover-bg)",
       },
     ],
   },
 );
 
 export const Tab = forwardRef<HTMLDivElement, TabProps>(function Tab(
-  { isActive, isDragged = false, action, variant = "default", children, className, ...props },
+  {
+    isActive,
+    isGroupActive = true,
+    isDragged = false,
+    action,
+    variant = "default",
+    children,
+    className,
+    ...props
+  },
   ref,
 ) {
   return (
@@ -228,6 +240,10 @@ export const Tab = forwardRef<HTMLDivElement, TabProps>(function Tab(
       data-active={isActive}
       className={cn(
         tabVariants({ variant, active: isActive, dragged: isDragged }),
+        variant === "connected" &&
+          isActive &&
+          !isGroupActive &&
+          "border-(--editor-tab-selected-inactive-border) bg-(--editor-tab-selected-inactive-bg) hover:bg-(--editor-tab-hover-bg)",
         action && "pr-7",
         className,
       )}
@@ -245,7 +261,7 @@ const tabBarSurfaceVariants = cva("relative flex overflow-hidden", {
   variants: {
     orientation: {
       horizontal:
-        "h-(--lithe-tab-bar-height) min-h-(--lithe-tab-bar-height) shrink-0 items-center gap-(--lithe-chrome-gap) border-b border-border bg-tab-bar px-(--lithe-chrome-padding-inline)",
+        "h-(--lithe-tab-bar-height) min-h-(--lithe-tab-bar-height) shrink-0 items-center gap-(--lithe-chrome-gap) border-b border-border/70 bg-tab-bar px-(--lithe-chrome-padding-inline)",
       vertical: "h-full min-h-0 flex-col bg-tab-bar py-(--lithe-chrome-gap)",
     },
   },

@@ -83,14 +83,14 @@ private struct ProjectReplacementDocumentEditor: View {
                 .buttonStyle(.litheNoPress)
                 .disabled(saveTask != nil || !document.isDirty || document.isReadOnly)
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .lineLimit(1)
             .padding(.horizontal, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 32)
             .background(LitheTheme.popupBackground)
             if let saveError {
-                Text(saveError).font(.caption).foregroundStyle(LitheTheme.secondaryText)
+                Text(saveError).font(LitheTheme.uiFont(.caption)).foregroundStyle(LitheTheme.secondaryText)
             }
             makeEditor(document, MonacoPreviewConfiguration(
                 line: line, query: query, matchCase: options.caseSensitive,
@@ -125,7 +125,7 @@ enum ProjectReplacementPreviewText {
         let storage = NSTextStorage(string: text)
         if let fileName {
             SyntaxHighlighter.apply(
-                to: storage, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+                to: storage, font: LitheTheme.editorFont(size: 12, weight: .regular),
                 fileName: fileName, fileExtension: (fileName as NSString).pathExtension, isDark: isDark
             )
         }

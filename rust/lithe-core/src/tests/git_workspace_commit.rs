@@ -526,3 +526,65 @@ fn git_workspace_status_normalizes_native_repository_binding_aliases() {
     // The parent still owns the symlink itself; only B's independent files are excluded.
     assert_eq!(paths, ["binding-link"]);
 }
+
+#[test]
+fn git_workspace_changelist_guard_keeps_index_and_worktree_unchanged() {
+    let repo = repository("workspace-changelist-guard");
+    fs::write(repo.0.join("application.yaml"), "local configuration").unwrap();
+    fs::write(repo.0.join("feature.txt"), "staged version").unwrap();
+    git(&repo.0, &["add", "."]);
+    fs::write(repo.0.join("feature.txt"), "later unstaged version").unwrap();
+    let before = state(&repo.0);
+    let payload = json!({"repositories":[{"id":".","root":repo.0}],"message":"feature only",
+        "includeParentReferences":false,"pathScope":{"include":false,"paths":{".":["application.yaml"]}}});
+    let rejected = request(&repo.0, "git.workspaceCommitPrepare", payload.clone());
+    assert_eq!(rejected["ok"], false, "{rejected}");
+    assert_eq!(state(&repo.0), before);
+    // Explicitly unstage the protected file; the later edit must stay out of the commit.
+    git(&repo.0, &["rm", "--cached", "application.yaml"]);
+    let prepared = request(&repo.0, "git.workspaceCommitPrepare", payload);
+    assert_eq!(prepared["ok"], true, "{prepared}");
+    let result = request(
+        &repo.0,
+        "git.workspaceCommitStep",
+        json!({"session":prepared["data"]["session"]}),
+    );
+    assert_eq!(result["ok"], true, "{result}");
+    assert_eq!(result["data"]["succeeded"], true, "{result}");
+    assert_eq!(
+        git(&repo.0, &["show", "HEAD:feature.txt"]),
+        "staged version"
+    );
+    assert_eq!(
+        git(&repo.0, &["ls-tree", "--name-only", "HEAD"]),
+        "feature.txt\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.0.join("feature.txt")).unwrap(),
+        "later unstaged version"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.0.join("application.yaml")).unwrap(),
+        "local configuration"
+    );
+}
+
+#[test]
+fn git_workspace_changelist_guard_catches_a_rename_after_the_ui_snapshot() {
+    let repo = repository("workspace-changelist-rename");
+    fs::write(repo.0.join("local.yaml"), "local").unwrap();
+    git(&repo.0, &["add", "."]);
+    git(&repo.0, &["commit", "-qm", "initial"]);
+    git(&repo.0, &["mv", "local.yaml", "renamed.yaml"]);
+    let before = state(&repo.0);
+    let result = request(
+        &repo.0,
+        "git.workspaceCommitPrepare",
+        json!({
+            "repositories":[{"id":".","root":repo.0}], "message":"must not commit",
+            "includeParentReferences":false, "pathScope":{"include":false,"paths":{".":["local.yaml"]}}
+        }),
+    );
+    assert_eq!(result["ok"], false, "{result}");
+    assert_eq!(state(&repo.0), before);
+}

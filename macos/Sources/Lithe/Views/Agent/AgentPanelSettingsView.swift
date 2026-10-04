@@ -43,11 +43,11 @@ struct AgentPanelSettingsView: View {
             HStack(spacing: 8) {
                 Button(action: onDone) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                 }
                 .litheIconButton()
                 .help("Back to the conversation")
-                Text("Settings").font(.system(size: 13, weight: .semibold))
+                Text("Settings").font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 Spacer()
             }
             .padding(.horizontal, 8)
@@ -60,9 +60,9 @@ struct AgentPanelSettingsView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(section.title).font(.system(size: 16, weight: .semibold))
+                            Text(section.title).font(LitheTheme.uiFont(size: 16, weight: .semibold))
                             Text(section.subtitle)
-                                .font(.system(size: 12))
+                                .font(LitheTheme.uiFont(size: 12))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         switch section {
@@ -85,7 +85,7 @@ struct AgentPanelSettingsView: View {
                     section = item
                 } label: {
                     Image(systemName: item.systemImage)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 14, weight: .medium))
                         .frame(width: 32, height: 32)
                         .foregroundStyle(section == item ? Color.white : LitheTheme.secondaryText)
                         .background(
@@ -153,9 +153,9 @@ private struct AgentsManagementPage: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Enable Agent conversation")
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 Text("Turning this off stops every Agent process.")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
             Spacer()
@@ -178,7 +178,7 @@ private struct AgentsManagementPage: View {
             if feature.status == nil {
                 HStack(spacing: 6) {
                     ProgressView().controlSize(.mini)
-                    Text("Checking…").font(.system(size: 11.5)).foregroundStyle(LitheTheme.secondaryText)
+                    Text("Checking…").font(LitheTheme.uiFont(size: 11.5)).foregroundStyle(LitheTheme.secondaryText)
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: 30)
@@ -203,7 +203,7 @@ private struct AgentsManagementPage: View {
                 Task { await feature.refresh() }
             } label: {
                 Image(systemName: "arrow.clockwise")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 11, weight: .medium))
                     .frame(width: 30, height: 30)
                     .contentShape(Rectangle())
             }
@@ -223,8 +223,8 @@ private struct AgentsManagementPage: View {
     ) -> some View {
         Button(action: select) {
             HStack(spacing: 6) {
-                Image(systemName: systemImage).font(.system(size: 11))
-                Text(title).font(.system(size: 12, weight: isSelected ? .medium : .regular)).lineLimit(1)
+                Image(systemName: systemImage).font(LitheTheme.uiFont(size: 11))
+                Text(title).font(LitheTheme.uiFont(size: 12, weight: isSelected ? .medium : .regular)).lineLimit(1)
                 if isBusy {
                     ProgressView().controlSize(.mini)
                 } else if let dot {
@@ -302,9 +302,9 @@ private struct AgentDetailView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Image(systemName: "cpu")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 14, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
-                Text(agent.name).font(.system(size: 14, weight: .semibold))
+                Text(agent.name).font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 AgentBadge(text: "ACP adapter", color: LitheTheme.secondaryText)
                     .help("Lithe installs the ACP adapter package, not the vendor CLI. The two are independent and share the CLI's configuration.")
                 if !agent.verified {
@@ -315,7 +315,7 @@ private struct AgentDetailView: View {
             }
             if let cli = agent.cli {
                 Text(String(format: String(localized: "Runs the %@ installed on this Mac through the %@ adapter."), cli.name, agent.package))
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -328,9 +328,9 @@ private struct AgentDetailView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(String(format: String(localized: "Pinned: %@ · Local: %@"),
                                 agent.version, agent.installedVersion ?? String(localized: "Not installed")))
-                        .font(.system(size: 12, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                     Text(versionHint)
-                        .font(.system(size: 11))
+                        .font(LitheTheme.uiFont(size: 11))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -349,7 +349,7 @@ private struct AgentDetailView: View {
                 }
             }
             Text(agent.package)
-                .font(.system(size: 10.5, design: .monospaced))
+                .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                 .foregroundStyle(LitheTheme.tertiaryText)
         }
     }
@@ -391,35 +391,40 @@ private struct AgentDetailView: View {
     private func preflightRow(_ check: AgentPreflightCheck) -> some View {
         let isExpanded = expanded.contains(check.id) || check.status != .pass
         return VStack(alignment: .leading, spacing: 6) {
-            Button {
-                if expanded.contains(check.id) { expanded.remove(check.id) } else { expanded.insert(check.id) }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.tertiaryText)
-                        .frame(width: 10)
-                    Text(check.title)
-                        .font(.system(size: 12, weight: .medium))
-                        .lineLimit(1)
-                    Spacer()
-                    AgentStatusBadge(status: check.status)
+            HStack(spacing: 8) {
+                Button {
+                    if expanded.contains(check.id) { expanded.remove(check.id) } else { expanded.insert(check.id) }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                            .font(LitheTheme.uiFont(size: 9, weight: .semibold))
+                            .foregroundStyle(LitheTheme.tertiaryText)
+                            .frame(width: 10)
+                        Text(check.title)
+                            .font(LitheTheme.uiFont(size: 12, weight: .medium))
+                            .lineLimit(1)
+                        Spacer()
+                        AgentStatusBadge(status: check.status)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .contentShape(Rectangle())
+                .buttonStyle(.litheNoPress)
+                .lithePointer()
+                if check.id == "cli", let fix = check.fix, !isBusy {
+                    fixButton(fix)
+                }
             }
-            .buttonStyle(.litheNoPress)
-            .lithePointer()
             if isExpanded {
                 HStack(alignment: .top, spacing: 8) {
                     Text(check.message)
-                        .font(.system(size: 11, design: check.status == .pass ? .monospaced : .default))
+                        .font(LitheTheme.uiFont(size: 11, design: check.status == .pass ? .monospaced : .default))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .textSelection(.enabled)
                         .lineLimit(check.id == "cli" ? nil : 3)
                         .truncationMode(.middle)
                         .fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 0)
-                    if let fix = check.fix, !isBusy {
+                    if check.id != "cli", let fix = check.fix, !isBusy {
                         fixButton(fix)
                     }
                 }
@@ -449,6 +454,7 @@ private struct AgentDetailView: View {
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
         case .updateCli:
             Button("Update") { feature.installCli(agent.id) }
+                .accessibilityIdentifier("agent-cli-update-\(agent.id)")
                 .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 8, height: 22, fontSize: 11))
                 .disabled(feature.busyAgentID != nil)
                 .help(agent.cli?.installation?.updateHint ?? agent.cli?.installHint ?? "")
@@ -473,7 +479,7 @@ private struct AgentStatusBadge: View {
         case .fail: ("FAIL", LitheTheme.error)
         }
         Text(text)
-            .font(.system(size: 9.5, weight: .bold))
+            .font(LitheTheme.uiFont(size: 9.5, weight: .bold))
             .foregroundStyle(color)
     }
 }
@@ -484,7 +490,7 @@ struct AgentBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 10, weight: .semibold))
+            .font(LitheTheme.uiFont(size: 10, weight: .semibold))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .foregroundStyle(color)
@@ -501,9 +507,9 @@ private struct CustomAgentDetailView: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "terminal")
-                .font(.system(size: 14, weight: .medium))
+                .font(LitheTheme.uiFont(size: 14, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
-            Text("Custom Agent").font(.system(size: 14, weight: .semibold))
+            Text("Custom Agent").font(LitheTheme.uiFont(size: 14, weight: .semibold))
             AgentBadge(text: "Custom", color: LitheTheme.secondaryText)
             Spacer()
         }
@@ -511,17 +517,17 @@ private struct CustomAgentDetailView: View {
         AgentSettingsCard(title: "Launch", systemImage: "play") {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Agent executable")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextField("Agent executable", text: $settings.agentCommand)
                     .litheSettingsTextField()
             }
             VStack(alignment: .leading, spacing: 4) {
                 Text("Arguments (one per line)")
-                    .font(.system(size: 11.5))
+                    .font(LitheTheme.uiFont(size: 11.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                 TextEditor(text: $settings.agentArguments)
-                    .font(.system(size: 12, design: .monospaced))
+                    .font(LitheTheme.uiFont(size: 12, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .padding(4)
                     .frame(height: 52)
@@ -551,9 +557,9 @@ struct AgentSettingsCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 12, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
-                Text(title).font(.system(size: 13, weight: .semibold))
+                Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
                 if let (text, color) = badge {
                     AgentBadge(text: text, color: color)
                 }
@@ -588,6 +594,8 @@ private struct AgentCliUpdateOutcomeView: View {
             Label(String(format: String(localized: "CLI updated to %@"), result.cliVersion),
                   systemImage: "checkmark.circle.fill")
                 .foregroundStyle(LitheTheme.success)
+            Text("Reconnect this Agent to refresh its model list.")
+                .foregroundStyle(LitheTheme.secondaryText)
             if let warning = result.updaterWarning {
                 Text("The installer reported an error, but the new CLI version was verified.")
                     .foregroundStyle(LitheTheme.warning)
@@ -628,7 +636,7 @@ private struct AgentInstallProgressView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(title).font(.system(size: 12))
+                    Text(title).font(LitheTheme.uiFont(size: 12))
                     Spacer()
                     Button("Cancel") { feature.cancelOperation() }
                         .buttonStyle(LitheSecondaryButtonStyle(horizontalPadding: 10, height: 24, fontSize: 11.5))
@@ -648,7 +656,7 @@ private struct AgentInstallProgressView: View {
                         .foregroundStyle(LitheTheme.warning)
                 }
             }
-            .font(.system(size: 11))
+            .font(LitheTheme.uiFont(size: 11))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(10)
             .background(LitheTheme.accent.opacity(0.1), in: RoundedRectangle(cornerRadius: 8))

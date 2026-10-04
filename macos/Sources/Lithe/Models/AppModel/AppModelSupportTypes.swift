@@ -69,6 +69,8 @@ struct WorkbenchNotification: Identifiable, Equatable {
     let message: String
     let createdAt: Date
     var isRead: Bool
+    /// Transient overflow attached to this balloon; history retains each message.
+    var collapsedCount = 0
 
     init(
         id: UUID = UUID(),

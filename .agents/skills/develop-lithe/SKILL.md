@@ -201,6 +201,132 @@ the existing stack can reasonably avoid.
 - Keep platform-specific types from leaking through shared or application
   interfaces.
 
+### macOS shared frontend controls
+
+- The approved visual baseline is the shared style already used by the Git Log
+  Branch/User/Date/Paths dropdowns, the settings-window dropdowns, and the
+  Project/Dependencies dropdown in the Project sidebar. The top-bar project
+  switcher is a consumer of that style, never its visual reference.
+- Use exactly these entry points and owners:
+
+  | Purpose | Entry point | Owning source |
+  | --- | --- | --- |
+  | Action dropdowns, checked actions, toggles and submenus | `LitheMenu` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Native product right-click menus | `litheContextMenu` / `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Searchable selectors and custom popup content | `litheDropdown(isPresented:opensUpward:content:)` / `LitheDropdownPopover` | `macos/Sources/Lithe/Views/Components/LitheDropdown.swift` |
+  | Value selection, including settings forms | `LitheSettingsSelect` | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Action/custom dropdown windows, placement and dismissal | `LitheContextMenuPresenter` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Value-select popup window and keyboard selection | `LitheSettingsSelectPopupPresenter` (private, through `LitheSettingsSelect`) | `macos/Sources/Lithe/Views/Components/LitheSettingsControls.swift` |
+  | Monaco/WebKit editor context menus (existing resolved actions only) | `installNativeContextMenu` → `MonacoEditorContextMenu` → `LitheContextMenuPresenter` | `macos/EditorFrontend/context-menu.ts` / `macos/Sources/Lithe/Views/Editor/MonacoEditorContextMenu.swift` |
+  | Shared row metrics and highlight | `LitheDropdownMetrics` / `LitheDropdownRowStyle` | `macos/Sources/Lithe/Views/Components/LitheContextMenu.swift` |
+  | Shared outer background, 8pt radius, border and clipping | `litheContextMenuSurface` | `macos/Sources/Lithe/Theme/LitheTheme.swift` |
+
+  These are interaction entry points into one visual system. Callers supply
+  content, selection and actions; they must not define another dropdown
+  background, border, corner radius, row metrics or opening animation.
+- Apply these constraints only where an existing shared owner covers the control.
+  Check the corresponding IDEA Community action/control/theme source before
+  changing that owner; record the source path and revision in its owning Note.
+  Screenshots help verify the result, but do not justify guessing geometry or
+  adding IDEA functionality that Lithe does not have. A missing shared control
+  is not permission to introduce another visual system as part of a style fix.
+- When adding or changing a product dropdown, do not use SwiftUI `Menu`,
+  `Picker` with `.menu` style, SwiftUI `.popover`, `NSPopover`, or `NSPopUpButton`
+  as its presentation. Shared dropdown panels use `animationBehavior = .none`:
+  open directly without the system popup/bounce animation or a spring/scale transition.
+- Anchor toolbar dropdowns to the triggering control's bottom-left edge, not
+  the pointer position. Preserve screen-edge clamping, keyboard navigation,
+  selected state, outside-click dismissal and focus behavior.
+  The main-toolbar Project/Branch switches anchor their full toolbar slot,
+  leaving its existing margin below the painted button. Use the shared width
+  bounds in `LitheDropdownMetrics`; Project measures content width and Branch
+  uses the Community New UI 375pt baseline. Do not copy the top-bar Project
+  switcher's previous fixed width or create another search-field style:
+  searchable popup inputs use `LitheSearchTextField` + `litheSearchField` in
+  `macos/Sources/Lithe/Theme/LitheTheme.swift`, as Git Log does.
+  Width is role-specific, not globally equal: action menus measure localized
+  titles, icons, shortcuts and checks through the presenter; settings selectors
+  retain their shared trigger/content measurement. Do not add per-caller magic
+  widths or offsets. Submenus follow their visible trigger row, including scroll
+  and separators; only the shared presenter handles screen-edge adjustments.
+  Main-toolbar Project/Branch triggers retain their normal hover background
+  while their popup is open, using `litheRowHover` with
+  `activeBackground: LitheTheme.hoverBackground`. Opening does not apply a blue
+  selection or a new pressed color; closing releases this retained hover state.
+  This trigger rule does not change menu-row selection or checked-value state.
+- Monaco editor context menus must also use the native shared presenter.
+  Preserve Monaco's resolved actions, order, context keys, disabled states,
+  shortcuts and action runner; do not invent IDEA-only functionality or duplicate
+  the shared style in web CSS. Use only mapped IDEA SVG icons at their original
+  16pt size, with original colors and dark/light variants; an unassigned action
+  keeps an empty icon slot. The macOS adapter hooks the pinned Monaco 0.55.1
+  context-menu renderer after upstream menu resolution; verify the real WebKit
+  probe whenever changing this hook or upgrading Monaco.
+- Product menu/dropdown entry points use the shared routes. Native
+  SwiftUI `Picker` is allowed only for explicit `.segmented` controls, which
+  have no dropdown. `ContextMenuCoverageTests` enforces these restrictions.
+  System dialogs, the macOS application menu, editor completion/caret popups
+  and hover documentation are separate interactions; this rule does not
+  replace them with product dropdowns.
+- For search inputs use `LitheSearchTextField` and `litheSearchField`; preserve
+  native IME composition and the I-beam cursor before focus. Do not patch each
+  feature's placeholder, border or hover cursor separately.
+  Their owner is `macos/Sources/Lithe/Theme/LitheTheme.swift`; read its metrics
+  rather than copying height, inset, radius, font, placeholder or focus colors.
+  A binding that is still empty during marked text must not restore the prompt.
+  Multiline commit text keeps `CommitMessageEditor` in
+  `macos/Sources/Lithe/Views/Git/CommitMessageEditor.swift`; do not substitute a
+  search field or duplicate its native composition/undo logic.
+- Toolbar icons use `LitheIDEAIcon` in
+  `macos/Sources/Lithe/Theme/LitheIcons.swift` and the already approved SVGs in
+  `macos/Resources/IDEAIcons`. Preserve original geometry, stroke/fill and
+  dark/light variants; use an action's source-assigned icon, not a guessed
+  SF Symbol or a newly drawn replacement. Do not scale or overlay glyphs to
+  simulate heavier strokes. An unassigned menu action retains an empty slot.
+  Standard tool-window toolbar buttons use `litheToolbarIconButton` /
+  `LitheIconButtonStyle` in `LitheTheme.swift`, including its disabled and hover
+  feedback and default arrow cursor. Its 22pt hit area is not a rule for every
+  button: main-toolbar switches and other existing controls retain their own
+  shared metrics. Pointer and I-beam behavior are explicit control semantics.
+- Tree rows use `litheTreeRow` and `LitheTheme.Tree` in `LitheTheme.swift` for
+  the existing single-line tree style: font, row height, hover and focused versus
+  inactive selection. Read shared indentation/icon metrics; do not add local
+  row padding, selection colors or per-row separator lines. Preserve disclosure,
+  multiselect, context actions and accessibility. Native trees keep their
+  existing renderer and consume the same tokens; do not replace them with
+  SwiftUI rows. Multiline project-menu entries, tables and commit graph rows
+  keep their own existing shared renderer/metrics rather than using tree rows.
+- Typography uses `uiFont` / `uiNSFont` for ordinary UI and `editorFont` /
+  `codeFont` / monospaced `uiFont` for code and existing monospaced presentations,
+  all owned by `macos/Sources/Lithe/Theme/LitheTheme.swift`. Select the existing
+  bundled real face (Inter or JetBrains Mono); do not hardcode a new font family,
+  use synthetic weight on an already selected face, or force every label to the
+  same size/weight. Control metrics own size and emphasis. Project initials use
+  `ProjectAvatarBadge` in
+  `macos/Sources/Lithe/Views/Workspace/ProjectIdentityAppearance.swift`, following
+  IDEA `AvatarUtils` New UI's Mono DemiBold rather than ordinary UI Bold.
+  System window decorations/dialogs retain platform fonts. Monaco loads its
+  existing bundled code font and remeasures after loading; no runtime download
+  or write into bundled resources is allowed.
+
+- Native product scrollbars use `litheScrollViewChrome` → `LitheScrollBarStyle`
+  in `macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift`.
+  Diff uses its editor role through `DiffStripeScroller` / `LitheScrollBarPaint`;
+  callers retain scroll actions and proportions, not local thumb/rail colors.
+  Read `.agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md`
+  before changing that owner; editor overrides and ordinary product colors are distinct.
+
+When changing these shared owners, check their existing callers and run the
+affected native appearance/behavior tests in dark and light themes. Relevant
+checks are `ContextMenuCoverageTests`, `SettingsSelectPopupGeometryTests`,
+`LitheSearchFieldStyleTests`, `LitheTreeRowStyleTests`, `BundledUIFontTests` and
+`WorkbenchRenderingSafetyTests`; choose the affected suites, not unrelated
+full-platform work. Do not add exceptions to coverage checks or mark full
+workbench visual validation complete merely because a component test passes.
+
+The decision and owning components are recorded in
+`.agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md`.
+
 ### Rust
 
 - Run `cargo fmt` and follow existing crate and module conventions.

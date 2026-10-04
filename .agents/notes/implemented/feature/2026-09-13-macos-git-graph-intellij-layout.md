@@ -60,10 +60,152 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
   1,000 行，端点范围 250 行；跨度 ≥ 30 行时端点附近仍有方向箭头。
   "长边收束"只隐藏中间行的边本身，不删除中间行的其他提交，也不做
   IDEA 的"折叠一整段线性提交"功能。
-- **渲染尺寸和合并提交文字层次复刻 IDEA**：22pt 行高、16pt 列距、
-  8pt 节点直径、1.5pt 线宽；两个及以上父节点的合并提交标题使用
-  `VersionControl.Log.Commit.unmatchedForeground`，以父节点数量而非
+- **渲染尺寸和合并提交文字层次复刻 IDEA**：New UI 普通密度使用
+  `JBUI.CurrentTheme.VersionControl.Log` 的至少 26pt 行高，并取字体 ascent、descent、leading 的整数度量加 7pt 内边距的较大值；`PaintParameters`
+  的 22pt 是缩放基准，16pt 列距、8pt 节点直径、1.5pt 线宽及 2pt
+  图文间距均乘以 `26 / 22`，绘制与箭头命中共用同一份几何数据。
+  提交文字使用 13pt，引用文字按 `LabelPainter` 使用 12pt 且不绘制旧版
+  灰色圆角标签；焦点/失焦选中色复用共享树行主题，选中覆盖 hover。
+  深色 hover 按 `VcsLogGraphTable.getHoveredBackgroundColor` 与
+  `ColorUtil.mix` 将白色和当前背景以 18/255、237/255 混合，不能把
+  `#FFFFFFED` 直接当作高不透明度覆盖层。两个及以上父节点的合并提交在未选中时，标题、作者和日期统一使用
+  `VersionControl.Log.Commit.unmatchedForeground`（深色 `#6F737A`，浅色 `#818594`）；
+  选中后恢复主文字色，对齐 `MergeCommitsHighlighter`。以父节点数量而非
   标题是否以 "Merge" 开头判断是否为合并提交。
+
+### 当前分支底色与紧凑引用标签
+
+以 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`CurrentBranchHighlighter`、`GitRefManager.groupForTable`、`SimpleRefGroup`、
+`LabelPainter`、`LabelIcon/TagPainter` 和 Islands 主题为准。深蓝底色表示当前
+分支可到达的提交，包含所有合并父节点，不按图谱列、连续行块或提交标题猜测。
+深/浅背景为 `#1D2336` / `#EDF3FF`；选中行优先，hover 在当前底色上叠加。
+单独过滤 HEAD 或当前分支时不再重复强调；没有当前本地分支时不着色。
+
+祖先集合在数据刷新任务中生成，绘制和拖动不读取 Git。当前只遍历已加载图谱，
+因此缺失的历史不能推断为当前分支成员；完整仓库索引成熟后可扩展同一数据入口。
+不能在原生 draw 或逐行 body 中运行 `git branch --contains`。
+
+提交标签默认显示，采用 IDEA 默认的紧凑模式、右对齐及不显示 tag 名称规则。
+同一提交上的本地分支和其上游合成 `origin & main`，没有显式上游时允许同名
+远程分支合并；当前分支优先，其余名称复用已导入的自然排序规则。HEAD 以黄色
+图标加入分组，分离头指针保留 HEAD 文字。每种引用类型最多两个叠加图标；
+本地绿、远程紫、HEAD 黄、tag 灰，均使用 Islands 明暗专用颜色。
+
+名字超过 22 个字符且空间不足时，先将首段路径缩成 `..`，再按字体宽度省略；
+22 是上游保留长度下限，不是始终截到 22。原始引用名不改写，悬停显示组内全部
+完整名称。整张原生提交表只注册一个可见范围的 AppKit tooltip 区域，显示时再
+按行和标签范围命中，避免给每条提交创建 SwiftUI tooltip/几何覆盖层。
+`GitGraphReferenceGroup` 是显示值，不改变 Git 引用和图谱排序的业务模型。
+
+`GitGraphLayoutTests.currentBranchMembership` 覆盖交错分支、合并父节点及缺失历史；
+`GitGraphInteractionTests.referenceGroups/referenceHoverAndCurrentBranchColor` 验证
+名称、堆叠类型、省略后原名和深浅主题选中覆盖。
+
+Git 工具窗的活动态必须双向跟随工具窗、提交列表、关键词、分支和路径筛选
+的当前焦点；全部失焦时清除活动态，不能只在获得焦点时置为 true。视图挂载
+只恢复显示，不请求 first responder（接收键盘输入的控件），避免打断编辑器
+输入；只有显式用户操作才能请求焦点。验证时用键盘从这些控件切回编辑器，
+并检查隐藏后重新显示 Git 不会抢走编辑器焦点。
+
+标题起点沿用 `GraphCommitCellUtil` 的缩放列距与图文间距，并计入
+`SimpleColoredComponent` 的 2pt 左内边距。为对齐用户给出的六列参考截图，
+Lithe 为标题预留至少六列；更密集的行可以继续扩宽。这是 Lithe 的显示选择：
+上游按推荐图宽取最多六列，并不强制所有仓库至少六列。仅扩大文字预留区，
+不改变节点、边、图谱路由或箭头命中位置。
+
+图谱绘制继续按行高缩放，但最终尺寸按 UI 基准提交
+`c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的 `SimpleGraphCellPainter.MyPainter`
+和 `PaintUtil.alignToInt` 对齐屏幕物理像素（`FLOOR` / `ODD`，向下取奇数像素）。
+此前直接绘制浮点缩放值，导致 Retina 2×、26pt 行高时圆点约 9.45pt、线宽约
+1.77pt；对齐后为 8.5pt 圆点和 1.5pt 连线/箭头描边。尺寸从当前绘制上下文的
+缩放系数计算，不能将 Retina 数值写死，否则 1× 屏幕或切换屏幕时会失配。
+
+`GitGraphGeometry.PaintMetrics` 同时提供绘制和箭头命中坐标。列距、圆心、
+圆点半径及终止箭头留白均使用对齐后的值；箭头两侧仍遵循 0.3 × 行高的长度
+与 `sqrt(0.7)` / `sqrt(0.3)` 的旋转公式。逻辑图宽、标题预留和图谱拓扑保持不变。
+对齐可能让斜向箭头尖端跨过逻辑行边界半个点，因此命中检查覆盖相邻行及尖端
+附近一个物理像素；屏幕 backing scale 变化只重绘，不重新建图。
+
+Git Log 时间列保留 Inter 13 regular，启用字体的等宽数字特性，避免 `11`、`55`
+等数字组合改变文本总宽度。按应用语言而非系统语言选择格式：英文为
+`yyyy/MM/dd hh:mm AM/PM`，中文为 `yyyy/MM/dd HH:mm`。英文 AM/PM 使用固定
+宽度区域，数字块和后缀分别对齐；列表的 SwiftUI/AppKit 两条路径及提交详情
+复用 `GitLogDatePresentation`，既有 `GitLogQuery.parseCommitDate` 负责解析，
+不改变提交时间、时区含义、历史排序和筛选。原生日期显示按原始日期缓存，
+更新行或切换语言时失效，滚动绘制不重复解析可见行。
+AppKit 重绘区域先与视图 bounds 相交再换算行号，避免 SwiftUI 原生截图传入
+无限重绘区域时发生浮点转整数越界；位图检查覆盖此路径。
+
+提交标题、作者和日期使用 Inter 13 Normal；引用标签使用 12pt。文字绘制复用
+CoreText 的单行布局和省略号处理，采用 `SimpleColoredComponent.getTextBaseLine`
+的整数基线公式，并计入 JetBrains Runtime 的 leading。绘制和截断共用同一字型，
+每个单元格裁剪后绘制，避免长标题覆盖其他列；按 SimpleColoredComponent 默认关闭分数度量的规则，
+仅在 Git Log 的绘制上下文关闭子像素字形定位，不对字形施加缩放或描边来模拟粗细。
+JVM 与 CoreText 的栅格化器不同，因此遵循相同度量规则不代表像素级完全相同。
+
+
+右侧文件树复用 `LitheTheme.Tree` 的 24pt 行高、19pt 层级缩进、16pt 图标、
+常规文字与选中/悬停色。对齐 `ChangesBrowserFileNode` / `ChangesBrowserNodeRenderer`：
+文件类型图标由已有 `LitheIcons` 目录取得，文件名用 `IslandSchemeDark` /
+`expUI_lightScheme` 的 FileStatus 色显示修改、新增、删除或重命名；不再显示
+状态字母、逐行横线和工具栏内重复总计数。保留原生横向滚动、裁剪文字展开、
+内容宽度缓存以及点击文件打开 diff，拖动只改变可视区，不重建每行图标。
+
+提交详情按 `CommitDetailsPanel` 的 14pt 外边距与 10pt 内部间距排版：
+标题使用默认编辑器字体的 bold，作者/邮箱/时间使用 13pt 普通界面字体，
+在同一段文字中换行；引用复用图谱标签绘制，不用原始 decoration 字符串。
+详情可滚动，避免长标题被两行限制裁掉。文件树与详情之间只保留共享 1pt
+分隔线，悬停和拖动不高亮。
+
+左侧分支栏的 180pt 限制不来自 `BranchesInGitLogUiFactoryProvider` 的
+`OnePixelSplitter`；上游把独立工具栏放在可调整树区之外，并按子组件尺寸限制。
+Lithe 删除这处专用限制，使用工作区已有 30pt 面板下限；36pt 竖栏不计入树区，
+且继续保留分隔条的命中区、裁剪、拖动结束更新宽度及收缩前视图身份。
+这遵循本项目共享窄面板规则，不宣称 IDEA 在所有环境中的最小树宽均为 30pt。
+
+### 连续拖动时保持原生可见区域与数据计算独立
+
+Git Log 的生产路径使用已有 `GitGraphScrollView` 的原生滚动容器和绘制表面。
+分隔条改变可见区域的高度，提交数据和图谱快照继续保留；绘制仅处理脏矩形中的
+行，不为每条提交重新布置 SwiftUI 控件。这个边界参照 UI 基准提交的
+[VcsLogGraphTable](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/vcs-log/impl/src/com/intellij/vcs/log/ui/table/VcsLogGraphTable.java)
+与工具窗口外层实际使用的
+[ThreeComponentsSplitter](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-api/src/com/intellij/openapi/ui/ThreeComponentsSplitter.kt)：
+鼠标坐标转到固定容器、限制尺寸，再对现有组件设置边界；仅边界变化时才
+让子组件重新布局。面板尺寸调整与日志数据更新分开。
+底部工具窗口标题栏的入口则是
+[ToolWindowContentUi.initMouseListeners](https://github.com/JetBrains/intellij-community/blob/c7f91397daa3a961b4e78bc634fe467a0a7d9ade/platform/platform-impl/src/com/intellij/openapi/wm/impl/content/ToolWindowContentUi.java)：
+按下时保存屏幕坐标及初始高度，拖动时用屏幕 Y 位移修改同一个 splitter 的
+末尾面板高度。它和分隔条的坐标入口不同，但共用现有面板边界布局。
+
+Lithe 的共享分隔容器在宽高确定时直接向子面板传入最终矩形，避免堆栈布局
+在每次拖动中询问最小、理想及最大尺寸。布局仍由 SwiftUI 管理，不移走焦点、
+滚动代理和环境值；这只是采用上游的确定边界布局原则，不能将两种 UI 框架的
+实现或耗时视为相同。主队列异步合并只合并交付前到达的事件，不保证每个显示
+刷新周期只交付一次，也不能代替布局成本验证。
+
+原生视口的 `layout` 负责同步文档宽度和高度，因此恢复尺寸不依赖一次新的数据
+刷新。多选、Shift/Command 点击、上下键、焦点选中色、右键操作、箭头跳转、
+引用图标、分页与辅助功能继续使用已有动作。重复跳转到已选提交使用导航请求
+标识，不能只比较所选 hash。辅助功能访问时才生成可操作的行和箭头节点，
+不能在每次拖动时创建整棵行视图。
+
+Git Log 分支内容和右侧文件树在尺寸读取器外构建；仅改变高度时不重建文件树。
+上方 Diff 的全文宽度测量、折叠规划及双栏布局同样在尺寸读取器外生成，再传给
+共享 `DiffSplitPaneView`。Diff 两侧使用 `LazyVStack` 按可见区域创建行，避免
+普通 `VStack` 在拖动时布置整份文件。行内容在共享双栏视图自己的高度读取器
+外构建；即使远距离滚动已创建中间行，后续高度变化也不重新生成全部行。
+窗口尺寸仅影响最终可见宽高；数据、折叠或差异选择
+变化时仍会重新计算。三个 Diff 调用入口都遵守这个规则，不能只优化 Git Log
+截图对应的一条路径。
+
+SwiftUI 第一次远距离滚动时仍可能测量中间行，测试已观察到这个行为；本次
+约束是初始可见区域和随后的拖动不能反复构建整份 Diff。若以后远距离跳转的
+成本成为问题，再评估原生视口绘制，不扩大本次拖动修复的范围。
+
+局部绘制对照计时只用于定位成本，不作为固定帧率承诺，也不以机器相关的耗时
+阈值让单元测试失败。最终流畅度仍需在目标工作区连续拖动确认。
 
 ## 考虑过的备选方案
 
@@ -104,6 +246,21 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
 
 ## 验证
 
+`GitGraphInteractionTests.continuousViewportResize` 连续调整原生视口 80 次，
+检查文档和子视图身份、文档宽度、滚动位置、多选、修饰键、上下键及重复跳转。
+`dragGitLogWithDiff` 用真实共享分隔条事件调整上方 1,200 行 Diff 和下方
+300 条提交的布局，检查收缩和恢复以及原生文档身份。
+`splitDiffCreatesViewportRows` 检查 1,200 行 Diff 只创建视口附近的行，并能滚动到
+末行，随后改变高度时也不重新生成全部行；`viewportResizeComparison` 输出同机旧 SwiftUI 列表和原生列表各 30 次调整与
+绘制的耗时，不设置机器相关时间门槛。
+
+
+`GitGraphInteractionTests.titleGutter` 检查六列标题预留与复杂图谱扩宽；
+`mergeColumnsRenderTogether` 实际渲染 SwiftUI/AppKit 两条路径，检查合并行
+标题、作者、日期在选中与未选中时的颜色；`GitCommitFileTreeLayoutTests` 检查
+明暗主题下修改文件名的实际像素色、无逐行分隔线，以及可视宽度变化后的滚动范围。
+
+
 - `./scripts/build-macos.sh`
 - `./scripts/verify-git-graph.sh`
 - `./scripts/verify-service-boundaries.sh`
@@ -133,6 +290,8 @@ master 分支或截图颜色，否则"是否与 IDEA 一致"无法被验证或�
 - `macos/Sources/Lithe/Views/Git/GitGraphGeometry.swift`
 - `macos/Sources/Lithe/Views/Git/GitGraphView.swift`
 - `macos/Sources/Lithe/Views/Git/GitLogView.swift`
+- `macos/Sources/Lithe/Views/Git/GitCommitFileTreeView.swift`
+- `macos/Tests/LitheTests/GitCommitFileTreeLayoutTests.swift`
 - `rust/lithe-core/src/git/history.rs`
 - `macos/Sources/Lithe/Core/Rust/RustGitOperations.swift`
 - `macos/Tests/LitheGitModuleTests/Fixtures/GitGraphIDEA/`

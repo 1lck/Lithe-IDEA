@@ -243,20 +243,7 @@ private struct ActiveSessionChrome: View {
                 ProjectLocalHistoryView(request: request)
                     .environmentObject(session)
             }
-            .confirmationDialog(
-                "Close Running Terminal?",
-                isPresented: terminalCloseConfirmationPresented,
-                titleVisibility: .visible
-            ) {
-                Button("Close Terminal", role: .destructive) {
-                    session.confirmTerminalClose()
-                }
-                Button("Cancel", role: .cancel) {
-                    session.cancelTerminalClose()
-                }
-            } message: {
-                Text("Closing this terminal will stop its shell and any running command.")
-            }
+
     }
 
     private var windowHandler: any ProjectWindowSessionHandling {
@@ -284,17 +271,6 @@ private struct ActiveSessionChrome: View {
         Binding(
             get: { session.projectLocalHistoryRequest },
             set: { session.projectLocalHistoryRequest = $0 }
-        )
-    }
-
-    private var terminalCloseConfirmationPresented: Binding<Bool> {
-        Binding(
-            get: { session.pendingTerminalCloseSessionID != nil },
-            set: { isPresented in
-                if !isPresented {
-                    session.cancelTerminalClose()
-                }
-            }
         )
     }
 
@@ -365,7 +341,7 @@ enum LitheWindowLayout: Equatable {
     var minimumContentSize: NSSize {
         switch self {
         case .welcome: Self.welcomeContentSize
-        case .workspace: NSSize(width: 980, height: 640)
+        case .workspace: .zero
         case .standalone: Self.standaloneMinimumContentSize
         }
     }

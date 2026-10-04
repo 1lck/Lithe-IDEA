@@ -137,6 +137,11 @@ export interface MultiFileDiff {
   initiallySelectedFileKey?: string;
   /** Hides the changed-files navigator, e.g. for a single-file commit preview. */
   hideFileList?: boolean;
+  /**
+   * Opened from the commit (local changes) panel, so the tab is titled like IntelliJ's commit
+   * diff preview ("Commit: <file>"); other working-tree diffs keep the generic title.
+   */
+  commitPreview?: boolean;
   /** Working-tree refresh identities keyed by file key. */
   workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
   isLoading?: boolean;

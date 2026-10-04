@@ -15,3 +15,8 @@ calculation. Git traversal follows GitLogProvider date order.
 Swift adaptation and native integration: Lithe contributors.
 See .agents/notes/implemented/feature/2026-09-13-macos-git-graph-intellij-layout.md
 for source links and behavior.
+
+Reference presentation and current-branch highlighting follow Community
+c7f91397daa3a961b4e78bc634fe467a0a7d9ade: GitRefManager, SimpleRefGroup,
+LabelPainter, VcsLogUiUtil.shortenTextToFit, LabelIcon, TagPainter,
+CurrentBranchHighlighter, and ManyIslandsDark/ManyIslandsLight theme colors.

@@ -5,43 +5,48 @@ import LitheGitModule
 /// One-sided changes therefore never manufacture blank source rows; their
 /// height difference is explained by the curved transition in the gutter.
 struct DiffSplitPaneView<RowOverlay: View>: View {
-    let displayRows: [DiffDisplayRow]
-    let kinds: [DiffRowKind]
+    let layout: DiffSplitLayout
     let fileExtension: String
     let contentWidth: CGFloat
     let viewportWidth: CGFloat
-    let minimumHeight: CGFloat
     let highlightsWords: Bool
+    let showsChangeMarkers: Bool
+    let header: ((CGFloat) -> AnyView)?
     let selectedRowIDs: Set<DiffRowID>
     let searchMatchIDs: Set<DiffRowID>
     let currentSearchMatchID: DiffRowID?
     let onExpand: (DiffCollapsedRegion) -> Void
     let rowOverlay: (DiffRow, DiffSide) -> RowOverlay
 
+    @StateObject private var synchronization = DiffScrollSynchronization()
     @State private var leftPaneWidth: CGFloat?
+    @StateObject private var leftText = DiffNativeColumnState()
+    @StateObject private var rightText = DiffNativeColumnState()
     @State private var paneDragStart: CGFloat = 0
 
     init(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
+        layout: DiffSplitLayout? = nil,
         fileExtension: String,
         contentWidth: CGFloat,
         viewportWidth: CGFloat,
-        minimumHeight: CGFloat,
         highlightsWords: Bool = true,
+        showsChangeMarkers: Bool = true,
+        header: ((CGFloat) -> AnyView)? = nil,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
         currentSearchMatchID: DiffRowID? = nil,
         onExpand: @escaping (DiffCollapsedRegion) -> Void,
         @ViewBuilder rowOverlay: @escaping (DiffRow, DiffSide) -> RowOverlay
     ) {
-        self.displayRows = displayRows
-        self.kinds = kinds
+        self.layout = layout ?? DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
         self.fileExtension = fileExtension
         self.contentWidth = contentWidth
         self.viewportWidth = viewportWidth
-        self.minimumHeight = minimumHeight
         self.highlightsWords = highlightsWords
+        self.showsChangeMarkers = showsChangeMarkers
+        self.header = header
         self.selectedRowIDs = selectedRowIDs
         self.searchMatchIDs = searchMatchIDs
         self.currentSearchMatchID = currentSearchMatchID
@@ -50,158 +55,159 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
     }
 
     var body: some View {
-        let layout = DiffSplitLayout.plan(displayRows: displayRows, kinds: kinds)
-        let gutterWidth = DiffLayoutMetrics.centerGutterWidth
-        let availablePaneWidth = max(0, viewportWidth - gutterWidth)
-        let paneViewportWidth = max(
-            0,
-            min(availablePaneWidth, leftPaneWidth ?? availablePaneWidth / 2)
-        )
-        let rightPaneViewportWidth = max(0, availablePaneWidth - paneViewportWidth)
-        let paneContentWidth = max(
-            paneViewportWidth,
-            (contentWidth - gutterWidth) / 2
-        )
-        let height = max(layout.contentHeight, minimumHeight)
-
-        DiffHorizontalOffsetLayer(
-            viewportWidth: viewportWidth,
-            contentWidth: paneContentWidth,
-            height: height
-        ) { horizontalOffset in
-            ZStack(alignment: .topLeading) {
-                HStack(alignment: .top, spacing: 0) {
-                    sideViewport(
-                        layout.leftItems,
-                        side: .left,
-                        viewportWidth: paneViewportWidth,
-                        contentWidth: paneContentWidth,
-                        height: height,
-                        horizontalOffset: horizontalOffset
-                    )
-                    centerGutter
-                    sideViewport(
-                        layout.rightItems,
-                        side: .right,
-                        viewportWidth: rightPaneViewportWidth,
-                        contentWidth: max(
-                            rightPaneViewportWidth,
-                            contentWidth - gutterWidth - paneViewportWidth
-                        ),
-                        height: height,
-                        horizontalOffset: horizontalOffset
-                    )
+        synchronization.configure(layout)
+        let panes = DiffSplitWidths(width: viewportWidth, position: leftPaneWidth, gutterWidth: layout.lineNumberGutterWidth)
+        let leftStripeWidth = showsChangeMarkers ? min(LitheScrollBarStyle.editorThickness, panes.leftCode) : 0
+        let rightStripeWidth = showsChangeMarkers ? min(LitheScrollBarStyle.editorThickness, panes.rightCode) : 0
+        let paneViewportWidth = panes.leftCode
+        let rightPaneViewportWidth = panes.rightCode
+        // Code storage has a stable width. Resizing only changes its clipping rectangle.
+        let centerGutterWidth = layout.lineNumberGutterWidth * 2 + DiffLayoutMetrics.dividerWidth
+        let paneContentWidth = max(viewportWidth, (contentWidth - centerGutterWidth) / 2)
+        let leftColumn = sideColumn(layout.leftItems, side: .left, width: paneContentWidth, accessoryWidth: paneViewportWidth - leftStripeWidth, state: leftText)
+        let rightColumn = sideColumn(layout.rightItems, side: .right, width: paneContentWidth, accessoryWidth: rightPaneViewportWidth - rightStripeWidth, state: rightText)
+        let horizontalOverflow = max(0, (contentWidth - centerGutterWidth) / 2
+            - min(paneViewportWidth - leftStripeWidth, rightPaneViewportWidth - rightStripeWidth))
+        return VStack(spacing: 0) {
+            if let header { header(panes.position) }
+            GeometryReader { geometry in
+                let height = max(layout.contentHeight, geometry.size.height)
+                DiffHorizontalOffsetLayer(
+                    viewportWidth: viewportWidth,
+                    contentWidth: viewportWidth + horizontalOverflow
+                ) { horizontalOffset in
+                    ZStack(alignment: .topLeading) {
+                        HStack(alignment: .top, spacing: 0) {
+                            DiffErrorStripe(synchronization: synchronization, side: .left)
+                                .frame(width: leftStripeWidth, height: geometry.size.height)
+                            ScrollView(.vertical, showsIndicators: false) {
+                                HStack(alignment: .top, spacing: 0) {
+                                    sideViewport(leftColumn, viewportWidth: panes.leftCode - leftStripeWidth,
+                                        height: height, horizontalOffset: horizontalOffset)
+                                    lineNumbers(side: .left, state: leftText)
+                                        .frame(width: panes.leftNumbers, alignment: .trailing).clipped()
+                                }
+                                .background { DiffScrollAttachment(synchronization: synchronization, side: .left) }
+                            }.frame(width: panes.leftCode - leftStripeWidth + panes.leftNumbers)
+                            LitheTheme.Diff.background.frame(width: panes.divider)
+                            ScrollView(.vertical, showsIndicators: false) {
+                                HStack(alignment: .top, spacing: 0) {
+                                    lineNumbers(side: .right, state: rightText)
+                                        .frame(width: panes.rightNumbers, alignment: .leading).clipped()
+                                    sideViewport(rightColumn, viewportWidth: panes.rightCode - rightStripeWidth,
+                                        height: height, horizontalOffset: horizontalOffset)
+                                }
+                                .background { DiffScrollAttachment(synchronization: synchronization, side: .right) }
+                            }.frame(width: panes.rightNumbers + panes.rightCode - rightStripeWidth)
+                            DiffErrorStripe(synchronization: synchronization, side: .right)
+                                .frame(width: rightStripeWidth, height: geometry.size.height)
+                        }
+                        DiffTransitionOverlay(
+                            transitions: layout.transitions,
+                            leftX: panes.leftCode + panes.leftNumbers,
+                            dividerWidth: panes.divider,
+                            synchronization: synchronization
+                        ).frame(width: viewportWidth, height: geometry.size.height).allowsHitTesting(false)
+                    }
                 }
-
-                DiffTransitionOverlay(
-                    transitions: layout.transitions,
-                    contentWidth: viewportWidth,
-                    contentHeight: height
-                )
+                .overlay(alignment: .topLeading) {
+                    SplitHandleView(
+                        axis: .horizontal,
+                        showsIdleDivider: false,
+                        highlightsOnHover: false,
+                        onDragStarted: {
+                            paneDragStart = panes.position
+                        },
+                        onDragChanged: { translation in
+                            leftPaneWidth = min(max(paneDragStart + translation, 0), viewportWidth)
+                        },
+                        onDragEnded: { translation in
+                            leftPaneWidth = min(max(paneDragStart + translation, 0), viewportWidth)
+                        }
+                    )
+                    // Keep the entire native hit surface inside this viewer,
+                    // including at zero-width panes next to workbench splitters.
+                    .offset(x: min(max(panes.position, SplitHandleView.hitThickness / 2),
+                        max(SplitHandleView.hitThickness / 2, viewportWidth - SplitHandleView.hitThickness / 2))
+                        - SplitHandleView.thickness / 2)
+                    .frame(height: geometry.size.height)
+                }
+                .frame(width: viewportWidth, height: geometry.size.height, alignment: .topLeading)
+                .clipped()
             }
         }
-        .overlay(alignment: .topLeading) {
-            SplitHandleView(
-                axis: .horizontal,
-                showsIdleDivider: false,
-                onDragStarted: {
-                    paneDragStart = paneViewportWidth
-                },
-                onDragChanged: { translation in
-                    leftPaneWidth = min(
-                        max(paneDragStart + translation, 220),
-                        max(220, availablePaneWidth - 220)
-                    )
-                },
-                onDragEnded: { translation in
-                    leftPaneWidth = min(
-                        max(paneDragStart + translation, 220),
-                        max(220, availablePaneWidth - 220)
-                    )
-                }
-            )
-            .offset(x: paneViewportWidth + gutterWidth / 2 - SplitHandleView.thickness / 2)
-            .frame(height: minimumHeight)
-        }
-        .frame(width: viewportWidth, height: minimumHeight, alignment: .topLeading)
+        .frame(width: viewportWidth)
+        .clipped()
     }
 
-    private func sideViewport(
-        _ items: [DiffSplitLayout.Item],
-        side: DiffSide,
+    private func sideViewport<Column: View>(
+        _ column: Column,
         viewportWidth: CGFloat,
-        contentWidth: CGFloat,
         height: CGFloat,
         horizontalOffset: CGFloat
     ) -> some View {
-        sideColumn(items, side: side, width: contentWidth)
+        column
             .offset(x: -horizontalOffset)
             .frame(width: viewportWidth, height: height, alignment: .topLeading)
             .clipped()
-            .background(LitheTheme.editor)
+            .background(LitheTheme.Diff.background)
     }
 
-    private var centerGutter: some View {
-        LitheTheme.window
-            .overlay(alignment: .leading) {
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-            }
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(LitheTheme.divider).frame(width: 1)
-            }
-            .frame(width: DiffLayoutMetrics.centerGutterWidth)
-            .frame(maxHeight: .infinity)
+    private func lineNumbers(side: DiffSide,
+                             state: DiffNativeColumnState) -> some View {
+        DiffNativeLineNumbers(state: state, mirrored: side == .left)
+            .frame(width: layout.lineNumberGutterWidth)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .accessibilityLabel(side == .left ? "Original line numbers" : "Modified line numbers")
     }
 
-    private func sideColumn(
-        _ items: [DiffSplitLayout.Item],
-        side: DiffSide,
-        width: CGFloat
-    ) -> some View {
-        VStack(spacing: 0) {
-            ForEach(items) { item in
-                sideItem(item, side: side, width: width)
-            }
-        }
-        .frame(width: width, alignment: .topLeading)
+    private func sideColumn(_ items: [DiffSplitLayout.Item], side: DiffSide, width: CGFloat,
+                            accessoryWidth: CGFloat, state: DiffNativeColumnState) -> some View {
+        ZStack(alignment: .topLeading) {
+            DiffNativeCodeColumn(state: state, layoutIdentity: layout.identity, items: items,
+                side: side, fileExtension: fileExtension, highlightsWords: highlightsWords,
+                selectedRowIDs: selectedRowIDs, currentSearchMatchID: currentSearchMatchID)
+                .frame(width: width, height: layout.contentHeight)
+            // Retain existing fold/hunk actions and ScrollViewReader anchors. Normal
+            // rows are transparent hit-test-free geometry, not separate text editors.
+            LazyVStack(spacing: 0) {
+                ForEach(items) { item in
+                    if item.isScrollAnchor {
+                        sideAccessory(item, side: side, width: accessoryWidth).id(item.displayRow.layoutRow.id)
+                    } else {
+                        sideAccessory(item, side: side, width: accessoryWidth)
+                    }
+                }
+            }.frame(width: accessoryWidth, alignment: .leading)
+        }.frame(width: width, alignment: .topLeading)
     }
 
     @ViewBuilder
-    private func sideItem(
-        _ item: DiffSplitLayout.Item,
-        side: DiffSide,
-        width: CGFloat
-    ) -> some View {
-        switch item.displayRow {
-        case let .collapsed(region):
-            DiffCollapsedBandView(region: region, contentWidth: width) {
-                onExpand(region)
+    private func sideAccessory(_ item: DiffSplitLayout.Item, side: DiffSide, width: CGFloat) -> some View {
+        Group {
+            if case let .collapsed(region) = item.displayRow {
+                DiffCollapsedBandView(region: region, contentWidth: width) { onExpand(region) }
+            } else if case let .row(row, _) = item.displayRow {
+                if item.kind == .information {
+                    HStack(spacing: 8) {
+                        Image(systemName: "line.3.horizontal.decrease").font(LitheTheme.uiFont(size: 10))
+                        Text(row.left ?? "").font(LitheTheme.uiFont(size: 11.5, design: .monospaced)).lineLimit(1)
+                        Spacer()
+                    }
+                    .foregroundStyle(LitheTheme.diffInformationText).padding(.horizontal, 12)
+                    .frame(height: item.height)
+                    .background(LitheTheme.Diff.separator)
+                } else {
+                    Color.clear.allowsHitTesting(false)
+                }
             }
-
-        case let .row(row, _):
-            let cell = DiffSideRowView(
-                row: row,
-                kind: item.kind,
-                side: side,
-                fileExtension: fileExtension,
-                highlightsWords: highlightsWords,
-                isSelectedDifference: selectedRowIDs.contains(row.id),
-                isSearchMatch: searchMatchIDs.contains(row.id),
-                isCurrentSearchMatch: currentSearchMatchID == row.id
-            )
-            .equatable()
-            .frame(width: width)
+        }.frame(width: width, height: item.height)
             .overlay(alignment: .topTrailing) {
-                rowOverlay(row, side)
+                if case let .row(row, _) = item.displayRow { rowOverlay(row, side) }
             }
-
-            if item.isScrollAnchor {
-                cell.id(row.id)
-            } else {
-                cell
-            }
-        }
     }
+
+
 }
 
 /// Owns the high-frequency horizontal scroll state below the diff layout
@@ -210,7 +216,6 @@ struct DiffSplitPaneView<RowOverlay: View>: View {
 private struct DiffHorizontalOffsetLayer<Content: View>: View {
     let viewportWidth: CGFloat
     let contentWidth: CGFloat
-    let height: CGFloat
     let content: (CGFloat) -> Content
 
     @State private var horizontalOffset: CGFloat = 0
@@ -219,12 +224,10 @@ private struct DiffHorizontalOffsetLayer<Content: View>: View {
     init(
         viewportWidth: CGFloat,
         contentWidth: CGFloat,
-        height: CGFloat,
         @ViewBuilder content: @escaping (CGFloat) -> Content
     ) {
         self.viewportWidth = viewportWidth
         self.contentWidth = contentWidth
-        self.height = height
         self.content = content
     }
 
@@ -234,18 +237,13 @@ private struct DiffHorizontalOffsetLayer<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            ScrollView(.vertical) {
-                content(horizontalOffset)
-                    .frame(width: viewportWidth, height: height, alignment: .topLeading)
-                    .textSelection(.enabled)
-            }
-            .litheScrollViewChrome(hideHorizontal: true)
+            content(horizontalOffset)
 
             DiffHorizontalScroller(
                 offset: $horizontalOffset,
                 viewportWidth: viewportWidth,
                 contentWidth: contentWidth
-            )
+            ).frame(height: LitheScrollBarStyle.thickness)
         }
         .background {
             DiffHorizontalScrollWheelMonitor { delta in
@@ -274,11 +272,13 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
     init(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
+        layout: DiffSplitLayout? = nil,
         fileExtension: String,
         contentWidth: CGFloat,
         viewportWidth: CGFloat,
-        minimumHeight: CGFloat,
         highlightsWords: Bool = true,
+        showsChangeMarkers: Bool = true,
+        header: ((CGFloat) -> AnyView)? = nil,
         selectedRowIDs: Set<DiffRowID> = [],
         searchMatchIDs: Set<DiffRowID> = [],
         currentSearchMatchID: DiffRowID? = nil,
@@ -287,11 +287,13 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
         self.init(
             displayRows: displayRows,
             kinds: kinds,
+            layout: layout,
             fileExtension: fileExtension,
             contentWidth: contentWidth,
             viewportWidth: viewportWidth,
-            minimumHeight: minimumHeight,
             highlightsWords: highlightsWords,
+            showsChangeMarkers: showsChangeMarkers,
+            header: header,
             selectedRowIDs: selectedRowIDs,
             searchMatchIDs: searchMatchIDs,
             currentSearchMatchID: currentSearchMatchID,
@@ -301,282 +303,19 @@ extension DiffSplitPaneView where RowOverlay == EmptyView {
     }
 }
 
-private struct DiffSideRowView: View, Equatable {
-    let row: DiffRow
-    let kind: DiffRowKind
-    let side: DiffSide
-    let fileExtension: String
-    let highlightsWords: Bool
-    let isSelectedDifference: Bool
-    let isSearchMatch: Bool
-    let isCurrentSearchMatch: Bool
-
-    static func == (lhs: DiffSideRowView, rhs: DiffSideRowView) -> Bool {
-        let sameSide: Bool
-        switch (lhs.side, rhs.side) {
-        case (.left, .left), (.right, .right):
-            sameSide = true
-        default:
-            sameSide = false
-        }
-
-        return lhs.row.id == rhs.row.id
-            && lhs.row.oldLine == rhs.row.oldLine
-            && lhs.row.newLine == rhs.row.newLine
-            && lhs.row.left == rhs.row.left
-            && lhs.row.rightText == rhs.row.rightText
-            && lhs.row.kind == rhs.row.kind
-            && lhs.kind == rhs.kind
-            && sameSide
-            && lhs.fileExtension == rhs.fileExtension
-            && lhs.highlightsWords == rhs.highlightsWords
-            && lhs.isSelectedDifference == rhs.isSelectedDifference
-            && lhs.isSearchMatch == rhs.isSearchMatch
-            && lhs.isCurrentSearchMatch == rhs.isCurrentSearchMatch
-    }
-
-    var body: some View {
-        if kind == .information {
-            HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal.decrease")
-                    .font(.system(size: 10))
-                Text(row.left ?? "")
-                    .font(.system(size: 11.5, design: .monospaced))
-                    .lineLimit(1)
-                Spacer()
-            }
-            .foregroundStyle(LitheTheme.diffInformationText)
-            .padding(.horizontal, 12)
-            .frame(height: DiffLayoutMetrics.informationRowHeight)
-            .frame(maxWidth: .infinity)
-            .background(LitheTheme.diffInformationBackground)
-            .overlay(searchMatchOverlay)
-        } else {
-            HStack(spacing: 0) {
-                Text(lineNumber.map(String.init) ?? "")
-                    .font(.system(size: 10.5, design: .monospaced))
-                    .foregroundStyle(lineNumberColor)
-                    .frame(width: DiffLayoutMetrics.lineNumberColumnWidth, alignment: .trailing)
-                    .padding(.trailing, DiffLayoutMetrics.lineNumberTrailingPadding)
-                    .frame(maxHeight: .infinity)
-                    .background(LitheTheme.window.opacity(0.62))
-
-                Rectangle()
-                    .fill(changeMarkerColor)
-                    .frame(width: DiffLayoutMetrics.changeMarkerWidth)
-
-                Text(
-                    DiffSyntaxHighlighter.styled(
-                        text,
-                        comparing: otherText,
-                        fileExtension: fileExtension,
-                        side: side,
-                        highlightsWords: highlightsWords && kind == .changed
-                    )
-                )
-                .font(.system(size: DiffLayoutMetrics.textFontSize, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, DiffLayoutMetrics.textHorizontalPadding)
-            }
-            .frame(height: DiffLayoutMetrics.rowHeight)
-            .frame(maxWidth: .infinity)
-            .background(backgroundColor)
-            .overlay(alignment: .leading) {
-                if isSelectedDifference {
-                    Rectangle().fill(LitheTheme.accent).frame(width: 2)
-                }
-            }
-            .overlay(searchMatchOverlay)
-        }
-    }
-
-    private var text: String {
-        switch side {
-        case .left: row.left ?? ""
-        case .right: row.rightText ?? ""
-        }
-    }
-
-    private var otherText: String? {
-        switch side {
-        case .left: row.rightText
-        case .right: row.left
-        }
-    }
-
-    private var lineNumber: Int? {
-        switch side {
-        case .left: row.oldLine
-        case .right: row.newLine
-        }
-    }
-
-    private var backgroundColor: Color {
-        let selectionBoost = isSelectedDifference ? 0.04 : 0
-        let searchBoost = isSearchMatch ? 0.04 : 0
-        switch kind {
-        case .changed:
-            return side == .left
-                ? LitheTheme.error.opacity(0.22 + selectionBoost + searchBoost)
-                : LitheTheme.success.opacity(0.24 + selectionBoost + searchBoost)
-        case .removal where side == .left:
-            return LitheTheme.error.opacity(0.27 + selectionBoost + searchBoost)
-        case .addition where side == .right:
-            return LitheTheme.success.opacity(0.27 + selectionBoost + searchBoost)
-        default:
-            return .clear
-        }
-    }
-
-    private var changeMarkerColor: Color {
-        switch kind {
-        case .addition where side == .right:
-            return LitheTheme.success.opacity(0.72)
-        case .removal where side == .left:
-            return LitheTheme.error.opacity(0.72)
-        case .changed:
-            return side == .left
-                ? LitheTheme.error.opacity(0.64)
-                : LitheTheme.success.opacity(0.64)
-        default:
-            return .clear
-        }
-    }
-
-    private var lineNumberColor: Color {
-        switch kind {
-        case .addition where side == .right: LitheTheme.success.opacity(0.75)
-        case .removal where side == .left: LitheTheme.error.opacity(0.74)
-        default: LitheTheme.secondaryText.opacity(0.78)
-        }
-    }
-
-    @ViewBuilder
-    private var searchMatchOverlay: some View {
-        if isCurrentSearchMatch {
-            Rectangle().stroke(Color.yellow.opacity(0.88), lineWidth: 1)
-        }
-    }
-}
-
-private struct DiffTransitionOverlay: View {
+private struct DiffTransitionOverlay: NSViewRepresentable {
     let transitions: [DiffSplitLayout.Transition]
-    let contentWidth: CGFloat
-    let contentHeight: CGFloat
+    let leftX: CGFloat
+    var dividerWidth: CGFloat = DiffLayoutMetrics.dividerWidth
+    let synchronization: DiffScrollSynchronization
 
-    var body: some View {
-        let paneWidth = max(0, (contentWidth - DiffLayoutMetrics.centerGutterWidth) / 2)
-        let gutterEnd = paneWidth + DiffLayoutMetrics.centerGutterWidth
-
-        ZStack(alignment: .topLeading) {
-            Canvas { context, _ in
-                for transition in transitions {
-                    let color = transitionColor(transition)
-                    let path = connectorPath(
-                        transition,
-                        leftX: paneWidth,
-                        rightX: gutterEnd
-                    )
-                    context.fill(path, with: .color(color.opacity(0.18)))
-                    context.stroke(
-                        path,
-                        with: .color(color.opacity(0.50)),
-                        style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
-                    )
-
-                    if transition.isAddition {
-                        drawInsertionRule(
-                            in: &context,
-                            fromX: 0,
-                            toX: paneWidth,
-                            y: transition.leftRange.lowerBound,
-                            color: LitheTheme.success
-                        )
-                    } else if transition.isRemoval {
-                        drawInsertionRule(
-                            in: &context,
-                            fromX: gutterEnd,
-                            toX: contentWidth,
-                            y: transition.rightRange.lowerBound,
-                            color: LitheTheme.error
-                        )
-                    }
-                }
-            }
-
-            ForEach(transitions) { transition in
-                Image(systemName: transitionSymbol(transition))
-                    .font(.system(size: 8.5, weight: .bold))
-                    .foregroundStyle(transitionColor(transition).opacity(0.88))
-                    .frame(width: DiffLayoutMetrics.centerGutterWidth, height: 14)
-                    .offset(x: paneWidth, y: transitionMarkerY(transition) - 7)
-            }
-        }
-        .frame(width: contentWidth, height: contentHeight, alignment: .topLeading)
-        .allowsHitTesting(false)
-    }
-
-    private func connectorPath(
-        _ transition: DiffSplitLayout.Transition,
-        leftX: CGFloat,
-        rightX: CGFloat
-    ) -> Path {
-        let controlX1 = leftX + (rightX - leftX) * 0.42
-        let controlX2 = leftX + (rightX - leftX) * 0.58
-        var path = Path()
-        path.move(to: CGPoint(x: leftX, y: transition.leftRange.lowerBound))
-        path.addCurve(
-            to: CGPoint(x: rightX, y: transition.rightRange.lowerBound),
-            control1: CGPoint(x: controlX1, y: transition.leftRange.lowerBound),
-            control2: CGPoint(x: controlX2, y: transition.rightRange.lowerBound)
-        )
-        path.addLine(to: CGPoint(x: rightX, y: transition.rightRange.upperBound))
-        path.addCurve(
-            to: CGPoint(x: leftX, y: transition.leftRange.upperBound),
-            control1: CGPoint(x: controlX2, y: transition.rightRange.upperBound),
-            control2: CGPoint(x: controlX1, y: transition.leftRange.upperBound)
-        )
-        path.closeSubpath()
-        return path
-    }
-
-    private func drawInsertionRule(
-        in context: inout GraphicsContext,
-        fromX: CGFloat,
-        toX: CGFloat,
-        y: CGFloat,
-        color: Color
-    ) {
-        let y = max(0.5, min(contentHeight - 0.5, y))
-        var line = Path()
-        line.move(to: CGPoint(x: fromX + 4, y: y))
-        line.addLine(to: CGPoint(x: toX, y: y))
-        context.stroke(
-            line,
-            with: .color(color.opacity(0.66)),
-            style: StrokeStyle(lineWidth: 1, lineCap: .round)
-        )
-    }
-
-    private func transitionColor(_ transition: DiffSplitLayout.Transition) -> Color {
-        if transition.isRemoval { return LitheTheme.error }
-        return LitheTheme.success
-    }
-
-    private func transitionSymbol(_ transition: DiffSplitLayout.Transition) -> String {
-        if transition.isAddition { return "chevron.right" }
-        if transition.isRemoval { return "chevron.left" }
-        return "arrow.left.arrow.right"
-    }
-
-    private func transitionMarkerY(_ transition: DiffSplitLayout.Transition) -> CGFloat {
-        if transition.isAddition { return transition.leftRange.lowerBound }
-        if transition.isRemoval { return transition.rightRange.lowerBound }
-        return min(
-            (transition.leftRange.lowerBound + transition.leftRange.upperBound) / 2,
-            (transition.rightRange.lowerBound + transition.rightRange.upperBound) / 2
-        )
+    func makeNSView(context: Context) -> DiffNativeTransitionsView { DiffNativeTransitionsView() }
+    func updateNSView(_ view: DiffNativeTransitionsView, context: Context) {
+        synchronization.transitionsView = view
+        synchronization.refresh()
+        view.transitions = transitions
+        view.leftX = leftX
+        view.rightX = view.leftX + dividerWidth
+        view.needsDisplay = true
     }
 }

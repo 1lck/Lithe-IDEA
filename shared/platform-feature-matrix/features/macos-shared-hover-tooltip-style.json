@@ -1,0 +1,25 @@
+{
+  "id": "macos-shared-hover-tooltip-style",
+  "area": "界面",
+  "group": "全局共享控件",
+  "capability": "macOS 侧边栏与工具栏悬浮提示共用 IDEA Islands 的背景、边框、圆角及文字样式",
+  "macos": {
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending",
+    "evidence": [
+      "macos/Sources/Lithe/Theme/LitheTheme.swift",
+      "macos/Sources/Lithe/Views/Workbench/WorkbenchHoverTooltip.swift",
+      "macos/Tests/LitheTests/WorkbenchHoverTooltipTests.swift",
+      ".agents/notes/implemented/simplification/2026-09-30-macos-shared-dropdown-style.md"
+    ]
+  },
+  "windows": {
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable",
+    "evidence": [
+      "windows/tauri/src/ui"
+    ]
+  },
+  "owner": "macOS UI",
+  "verification": "对照 IDEA Community ManyIslands 明暗主题、HelpTooltip、AbstractPopup 与 macOS 圆角窗口边框路径：深色背景/边框 #33353B、文字 #D1D3D9，浅色背景 #FFFFFF、边框 #D1D3D9、文字 #000000；共享 1pt 内边框、4pt 圆角、13pt 字号及左右 12pt/上 8pt/下 9pt 内边距。现有侧边栏、Git Log 与工具栏消费者共用 litheHoverTooltipSurface，保留延时、定位、屏幕边界、隐藏与拖动暂停语义；深浅实际像素及定位组件测试已运行，四周侧栏完整应用 hover 验收仍 pending。"
+}

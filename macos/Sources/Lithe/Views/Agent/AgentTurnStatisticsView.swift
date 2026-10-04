@@ -56,7 +56,7 @@ struct AgentThinkingRow: View {
                     Text(AgentTurnStatisticsPresentation.duration(elapsed)).monospacedDigit()
                 }
             }
-            .font(.system(size: 12))
+            .font(LitheTheme.uiFont(size: 12))
             .foregroundStyle(LitheTheme.secondaryText)
             .padding(.leading, 2)
             .help("Elapsed since sending, including tools and permission waits.")
@@ -80,7 +80,7 @@ struct AgentTurnStatisticsView: View {
                 if let usage = statistics.usage { tokens(usage) }
             }
         }
-        .font(.system(size: 11))
+        .font(LitheTheme.uiFont(size: 11))
         .foregroundStyle(AgentPanelStyle.secondary)
         .monospacedDigit()
         .frame(maxWidth: .infinity, alignment: .leading)

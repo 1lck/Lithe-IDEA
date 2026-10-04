@@ -15,13 +15,13 @@ struct JavaLaunchDecisionDialog: View {
                 chinese ? "Java 构建未成功" : "Java build did not succeed",
                 systemImage: "exclamationmark.triangle.fill"
             )
-            .font(.headline)
+            .font(LitheTheme.uiFont(.headline))
             .foregroundStyle(LitheTheme.warning)
 
             Text(explanation)
-                .font(.system(size: 13))
+                .font(LitheTheme.uiFont(size: 13))
             Text(request.failure.message)
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             if let report {
@@ -45,7 +45,7 @@ struct JavaLaunchDecisionDialog: View {
             Text(chinese
                 ? "“仍然运行”会使用已经解析出的产物继续本次启动，不会再次构建。"
                 : "Run Anyway continues this launch with the resolved output and does not build again.")
-                .font(.system(size: 12))
+                .font(LitheTheme.uiFont(size: 12))
                 .foregroundStyle(LitheTheme.secondaryText)
 
             HStack(spacing: 8) {
@@ -100,6 +100,6 @@ struct JavaLaunchDecisionDialog: View {
             Text(value)
                 .textSelection(.enabled)
         }
-        .font(.system(size: 12))
+        .font(LitheTheme.uiFont(size: 12))
     }
 }

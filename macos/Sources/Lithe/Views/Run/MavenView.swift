@@ -3,6 +3,7 @@ import SwiftUI
 struct MavenView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var feature: MavenFeatureModel
+    @State private var treeActive = false
     @State private var selectedModuleID: String?
     @State private var selectedPhase: MavenLifecyclePhase?
     @State private var expandedNodeIDs: Set<String> = []
@@ -67,15 +68,19 @@ struct MavenView: View {
         LitheToolWindowHeader(
             title: "Maven",
             systemImage: "shippingbox",
-            ideaAssetPath: "maven/toolWindowMaven.svg",
-            subtitle: feature.project?.displayName,
-            onMinimize: { model.workbenchFeature.setVisibility(.maven, isVisible: false) }
-        )
+            ideaAssetPath: "maven/expui/toolwindow/maven.svg",
+            subtitle: feature.project?.displayName
+        ) {
+            LitheSidebarHideButton(title: "Maven") {
+                model.workbenchFeature.setVisibility(.maven, isVisible: false)
+            }
+        }
     }
 
+    // Community ActionToolbarImpl: 22pt surface + 1/2pt button insets + 5/7pt toolbar insets.
     private var navigationToolbar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 toolbarAction(.run) {
                     Button {
                         if isMavenTaskRunning {
@@ -84,10 +89,8 @@ struct MavenView: View {
                             runSelected()
                         }
                     } label: {
-                        LitheSystemIcon(systemImage: isMavenTaskRunning ? "stop.fill" : "play.fill")
+                        mavenIcon(isMavenTaskRunning ? "expui/run/stop.svg" : "expui/run/run.svg")
                     }
-                    .litheIconButton()
-                    .foregroundStyle(isMavenTaskRunning ? LitheTheme.warning : LitheTheme.secondaryText)
                     .disabled(!isMavenTaskRunning && (selectedPhase == nil || model.isMavenOperationBusy))
                     .accessibilityLabel(toolbarHelp(for: .run))
                 }
@@ -96,18 +99,16 @@ struct MavenView: View {
                     Button {
                         presentGoal(for: selectedModule)
                     } label: {
-                        LitheSystemIcon(systemImage: "terminal")
+                        mavenIcon("expui/general/runAnything.svg")
                     }
-                    .litheIconButton()
                     .disabled(model.isMavenOperationBusy)
                     .accessibilityLabel(toolbarHelp(for: .goal))
                 }
 
                 toolbarAction(.reload) {
                     Button(action: refreshProject) {
-                        LitheSystemIcon(systemImage: "arrow.clockwise")
+                        mavenIcon("expui/general/refresh.svg")
                     }
-                    .litheIconButton()
                     .accessibilityLabel(toolbarHelp(for: .reload))
                     .disabled(model.isMavenOperationBusy)
                 }
@@ -116,34 +117,32 @@ struct MavenView: View {
                     Button {
                         feature.setSkipTests(!feature.skipTests)
                     } label: {
-                        LitheSystemIcon(systemImage: feature.skipTests ? "checkmark.square.fill" : "square")
+                        mavenIcon("expui/run/showIgnored.svg")
                     }
-                    .litheIconButton()
-                    .foregroundStyle(feature.skipTests ? LitheTheme.accent : LitheTheme.secondaryText)
                     .accessibilityLabel(toolbarHelp(for: .skipTests))
+                    .accessibilityValue(feature.skipTests ? Text("On") : Text("Off"))
                 }
 
                 toolbarAction(.collapse) {
                     Button {
                         expandedNodeIDs.removeAll()
                     } label: {
-                        LitheSystemIcon(systemImage: "rectangle.compress.vertical")
+                        mavenIcon("expui/general/collapseAll.svg")
                     }
-                    .litheIconButton()
                     .accessibilityLabel(toolbarHelp(for: .collapse))
                 }
 
                 toolbarAction(.settings) {
                     Button(action: { model.showSettings(category: .project) }) {
-                        LitheSystemIcon(systemImage: "slider.horizontal.3")
+                        mavenIcon("expui/general/settings.svg")
                     }
-                    .litheIconButton()
                     .accessibilityLabel(toolbarHelp(for: .settings))
                 }
             }
-            .padding(.horizontal, 10)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 5)
         }
-        .frame(height: 36)
+        .frame(height: LitheTheme.Metrics.toolbarIconButtonSize + 12)
         .litheWorkbenchSurface(LitheTheme.toolHeader)
     }
 
@@ -151,10 +150,27 @@ struct MavenView: View {
         _ action: MavenToolbarAction,
         @ViewBuilder content: () -> Content
     ) -> some View {
-        ZStack { content() }
-            .frame(width: 28, height: 28)
-            .contentShape(Rectangle())
+        let enabled = action == .run
+            ? isMavenTaskRunning || (selectedPhase != nil && !model.isMavenOperationBusy)
+            : !([.goal, .reload].contains(action) && model.isMavenOperationBusy)
+        return content()
+            .opacity(enabled ? 1 : 0.45)
+            .buttonStyle(LitheIconButtonStyle(
+                size: LitheTheme.Metrics.toolbarIconButtonSize, cornerRadius: 4,
+                isSelected: action == .skipTests && feature.skipTests,
+                hoverBackground: LitheTheme.toolbarHoverBackground,
+                pressedBackground: LitheTheme.toolbarPressedBackground
+            ))
+            .padding(.horizontal, 2)
+            .padding(.vertical, 1)
             .workbenchHoverHelp(Text(toolbarHelp(for: action)))
+    }
+
+    private func mavenIcon(_ path: String) -> some View {
+        // Maven Profiles is the upstream exception: 17×16, not a square glyph.
+        LitheIDEAIcon(resourcePath: path, size: LitheTheme.Tree.iconSize,
+                      width: path == "maven/expui/build/mavenProfiles.svg" ? 17 : nil,
+                      preservesOriginalColors: true)
     }
 
     private func toolbarHelp(for action: MavenToolbarAction) -> String {
@@ -186,7 +202,7 @@ struct MavenView: View {
             Text(feature.isProjectReloadRequired
                  ? String(localized: "Maven POM changed")
                  : String(localized: "Maven configuration changed"))
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.primaryText)
             Spacer(minLength: 8)
             Button(feature.isReloading ? String(localized: "Reloading Maven...") : String(localized: "Reload")) {
@@ -208,7 +224,7 @@ struct MavenView: View {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(LitheTheme.error)
             Text(message)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.primaryText)
                 .lineLimit(2)
             Spacer(minLength: 0)
@@ -223,12 +239,12 @@ struct MavenView: View {
 
     private func projectPane(_ project: MavenProject) -> some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 0) {
                 if !feature.availableProfiles.isEmpty {
                     treeNode(
                         id: profilesNodeID,
                         title: "Profiles",
-                        systemImage: "folder",
+                        iconPath: "maven/expui/build/mavenProfiles.svg",
                         onLabelAction: { toggleNode(profilesNodeID) }
                     ) {
                         profileActions
@@ -242,7 +258,7 @@ struct MavenView: View {
                     id: projectNodeID(project),
                     title: project.displayName,
                     subtitle: project.packaging,
-                    systemImage: "m.circle",
+                    iconPath: "maven/expui/build/mavenProject.svg",
                     isSelected: selectedModuleID == nil,
                     hasModuleMenu: true,
                     onLabelAction: { selectedModuleID = nil }
@@ -258,10 +274,11 @@ struct MavenView: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 8)
+            .padding(.horizontal, LitheTheme.Tree.horizontalInset)
+            .padding(.vertical, LitheTheme.Tree.verticalInset)
         }
         .litheWorkbenchSurface(LitheTheme.sidebar)
+        .background(LitheToolWindowActivityTracker(isActive: $treeActive))
     }
 
     private func moduleTreeNode(_ module: MavenModule) -> AnyView {
@@ -270,7 +287,7 @@ struct MavenView: View {
                 id: moduleNodeID(module),
                 title: module.displayName,
                 subtitle: module.relativePath,
-                systemImage: "m.circle",
+                iconPath: "maven/expui/build/mavenProject.svg",
                 isSelected: selectedModuleID == module.id,
                 hasModuleMenu: true,
                 menuModule: module,
@@ -292,7 +309,7 @@ struct MavenView: View {
             treeNode(
                 id: nodeID,
                 title: "Lifecycle",
-                systemImage: "gearshape",
+                iconPath: "expui/build/taskGroup.svg",
                 onLabelAction: { toggleNode(nodeID) }
             ) {
                 ForEach(MavenLifecyclePhase.allCases) { phase in
@@ -312,7 +329,7 @@ struct MavenView: View {
             treeNode(
                 id: nodeID,
                 title: dependencyLocalization.text("Source Roots"),
-                systemImage: "folder",
+                iconPath: "expui/nodes/folder.svg",
                 onLabelAction: { toggleNode(nodeID) }
             ) {
                 ForEach(sourceRoots) { sourceRoot in
@@ -339,7 +356,7 @@ struct MavenView: View {
             treeNode(
                 id: nodeID,
                 title: dependencyLocalization.text("Dependencies"),
-                systemImage: "shippingbox",
+                iconPath: "expui/nodes/libraryFolder.svg",
                 onToggleAction: toggle,
                 onLabelAction: toggle
             ) {
@@ -372,7 +389,7 @@ struct MavenView: View {
                     }
                     .buttonStyle(.litheNoPress)
                 }
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 28)
@@ -381,7 +398,7 @@ struct MavenView: View {
             return AnyView(
                 VStack(alignment: .leading, spacing: 4) {
                     Label(dependencyLocalization.error(message), systemImage: "exclamationmark.triangle.fill")
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.error)
                         .lineLimit(2)
                     Button(dependencyLocalization.text("Retry")) {
@@ -403,7 +420,7 @@ struct MavenView: View {
                     }
                     .buttonStyle(.litheNoPress)
                 }
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.warning)
                 .padding(.horizontal, 4)
                 .frame(minHeight: 28)
@@ -412,7 +429,7 @@ struct MavenView: View {
             if dependencies.isEmpty {
                 return AnyView(
                     Text(dependencyLocalization.text("No dependencies"))
-                        .font(.system(size: 11.5))
+                        .font(LitheTheme.uiFont(size: 11.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .padding(.horizontal, 4)
                         .frame(minHeight: 28)
@@ -440,9 +457,8 @@ struct MavenView: View {
                 id: id,
                 title: dependency.artifactID,
                 subtitle: dependencySubtitle(dependency),
-                systemImage: dependency.resolution == .resolved
-                    ? "shippingbox"
-                    : "exclamationmark.triangle.fill",
+                iconPath: "expui/nodes/library.svg",
+                hasWarning: dependency.resolution != .resolved,
                 onLabelAction: { openDependencyPom(dependency) }
             ) {
                 ForEach(Array(dependency.children.enumerated()), id: \.offset) { index, child in
@@ -457,38 +473,24 @@ struct MavenView: View {
     }
 
     private func dependencyRow(_ dependency: MavenDependency) -> some View {
-        Button {
-            openDependencyPom(dependency)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: dependency.resolution == .resolved
-                    ? "shippingbox"
-                    : "exclamationmark.triangle.fill")
-                    .font(.system(size: 11))
-                    .foregroundStyle(
-                        dependency.resolution == .resolved ? LitheTheme.accent : LitheTheme.warning
-                    )
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(dependency.artifactID)
-                        .font(.system(size: 12))
-                        .foregroundStyle(LitheTheme.primaryText)
-                        .lineLimit(1)
-                    Text(dependencySubtitle(dependency))
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .lineLimit(1)
+        Button { openDependencyPom(dependency) } label: {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                if dependency.resolution == .resolved {
+                    mavenIcon("expui/nodes/library.svg")
+                } else {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
+                        .frame(width: LitheTheme.Tree.iconSize)
                 }
+                Text(dependency.artifactID).lineLimit(1)
+                Text(dependencySubtitle(dependency))
+                    .foregroundStyle(dependency.resolution == .resolved ? LitheTheme.Tree.secondaryText : LitheTheme.warning)
+                    .lineLimit(1)
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 5)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(minHeight: 28)
-            .contentShape(Rectangle())
+            .padding(.leading, LitheTheme.Tree.indent)
+            .litheTreeRow()
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
-        .padding(.leading, 16)
         .help(dependencyLocalization.text("Open module pom.xml"))
     }
 
@@ -509,31 +511,21 @@ struct MavenView: View {
     }
 
     private func sourceRootRow(_ sourceRoot: MavenSourceRoot) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder")
-                .font(.system(size: 11))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .frame(width: 16)
-            Text(sourceRoot.path)
-                .font(.system(size: 11.5, design: .monospaced))
-                .foregroundStyle(LitheTheme.primaryText)
-                .lineLimit(1)
+        HStack(spacing: LitheTheme.Tree.iconTextGap) {
+            mavenIcon("expui/nodes/folder.svg")
+            Text(sourceRoot.path).lineLimit(1)
             Spacer(minLength: 0)
             Text(dependencyLocalization.text(sourceRoot.kind.title))
-                .font(.system(size: 10))
-                .foregroundStyle(LitheTheme.secondaryText)
-                .lineLimit(1)
+                .foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
         }
-        .padding(.horizontal, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 24)
+        .padding(.leading, LitheTheme.Tree.indent)
+        .litheTreeRow()
     }
 
     private func profileRow(_ profile: MavenProfile) -> some View {
         Toggle(isOn: profileBinding(for: profile)) {
             HStack(spacing: 0) {
                 Text(profile.id)
-                    .font(.system(size: 12))
                     .foregroundStyle(LitheTheme.primaryText)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -542,10 +534,8 @@ struct MavenView: View {
             .contentShape(Rectangle())
         }
         .toggleStyle(.checkbox)
-        .lithePointer()
-        .padding(.leading, 2)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(height: 24)
+        .padding(.leading, LitheTheme.Tree.indent)
+        .litheTreeRow()
     }
 
     private var profileActions: some View {
@@ -559,10 +549,10 @@ struct MavenView: View {
             }
             .buttonStyle(.litheNoPress)
             .help("Add profile")
-            .popover(isPresented: $isAddProfilePresented, arrowEdge: .trailing) {
+            .litheDropdown(isPresented: $isAddProfilePresented) {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Add Maven Profile")
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                     TextField("Profile ID", text: $customProfile)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 220)
@@ -595,35 +585,16 @@ struct MavenView: View {
             selectedModuleID = module?.id
             selectedPhase = phase
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: phase.systemImage)
-                    .font(.system(size: 11))
-                    .foregroundStyle(LitheTheme.secondaryText)
-                    .frame(width: 16)
-                Text(LocalizedStringKey(phase.title))
-                    .lineLimit(1)
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                mavenIcon("maven/task.svg")
+                Text(LocalizedStringKey(phase.title)).lineLimit(1)
                 Spacer(minLength: 0)
-                if selectedModuleID == module?.id, selectedPhase == phase {
-                    LitheSystemIcon(systemImage: "play.fill")
-                        .font(.system(size: 8))
-                        .foregroundStyle(LitheTheme.accent)
-                }
             }
-            .font(.system(size: 12))
-            .foregroundStyle(LitheTheme.primaryText)
-            .padding(.horizontal, 2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 24)
-            .background(
-                selectedModuleID == module?.id && selectedPhase == phase
-                    ? LitheTheme.subtleSelection
-                    : .clear
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .contentShape(Rectangle())
+            .padding(.leading, LitheTheme.Tree.indent)
+            .litheTreeRow(isSelected: selectedModuleID == module?.id && selectedPhase == phase,
+                          isFocused: treeActive)
         }
         .buttonStyle(.litheNoPress)
-        .lithePointer()
         .simultaneousGesture(TapGesture(count: 2).onEnded {
             guard !model.isMavenOperationBusy else { return }
             runPhase(phase: phase, module: module)
@@ -639,7 +610,8 @@ struct MavenView: View {
         id: String,
         title: String,
         subtitle: String? = nil,
-        systemImage: String,
+        iconPath: String,
+        hasWarning: Bool = false,
         isSelected: Bool = false,
         hasModuleMenu: Bool = false,
         menuModule: MavenModule? = nil,
@@ -648,53 +620,38 @@ struct MavenView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 2) {
+            HStack(spacing: LitheTheme.Tree.iconTextGap) {
                 Button {
-                    if let onToggleAction {
-                        onToggleAction()
-                    } else {
-                        toggleNode(id)
-                    }
+                    if let onToggleAction { onToggleAction() } else { toggleNode(id) }
                 } label: {
-                    Image(systemName: isNodeExpanded(id) ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(LitheTheme.secondaryText)
-                        .frame(width: 14, height: 24)
+                    mavenIcon(isNodeExpanded(id) ? "expui/general/chevronDown.svg" : "expui/general/chevronRight.svg")
+                        .frame(width: LitheTheme.Tree.disclosureSlot, height: LitheTheme.Tree.rowHeight)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
+                .accessibilityLabel(Text(LocalizedStringKey(title)))
+                .accessibilityValue(isNodeExpanded(id) ? Text("Expanded") : Text("Collapsed"))
 
                 Button(action: onLabelAction) {
-                    HStack(spacing: 6) {
-                        Image(systemName: systemImage)
-                            .font(.system(size: 12))
-                            .foregroundStyle(LitheTheme.accent)
-                            .frame(width: 16)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(LocalizedStringKey(title))
-                                .font(.system(size: 12))
-                                .foregroundStyle(LitheTheme.primaryText)
-                                .lineLimit(1)
-                            if let subtitle, !subtitle.isEmpty {
-                                Text(LocalizedStringKey(subtitle))
-                                    .font(.system(size: 10, design: .monospaced))
-                                    .foregroundStyle(LitheTheme.secondaryText)
-                                    .lineLimit(1)
-                            }
+                    HStack(spacing: LitheTheme.Tree.iconTextGap) {
+                        if hasWarning {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(LitheTheme.warning)
+                                .frame(width: LitheTheme.Tree.iconSize)
+                        } else {
+                            mavenIcon(iconPath)
+                        }
+                        Text(LocalizedStringKey(title)).lineLimit(1)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text("(\(subtitle))").foregroundStyle(LitheTheme.Tree.secondaryText).lineLimit(1)
                         }
                         Spacer(minLength: 0)
                     }
-                    .padding(.horizontal, 5)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .frame(minHeight: 24)
-                    .background(isSelected ? LitheTheme.subtleSelection : .clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
+                    .frame(maxWidth: .infinity, minHeight: LitheTheme.Tree.rowHeight, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.litheNoPress)
-                .lithePointer()
             }
+            .litheTreeRow(isSelected: isSelected, isFocused: treeActive)
             .litheContextMenu(items: {
                 hasModuleMenu ? moduleContextMenu(menuModule) : []
             })
@@ -703,7 +660,7 @@ struct MavenView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     content()
                 }
-                .padding(.leading, 16)
+                .padding(.leading, LitheTheme.Tree.indent)
             }
         }
     }
@@ -749,10 +706,10 @@ struct MavenView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             LitheSystemIcon(systemImage: "shippingbox")
-                .font(.system(size: 30, weight: .light))
+                .font(LitheTheme.uiFont(size: 30, weight: .light))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text("No Maven project detected")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text("Open a project containing a pom.xml file.")
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -763,10 +720,10 @@ struct MavenView: View {
     private func failedState(_ message: String) -> some View {
         VStack(spacing: 12) {
             Image(systemName: "xmark.octagon")
-                .font(.system(size: 28, weight: .light))
+                .font(LitheTheme.uiFont(size: 28, weight: .light))
                 .foregroundStyle(LitheTheme.error)
             Text("Unable to load Maven project")
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text(message)
                 .font(LitheTheme.uiFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -781,7 +738,7 @@ struct MavenView: View {
     private var goalSheet: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Execute Maven Goal")
-                .font(.system(size: 16, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 16, weight: .semibold))
             TextField("Goal", text: $customGoal, prompt: Text("spring-boot:run"))
                 .textFieldStyle(.roundedBorder)
                 .onSubmit(executeCustomGoal)
@@ -914,7 +871,7 @@ private struct MavenResolutionProblemsSection: View {
                     ),
                     systemImage: "exclamationmark.triangle.fill"
                 )
-                .font(.system(size: 11.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -930,7 +887,7 @@ private struct MavenResolutionProblemsSection: View {
                                         .lineLimit(2)
                                     Spacer(minLength: 0)
                                 }
-                                .font(.system(size: 11))
+                                .font(LitheTheme.uiFont(size: 11))
                                 .padding(.vertical, 2)
                                 .contentShape(Rectangle())
                             }

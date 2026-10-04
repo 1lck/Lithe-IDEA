@@ -58,8 +58,8 @@ struct BranchSwitcherPopoverBehaviorTests {
             return
         }
         let precedingSource = source[source.startIndex..<checkoutRange.lowerBound]
-        guard let buttonRange = precedingSource.range(of: "Button(\"Checkout\")", options: .backwards) else {
-            Issue.record("Checkout must be invoked from a Button labelled Checkout.")
+        guard let buttonRange = precedingSource.range(of: "LitheContextMenuItem.action(\"Checkout\")", options: .backwards) else {
+            Issue.record("Checkout must be invoked from the explicit shared Checkout action.")
             return
         }
         // Nothing but the dismiss-and-run wrapper may sit between the button and
@@ -70,8 +70,8 @@ struct BranchSwitcherPopoverBehaviorTests {
             "The Checkout menu entry must dismiss the popup before checking out."
         )
         #expect(
-            !between.contains("Button("),
-            "No other button may sit between the Checkout entry and the checkout call."
+            !between.contains("LitheContextMenuItem.action("),
+            "No other menu action may sit between the Checkout entry and the checkout call."
         )
     }
 
@@ -94,12 +94,12 @@ struct BranchSwitcherPopoverBehaviorTests {
             return
         }
         let actions = source[localActions.lowerBound...]
-        #expect(actions.contains("Button(\"Update\")"))
+        #expect(actions.contains("LitheContextMenuItem.action(\"Update\")"))
         #expect(
             actions.contains(".disabled(!reference.isCurrent)"),
             "Only the current local branch can be updated."
         )
-        #expect(actions.contains("Button(\"Push…\")"))
+        #expect(actions.contains("LitheContextMenuItem.action(\"Push…\")"))
     }
 
     @Test

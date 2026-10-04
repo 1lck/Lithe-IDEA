@@ -9,7 +9,7 @@ extension AppModel {
             closeStandaloneFile()
             return true
         }
-        if documentFeature.hasPendingDocumentClose || pendingTerminalCloseSessionID != nil {
+        if documentFeature.hasPendingDocumentClose {
             return true
         }
         if isImplementationChooserVisible {
@@ -24,12 +24,12 @@ extension AppModel {
             closeBranchComparison()
             return true
         }
-        if selectedGitCommitDiffContext != nil {
+        if isRepositoryDiffSelected {
             closeGitCommitDiff()
             return true
         }
         if selectedChange != nil {
-            selectedChange = nil
+            gitFeatureIfActive?.closeWorkingTreeDiff()
             return true
         }
         if let session = activeEditorTerminalSession {
@@ -42,6 +42,8 @@ extension AppModel {
         }
         guard let item = editorTabItems.last else { return false }
         switch item {
+        case .repositoryDiff:
+            closeGitCommitDiff()
         case .document(let documentID):
             guard let document = openDocuments.first(where: { $0.id == documentID }) else {
                 editorTabOrderFeature.remove(item)

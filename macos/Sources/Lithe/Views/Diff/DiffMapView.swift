@@ -34,7 +34,7 @@ struct DiffMapView: View {
         GeometryReader { geometry in
             let height = geometry.size.height
             ZStack(alignment: .top) {
-                LitheTheme.window
+                LitheTheme.Diff.background
 
                 if let visibleRange {
                     // The viewport shade reads as "you are here" against the ticks.
@@ -101,9 +101,9 @@ struct DiffMapView: View {
 
     private func color(for kind: DiffRowKind) -> Color {
         switch kind {
-        case .addition: return LitheTheme.success.opacity(0.9)
-        case .removal: return .red.opacity(0.8)
-        case .changed: return LitheTheme.accent.opacity(0.9)
+        case .addition: return LitheTheme.Diff.insertedStripe
+        case .removal: return LitheTheme.Diff.deletedStripe
+        case .changed: return LitheTheme.Diff.modifiedStripe
         case .context, .information: return .clear
         }
     }

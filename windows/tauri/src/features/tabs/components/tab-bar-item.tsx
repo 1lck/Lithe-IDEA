@@ -2,6 +2,7 @@ import {
   PulseIcon as Activity,
   DatabaseIcon as Database,
   GitBranchIcon as GitBranch,
+  GitDiffIcon as GitDiff,
   GitPullRequestIcon as GitPullRequest,
   GlobeHemisphereWestIcon as Globe,
   MagnifyingGlassIcon as Search,
@@ -28,13 +29,16 @@ import { useTranslation } from "@/i18n/locale-provider";
 import { getBaseName } from "@/utils/path-helpers";
 import { cn } from "@/utils/cn";
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
-import type { GitDiff } from "@/features/git/types/git.types";
+import type { GitDiff as GitDiffData } from "@/features/git/types/git.types";
+
+const WORKING_TREE_DIFF_PATH = "diff://working-tree/all-files";
 
 interface TabBarItemProps {
   buffer: PaneContent;
   displayName: string;
   index: number;
   isActive: boolean;
+  isGroupActive?: boolean;
   isDraggedTab: boolean;
   isWrapped?: boolean;
   showDropIndicatorBefore?: boolean;
@@ -57,6 +61,7 @@ const TabBarItem = memo(function TabBarItem({
   buffer,
   displayName,
   isActive,
+  isGroupActive = true,
   isDraggedTab,
   isWrapped = false,
   showDropIndicatorBefore = false,
@@ -142,6 +147,7 @@ const TabBarItem = memo(function TabBarItem({
         aria-label={`${accessibleName}${buffer.type === "editor" && buffer.isDirty ? t("tabs.ariaUnsavedSuffix") : ""}${buffer.isPinned ? t("tabs.ariaPinnedSuffix") : ""}${buffer.isPreview ? t("tabs.ariaPreviewSuffix") : ""}`}
         tabIndex={isActive ? 0 : -1}
         isActive={isActive}
+        isGroupActive={isGroupActive}
         isDragged={isDraggedTab}
         // The wrapped strip sizes the sortable wrapper; the tab fills it and may shrink.
         className={isWrapped ? "w-full min-w-0" : undefined}
@@ -187,6 +193,9 @@ const TabBarItem = memo(function TabBarItem({
           <div className="grid size-3 shrink-0 place-content-center">
             {buffer.path === "extensions://marketplace" ? (
               <Package className="text-subtle-foreground" />
+            ) : buffer.type === "diff" && buffer.path === WORKING_TREE_DIFF_PATH ? (
+              // IntelliJ's commit diff preview tab uses the diff file-type icon (AllIcons.Actions.Diff).
+              <GitDiff className="text-subtle-foreground" />
             ) : buffer.type === "diff" && isMultiFileDiff(buffer.diffData) ? (
               <GitBranch className="text-subtle-foreground" />
             ) : buffer.type === "terminal" ? (
@@ -280,7 +289,8 @@ const TabBarItem = memo(function TabBarItem({
               isActive ? "text-foreground" : "text-subtle-foreground",
               buffer.isPreview && "italic",
             )}
-            title={buffer.path}
+            // Virtual diff tabs have no file path to show; IntelliJ shows the full tab title.
+            title={buffer.type === "diff" ? displayName : buffer.path}
           >
             {displayName}
           </span>
@@ -298,11 +308,13 @@ const TabBarItem = memo(function TabBarItem({
   );
 });
 
-function isMultiFileDiff(diffData: GitDiff | MultiFileDiff | undefined): diffData is MultiFileDiff {
+function isMultiFileDiff(
+  diffData: GitDiffData | MultiFileDiff | undefined,
+): diffData is MultiFileDiff {
   return Boolean(diffData && "files" in diffData);
 }
 
-function getDiffFileName(diff: GitDiff): string {
+function getDiffFileName(diff: GitDiffData): string {
   const filePath = diff.new_path || diff.old_path || diff.file_path || "";
   return getBaseName(filePath, filePath || "diff");
 }

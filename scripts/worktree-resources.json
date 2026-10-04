@@ -124,6 +124,16 @@
       "reason": "Favorites, custom titles and hidden rows are runtime preferences. Never copy them across worktrees or read Agent files to reconstruct them; exports are user documents, not build resources. No copy stage is permitted."
     },
     {
+      "id": "bundled-ui-fonts",
+      "reusable": false,
+      "locations": [
+        "macos/Resources/Fonts",
+        "<app-bundle>/Contents/Resources/Fonts"
+      ],
+      "identity": "Inter 4.1 (18 static OTF faces; internal version 4.001) and JetBrains Mono 2.304 (16 static TTF faces) source files tracked by Git; independent of platform architecture and build toolchain. Version and read-only file hashes are checked by BundledUIFontTests; packaged presence is checked by verify-macos-package.sh.",
+      "reason": "Checkout source files through Git; build packaging copies them before signing. Never copy fonts from another worktree artifact or signed/installed bundle, and never modify them at runtime. No resource reuse copy stage is permitted."
+    },
+    {
       "id": "ide-mcp",
       "reusable": false,
       "locations": [

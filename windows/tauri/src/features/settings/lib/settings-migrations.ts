@@ -18,7 +18,48 @@ export const RETIRED_SETTINGS_KEYS: readonly string[] = [
   "rememberLastGitPanelMode",
   "gitLastPanelMode",
   "gitSidebarTabOrder",
+  "openFoldersInNewWindow",
 ];
+
+export const PROJECT_OPEN_DESTINATION_KEY = "projectOpenDefaultDestination";
+const LEGACY_OPEN_FOLDERS_IN_NEW_WINDOW_KEY = "openFoldersInNewWindow";
+
+interface ProjectOpenDestinationMigration {
+  entries: Map<string, unknown>;
+  changes: Array<[string, unknown]>;
+}
+
+// Maps the retired openFoldersInNewWindow boolean onto the destination tri-state. The
+// boolean's false branch named the old same-window behavior, which attached the new project
+// as a tab, so it maps to "attach" (not "this-window") to keep upgraded installs behaving
+// the same.
+export function deriveProjectOpenDestinationFromLegacy(legacyValue: unknown) {
+  return legacyValue === true ? "new-window" : "attach";
+}
+
+// Fills projectOpenDefaultDestination from the retired boolean when no explicit destination
+// was persisted. Must run before RETIRED_SETTINGS_KEYS deletion drops the legacy key.
+export function migrateProjectOpenDestination(
+  sourceEntries: Map<string, unknown>,
+): ProjectOpenDestinationMigration {
+  const entries = new Map(sourceEntries);
+  const changes: Array<[string, unknown]> = [];
+
+  if (entries.has(PROJECT_OPEN_DESTINATION_KEY)) {
+    return { entries, changes };
+  }
+
+  const legacyValue = entries.get(LEGACY_OPEN_FOLDERS_IN_NEW_WINDOW_KEY);
+  if (legacyValue === undefined || legacyValue === null) {
+    return { entries, changes };
+  }
+
+  const destination = deriveProjectOpenDestinationFromLegacy(legacyValue);
+  entries.set(PROJECT_OPEN_DESTINATION_KEY, destination);
+  changes.push([PROJECT_OPEN_DESTINATION_KEY, destination]);
+
+  return { entries, changes };
+}
 
 export function findRetiredSettingsKeys(entries: ReadonlyMap<string, unknown>): string[] {
   return RETIRED_SETTINGS_KEYS.filter((key) => entries.has(key));

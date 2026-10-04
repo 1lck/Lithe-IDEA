@@ -55,7 +55,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
   const settings = useSettingsStore(
     useShallow((state) => ({
       keybindingPreset: state.settings.keybindingPreset,
-      openFoldersInNewWindow: state.settings.openFoldersInNewWindow,
+      openInNewWindow: state.settings.projectOpenDefaultDestination === "new-window",
       vimMode: state.settings.vimMode,
     })),
   );
@@ -67,9 +67,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
   const completeOnboarding = useOnboardingStore((state) => state.actions.complete);
   const viewModel = buildOnboardingViewModel(context, t);
   const [vimMode, setVimMode] = useState(settings.vimMode);
-  const [openFoldersInNewWindow, setOpenFoldersInNewWindow] = useState(
-    settings.openFoldersInNewWindow,
-  );
+  const [openInNewWindow, setOpenInNewWindow] = useState(settings.openInNewWindow);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [keybindingPreset, setKeybindingPreset] = useState<KeybindingPreset>(
     settings.keybindingPreset,
@@ -77,18 +75,20 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
 
   useEffect(() => {
     setVimMode(settings.vimMode);
-    setOpenFoldersInNewWindow(settings.openFoldersInNewWindow);
+    setOpenInNewWindow(settings.openInNewWindow);
     setKeybindingPreset(settings.keybindingPreset);
   }, [
     settings.keybindingPreset,
-    settings.openFoldersInNewWindow,
+    settings.openInNewWindow,
     settings.vimMode,
   ]);
 
   const persistSelections = async () => {
     await Promise.all([
       updateSetting("vimMode", vimMode),
-      updateSetting("openFoldersInNewWindow", openFoldersInNewWindow),
+      // The off branch keeps the historical same-window behavior, which attaches the
+      // project as a tab rather than replacing anything.
+      updateSetting("projectOpenDefaultDestination", openInNewWindow ? "new-window" : "attach"),
       updateSetting("askWhereToOpenProjects", false),
       updateSetting("keybindingPreset", keybindingPreset),
     ]);
@@ -178,7 +178,7 @@ export default function OnboardingView({ bufferId, context }: OnboardingViewProp
             </SettingRow>
 
             <SettingRow title={t("onboarding.openFoldersInNewWindow")}>
-              <Switch checked={openFoldersInNewWindow} onChange={setOpenFoldersInNewWindow} />
+              <Switch checked={openInNewWindow} onChange={setOpenInNewWindow} />
             </SettingRow>
 
             <SettingRow

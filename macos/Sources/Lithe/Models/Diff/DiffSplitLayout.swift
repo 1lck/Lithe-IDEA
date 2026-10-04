@@ -1,3 +1,4 @@
+import Foundation
 import CoreGraphics
 import LitheGitModule
 
@@ -9,12 +10,32 @@ import LitheGitModule
 /// visualizes the resulting offset. This plan is the shared geometry behind
 /// that behavior.
 struct DiffSplitLayout {
+    struct InlineHighlight {
+        let range: Range<Int>
+        let kind: DiffRowKind
+
+        static func compare(_ left: String, _ right: String) -> (left: Self?, right: Self?) {
+            let old = Array(left), new = Array(right)
+            var prefix = 0, suffix = 0
+            let sharedCount = min(old.count, new.count)
+            while prefix < sharedCount, old[prefix] == new[prefix] { prefix += 1 }
+            while suffix < sharedCount - prefix,
+                  old[old.count - suffix - 1] == new[new.count - suffix - 1] { suffix += 1 }
+            let oldEnd = old.count - suffix, newEnd = new.count - suffix
+            let kind: DiffRowKind = prefix == oldEnd ? .addition : prefix == newEnd ? .removal : .changed
+            return (prefix < oldEnd ? Self(range: prefix..<oldEnd, kind: kind) : nil,
+                    prefix < newEnd ? Self(range: prefix..<newEnd, kind: kind) : nil)
+        }
+    }
+    /// Presentation identity: frame changes reuse the same prepared text storage.
+    let identity = UUID()
     struct Item: Identifiable {
         let displayRow: DiffDisplayRow
         let kind: DiffRowKind
         let top: CGFloat
         let height: CGFloat
         let isScrollAnchor: Bool
+        var inlineHighlight: InlineHighlight? = nil
 
         var id: String { displayRow.id }
     }
@@ -43,24 +64,21 @@ struct DiffSplitLayout {
     let rightHeight: CGFloat
 
     var contentHeight: CGFloat { max(leftHeight, rightHeight) }
+    let lineNumberGutterWidth: CGFloat
 
     static func plan(
         displayRows: [DiffDisplayRow],
         kinds: [DiffRowKind],
-        standardRowHeight: CGFloat = 24,
+        gutterWidth: CGFloat? = nil,
+        standardRowHeight: CGFloat = DiffLayoutMetrics.rowHeight,
         informationRowHeight: CGFloat = 27
     ) -> DiffSplitLayout {
-        struct RunSignature: Equatable {
-            let kind: DiffRowKind
-            let hasLeft: Bool
-            let hasRight: Bool
-        }
-
         struct TransitionRun {
             let id: String
-            let signature: RunSignature
             let leftStart: CGFloat
             let rightStart: CGFloat
+            let leftIndex: Int
+            let rightIndex: Int
         }
 
         var leftItems: [Item] = []
@@ -77,10 +95,55 @@ struct DiffSplitLayout {
 
         func finishTransitionRun() {
             guard let run = activeRun else { return }
+            // IDEA's SimpleDiffChange classifies a line fragment by both source
+            // ranges, not the positional row pairs supplied by our Core adapter.
+            let kind: DiffRowKind = leftHeight == run.leftStart ? .addition
+                : rightHeight == run.rightStart ? .removal : .changed
+            func source(_ item: Item, side: DiffSide) -> String {
+                let row = item.displayRow.layoutRow
+                return side == .left ? row.left ?? "" : row.rightText ?? ""
+            }
+            // Preserve the existing prefix/suffix highlighter, but compare the
+            // complete replacement before refining equal line ranges. A reflowed
+            // method call is one modification, not alternating insert/delete.
+            // ponytail: one inner span per aligned line or reflowed fragment; use provider-owned inner
+            // fragments if disjoint word edits need finer highlighting.
+            let highlight = InlineHighlight.compare(
+                leftItems[run.leftIndex...].map { source($0, side: .left) }.joined(separator: "\n"),
+                rightItems[run.rightIndex...].map { source($0, side: .right) }.joined(separator: "\n"))
+            func apply(_ items: inout [Item], start: Int, side: DiffSide, highlight: InlineHighlight?) {
+                var offset = 0
+                for index in start..<items.count {
+                    let item = items[index]
+                    let length = source(item, side: side).count
+                    let lower = max(offset, highlight?.range.lowerBound ?? offset)
+                    let upper = min(offset + length, highlight?.range.upperBound ?? offset)
+                    items[index] = Item(displayRow: item.displayRow, kind: kind, top: item.top,
+                        height: item.height, isScrollAnchor: item.isScrollAnchor,
+                        inlineHighlight: kind == .changed && lower < upper
+                            ? InlineHighlight(range: (lower - offset)..<(upper - offset), kind: highlight!.kind) : nil)
+                    offset += length + 1
+                }
+            }
+            apply(&leftItems, start: run.leftIndex, side: .left, highlight: highlight.left)
+            apply(&rightItems, start: run.rightIndex, side: .right, highlight: highlight.right)
+            // When both source ranges retain their line boundaries, refine each
+            // line independently so unchanged indentation/calls between edits
+            // do not become one large word highlight. Unequal ranges keep the
+            // whole-fragment comparison, avoiding positional reflow artifacts.
+            if leftItems.count - run.leftIndex == rightItems.count - run.rightIndex {
+                for index in 0..<(leftItems.count - run.leftIndex) {
+                    let left = run.leftIndex + index, right = run.rightIndex + index
+                    let pair = InlineHighlight.compare(source(leftItems[left], side: .left),
+                        source(rightItems[right], side: .right))
+                    leftItems[left].inlineHighlight = pair.left
+                    rightItems[right].inlineHighlight = pair.right
+                }
+            }
             transitions.append(
                 Transition(
                     id: run.id,
-                    kind: run.signature.kind,
+                    kind: kind,
                     leftRange: run.leftStart...leftHeight,
                     rightRange: run.rightStart...rightHeight
                 )
@@ -119,16 +182,14 @@ struct DiffSplitLayout {
             case let .row(row, _):
                 let hasLeft = row.left != nil
                 let hasRight = row.rightText != nil
-                let signature = RunSignature(kind: kind, hasLeft: hasLeft, hasRight: hasRight)
-
                 if kind.isSplitDifference, hasLeft || hasRight {
-                    if activeRun?.signature != signature {
-                        finishTransitionRun()
+                    if activeRun == nil {
                         activeRun = TransitionRun(
                             id: "transition-\(displayRow.id)",
-                            signature: signature,
                             leftStart: leftHeight,
-                            rightStart: rightHeight
+                            rightStart: rightHeight,
+                            leftIndex: leftItems.count,
+                            rightIndex: rightItems.count
                         )
                     }
                 } else {
@@ -169,7 +230,9 @@ struct DiffSplitLayout {
             rightItems: rightItems,
             transitions: transitions,
             leftHeight: leftHeight,
-            rightHeight: rightHeight
+            rightHeight: rightHeight,
+            lineNumberGutterWidth: gutterWidth ?? DiffLayoutMetrics.lineNumberGutterWidth(maximumLine:
+                displayRows.reduce(1) { max($0, $1.layoutRow.oldLine ?? 0, $1.layoutRow.newLine ?? 0) })
         )
     }
 }

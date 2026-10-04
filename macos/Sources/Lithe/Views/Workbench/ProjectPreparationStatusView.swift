@@ -37,21 +37,21 @@ private struct ProjectPreparationContent: View {
                         : phaseTitle(snapshot.phase))
                         .lineLimit(1)
                 }
-                .font(.system(size: 11))
+                .font(LitheTheme.uiFont(size: 11))
             }
             .buttonStyle(.litheNoPress)
             .help(chinese ? "查看项目准备详情" : "View project preparation details")
-            .popover(isPresented: $showingDetails, arrowEdge: compact ? .bottom : .top) {
+            .litheDropdown(isPresented: $showingDetails, opensUpward: !compact) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(phaseTitle(snapshot.phase)).font(.headline)
+                    Text(phaseTitle(snapshot.phase)).font(LitheTheme.uiFont(.headline))
                     ForEach(["starting", "importing", "configuring", "building"], id: \.self) { phase in
                         Text((snapshot.phase == phase ? "› " : "· ") + phaseTitle(phase))
-                            .font(.system(size: 12, weight: snapshot.phase == phase ? .semibold : .regular))
+                            .font(LitheTheme.uiFont(size: 12, weight: snapshot.phase == phase ? .semibold : .regular))
                     }
                     Text(chinese
                         ? "Java 工作区准备完成后才能启动。普通后台索引不阻塞运行，编译在运行前执行。"
                         : "The Java workspace must finish preparation before launch. Background indexing does not block running; compilation runs before launch.")
-                        .font(.system(size: 12))
+                        .font(LitheTheme.uiFont(size: 12))
                     Button(chinese ? "语言服务设置与重试" : "Language service settings and retry") {
                         showingDetails = false
                         model.showSettings(category: .lsp)
@@ -65,7 +65,7 @@ private struct ProjectPreparationContent: View {
                         Text(chinese
                             ? "此工作区的 Java 构建失败将始终继续启动。"
                             : "Java launches always continue after build failures in this workspace.")
-                            .font(.system(size: 12))
+                            .font(LitheTheme.uiFont(size: 12))
                             .foregroundStyle(LitheTheme.secondaryText)
                         Button(chinese ? "再次询问" : "Ask Again") {
                             model.askAgainForJavaBuildFailures()

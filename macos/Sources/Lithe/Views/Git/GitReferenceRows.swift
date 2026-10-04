@@ -26,6 +26,28 @@ struct GitReferenceRow: Identifiable, Equatable {
 
 /// Flattens references into the visible rows of one section, in render order.
 enum GitReferenceRowsBuilder {
+    static func filter(_ rows: [GitReferenceRow], matching query: String) -> [GitReferenceRow] {
+        guard !query.isEmpty else { return rows }
+        let matches = Set(rows.compactMap { row -> String? in
+            guard case .reference(let reference) = row.content,
+                  reference.shortName.localizedCaseInsensitiveContains(query) else { return nil }
+            return reference.shortName
+        })
+        let ancestorPaths = Set(matches.flatMap { name in
+            let parts = name.split(separator: "/")
+            guard parts.count > 1 else { return [String]() }
+            return (1..<parts.count).map { parts.prefix($0).joined(separator: "/") }
+        })
+        return rows.filter { row in
+            switch row.content {
+            case .reference(let reference):
+                return matches.contains(reference.shortName)
+            case .group(let key, _):
+                return ancestorPaths.contains(String(key.split(separator: ":", maxSplits: 1).last ?? ""))
+            }
+        }
+    }
+
     /// - Parameters:
     ///   - references: Already filtered to a single `kind` by the caller.
     ///   - collapsedGroups: Keys of groups whose children are hidden.
@@ -105,13 +127,24 @@ struct GitReferenceRowRenderKey: Equatable {
     let currentReferenceID: String?
     let comparisonSourceID: String?
     let isReadOnly: Bool
-    /// Palette slot for the row's leading color bar; `nil` when colors are off.
-    let repositoryColorIndex: Int?
+    let isFocused: Bool
+    let baseDepth: Int
     /// Remote branches backing the "Tracking Branch" submenu. A `refs` refresh
     /// can add or remove remote branches while every other field of a local row
     /// stays identical; without this the row keeps the menu it built earlier
     /// and offers a stale — or still empty — remote branch list.
     let remoteBranches: [GitReference]
+}
+
+/// HEAD and the current branch filter the same Git ref but are distinct tree nodes.
+enum GitReferenceTreeSelection {
+    static func isSelected(
+        isHead: Bool, headSelected: Bool, reference: GitReference,
+        selectedReferenceID: String?, showingAll: Bool
+    ) -> Bool {
+        guard !showingAll, isHead == headSelected else { return false }
+        return selectedReferenceID == reference.id || (selectedReferenceID == nil && reference.isCurrent)
+    }
 }
 
 /// One entry of a reference row's context menu, stripped of closures and

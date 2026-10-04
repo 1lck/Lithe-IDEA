@@ -110,6 +110,50 @@ describe("editor tab layout mode normalization", () => {
   });
 });
 
+describe("project open destination normalization", () => {
+  test("keeps a supported destination and falls back for unknown values", () => {
+    expect(normalizeSettingValue("projectOpenDefaultDestination", "attach")).toBe("attach");
+    expect(normalizeSettingValue("projectOpenDefaultDestination", "this-window")).toBe(
+      "this-window",
+    );
+    expect(
+      normalizeSettingValue(
+        "projectOpenDefaultDestination",
+        "sidebar" as Settings["projectOpenDefaultDestination"],
+      ),
+    ).toBe(defaultSettings.projectOpenDefaultDestination);
+  });
+
+  test("derives the destination from a legacy record only when the destination is missing", () => {
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination =
+      undefined;
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = false;
+
+    const normalized = normalizeSettings(settings);
+
+    expect(normalized.projectOpenDefaultDestination).toBe("attach");
+    expect("openFoldersInNewWindow" in normalized).toBe(false);
+  });
+
+  test("keeps an explicit destination over a legacy boolean", () => {
+    const settings = getDefaultSettingsSnapshot();
+    settings.projectOpenDefaultDestination = "this-window";
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = true;
+
+    expect(normalizeSettings(settings).projectOpenDefaultDestination).toBe("this-window");
+  });
+
+  test("derives new-window from a legacy import that preferred separate windows", () => {
+    const settings = getDefaultSettingsSnapshot();
+    (settings as { projectOpenDefaultDestination?: unknown }).projectOpenDefaultDestination =
+      undefined;
+    (settings as { openFoldersInNewWindow?: unknown }).openFoldersInNewWindow = true;
+
+    expect(normalizeSettings(settings).projectOpenDefaultDestination).toBe("new-window");
+  });
+});
+
 describe("v0 profile persistence", () => {
   test("normalizes saved profiles while the plugin is inactive", () => {
     const settings = getDefaultSettingsSnapshot();

@@ -50,7 +50,7 @@ struct DatabaseTableView: View {
                 } icon: {
                     Image(systemName: "exclamationmark.triangle.fill")
                 }
-                .font(.system(size: 10.5))
+                .font(LitheTheme.uiFont(size: 10.5))
                 .foregroundStyle(LitheTheme.error)
                 .padding(.horizontal, 12)
                 .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
@@ -165,13 +165,13 @@ struct DatabaseTableView: View {
     private var toolbar: some View {
         HStack(spacing: 8) {
             contextCrumb(feature.selectedProfile?.name ?? String(localized: "Database"), icon: "externaldrive.connected.to.line.below")
-            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
+            Image(systemName: "chevron.right").font(LitheTheme.uiFont(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
             contextCrumb(databaseContextName, icon: "cylinder")
             if let table = feature.selectedTable {
-                Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
+                Image(systemName: "chevron.right").font(LitheTheme.uiFont(size: 8, weight: .bold)).foregroundStyle(LitheTheme.tertiaryText)
                 contextCrumb(table, icon: "tablecells", emphasized: true)
                 Text("\(feature.columns.count) fields")
-                    .font(.system(size: 9.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
                     .foregroundStyle(LitheTheme.tertiaryText)
                     .monospacedDigit()
             }
@@ -185,40 +185,50 @@ struct DatabaseTableView: View {
 
                 toolbarDivider
 
-                Menu {
-                    Button("Import CSV…") { importFormat = .csv; showsImporter = true }
-                        .disabled(feature.selectedProfile?.readOnly == true)
-                    Button("Import JSON…") { importFormat = .json; showsImporter = true }
-                        .disabled(feature.selectedProfile?.readOnly == true)
-                    Button("Restore SQL Backup…") { importFormat = .sql; showsImporter = true }
-                        .disabled(feature.selectedProfile?.readOnly == true || feature.selectedProfile?.kind == .sqlserver)
-                    Divider()
-                    Button("Export Table as CSV…") { export(.csv) }
-                    Button("Export Table as JSON…") { export(.json) }
-                    Button("Back Up Database as SQL…") { export(.sql) }
+                LitheMenu {
+                    LitheContextMenuItem.action("Import CSV…") {
+                        importFormat = .csv
+                        showsImporter = true
+                    }
+                    .disabled(feature.selectedProfile?.readOnly == true)
+                    LitheContextMenuItem.action("Import JSON…") {
+                        importFormat = .json
+                        showsImporter = true
+                    }
+                    .disabled(feature.selectedProfile?.readOnly == true)
+                    LitheContextMenuItem.action("Restore SQL Backup…") {
+                        importFormat = .sql
+                        showsImporter = true
+                    }
+                    .disabled(
+                        feature.selectedProfile?.readOnly == true
+                            || feature.selectedProfile?.kind == .sqlserver)
+                    LitheContextMenuItem.separator
+                    LitheContextMenuItem.action("Export Table as CSV…") { export(.csv) }
+                    LitheContextMenuItem.action("Export Table as JSON…") { export(.json) }
+                    LitheContextMenuItem.action("Back Up Database as SQL…") { export(.sql) }
                         .disabled(feature.selectedProfile?.kind == .sqlserver)
                 } label: {
                     toolbarActionLabel("Data Tools", systemImage: "shippingbox", showsChevron: true)
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .buttonStyle(.litheNoPress)
+
                 .disabled(feature.selectedProfile?.kind == .mongodb)
 
                 toolbarDivider
 
-                Menu {
-                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-                    Button("Replace in Current Page…") { showsReplaceSheet = true }
+                LitheMenu {
+                    LitheContextMenuItem.action("Paste TSV from Clipboard") { pasteFromClipboard() }
+                    LitheContextMenuItem.action("Replace in Current Page…") { showsReplaceSheet = true }
                         .disabled(feature.rows.isEmpty)
                 } label: {
                     Image(systemName: "ellipsis")
-                        .font(.system(size: 11, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                         .foregroundStyle(LitheTheme.secondaryText)
                         .frame(width: 30, height: 27)
                         .contentShape(Rectangle())
                 }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+                .buttonStyle(.litheNoPress)
                 .help("Batch table tools")
             }
         }
@@ -233,18 +243,18 @@ struct DatabaseTableView: View {
                 icon: "line.3.horizontal.decrease",
                 active: !appliedFilters.isEmpty
             ) { showsFilterPopover.toggle() }
-            .popover(isPresented: $showsFilterPopover, arrowEdge: .bottom) { filterPopover }
+            .litheDropdown(isPresented: $showsFilterPopover) { filterPopover }
             clausePill(
                 title: Text(verbatim: sortClauseTitle),
                 icon: "arrow.up.arrow.down",
                 active: !appliedSort.isEmpty
             ) { showsSortPopover.toggle() }
-            .popover(isPresented: $showsSortPopover, arrowEdge: .bottom) { sortPopover }
+            .litheDropdown(isPresented: $showsSortPopover) { sortPopover }
             Spacer()
             if !appliedFilters.isEmpty || !appliedSort.isEmpty {
                 Button("Clear query") { clearQuery() }
                     .buttonStyle(.litheNoPress)
-                    .font(.system(size: 10, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
             }
         }
@@ -258,19 +268,25 @@ struct DatabaseTableView: View {
         HStack(spacing: 7) {
             Group {
                 Button { refreshTable() } label: { Label("Refresh table data", systemImage: "arrow.clockwise") }
-                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
-                Menu {
-                    ForEach(feature.columns, id: \.self) { column in
-                        Button(column) { jumpTargetColumn = column }
+                    .buttonStyle(.litheNoPress).font(LitheTheme.uiFont(size: 10.5, weight: .medium))
+                LitheMenu {
+                    for column in feature.columns {
+                        LitheContextMenuItem.action(column) { jumpTargetColumn = column }
                     }
-                } label: { Label("Jump to Column", systemImage: "rectangle.split.3x1") }
-                    .menuStyle(.borderlessButton).fixedSize()
-                Menu {
-                    Button("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
+                } label: {
+                    Label("Jump to Column", systemImage: "rectangle.split.3x1")
+                }
+                .buttonStyle(.litheNoPress)
+                    .fixedSize()
+                LitheMenu {
+                    LitheContextMenuItem.action("Copy Selected Rows as TSV") { copySelectedRowsAsTSV() }
                         .disabled(selectedRows.isEmpty)
-                    Button("Paste TSV from Clipboard") { pasteFromClipboard() }
-                } label: { Text("TSV") }
-                    .menuStyle(.borderlessButton).frame(width: 52)
+                    LitheContextMenuItem.action("Paste TSV from Clipboard") { pasteFromClipboard() }
+                } label: {
+                    Text("TSV")
+                }
+                .buttonStyle(.litheNoPress)
+                    .frame(width: 52)
                 Button {
                     rowDetailsIndex = selectedRows.first
                 } label: {
@@ -281,13 +297,13 @@ struct DatabaseTableView: View {
                 .accessibilityLabel("Row details")
                 .disabled(selectedRows.count != 1)
                 Button { insertedRows.append([:]) } label: { Label("Add Row", systemImage: "plus") }
-                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .disabled(feature.selectedProfile?.readOnly == true)
                 Button { apply() } label: { Label("Apply", systemImage: "checkmark") }
-                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .disabled(!hasChanges || feature.isLoading || feature.selectedProfile?.readOnly == true)
                 Button { discard() } label: { Label("Discard", systemImage: "arrow.uturn.backward") }
-                    .buttonStyle(.litheNoPress).font(.system(size: 10.5, weight: .medium))
+                    .buttonStyle(.litheNoPress).font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .disabled(!hasChanges)
             }
             if !selectedRows.isEmpty {
@@ -295,27 +311,27 @@ struct DatabaseTableView: View {
                     .fill(LitheTheme.divider)
                     .frame(width: 1, height: 18)
                 Text("\(selectedRows.count) selected")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                     .monospacedDigit()
                 Button { showsBatchUpdateSheet = true } label: {
                     Label("Batch Edit", systemImage: "square.and.pencil")
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .disabled(feature.selectedProfile?.readOnly == true)
                 Button { showsBatchDeleteConfirmation = true } label: {
                     Label("Delete Selected", systemImage: "trash")
                 }
                 .buttonStyle(.litheNoPress)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.error)
                 .disabled(feature.selectedProfile?.readOnly == true)
             }
             Group {
                 Spacer()
                 Button { previousPage() } label: { Image(systemName: "chevron.left") }.litheIconButton().help("Previous page").disabled(feature.currentOffset == 0)
-                Text(pageLabel).font(.system(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
+                Text(pageLabel).font(LitheTheme.uiFont(size: 10.5)).foregroundStyle(LitheTheme.secondaryText).lineLimit(1).frame(minWidth: 90)
                 Button { nextPage() } label: { Image(systemName: "chevron.right") }.litheIconButton().help("Next page")
                     .disabled(feature.currentOffset + feature.rows.count >= feature.totalRows)
             }
@@ -326,7 +342,7 @@ struct DatabaseTableView: View {
     private var filterPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("WHERE").font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Text("WHERE").font(LitheTheme.uiFont(size: 13, weight: .semibold, design: .monospaced))
                 Picker("Join conditions", selection: $filterJoin) {
                     Text("AND").tag(DatabaseFilterJoin.and)
                     Text("OR").tag(DatabaseFilterJoin.or)
@@ -348,13 +364,9 @@ struct DatabaseTableView: View {
                     }
                     .buttonStyle(.litheNoPress)
                     .help(condition.isEnabled ? "Disable condition" : "Enable condition")
-                    Picker("Column", selection: $condition.column) {
-                        ForEach(feature.columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    LitheSettingsSelect(selection: $condition.column, options: feature.columns, width: 150, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .frame(width: 150)
-                    Picker("Operator", selection: $condition.operator) {
-                        ForEach(DatabaseFilterOperator.allCases, id: \.self) { op in Text(op.title).tag(op) }
-                    }
+                    LitheSettingsSelect(selection: $condition.operator, options: DatabaseFilterOperator.allCases, width: 130, accessibilityLabel: "Operator", title: { $0.menuTitle })
                     .frame(width: 130)
                     TextField("Value", text: $condition.value)
                         .textFieldStyle(.roundedBorder)
@@ -381,7 +393,7 @@ struct DatabaseTableView: View {
     private var sortPopover: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("ORDER BY").font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Text("ORDER BY").font(LitheTheme.uiFont(size: 13, weight: .semibold, design: .monospaced))
                 Spacer()
                 Button { sortConditions.append(.init(column: feature.columns.first ?? "")) } label: {
                     Label("Add Sort", systemImage: "plus")
@@ -390,21 +402,16 @@ struct DatabaseTableView: View {
             }
             if sortConditions.isEmpty {
                 Text("No sorting")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .frame(maxWidth: .infinity, minHeight: 42)
             }
             ForEach(Array(sortConditions.indices), id: \.self) { index in
                 HStack(spacing: 8) {
-                    Text("\(index + 1)").font(.system(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
-                    Picker("Column", selection: $sortConditions[index].column) {
-                        ForEach(feature.columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    Text("\(index + 1)").font(LitheTheme.uiFont(size: 10, design: .monospaced)).foregroundStyle(LitheTheme.tertiaryText).frame(width: 18)
+                    LitheSettingsSelect(selection: $sortConditions[index].column, options: feature.columns, width: 190, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .frame(width: 190)
-                    Picker("Direction", selection: $sortConditions[index].descending) {
-                        Text("Ascending").tag(false)
-                        Text("Descending").tag(true)
-                    }
+                    LitheSettingsSelect(selection: $sortConditions[index].descending, options: [false, true], width: 120, accessibilityLabel: "Direction", title: { $0 ? "Descending" : "Ascending" })
                     .frame(width: 120)
                     Button { moveSort(from: index, by: -1) } label: { Image(systemName: "arrow.up") }
                         .buttonStyle(.litheNoPress).help("Move up").disabled(index == 0)
@@ -439,10 +446,10 @@ struct DatabaseTableView: View {
     private func contextCrumb(_ title: String, icon: String, emphasized: Bool = false) -> some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 9.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 9.5, weight: .medium))
                 .foregroundStyle(emphasized ? LitheTheme.accent : LitheTheme.secondaryText)
             Text(title)
-                .font(.system(size: 10.5, weight: emphasized ? .semibold : .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: emphasized ? .semibold : .medium))
                 .lineLimit(1)
         }
         .foregroundStyle(emphasized ? LitheTheme.primaryText : LitheTheme.secondaryText)
@@ -451,8 +458,8 @@ struct DatabaseTableView: View {
     private func clausePill(title: Text, icon: String, active: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 5) {
-                Image(systemName: icon).font(.system(size: 9.5, weight: .medium))
-                title.font(.system(size: 10, weight: .semibold, design: .monospaced))
+                Image(systemName: icon).font(LitheTheme.uiFont(size: 9.5, weight: .medium))
+                title.font(LitheTheme.uiFont(size: 10, weight: .semibold, design: .monospaced))
             }
             .foregroundStyle(active ? LitheTheme.primaryText : LitheTheme.secondaryText)
             .padding(.horizontal, 9)
@@ -475,12 +482,12 @@ struct DatabaseTableView: View {
     ) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
             Text(title)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
             if showsChevron {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 7.5, weight: .bold))
+                    .font(LitheTheme.uiFont(size: 7.5, weight: .bold))
                     .foregroundStyle(LitheTheme.tertiaryText)
             }
         }
@@ -530,7 +537,7 @@ struct DatabaseTableView: View {
             Button { toggleAllRows() } label: {
                 HStack(spacing: 7) {
                     Image(systemName: selectionSymbol)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(selectedRows.isEmpty ? LitheTheme.secondaryText : LitheTheme.accent)
                     Text("#")
                 }
@@ -546,33 +553,28 @@ struct DatabaseTableView: View {
                     Spacer(minLength: 4)
                     if let index = appliedSort.firstIndex(where: { $0.column == column }), appliedSort.count > 1 {
                         Text("\(index + 1)")
-                            .font(.system(size: 8, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 8, weight: .semibold))
                             .foregroundStyle(LitheTheme.tertiaryText)
                     }
-                    Menu {
-                        Button {
+                    LitheMenu {
+                        LitheContextMenuItem.action("Ascending", systemImage: "arrow.up") {
                             setSort(column: column, descending: false)
-                        } label: {
-                            Label("Ascending", systemImage: "arrow.up")
                         }
-                        Button {
+                        LitheContextMenuItem.action("Descending", systemImage: "arrow.down") {
                             setSort(column: column, descending: true)
-                        } label: {
-                            Label("Descending", systemImage: "arrow.down")
                         }
                     } label: {
                         Image(systemName: sortIcon(for: column))
-                            .font(.system(size: 9, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 9, weight: .semibold))
                             .foregroundStyle(isSorted(column) ? LitheTheme.accent : LitheTheme.tertiaryText)
                             .frame(width: 24, height: 30)
                             .contentShape(Rectangle())
                     }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
+                    .buttonStyle(.litheNoPress)
                     .fixedSize()
                     .help("Sort column")
                 }
-                .font(.system(size: 11.5, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 11.5, weight: .semibold))
                 .padding(.leading, 7)
                 .padding(.trailing, 3)
                 .frame(width: columnWidth, height: 32, alignment: .leading)
@@ -589,7 +591,7 @@ struct DatabaseTableView: View {
             Button { toggleSelection(index) } label: {
                 HStack(spacing: 7) {
                     Image(systemName: selectedRows.contains(index) ? "checkmark.square.fill" : "square")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12, weight: .medium))
                         .foregroundStyle(selectedRows.contains(index) ? LitheTheme.accent : LitheTheme.secondaryText)
                     Text("\(index + 1)")
                         .monospacedDigit()
@@ -603,7 +605,7 @@ struct DatabaseTableView: View {
             .litheContextMenu { rowContextMenu(index: index) }
             ForEach(feature.columns, id: \.self) { column in
                 TextField("", text: binding(row: index, column: column, original: row[column]))
-                    .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
+                    .textFieldStyle(.plain).font(LitheTheme.uiFont(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(drafts[CellKey(row: index, column: column)] == nil ? Color.clear : LitheTheme.warning.opacity(0.12))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .onTapGesture { pasteAnchor = CellKey(row: index, column: column) }
@@ -620,7 +622,7 @@ struct DatabaseTableView: View {
             Image(systemName: "plus").frame(width: selectionColumnWidth, height: 29).background(LitheTheme.success.opacity(0.12))
             ForEach(feature.columns, id: \.self) { column in
                 TextField("Default", text: insertedBinding(row: index, column: column))
-                    .textFieldStyle(.plain).font(.system(size: 12, design: .monospaced)).padding(.horizontal, 7)
+                    .textFieldStyle(.plain).font(LitheTheme.uiFont(size: 12, design: .monospaced)).padding(.horizontal, 7)
                     .frame(width: columnWidth, height: 29).background(LitheTheme.success.opacity(0.08))
                     .overlay(alignment: .trailing) { Rectangle().fill(LitheTheme.divider).frame(width: 1) }
                     .litheContextMenu {
@@ -977,13 +979,13 @@ struct DatabaseOpenTableTabsView: View {
                 ForEach(feature.openTableTabs, id: \.self) { table in
                     HStack(spacing: 7) {
                         Image(systemName: "tablecells")
-                            .font(.system(size: 10, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 10, weight: .medium))
                             .foregroundStyle(feature.selectedTable == table ? LitheTheme.accent : LitheTheme.secondaryText)
                         Button(table) {
                             Task { await feature.openTable(table) }
                         }
                         .buttonStyle(.litheNoPress)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11, weight: .medium))
                         Button {
                             let wasSelected = feature.selectedTable == table
                             if let next = feature.closeTableTab(table), wasSelected {
@@ -991,7 +993,7 @@ struct DatabaseOpenTableTabsView: View {
                             }
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.system(size: 8.5, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 8.5, weight: .semibold))
                         }
                         .buttonStyle(.litheNoPress)
                         .help("Close table")
@@ -1037,13 +1039,13 @@ private struct DatabaseBatchUpdateSheet: View {
         VStack(spacing: 0) {
             HStack(spacing: 9) {
                 Image(systemName: "square.and.pencil")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 13, weight: .medium))
                     .foregroundStyle(LitheTheme.accent)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Batch Edit Rows")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 14, weight: .semibold))
                     Text("\(selectedCount) selected")
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
                 Spacer()
@@ -1054,24 +1056,22 @@ private struct DatabaseBatchUpdateSheet: View {
 
             VStack(alignment: .leading, spacing: 14) {
                 Text("Set one field for every selected row. The change remains pending until you choose Apply.")
-                    .font(.system(size: 11))
+                    .font(LitheTheme.uiFont(size: 11))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Column")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
-                    Picker("Column", selection: $column) {
-                        ForEach(columns, id: \.self) { Text($0).tag($0) }
-                    }
+                    LitheSettingsSelect(selection: $column, options: columns, width: 240, accessibilityLabel: "Column", title: { $0 }, localizesTitles: false)
                     .labelsHidden()
                     .frame(maxWidth: .infinity)
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Value")
-                        .font(.system(size: 10.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                         .foregroundStyle(LitheTheme.secondaryText)
                     TextField("New value", text: $value)
                         .textFieldStyle(.roundedBorder)
@@ -1131,7 +1131,7 @@ private struct DatabaseTableEmptyState: View {
     var body: some View {
         VStack(spacing: 11) {
             Image(systemName: symbol)
-                .font(.system(size: 24, weight: .medium))
+                .font(LitheTheme.uiFont(size: 24, weight: .medium))
                 .foregroundStyle(LitheTheme.accent)
                 .frame(width: 58, height: 58)
                 .background(LitheTheme.accent.opacity(0.12))
@@ -1141,10 +1141,10 @@ private struct DatabaseTableEmptyState: View {
                         .stroke(LitheTheme.accent.opacity(0.22), lineWidth: 1)
                 }
             Text(title)
-                .font(.system(size: 17, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
                 .foregroundStyle(LitheTheme.primaryText)
             Text(detail)
-                .font(.system(size: 11.5))
+                .font(LitheTheme.uiFont(size: 11.5))
                 .foregroundStyle(LitheTheme.secondaryText)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 340)
@@ -1172,7 +1172,8 @@ private struct DatabaseTableSortDraft: Identifiable {
 }
 
 private extension DatabaseFilterOperator {
-    var title: LocalizedStringKey {
+    var title: LocalizedStringKey { LocalizedStringKey(menuTitle) }
+    var menuTitle: String {
         switch self {
         case .equals: "Equals"
         case .notEquals: "Not Equals"
@@ -1197,7 +1198,7 @@ private struct DatabaseRowDetailsSheet: View {
             HStack {
                 Image(systemName: "list.bullet.rectangle")
                     .foregroundStyle(LitheTheme.accent)
-                Text("Row Details").font(.system(size: 14, weight: .semibold))
+                Text("Row Details").font(LitheTheme.uiFont(size: 14, weight: .semibold))
                 Text("#\(rowNumber)").foregroundStyle(LitheTheme.secondaryText)
                 Spacer()
                 Button("Close") { dismiss() }
@@ -1209,10 +1210,10 @@ private struct DatabaseRowDetailsSheet: View {
                     ForEach(columns, id: \.self) { column in
                         HStack(alignment: .top, spacing: 14) {
                             Text(column)
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(LitheTheme.uiFont(size: 11, weight: .semibold))
                                 .frame(width: 150, alignment: .leading)
                             Text(valueText(row[column]))
-                                .font(.system(size: 11.5, design: .monospaced))
+                                .font(LitheTheme.uiFont(size: 11.5, design: .monospaced))
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
@@ -1234,6 +1235,7 @@ private struct DatabaseRowDetailsSheet: View {
 
 private struct DatabaseReplaceSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.locale) private var locale
     let columns: [String]
     @Binding var column: String
     @Binding var searchText: String
@@ -1243,14 +1245,12 @@ private struct DatabaseReplaceSheet: View {
     var body: some View {
         VStack(spacing: 0) {
             Text("Replace Values in Current Page")
-                .font(.system(size: 15, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 15, weight: .semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
             Form {
-                Picker("Column", selection: $column) {
-                    Text("All columns").tag("")
-                    ForEach(columns, id: \.self) { Text($0).tag($0) }
-                }
+                LitheSettingsSelect(selection: $column, options: [""] + columns, width: 240, accessibilityLabel: "Column",
+                    title: { $0.isEmpty ? String(localized: "All columns", locale: locale) : $0 }, localizesTitles: false)
                 TextField("Find", text: $searchText)
                 TextField("Replace with", text: $replacementText)
             }

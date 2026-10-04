@@ -4,90 +4,95 @@ import SwiftUI
 /// One IDEA-style horizontal scroller controls both fixed-width diff panes.
 /// The panes keep their on-screen geometry while their code content shares the
 /// same pixel offset.
-struct DiffHorizontalScroller: View {
+struct DiffHorizontalScroller: NSViewRepresentable {
     @Binding var offset: CGFloat
     let viewportWidth: CGFloat
     let contentWidth: CGFloat
 
-    @State private var dragStartOffset: CGFloat = 0
-    @State private var isDragging = false
-    @State private var isHovering = false
-    @State private var dragScheduler = LitheDragUpdateScheduler()
-
-    private var maximumOffset: CGFloat {
-        max(0, contentWidth - viewportWidth)
+    func makeNSView(context: Context) -> DiffHorizontalScrollerView {
+        let view = DiffHorizontalScrollerView()
+        view.clipsToBounds = true
+        view.setAccessibilityElement(true)
+        view.setAccessibilityRole(.scrollBar)
+        view.setAccessibilityOrientation(.horizontal)
+        view.setAccessibilityLabel("Synchronized diff horizontal scroll")
+        return view
     }
-
-    var body: some View {
-        GeometryReader { geometry in
-            let trackWidth = max(0, geometry.size.width - 12)
-            let visibleFraction = contentWidth > 0
-                ? min(1, viewportWidth / contentWidth)
-                : 1
-            let thumbWidth = min(trackWidth, max(46, trackWidth * visibleFraction))
-            let travel = max(0, trackWidth - thumbWidth)
-            let thumbOffset = maximumOffset > 0
-                ? min(max(offset / maximumOffset, 0), 1) * travel
-                : 0
-
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(LitheTheme.divider.opacity(isHovering || isDragging ? 0.55 : 0.28))
-                    .frame(height: 3)
-
-                Capsule()
-                    .fill(
-                        isDragging
-                            ? LitheTheme.accent.opacity(0.78)
-                            : LitheTheme.secondaryText.opacity(isHovering ? 0.72 : 0.48)
-                    )
-                    .frame(width: thumbWidth, height: isDragging ? 6 : 5)
-                    .offset(x: thumbOffset)
-                    .contentShape(Rectangle().inset(by: -4))
-                    .gesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                            .onChanged { value in
-                                if !isDragging {
-                                    isDragging = true
-                                    dragStartOffset = offset
-                                }
-                                guard travel > 0 else { return }
-                                dragScheduler.submit(constrained(
-                                    dragStartOffset + (value.translation.width / travel) * maximumOffset
-                                )) { nextOffset in
-                                    offset = nextOffset
-                                }
-                            }
-                            .onEnded { value in
-                                if travel > 0 {
-                                    let finalOffset = constrained(
-                                        dragStartOffset + (value.translation.width / travel) * maximumOffset
-                                    )
-                                    dragScheduler.cancel()
-                                    offset = finalOffset
-                                }
-                                isDragging = false
-                            }
-                    )
-            }
-            .frame(width: trackWidth, height: geometry.size.height)
-            .padding(.horizontal, 6)
-            .contentShape(Rectangle())
-            .onHover { isHovering = $0 }
-        }
-        .frame(height: 10)
-        .background(LitheTheme.window.opacity(isHovering || isDragging ? 0.82 : 0.48))
-        .opacity(maximumOffset > 0.5 ? 1 : 0)
-        .allowsHitTesting(maximumOffset > 0.5)
-        .accessibilityLabel("Synchronized diff horizontal scroll")
-        .onDisappear { dragScheduler.cancel() }
-        .onChange(of: maximumOffset) { newMaximum in
-            offset = min(max(offset, 0), newMaximum)
-        }
+    func updateNSView(_ view: DiffHorizontalScrollerView, context: Context) {
+        view.offset = offset; view.viewportWidth = viewportWidth; view.contentWidth = contentWidth
+        view.onScroll = { offset = $0 }
+        view.isHidden = view.maximumOffset <= 0.5
+        view.needsDisplay = true
     }
+}
 
-    private func constrained(_ value: CGFloat) -> CGFloat {
-        min(max(value, 0), maximumOffset)
+/// A native hit surface stays above the native code columns. A SwiftUI clear
+/// gesture overlay can paint its thumb while mouse events still hit NSTextView.
+final class DiffHorizontalScrollerView: NSView {
+    var offset: CGFloat = 0
+    var viewportWidth: CGFloat = 0
+    var contentWidth: CGFloat = 0
+    var onScroll: ((CGFloat) -> Void)?
+    private var dragStart: (windowX: CGFloat, offset: CGFloat, travel: CGFloat)?
+    private var scheduler = LitheDragUpdateScheduler()
+    private var tracking: NSTrackingArea?
+    private var hovering = false
+    var maximumOffset: CGFloat { max(0, contentWidth - viewportWidth) }
+    var knobRect: NSRect {
+        let track = max(0, bounds.width - 12)
+        let width = min(track, max(46, track * min(1, viewportWidth / max(1, contentWidth))))
+        return NSRect(x: 6 + (maximumOffset > 0 ? offset / maximumOffset * (track - width) : 0),
+            y: 0, width: width, height: bounds.height)
+    }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor(LitheTheme.Diff.background).setFill(); bounds.intersection(dirtyRect).fill()
+        LitheScrollBarStyle.paint(bounds: bounds, knob: knobRect, role: .editor,
+            dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+            hover: hovering || dragStart != nil ? 1 : 0)
+    }
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+        addTrackingArea(area); tracking = area
+    }
+    override func mouseEntered(with event: NSEvent) { hovering = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovering = false; needsDisplay = true }
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        if knobRect.contains(point) {
+            dragStart = (event.locationInWindow.x, offset, max(0, bounds.width - 12 - knobRect.width))
+        } else {
+            apply(offset + (point.x < knobRect.minX ? -1 : 1) * viewportWidth * 0.9)
+        }
+        needsDisplay = true
+    }
+    private func value(for event: NSEvent) -> CGFloat? {
+        guard let dragStart, dragStart.travel > 0 else { return nil }
+        return min(max(dragStart.offset + (event.locationInWindow.x - dragStart.windowX)
+            / dragStart.travel * maximumOffset, 0), maximumOffset)
+    }
+    override func mouseDragged(with event: NSEvent) {
+        guard let value = value(for: event) else { return }
+        scheduler.submit(value) { [weak self] in self?.apply($0) }
+    }
+    override func mouseUp(with event: NSEvent) {
+        scheduler.cancel()
+        if let value = value(for: event) { apply(value) }
+        dragStart = nil; needsDisplay = true
+    }
+    private func apply(_ value: CGFloat) {
+        offset = min(max(value, 0), maximumOffset)
+        onScroll?(offset); needsDisplay = true
+    }
+    override func accessibilityValue() -> Any? { maximumOffset > 0 ? offset / maximumOffset : 0 }
+    override func setAccessibilityValue(_ value: Any?) {
+        if let value = value as? NSNumber { apply(CGFloat(value.doubleValue) * maximumOffset) }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { scheduler.cancel(); dragStart = nil }
     }
 }
 
@@ -137,7 +142,7 @@ struct DiffHorizontalScrollWheelMonitor: NSViewRepresentable {
                 }
 
                 self.onScroll(-event.scrollingDeltaX)
-                return event
+                return nil
             }
         }
 

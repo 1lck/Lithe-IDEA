@@ -13,6 +13,11 @@ package struct GitWorkspaceCommitRelation: Codable, Equatable, Sendable {
     package let path: String
 }
 
+package struct GitWorkspaceCommitPathScope: Codable, Equatable, Sendable {
+    package let include: Bool
+    package let paths: [String: [String]]
+}
+
 package struct GitWorkspaceCommitPlan: Codable, Equatable, Sendable {
     package let repositories: [GitWorkspaceRepositoryBinding]
     package let message: String
@@ -20,6 +25,7 @@ package struct GitWorkspaceCommitPlan: Codable, Equatable, Sendable {
     package let push: Bool
     package let includeParentReferences: Bool
     package let isRetry: Bool
+    package var pathScope: GitWorkspaceCommitPathScope? = nil
     package let orderedIds: [String]
     package let propagatedRelations: [GitWorkspaceCommitRelation]
     package let dependencyRelations: [GitWorkspaceCommitRelation]
@@ -83,6 +89,7 @@ package struct GitWorkspaceCommitRequest: Encodable, Sendable {
     package let includeParentReferences: Bool
     package let previous: GitWorkspaceCommitSession?
     package let reviewed: GitWorkspaceCommitPlan?
+    package var pathScope: GitWorkspaceCommitPathScope? = nil
 }
 
 package struct GitWorkspaceCommitPreparation: Codable, Sendable {

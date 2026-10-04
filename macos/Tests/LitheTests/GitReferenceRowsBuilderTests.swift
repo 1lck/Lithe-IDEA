@@ -61,6 +61,16 @@ struct GitReferenceRowsBuilderTests {
     }
 
     @Test
+    func branchSearchKeepsMatchingLeavesAndTheirAncestorGroups() {
+        let original = rows(["feature/login", "feature/signup", "release/1.0", "main"])
+        let found = GitReferenceRowsBuilder.filter(original, matching: "LOGIN")
+
+        #expect(found.map(\.name) == ["feature", "login"])
+        #expect(GitReferenceRowsBuilder.filter(original, matching: "absent").isEmpty)
+        #expect(GitReferenceRowsBuilder.filter(original, matching: "") == original)
+    }
+
+    @Test
     func deepPathsNestOneLevelPerComponent() {
         let result = rows(["refs/heads/a/b/c"])
         #expect(result.map(\.depth) == [0, 1, 2, 3, 4])

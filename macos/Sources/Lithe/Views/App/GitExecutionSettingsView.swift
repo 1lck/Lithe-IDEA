@@ -44,7 +44,7 @@ struct GitExecutionSettingsView: View {
                 }
             } label: {
                 Label("Git behavior and configuration", systemImage: "slider.horizontal.3")
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
             }
         }
         .task(id: model.workspaceURL) { executable = settings.gitExecutable; feature = await model.activateGitModule() }
@@ -70,7 +70,7 @@ struct GitSettingsHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             Label(title, systemImage: icon)
-                .font(.system(size: 14, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 14, weight: .semibold))
             Text(subtitle).font(LitheTheme.smallFont).foregroundStyle(LitheTheme.secondaryText)
         }
     }
@@ -135,7 +135,7 @@ private struct GitExecutionConfigurationPane: View {
                     Image(systemName: "slider.horizontal.3")
                         .foregroundStyle(LitheTheme.secondaryText)
                     Text("Show Git key names")
-                        .font(.system(size: 11.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 11.5, weight: .medium))
                     Toggle("Show Git key names", isOn: $showsTechnicalDetails)
                         .labelsHidden()
                         .toggleStyle(.switch)
@@ -190,13 +190,13 @@ private struct GitExecutionConfigurationPane: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top, spacing: 9) {
                     Image(systemName: icon)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         .foregroundStyle(LitheTheme.accent)
                         .frame(width: 18)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(title).font(.system(size: 13, weight: .semibold))
+                        Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
                         Text(subtitle)
-                            .font(.system(size: 10.5))
+                            .font(LitheTheme.uiFont(size: 10.5))
                             .foregroundStyle(LitheTheme.secondaryText)
                     }
                     Spacer(minLength: 12)
@@ -316,7 +316,7 @@ private struct GitPaneSectionHeader: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 13, weight: .semibold))
+            Text(title).font(LitheTheme.uiFont(size: 13, weight: .semibold))
             Text(subtitle)
                 .font(LitheTheme.smallFont)
                 .foregroundStyle(LitheTheme.secondaryText)
@@ -331,11 +331,11 @@ private struct GitStatusBanner: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: snapshot.executable == nil ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .font(.system(size: 17, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 17, weight: .semibold))
                 .foregroundStyle(snapshot.executable == nil ? LitheTheme.warning : LitheTheme.success)
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(snapshot.executable == nil ? "Git was not found" : "Git is ready"))
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(LitheTheme.uiFont(size: 12.5, weight: .semibold))
                 Group {
                     if let executable = snapshot.executable {
                         Text(verbatim: "\(snapshot.version) · \(executable)")
@@ -363,7 +363,7 @@ private struct GitBranchContextView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Branch context", systemImage: "arrow.triangle.branch")
-                .font(.system(size: 12, weight: .semibold))
+                .font(LitheTheme.uiFont(size: 12, weight: .semibold))
 
             HStack(alignment: .top, spacing: 24) {
                 contextItem("Current branch", currentBranchValue)
@@ -373,22 +373,22 @@ private struct GitBranchContextView: View {
 
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("Remote URL")
-                    .font(.system(size: 10.5, weight: .medium))
+                    .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     .foregroundStyle(LitheTheme.secondaryText)
                 if let remoteURL, let presentation = GitRemoteURLPresentation(remoteURL) {
                     Text(verbatim: presentation.displayURL)
-                        .font(.system(size: 10.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 10.5, design: .monospaced))
                         .lineLimit(1)
                         .truncationMode(.middle)
                         .textSelection(.enabled)
                         .help(Text(verbatim: presentation.displayURL))
                     if let browserURL = presentation.browserURL {
                         Link("Open remote", destination: browserURL)
-                            .font(.system(size: 10.5, weight: .medium))
+                            .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                     }
                 } else {
                     Text(remoteURLValue)
-                        .font(.system(size: 10.5))
+                        .font(LitheTheme.uiFont(size: 10.5))
                         .foregroundStyle(LitheTheme.secondaryText)
                 }
             }
@@ -404,10 +404,10 @@ private struct GitBranchContextView: View {
     private func contextItem(_ label: LocalizedStringKey, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(label)
-                .font(.system(size: 10.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 10.5, weight: .medium))
                 .foregroundStyle(LitheTheme.secondaryText)
             Text(verbatim: value)
-                .font(.system(size: 12.5, weight: .medium))
+                .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
@@ -464,11 +464,11 @@ private struct GitEditableConfigurationRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 7) {
                     Text(title)
-                        .font(.system(size: 12.5, weight: .medium))
+                        .font(LitheTheme.uiFont(size: 12.5, weight: .medium))
                         .foregroundStyle(LitheTheme.primaryText)
                     if !field.configuredValues.isEmpty {
                         Text("Override")
-                            .font(.system(size: 9.5, weight: .semibold))
+                            .font(LitheTheme.uiFont(size: 9.5, weight: .semibold))
                             .foregroundStyle(LitheTheme.accent)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
@@ -477,7 +477,7 @@ private struct GitEditableConfigurationRow: View {
                     }
                 }
                 Text(description)
-                    .font(.system(size: 10.5))
+                    .font(LitheTheme.uiFont(size: 10.5))
                     .foregroundStyle(LitheTheme.secondaryText)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -493,7 +493,7 @@ private struct GitEditableConfigurationRow: View {
                 }
                 if showsTechnicalDetails {
                     Text(verbatim: "Git key: \(field.key)")
-                        .font(.system(size: 9.5, design: .monospaced))
+                        .font(LitheTheme.uiFont(size: 9.5, design: .monospaced))
                         .foregroundStyle(LitheTheme.tertiaryText)
                         .textSelection(.enabled)
                 }
@@ -589,7 +589,7 @@ private struct GitEditableConfigurationRow: View {
                 Text("Unavailable")
             }
         }
-        .font(.system(size: 10.5))
+        .font(LitheTheme.uiFont(size: 10.5))
         .foregroundStyle(LitheTheme.secondaryText)
         .lineLimit(1)
         .truncationMode(.middle)
@@ -606,7 +606,7 @@ private struct GitEditableConfigurationRow: View {
                 Text(verbatim: "· \(origin)")
             }
         }
-        .font(.system(size: 10.5))
+        .font(LitheTheme.uiFont(size: 10.5))
         .foregroundStyle(LitheTheme.secondaryText.opacity(0.9))
         .lineLimit(1)
         .truncationMode(.middle)

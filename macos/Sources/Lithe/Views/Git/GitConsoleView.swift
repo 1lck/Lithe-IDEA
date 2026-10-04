@@ -38,7 +38,7 @@ struct GitConsoleView: View {
                 if searchOpen { searchBar }
                 if let bundle, bundle.presentation == nil {
                     Text("Compression is unavailable. Showing complete retained output.")
-                        .font(.system(size: 12, weight: .regular, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
+                        .font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
                 }
                 contents
             }
@@ -57,29 +57,46 @@ struct GitConsoleView: View {
     }
 
     private var toolbar: some View {
-        VStack(spacing: 3) {
-            Button { searchOpen.toggle(); if !searchOpen { search = "" }; searchFocused = searchOpen } label: { Image(systemName: "magnifyingglass") }
-                .help("Find in Git console")
-            Button { wrapsLines.toggle() } label: { Image(systemName: "text.word.spacing") }
-                .foregroundStyle(wrapsLines ? LitheTheme.accent : LitheTheme.secondaryText).help("Use soft wraps")
-            Button { followsOutput = true; navigation += 1 } label: { Image(systemName: "arrow.down.to.line") }
-                .foregroundStyle(followsOutput ? LitheTheme.accent : LitheTheme.secondaryText).help("Scroll to new Git output")
-            Button(action: feature.cancelGitExecutions) { Image(systemName: "stop.fill") }
-                .disabled(!feature.isGitExecutionRunning).help("Cancel running Git operations")
-            Button {
+        // ActionToolbarImpl vertical layout: 22pt surface, 2/1 button insets,
+        // then JBUI.CurrentTheme.Toolbar's 5/7 outer insets.
+        VStack(spacing: 0) {
+            toolbarButton("expui/general/search.svg", help: "Find in Git console", selected: searchOpen) {
+                searchOpen.toggle(); if !searchOpen { search = "" }; searchFocused = searchOpen
+            }
+            toolbarButton("expui/general/softWrap.svg", help: "Use soft wraps", selected: wrapsLines) {
+                wrapsLines.toggle()
+            }
+            toolbarButton("expui/general/scrollDown.svg", help: "Scroll to new Git output", selected: followsOutput) {
+                followsOutput = true; navigation += 1
+            }
+            toolbarButton("expui/run/stop.svg", help: "Cancel running Git operations", enabled: feature.isGitExecutionRunning,
+                          action: feature.cancelGitExecutions)
+            toolbarButton("expui/general/delete.svg", help: "Clear Git console", enabled: !feature.gitConsoleEntries.isEmpty) {
                 feature.clearGitConsole(); bundle = nil; expanded = [:]
-            } label: { Image(systemName: "trash") }
-                .disabled(feature.gitConsoleEntries.isEmpty).help("Clear Git console")
-            Button {
+            }
+            toolbarButton("expui/general/copy.svg", help: "Copy complete console", enabled: !records.isEmpty) {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(records.map(\.copyText).joined(separator: "\n\n"), forType: .string)
-            } label: { Image(systemName: "doc.on.doc") }
-                .disabled(records.isEmpty).help("Copy complete console")
+            }
             Spacer(minLength: 0)
         }
-        .buttonStyle(.litheNoPress).litheIconButton()
-        .foregroundStyle(LitheTheme.secondaryText)
-        .padding(.top, 6).frame(width: 28)
+        .padding(.vertical, 5).padding(.horizontal, 7)
+        .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private func toolbarButton(_ path: String, help: String, selected: Bool = false,
+                               enabled: Bool = true, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            LitheIDEAIcon(resourcePath: path, size: LitheTheme.Metrics.toolbarIconSize, preservesOriginalColors: true)
+                .opacity(enabled ? 1 : 0.45)
+        }
+        .buttonStyle(LitheIconButtonStyle(size: LitheTheme.Metrics.toolbarIconButtonSize, cornerRadius: 4,
+                                         isSelected: selected, hoverBackground: LitheTheme.toolbarHoverBackground,
+                                         pressedBackground: LitheTheme.toolbarPressedBackground))
+        .disabled(!enabled)
+        .padding(.vertical, 2).padding(.horizontal, 1)
+        .accessibilityLabel(Text(LocalizedStringKey(help)))
+        .help(LocalizedStringKey(help))
     }
 
     private var searchBar: some View {
@@ -96,7 +113,7 @@ struct GitConsoleView: View {
             Button { moveMatch(1) } label: { Image(systemName: "arrow.down") }.help("Next match")
             Button { searchOpen = false; search = "" } label: { Image(systemName: "xmark") }.help("Close search")
         }
-        .font(.system(size: 12, weight: .regular, design: .monospaced)).padding(6)
+        .font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced)).padding(6)
     }
 
     private func moveMatch(_ delta: Int) {
@@ -113,10 +130,10 @@ struct GitConsoleView: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         if feature.gitConsoleHistoryTruncated {
                             Text("Earlier Git commands were truncated to limit memory use.")
-                                .font(.system(size: 12, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
+                                .font(LitheTheme.uiFont(size: 12, design: .monospaced)).foregroundStyle(LitheTheme.secondaryText)
                         }
                         if records.isEmpty {
-                            Text("Git command output will appear here.").font(.system(size: 12, weight: .regular, design: .monospaced))
+                            Text("Git command output will appear here.").font(LitheTheme.uiFont(size: 12, weight: .regular, design: .monospaced))
                                 .foregroundStyle(LitheTheme.secondaryText)
                         }
                         rows

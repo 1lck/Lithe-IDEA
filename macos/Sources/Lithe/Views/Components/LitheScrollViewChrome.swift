@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import QuartzCore
 
 enum LitheScrollWheelDestination: Equatable {
     case nested
@@ -74,6 +75,87 @@ enum LitheScrollWheelRouting {
     }
 }
 
+/// IDEA ScrollBarPainter / MacScrollBarUI; editors override the same painter.
+/// The rail belongs to its host surface, never to a hardcoded sidebar color.
+enum LitheScrollBarStyle {
+    enum Role { case product, editor }
+    static let thickness: CGFloat = 14
+    static let editorThickness: CGFloat = thickness + 2 + 2
+    static let minimumMarkHeight: CGFloat = 2
+
+    static func thumbRect(in bounds: NSRect, knob: NSRect, role: Role,
+                          hover: CGFloat, mirrored: Bool = false, opaque: Bool = false, dark: Bool = true) -> NSRect {
+        let vertical = bounds.height >= bounds.width
+        let cross = vertical ? bounds.width : bounds.height
+        // EditorMarkupModelImpl centers a 7→10pt overlay thumb in its 14pt lane;
+        // ButtonlessScrollBarUI expands by 2 before ScrollBarPainter's 1pt inset.
+        // In light UI fill == border, so IDEA omits the border and insets 2pt.
+        let margin: CGFloat = dark ? 1 : 2
+        let width: CGFloat = role == .editor ? 11 + 3 * hover - 2 * margin
+            : opaque ? 9 - 2 * margin : 11 + 3 * hover - 2 * margin
+        let center = role == .editor ? (cross >= editorThickness ? 4 + thickness / 2 : cross / 2)
+            : cross - (opaque ? 11 : 11 + 3 * hover) / 2
+        let alongInset = margin + (role == .product && opaque ? 1 : 0)
+        let start = mirrored ? cross - center - width / 2 : center - width / 2
+        return vertical ? NSRect(x: start, y: knob.minY + alongInset, width: width, height: max(0, knob.height - 2 * alongInset))
+            : NSRect(x: knob.minX + alongInset, y: start, width: max(0, knob.width - 2 * alongInset), height: width)
+    }
+
+    static func paint(bounds: NSRect, knob: NSRect, role: Role, dark: Bool,
+                      hover: CGFloat, mirrored: Bool = false, opaque: Bool = false) {
+        func rgba(_ rgb: UInt32, _ alpha: CGFloat) -> NSColor {
+            NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
+                green: CGFloat((rgb >> 8) & 255) / 255, blue: CGFloat(rgb & 255) / 255, alpha: alpha)
+        }
+        // Mac trackColor is transparent; the transparent hover track uses 8080801A.
+        if role == .product && !opaque {
+            rgba(0x808080, hover * 26 / 255).setFill()
+            bounds.fill()
+        }
+        guard !knob.isEmpty else { return }
+        let rect = thumbRect(in: bounds, knob: knob, role: role, hover: hover, mirrored: mirrored, opaque: opaque, dark: dark)
+        guard rect.width > 0, rect.height > 0 else { return }
+        let fill = dark ? rgba(role == .editor ? 0xFFFFFF : 0x808080,
+                              role == .editor ? (38 + 39 * hover) / 255 : (89 + 51 * hover) / 255)
+            : rgba(0, (51 + 77 * hover) / 255)
+        let border = dark ? rgba(0x262626, (89 + 51 * hover) / 255) : fill
+        let radius = min(rect.width, rect.height) / 2
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
+        fill.setFill()
+        if dark {
+            // RectanglePainter fills inside its border; translucent borders
+            // must not be composited over an already filled outline.
+            NSBezierPath(roundedRect: rect.insetBy(dx: 1, dy: 1),
+                xRadius: max(0, radius - 1), yRadius: max(0, radius - 1)).fill()
+            border.setStroke()
+            let stroke = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5),
+                xRadius: max(0, radius - 0.5), yRadius: max(0, radius - 0.5))
+            stroke.lineWidth = 1; stroke.stroke()
+        } else { path.fill() }
+    }
+}
+
+/// Paint-only adapter: callers keep their existing scroll/drag actions.
+struct LitheScrollBarPaint: NSViewRepresentable {
+    let knob: NSRect
+    let hover: CGFloat
+    let role: LitheScrollBarStyle.Role
+    func makeNSView(context: Context) -> PaintView { PaintView() }
+    func updateNSView(_ view: PaintView, context: Context) {
+        view.knob = knob; view.hover = hover; view.role = role; view.needsDisplay = true
+    }
+    final class PaintView: NSView {
+        var knob: NSRect = .zero
+        var hover: CGFloat = 0
+        var role: LitheScrollBarStyle.Role = .product
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func draw(_ dirtyRect: NSRect) {
+            LitheScrollBarStyle.paint(bounds: bounds, knob: knob, role: role,
+                dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua, hover: hover)
+        }
+    }
+}
+
 /// Keeps SwiftUI scroll views visually close to IntelliJ's overlay scrollers.
 /// SwiftUI otherwise inherits the user's macOS "Always show scroll bars"
 /// setting, which can turn a compact tool window into a set of bright, thick
@@ -82,7 +164,7 @@ enum LitheScrollWheelRouting {
 struct LitheScrollViewChrome: NSViewRepresentable {
     var hideHorizontal = false
     var alwaysShowVertical = false
-    var usesCompactScrollers = false
+    var usesCompactScrollers = true
 
     func makeNSView(context: Context) -> ScrollViewProbe {
         ScrollViewProbe(
@@ -177,11 +259,11 @@ struct LitheScrollViewChrome: NSViewRepresentable {
                     scrollView.contentView.drawsBackground = false
                 }
                 for scroller in [scrollView.verticalScroller, scrollView.horizontalScroller] {
-                    scroller?.wantsLayer = true
+                    scroller?.wantsLayer = false
                     scroller?.layer?.backgroundColor = NSColor.clear.cgColor
                 }
             }
-            let controlSize: NSControl.ControlSize = usesCompactScrollers ? .mini : .regular
+            let controlSize: NSControl.ControlSize = .regular
             if scrollView.verticalScroller?.controlSize != controlSize {
                 scrollView.verticalScroller?.controlSize = controlSize
             }
@@ -253,41 +335,54 @@ struct LitheScrollViewChrome: NSViewRepresentable {
         }
     }
 
-    /// Draws only a compact thumb in either persistent legacy or fading overlay
-    /// mode. Omitting the knob slot avoids adding a visible track background.
+    /// Shared Mac thumb/hover-track paint; AppKit retains native tracking and
+    /// overlay fading. The host surface remains visible through the idle rail.
     final class CompactScroller: NSScroller {
         override class var isCompatibleWithOverlayScrollers: Bool { true }
         override var isOpaque: Bool { false }
-
-        override func draw(_ dirtyRect: NSRect) {
-            drawKnob()
+        override class func scrollerWidth(for controlSize: NSControl.ControlSize, scrollerStyle: NSScroller.Style) -> CGFloat {
+            LitheScrollBarStyle.thickness
         }
 
+        var role: LitheScrollBarStyle.Role = .product
+        var mirrored = false
+        var onPaintChange: (() -> Void)?
+        @objc dynamic var hoverAmount: CGFloat = 0 { didSet { needsDisplay = true; onPaintChange?() } }
+        private var hoverTracking: NSTrackingArea?
+
+        override class func defaultAnimation(forKey key: NSAnimatablePropertyKey) -> Any? {
+            key == "hoverAmount" ? CABasicAnimation() : super.defaultAnimation(forKey: key)
+        }
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            if let hoverTracking { removeTrackingArea(hoverTracking) }
+            let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
+            addTrackingArea(area); hoverTracking = area
+        }
+        func setHovered(_ hovered: Bool, animated: Bool = true) {
+            if animated {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.125
+                    animator().hoverAmount = hovered ? 1 : 0
+                }
+            } else { hoverAmount = hovered ? 1 : 0 }
+        }
+        override func mouseEntered(with event: NSEvent) { setHovered(true) }
+        override func mouseExited(with event: NSEvent) { setHovered(false) }
+        override func mouseDown(with event: NSEvent) {
+            setHovered(true, animated: false)
+            super.mouseDown(with: event)
+            if let window { setHovered(bounds.contains(convert(window.mouseLocationOutsideOfEventStream, from: nil))) }
+        }
+        override func draw(_ dirtyRect: NSRect) { drawKnob() }
+        override func drawKnobSlot(in slotRect: NSRect, highlight flag: Bool) {}
         override func drawKnob() {
-            var knobRect = rect(for: .knob)
-            guard !knobRect.isEmpty else { return }
-
-            if bounds.height >= bounds.width {
-                let horizontalInset = max(2, (knobRect.width - 5) / 2)
-                knobRect = knobRect.insetBy(dx: horizontalInset, dy: 1)
-            } else {
-                let verticalInset = max(2, (knobRect.height - 5) / 2)
-                knobRect = knobRect.insetBy(dx: 1, dy: verticalInset)
-            }
-            guard knobRect.width > 0, knobRect.height > 0 else { return }
-
-            let isDark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            let secondaryText = LitheTheme.nsColor(.secondaryText, isDark: isDark)
-            let thumbColor = isDark && LitheTheme.activeTheme == .lithe
-                ? NSColor(srgbRed: 67.0 / 255.0, green: 67.0 / 255.0, blue: 67.0 / 255.0, alpha: 1)
-                : secondaryText.withAlphaComponent(isDark ? 0.62 : 0.36)
-            thumbColor.setFill()
-            NSBezierPath(
-                roundedRect: knobRect,
-                xRadius: min(2.5, knobRect.width / 2),
-                yRadius: min(2.5, knobRect.height / 2)
-            ).fill()
+            LitheScrollBarStyle.paint(bounds: bounds,
+                knob: knobProportion < 1 ? rect(for: .knob) : .zero, role: role,
+                dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua,
+                hover: hoverAmount, mirrored: mirrored, opaque: scrollerStyle == .legacy && role == .product)
         }
+
     }
 }
 
@@ -295,7 +390,7 @@ extension View {
     func litheScrollViewChrome(
         hideHorizontal: Bool = false,
         alwaysShowVertical: Bool = false,
-        usesCompactScrollers: Bool = false
+        usesCompactScrollers: Bool = true
     ) -> some View {
         background(LitheScrollViewChrome(
             hideHorizontal: hideHorizontal,

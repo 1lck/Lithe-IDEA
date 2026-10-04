@@ -1,0 +1,26 @@
+{
+  "id": "macos-shared-scrollbar-style",
+  "area": "工作台",
+  "group": "界面样式",
+  "capability": "macOS 共享滚动条样式",
+  "macos": {
+    "evidence": [
+      "macos/Sources/Lithe/Views/Components/LitheScrollViewChrome.swift",
+      "macos/Sources/Lithe/Views/Diff/DiffScrollSynchronization.swift",
+      "macos/Sources/Lithe/Views/Diff/DiffHorizontalScrollSupport.swift",
+      "macos/Tests/LitheTests/LitheScrollBarStyleTests.swift",
+      ".agents/notes/implemented/feature/2026-10-02-macos-shared-scrollbar.md"
+    ],
+    "implementationStatus": "implemented",
+    "verificationStatus": "pending"
+  },
+  "windows": {
+    "evidence": [
+      "windows/tauri/src/styles/scrollbars.css"
+    ],
+    "implementationStatus": "platform-specific",
+    "verificationStatus": "not-applicable"
+  },
+  "owner": "Workbench",
+  "verification": "在 macOS 深浅色核对 Project/Dependencies、Settings/Keyboard Shortcuts/Project Runtime、LSP、Git Log/Console/Worktrees 共享轨道与滑块；默认 chrome 消费者使用共享绘制，AppKit 比例、页点击、嵌套滚轮边界与自动隐藏语义保留。Diff 横向/两侧/单栏入口共用编辑器用途配色和胶囊；标记与滑块在不同横向区域，左 rail 镜像，点击仍导航且 hover 不改变位置。真实 NSHostingView/NSScrollView 深浅像素与几何组件检查不代替完整应用滚动视觉验收；后者 pending。"
+}

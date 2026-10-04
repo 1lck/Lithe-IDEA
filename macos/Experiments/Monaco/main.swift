@@ -45,6 +45,7 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
     var text = ""
     var revision = 0
     var actionCommandCount = 0
+    var lastContextMenu: [String: Any] = [:]
     var codeVisionActions: [String] = []
     var gitLineActions: [String] = []
     var blameCommits: [String] = []
@@ -128,6 +129,10 @@ final class Probe: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithRe
                 throw ProbeError.invalid("Invalid bridge source or message")
             }
             switch type {
+            case "contextMenu":
+                lastContextMenu = body
+                replyHandler(["selected": NSNull()], nil)
+            case "lastContextMenu": replyHandler(lastContextMenu, nil)
             case "javaNavigation":
                 if holdNavigation {
                     holdNavigation = false
