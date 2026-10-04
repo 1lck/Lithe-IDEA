@@ -1374,3 +1374,13 @@
 "A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
 "Selected ChangeList or staged files changed before generation finished" = "Selected ChangeList or staged files changed before generation finished";
+
+"Waiting for Agent response…" = "Waiting for Agent response…";
+
+"Preparing conversation…" = "Preparing conversation…";
+
+"Running tools…" = "Running tools…";
+
+"Waiting for permission…" = "Waiting for permission…";
+
+"Agent is retrying…" = "Agent is retrying…";

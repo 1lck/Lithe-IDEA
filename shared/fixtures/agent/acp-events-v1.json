@@ -86,6 +86,10 @@
       "sessionId": "session-1",
       "update": { "sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "completed", "content": [{ "type": "content", "content": { "type": "text", "text": "1 test passed" } }], "rawOutput": { "exitCode": 0 } }
     },
+    "codexRetry": {
+      "kind": "update", "sessionId": "session-1",
+      "update": { "sessionUpdate": "session_info_update", "_meta": { "codex": { "error": { "message": "Stream closed before completion; reconnecting.", "codexErrorInfo": null, "additionalDetails": null, "turnId": "upstream-turn-1", "willRetry": true } } } }
+    },
     "sessionInfo": {
       "kind": "update",
       "sessionId": "session-1",

@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import LitheCoreContracts
 import Testing
 @testable import LitheAgentConversationModule
@@ -7,6 +8,135 @@ import Testing
 /// are delivered synchronously through `receive`, so no test waits on timers.
 @MainActor
 struct AgentConversationFeatureModelTests {
+    @Test
+    func responseStatusUsesObservedProgressAndPermissionInsteadOfElapsedTime() async throws {
+        try await withStatisticsFeature { feature, connection, clock in
+            try feature.send("Create a sample")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            #expect(feature.selectedConversation?.responseStatus == .waiting)
+            clock.advance(540)
+            #expect(feature.selectedConversation?.responseStatus == .waiting, "Silence cannot prove reasoning or retries")
+            try feature.receive(event("agentThoughtChunk"))
+            #expect(feature.selectedConversation?.responseStatus == .thinking)
+            try feature.receive(event("agentMessageChunk"))
+            #expect(feature.selectedConversation?.responseStatus == .responding)
+            try feature.receive(event("toolCall"))
+            #expect(feature.selectedConversation?.responseStatus == .runningTools)
+            try feature.receive(event("permission"))
+            #expect(feature.selectedConversation?.responseStatus == .waitingForPermission)
+            feature.answerPermission(optionID: "allow_once")
+            #expect(feature.selectedConversation?.responseStatus == .runningTools)
+            try feature.receive(event("toolCallUpdate"))
+            #expect(feature.selectedConversation?.responseStatus == .waiting)
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.responseStatus == nil)
+            #expect(feature.selectedConversation?.completedTurns.last?.duration == 540)
+            try feature.send("Continue")
+            #expect(feature.selectedConversation?.responseStatus == .waiting)
+        }
+    }
+
+    @Test
+    func titlelessRetryMetadataKeepsTheTurnBusyAndProgressClearsIt() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("Try the service")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            let title = feature.sessions.first?.title
+            let turn = feature.selectedConversation?.activeTurn
+            try feature.receive(event("codexRetry"))
+            #expect(feature.selectedConversation?.responseStatus == .retrying)
+            #expect(feature.selectedConversation?.activeTurn == turn)
+            #expect(feature.selectedConversation?.isResponding == true)
+            #expect(feature.selectedConversation?.errorMessage == nil)
+            #expect(feature.sessions.first?.title == title)
+            #expect(throws: AgentConversationError.sessionBusy) { try feature.send("Overlap") }
+            try feature.receive(event("agentThoughtChunk"))
+            #expect(feature.selectedConversation?.responseStatus == .thinking)
+            try feature.receive(event("codexRetry"))
+            try feature.receive(event("agentMessageChunk"))
+            #expect(feature.selectedConversation?.responseStatus == .responding)
+            try feature.receive(event("turnFinished"))
+            #expect(feature.selectedConversation?.responseStatus == nil)
+            try feature.receive(event("codexRetry"))
+            #expect(feature.selectedConversation?.responseStatus == nil, "Late retries must not resurrect a finished turn")
+            try feature.send("Next turn")
+            try feature.receive(event("codexRetry"))
+            #expect(feature.selectedConversation?.responseStatus == .waiting, "The previous upstream turn must stay retired")
+            try feature.receive(event("codexRetry", ["update": retryUpdate(turnID: "upstream-turn-2")]))
+            #expect(feature.selectedConversation?.responseStatus == .retrying)
+            try feature.receive(event("toolCall"))
+            #expect(feature.selectedConversation?.responseStatus == .runningTools)
+            try feature.receive(event("requestFailed"))
+            #expect(feature.selectedConversation?.responseStatus == nil)
+        }
+    }
+
+    @Test
+    func retryAndStoppingStatusAreIsolatedBySessionAndConnectionLifecycle() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("First session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            try feature.receive(event("codexRetry"))
+            feature.startNewConversation()
+            try feature.send("Second session")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any, "sessionId": "session-2"]))
+            #expect(feature.selectedConversation?.responseStatus == .waiting)
+            #expect(feature.conversations["session-1"]?.responseStatus == .retrying)
+            feature.cancel()
+            try feature.receive(event("codexRetry", ["sessionId": "session-2", "update": retryUpdate(turnID: "second-turn")]))
+            try feature.receive(event("agentThoughtChunk", ["sessionId": "session-2"]))
+            #expect(feature.selectedConversation?.responseStatus == .stopping)
+            #expect(feature.conversations["session-1"]?.responseStatus == .retrying)
+            try feature.receive(event("turnCancelled", ["sessionId": "session-2"]))
+            #expect(feature.selectedConversation?.responseStatus == nil)
+            feature.selectSession("session-1")
+            #expect(feature.selectedConversation?.responseStatus == .retrying)
+            try feature.receive(event("stopped"))
+            #expect(feature.conversations.values.allSatisfy { $0.responseStatus == nil })
+        }
+    }
+
+    @Test
+    func invalidRetryMetadataAndHistoricalToolsCannotInventActivity() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("Wait for the service")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            for error in [["willRetry": false, "turnId": "turn"] as [String: Any],
+                          ["willRetry": "true", "turnId": "turn"],
+                          ["willRetry": true], ["willRetry": true, "turnId": ""]] {
+                try feature.receive(event("sessionInfo", ["update": ["sessionUpdate": "session_info_update",
+                    "_meta": ["codex": ["error": error]]]]))
+                #expect(feature.selectedConversation?.responseStatus == .waiting)
+            }
+        }
+        var history = AgentConversation()
+        history.messages = [AgentConversationMessage(id: "old-tool", role: .tool, text: "Historical", toolStatus: .inProgress),
+                            AgentConversationMessage(id: "new-turn", role: .user, text: "Continue")]
+        history.activeTurn = AgentTurnStatistics(id: "new-turn", startedAt: .now)
+        history.isResponding = true
+        #expect(history.responseStatus == .waiting)
+    }
+
+    @Test
+    func repeatedOutputChunksKeepConversationPublicationCoalesced() async throws {
+        try await withStatisticsFeature { feature, connection, _ in
+            try feature.send("Stream a response")
+            try feature.receive(event("sessionCreated", ["token": connection.commands.last?["token"] as Any]))
+            var publications = 0
+            let subscription = feature.$conversations.sink { _ in publications += 1 }
+            defer { subscription.cancel() }
+            let initial = publications
+            // Deliver one synchronous burst, before the owned flush task runs.
+            for _ in 0..<100 { try feature.receive(event("agentMessageChunk")) }
+            #expect(feature.selectedConversation?.responseStatus == .responding)
+            #expect(publications - initial == 1, "A text burst must publish its phase once, keeping transcript buffering intact")
+        }
+    }
+
+    private func retryUpdate(turnID: String) -> [String: Any] {
+        ["sessionUpdate": "session_info_update", "_meta": ["codex": ["error": ["willRetry": true, "turnId": turnID]]]]
+    }
+
     @Test
     func turnStatisticsIncludePreparationFreezeAtCompletionAndKeepReportedUsage() async throws {
         try await withStatisticsFeature { feature, connection, clock in

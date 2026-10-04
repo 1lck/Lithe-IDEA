@@ -324,6 +324,7 @@ fn serialized_events_match_the_shared_fixture() {
         "toolCall",
         "toolCallUpdate",
         "sessionInfo",
+        "codexRetry",
         "usageUpdate",
         "agentThoughtChunk",
         "plan",
