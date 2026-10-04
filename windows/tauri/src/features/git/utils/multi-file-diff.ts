@@ -1,4 +1,4 @@
-import type { MultiFileDiff } from "../types/git-diff.types";
+import type { DiffRevisionPair, MultiFileDiff } from "../types/git-diff.types";
 import type { GitCommit, GitDiff } from "../types/git.types";
 import { countDiffStats } from "./git-diff-helpers";
 
@@ -102,6 +102,7 @@ export function createCommitFileDiffPreview({
   filePath,
   fileKeys,
   fileLabels,
+  fileRevisions,
   label,
 }: {
   repoPath: string;
@@ -110,31 +111,35 @@ export function createCommitFileDiffPreview({
   filePath: string;
   fileKeys?: string[];
   fileLabels?: string[];
-  /** Short revision label shown next to the file name in the tab title. */
+  fileRevisions?: DiffRevisionPair[];
+  /** Revision identity shown in the page, never appended to the repository preview tab. */
   label: string;
 }) {
-  // Disconnected selections can contain several revisions of the same path.
-  // Keep every matching section and its commit identity, rather than taking the first match.
-  const indexes = diffs.flatMap((diff, index) =>
-    [diff.new_path, diff.file_path, diff.old_path].includes(filePath) ? [index] : [],
+  const selected = diffs.find((diff) =>
+    [diff.new_path, diff.file_path, diff.old_path].includes(filePath),
   );
-  if (indexes.length === 0) return null;
-  const fileName = filePath.split("/").pop() ?? filePath;
+  if (!selected) return null;
+  const fileName = (selected.new_path || selected.file_path || selected.old_path || filePath)
+    .split(/[\\/]/)
+    .pop()!;
   const diffData = createMultiFileDiff({
     title: fileName,
     repoPath,
     commitHash,
-    diffs: indexes.map((index) => diffs[index]),
+    // Retain every revision and its key, including repeated paths. Only the selected
+    // entry is rendered; file navigation must not refetch or lose revision identity.
+    diffs: [...diffs],
     initialFilePath: filePath,
-    fileKeys: fileKeys ? indexes.map((index) => fileKeys[index]) : undefined,
-    fileLabels: fileLabels ? indexes.map((index) => fileLabels[index]) : undefined,
+    fileKeys,
+    fileLabels: fileLabels ?? diffs.map(() => label),
   });
   diffData.hideFileList = true;
-  diffData.totalFiles = 1;
+  diffData.commitFilePreview = true;
+  diffData.fileRevisions = fileRevisions;
 
   return {
     virtualPath: COMMIT_FILE_PREVIEW_PATH,
-    displayName: `${fileName} (${label})`,
+    displayName: `Repository Diff: ${fileName}`,
     diffData,
   };
 }

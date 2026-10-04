@@ -1,5 +1,7 @@
 import type { MultiFileDiff } from "@/features/git/types/git-diff.types";
 import type { GitDiff } from "@/features/git/types/git.types";
+import { COMMIT_FILE_PREVIEW_PATH } from "./multi-file-diff";
+import { selectedCommitFileIndex } from "./commit-file-diff-navigation";
 
 type Translate = (key: string, params?: Record<string, string>) => string;
 
@@ -11,6 +13,19 @@ export function formatDiffBufferLabel(
   translate?: Translate,
   diffData?: GitDiff | MultiFileDiff,
 ): string {
+  if (
+    path === COMMIT_FILE_PREVIEW_PATH &&
+    diffData &&
+    "files" in diffData &&
+    diffData.commitFilePreview
+  ) {
+    const diff = diffData.files[selectedCommitFileIndex(diffData)];
+    const fileName = (diff?.new_path || diff?.file_path || diff?.old_path)?.split(/[\\/]/).pop();
+    return fileName
+      ? (translate?.("git.diff.repositoryPreviewTitle", { file: fileName }) ??
+          `Repository Diff: ${fileName}`)
+      : (translate?.("git.diff.repositoryPreviewEmptyTitle") ?? "Repository Diff");
+  }
   // A diff opened from the commit panel mirrors IntelliJ's commit diff preview tab (VcsBundle
   // commit.editor.diff.preview.title): "Commit: <current file>", or "Commit" before a change
   // is selected. Other working-tree diffs (e.g. from the editor gutter) keep the generic title.
@@ -20,7 +35,9 @@ export function formatDiffBufferLabel(
     }
     const fileName = getCommitPreviewFileName(diffData);
     if (fileName) {
-      return translate?.("git.diff.commitPreviewTitle", { file: fileName }) ?? `Commit: ${fileName}`;
+      return (
+        translate?.("git.diff.commitPreviewTitle", { file: fileName }) ?? `Commit: ${fileName}`
+      );
     }
     return translate?.("git.diff.commitPreviewEmptyTitle") ?? "Commit";
   }

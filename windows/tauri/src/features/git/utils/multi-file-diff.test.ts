@@ -74,11 +74,12 @@ describe("commit file preview", () => {
 
     if (!preview) throw new Error("Expected file preview");
     expect(preview.virtualPath).toBe(COMMIT_FILE_PREVIEW_PATH);
-    expect(preview.displayName).toBe("feature.ts (1234567)");
+    expect(preview.displayName).toBe("Repository Diff: feature.ts");
     expect(preview.diffData.files).toEqual([selected]);
     expect(preview.diffData.totalFiles).toBe(1);
     expect(preview.diffData.commitMessage).toBeUndefined();
     expect(preview.diffData.hideFileList).toBe(true);
+    expect(preview.diffData.commitFilePreview).toBe(true);
     expect(preview.diffData.initiallySelectedFileKey).toBe("src/feature.ts:0");
   });
 
@@ -99,8 +100,9 @@ describe("commit file preview", () => {
         filePath,
         label: "abc",
       });
-    expect(preview("src/new.ts")?.diffData.files).toEqual([renamed]);
-    expect(preview("src/old.ts")?.diffData.files).toEqual([renamed]);
+    expect(preview("src/new.ts")?.diffData.files).toEqual(diffs);
+    expect(preview("src/old.ts")?.diffData.initiallySelectedFileKey).toBe("src/new.ts:1");
+    expect(preview("src/old.ts")?.displayName).toBe("Repository Diff: new.ts");
     expect(preview("src/missing.ts")).toBeNull();
   });
 });

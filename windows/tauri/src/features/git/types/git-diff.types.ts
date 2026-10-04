@@ -119,6 +119,12 @@ export interface WorkingTreeDiffTarget {
   hasStagedChanges?: boolean;
 }
 
+export interface DiffRevisionPair {
+  /** Null denotes the empty tree, not an unknown parent. */
+  before: string | null;
+  after: string;
+}
+
 export interface MultiFileDiff {
   title?: string;
   repoPath?: string;
@@ -133,10 +139,14 @@ export interface MultiFileDiff {
   totalDeletions: number;
   fileKeys?: string[];
   fileLabels?: string[];
+  /** Before/after identities in file order, including repeated paths across commits. */
+  fileRevisions?: DiffRevisionPair[];
   initiallyExpandedFileKey?: string;
   initiallySelectedFileKey?: string;
   /** Hides the changed-files navigator, e.g. for a single-file commit preview. */
   hideFileList?: boolean;
+  /** Git Log preview: one visible file, with the complete comparison retained for navigation. */
+  commitFilePreview?: boolean;
   /**
    * Opened from the commit (local changes) panel, so the tab is titled like IntelliJ's commit
    * diff preview ("Commit: <file>"); other working-tree diffs keep the generic title.

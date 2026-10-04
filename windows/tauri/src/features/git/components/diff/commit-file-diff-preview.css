@@ -1,0 +1,120 @@
+/* Diff-specific chrome follows LitheTheme.Diff / IDEA Islands. Monaco owns layout and scrolling. */
+.commit-file-diff-preview {
+  --commit-diff-background: #191a1c;
+  --commit-diff-title-border: #555555;
+  --commit-diff-title-text: #bcbec4;
+  --commit-diff-path-text: #73767c;
+  --commit-diff-toolbar-background: #212326;
+  --commit-diff-toolbar-border: #26282c;
+  --commit-diff-slider: #ffffff26;
+  --commit-diff-slider-hover: #ffffff4d;
+  --commit-diff-slider-border: #26262659;
+  --commit-diff-slider-border-hover: #2626268c;
+  background: var(--commit-diff-background);
+}
+
+[data-theme-type="light"] .commit-file-diff-preview,
+.commit-file-diff-preview:has(.monaco-diff-editor.vs) {
+  --commit-diff-background: #ffffff;
+  --commit-diff-title-border: #d4d4d4;
+  --commit-diff-title-text: #080808;
+  --commit-diff-toolbar-background: #f7f8f9;
+  --commit-diff-toolbar-border: #e9eaee;
+  --commit-diff-slider: #00000033;
+  --commit-diff-slider-hover: #00000080;
+  --commit-diff-slider-border: transparent;
+  --commit-diff-slider-border-hover: transparent;
+}
+
+.commit-diff-toolbar {
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 2px 6px;
+  border-bottom: 1px solid var(--commit-diff-toolbar-border);
+  background: var(--commit-diff-toolbar-background);
+  overflow-x: auto;
+}
+
+.commit-diff-toolbar button[data-size="icon-xs"] {
+  width: 22px;
+  height: 22px;
+}
+
+.commit-diff-toolbar button {
+  transform: none;
+}
+
+.commit-diff-version-header {
+  display: grid;
+  grid-template-columns: minmax(0, var(--commit-diff-left-width, 50%)) minmax(0, 1fr);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--commit-diff-title-border);
+}
+
+.commit-diff-version-header[data-view-mode="unified"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.commit-diff-version {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 28px;
+  padding: 6px;
+  color: var(--commit-diff-title-text);
+  font-size: 13px;
+  line-height: 16px;
+}
+
+.commit-diff-version-header[data-view-mode="unified"] .commit-diff-version {
+  min-height: 16px;
+  padding: 0 6px;
+}
+
+.commit-diff-version-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--commit-diff-path-text);
+}
+
+.commit-file-diff-preview .monaco-editor,
+.commit-file-diff-preview .monaco-editor-background,
+.commit-file-diff-preview .monaco-editor .margin,
+.commit-file-diff-preview .diffOverview {
+  background: var(--commit-diff-background);
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider {
+  box-sizing: border-box;
+  border: 1px solid var(--commit-diff-slider-border);
+  border-radius: var(--app-scrollbar-radius);
+  background: var(--commit-diff-slider);
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar {
+  background: transparent;
+}
+
+/* With ruler lanes disabled Monaco still assigns this canvas an inline theme
+   background. Remove that paint so code remains visible under the native rail. */
+.commit-file-diff-preview .monaco-editor .decorationsOverviewRuler {
+  background: transparent !important;
+}
+
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider:hover,
+.commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider.active {
+  border-color: var(--commit-diff-slider-border-hover);
+  background: var(--commit-diff-slider-hover);
+}
+
+/* Monaco's overview duplicates the adjacent scrollbar thumb. Keep its diff
+   markers and delegated pointer/wheel handling without painting a second thumb. */
+.commit-file-diff-preview .diffOverview .diffViewport,
+.commit-file-diff-preview .diffOverview .diffViewport:hover,
+.commit-file-diff-preview .diffOverview .diffViewport:active {
+  background: transparent;
+}

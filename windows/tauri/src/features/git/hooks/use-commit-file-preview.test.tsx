@@ -140,10 +140,15 @@ test("disconnected commits retain every matching revision and its label", async 
     .mockResolvedValueOnce([diff(7)]);
   await preview({ kind: "selection", commits: [commit("C"), commit("A")] }, "a.ts");
   expect(published).toHaveLength(1);
-  expect(published[0].files.map((entry) => entry.additions)).toEqual([3, 7]);
-  expect(published[0].fileLabels).toEqual(["C", "A"]);
-  expect(published[0].fileKeys).toEqual(["C:a.ts:0", "A:a.ts:0"]);
-  expect(published[0].totalFiles).toBe(1);
+  expect(published[0].files.map((entry) => entry.additions)).toEqual([3, 20, 7]);
+  expect(published[0].fileLabels).toEqual(["C", "C", "A"]);
+  expect(published[0].fileRevisions).toEqual([
+    { before: null, after: "C" }, { before: null, after: "C" }, { before: null, after: "A" },
+  ]);
+  expect(published[0].fileKeys).toEqual(["C:a.ts:0", "C:other.ts:1", "A:a.ts:0"]);
+  expect(published[0].totalFiles).toBe(3);
+  expect(published[0].initiallySelectedFileKey).toBe("C:a.ts:0");
+  expect(published[0].commitFilePreview).toBe(true);
   expect(published[0].hideFileList).toBe(true);
 });
 
@@ -155,7 +160,15 @@ test("contiguous selections still use the range diff and missing files do not op
   expect(loadRange).toHaveBeenCalledWith("C:/repo", "A", "C");
   expect(published).toHaveLength(1);
   expect(published[0].totalAdditions).toBe(2);
+  expect(published[0].fileRevisions).toEqual([{ before: "A", after: "C" }]);
   loadCommit.mockResolvedValue([]);
   await start();
   expect(published).toHaveLength(1);
+});
+
+test("single-commit titles use the first parent while root titles retain the empty tree", async () => {
+  await preview({ kind: "commit", commit: { ...commit("merge"), parentHashes: ["first", "second"] } }, "a.ts");
+  expect(published[0].fileRevisions).toEqual([{ before: "first", after: "merge" }]);
+  await start("root");
+  expect(published[1].fileRevisions).toEqual([{ before: null, after: "root" }]);
 });
