@@ -92,6 +92,9 @@ package protocol WorkspaceFileOperations: Sendable {
     func moveItem(at sourceURL: URL, to destinationURL: URL) throws
     func removeItem(at url: URL) throws
     func trashItem(at url: URL) throws
+    /// Recoverably removes only the expected byte version, sharing native save
+    /// protection and checking the moved object before acknowledging success.
+    func trashDocument(at url: URL, expectedIdentity: String) throws -> DocumentTrashResult
     func writeText(_ text: String, to url: URL) throws
     func readText(from url: URL) throws -> String
     func observeDocuments(at urls: [URL], onChange: @escaping @Sendable ([URL]) -> Void) -> any DocumentFileObservation
@@ -129,11 +132,20 @@ package enum EncodedDocumentWriteResult: Sendable {
     case conflict(content: String?, identity: String?)
 }
 
+package enum DocumentTrashResult: Sendable {
+    case trashed
+    case conflict
+}
+
 package protocol DocumentFileObservation: Sendable { func cancel() }
 private struct EmptyDocumentFileObservation: DocumentFileObservation { func cancel() {} }
 
 package extension WorkspaceFileOperations {
     var supportsDocumentEncoding: Bool { false }
+    /// Unsupported adapters must never fall back to unguarded removal.
+    func trashDocument(at url: URL, expectedIdentity: String) throws -> DocumentTrashResult {
+        throw CocoaError(.featureUnsupported)
+    }
     func readDocumentTextAsync(from url: URL) async throws -> String? { try readDocumentText(from: url) }
     func writeDocumentTextAsync(_ text: String, to url: URL, expectedContent: String?) async throws -> DocumentWriteResult {
         try writeDocumentText(text, to: url, expectedContent: expectedContent)

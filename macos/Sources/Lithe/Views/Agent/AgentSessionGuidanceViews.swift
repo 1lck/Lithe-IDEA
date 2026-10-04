@@ -69,6 +69,12 @@ struct AgentPlanView: View {
     let isResponding: Bool
     @State private var expanded = false
 
+    init(plan: AgentPlan, isResponding: Bool, expanded: Bool = false) {
+        self.plan = plan
+        self.isResponding = isResponding
+        _expanded = State(initialValue: expanded)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button { expanded.toggle() } label: {

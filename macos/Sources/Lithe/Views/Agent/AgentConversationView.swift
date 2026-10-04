@@ -26,7 +26,8 @@ struct AgentConversationView: View {
                     onConnect: { model.connectAgentConversation() },
                     onOpenSettings: { showsSettings = true },
                     onCopySessionID: { model.copyAgentSessionID($0) },
-                    onOpenFile: { model.openAgentFile($0) }
+                    onOpenFile: { model.openAgentFile($0) },
+                    onRestoreFile: { try await model.restoreAgentFile($0) }
                 )
             } else {
                 AgentUnconfiguredConversationView(
@@ -51,6 +52,7 @@ struct AgentConfiguredConversationView: View {
     let onOpenSettings: () -> Void
     let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
+    var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
 
     var body: some View {
         if let connection = feature.selectedConnection, let agentID = feature.selectedAgentID {
@@ -63,7 +65,8 @@ struct AgentConfiguredConversationView: View {
                 onConnect: onConnect,
                 onOpenSettings: onOpenSettings,
                 onCopySessionID: onCopySessionID,
-                onOpenFile: onOpenFile
+                onOpenFile: onOpenFile,
+                onRestoreFile: onRestoreFile
             )
             .id(agentID)
         } else {
@@ -146,6 +149,7 @@ private struct AgentConnectionView: View {
     let onOpenSettings: () -> Void
     let onCopySessionID: (String) -> Void
     let onOpenFile: (AgentToolDetails.Location) -> Void
+    let onRestoreFile: (AgentFileChange) async throws -> Void
     @State private var localError: String?
     @State private var showsSearch = false
     @State private var searchText = ""
@@ -322,7 +326,8 @@ private struct AgentConnectionView: View {
                 AgentTranscriptView(
                     feature: feature, agentName: selectedAgent?.name ?? feature.agentName,
                     agentVersion: feature.agentVersion, agents: agents,
-                    onSelectAgent: onSelectAgent, searchText: searchText, onOpenFile: onOpenFile
+                    onSelectAgent: onSelectAgent, searchText: searchText, onOpenFile: onOpenFile,
+                    onRestoreFile: onRestoreFile
                 )
                 AgentInlineNotice(text: message)
                 Button("Reconnect", action: onConnect).padding(.bottom, 8)
@@ -345,7 +350,8 @@ private struct AgentConnectionView: View {
                 agents: agents,
                 onSelectAgent: onSelectAgent,
                 searchText: searchText,
-                onOpenFile: onOpenFile
+                onOpenFile: onOpenFile,
+                onRestoreFile: onRestoreFile
             )
         }
     }

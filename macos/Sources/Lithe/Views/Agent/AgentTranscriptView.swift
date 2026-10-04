@@ -75,6 +75,7 @@ struct AgentTranscriptView: View {
     let onSelectAgent: (String) -> Void
     var searchText = ""
     var onOpenFile: (AgentToolDetails.Location) -> Void = { _ in }
+    var onRestoreFile: (AgentFileChange) async throws -> Void = { _ in throw AgentEditRestoreError.unavailable }
     @State private var showsAgentPicker = false
     // A filtered-out row can be destroyed. Keep its preference in the owning
     // transcript view, isolated by session and message, until the actual data goes away.
@@ -82,6 +83,7 @@ struct AgentTranscriptView: View {
 
     var body: some View {
         let conversation = feature.selectedConversation
+        let sessionID = feature.selectedSessionID
         let messages = conversation?.messages ?? []
         let transcript = AgentTranscriptItem.grouped(messages, turns: conversation?.completedTurns ?? [])
             .filter { $0.matches(searchText) }
@@ -180,11 +182,23 @@ struct AgentTranscriptView: View {
             if let permission = conversation?.permission {
                 AgentPermissionCard(permission: permission, answer: { feature.answerPermission(optionID: $0) }, onOpenFile: onOpenFile)
             }
-            if let plan = conversation?.plan {
-                AgentPlanView(plan: plan, isResponding: conversation?.isResponding == true)
-                    .id(feature.selectedSessionID)
-            }
-            AgentActivitySummaryBar(messages: messages)
+            AgentActivitySummaryBar(
+                messages: messages, plan: conversation?.plan,
+                reviewed: conversation?.reviewedFileChanges ?? [:],
+                isResponding: conversation?.isResponding == true,
+                isReviewing: feature.fileReviewSessionID != nil,
+                reviewError: feature.fileReviewErrorSessionID == sessionID ? feature.fileReviewError : nil,
+                onOpenFile: onOpenFile,
+                onKeep: { changes in
+                    if let sessionID { feature.keepFileChanges(changes, in: sessionID) }
+                },
+                onRestore: { changes in
+                    if let sessionID {
+                        await feature.restoreFileChanges(changes, in: sessionID, restore: onRestoreFile)
+                    }
+                }
+            )
+            .id(feature.selectedSessionID)
         }
         .onChange(of: feature.openSessionIDs) { sessionIDs in
             thoughtExpansions = thoughtExpansions.filter { sessionIDs.contains($0.key) }
@@ -243,52 +257,6 @@ struct AgentHeroView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .help("Switch Agent")
-    }
-}
-
-/// Three segments below the transcript: tool tasks, running, edits. Kept
-/// visible even when empty so the layout does not jump when the first tool
-/// call arrives. Edits count tool calls the agent titled as file changes.
-struct AgentActivitySummaryBar: View {
-    let messages: [AgentConversationMessage]
-
-    private var tools: [AgentConversationMessage] { messages.filter { $0.role == .tool } }
-    private var running: Int { tools.filter { $0.toolStatus == .inProgress || $0.toolStatus == .pending }.count }
-    private var failed: Int { tools.filter { $0.toolStatus == .failed }.count }
-    private var edits: Int {
-        tools.filter { message in
-            message.toolDetails.kind == "edit" || message.toolDetails.kind == "delete"
-        }.count
-    }
-
-    var body: some View {
-        HStack(spacing: 0) {
-            segment(systemImage: "checklist", title: "Tasks", value: tools.count, tint: failed > 0 ? LitheTheme.error : nil)
-            Divider().frame(height: 14).overlay(LitheTheme.divider)
-            segment(systemImage: "arrow.triangle.2.circlepath", title: "Running", value: running, tint: running > 0 ? LitheTheme.accent : nil)
-            Divider().frame(height: 14).overlay(LitheTheme.divider)
-            segment(systemImage: "pencil", title: "Edits", value: edits, tint: nil)
-        }
-        .font(LitheTheme.uiFont(size: 11))
-        .foregroundStyle(AgentPanelStyle.muted)
-        .frame(height: 32)
-        .background(AgentPanelStyle.header, in: RoundedRectangle(cornerRadius: 5))
-        .overlay(RoundedRectangle(cornerRadius: 5).stroke(AgentPanelStyle.border, lineWidth: 1))
-        .padding(.horizontal, 18)
-        .padding(.bottom, 4)
-    }
-
-    private func segment(systemImage: String, title: LocalizedStringKey, value: Int, tint: Color?) -> some View {
-        HStack(spacing: 5) {
-            Image(systemName: systemImage).font(LitheTheme.uiFont(size: 10))
-            Text(title)
-            if value > 0 {
-                Text("\(value)")
-                    .font(LitheTheme.uiFont(size: 10, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(tint ?? LitheTheme.primaryText)
-            }
-        }
-        .frame(maxWidth: .infinity)
     }
 }
 

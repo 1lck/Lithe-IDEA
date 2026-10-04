@@ -1374,3 +1374,35 @@
 "A ChangeList with this name already exists." = "A ChangeList with this name already exists.";
 "The default ChangeList cannot be renamed." = "The default ChangeList cannot be renamed.";
 "Selected ChangeList or staged files changed before generation finished" = "Selected ChangeList or staged files changed before generation finished";
+
+// Agent activity panels and file review
+"Tasks" = "Tasks";
+"Edits" = "Edits";
+"Done" = "Done";
+"Open file" = "Open file";
+"No tasks have been reported yet." = "No tasks have been reported yet.";
+"No tools are running." = "No tools are running.";
+"No file edits to review." = "No file edits to review.";
+"Roll back all" = "Roll back all";
+"Keep all" = "Keep all";
+"The Agent already saved these files. Mark the current changes as reviewed." = "The Agent already saved these files. Mark the current changes as reviewed.";
+"Show Agent diff" = "Show Agent diff";
+"Roll back Agent changes" = "Roll back Agent changes";
+"Original content is missing or incomplete." = "Original content is missing or incomplete.";
+"Roll back Agent changes?" = "Roll back Agent changes?";
+"Roll back" = "Roll back";
+"Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved." = "Only the reported Agent edits will be reversed. Conflicting changes and unsaved editor changes will be preserved.";
+"Reported change" = "Reported change";
+"Agent-reported changes; excerpts may not include the entire file." = "Agent-reported changes; excerpts may not include the entire file.";
+"The Agent diff is too large to display completely. Rollback is unavailable." = "The Agent diff is too large to display completely. Rollback is unavailable.";
+"This diff has too many lines for comparison. Showing the reported before and after text." = "This diff has too many lines for comparison. Showing the reported before and after text.";
+"Before" = "Before";
+"After" = "After";
+"Agent change rollback is unavailable." = "Agent change rollback is unavailable.";
+"The file has changed since the Agent edit. Open the diff and review it manually." = "The file has changed since the Agent edit. Open the diff and review it manually.";
+"This file has unsaved editor changes. Save or discard them before rolling back the Agent edit." = "This file has unsaved editor changes. Save or discard them before rolling back the Agent edit.";
+"The Agent did not provide enough original content to safely roll back this file." = "The Agent did not provide enough original content to safely roll back this file.";
+"Wait for the Agent file rollback to finish." = "Wait for the Agent file rollback to finish.";
+"The reported file changes have been updated. Review them again before rolling back." = "The reported file changes have been updated. Review them again before rolling back.";
+"Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying." = "Rollback could not restore the changed file. It remains at %@. Restore it manually before retrying.";
+"Rollback could not verify the moved file. Check the Trash before retrying." = "Rollback could not verify the moved file. Check the Trash before retrying.";

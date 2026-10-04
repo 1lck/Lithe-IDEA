@@ -3,6 +3,7 @@ import LitheCoreContracts
 typealias WorkspaceFileOperations = LitheCoreContracts.WorkspaceFileOperations
 
 typealias DocumentWriteResult = LitheCoreContracts.DocumentWriteResult
+typealias DocumentTrashResult = LitheCoreContracts.DocumentTrashResult
 typealias DocumentFileObservation = LitheCoreContracts.DocumentFileObservation
 
 typealias DocumentEncoding = LitheCoreContracts.DocumentEncoding
