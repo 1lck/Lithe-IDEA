@@ -32,6 +32,7 @@ function fixture(
   const viewStates: Array<{
     top: number;
     left: number;
+    horizontalRange: number;
     width: number;
     height: number;
     caret: number;
@@ -78,6 +79,7 @@ function fixture(
         const state = {
           top: 0,
           left: 0,
+          horizontalRange: 100,
           width: 0,
           height: 0,
           caret: 1,
@@ -109,7 +111,7 @@ function fixture(
               : 22,
           getContentHeight: () => model.getLineCount() * 22 + (state.options.padding?.bottom ?? 0),
           getScrollHeight: () => model.getLineCount() * 22 + (state.options.padding?.bottom ?? 0),
-          getScrollWidth: () => state.width + 100,
+          getScrollWidth: () => state.width + state.horizontalRange,
           getTopForLineNumber: (line: number) => (line - 1) * 22,
           getBottomForLineNumber: (line: number) => line * 22,
           getScrollTop: () => state.top,
@@ -125,7 +127,7 @@ function fixture(
             emit("scroll", { scrollTopChanged: true });
           },
           setScrollLeft: (value: number) => {
-            state.left = Math.max(0, Math.min(100, value));
+            state.left = Math.max(0, Math.min(state.horizontalRange, value));
             emit("scroll", { scrollLeftChanged: true });
           },
           getLayoutInfo: () => ({
@@ -260,7 +262,7 @@ function fixture(
   };
 }
 
-test("vertical scroll follows corresponding context while horizontal offsets remain independent", async () => {
+test("vertical scroll follows corresponding context while horizontal offsets synchronize", async () => {
   const f = fixture();
   await owner!.update(f.rows, "plaintext", false, true);
   f.flush();
@@ -275,7 +277,7 @@ test("vertical scroll follows corresponding context while horizontal offsets rem
   expect(owner!.views[0].getTopForLineNumber(7) - f.viewStates[0].top).toBe(
     owner!.views[1].getTopForLineNumber(16) - f.viewStates[1].top,
   );
-  expect(f.viewStates.map((state) => state.left)).toEqual([50, 0]);
+  expect(f.viewStates.map((state) => state.left)).toEqual([50, 50]);
   expect(f.host.querySelector("path")!.getAttribute("d")).not.toBe(initial);
   expect(f.host.querySelector(".independent-center svg")?.nextElementSibling?.className).toContain(
     "independent-numbers",
@@ -286,6 +288,25 @@ test("vertical scroll follows corresponding context while horizontal offsets rem
   expect(f.models[1].getLineCount()).toBe(45);
   expect(f.viewStates.every((state) => state.options.scrollBeyondLastColumn === 0)).toBe(true);
   expect(f.viewStates.every((state) => state.options.scrollbar.vertical === "hidden")).toBe(true);
+});
+
+test("horizontal synchronization is bidirectional and shorter content does not pull the master back", async () => {
+  const f = fixture();
+  await owner!.update(f.rows, "plaintext", false, false);
+  owner!.views[1].setScrollTop(100);
+  const tops = f.viewStates.map((state) => state.top);
+  f.viewStates[1].horizontalRange = 20;
+  const widths = owner!.views.map((view) => view.getScrollWidth());
+  owner!.views[0].setScrollLeft(80);
+  expect(f.viewStates.map((state) => state.left)).toEqual([80, 20]);
+  owner!.views[1].setScrollLeft(15);
+  expect(f.viewStates.map((state) => state.left)).toEqual([15, 15]);
+  owner!.views[0].setScrollLeft(100);
+  expect(f.viewStates.map((state) => state.left)).toEqual([100, 20]);
+  owner!.views[1].setScrollLeft(0);
+  expect(f.viewStates.map((state) => state.left)).toEqual([0, 0]);
+  expect(f.viewStates.map((state) => state.top)).toEqual(tops);
+  expect(owner!.views.map((view) => view.getScrollWidth())).toEqual(widths);
 });
 
 test("unequal blocks suppress sub-line backtracking and resume matching context", async () => {
@@ -378,14 +399,18 @@ test("outside scroll rails reserve code space and compact gutters adjoin both pa
   const center = f.host.querySelector<HTMLElement>(".independent-center")!;
   const root = f.host.querySelector<HTMLElement>(".independent-commit-diff")!;
   const railWidth = parseFloat(root.style.getPropertyValue("--independent-rail-width"));
-  expect(parseFloat(left.style.left)).toBe(railWidth);
+  const railGap = parseFloat(root.style.getPropertyValue("--independent-rail-gap"));
+  expect(railGap).toBeGreaterThan(0);
+  expect(parseFloat(left.style.left)).toBe(railWidth + railGap);
   expect(parseFloat(left.style.left) + parseFloat(left.style.width)).toBe(
     parseFloat(center.style.left),
   );
   expect(parseFloat(right.style.left)).toBe(
     parseFloat(center.style.left) + parseFloat(center.style.width),
   );
-  expect(parseFloat(right.style.left) + parseFloat(right.style.width)).toBe(800 - railWidth);
+  expect(parseFloat(right.style.left) + parseFloat(right.style.width)).toBe(
+    800 - railWidth - railGap,
+  );
   expect(parseFloat(center.style.width)).toBeLessThan(120);
   owner!.configure({ fontSize: 14 }, 4);
   expect(f.viewStates.every((state) => state.options.mouseWheelScrollSensitivity === 2)).toBe(true);

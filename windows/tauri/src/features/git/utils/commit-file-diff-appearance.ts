@@ -27,6 +27,8 @@ export function commitDiffEditorAppearance(
     renderValidationDecorations: "off",
     occurrencesHighlight: "off",
     selectionHighlight: false,
+    // Keep syntax colors, without indentation or bracket-pair guide strokes.
+    guides: { indentation: false, bracketPairs: false, highlightActiveIndentation: false },
     // Respect a custom line height; scale the Diff default with the configured font/zoom.
     lineHeight: diffLineHeight,
     scrollBeyondLastLine: false,

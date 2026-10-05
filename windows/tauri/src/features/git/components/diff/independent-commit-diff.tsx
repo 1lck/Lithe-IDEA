@@ -38,6 +38,7 @@ export default function IndependentCommitDiff(props: Props) {
   const latest = useRef(props);
   latest.current = props;
   const pendingFirst = useRef(props.startAtFirstDifference);
+  const landingDiff = useRef(props.diff);
   const [error, setError] = useState<string>();
   const rows = useMemo(() => monacoDiffRows(props.diff, { hideHunkHeaders: true }), [props.diff]);
   const settings = useMonacoEditorSettings();
@@ -125,6 +126,12 @@ export default function IndependentCommitDiff(props: Props) {
     let cancelled = false;
     setError(undefined);
     const instance = surface.current!;
+    // Reopening the same file can replace its snapshot without remounting this
+    // component. Preference updates keep the existing cursor and scroll position.
+    if (landingDiff.current !== props.diff) {
+      landingDiff.current = props.diff;
+      pendingFirst.current = props.startAtFirstDifference;
+    }
     void instance
       .update(
         rows,

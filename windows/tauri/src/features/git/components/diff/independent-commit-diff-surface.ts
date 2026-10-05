@@ -17,6 +17,7 @@ import {
 } from "../../utils/independent-commit-diff";
 
 const RAIL_WIDTH = 12,
+  RAIL_GAP = 4,
   SLIDER_WIDTH = 8,
   WHEEL_SENSITIVITY = 2,
   MIN_CODE_WIDTH = 80,
@@ -38,7 +39,7 @@ interface Options {
 
 /** Single-file layout owner; standalone Monaco controls only own text and selection.
  * Git owns the edit script. Vertical scrolling follows its matching boundaries;
- * each pane keeps its own scrollbar, horizontal offset and code selection.
+ * each pane keeps its own scrollbar and code selection; horizontal offsets sync.
  * Note: .agents/notes/implemented/feature/2026-10-04-windows-commit-file-diff-preview.md
  */
 export function mountIndependentCommitDiff(host: HTMLElement, options: Options) {
@@ -120,6 +121,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       renderValidationDecorations: "off",
       occurrencesHighlight: "off",
       selectionHighlight: false,
+      guides: { indentation: false, bracketPairs: false, highlightActiveIndentation: false },
       scrollbar: {
         vertical: "hidden",
         verticalScrollbarSize: 0,
@@ -225,10 +227,16 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     );
     const rightStart = leftEdge + centerWidth,
       split = leftEdge + centerWidth / 2;
-    const railWidth = Math.min(RAIL_WIDTH, leftEdge, width - rightStart);
-    const leftWidth = Math.max(0, leftEdge - railWidth),
-      rightWidth = Math.max(0, width - rightStart - railWidth);
-    nodes[0].style.cssText = `left:${railWidth}px;width:${leftWidth}px`;
+    const railInset = Math.min(RAIL_WIDTH + RAIL_GAP, leftEdge, width - rightStart);
+    const railWidth = Math.min(RAIL_WIDTH, railInset),
+      railGap = railInset - railWidth;
+    root.style.setProperty("--independent-rail-gap", `${railGap}px`);
+    rails.forEach(({ rail }) => {
+      rail.style.width = `${railWidth}px`;
+    });
+    const leftWidth = Math.max(0, leftEdge - railInset),
+      rightWidth = Math.max(0, width - rightStart - railInset);
+    nodes[0].style.cssText = `left:${railInset}px;width:${leftWidth}px`;
     nodes[1].style.cssText = `left:${rightStart}px;width:${rightWidth}px`;
     withoutScrollSync(() => {
       views[0].layout({ width: leftWidth, height });
@@ -498,12 +506,26 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       syncing = false;
     }
   }
+  function synchronizeHorizontalScroll(side: Side) {
+    if (!ready || closed || syncing || scrollSyncPaused) return;
+    const other: Side = side === 0 ? 1 : 0;
+    const offset = views[side].getScrollLeft();
+    if (offset === views[other].getScrollLeft()) return;
+    syncing = true;
+    try {
+      // Like IDEA, transfer pixels directly; the editor clamps its own range.
+      views[other].setScrollLeft(offset, monaco.editor.ScrollType.Immediate);
+    } finally {
+      syncing = false;
+    }
+  }
   const subscriptions = views.flatMap((view, index) => {
     const side = index as Side;
     let pressed: monaco.Position | null = null;
     return [
       view.onDidScrollChange((event) => {
         if (event.scrollTopChanged) synchronizeScroll(side);
+        if (event.scrollLeftChanged) synchronizeHorizontalScroll(side);
         schedule();
       }),
       view.onDidContentSizeChange(() => {

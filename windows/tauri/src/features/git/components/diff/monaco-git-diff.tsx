@@ -85,6 +85,7 @@ export default function MonacoGitDiff({
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });
   const updating = useRef(false);
   const firstDifferencePending = useRef(startAtFirstDifference);
+  const landingDiff = useRef(diff);
   const navigationListener = useRef(onNavigationChange);
   navigationListener.current = onNavigationChange;
   const splitLayoutListener = useRef(onSplitLayout);
@@ -292,6 +293,10 @@ export default function MonacoGitDiff({
     let cancelled = false;
     setError(undefined);
     updating.current = true;
+    if (landingDiff.current !== diff) {
+      landingDiff.current = diff;
+      firstDifferencePending.current = startAtFirstDifference;
+    }
     controls.current?.publish();
     const titles = { stage: actionTitle, unstage: actionTitle, discard: discardTitle };
     const actions = (hunkActions.current?.actions ?? []).map((id) => ({ id, title: titles[id] }));

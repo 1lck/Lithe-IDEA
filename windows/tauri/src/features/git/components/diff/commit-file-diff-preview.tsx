@@ -24,8 +24,6 @@ import "./commit-file-diff-preview.css";
 
 /** Git Log's repository preview renders one entry; the buffer owns its navigation snapshot. */
 export default function CommitFileDiffPreview({ multiDiff }: { multiDiff: MultiFileDiff }) {
-  // The landing intent belongs to this view and this exact navigation snapshot.
-  const [firstDifferenceTarget, setFirstDifferenceTarget] = useState<MultiFileDiff | null>(null);
   const [showWhitespace, setShowWhitespace] = useState(false);
   const [highlightWords, setHighlightWords] = useState(true);
   const index = selectedCommitFileIndex(multiDiff);
@@ -36,8 +34,6 @@ export default function CommitFileDiffPreview({ multiDiff }: { multiDiff: MultiF
       key={`${multiDiff.repoPath}:${multiDiff.commitHash}:${key}`}
       multiDiff={multiDiff}
       index={index}
-      startAtFirstDifference={firstDifferenceTarget === multiDiff}
-      onTransition={(next, firstDifference) => setFirstDifferenceTarget(firstDifference ? next : null)}
       showWhitespace={showWhitespace}
       highlightWords={highlightWords}
       onWhitespace={() => setShowWhitespace((value) => !value)}
@@ -46,12 +42,10 @@ export default function CommitFileDiffPreview({ multiDiff }: { multiDiff: MultiF
   );
 }
 
-function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransition,
+function CommitFileDiffPage({ multiDiff, index,
   showWhitespace, highlightWords, onWhitespace, onHighlightWords }: {
   multiDiff: MultiFileDiff;
   index: number;
-  startAtFirstDifference: boolean;
-  onTransition: (next: MultiFileDiff, firstDifference: boolean) => void;
   showWhitespace: boolean;
   highlightWords: boolean;
   onWhitespace: () => void;
@@ -81,7 +75,7 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
         : next,
     );
   }, []);
-  const onFile = (direction: -1 | 1, firstDifference = false) => {
+  const onFile = (direction: -1 | 1) => {
     const state = useBufferStore.getState();
     const current = getBufferById(state.buffers, bufferId);
     // A replaced preview or inactive tab cannot receive a delayed navigation action.
@@ -94,7 +88,6 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
       return;
     const next = moveCommitFile(multiDiff, direction);
     if (next) {
-      onTransition(next, firstDifference);
       state.actions.updateBufferContent(bufferId, "", false, next);
     }
   };
@@ -119,7 +112,7 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
         canHighlightWords={Boolean(diff && !diff.is_image && !diff.is_binary)}
         onDifference={(direction) => {
           if (direction === "next" && currentNavigation.ready && !currentNavigation.canNext)
-            onFile(1, true);
+            onFile(1);
           else editor.current?.navigateDifference(direction);
         }}
         onSource={() => editor.current?.jumpToSource()}
@@ -142,7 +135,7 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
         ) : viewMode === "split" ? (
           <IndependentCommitDiff ref={editor} diff={diff} sourceRepoPath={multiDiff.repoPath}
             showWhitespace={showWhitespace} highlightWords={highlightWords}
-            startAtFirstDifference={startAtFirstDifference} onNavigationChange={onNavigationChange}
+            startAtFirstDifference onNavigationChange={onNavigationChange}
             onSplitLayout={onSplitLayout} />
         ) : (
           <MonacoGitDiff
@@ -152,7 +145,7 @@ function CommitFileDiffPage({ multiDiff, index, startAtFirstDifference, onTransi
             showWhitespace={showWhitespace}
             sourceRepoPath={multiDiff.repoPath}
             onNavigationChange={onNavigationChange}
-            startAtFirstDifference={startAtFirstDifference}
+            startAtFirstDifference
             highlightWords={highlightWords}
             repositoryPreview
             onSplitLayout={onSplitLayout}

@@ -100,6 +100,21 @@
   background: var(--commit-diff-background);
 }
 
+/* The unified viewer still uses Monaco's native DiffEditor. Scope its public
+   diff color variables to this preview, using the same Islands palette as the
+   custom split viewer; leave the active syntax theme and other editors intact. */
+.commit-file-diff-preview .monaco-editor,
+.commit-file-diff-preview .monaco-diff-editor {
+  --vscode-diffEditor-insertedLineBackground: var(--commit-diff-inserted);
+  --vscode-diffEditor-removedLineBackground: var(--commit-diff-deleted);
+  --vscode-diffEditor-insertedTextBackground: var(--commit-diff-inserted);
+  --vscode-diffEditor-removedTextBackground: var(--commit-diff-deleted);
+  --vscode-diffEditor-insertedTextBorder: transparent;
+  --vscode-diffEditor-removedTextBorder: transparent;
+  --vscode-diffEditorGutter-insertedLineBackground: var(--commit-diff-inserted);
+  --vscode-diffEditorGutter-removedLineBackground: var(--commit-diff-deleted);
+}
+
 .commit-file-diff-preview .monaco-scrollable-element > .scrollbar > .slider {
   box-sizing: border-box;
   border: 1px solid var(--commit-diff-slider-border);
@@ -253,7 +268,7 @@
   background: transparent;
 }
 .independent-rail-0 {
-  left: 0;
+  left: var(--independent-rail-gap, 0px);
 }
 .independent-rail-1 {
   right: 0;

@@ -7,6 +7,11 @@ test("Diff default row spacing scales with font zoom and preserves a custom line
   expect(commitDiffEditorAppearance(14, 30).lineHeight).toBe(30);
   expect(commitDiffEditorAppearance(14, 20).overviewRulerLanes).toBe(0);
   expect(commitDiffEditorAppearance(14, 20).overviewRulerBorder).toBe(false);
+  expect(commitDiffEditorAppearance(14, 20).guides).toMatchObject({
+    indentation: false,
+    bracketPairs: false,
+    highlightActiveIndentation: false,
+  });
   expect(commitDiffEditorAppearance(14, 20).scrollbar).toMatchObject({
     vertical: "visible",
     horizontal: "visible",
