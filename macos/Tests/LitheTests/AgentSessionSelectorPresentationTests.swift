@@ -69,4 +69,19 @@ struct AgentSessionSelectorPresentationTests {
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         return try #require(Bundle(url: repository.appendingPathComponent("macos/Resources/\(language).lproj")))
     }
+
+    @Test
+    func choiceHintsPreferUpstreamDescriptionsAndLeaveUnknownLevelsAlone() throws {
+        let chinese = try localizationBundle("zh-Hans")
+        let effort = AgentSessionConfigOption(id: "effort", name: "Reasoning", category: "thought_level",
+            currentValue: "high", choices: [])
+        #expect(AgentSessionSelectorPresentation.choiceDescription(.init(id: "high", name: "High"), in: effort, bundle: chinese)
+            == "深度推理，适合复杂任务")
+        #expect(AgentSessionSelectorPresentation.choiceDescription(
+            .init(id: "high", name: "High", description: "Agent-specific explanation"), in: effort, bundle: chinese)
+            == "Agent-specific explanation")
+        #expect(AgentSessionSelectorPresentation.choiceDescription(.init(id: "future", name: "Future"), in: effort, bundle: chinese) == nil)
+        let custom = AgentSessionConfigOption(id: "custom", name: "Custom", category: "custom", currentValue: "high", choices: [])
+        #expect(AgentSessionSelectorPresentation.choiceDescription(.init(id: "high", name: "High"), in: custom, bundle: chinese) == nil)
+    }
 }

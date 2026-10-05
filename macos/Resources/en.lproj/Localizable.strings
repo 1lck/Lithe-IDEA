@@ -1418,3 +1418,12 @@
 "Changes apply to the next turn." = "Changes apply to the next turn.";
 "The Agent did not confirm the selected session setting." = "The Agent did not confirm the selected session setting.";
 "The Agent no longer supports the selected session setting." = "The Agent no longer supports the selected session setting.";
+
+/* Agent configuration choice hints */
+"Use the standard response speed" = "Use the standard response speed";
+"Use fast processing" = "Use fast processing";
+"Quick responses with basic reasoning" = "Quick responses with basic reasoning";
+"Balanced reasoning" = "Balanced reasoning";
+"Deep reasoning for complex tasks" = "Deep reasoning for complex tasks";
+"Extra deep reasoning for demanding tasks" = "Extra deep reasoning for demanding tasks";
+"Maximum reasoning depth" = "Maximum reasoning depth";

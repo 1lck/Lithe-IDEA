@@ -41,6 +41,34 @@ enum AgentSessionSelectorPresentation {
         option.choices.first { $0.id == option.currentValue }.map { choiceTitle($0, in: option, bundle: bundle) } ?? option.currentValue
     }
 
+    static func choiceDescription(_ choice: AgentSessionConfigOption.Choice, in option: AgentSessionConfigOption, bundle: Bundle = .main) -> String? {
+        if let description = choice.description, !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return localized(description, bundle: bundle)
+        }
+        let fallback: String?
+        if option.id == "fast-mode" {
+            switch choice.id {
+            case "off": fallback = "Use the standard response speed"
+            case "on": fallback = "Use fast processing"
+            default: fallback = nil
+            }
+        } else if option.category == "thought_level" {
+            // These are display hints for known upstream IDs, never a replacement
+            // model capability list or a claim about default levels or billing.
+            switch choice.id {
+            case "low": fallback = "Quick responses with basic reasoning"
+            case "medium": fallback = "Balanced reasoning"
+            case "high": fallback = "Deep reasoning for complex tasks"
+            case "xhigh": fallback = "Extra deep reasoning for demanding tasks"
+            case "max": fallback = "Maximum reasoning depth"
+            default: fallback = nil
+            }
+        } else {
+            fallback = nil
+        }
+        return fallback.map { localized($0, bundle: bundle) }
+    }
+
     static func modeIcon(_ id: String) -> String {
         switch id {
         case "read-only", "default", "manual": "bubble.left.and.bubble.right"
@@ -175,35 +203,11 @@ struct AgentModelPopover: View {
     let agentName: String?
     let onSelect: (String, String) -> Void
     @State private var query = ""
-    @State private var selectedSettingID: String?
     @FocusState private var searchFocused: Bool
     private var choices: [AgentSessionConfigOption.Choice] { AgentSessionSelectorPresentation.filteredChoices(option, query: query) }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            modelPanel
-            if let setting = settings.first(where: { $0.id == selectedSettingID }) {
-                VStack(spacing: 0) {
-                    Text(AgentSessionSelectorPresentation.title(setting))
-                        .font(LitheTheme.uiFont(size: 11)).foregroundStyle(LitheTheme.secondaryText)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12).padding(.vertical, 8)
-                    ScrollView {
-                        LazyVStack(spacing: 0) {
-                            ForEach(setting.choices) { choice in
-                                AgentSelectorRow(isSelected: choice.id == setting.currentValue, action: { onSelect(setting.id, choice.id) }) {
-                                    Text(AgentSessionSelectorPresentation.choiceTitle(choice, in: setting))
-                                }
-                            }
-                        }
-                    }
-                    .frame(height: min(240, CGFloat(setting.choices.count) * AgentSelectorLayout.choiceRowHeight))
-                }
-                .padding(.bottom, 5)
-                .frame(width: 180)
-                .overlay(alignment: .leading) { Divider() }
-            }
-        }
+        modelPanel
         .foregroundStyle(LitheTheme.primaryText)
         .background(LitheTheme.settingsPopupBackground)
         .onAppear { searchFocused = true }
@@ -211,14 +215,9 @@ struct AgentModelPopover: View {
 
     private var modelPanel: some View {
         VStack(spacing: 0) {
-            TextField("Search models", text: $query)
-                .textFieldStyle(.plain)
-                .font(LitheTheme.uiFont(size: 12))
+            LitheSearchTextField("Search models", text: $query)
                 .focused($searchFocused)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
-                .background(AgentPanelStyle.canvas, in: RoundedRectangle(cornerRadius: 4))
-                .overlay { RoundedRectangle(cornerRadius: 4).stroke(searchFocused ? AgentPanelStyle.focus : AgentPanelStyle.border) }
+                .litheSearchField(isFocused: searchFocused)
                 .padding(8)
                 .onSubmit { if let choice = choices.first { onSelect(option.id, choice.id) } }
             if choices.isEmpty {
@@ -247,9 +246,7 @@ struct AgentModelPopover: View {
             if !settings.isEmpty {
                 Divider().overlay(AgentPanelStyle.border).padding(.vertical, 4)
                 ForEach(settings) { setting in
-                    AgentModelSettingRow(option: setting, isSelected: selectedSettingID == setting.id) {
-                        selectedSettingID = selectedSettingID == setting.id ? nil : setting.id
-                    }
+                    AgentModelSettingRow(option: setting, onSelect: onSelect)
                 }
             }
         }
@@ -258,14 +255,24 @@ struct AgentModelPopover: View {
     }
 }
 
-/// Child choices stay inside the same shared dropdown, so opening them cannot dismiss the model panel.
+/// The shared presenter anchors a separate child panel to this row and keeps
+/// the model panel fixed while handling screen edges and dismissal.
 private struct AgentModelSettingRow: View {
     let option: AgentSessionConfigOption
-    let isSelected: Bool
-    let onOpen: () -> Void
+    let onSelect: (String, String) -> Void
+    @State private var menuRevision = UUID()
 
     var body: some View {
-        Button(action: onOpen) {
+        LitheMenu(opensToSide: true) {
+            for choice in option.choices {
+                LitheContextMenuItem.action(
+                    AgentSessionSelectorPresentation.choiceTitle(choice, in: option),
+                    localizesTitle: false,
+                    description: AgentSessionSelectorPresentation.choiceDescription(choice, in: option),
+                    checked: choice.id == option.currentValue
+                ) { onSelect(option.id, choice.id) }
+            }
+        } label: {
             HStack {
                 Text(AgentSessionSelectorPresentation.title(option))
                 Spacer()
@@ -275,8 +282,15 @@ private struct AgentModelSettingRow: View {
             .frame(minHeight: LitheDropdownMetrics.rowHeight)
             .contentShape(Rectangle())
         }
-        .buttonStyle(LitheDropdownRowStyle(isSelected: isSelected))
+        .id(menuRevision)
+        .onChange(of: option) { _ in
+            // Action menus retain an opening snapshot. Detach only this anchor
+            // when upstream changes it; keep the model panel and search alive.
+            menuRevision = UUID()
+        }
         .lithePointer()
+        .accessibilityIdentifier("agent-model-setting-\(option.id)")
+        .accessibilityValue(AgentSessionSelectorPresentation.currentTitle(option))
     }
 }
 

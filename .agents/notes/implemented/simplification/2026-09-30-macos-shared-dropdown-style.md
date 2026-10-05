@@ -135,6 +135,35 @@ Community `ToolbarComboButtonUI.paintBackground` 同样在 combo model selected 
 已有 hover 背景。该行为只用于顶部两个触发按钮，不改变菜单行或设置值的选中状态。
 系统应用菜单、系统对话框、编辑器补全与悬停文档保留原生职责；显式 segmented 的原生 Picker 没有下拉框，也不属于本次迁移。
 
+## 带说明的侧边选项
+
+Agent 模型配置使用现有 `LitheMenu(opensToSide: true)`，不再把固定侧栏放进
+可搜索主面板。共享 `LitheContextMenuItem` 可以携带说明和明确的标题本地化策略；
+Agent 上游名称使用原文，说明由调用方按界面语言提供。没有说明的操作保持
+24pt 单行样式；有说明时，呈现器按实际受限宽度下的两行文字测量行高和面板高度，
+保留共享字体、背景、边框、宽度上下限、键盘及关闭行为。
+
+核对 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade` 的
+`platform/platform-impl/src/com/intellij/ui/popup/list/PopupListElementRenderer.java`：
+普通动作行使用主题行高，并把次要文字、图标和选中颜色留在共享 renderer 中。
+Lithe 的名称下方说明按用户指定的 CC GUI 配置选项设计扩展，不宣称是 IDEA
+普通动作行的新尺寸；只有携带说明的内容增长。正确做法是由调用方提供说明，
+由共享菜单测量；不要为 Agent 另画矩形背景或按主菜单整体高度铺满子菜单留白。
+
+长列表用方向键滚动后，原生界面会在静止指针下重新产生悬停进入事件。
+共享菜单在键盘导航后忽略这类事件，等面板收到真实鼠标移动才恢复指针选择；
+行样式只使用菜单选中状态，避免另一份本地 hover 把不同的行同时染蓝。
+连续指针事件只在选中 ID 改变时发布菜单局部状态，不通知业务页面。
+真实 `mouseMoved` 在同一事件内按已有布局测量的行矩形完成选择交接，不依赖
+后续 SwiftUI 悬停回调的先后顺序。指针矩形只保存在打开的菜单内，布局没有变化
+不重复保存；不发布业务状态，也不写入磁盘或缓存窗口位置。
+`AgentSessionSelectorLayoutTests.modelSettingsWithWrappedDescriptionsScrollToTheLastChoice`
+在滚动完成并捕获真实渲染后再按 Return，验证末项没有被静止指针抢走。
+`AgentSessionSelectorInteractionTests` 另外向原生子窗口发送 `mouseMoved`，再按
+Return 验证指针所在行接回选择。动作菜单的内容是打开时的快照；接入动态上游配置
+的调用方需要在对应配置变化时拆除局部锚点，关闭失效子窗口，重新打开读取新选项。
+Agent 仅重建变化的设置行菜单，保持可搜索父面板和其他配置菜单的状态。
+
 ## 顶部项目和分支菜单的尺寸与内容
 
 对照 Community `c7f91397daa3a961b4e78bc634fe467a0a7d9ade`：

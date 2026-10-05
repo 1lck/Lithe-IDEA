@@ -2687,3 +2687,12 @@
 "Changes apply to the next turn." = "修改将在下一轮对话生效。";
 "The Agent did not confirm the selected session setting." = "Agent 未确认所选会话设置。";
 "The Agent no longer supports the selected session setting." = "Agent 已不再支持所选会话设置。";
+
+/* Agent configuration choice hints */
+"Use the standard response speed" = "使用标准响应速度";
+"Use fast processing" = "使用快速处理模式";
+"Quick responses with basic reasoning" = "快速响应，基础推理";
+"Balanced reasoning" = "平衡思考深度与响应速度";
+"Deep reasoning for complex tasks" = "深度推理，适合复杂任务";
+"Extra deep reasoning for demanding tasks" = "额外深度推理，适合高难度任务";
+"Maximum reasoning depth" = "使用最大推理深度";
