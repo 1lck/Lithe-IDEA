@@ -165,9 +165,9 @@ function CommitFileDiffPage({ multiDiff, index,
       {diff && (
         <CommitFileDiffVersionHeader diff={diff} revisions={multiDiff.fileRevisions?.[index]}
           label={label} viewMode={viewMode} workingTree={review ? {
-            staged: multiDiff.workingTreeTargets?.[multiDiff.fileKeys?.[index] ?? ""]?.staged === true,
-            included: review.snapshot?.file.staged === true,
-            indeterminate: review.blocks.some(block => !block.checked) && review.snapshot?.file.staged === true,
+            staged: review.presentation?.staged === true,
+            included: review.presentation?.included === true,
+            indeterminate: review.presentation?.indeterminate === true,
             disabled: review.busy || !review.snapshot,
             onToggle: included => { void review.toggle(null, included); },
           } : undefined} />

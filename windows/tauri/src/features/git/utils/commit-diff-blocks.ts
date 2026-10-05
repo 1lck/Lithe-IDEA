@@ -30,7 +30,8 @@ export function commitDiffChangeID(
 /** Only complete, validated Git streams may supply index patches. Never use
  * folded display coordinates, an aligned spacer, or sparse context as a base. */
 function projection(diff: GitDiff) {
-  if (!diff.is_full_context || diff.is_truncated || diff.is_binary || diff.is_image) return null;
+  if (!diff.is_full_context || diff.is_truncated || diff.is_binary || diff.is_image
+    || diff.has_lossy_line_endings) return null;
   const headers = diff.lines.filter(line => line.line_type === "header");
   if (headers.length !== 1) return null;
   const range = parseDiffHunkRange(headers[0].content);

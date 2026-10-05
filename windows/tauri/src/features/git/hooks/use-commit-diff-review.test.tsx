@@ -120,6 +120,36 @@ test("automatic refresh ignores events belonging to a different repository", asy
   expect(status.mock.calls.length).toBeGreaterThan(initialReads);
 });
 
+test("index-only changes retain a file, index title and whole-file inclusion without inventing worktree blocks", async () => {
+  indexed = ["a", "B", "c", "d"];
+  workingDiff.mockResolvedValue({ ...diff, lines: [] });
+  const include = spyOn(statusApi, "setFilesStaged").mockImplementation(async () => { indexed = head; return true; });
+  spies.push(include);
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  expect(current.files).toHaveLength(1);
+  expect(current.files[0].lines).toEqual(fullDiff(head, indexed).lines);
+  expect(review.presentation).toMatchObject({ staged: true, included: true, indeterminate: true });
+  expect(review.snapshot!.diff.lines).toHaveLength(0);
+  expect(review.blocks).toHaveLength(0);
+  await act(async () => { await review.toggle(null, true); });
+  expect(include).toHaveBeenCalledWith(target.repoPath, [target.filePath], true);
+  expect(stage).not.toHaveBeenCalled();
+});
+
+test.each(["binary", "renamed", "lossy"])("%s file inclusion stays mixed with staged and worktree changes", async kind => {
+  indexed = ["a", "B", "c", "d"];
+  workingDiff.mockResolvedValue({ ...diff, ...(kind === "binary" ? { is_binary: true }
+    : kind === "renamed" ? { is_renamed: true } : { has_lossy_line_endings: true }) });
+  const include = spyOn(statusApi, "setFilesStaged").mockResolvedValue(true);
+  spies.push(include);
+  await act(async () => { root.render(<LocaleProvider language="en-US"><Harness /></LocaleProvider>); });
+  expect(review.blocks).toHaveLength(0);
+  expect(review.presentation).toMatchObject({ included: true, indeterminate: true });
+  await act(async () => { await review.toggle(null, true); });
+  expect(include).toHaveBeenCalledWith(target.repoPath, [target.filePath], true);
+  expect(stage).not.toHaveBeenCalled();
+});
+
 test("a restored preview without target metadata resolves its owner before enabling block controls", async () => {
   current = { ...current, workingTreeTargets: undefined };
   spies.push(spyOn(repoApi, "resolveRepositoryForFile").mockResolvedValue({

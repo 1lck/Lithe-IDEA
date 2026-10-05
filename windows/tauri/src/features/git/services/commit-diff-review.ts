@@ -14,6 +14,20 @@ export interface CommitDiffReviewState {
   busy: boolean;
   error?: "read" | "write" | "stale";
 }
+
+/** Display index-only changes without using them as a working-tree write base.
+ * File inclusion is status-owned even when no precise block can be produced. */
+export function commitDiffPresentation(snapshot: CommitDiffSnapshot, stagedView: boolean) {
+  const hasChanges = (diff: GitDiff) => diff.is_binary || diff.is_image || diff.is_renamed
+    || diff.is_new || diff.is_deleted || diff.lines.some(line => line.line_type === "added" || line.line_type === "removed");
+  const showingIndex = stagedView || (!hasChanges(snapshot.diff) && snapshot.file.staged && hasChanges(snapshot.staged));
+  return {
+    diff: showingIndex ? snapshot.staged : snapshot.diff,
+    staged: showingIndex,
+    included: snapshot.file.staged,
+    indeterminate: !stagedView && snapshot.file.staged && snapshot.file.worktree === true,
+  };
+}
 interface Dependencies {
   read: () => Promise<CommitDiffSnapshot | null>;
   stage: (hunk: GitHunk) => Promise<boolean>;

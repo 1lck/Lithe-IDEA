@@ -533,7 +533,16 @@ impl TemporaryGitCommitContext {
         let (directory, sequence) = loop {
             let sequence = TEMPORARY_INDEX_SEQUENCE.fetch_add(1, Ordering::Relaxed);
             let candidate = parent.join(format!("{prefix}-{}-{sequence}", std::process::id()));
-            match std::fs::create_dir(&candidate) {
+            let mut builder = std::fs::DirBuilder::new();
+            builder.recursive(false);
+            // Public POSIX temp roots must not expose tracked paths/object IDs.
+            // Set permissions at atomic creation, before writing HEAD or index.
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&candidate) {
                 Ok(()) => break (candidate, sequence),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => {
@@ -6852,6 +6861,44 @@ mod tests {
     };
     use serde_json::Value;
     use std::path::PathBuf;
+
+    #[test]
+    fn temporary_git_context_is_private_and_cleans_up_under_a_public_parent() {
+        let parent = super::TemporaryGitCommitContext::prepare_snapshot(Some(&"a".repeat(40)))
+            .expect("owned fixture parent should be created");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&parent.directory, std::fs::Permissions::from_mode(0o755))
+                .expect("fixture parent should allow public traversal");
+        }
+        let context = super::TemporaryGitCommitContext::prepare_in(
+            &parent.directory,
+            "private-index",
+            Some(&"b".repeat(40)),
+        )
+        .expect("private context should be created atomically");
+        let directory = context.directory.clone();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&directory).unwrap().permissions().mode() & 0o077,
+                0
+            );
+        }
+        std::fs::write(&context.index_path, b"tracked/path\0object-id")
+            .expect("index fixture should stay inside the owned context");
+        assert_eq!(
+            std::fs::read(directory.join("HEAD")).unwrap(),
+            format!("{}\n", "b".repeat(40)).as_bytes()
+        );
+        drop(context);
+        assert!(
+            !directory.exists(),
+            "HEAD and index should be removed with their owner"
+        );
+    }
 
     #[test]
     fn simplified_canonical_path_strips_windows_verbatim_prefixes() {

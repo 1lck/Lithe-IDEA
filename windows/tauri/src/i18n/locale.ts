@@ -2038,7 +2038,7 @@ const catalogs = {
       "Refresh the Git view automatically after relevant file changes and Git events",
     "settings.git.confirmDiscard": "Confirm Before Discard",
     "settings.git.confirmDiscardDescription":
-      "Show a confirmation before discarding file or repository changes",
+      "Confirm file or repository discard. Diff block rollback arrows apply immediately.",
     "settings.git.view": "Git View",
     "settings.git.folderChanges": "Folder-Based Changes",
     "settings.git.folderChangesDescription": "Show Git changes in a folder tree, similar to Files",
@@ -6547,7 +6547,7 @@ const catalogs = {
     "settings.git.autoRefresh": "自动刷新 Git 状态",
     "settings.git.autoRefreshDescription": "相关文件或 Git 事件发生变化后自动刷新 Git 视图",
     "settings.git.confirmDiscard": "丢弃前确认",
-    "settings.git.confirmDiscardDescription": "丢弃文件或仓库更改前显示确认提示",
+    "settings.git.confirmDiscardDescription": "丢弃文件或仓库更改前确认；Diff 块级回退箭头直接执行。",
     "settings.git.view": "Git 视图",
     "settings.git.folderChanges": "基于文件夹的更改",
     "settings.git.folderChangesDescription": "以类似文件视图的文件夹树形式显示 Git 更改",

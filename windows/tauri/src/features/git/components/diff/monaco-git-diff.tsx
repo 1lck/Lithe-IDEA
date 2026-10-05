@@ -16,7 +16,6 @@ import { useFileSystemStore } from "@/features/file-system/stores/file-system.st
 import { useTranslation } from "@/i18n/locale-provider";
 import { joinPath } from "@/utils/path-helpers";
 import { useSettingsStore } from "@/features/settings/stores/settings.store";
-import { showConfirmDialog } from "@/ui/dialog";
 import { discardHunk, stageHunk, unstageHunk } from "../../api/git-status-api";
 import {
   createMonacoDiffHunkActions,
@@ -126,8 +125,6 @@ export default function MonacoGitDiff({
   const discardTitle = t("git.rollback");
   // The confirmation runs from an owner created per patch; read the current
   // translator instead of rebuilding the owner when the language changes.
-  const translate = useRef(t);
-  translate.current = t;
   const { fontSize, fontFamily, lineHeight, tabSize, themeId, editorItalicComments, editorFontLigatures } = useMonacoEditorSettings();
 
   useEffect(() => {
@@ -294,15 +291,7 @@ export default function MonacoGitDiff({
 
   useEffect(() => {
     const owner = createMonacoDiffHunkActions(diff, repoPath ? { repoPath, isStaged, canDiscard } : undefined,
-      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk,
-        confirmDiscard: async hunk => {
-          // Reuse the product-wide "confirm before discard" preference that
-          // already guards file and repository rollbacks.
-          if (!useSettingsStore.getState().settings.confirmBeforeDiscard) return true;
-          const t = translate.current;
-          return showConfirmDialog(t("git.diff.rollbackHunkConfirm", { path: hunk.file_path }), {
-            title: t("git.diff.rollbackHunk"), confirmLabel: t("git.rollback") });
-        } });
+      { stage: stageHunk, unstage: unstageHunk, discard: discardHunk });
     hunkActions.current = owner;
     setActionFailed(false);
     return () => {

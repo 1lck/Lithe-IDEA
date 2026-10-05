@@ -6,7 +6,7 @@ import { getFullContextFileDiff, getWorkingTreePathDiff } from "../api/git-diff-
 import { resolveRepositoryForFile } from "../api/git-repo-api";
 import { discardHunk, getGitStatus, setFilesStaged, stageHunk, unstageHunk } from "../api/git-status-api";
 import { isGitChangeRelevant, subscribeToGitChanges } from "../events/git-events";
-import { createCommitDiffReview, type CommitDiffReviewState } from "../services/commit-diff-review";
+import { commitDiffPresentation, createCommitDiffReview, type CommitDiffReviewState } from "../services/commit-diff-review";
 import { beginCommitDiffWrite, commitDiffWritePending } from "../runtime/commit-diff-write-state";
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
 import type { MultiFileDiff, WorkingTreeDiffTarget } from "../types/git-diff.types";
@@ -110,9 +110,9 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
           ...(stagedView ? { staged: true } : {}),
           ...(!stagedView && snapshot.file.staged ? { hasStagedChanges: true } : {}),
         };
-        const diff = snapshot.diff;
+        const diff = commitDiffPresentation(snapshot, stagedView).diff;
         const updated = createSingleFileWorkingTreeDiff({ repoPath, fileKey, target: nextTarget,
-          diff: diff.lines.length || diff.is_binary || diff.is_image ? diff : null,
+          diff,
           title: data.title, commitPreview: true, workingTreeFileOrder: data.workingTreeFileOrder });
         if (!equal(data.files, updated.files) || !equal(data.workingTreeTargets, updated.workingTreeTargets)) {
           useBufferStore.getState().actions.updateBufferContent(bufferId, "", false, updated);
@@ -175,7 +175,9 @@ export function useCommitDiffReview(bufferId: string | null, fileKey: string,
       if (navigationRequests.current.isCurrent(request)) setFileNavigationBusy(false);
     }
   };
-  return { ...state, busy, fileNavigationBusy, navigateFile, refresh: () => owner.current?.refresh(),
+  return { ...state, busy, fileNavigationBusy, navigateFile,
+    presentation: state.snapshot ? commitDiffPresentation(state.snapshot, stagedView) : undefined,
+    refresh: () => owner.current?.refresh(),
     toggle: (id: string | null, included: boolean) => owner.current?.apply(id, included ? "include" : "exclude"),
     rollback: (id: string) => owner.current?.apply(id, "rollback") };
 }

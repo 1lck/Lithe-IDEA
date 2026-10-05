@@ -330,7 +330,7 @@ export const settingsSearchIndex: SettingSearchRecord[] = [
     tab: "git",
     section: "Integration",
     label: "Confirm Before Discard",
-    description: "Show a confirmation before discarding Git changes",
+    description: "Confirm file or repository discard; Diff block rollback arrows apply immediately",
     keywords: ["git", "discard", "confirm", "danger", "revert"],
   },
   {

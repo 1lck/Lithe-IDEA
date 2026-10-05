@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { adaptCoreResult } from "./core-result-adapter";
+import type { GitDiff } from "@/features/git/types/git.types";
+
+test.each(["EOF", "CRLF", "LF"])("Core patch adaptation preserves writable safety metadata for %s", kind => {
+  const separator = kind === "CRLF" ? "\r\n" : "\n";
+  const patch = ["diff --git a/file.txt b/file.txt", "--- a/file.txt", "+++ b/file.txt",
+    "@@ -1 +1 @@", "-a", "+B", ...(kind === "EOF" ? ["\\ No newline at end of file"] : []), ""].join(separator);
+  const diff = adaptCoreResult<GitDiff>("git_diff_file", { filePath: "file.txt" }, { patch });
+  expect(diff.has_lossy_line_endings === true).toBe(kind !== "LF");
+  expect(diff.lines.map(line => line.content)).toEqual(["@@ -1 +1 @@", "a", "B"]);
+});
 
 describe("git status result adaptation", () => {
   test("preserves both paths of a renamed file", () => {

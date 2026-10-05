@@ -28,7 +28,6 @@ function rollbackOperations() {
   return {
     ...operations(),
     discard: mock(async (_repo: string, _hunk: GitHunk) => true),
-    confirmDiscard: mock(async (_hunk: GitHunk) => true),
   };
 }
 function deferred() {
@@ -141,13 +140,12 @@ describe("Windows Monaco diff hunk actions", () => {
     }
   });
 
-  test("routes a confirmed rollback to the original hunk and owning repository", async () => {
+  test("routes an immediate rollback to the original hunk and owning repository", async () => {
     const api = rollbackOperations();
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
     expect(owner.actions).toEqual(["stage", "discard"]);
     expect(await owner.apply("hunk-4", "discard")).toBe("applied");
     const hunk = { file_path: "src/Sample.java", lines: diff.lines.slice(4) };
-    expect(api.confirmDiscard).toHaveBeenCalledWith(hunk);
     expect(api.discard).toHaveBeenCalledWith(context.repoPath, hunk);
     expect(api.stage).not.toHaveBeenCalled();
     // The patch is stale until the Git change event replaces it.
@@ -181,21 +179,19 @@ describe("Windows Monaco diff hunk actions", () => {
     owner.dispose();
   });
 
-  test("a cancelled confirmation writes nothing and leaves the block actionable", async () => {
+  test("rollback starts its write immediately without a confirmation dependency", async () => {
     const api = rollbackOperations();
-    api.confirmDiscard.mockResolvedValueOnce(false);
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
-    expect(await owner.apply("hunk-0", "discard")).toBe("cancelled");
-    expect(api.discard).not.toHaveBeenCalled();
-    expect(await owner.apply("hunk-0", "discard")).toBe("applied");
+    const result = owner.apply("hunk-0", "discard");
     expect(api.discard).toHaveBeenCalledTimes(1);
+    expect(await result).toBe("applied");
     owner.dispose();
   });
 
-  test("rejects clicks while the confirmation is open and ignores answers for a replaced patch", async () => {
+  test("rejects duplicate clicks during the write and ignores its result after disposal", async () => {
     const api = rollbackOperations();
     const answer = deferred();
-    api.confirmDiscard.mockImplementationOnce(() => answer.promise);
+    api.discard.mockImplementationOnce(() => answer.promise);
     const owner = createMonacoDiffHunkActions(diff, discardContext, api);
     const first = owner.apply("hunk-0", "discard");
     try {
@@ -204,9 +200,9 @@ describe("Windows Monaco diff hunk actions", () => {
       owner.dispose();
       answer.resolve(true);
       expect(await first).toBe("ignored");
-      expect(api.discard).not.toHaveBeenCalled();
+      expect(api.discard).toHaveBeenCalledTimes(1);
       expect(api.stage).not.toHaveBeenCalled();
-    } finally { answer.resolve(false); owner.dispose(); }
+    } finally { answer.resolve(false); await first; owner.dispose(); }
   });
 
   test("a failed rollback can be retried", async () => {
@@ -236,7 +232,6 @@ describe("Windows Monaco diff hunk actions", () => {
       expect(await disabled.apply("hunk-0", "discard")).toBe("ignored");
       disabled.dispose();
     }
-    expect(api.confirmDiscard).not.toHaveBeenCalled();
     expect(api.discard).not.toHaveBeenCalled();
   });
 
@@ -252,6 +247,7 @@ describe("Windows Monaco diff hunk actions", () => {
     for (const disabled of [
       createMonacoDiffHunkActions(diff, undefined, api),
       createMonacoDiffHunkActions({ ...diff, is_truncated: true }, context, api),
+      createMonacoDiffHunkActions({ ...diff, has_lossy_line_endings: true }, context, api),
     ]) {
       expect(disabled.action).toBeNull();
       expect(await disabled.apply("hunk-0", "stage")).toBe("ignored");

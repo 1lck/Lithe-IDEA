@@ -28,15 +28,13 @@ export function workingTreeStagingContext(
 
 type HunkOperation = (repoPath: string, hunk: GitHunk) => Promise<boolean>;
 export type HunkActionID = "stage" | "unstage" | "discard";
-type ActionResult = "applied" | "failed" | "cancelled" | "ignored";
+type ActionResult = "applied" | "failed" | "ignored";
 
 export interface MonacoDiffHunkOperations {
   stage: HunkOperation;
   unstage: HunkOperation;
   /** Reverse-applies the block to the working tree. */
   discard?: HunkOperation;
-  /** Asks the user before a destructive write; false cancels without writing. */
-  confirmDiscard?: (hunk: GitHunk) => Promise<boolean>;
 }
 
 /** Discard rewrites working-tree content. New and deleted files have no
@@ -53,11 +51,11 @@ export function createMonacoDiffHunkActions(
   context: DiffStagingContext | undefined,
   operations: MonacoDiffHunkOperations,
 ) {
-  const writable = Boolean(context?.repoPath) && !diff.is_truncated;
+  const writable = Boolean(context?.repoPath) && !diff.is_truncated && !diff.has_lossy_line_endings;
   const action: "stage" | "unstage" | null = writable && context
     ? context.isStaged ? "unstage" : "stage" : null;
   const discardEnabled = writable && !!context && !context.isStaged && context.canDiscard === true
-    && !!operations.discard && !!operations.confirmDiscard && canDiscardDiff(diff);
+    && !!operations.discard && canDiscardDiff(diff);
   const actions: readonly HunkActionID[] = action
     ? discardEnabled ? [action, "discard"] : [action] : [];
   let disposed = false;
@@ -73,17 +71,10 @@ export function createMonacoDiffHunkActions(
       const hunk = monacoDiffHunk(diff, hunkID);
       if (!hunk) return "ignored";
       const requested = requestedAction as HunkActionID;
-      // Pending also covers the confirmation dialog, so a second click cannot
-      // queue another destructive write behind it.
+      // Block arrows are direct actions, separate from file/repository discard
+      // confirmation. Keep duplicate clicks locked until the write completes.
       pending = true;
       try {
-        if (requested === "discard") {
-          const confirmed = await operations.confirmDiscard!(hunk);
-          // A refresh while the dialog was open replaced this patch; its
-          // identity no longer describes the file, so the answer is moot.
-          if (disposed) return "ignored";
-          if (!confirmed) return "cancelled";
-        }
         const operation = requested === "discard" ? operations.discard! : operations[requested];
         const success = await operation(context.repoPath, hunk);
         if (disposed) return "ignored";

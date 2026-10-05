@@ -133,6 +133,8 @@ export interface GitDiff {
   old_blob_base64?: string;
   new_blob_base64?: string;
   raw_patch?: string;
+  /** Display normalization lost EOF/CRLF bytes; only whole-file writes are safe. */
+  has_lossy_line_endings?: boolean;
   additions?: number;
   deletions?: number;
   is_truncated?: boolean;

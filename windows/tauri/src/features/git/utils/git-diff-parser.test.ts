@@ -56,5 +56,15 @@ describe("git diff parser line endings", () => {
       "after",
     ]);
     expect(diff.lines.every((line) => !line.content.includes("\r"))).toBe(true);
+    expect(diff.has_lossy_line_endings).toBe(true);
+  });
+
+  test("retains per-file lossy EOF information without contaminating adjacent LF files", () => {
+    const parsed = parseRawDiffContent("diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n"
+      + "@@ -1 +1 @@\n-a\n+A\n\\ No newline at end of file\n"
+      + "diff --git a/b.txt b/b.txt\n--- a/b.txt\n+++ b/b.txt\n@@ -1 +1 @@\n-b\n+B\n", "test.patch");
+    if (!("files" in parsed)) throw new Error("Expected multiple files");
+    expect(parsed.files.map(diff => diff.has_lossy_line_endings === true)).toEqual([true, false]);
+    expect(parsed.files[0].lines.map(line => line.content)).toEqual(["@@ -1 +1 @@", "a", "A"]);
   });
 });
