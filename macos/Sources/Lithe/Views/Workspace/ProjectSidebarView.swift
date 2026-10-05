@@ -66,32 +66,25 @@ struct ProjectSidebarView: View {
                 GeometryReader { geometry in
                     ScrollViewReader { proxy in
                         ScrollView([.vertical, .horizontal]) {
-                            // The recursive tree is one scroll-content child. An eager stack
-                            // must measure its full height so AppKit receives a real scroll range.
-                            VStack(
-                                alignment: .leading,
-                                spacing: LitheTheme.Metrics.projectTreeRowSpacing
-                            ) {
-                                ProjectFileTreeContent(
-                                    root: root,
-                                    availableWidth: geometry.size.width,
-                                    rowHeight: rowHeight,
-                                    activeDocumentURL: model.activeDocument?.url,
-                                    gitStatus: ProjectGitStatusSnapshot(
-                                        repositoryRoot: model.gitRepositoryRoot,
-                                        projection: model.gitTreeStatusProjection
-                                    ),
-                                    directoryMarks: model.projectDirectoryMarks,
-                                    actions: ProjectTreeActions(model: model),
-                                    selectionSnapshot: selection,
-                                    selection: $selection,
-                                    visibleNodes: ProjectTreeSelection.visibleNodes(in: root, expandedPaths: expandedDirectoryPaths),
-                                    expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
-                                    expandedDirectoryPaths: $expandedDirectoryPaths,
-                                    contextMenuPath: $contextMenuPath
-                                )
-                                .equatable()
-                            }
+                            ProjectFileTreeContent(
+                                root: root,
+                                availableWidth: geometry.size.width,
+                                rowHeight: rowHeight,
+                                activeDocumentURL: model.activeDocument?.url,
+                                gitStatus: ProjectGitStatusSnapshot(
+                                    repositoryRoot: model.gitRepositoryRoot,
+                                    projection: model.gitTreeStatusProjection
+                                ),
+                                directoryMarks: model.projectDirectoryMarks,
+                                actions: ProjectTreeActions(model: model),
+                                selectionSnapshot: selection,
+                                selection: $selection,
+                                visibleRows: ProjectTreeSelection.visibleRows(in: root, expandedPaths: expandedDirectoryPaths),
+                                expandedDirectoryPathsSnapshot: expandedDirectoryPaths,
+                                expandedDirectoryPaths: $expandedDirectoryPaths,
+                                contextMenuPath: $contextMenuPath
+                            )
+                            .equatable()
                             .padding(.vertical, LitheTheme.Metrics.projectTreeContentVerticalInset)
                             .frame(
                                 minWidth: geometry.size.width,
@@ -386,6 +379,9 @@ private final class ProjectTreeActions: @unchecked Sendable {
     nonisolated func copyFiles(_ urls: [URL]) {
         Task { @MainActor in self.model.copyProjectItems(urls) }
     }
+    nonisolated func moveFiles(_ urls: [URL], to directory: URL) {
+        Task { await self.model.moveProjectItems(urls, to: directory) }
+    }
     nonisolated func duplicateFiles(_ urls: [URL]) {
         Task { await self.model.duplicateProjectItems(urls) }
     }
@@ -455,13 +451,14 @@ private struct ProjectFileTreeContent: View, Equatable {
     let actions: ProjectTreeActions
     let selectionSnapshot: ProjectTreeSelection
     @Binding var selection: ProjectTreeSelection
-    let visibleNodes: [FileNode]
+    let visibleRows: [ProjectTreeSelection.VisibleRow]
     let expandedDirectoryPathsSnapshot: Set<String>
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
 
     static func == (lhs: ProjectFileTreeContent, rhs: ProjectFileTreeContent) -> Bool {
-        lhs.root == rhs.root
+        lhs.selectionSnapshot == rhs.selectionSnapshot
+            && lhs.root == rhs.root
             && lhs.availableWidth == rhs.availableWidth
             && lhs.rowHeight == rhs.rowHeight
             && lhs.activeDocumentURL == rhs.activeDocumentURL
@@ -469,26 +466,31 @@ private struct ProjectFileTreeContent: View, Equatable {
             && lhs.directoryMarks == rhs.directoryMarks
             && lhs.expandedDirectoryPathsSnapshot == rhs.expandedDirectoryPathsSnapshot
             && lhs.contextMenuPath == rhs.contextMenuPath
-            && lhs.selectionSnapshot == rhs.selectionSnapshot
     }
 
     var body: some View {
-        FileNodeRow(
-            node: root,
-            depth: 0,
-            availableWidth: availableWidth,
-            rowHeight: rowHeight,
-            activeDocumentURL: activeDocumentURL,
-            gitStatus: gitStatus,
-            projectRootURL: root.url,
-            directoryMarks: directoryMarks,
-            actions: actions,
-            selection: $selection,
-            visibleNodes: visibleNodes,
-            expandedDirectoryPaths: $expandedDirectoryPaths,
-            contextMenuPath: $contextMenuPath
-        )
-        .id(root.url.standardizedFileURL.path)
+        // Each visible row is a direct lazy child: recursive stacks instantiate
+        // every descendant and cannot virtualize a large expanded directory.
+        LazyVStack(alignment: .leading, spacing: LitheTheme.Metrics.projectTreeRowSpacing) {
+            ForEach(visibleRows) { row in
+                FileNodeRow(
+                    node: row.node,
+                    depth: row.depth,
+                    availableWidth: availableWidth,
+                    rowHeight: rowHeight,
+                    activeDocumentURL: activeDocumentURL,
+                    gitStatus: gitStatus,
+                    projectRootURL: root.url,
+                    directoryMarks: directoryMarks,
+                    actions: actions,
+                    selection: $selection,
+                    visibleRows: visibleRows,
+                    expandedDirectoryPaths: $expandedDirectoryPaths,
+                    contextMenuPath: $contextMenuPath
+                )
+                .id(row.id)
+            }
+        }
     }
 }
 
@@ -503,7 +505,7 @@ private struct FileNodeRow: View {
     let directoryMarks: [String: WorkspaceDirectoryMark]
     let actions: ProjectTreeActions
     @Binding var selection: ProjectTreeSelection
-    let visibleNodes: [FileNode]
+    let visibleRows: [ProjectTreeSelection.VisibleRow]
     @Binding var expandedDirectoryPaths: Set<String>
     @Binding var contextMenuPath: String?
     @State private var resolvedJavaIconKind: LitheIconKind?
@@ -522,50 +524,60 @@ private struct FileNodeRow: View {
     }
 
     var body: some View {
-        if node.isDirectory {
-            VStack(
-                alignment: .leading,
-                spacing: LitheTheme.Metrics.projectTreeRowSpacing
-            ) {
-                directoryRow
-                if isExpanded {
-                    ForEach(node.children ?? []) { child in
-                        FileNodeRow(
-                            node: child,
-                            depth: depth + 1,
-                            availableWidth: availableWidth,
-                            rowHeight: rowHeight,
-                            activeDocumentURL: activeDocumentURL,
-                            gitStatus: gitStatus,
-                            projectRootURL: projectRootURL,
-                            directoryMarks: directoryMarks,
-                            actions: actions,
-                            selection: $selection,
-                            visibleNodes: visibleNodes,
-                            expandedDirectoryPaths: $expandedDirectoryPaths,
-                            contextMenuPath: $contextMenuPath
-                        )
-                        .id(child.url.standardizedFileURL.path)
+        if node.isDirectory { directoryRow } else { fileRow }
+    }
+
+    private func toggleExpanded() {
+        if isExpanded {
+            expandedDirectoryPaths.remove(node.url.path)
+            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
+        } else {
+            expandedDirectoryPaths.insert(node.url.path)
+            node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
+        }
+    }
+
+    private func activateRow() {
+        contextMenuPath = nil
+        selectRow()
+        if !node.isDirectory {
+            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
+                actions.openFile(node.url)
+            }
+        }
+    }
+
+    private var rowInteraction: some View {
+        ProjectTreeRowInteraction(
+            workspaceURL: projectRootURL,
+            destinationURL: node.isDirectory ? node.url : nil,
+            disclosureInset: node.isDirectory
+                ? CGFloat(depth * 14 + 8 + 16) + LitheTheme.Metrics.projectTreeContentHorizontalInset : 0,
+            select: { flags in
+                contextMenuPath = nil
+                selectRow(flags: flags)
+            },
+            activate: { activateRow() },
+            doubleClick: {
+                if !node.isDirectory {
+                    ProjectFileRowActivation.performDoubleClick(isExecutableBinary: isExecutableFile) {
+                        actions.runExecutable(node.url)
                     }
                 }
-            }
-        } else {
-            fileRow.draggable(node.url)
-        }
+            },
+            dragURLs: {
+                guard node.url != projectRootURL else { return [] }
+                contextMenuPath = nil
+                selection.selectForDragging(node.url.path)
+                return selection.draggedURLs(excluding: projectRootURL)
+            },
+            move: { urls, destination in actions.moveFiles(urls, to: destination) }
+        )
     }
 
     private var directoryRow: some View {
         Button {
-            contextMenuPath = nil
-            selectRow()
-            if isExpanded {
-                expandedDirectoryPaths.remove(node.url.path)
-                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.remove($0) }
-            } else {
-                expandedDirectoryPaths.insert(node.url.path)
-                // 被压缩掉的中间包也要标记为展开，否则再次折叠时状态残留。
-                node.collapsedAncestorPaths.forEach { expandedDirectoryPaths.insert($0) }
-            }
+            toggleExpanded()
         } label: {
             HStack(spacing: 6) {
                 LitheIDEAIcon(
@@ -602,12 +614,7 @@ private struct FileNodeRow: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .overlay {
-            ProjectTreeModifiedClick { flags in
-                contextMenuPath = nil
-                selectRow(flags: flags)
-            }
-        }
+        .overlay { rowInteraction }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + directoryContextMenuItems },
             onRightClick: {
@@ -619,11 +626,7 @@ private struct FileNodeRow: View {
 
     private var fileRow: some View {
         Button {
-            contextMenuPath = nil
-            selectRow()
-            ProjectFileRowActivation.performPrimary(isExecutableBinary: isExecutableFile) {
-                actions.openFile(node.url)
-            }
+            activateRow()
         } label: {
             HStack(spacing: 6) {
                 Color.clear.frame(width: 10)
@@ -660,24 +663,12 @@ private struct FileNodeRow: View {
         .buttonStyle(.litheNoPress)
         .lithePointer()
         .padding(.horizontal, LitheTheme.Metrics.projectTreeContentHorizontalInset)
-        .overlay {
-            ProjectTreeModifiedClick { flags in
-                contextMenuPath = nil
-                selectRow(flags: flags)
-            }
-        }
+        .overlay { rowInteraction }
         .litheContextMenu(
             items: { selection.paths.count > 1 ? batchMenuItems : clipboardMenuItems + [.separator] + fileContextMenuItems },
             onRightClick: {
                 selection.selectForContextMenu(node.url.path)
                 contextMenuPath = node.url.standardizedFileURL.path
-            }
-        )
-        .simultaneousGesture(
-            TapGesture(count: 2).onEnded {
-                ProjectFileRowActivation.performDoubleClick(isExecutableBinary: isExecutableFile) {
-                    actions.runExecutable(node.url)
-                }
             }
         )
         .task(id: node.url.standardizedFileURL.path) {
@@ -695,14 +686,14 @@ private struct FileNodeRow: View {
     private func selectRow(flags: NSEvent.ModifierFlags = []) {
         selection.select(
             node.url.path,
-            visiblePaths: visibleNodes.map { $0.url.path },
+            visiblePaths: visibleRows.map { $0.node.url.path },
             extending: flags.contains(.shift),
             toggling: flags.contains(.command)
         )
     }
 
     private var selectedItemURLs: [URL] {
-        visibleNodes.filter { selection.paths.contains($0.url.path) && $0.url != projectRootURL }.map(\.url)
+        selection.draggedURLs(excluding: projectRootURL)
     }
 
     private var batchMenuItems: [LitheContextMenuItem] {

@@ -2,7 +2,7 @@
   "id": "workspace-tree-batch-files",
   "area": "工作区",
   "group": "工作区生命周期",
-  "capability": "项目树多选、范围选择及批量复制、重复和移到废纸篓",
+  "capability": "项目树独立多选、范围选择及批量拖动移动、复制、重复和移到废纸篓",
   "macos": {
     "implementationStatus": "implemented",
     "verificationStatus": "pending",
@@ -11,9 +11,11 @@
       "macos/Sources/Lithe/Views/Workspace/ProjectTreeSelection.swift",
       "macos/Sources/LitheWorkspaceModule/Application/WorkspaceFeatureModel.swift",
       "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeKeyboardCommands.swift",
-      "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeModifiedClick.swift",
+      "macos/Sources/Lithe/Platform/MacOS/UI/ProjectTreeRowInteraction.swift",
       "macos/Tests/LitheTests/ProjectTreeSelectionTests.swift",
-      "macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift"
+      "macos/Tests/LitheTests/ProjectTreeBatchFileWorkflowTests.swift",
+      "macos/Tests/LitheTests/LitheCoreLogicTests.swift",
+      ".agents/notes/implemented/bug-fix/2026-10-05-project-tree-selection-and-moves.md"
     ]
   },
   "windows": {
@@ -24,5 +26,5 @@
     ]
   },
   "owner": "Workspace",
-  "verification": "macOS 项目树中使用 ⌘ 点击增减选择、Shift 点击正反向连续选择，Control 点击仍打开右键菜单，右键已选项保持集合；⌘A 全选焦点项的同级项目（点击文件夹时选它旁边的项目而不是其内容，未选中时选项目顶层项目），已选文件夹下展开的内容同时显示为选中；打开文件后单选高亮跟随编辑器；拷贝并粘贴到目标目录、批量创建副本和移到废纸篓，确认同名不覆盖、父子去重、未保存保护及取消删除；确认删除后、废纸篓操作完成前修改的文件不会被删除或关闭，失败时提示剩余项目未移动；点击编辑器或在点击项目树后用快捷键打开全局搜索时，⌘A/⌘C/⌘V 恢复文本操作。Windows 尚无该多选入口。"
+  "verification": "macOS：单击目录名称只选中本行，箭头展开/折叠，子项不继承高亮；⌘ 点击增减独立选择，Shift 正反向选择，Control 点击右键、右键未选中子项只作用于该行；⌘A 仍选择焦点项同级。拖动已选项携带整组，拖动未选项只携带该项，目录整体移动，父子去重；同窗口项目目录接收拖放，项目根不能移动，同目录无操作，同名整批拒绝，目录移入自身/后代和符号链接越界拒绝；中途失败报告已完成数量、保留剩余源项，切换工作区停止后续项。确认未保存文件保护、成功移动后打开文档路径/历史/目录标记更新；外部拖放仍提供文件 URL。大目录分别测量选择、展开和滚动，懒加载行应能滚动到末尾，折叠与定位保持正确。保留复制/粘贴/副本/废纸篓、快捷键焦点和双击可执行文件回归。Windows 尚无该多选入口；macOS 实机事件、性能及 Swift 测试需在目标平台验证。"
 }

@@ -4370,6 +4370,103 @@ struct EditorDocumentTests {
 
     @Test
     @MainActor
+    func batchMoveRejectsConflictsBeforeMovingAnyFile() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let first = workspace.appendingPathComponent("a.txt")
+        let second = workspace.appendingPathComponent("b.txt")
+        let files = RecordingBatchProjectFileOperations(
+            files: [first, second, target.appendingPathComponent("b.txt")], directories: [workspace, target]
+        )
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems([first, second], to: target)
+        #expect(files.movedSources.isEmpty)
+        #expect(files.fileExists(at: first) && files.fileExists(at: second))
+        #expect(!model.isPerformingProjectItemOperation)
+    }
+
+    @Test
+    @MainActor
+    func batchMoveKeepsCompletedItemsAndReportsTheUnprocessedRemainder() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let urls = ["a.txt", "b.txt", "c.txt"].map { workspace.appendingPathComponent($0) }
+        let files = RecordingBatchProjectFileOperations(
+            files: urls, directories: [workspace, target], failingMoveURLs: [urls[1]]
+        )
+        let recorder = WorkspaceCallbackRecorder()
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}, notify: { recorder.messages.append($0) }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems(urls, to: target)
+        #expect(files.movedSources == [urls[0]])
+        #expect(!files.fileExists(at: urls[0]))
+        #expect(files.fileExists(at: target.appendingPathComponent("a.txt")))
+        #expect(files.fileExists(at: urls[1]) && files.fileExists(at: urls[2]))
+        #expect(recorder.messages.contains { $0.hasPrefix("Moved 1 of 3 items. Remaining items were not moved:") })
+    }
+
+    @Test
+    @MainActor
+    func batchMoveStopsAfterWorkspaceSwitchAndReleasesTheOldOperation() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let first = workspace.appendingPathComponent("a.txt")
+        let second = workspace.appendingPathComponent("b.txt")
+        let files = RecordingBatchProjectFileOperations(
+            files: [first, second], directories: [workspace, target], pausesFirstMove: true
+        )
+        defer { files.releaseFirstMove() }
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {}
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        let move = Task { await model.moveProjectItems([first, second], to: target) }
+        #expect(await files.waitUntilFirstMoveStarted())
+        #expect(model.isPerformingProjectItemOperation)
+        await model.pasteProjectItems([second], in: target)
+        #expect(files.copiedDestinations.isEmpty)
+        model.beginWorkspace(at: URL(fileURLWithPath: "/another-project"), visibilityRules: .default)
+        files.releaseFirstMove()
+        await move.value
+        #expect(files.movedSources == [first])
+        #expect(files.fileExists(at: second))
+        #expect(!model.isPerformingProjectItemOperation)
+    }
+
+    @Test
+    @MainActor
+    func batchMoveRechecksUnsavedEditsAfterHistorySuspends() async {
+        let workspace = URL(fileURLWithPath: "/batch-move")
+        let target = workspace.appendingPathComponent("dest")
+        let source = workspace.appendingPathComponent("a.txt")
+        let document = EditorDocument(url: source, text: "saved", modificationDate: nil)
+        let files = RecordingBatchProjectFileOperations(files: [source], directories: [workspace, target])
+        let model = makeWorkspaceObservationUnitModel(
+            fileOperations: files, provider: SequencedGitWatchContextProvider([nil]),
+            watcherFactory: TestDirectoryWatcherFactory(), refreshGit: {},
+            recordHistory: { _, _ in document.text = "edited while recording history" },
+            documentsProvider: { [document] }
+        )
+        defer { model.reset() }
+        model.beginWorkspace(at: workspace, visibilityRules: .default)
+        await model.moveProjectItems([source], to: target)
+        #expect(files.movedSources.isEmpty)
+        #expect(document.isDirty && files.fileExists(at: source))
+    }
+
+    @Test
+    @MainActor
     func batchPasteKeepsExistingFilesAndAllocatesDistinctNames() async {
         let workspace = URL(fileURLWithPath: "/batch-copy")
         let destination = workspace.appendingPathComponent("target")
@@ -7622,24 +7719,34 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     private let firstCopyStarted = TestGate()
     private let firstCopyRelease: TestGate?
     private let failingTrashURLs: Set<URL>
+    private var moves: [URL] = []
+    private let firstMoveStarted = TestGate()
+    private let firstMoveRelease: TestGate?
+    private let failingMoveURLs: Set<URL>
 
     /// `pausesFirstTrash` / `pausesFirstCopy` hold the first such call on the
     /// production worker thread until released so a test can act mid-batch.
     init(
         files: [URL], directories: [URL], pausesFirstTrash: Bool = false, pausesFirstCopy: Bool = false,
-        failingTrashURLs: Set<URL> = []
+        failingTrashURLs: Set<URL> = [], pausesFirstMove: Bool = false, failingMoveURLs: Set<URL> = []
     ) {
         self.files = Set(files)
         self.directories = Set(directories)
         firstTrashRelease = pausesFirstTrash ? TestGate() : nil
         firstCopyRelease = pausesFirstCopy ? TestGate() : nil
         self.failingTrashURLs = failingTrashURLs
+        firstMoveRelease = pausesFirstMove ? TestGate() : nil
+        self.failingMoveURLs = failingMoveURLs
     }
 
     func waitUntilFirstTrashStarted() async -> Bool { await firstTrashStarted.waitUntilOpen() }
     func releaseFirstTrash() { firstTrashRelease?.open() }
     func waitUntilFirstCopyStarted() async -> Bool { await firstCopyStarted.waitUntilOpen() }
     func releaseFirstCopy() { firstCopyRelease?.open() }
+
+    func waitUntilFirstMoveStarted() async -> Bool { await firstMoveStarted.waitUntilOpen() }
+    func releaseFirstMove() { firstMoveRelease?.open() }
+    var movedSources: [URL] { lock.withLock { moves } }
 
     var copiedDestinations: [URL] { lock.withLock { copies } }
     var trashedURLs: [URL] { lock.withLock { trash } }
@@ -7672,7 +7779,20 @@ private final class RecordingBatchProjectFileOperations: WorkspaceFileOperations
     }
     func createFile(at url: URL) throws {}
     func createDirectory(at url: URL, withIntermediateDirectories: Bool) throws {}
-    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {}
+    func moveItem(at sourceURL: URL, to destinationURL: URL) throws {
+        if !firstMoveStarted.isOpen {
+            firstMoveStarted.open()
+            if let firstMoveRelease, !firstMoveRelease.waitSynchronously() { throw CocoaError(.userCancelled) }
+        }
+        if failingMoveURLs.contains(sourceURL) { throw CocoaError(.fileWriteNoPermission) }
+        try lock.withLock {
+            guard files.contains(sourceURL) else { throw CocoaError(.fileReadNoSuchFile) }
+            guard !files.contains(destinationURL) else { throw CocoaError(.fileWriteFileExists) }
+            files.remove(sourceURL)
+            files.insert(destinationURL)
+            moves.append(sourceURL)
+        }
+    }
     func removeItem(at url: URL) throws {}
     func writeText(_ text: String, to url: URL) throws {}
     func readText(from url: URL) throws -> String { "" }

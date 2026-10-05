@@ -7,8 +7,9 @@ struct ProjectTreeSelection: Equatable {
     private(set) var anchorPath: String?
     private(set) var focusedPath: String?
 
-    mutating func select(_ path: String, visiblePaths: [String], extending: Bool, toggling: Bool) {
+    mutating func select(_ path: String, visiblePaths: @autoclosure () -> [String], extending: Bool, toggling: Bool) {
         focusedPath = path
+        let visiblePaths = extending ? visiblePaths() : []
         if extending, let anchorPath,
            let start = visiblePaths.firstIndex(of: anchorPath),
            let end = visiblePaths.firstIndex(of: path) {
@@ -23,25 +24,32 @@ struct ProjectTreeSelection: Equatable {
         }
     }
 
-    /// A selected folder also shows its descendants as selected; batch actions
-    /// already operate on everything inside it.
-    func covers(_ path: String) -> Bool {
-        var current = path
-        while true {
-            if paths.contains(current) { return true }
-            let parent = (current as NSString).deletingLastPathComponent
-            guard parent != current, !parent.isEmpty else { return false }
-            current = parent
-        }
-    }
+    /// Only explicitly selected rows are highlighted; folders remain atomic action targets.
+    func covers(_ path: String) -> Bool { paths.contains(path) }
 
     mutating func selectForContextMenu(_ path: String) {
         focusedPath = path
-        // Inside a single selected folder the row is its own target, because the
-        // single-item menu acts on the clicked row rather than the folder.
-        guard !paths.contains(path), !(paths.count > 1 && covers(path)) else { return }
+        guard !paths.contains(path) else { return }
         paths = [path]
         anchorPath = path
+    }
+
+    /// Starting a drag on an existing selection must not collapse the group.
+    mutating func selectForDragging(_ path: String) {
+        guard !paths.contains(path) else { return }
+        select(path, visiblePaths: [], extending: false, toggling: false)
+    }
+
+    func draggedURLs(excluding root: URL) -> [URL] {
+        let prefix = root.path == "/" ? "/" : root.path + "/"
+        return paths.sorted().filter { $0 != root.path && $0.hasPrefix(prefix) }.compactMap { path in
+            var parent = (path as NSString).deletingLastPathComponent
+            while !parent.isEmpty && parent != "/" {
+                if parent != root.path && paths.contains(parent) { return nil }
+                parent = (parent as NSString).deletingLastPathComponent
+            }
+            return URL(fileURLWithPath: path)
+        }
     }
 
     mutating func retain(visiblePaths: [String]) {
@@ -74,13 +82,25 @@ struct ProjectTreeSelection: Equatable {
         return nil
     }
 
-    static func visibleNodes(in root: FileNode, expandedPaths: Set<String>) -> [FileNode] {
-        var nodes = [root]
-        if root.isDirectory, expandedPaths.contains(root.url.path) {
-            for child in root.children ?? [] {
-                nodes += visibleNodes(in: child, expandedPaths: expandedPaths)
+    struct VisibleRow: Identifiable {
+        let node: FileNode
+        let depth: Int
+        var id: String { node.url.path }
+    }
+
+    static func visibleRows(in root: FileNode, expandedPaths: Set<String>) -> [VisibleRow] {
+        var rows: [VisibleRow] = []
+        func append(_ node: FileNode, depth: Int) {
+            rows.append(VisibleRow(node: node, depth: depth))
+            if node.isDirectory, expandedPaths.contains(node.url.path) {
+                for child in node.children ?? [] { append(child, depth: depth + 1) }
             }
         }
-        return nodes
+        append(root, depth: 0)
+        return rows
+    }
+
+    static func visibleNodes(in root: FileNode, expandedPaths: Set<String>) -> [FileNode] {
+        visibleRows(in: root, expandedPaths: expandedPaths).map(\.node)
     }
 }

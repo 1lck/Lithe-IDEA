@@ -218,6 +218,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func beginWorkspace(at url: URL, visibilityRules: FileVisibilityRules) {
+        isPerformingProjectItemOperation = false
         workspaceGeneration &+= 1
         directoryMarkRevision &+= 1
         workspaceURL = url.standardizedFileURL
@@ -501,7 +502,7 @@ package final class WorkspaceFeatureModel: ObservableObject {
     }
 
     package func performProjectItemEdit(named rawName: String) async {
-        guard let request = projectItemEditRequest else { return }
+        guard !isPerformingProjectItemOperation, let request = projectItemEditRequest else { return }
         guard let operationWorkspaceURL = workspaceURL else { return }
         let operationWorkspaceGeneration = workspaceGeneration
         let operationDirectoryMarks = directoryMarks
@@ -596,6 +597,111 @@ package final class WorkspaceFeatureModel: ObservableObject {
         }
         await refreshCurrent()
         if request.kind == .createFile { openFile?(destination) }
+    }
+
+    /// Moves only project-owned items, preserving each directory as one operation.
+    /// Preflight rejects the whole selection on conflicts; an I/O failure leaves
+    /// completed moves in place and reports the unprocessed remainder.
+    package func moveProjectItems(_ urls: [URL], to directory: URL) async {
+        guard !isPerformingProjectItemOperation, let workspace = workspaceURL,
+              !urls.isEmpty, directory.isFileURL, isWorkspaceURL(directory),
+              urls.allSatisfy({ $0.isFileURL && isWorkspaceURL($0) && $0.standardizedFileURL.path != workspace.path }) else { return }
+        let generation = workspaceGeneration
+        let target = directory.standardizedFileURL
+        let sources = topLevelProjectItems(urls).filter { $0.deletingLastPathComponent().path != target.path }
+        guard !sources.isEmpty else { return }
+        isPerformingProjectItemOperation = true
+        defer {
+            // A switched workspace may already own a different operation.
+            if workspaceGeneration == generation { isPerformingProjectItemOperation = false }
+        }
+        let fileOperations = self.fileOperations
+        let validationError = await Task.detached(priority: .userInitiated) {
+            Self.projectMoveError(sources, to: target, workspace: workspace, files: fileOperations)
+        }.value
+        guard workspaceGeneration == generation, workspaceURL == workspace else { return }
+        if let validationError { notify?(validationError); return }
+        if sources.contains(where: hasDirtyDocument(in:)) {
+            notify?("Save or discard unsaved files before moving these items")
+            return
+        }
+
+        var moved = 0
+        var failure: String?
+        for source in sources {
+            guard workspaceGeneration == generation, workspaceURL == workspace, !Task.isCancelled else { break }
+            let destination = target.appendingPathComponent(source.lastPathComponent)
+            await recordHistory?(source, .beforeRename)
+            guard workspaceGeneration == generation, workspaceURL == workspace else { return }
+            guard !Task.isCancelled else { break }
+            if sources.contains(where: hasDirtyDocument(in:)) {
+                failure = "Save or discard unsaved files before moving these items"
+                break
+            }
+            let historyFiles = projectFiles.filter { urlContains(source, child: $0) }
+            let previousMarks = directoryMarks
+            let error = await Task.detached(priority: .userInitiated) { () -> String? in
+                do {
+                    // Recheck just before writing; the native move also refuses overwrite.
+                    if let error = Self.projectMoveError([source], to: target, workspace: workspace, files: fileOperations) {
+                        return error
+                    }
+                    try fileOperations.moveItem(at: source, to: destination)
+                    return nil
+                } catch { return error.localizedDescription }
+            }.value
+            if let error { failure = error; break }
+            moved += 1
+            let isCurrent = workspaceGeneration == generation && workspaceURL == workspace
+            // Relocate open buffers immediately, before any further suspension.
+            if isCurrent { relocateOpenDocuments?(source, destination) }
+            let marks = isCurrent ? directoryMarks : previousMarks
+            await persistDirectoryMarksAfterFileOperation(
+                Self.directoryMarks(marks, moving: source, to: destination, in: workspace),
+                previousMarks: marks, workspaceURL: workspace, workspaceGeneration: generation
+            )
+            guard workspaceGeneration == generation, workspaceURL == workspace else { return }
+            for file in historyFiles {
+                guard workspaceGeneration == generation, workspaceURL == workspace else { return }
+                let suffix = String(file.path.dropFirst(source.path.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                await relocateHistory?(file, suffix.isEmpty ? destination : destination.appendingPathComponent(suffix))
+            }
+        }
+        guard workspaceGeneration == generation, workspaceURL == workspace else { return }
+        if let failure {
+            notify?("Moved \(moved) of \(sources.count) items. Remaining items were not moved: \(failure)")
+        } else if Task.isCancelled {
+            notify?("Move cancelled after \(moved) of \(sources.count) items")
+        } else {
+            notify?("Moved \(moved) items")
+        }
+        if moved > 0 { await refreshCurrent() }
+    }
+
+    private nonisolated static func projectMoveError(
+        _ sources: [URL], to target: URL, workspace: URL, files: any WorkspaceFileOperations
+    ) -> String? {
+        let root = workspace.resolvingSymlinksInPath().standardizedFileURL
+        let destination = target.resolvingSymlinksInPath().standardizedFileURL
+        func inside(_ url: URL) -> Bool { url.path == root.path || url.path.hasPrefix(root.path + "/") }
+        guard files.isDirectory(at: target), inside(destination) else { return "Choose a directory inside the project" }
+        var names: Set<String> = []
+        for source in sources {
+            let resolved = source.resolvingSymlinksInPath().standardizedFileURL
+            guard inside(resolved), resolved.path != root.path else { return "Choose items inside the project" }
+            guard files.fileExists(at: source) else { return "A selected item no longer exists" }
+            if destination.path == resolved.path || destination.path.hasPrefix(resolved.path + "/") {
+                return "Cannot move a directory into itself"
+            }
+            let name = source.lastPathComponent
+            // Conservative on case-sensitive volumes too: a batch must not depend
+            // on the destination volume's case or Unicode normalization rules.
+            guard names.insert(name.precomposedStringWithCanonicalMapping.lowercased()).inserted,
+                  !files.fileExists(at: target.appendingPathComponent(name)) else {
+                return "An item named '\(name)' already exists in the destination"
+            }
+        }
+        return nil
     }
 
     package func pasteProjectItems(_ urls: [URL], in directory: URL) async {

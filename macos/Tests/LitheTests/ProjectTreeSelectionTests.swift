@@ -137,8 +137,8 @@ struct ProjectTreeSelectionTests {
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        // Mirrors FileNodeRow: the Button selects and opens a file or folds a
-        // folder, and the overlay handles modified clicks.
+        // Mirrors FileNodeRow: native input distinguishes selection from activation,
+        // and the underlying Button remains available for accessibility.
         window.contentView = NSHostingView(rootView: VStack(spacing: 0) {
             ForEach(rows, id: \.self) { row in
                 Button {
@@ -149,10 +149,18 @@ struct ProjectTreeSelectionTests {
                 }
                 .buttonStyle(.litheNoPress)
                 .overlay {
-                    ProjectTreeModifiedClick { flags in
-                        selection.select(row, visiblePaths: rows, extending: flags.contains(.shift),
-                                         toggling: flags.contains(.command))
-                    }
+                    ProjectTreeRowInteraction(
+                        workspaceURL: URL(fileURLWithPath: "/workspace"),
+                        select: { flags in
+                            selection.select(row, visiblePaths: rows, extending: flags.contains(.shift),
+                                             toggling: flags.contains(.command))
+                        },
+                        activate: {
+                            selection.select(row, visiblePaths: rows, extending: false, toggling: false)
+                            activated.append(row)
+                        },
+                        dragURLs: { [] }, move: { _, _ in }
+                    )
                 }
             }
         })
@@ -162,7 +170,7 @@ struct ProjectTreeSelectionTests {
         // The window hit-tests each event and routes it to the overlay or the
         // Button as in the app; only the current-event lookup is substituted.
         var dispatching: NSEvent?
-        for overlay in try #require(window.contentView).descendants.compactMap({ $0 as? ProjectTreeModifiedClickView }) {
+        for overlay in try #require(window.contentView).descendants.compactMap({ $0 as? ProjectTreeRowInteractionView }) {
             overlay.currentEvent = { dispatching }
         }
         func click(_ index: Int, _ flags: NSEvent.ModifierFlags) throws {
@@ -177,7 +185,7 @@ struct ProjectTreeSelectionTests {
             dispatching = nil
         }
 
-        // A plain click goes to the Button and sets the range anchor.
+        // A plain click activates only on mouse-up and sets the range anchor.
         try click(1, [])
         #expect(activated == ["a"])
         #expect(selection.paths == ["a"])
@@ -198,6 +206,46 @@ struct ProjectTreeSelectionTests {
         // FileNodeRow's context menu capture handles it.
         try click(2, [.control, .shift])
         #expect(activated == ["a", "c", "b"])
+    }
+
+    @Test
+    @MainActor
+    func nativeRowDefersSelectionAndLeavesDisclosureToItsButton() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 240, height: 24),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = ProjectTreeRowInteractionView(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        window.contentView?.addSubview(view)
+        view.disclosureInset = 24
+        var selection = ProjectTreeSelection()
+        selection.select("a", visiblePaths: [], extending: false, toggling: false)
+        selection.select("b", visiblePaths: [], extending: false, toggling: true)
+        view.activate = { selection.select("a", visiblePaths: [], extending: false, toggling: false) }
+        let down = try mouseDown(at: NSPoint(x: 80, y: 12), in: window)
+        view.currentEvent = { down }
+        #expect(view.hitTest(NSPoint(x: 12, y: 12)) == nil)
+        #expect(view.hitTest(NSPoint(x: 80, y: 12)) === view)
+        view.mouseDown(with: down)
+        // The drag recognizer gets to read both selected items before mouse-up.
+        #expect(selection.paths == ["a", "b"])
+        let up = try #require(NSEvent.mouseEvent(
+            with: .leftMouseUp, location: NSPoint(x: 80, y: 12), modifierFlags: [], timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 0))
+        view.mouseUp(with: up)
+        #expect(selection.paths == ["a"])
+
+        view.select = { flags in
+            selection.select("b", visiblePaths: [], extending: flags.contains(.shift), toggling: flags.contains(.command))
+        }
+        let commandDown = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: NSPoint(x: 80, y: 12), modifierFlags: .command, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
+        view.mouseDown(with: commandDown)
+        #expect(selection.paths == ["a"])
+        // Releasing Command before the mouse still toggles the clicked row.
+        view.mouseUp(with: up)
+        #expect(selection.paths == ["a", "b"])
     }
 
     @Test
@@ -247,18 +295,17 @@ struct ProjectTreeSelectionTests {
         // Compacted packages use their displayed parent.
         #expect(selectAll(focusing: "/p/src/com/acme") == ["/p/src/com/acme"])
         #expect(selectAll(focusing: "/p/src/com/acme/App.java") == ["/p/src/com/acme/App.java"])
-        // Selected folders show their contents as selected too, without adding
-        // them to the action set or matching a similarly named sibling.
+        // Folder selection highlights only the folder, independent of descendants.
         #expect(selectAll(focusing: "/p/dest copy") == topLevel)
-        #expect(selection.covers("/p/dest copy/a.txt"))
-        #expect(selection.covers("/p/src/com/acme/App.java"))
+        #expect(!selection.covers("/p/dest copy/a.txt"))
+        #expect(!selection.covers("/p/src/com/acme/App.java"))
         #expect(!selection.paths.contains("/p/dest copy/a.txt"))
-        // Right-clicking a covered row keeps the group for the batch menu.
+        // Right-clicking an unselected descendant targets only that row.
         selection.selectForContextMenu("/p/dest copy/a.txt")
-        #expect(selection.paths == topLevel)
+        #expect(selection.paths == ["/p/dest copy/a.txt"])
         // Inside a single selected folder, right-click targets the clicked row.
         selection.select("/p/dest", visiblePaths: ["/p/dest"], extending: false, toggling: false)
-        #expect(selection.covers("/p/dest/a.txt") && !selection.covers("/p/dest copy/a.txt"))
+        #expect(!selection.covers("/p/dest/a.txt") && !selection.covers("/p/dest copy/a.txt"))
         selection.selectForContextMenu("/p/dest/a.txt")
         #expect(selection.paths == ["/p/dest/a.txt"])
         // The project row, or no focus, selects the top-level items.
@@ -266,6 +313,52 @@ struct ProjectTreeSelectionTests {
         var unfocused = ProjectTreeSelection()
         unfocused.selectAll(in: root)
         #expect(unfocused.paths == topLevel)
+    }
+
+    @Test
+    func dragPreservesExplicitSelectionAndDeduplicatesWholeFolders() {
+        let root = URL(fileURLWithPath: "/workspace")
+        var selection = ProjectTreeSelection()
+        for path in ["/workspace/a", "/workspace/a/child", "/workspace/ab", "/workspace/b"] {
+            selection.select(path, visiblePaths: [], extending: false, toggling: true)
+        }
+        selection.selectForDragging("/workspace/a/child")
+        #expect(selection.paths.count == 4)
+        #expect(selection.draggedURLs(excluding: root).map(\.path) == ["/workspace/a", "/workspace/ab", "/workspace/b"])
+        selection.selectForDragging("/workspace/c")
+        #expect(selection.paths == ["/workspace/c"])
+        selection.selectForDragging(root.path)
+        #expect(selection.draggedURLs(excluding: root).isEmpty)
+        // An editor opened outside the workspace can temporarily own the focus;
+        // adding a tree row must not include that external path in file actions.
+        selection.select("/workspace-other/external.txt", visiblePaths: [], extending: false, toggling: true)
+        selection.select("/workspace/c", visiblePaths: [], extending: false, toggling: true)
+        #expect(selection.draggedURLs(excluding: root).map(\.path) == ["/workspace/c"])
+    }
+
+    @Test
+    func plainAndCommandSelectionDoNotEvaluateTheVisibleTree() {
+        var traversals = 0
+        func visiblePaths() -> [String] { traversals += 1; return ["folder", "file"] }
+        var selection = ProjectTreeSelection()
+        selection.select("folder", visiblePaths: visiblePaths(), extending: false, toggling: false)
+        selection.select("file", visiblePaths: visiblePaths(), extending: false, toggling: true)
+        #expect(traversals == 0)
+        selection.select("folder", visiblePaths: visiblePaths(), extending: true, toggling: false)
+        #expect(traversals == 1)
+        #expect(selection.paths == ["folder", "file"])
+    }
+
+    @Test
+    func flattenedRowsKeepDisplayedDepthAndCollapsedDirectoriesAtomic() {
+        let leaf = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme/Main.java"), isDirectory: false, children: nil)
+        let package = FileNode(url: URL(fileURLWithPath: "/p/src/com/acme"), isDirectory: true, children: [leaf])
+        let root = FileNode(url: URL(fileURLWithPath: "/p"), isDirectory: true, children: [package])
+        let collapsed = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p"])
+        #expect(collapsed.map(\.id) == ["/p", "/p/src/com/acme"])
+        #expect(collapsed.map(\.depth) == [0, 1])
+        let expanded = ProjectTreeSelection.visibleRows(in: root, expandedPaths: ["/p", "/p/src/com/acme"])
+        #expect(expanded.map(\.depth) == [0, 1, 2])
     }
 
     @Test

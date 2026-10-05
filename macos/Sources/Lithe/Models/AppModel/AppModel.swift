@@ -1043,6 +1043,10 @@ final class AppModel: ObservableObject, Identifiable, UnsavedDocumentHandling {
         await workspaceFeature.duplicateProjectItem(at: sourceURL)
     }
 
+    func moveProjectItems(_ urls: [URL], to directory: URL) async {
+        await workspaceFeature.moveProjectItems(urls, to: directory)
+    }
+
     func duplicateProjectItems(_ urls: [URL]) async {
         await workspaceFeature.duplicateProjectItems(urls)
     }
