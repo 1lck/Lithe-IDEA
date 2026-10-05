@@ -7,6 +7,7 @@ import { Empty, EmptyDescription } from "@/ui/empty";
 import type { MultiFileDiff } from "../../types/git-diff.types";
 import {
   selectedCommitFileIndex,
+  commitPreviewFilePosition,
   moveCommitFile,
   emptyDiffNavigation,
   commitDifferenceNavigation,
@@ -20,10 +21,15 @@ import { CommitFileDiffToolbar } from "./commit-file-diff-toolbar";
 import { BinaryDiffViewer } from "./git-diff-binary";
 import ImageDiffViewer from "./git-diff-image";
 import { CommitFileDiffVersionHeader } from "./commit-file-diff-version-header";
+import { useCommitDiffReview } from "../../hooks/use-commit-diff-review";
+import type { CommitDiffBlockControls } from "./commit-diff-block-controls";
+import { Spinner } from "@/ui/spinner";
 import "./commit-file-diff-preview.css";
 
 /** Git Log's repository preview renders one entry; the buffer owns its navigation snapshot. */
-export default function CommitFileDiffPreview({ multiDiff }: { multiDiff: MultiFileDiff }) {
+export default function CommitFileDiffPreview({ multiDiff, review }: {
+  multiDiff: MultiFileDiff; review?: ReturnType<typeof useCommitDiffReview>;
+}) {
   const [showWhitespace, setShowWhitespace] = useState(false);
   const [highlightWords, setHighlightWords] = useState(true);
   const index = selectedCommitFileIndex(multiDiff);
@@ -38,18 +44,38 @@ export default function CommitFileDiffPreview({ multiDiff }: { multiDiff: MultiF
       highlightWords={highlightWords}
       onWhitespace={() => setShowWhitespace((value) => !value)}
       onHighlightWords={() => setHighlightWords((value) => !value)}
+      review={review}
     />
   );
 }
 
+/** Worktree refresh and index writes have a separate owner from immutable
+ * history. Both hosts use exactly the same single-file presentation. */
+export function WorkingTreeCommitDiff({ multiDiff }: { multiDiff: MultiFileDiff }) {
+  const bufferId = useBufferStore(state => state.activeBufferId);
+  const index = selectedCommitFileIndex(multiDiff);
+  const diff = multiDiff.files[index];
+  const key = diff ? getMultiDiffSectionKey(multiDiff, diff, index) : multiDiff.initiallyExpandedFileKey ?? "";
+  const review = useCommitDiffReview(bufferId, key,
+    multiDiff.isLoading ? undefined : multiDiff.workingTreeTargets?.[key],
+    !multiDiff.isLoading && multiDiff.repoPath && diff && multiDiff.files.length === 1 ? {
+      repoPath: multiDiff.repoPath,
+      filePath: /^(?:staged|unstaged):/.test(key) ? key.replace(/^(?:staged|unstaged):/, "") : diff.file_path,
+      untracked: diff.is_new,
+      ...(key.startsWith("staged:") ? { staged: true } : {}),
+    } : undefined);
+  return <CommitFileDiffPreview multiDiff={multiDiff} review={review} />;
+}
+
 function CommitFileDiffPage({ multiDiff, index,
-  showWhitespace, highlightWords, onWhitespace, onHighlightWords }: {
+  showWhitespace, highlightWords, onWhitespace, onHighlightWords, review }: {
   multiDiff: MultiFileDiff;
   index: number;
   showWhitespace: boolean;
   highlightWords: boolean;
   onWhitespace: () => void;
   onHighlightWords: () => void;
+  review?: ReturnType<typeof useCommitDiffReview>;
 }) {
   const { t } = useTranslation();
   const bufferId = useBufferStore((state) => state.activeBufferId);
@@ -63,6 +89,8 @@ function CommitFileDiffPage({ multiDiff, index,
   const preferredMode = useGitDiffPreferencesStore.use.viewMode();
   const setViewMode = useGitDiffPreferencesStore.use.actions().setViewMode;
   const diff = multiDiff.files[index];
+  const initialDiff = useRef(diff);
+  const filePosition = commitPreviewFilePosition(multiDiff);
   const viewMode = diff ? resolveDiffViewMode(diff, preferredMode) : preferredMode;
   const onNavigationChange = useCallback((next: DiffNavigationState) => {
     setNavigation((previous) =>
@@ -76,6 +104,10 @@ function CommitFileDiffPage({ multiDiff, index,
     );
   }, []);
   const onFile = (direction: -1 | 1) => {
+    if (review && multiDiff.workingTreeFileOrder?.length) {
+      void review.navigateFile(direction);
+      return;
+    }
     const state = useBufferStore.getState();
     const current = getBufferById(state.buffers, bufferId);
     // A replaced preview or inactive tab cannot receive a delayed navigation action.
@@ -91,18 +123,26 @@ function CommitFileDiffPage({ multiDiff, index,
       state.actions.updateBufferContent(bufferId, "", false, next);
     }
   };
-  const currentNavigation = diff?.is_image || diff?.is_binary
+  const currentNavigation = review?.fileNavigationBusy ? emptyDiffNavigation : diff?.is_image || diff?.is_binary
     ? { ...emptyDiffNavigation, ready: true }
     : navigation;
   const filePath = diff?.new_path || diff?.file_path || diff?.old_path || "";
   const fileName = filePath.split(/[\\/]/).pop() || filePath;
   const label = multiDiff.fileLabels?.[index] ?? multiDiff.commitHash;
+  const blockControls: CommitDiffBlockControls | undefined = review ? {
+    blocks: review.blocks, disabled: review.busy || !review.snapshot || review.error === "read",
+    includeTitle: t("git.diff.includeBlock"), excludeTitle: t("git.diff.excludeBlock"),
+    rollbackTitle: t("git.diff.rollbackHunk"),
+    onToggle: (id, included) => { void review.toggle(id, included); },
+    onRollback: id => { void review.rollback(id); },
+  } : undefined;
   return (
     <div ref={appearanceRoot} className="commit-file-diff-preview monaco-editor-shell flex h-full min-h-0 flex-col overflow-hidden">
       <CommitFileDiffToolbar
-        navigation={commitDifferenceNavigation(currentNavigation, index, multiDiff.files.length)}
-        fileIndex={index}
-        fileCount={multiDiff.files.length}
+        navigation={commitDifferenceNavigation(currentNavigation, filePosition.index, filePosition.count)}
+        fileIndex={filePosition.index}
+        fileCount={filePosition.count}
+        fileNavigationBusy={multiDiff.isLoading || review?.fileNavigationBusy}
         viewMode={viewMode}
         canSplit={Boolean(diff && !diff.is_new && !diff.is_deleted)}
         showWhitespace={showWhitespace}
@@ -118,24 +158,38 @@ function CommitFileDiffPage({ multiDiff, index,
         onSource={() => editor.current?.jumpToSource()}
         onFile={(direction) => onFile(direction)}
         onViewMode={setViewMode}
+        onRefresh={review ? () => { void review.refresh(); } : undefined}
+        refreshing={review?.busy}
+        includedCount={review?.blocks.filter(block => block.checked || block.indeterminate).length}
       />
       {diff && (
         <CommitFileDiffVersionHeader diff={diff} revisions={multiDiff.fileRevisions?.[index]}
-          label={label} viewMode={viewMode} />
+          label={label} viewMode={viewMode} workingTree={review ? {
+            staged: multiDiff.workingTreeTargets?.[multiDiff.fileKeys?.[index] ?? ""]?.staged === true,
+            included: review.snapshot?.file.staged === true,
+            indeterminate: review.blocks.some(block => !block.checked) && review.snapshot?.file.staged === true,
+            disabled: review.busy || !review.snapshot,
+            onToggle: included => { void review.toggle(null, included); },
+          } : undefined} />
       )}
+      {review?.error && <div role="alert" className="px-3 py-1 text-xs text-destructive">
+        {t(review.error === "read" ? "git.diff.refreshFailed" : review.error === "stale"
+          ? "git.diff.selectionChanged" : "git.diff.stageFailed")}
+      </div>}
       <div className="min-h-0 flex-1 overflow-hidden">
         {!diff ? (
           <Empty className="h-full rounded-none">
-            <EmptyDescription>{t("git.noDiffData")}</EmptyDescription>
+            <EmptyDescription>{multiDiff.isLoading ? <Spinner label={t("git.loadingDiff")} showLabel /> : t("git.noDiffData")}</EmptyDescription>
           </Empty>
         ) : diff.is_image ? (
           <ImageDiffViewer diff={diff} fileName={fileName} onClose={() => {}} />
         ) : diff.is_binary ? (
           <BinaryDiffViewer fileName={fileName} />
-        ) : viewMode === "split" ? (
+        ) : viewMode === "split" || diff.is_new ? (
           <IndependentCommitDiff ref={editor} diff={diff} sourceRepoPath={multiDiff.repoPath}
             showWhitespace={showWhitespace} highlightWords={highlightWords}
-            startAtFirstDifference onNavigationChange={onNavigationChange}
+            startAtFirstDifference={!review || initialDiff.current === diff} onNavigationChange={onNavigationChange}
+            blockControls={blockControls}
             onSplitLayout={onSplitLayout} />
         ) : (
           <MonacoGitDiff
@@ -145,9 +199,10 @@ function CommitFileDiffPage({ multiDiff, index,
             showWhitespace={showWhitespace}
             sourceRepoPath={multiDiff.repoPath}
             onNavigationChange={onNavigationChange}
-            startAtFirstDifference
+            startAtFirstDifference={!review || initialDiff.current === diff}
             highlightWords={highlightWords}
             repositoryPreview
+            blockControls={blockControls}
             onSplitLayout={onSplitLayout}
           />
         )}

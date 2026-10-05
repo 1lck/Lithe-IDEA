@@ -88,7 +88,8 @@ export const GitFileItem = ({
         <Checkbox
           className={IDEA_CHECKBOX_CLASS_NAME}
           checked={checked}
-          onCheckedChange={onCheckedChange}
+          indeterminate={checked && file.worktree === true}
+          onCheckedChange={included => onCheckedChange(checked && file.worktree ? true : included)}
           disabled={disabled}
           aria-label={
             checked

@@ -4,6 +4,8 @@ import {
   type DocumentResizeSession,
 } from "@/utils/document-resize-session";
 import type { ReviewRow } from "@lithe/editor/diff-review";
+import { commitDiffChangeID } from "../../utils/commit-diff-blocks";
+import { commitDiffBlockControl, type CommitDiffBlockControls } from "./commit-diff-block-controls";
 import {
   commitDiffConnectorPath,
   commitDiffConnectorBorderPath,
@@ -21,12 +23,16 @@ const RAIL_WIDTH = 12,
   SLIDER_WIDTH = 8,
   WHEEL_SENSITIVITY = 2,
   MIN_CODE_WIDTH = 80,
+  GUTTER_INSET = 10,
+  BLOCK_ACTION_WIDTH = 22,
+  BLOCK_ACTION_SIZE = 18,
   CONNECTOR_WIDTH = 16;
 const SVG_NS = "http://www.w3.org/2000/svg";
 let nextID = 0;
 type Side = 0 | 1;
 interface Options {
   runtime: typeof monaco;
+  wholeFileAdded?: boolean;
   prepareLanguage: (language: string) => Promise<unknown>;
   requestFrame?: (callback: FrameRequestCallback) => number;
   cancelFrame?: (handle: number) => void;
@@ -48,8 +54,12 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
   const cancelFrame = options.cancelFrame ?? cancelAnimationFrame;
   const root = document.createElement("div");
   root.className = "independent-commit-diff";
+  if (options.wholeFileAdded) root.dataset.wholeFileAdded = "true";
   root.style.setProperty("--independent-rail-width", `${RAIL_WIDTH}px`);
   root.style.setProperty("--independent-slider-width", `${SLIDER_WIDTH}px`);
+  root.style.setProperty("--independent-gutter-inset", `${GUTTER_INSET}px`);
+  root.style.setProperty("--independent-block-action-width", `${BLOCK_ACTION_WIDTH}px`);
+  root.style.setProperty("--independent-block-action-size", `${BLOCK_ACTION_SIZE}px`);
   host.append(root);
   const nodes = [0, 1].map((side) => {
     const node = document.createElement("div");
@@ -91,6 +101,22 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     root.append(rail);
     return { rail, marks, thumb };
   });
+  const actions = [0, 1].map(side => {
+    const node = document.createElement("div");
+    node.className = `independent-block-actions independent-block-actions-${side}`;
+    center.append(node);
+    return node;
+  });
+  let blockControls: CommitDiffBlockControls | undefined;
+  let blocksByID = new Map<string, CommitDiffBlockControls["blocks"][number]>();
+  if (options.wholeFileAdded) {
+    // An absent original file is not a deleted empty line. Show only real new rows.
+    nodes[0].hidden = true;
+    numbers[0].hidden = true;
+    actions[0].hidden = true;
+    rails[0].rail.hidden = true;
+    sash.hidden = true;
+  }
   const id = ++nextID;
   const models = [0, 1].map((side) =>
     monaco.editor.createModel(
@@ -121,6 +147,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       renderValidationDecorations: "off",
       occurrencesHighlight: "off",
       selectionHighlight: false,
+      renderLineHighlight: "none",
       guides: { indentation: false, bracketPairs: false, highlightActiveIndentation: false },
       scrollbar: {
         vertical: "hidden",
@@ -216,7 +243,26 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     width = root.clientWidth;
     height = root.clientHeight;
     const font = views[0].getOption(monaco.editor.EditorOption.fontInfo);
-    gutter = Math.ceil(digits * font.typicalHalfwidthCharacterWidth + 12);
+    const actionWidth = blockControls ? BLOCK_ACTION_WIDTH : 0;
+    gutter = Math.ceil(digits * font.typicalHalfwidthCharacterWidth + GUTTER_INSET * 2) + actionWidth;
+    if (options.wholeFileAdded) {
+      const railInset = Math.min(RAIL_WIDTH + RAIL_GAP, width);
+      const railWidth = Math.min(RAIL_WIDTH, railInset);
+      centerWidth = Math.min(gutter, Math.max(0, width - railInset));
+      const codeWidth = Math.max(0, width - centerWidth - railInset);
+      rails[1].rail.style.width = `${railWidth}px`;
+      nodes[1].style.cssText = `left:${centerWidth}px;width:${codeWidth}px`;
+      withoutScrollSync(() => views[1].layout({ width: codeWidth, height }));
+      center.style.cssText = `left:0;width:${centerWidth}px;height:${Math.max(0, height - RAIL_WIDTH)}px`;
+      numbers[1].style.width = `${centerWidth}px`;
+      actions[1].style.width = numbers[1].style.width;
+      numbers[1].style.fontFamily = font.fontFamily;
+      numbers[1].style.fontSize = `${font.fontSize}px`;
+      options.splitLayout(0);
+      dirtyGeometry = true;
+      schedule();
+      return;
+    }
     centerWidth = Math.min(
       gutter * 2 + CONNECTOR_WIDTH,
       Math.max(0, width - Math.min(width, MIN_CODE_WIDTH * 2)),
@@ -247,8 +293,9 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     sash.setAttribute("aria-valuenow", String(Math.round(100 * ratio)));
     svg.setAttribute("width", String(centerWidth));
     svg.setAttribute("height", String(Math.max(0, height - RAIL_WIDTH)));
-    for (const number of numbers) {
+    for (const [side, number] of numbers.entries()) {
       number.style.width = `${Math.min(gutter, centerWidth / 2)}px`;
+      actions[side].style.width = number.style.width;
       number.style.fontFamily = font.fontFamily;
       number.style.fontSize = `${font.fontSize}px`;
     }
@@ -262,6 +309,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     geometry();
     const paths = document.createDocumentFragment();
     const edges = borders.map(() => document.createDocumentFragment());
+    const controls = actions.map(() => document.createDocumentFragment());
     const offsets = views.map((view) => view.getScrollTop());
     // Binary-search both independently scrolling viewports before creating paths.
     const bound = (side: Side, offset: number, end: boolean) => {
@@ -286,6 +334,19 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       const a = value.left.map((y) => y - offsets[0]) as [number, number];
       const b = value.right.map((y) => y - offsets[1]) as [number, number];
       if (Math.max(a[1], b[1]) < 0 || Math.min(a[0], b[0]) > height) continue;
+      const block = blocksByID.get(commitDiffChangeID(plan, change));
+      if (blockControls && block) {
+        for (const side of [0, 1] as const) {
+          if (options.wholeFileAdded && side === 0) continue;
+          const y = (side ? b : a)[0];
+          if (y < 0 || y > height - RAIL_WIDTH - 20) continue;
+          const button = commitDiffBlockControl(block, blockControls, side ? "toggle" : "rollback");
+          const lineHeight = views[side].getOption(monaco.editor.EditorOption.lineHeight);
+          button.style.top = `${y + Math.max(0, (lineHeight - BLOCK_ACTION_SIZE) / 2)}px`;
+          controls[side].append(button);
+        }
+      }
+      if (options.wholeFileAdded) continue;
       const path = document.createElementNS(SVG_NS, "path");
       path.dataset.kind = change.kind;
       path.setAttribute("d", commitDiffConnectorPath(centerWidth, a, b, gutter));
@@ -316,8 +377,10 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       }
     }
     svg.replaceChildren(paths);
+    actions.forEach((layer, side) => layer.replaceChildren(controls[side]));
     borders.forEach((layer, side) => layer.replaceChildren(edges[side]));
     views.forEach((view, side) => {
+      if (options.wholeFileAdded && side === 0) return;
       const rows = side === 0 ? plan.left : plan.right,
         fragment = document.createDocumentFragment();
       const lineHeight = view.getOption(monaco.editor.EditorOption.lineHeight);
@@ -335,6 +398,11 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
           button.textContent =
             number === null ? (row.id.startsWith("fold-") ? "⋯" : "") : String(number);
           button.style.cssText = `top:${position.top}px;height:${lineHeight}px;line-height:${lineHeight}px`;
+          if (blockControls) {
+            button.style[side ? "paddingRight" : "paddingLeft"] = `${GUTTER_INSET + BLOCK_ACTION_WIDTH}px`;
+            // IDEA's mirrored old gutter aligns numbers towards its action column.
+            button.style.textAlign = side ? "right" : "left";
+          }
           fragment.append(button);
         }
       numbers[side].replaceChildren(fragment);
@@ -461,7 +529,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     return true;
   }
   function synchronizeScroll(side: Side) {
-    if (!ready || closed || syncing || scrollSyncPaused) return;
+    if (options.wholeFileAdded || !ready || closed || syncing || scrollSyncPaused) return;
     const other: Side = side === 0 ? 1 : 0;
     const master = views[side],
       slave = views[other];
@@ -507,7 +575,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
     }
   }
   function synchronizeHorizontalScroll(side: Side) {
-    if (!ready || closed || syncing || scrollSyncPaused) return;
+    if (options.wholeFileAdded || !ready || closed || syncing || scrollSyncPaused) return;
     const other: Side = side === 0 ? 1 : 0;
     const offset = views[side].getScrollLeft();
     if (offset === views[other].getScrollLeft()) return;
@@ -755,6 +823,7 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       options.changed();
       svg.replaceChildren();
       numbers.forEach((node) => node.replaceChildren());
+      actions.forEach(node => node.replaceChildren());
       rails.forEach((value) => value.marks.replaceChildren());
       decorations.forEach((value) => value.clear());
       borders.forEach((layer) => layer.replaceChildren());
@@ -791,6 +860,13 @@ export function mountIndependentCommitDiff(host: HTMLElement, options: Options) 
       layout();
     },
     refresh: schedule,
+    setBlockControls(value?: CommitDiffBlockControls) {
+      const hadControls = Boolean(blockControls);
+      blockControls = value;
+      blocksByID = new Map(value?.blocks.map(block => [block.id, block]));
+      if (hadControls !== Boolean(value)) layout();
+      schedule();
+    },
     jump() {
       const position = views[focused].getPosition();
       if (ready && position) options.source(focused, position.lineNumber, position.column);

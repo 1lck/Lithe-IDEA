@@ -60,6 +60,36 @@ afterEach(async () => {
 const button = (label: string) =>
   container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
 
+test("whole-file additions and deletions show only the existing revision title", async () => {
+  const diff = { file_path: "file.ts", is_new: true, is_deleted: false, is_renamed: false, lines: [] };
+  await act(async () => root.render(<LocaleProvider language="en-US">
+    <CommitFileDiffVersionHeader diff={diff} revisions={{ before: "parent123", after: "target123" }} label="unused" viewMode="unified" />
+  </LocaleProvider>));
+  expect(container.querySelectorAll(".commit-diff-version")).toHaveLength(1);
+  expect(container.querySelector('[data-revision-side="after"]')!.textContent).toBe("target12file.ts");
+  await act(async () => root.render(<LocaleProvider language="en-US">
+    <CommitFileDiffVersionHeader diff={{ ...diff, is_new: false, is_deleted: true }}
+      revisions={{ before: "parent123", after: "target123" }} label="unused" viewMode="split" />
+  </LocaleProvider>));
+  expect(container.querySelectorAll(".commit-diff-version")).toHaveLength(1);
+  expect(container.querySelector('[data-revision-side="before"]')!.textContent).toBe("parent12file.ts");
+});
+
+test("worktree titles use HEAD and current version with a file inclusion checkbox", async () => {
+  const toggles: boolean[] = [];
+  await act(async () => root.render(<LocaleProvider language="en-US">
+    <CommitFileDiffVersionHeader diff={{ file_path: "file.ts", is_new: false, is_deleted: false, is_renamed: false, lines: [] }}
+      label="working-tree" viewMode="split" workingTree={{ staged: false, included: true,
+        indeterminate: true, disabled: false, onToggle: checked => toggles.push(checked) }} />
+  </LocaleProvider>));
+  expect(container.querySelector('[data-revision-side="before"]')!.textContent).toBe("HEADfile.ts");
+  expect(container.querySelector('[data-revision-side="after"]')!.textContent).toBe("Current versionfile.ts");
+  const checkbox = container.querySelector<HTMLButtonElement>('[role="checkbox"]')!;
+  expect(checkbox.getAttribute("aria-checked")).toBe("mixed");
+  await act(async () => checkbox.click());
+  expect(toggles).toEqual([true]);
+});
+
 test("toolbar respects ready/deleted/file-boundary states and dispatches distinct navigation actions", async () => {
   const actions: Array<string | number> = [];
   const render = async (ready: boolean, fileIndex: number) =>

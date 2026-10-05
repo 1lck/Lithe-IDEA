@@ -10,6 +10,7 @@ import {
 import type React from "react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { commitDiffWritePending } from "../runtime/commit-diff-write-state";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { GitWorkspaceCommitReview } from "./git-workspace-commit-review";
 import { workspaceCommitEnglish } from "@/i18n/git-workspace-commit";
@@ -202,6 +203,7 @@ const GitCommitPanel = ({
       !isCurrentWorkspace ||
       commitScopeError ||
       isStaging ||
+      commitDiffWritePending() ||
       batch.busy ||
       batch.review ||
       (batch.session && !batch.session.succeeded)
@@ -230,7 +232,7 @@ const GitCommitPanel = ({
 
   const handleRetry = () => {
     const previous = batch.session;
-    if (!previous?.canRetry || isStaging || !isCurrentWorkspace) return;
+    if (!previous?.canRetry || isStaging || commitDiffWritePending() || !isCurrentWorkspace) return;
     setError(null);
     return workflow.prepare({
       repositories: workspaceCommitBindings(workspacePath, repositoryPaths),

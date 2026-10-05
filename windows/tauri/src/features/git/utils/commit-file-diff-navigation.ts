@@ -56,6 +56,14 @@ export function differenceStartLine(
     change.modifiedStartLineNumber + (change.modifiedEndLineNumber === 0 ? 1 : 0)));
 }
 
+/** Commit holds one loaded comparison and a lightweight order of local files. */
+export function commitPreviewFilePosition(data: MultiFileDiff): { index: number; count: number } {
+  const key = data.initiallySelectedFileKey ?? data.initiallyExpandedFileKey;
+  const index = data.workingTreeFileOrder?.findIndex(entry => entry.fileKey === key) ?? -1;
+  return index >= 0 ? { index, count: data.workingTreeFileOrder!.length }
+    : { index: selectedCommitFileIndex(data), count: data.files.length };
+}
+
 /** Monaco line changes use the preceding line for an empty modified range. */
 export function differenceNavigationState(
   changes: readonly { modifiedStartLineNumber: number; modifiedEndLineNumber: number }[],

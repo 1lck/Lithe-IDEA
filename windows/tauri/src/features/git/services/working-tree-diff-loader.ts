@@ -55,6 +55,7 @@ export async function loadWorkingTreeDiffsProgressively({
   wholePathSnapshot = false,
   workingTreeTargets,
   commitPreview = false,
+  workingTreeFileOrder,
 }: {
   repoPath: string;
   bufferId: string;
@@ -67,6 +68,7 @@ export async function loadWorkingTreeDiffsProgressively({
   wholePathSnapshot?: boolean;
   workingTreeTargets?: MultiFileDiff["workingTreeTargets"];
   commitPreview?: boolean;
+  workingTreeFileOrder?: MultiFileDiff["workingTreeFileOrder"];
 }): Promise<void> {
   cancelWorkingTreeDiffLoad(bufferId);
   const controller = new AbortController();
@@ -98,6 +100,7 @@ export async function loadWorkingTreeDiffsProgressively({
         initiallyExpandedFileKey ?? loadedDiffs[0]?.fileKey,
       ...(workingTreeTargets ? { workingTreeTargets } : {}),
       ...(commitPreview ? { commitPreview } : {}),
+      ...(workingTreeFileOrder ? { workingTreeFileOrder } : {}),
       isLoading,
       indexingProgress: {
         processed,

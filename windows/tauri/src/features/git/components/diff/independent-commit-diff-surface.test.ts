@@ -17,6 +17,7 @@ afterEach(() => {
 function fixture(
   prepareLanguage: () => Promise<unknown> = async () => {},
   changed: () => void = () => {},
+  wholeFileAdded = false,
 ) {
   const host = document.createElement("div");
   document.body.append(host);
@@ -198,6 +199,7 @@ function fixture(
   let resize: () => void = () => {};
   owner = mountIndependentCommitDiff(host, {
     runtime,
+    wholeFileAdded,
     prepareLanguage,
     source: () => {},
     changed,
@@ -261,6 +263,48 @@ function fixture(
     },
   };
 }
+
+test("commit block controls stay outside code and follow independent scroll coordinates", async () => {
+  const f = fixture();
+  const events: unknown[] = [];
+  const center = f.host.querySelector<HTMLElement>(".independent-center")!;
+  const logWidth = parseFloat(center.style.width);
+  owner!.setBlockControls({
+    blocks: [{ id: "old", checked: false, indeterminate: false, canToggle: true, canRollback: true,
+      leftStart: 5, rightStart: 5 }], disabled: false,
+    includeTitle: "include", excludeTitle: "exclude", rollbackTitle: "rollback",
+    onToggle: (...args) => events.push(args), onRollback: id => events.push(id),
+  });
+  await owner!.update(f.rows, "plaintext", false, false);
+  f.flush();
+  expect(parseFloat(center.style.width) - logWidth).toBeGreaterThanOrEqual(36);
+  const toggle = () => f.host.querySelector<HTMLButtonElement>(".commit-diff-block-toggle")!;
+  expect(f.host.querySelector<HTMLElement>(".independent-numbers-0")!.style.paddingLeft).toBe("");
+  expect(f.host.querySelector<HTMLElement>(".independent-numbers-1")!.style.paddingRight).toBe("");
+  expect(toggle().style.top).toBe("112px");
+  toggle().click();
+  f.host.querySelector<HTMLButtonElement>(".commit-diff-block-rollback")!.click();
+  expect(events).toEqual([["old", true], "old"]);
+  owner!.views[1].setScrollTop(44);
+  f.flush();
+  expect(toggle().style.top).toBe("68px");
+  expect(f.host.querySelector(".independent-code-1 .commit-diff-block-toggle")).toBeNull();
+  owner!.setBlockControls(undefined);
+  f.flush();
+  expect(parseFloat(center.style.width)).toBe(logWidth);
+  expect(f.host.querySelector(".commit-diff-block-toggle")).toBeNull();
+});
+
+test("whole added file has one full-width real stream, no empty deletion or connector", async () => {
+  const f = fixture(async () => {}, () => {}, true);
+  await owner!.update(f.rows.filter(row => row.right !== null).map(row => ({ ...row, left: null,
+    oldLine: null, kind: "addition" as const })), "plaintext", false, true);
+  f.flush();
+  expect(f.host.querySelector<HTMLElement>(".independent-code-0")!.hidden).toBe(true);
+  expect(f.host.querySelector<HTMLElement>(".independent-rail-0")!.hidden).toBe(true);
+  expect(f.host.querySelector(".independent-connections")!.childElementCount).toBe(0);
+  expect(f.viewStates[1].width).toBeGreaterThan(600);
+});
 
 test("vertical scroll follows corresponding context while horizontal offsets synchronize", async () => {
   const f = fixture();
@@ -390,7 +434,7 @@ test("insertion, deletion and replacement borders cross their code viewport with
   expect(f.host.querySelectorAll(".independent-connection-fill")).toHaveLength(3);
 });
 
-test("outside scroll rails reserve code space and compact gutters adjoin both pane edges", async () => {
+test("outside scroll rails reserve code space and wider gutters adjoin both pane edges", async () => {
   const f = fixture();
   await owner!.update(f.rows, "plaintext", false, false);
   f.flush();
@@ -411,7 +455,8 @@ test("outside scroll rails reserve code space and compact gutters adjoin both pa
   expect(parseFloat(right.style.left) + parseFloat(right.style.width)).toBe(
     800 - railWidth - railGap,
   );
-  expect(parseFloat(center.style.width)).toBeLessThan(120);
+  expect(parseFloat(center.style.width)).toBeGreaterThanOrEqual(100);
+  expect(f.viewStates.every((state) => state.width > 250)).toBe(true);
   owner!.configure({ fontSize: 14 }, 4);
   expect(f.viewStates.every((state) => state.options.mouseWheelScrollSensitivity === 2)).toBe(true);
   expect(f.viewStates.every((state) => state.options.scrollbar.horizontalSliderSize < 12)).toBe(

@@ -7,6 +7,7 @@ import {
   PencilLineIcon,
   ColumnsIcon,
   RowsIcon,
+  RefreshIcon,
 } from "@/ui/icons";
 import { useTranslation } from "@/i18n/locale-provider";
 import type { DiffNavigationState } from "../../utils/commit-file-diff-navigation";
@@ -15,6 +16,7 @@ interface Props {
   navigation: DiffNavigationState;
   fileIndex: number;
   fileCount: number;
+  fileNavigationBusy?: boolean;
   viewMode: "split" | "unified";
   canSplit: boolean;
   showWhitespace: boolean;
@@ -26,6 +28,9 @@ interface Props {
   highlightWords: boolean;
   canHighlightWords: boolean;
   onHighlightWords: () => void;
+  onRefresh?: () => void;
+  refreshing?: boolean;
+  includedCount?: number;
 }
 
 export function CommitFileDiffToolbar(props: Props) {
@@ -70,7 +75,7 @@ export function CommitFileDiffToolbar(props: Props) {
         variant="ghost"
         size="icon-xs"
         tooltip={t("git.diff.previousFile")}
-        disabled={fileIndex <= 0}
+        disabled={props.fileNavigationBusy || fileIndex <= 0}
         onClick={() => props.onFile(-1)}
       >
         <ArrowLeftIcon className="size-4" />
@@ -79,7 +84,7 @@ export function CommitFileDiffToolbar(props: Props) {
         variant="ghost"
         size="icon-xs"
         tooltip={t("git.diff.nextFile")}
-        disabled={fileIndex < 0 || fileIndex >= fileCount - 1}
+        disabled={props.fileNavigationBusy || fileIndex < 0 || fileIndex >= fileCount - 1}
         onClick={() => props.onFile(1)}
       >
         <ArrowRightIcon className="size-4" />
@@ -88,6 +93,11 @@ export function CommitFileDiffToolbar(props: Props) {
         {t("git.diff.filePosition", { current: Math.max(0, fileIndex + 1), total: fileCount })}
       </span>
       <div className="flex-1" />
+      {props.includedCount !== undefined && <span className="ui-text-xs whitespace-nowrap text-muted-foreground">
+        {t("git.diff.includedBlocks", { total: navigation.count, included: props.includedCount })}
+      </span>}
+      {props.onRefresh && <Button variant="ghost" size="icon-xs" tooltip={t("git.refresh")}
+        disabled={props.refreshing} onClick={props.onRefresh}><RefreshIcon className="size-4" /></Button>}
       <Button variant="ghost" size="xs" active={props.highlightWords} aria-pressed={props.highlightWords}
         disabled={!props.canHighlightWords} onClick={props.onHighlightWords}>
         {t("git.diff.highlightWords")}

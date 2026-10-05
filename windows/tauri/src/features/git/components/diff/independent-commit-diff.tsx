@@ -20,6 +20,7 @@ import type { MonacoGitDiffHandle } from "./monaco-git-diff";
 import { mountIndependentCommitDiff } from "./independent-commit-diff-surface";
 import * as monaco from "monaco-editor";
 import { ensureMonacoLanguageTokenizer } from "@lithe/editor/language-contributions";
+import type { CommitDiffBlockControls } from "./commit-diff-block-controls";
 
 interface Props {
   diff: GitDiff;
@@ -27,6 +28,7 @@ interface Props {
   showWhitespace: boolean;
   highlightWords: boolean;
   startAtFirstDifference: boolean;
+  blockControls?: CommitDiffBlockControls;
   onNavigationChange: (state: DiffNavigationState) => void;
   onSplitLayout: (width: number) => void;
   ref?: Ref<MonacoGitDiffHandle>;
@@ -110,6 +112,7 @@ export default function IndependentCommitDiff(props: Props) {
   useEffect(() => {
     const instance = mountIndependentCommitDiff(host.current!, {
       runtime: monaco,
+      wholeFileAdded: props.diff.is_new === true,
       prepareLanguage: ensureMonacoLanguageTokenizer,
       source,
       changed: publish,
@@ -117,11 +120,15 @@ export default function IndependentCommitDiff(props: Props) {
       splitLayout: (width) => latest.current.onSplitLayout(width),
     });
     surface.current = instance;
+    instance.setBlockControls(latest.current.blockControls);
     return () => {
       surface.current = null;
       instance.dispose();
     };
-  }, []);
+  }, [props.diff.is_new]);
+  useEffect(() => {
+    surface.current?.setBlockControls(props.blockControls);
+  }, [props.blockControls]);
   useEffect(() => {
     let cancelled = false;
     setError(undefined);
@@ -136,7 +143,7 @@ export default function IndependentCommitDiff(props: Props) {
       .update(
         rows,
         toMonacoLanguageId(detectLanguageFromPath(props.diff.new_path || props.diff.file_path)),
-        props.diff.is_full_context === true,
+        false,
         props.highlightWords,
       )
       .then(() => {
@@ -169,6 +176,7 @@ export default function IndependentCommitDiff(props: Props) {
     settings.tabSize,
     settings.editorFontLigatures,
     props.showWhitespace,
+    props.diff.is_new,
   ]);
   useEffect(() => {
     const apply = (next?: string) => {
@@ -189,7 +197,7 @@ export default function IndependentCommitDiff(props: Props) {
   }, [settings.themeId, settings.editorItalicComments]);
   return (
     <div className="relative h-full min-h-0 overflow-hidden">
-      <div ref={host} className="absolute inset-0" title="Ctrl/Cmd-click to open source" />
+      <div ref={host} className="absolute inset-0" />
       {error && (
         <div role="alert" className="absolute inset-0 bg-background p-4 text-destructive">
           {error}

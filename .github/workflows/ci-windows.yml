@@ -311,6 +311,11 @@ jobs:
             "src/features/git/utils/commit-file-diff-navigation.test.ts",
             "src/features/git/components/diff/commit-file-diff-toolbar.test.tsx",
             "src/features/git/utils/commit-file-diff-appearance.test.ts",
+            "src/features/git/utils/commit-diff-blocks.test.ts",
+            "src/features/git/utils/commit-diff-blocks.integration.test.ts",
+            "src/features/git/services/commit-diff-review.test.ts",
+            "src/features/git/components/diff/monaco-commit-block-controls.test.ts",
+            "src/features/git/hooks/use-commit-diff-review.test.tsx",
             "src/features/git/utils/diff-buffer-label.test.ts"
           )
           node $runner --suite-timeout-ms 60000 --report .artifacts/test-stability/windows-git-log-preview.json -- @previewTests

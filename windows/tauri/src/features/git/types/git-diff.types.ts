@@ -154,6 +154,8 @@ export interface MultiFileDiff {
   commitPreview?: boolean;
   /** Working-tree refresh identities keyed by file key. */
   workingTreeTargets?: Record<string, WorkingTreeDiffTarget>;
+  /** Commit file order only; load the next comparison on demand in the same tab. */
+  workingTreeFileOrder?: Array<{ fileKey: string; target: WorkingTreeDiffTarget }>;
   isLoading?: boolean;
   indexingProgress?: {
     processed: number;

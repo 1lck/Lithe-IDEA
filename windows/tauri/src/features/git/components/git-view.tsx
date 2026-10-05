@@ -6,6 +6,7 @@ import {
   workspaceChangelists,
 } from "../stores/git-changelists.store";
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
+import { commitDiffWritePending, subscribeCommitDiffWrites } from "../runtime/commit-diff-write-state";
 import { changelistCommitScope, fileChangelist } from "../utils/git-changelists";
 import { workspaceCommitBindings } from "../utils/git-workspace-commit-bindings";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -55,7 +56,7 @@ import {
 import { clearRepositoryDiscoveryCache, resolveRepositoryPath } from "../api/git-repo-api";
 import { getRemotes } from "../api/git-remotes-api";
 import { applyStash, dropStash, popStash } from "../api/git-stash-api";
-import { getGitStatus, initRepository } from "../api/git-status-api";
+import { initRepository } from "../api/git-status-api";
 import { useGitCommitAreaResize } from "../hooks/use-git-commit-area-resize";
 import { useGitDataController } from "../hooks/use-git-data-controller";
 import { useGitDiffActions } from "../hooks/use-git-diff-actions";
@@ -63,7 +64,6 @@ import { useGitPullWorkflow } from "../hooks/use-git-pull-workflow";
 import { useGitBlameStore } from "../stores/git-blame.store";
 import { useRepositoryStore } from "../stores/git-repository.store";
 import { useGitStore } from "../stores/git.store";
-import type { GitFile } from "../types/git.types";
 import { buildVisibleGitFiles } from "../utils/git-status-model";
 import {
   type WorkingTreeDiffEntry,
@@ -244,8 +244,9 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
   );
   const workflow = useWorkspaceCommitStore((state) => state.workflow);
   const batch = useSyncExternalStore(workflow.subscribe, workflow.getState, workflow.getState);
+  const diffWritePending = useSyncExternalStore(subscribeCommitDiffWrites, commitDiffWritePending, commitDiffWritePending);
   const changelistsBusy =
-    isStaging ||
+    isStaging || diffWritePending ||
     batch.busy ||
     Boolean(batch.review) ||
     Boolean(batch.session && !batch.session.succeeded);
@@ -812,7 +813,7 @@ const GitView = ({ repoPath, onFileSelect, isActive }: GitViewProps) => {
                     : undefined
               }
               selectedFiles={commitSelectedFiles}
-              isStaging={isStaging}
+              isStaging={isStaging || diffWritePending}
               workspacePath={repoPath ?? activeRepoPath ?? ""}
               repositoryPaths={
                 repositoryPaths.length ? repositoryPaths : activeRepoPath ? [activeRepoPath] : []

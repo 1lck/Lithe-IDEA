@@ -8,7 +8,8 @@ import * as paneSync from "@/features/editor/stores/buffer-pane-sync";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import * as commitsApi from "../api/git-commits-api";
 import * as diffApi from "../api/git-diff-api";
-import type { GitCommit, GitDiff } from "../types/git.types";
+import * as repoApi from "../api/git-repo-api";
+import type { GitCommit, GitDiff, GitFile } from "../types/git.types";
 import { useGitDiffActions } from "./use-git-diff-actions";
 
 const commit = (hash: string): GitCommit => ({
@@ -32,20 +33,20 @@ const spies: Array<{ mockRestore(): void }> = [];
 const pending = new Map<string, () => void>();
 const requests: Promise<void>[] = [];
 
-function Harness({ repo }: { repo: string }) {
+function Harness({ repo, files = [] }: { repo: string; files?: GitFile[] }) {
   actions = useGitDiffActions({
     activeRepoPath: repo,
     commitByHash: commits,
-    gitFileByPath: new Map(),
-    workingTreeDiffEntriesByScope: { all: [], staged: [], unstaged: [] },
+    gitFileByPath: new Map(files.map(file => [file.path, file])),
+    workingTreeDiffEntriesByScope: { all: files.map(file => [`unstaged:${file.path}`, file]), staged: [], unstaged: [] },
   });
   return null;
 }
-async function render(repo = "C:/repo-a") {
+async function render(repo = "C:/repo-a", files: GitFile[] = []) {
   await act(async () => {
     root.render(
       <LocaleProvider language="en-US">
-        <Harness repo={repo} />
+        <Harness repo={repo} files={files} />
       </LocaleProvider>,
     );
   });
@@ -151,4 +152,36 @@ test("unmount prevents a pending message from opening an editor", async () => {
   });
   await finish("first");
   expect(openBuffer).not.toHaveBeenCalled();
+});
+
+test("a file absent from the status mapping still opens an owned HEAD-to-worktree Commit review", async () => {
+  const resolved = { repoPath: "C:/repo-a/nested", filePath: "file.txt" };
+  const diff: GitDiff = { file_path: "file.txt", is_new: false, is_deleted: false, is_renamed: false,
+    is_full_context: true, lines: [{ line_type: "header", content: "@@ -1 +1 @@" },
+      { line_type: "removed", content: "old" }, { line_type: "added", content: "new" }] };
+  const worktree = spyOn(diffApi, "getWorkingTreePathDiff").mockResolvedValue(diff);
+  spies.push(worktree, spyOn(repoApi, "resolveRepositoryForFile").mockResolvedValue(resolved));
+  await render();
+  await act(async () => { await actions.viewFileDiff("nested/file.txt", false); });
+  expect(worktree).toHaveBeenCalledWith(resolved.repoPath, resolved.filePath, false, undefined, true);
+  expect(openBuffer.mock.calls[0]?.[7]).toMatchObject({
+    repoPath: resolved.repoPath, commitPreview: true,
+    workingTreeTargets: { "unstaged:nested/file.txt": { ...resolved, untracked: false } },
+  });
+});
+
+test("Commit file click captures the file order without eagerly reading other comparisons", async () => {
+  const worktree = spyOn(diffApi, "getWorkingTreePathDiff").mockResolvedValue(null);
+  spies.push(worktree);
+  await render("C:/repo-a", [
+    { path: "a.txt", status: "modified", staged: false, worktree: true },
+    { path: "b.txt", status: "untracked", staged: false, worktree: true },
+  ]);
+  await act(async () => { await actions.viewFileDiff("a.txt"); });
+  expect(worktree).toHaveBeenCalledTimes(1);
+  expect(worktree.mock.calls[0][1]).toBe("a.txt");
+  expect(openBuffer.mock.calls[0][7]).toMatchObject({ workingTreeFileOrder: [
+    { fileKey: "unstaged:a.txt", target: { repoPath: "C:/repo-a", filePath: "a.txt", untracked: false } },
+    { fileKey: "unstaged:b.txt", target: { repoPath: "C:/repo-a", filePath: "b.txt", untracked: true } },
+  ] });
 });

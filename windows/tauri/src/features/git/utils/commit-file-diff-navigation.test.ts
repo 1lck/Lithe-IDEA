@@ -10,7 +10,28 @@ import {
   reviewSourceLine,
   commitDifferenceNavigation,
   emptyDiffNavigation,
+  commitPreviewFilePosition,
 } from "./commit-file-diff-navigation";
+import { createCommitWorkingTreeFileOrder, createSingleFileWorkingTreeDiff } from "./working-tree-multi-diff";
+
+test("Commit file order retains nested owners, deduplicates mixed files and navigates beyond its one loaded comparison", () => {
+  const order = createCommitWorkingTreeFileOrder("C:/repo", [
+    { path: "a.txt", status: "modified", staged: true, worktree: true },
+    { path: "a.txt", status: "modified", staged: false, worktree: true },
+    { path: "nested/b.txt", repositoryPath: "C:/repo/nested", repositoryRelativePath: "b.txt",
+      status: "untracked", staged: false, worktree: true },
+  ], false);
+  expect(order.map(entry => entry.fileKey)).toEqual(["unstaged:a.txt", "unstaged:nested/b.txt"]);
+  expect(order[1].target).toEqual({ repoPath: "C:/repo/nested", filePath: "b.txt", untracked: true });
+  const data = createSingleFileWorkingTreeDiff({ repoPath: "C:/repo", fileKey: order[0].fileKey,
+    target: order[0].target, diff: file("a.txt"), commitPreview: true, workingTreeFileOrder: order });
+  expect(data.files).toHaveLength(1);
+  expect(commitPreviewFilePosition(data)).toEqual({ index: 0, count: 2 });
+  expect(commitDifferenceNavigation({ ...emptyDiffNavigation, ready: true }, 0, 2).canNext).toBe(true);
+  const next = { ...data, initiallyExpandedFileKey: order[1].fileKey };
+  expect(commitPreviewFilePosition(next)).toEqual({ index: 1, count: 2 });
+  expect(commitDifferenceNavigation({ ...emptyDiffNavigation, ready: true }, 1, 2).canNext).toBe(false);
+});
 
 const file = (path: string): GitDiff => ({
   file_path: path,

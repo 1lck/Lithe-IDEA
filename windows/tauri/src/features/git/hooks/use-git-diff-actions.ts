@@ -3,6 +3,7 @@ import { activateMainEditorPane } from "@/features/editor/stores/buffer-pane-syn
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
 import { useTranslation } from "@/i18n/locale-provider";
 import { showAlertDialog } from "@/ui/dialog";
+import { resolveRepositoryForFile } from "../api/git-repo-api";
 import { withCommitDescription } from "../api/git-commits-api";
 import {
   getCommitDiff,
@@ -29,7 +30,7 @@ import {
 } from "../utils/git-status-selection";
 import { createRequestGeneration, type RequestGeneration } from "../utils/request-generation";
 import { createCommitDiffBuffer, createMultiFileDiff } from "../utils/multi-file-diff";
-import { createSingleFileWorkingTreeDiff } from "../utils/working-tree-multi-diff";
+import { createSingleFileWorkingTreeDiff, createCommitWorkingTreeFileOrder } from "../utils/working-tree-multi-diff";
 
 import { useCommitFilePreview } from "./use-commit-file-preview";
 
@@ -146,6 +147,10 @@ export function useGitDiffActions({
       try {
         const actualFilePath = normalizeDisplayedFilePath(filePath, staged ? "new" : "old");
         const file = gitFileByPath.get(actualFilePath);
+        const workingTreeFileOrder = createCommitWorkingTreeFileOrder(activeRepoPath,
+          workingTreeDiffEntriesByScope.all.length
+            ? workingTreeDiffEntriesByScope.all.map(([, file]) => file)
+            : [...gitFileByPath.values()], staged);
         if (file) {
           const fileKey = `${staged ? "staged" : "unstaged"}:${actualFilePath}`;
           const fileRepoPath = getGitFileRepositoryPath(file, activeRepoPath) ?? activeRepoPath;
@@ -175,6 +180,7 @@ export function useGitDiffActions({
             initiallyExpandedFileKey: fileKey,
             workingTreeTargets,
             commitPreview: true,
+            workingTreeFileOrder,
             isLoading: true,
             indexingProgress: {
               processed: 0,
@@ -213,12 +219,21 @@ export function useGitDiffActions({
               initiallyExpandedFileKey: fileKey,
               workingTreeTargets,
               commitPreview: true,
+              workingTreeFileOrder,
             });
           })();
           return;
         }
 
-        const diff = await getFullContextFileDiff(activeRepoPath, actualFilePath, staged);
+        // A status refresh may temporarily remove the displayed file mapping.
+        // Resolve its real owner rather than opening a preview without write identity.
+        const resolved = await resolveRepositoryForFile(activeRepoPath, actualFilePath);
+        if (!latestFileDiffRequest.isCurrent(requestId)
+          || activeRepoPathRef.current !== activeRepoPath) return;
+        if (!resolved) { await openOriginalFile(actualFilePath); return; }
+        const diff = staged
+          ? await getFullContextFileDiff(resolved.repoPath, resolved.filePath, true)
+          : await getWorkingTreePathDiff(resolved.repoPath, resolved.filePath, false, undefined, true);
         if (
           !latestFileDiffRequest.isCurrent(requestId) ||
           activeRepoPathRef.current !== activeRepoPath
@@ -232,11 +247,14 @@ export function useGitDiffActions({
 
         const fileKey = `${staged ? "staged" : "unstaged"}:${actualFilePath}`;
         const selectedDiff = createSingleFileWorkingTreeDiff({
-          repoPath: activeRepoPath,
+          repoPath: resolved.repoPath,
           fileKey,
           diff,
           title: t(WORKING_TREE_TITLES.all),
+          target: { repoPath: resolved.repoPath, filePath: resolved.filePath,
+            untracked: diff.is_new, ...(staged ? { staged: true } : {}) },
           commitPreview: true,
+          workingTreeFileOrder,
         });
 
         openDiffBuffer("diff://working-tree/all-files", t(WORKING_TREE_TITLES.all), selectedDiff);
@@ -257,7 +275,7 @@ export function useGitDiffActions({
         );
       }
     },
-    [activeRepoPath, gitFileByPath, latestFileDiffRequest, openOriginalFile, t],
+    [activeRepoPath, gitFileByPath, workingTreeDiffEntriesByScope, latestFileDiffRequest, openOriginalFile, t],
   );
 
   const viewWorkingTreeDiff = useCallback(

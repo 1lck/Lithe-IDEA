@@ -8,6 +8,7 @@ import { workspaceRuntimeRegistry as registry } from "@/features/workspace/runti
 import { useWorkspaceCommitStore } from "../stores/git-workspace-commit.store";
 import GitCommitPanel from "./git-commit-panel";
 import type { GitFile } from "../types/git.types";
+import { beginCommitDiffWrite, commitDiffWritePending } from "../runtime/commit-diff-write-state";
 
 let restoreDom: () => void;
 let container: HTMLDivElement;
@@ -140,6 +141,21 @@ test("a commit starts a regular commit, never an amend", async () => {
   } finally {
     prepare.mockRestore();
   }
+});
+
+test("a pending block selection cannot race the Commit button", async () => {
+  await renderPanel({ message: "Selected changes" });
+  const workflow = useWorkspaceCommitStore.getStore("A").getState().workflow;
+  const prepare = spyOn(workflow, "prepare").mockResolvedValue(undefined);
+  const release = beginCommitDiffWrite();
+  try {
+    await act(async () => commitButton()!.click());
+    expect(prepare).not.toHaveBeenCalled();
+    release();
+    expect(commitDiffWritePending()).toBe(false);
+    await act(async () => commitButton()!.click());
+    expect(prepare).toHaveBeenCalledTimes(1);
+  } finally { release(); prepare.mockRestore(); }
 });
 
 test("Commit stays enabled and explains what is missing, like IntelliJ", async () => {

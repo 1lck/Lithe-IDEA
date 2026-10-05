@@ -1081,7 +1081,9 @@ const GitStatusPanel = ({
           onClick={(event) => {
             handleSelectEntry(event, entry);
             if (!event.ctrlKey && !event.metaKey) {
-              onFileSelect?.(row.file.path, row.file.staged);
+              // Commit review keeps HEAD -> worktree visible, including both
+              // included and excluded blocks of a partially staged file.
+              onFileSelect?.(row.file.path, false);
             }
           }}
           onContextMenu={(event) => handleContextMenu(event, entry)}

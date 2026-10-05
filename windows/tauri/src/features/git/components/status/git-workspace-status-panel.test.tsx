@@ -20,8 +20,13 @@ let staging: ReturnType<typeof spyOn<typeof statusApi, "setFilesStaged">>;
 let virtualizer: ReturnType<typeof spyOn<typeof virtual, "useVirtualizer">>;
 const actGlobal = globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean };
 let previousAct: boolean | undefined;
+let previousGetAnimations: PropertyDescriptor | undefined;
 beforeEach(() => {
   restoreDom = installHappyDom();
+  // Base UI measures scroll geometry after animations. This DOM fixture has
+  // no animations; provide the browser API that happy-dom does not implement.
+  previousGetAnimations = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
+  Object.defineProperty(HTMLElement.prototype, "getAnimations", { configurable: true, value: () => [] });
   previousAct = actGlobal.IS_REACT_ACT_ENVIRONMENT;
   actGlobal.IS_REACT_ACT_ENVIRONMENT = true;
   container = document.createElement("div");
@@ -39,13 +44,19 @@ beforeEach(() => {
   })) as unknown as typeof virtual.useVirtualizer);
 });
 afterEach(async () => {
-  await act(async () => root.unmount());
-  staging.mockRestore();
-  virtualizer.mockRestore();
-  container.remove();
-  restoreDom();
-  if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
-  else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
+  try {
+    await act(async () => root.unmount());
+  } finally {
+    staging.mockRestore();
+    virtualizer.mockRestore();
+    container.remove();
+    if (previousGetAnimations) {
+      Object.defineProperty(HTMLElement.prototype, "getAnimations", previousGetAnimations);
+    } else Reflect.deleteProperty(HTMLElement.prototype, "getAnimations");
+    restoreDom();
+    if (previousAct === undefined) delete actGlobal.IS_REACT_ACT_ENVIRONMENT;
+    else actGlobal.IS_REACT_ACT_ENVIRONMENT = previousAct;
+  }
 });
 const render = async (files: GitFile[], changelists?: LocalChangelists) => {
   await act(async () =>

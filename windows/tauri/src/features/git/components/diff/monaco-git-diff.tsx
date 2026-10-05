@@ -1,5 +1,8 @@
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
+import * as monaco from "monaco-editor";
 import { editor as monacoEditor } from "monaco-editor";
+import type { CommitDiffBlockControls } from "./commit-diff-block-controls";
+import { mountMonacoCommitBlockControls } from "./monaco-commit-block-controls";
 import "@/features/editor/engines/monaco/monaco-environment";
 import "monaco-editor/min/vs/editor/editor.main.css";
 import "@/features/editor/styles/monaco-editor.css";
@@ -51,6 +54,7 @@ interface Props {
   highlightWords?: boolean;
   repositoryPreview?: boolean;
   onSplitLayout?: (originalWidth: number) => void;
+  blockControls?: CommitDiffBlockControls;
 }
 
 const MIN_REVIEW_HEIGHT = 160;
@@ -71,6 +75,7 @@ export default function MonacoGitDiff({
   highlightWords = true,
   repositoryPreview = false,
   onSplitLayout,
+  blockControls,
 }: Props) {
   const { t } = useTranslation();
   const container = useRef<HTMLDivElement>(null);
@@ -79,9 +84,24 @@ export default function MonacoGitDiff({
   const [error, setError] = useState<string>();
   const [actionFailed, setActionFailed] = useState(false);
   const [height, setHeight] = useState(MIN_REVIEW_HEIGHT);
+  const blockWidgets = useRef<ReturnType<typeof mountMonacoCommitBlockControls> | null>(null);
+  const latestBlockControls = useRef(blockControls);
+  latestBlockControls.current = blockControls;
+  const installBlockWidgets = () => {
+    blockWidgets.current?.dispose();
+    blockWidgets.current = null;
+    const view = review.current?.editor.getModifiedEditor();
+    if (!view) return;
+    view.updateOptions({ glyphMargin: Boolean(latestBlockControls.current) });
+    if (!updating.current && latestBlockControls.current) {
+      blockWidgets.current = mountMonacoCommitBlockControls(view, monaco, latestBlockControls.current);
+    }
+  };
+  useEffect(() => {
+    installBlockWidgets();
+  }, [blockControls]);
   const rows = useMemo(() => monacoDiffRows(diff, { hideHunkHeaders: repositoryPreview }), [diff, repositoryPreview]);
   const sourcePath = diff.new_path || diff.file_path || diff.old_path || "";
-  const fullContext = diff.is_full_context === true;
   const latest = useRef({ rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted });
   const updating = useRef(false);
   const firstDifferencePending = useRef(startAtFirstDifference);
@@ -265,6 +285,8 @@ export default function MonacoGitDiff({
       closed = true;
       listeners.forEach((listener) => listener.dispose());
       controls.current = null;
+      blockWidgets.current?.dispose();
+      blockWidgets.current = null;
       instance.dispose();
       review.current = null;
     };
@@ -293,6 +315,7 @@ export default function MonacoGitDiff({
     let cancelled = false;
     setError(undefined);
     updating.current = true;
+    installBlockWidgets();
     if (landingDiff.current !== diff) {
       landingDiff.current = diff;
       firstDifferencePending.current = startAtFirstDifference;
@@ -300,14 +323,12 @@ export default function MonacoGitDiff({
     controls.current?.publish();
     const titles = { stage: actionTitle, unstage: actionTitle, discard: discardTitle };
     const actions = (hunkActions.current?.actions ?? []).map((id) => ({ id, title: titles[id] }));
-    // Only a full-file patch may fold: Monaco's fold bands reveal hidden lines
-    // in place, which is meaningless for a sparse patch whose gaps are absent.
     const instance = review.current!;
     void instance.update({
         rows,
         language: toMonacoLanguageId(detectLanguageFromPath(sourcePath)),
         sideBySide: viewMode === "split",
-        collapse: fullContext,
+        collapse: false,
         overview: !embedded,
         highlightWords,
         actions,
@@ -316,6 +337,7 @@ export default function MonacoGitDiff({
         if (!cancelled) {
           latest.current = { rows, sourcePath, sourceRepoPath, isDeleted: diff.is_deleted };
           updating.current = false;
+          installBlockWidgets();
           controls.current?.publish();
         }
       })
@@ -330,7 +352,6 @@ export default function MonacoGitDiff({
     sourcePath,
     sourceRepoPath,
     diff.is_deleted,
-    fullContext,
     viewMode,
     embedded,
     highlightWords,

@@ -13,9 +13,9 @@
   --commit-diff-inserted: #294436;
   --commit-diff-deleted: #484a4a;
   --commit-diff-modified: #385570;
-  --commit-diff-inserted-stripe: #447152;
-  --commit-diff-deleted-stripe: #656e76;
-  --commit-diff-modified-stripe: #43698d;
+  --commit-diff-inserted-stripe: var(--commit-diff-inserted);
+  --commit-diff-deleted-stripe: var(--commit-diff-deleted);
+  --commit-diff-modified-stripe: var(--commit-diff-modified);
   background: var(--commit-diff-background);
 }
 
@@ -33,9 +33,9 @@
   --commit-diff-inserted: #bee6be;
   --commit-diff-deleted: #d6d6d6;
   --commit-diff-modified: #c2d8f2;
-  --commit-diff-inserted-stripe: #aadeaa;
-  --commit-diff-deleted-stripe: #c8c8c8;
-  --commit-diff-modified-stripe: #b6d2f2;
+  --commit-diff-inserted-stripe: var(--commit-diff-inserted);
+  --commit-diff-deleted-stripe: var(--commit-diff-deleted);
+  --commit-diff-modified-stripe: var(--commit-diff-modified);
 }
 
 .commit-diff-toolbar {
@@ -67,6 +67,15 @@
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
   padding: 6px 0;
+}
+.commit-diff-version-header[data-single-version="true"] {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+}
+.commit-diff-version-header[data-single-version="true"] .commit-diff-version {
+  min-height: 28px;
+  padding: 6px;
 }
 
 .commit-diff-version {
@@ -175,6 +184,18 @@
   overflow: hidden;
   background: var(--commit-diff-background);
 }
+/* A complete new file has one source stream, including its number gutter and
+   EOF space. Do not paint an artificial empty deletion or an outer gray frame. */
+.independent-commit-diff[data-whole-file-added="true"],
+.independent-commit-diff[data-whole-file-added="true"] .independent-center,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .monaco-editor,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .monaco-editor-background,
+.commit-file-diff-preview .independent-commit-diff[data-whole-file-added="true"] .margin {
+  background: var(--commit-diff-inserted);
+}
+.independent-commit-diff[data-whole-file-added="true"] .independent-connections {
+  display: none;
+}
 .independent-code {
   position: absolute;
   top: 0;
@@ -207,6 +228,21 @@
   overflow: hidden;
   background: var(--commit-diff-background);
 }
+/* Outer gutter edges follow IDEA's tearline. Keep them out of layout sizing so
+   the code, gutter fills and connector still share identical pixel boundaries. */
+.independent-commit-diff:not([data-whole-file-added="true"]) .independent-center::before,
+.independent-commit-diff:not([data-whole-file-added="true"]) .independent-center::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  z-index: 1;
+  background: var(--commit-diff-title-border);
+  pointer-events: none;
+}
+.independent-center::before { left: 0; }
+.independent-center::after { right: 0; }
 .independent-connections {
   position: absolute;
   inset: 0;
@@ -238,8 +274,10 @@
 }
 .independent-numbers button {
   position: absolute;
+  left: 0;
+  box-sizing: border-box;
   width: 100%;
-  padding: 0 6px;
+  padding: 0 var(--independent-gutter-inset);
   border: 0;
   font: inherit;
   text-align: right;
@@ -255,6 +293,48 @@
   width: 6px;
   z-index: 6;
   cursor: ew-resize;
+}
+.independent-block-actions {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+/* Mirror the old gutter and center each action between its line numbers and
+   the outer tearline, including the gutter inset in the available space. */
+.independent-block-actions-0 { left: 0; }
+.independent-block-actions-1 { right: 0; }
+.independent-block-actions-0 > button {
+  left: calc((var(--independent-gutter-inset) + var(--independent-block-action-width) - var(--independent-block-action-size)) / 2);
+}
+.independent-block-actions-1 > button {
+  right: calc((var(--independent-gutter-inset) + var(--independent-block-action-width) - var(--independent-block-action-size)) / 2);
+}
+.commit-file-diff-preview .commit-diff-block-toggle,
+.commit-file-diff-preview .commit-diff-block-rollback {
+  position: absolute;
+  width: var(--independent-block-action-size, 18px);
+  height: var(--independent-block-action-size, 18px);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--commit-diff-title-text);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.commit-file-diff-preview .commit-diff-block-toggle {
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font: 14px/16px system-ui;
+}
+.commit-file-diff-preview .commit-diff-block-rollback svg { width: 18px; height: 18px; }
+.commit-file-diff-preview .commit-diff-block-toggle:disabled,
+.commit-file-diff-preview .commit-diff-block-rollback:disabled { opacity: .4; cursor: default; }
+.commit-file-diff-preview .commit-diff-block-toggle:focus-visible,
+.commit-file-diff-preview .commit-diff-block-rollback:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 .independent-sash:focus-visible {
   outline: 1px solid var(--commit-diff-modified-stripe);

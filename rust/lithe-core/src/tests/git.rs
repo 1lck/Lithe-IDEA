@@ -152,6 +152,13 @@ fn git_status_preserves_both_paths_of_a_staged_rename() {
 #[test]
 fn git_diff_worktree_snapshot_matches_selected_path_commit_semantics() {
     let root = git_write_repository("git-diff-worktree-snapshot");
+    struct RemoveOnDrop(std::path::PathBuf);
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+    let _cleanup = RemoveOnDrop(root.clone());
     let run = |arguments: &[&str]| history_git(&root, arguments);
     fs::write(root.join("recreated.txt"), "base\n").expect("file should be writable");
     fs::write(root.join("partial.txt"), "one\nbase\n").expect("file should be writable");
@@ -166,6 +173,12 @@ fn git_diff_worktree_snapshot_matches_selected_path_commit_semantics() {
     assert!(run(&["add", "--", "partial.txt"]).status.success());
     fs::write(root.join("partial.txt"), "staged\nworktree\n").expect("file should be writable");
     let cached_before = run(&["diff", "--cached", "--binary"]).stdout;
+    let index_before = fs::read(root.join(".git/index")).expect("index should be readable");
+    // Windows emits a parent .git notification even when its temporary child
+    // is ignored. That notification invalidated every pending Commit review.
+    let metadata_before = fs::metadata(root.join(".git"))
+        .and_then(|metadata| metadata.modified())
+        .expect("Git directory timestamp should be readable");
 
     let response: Value = serde_json::from_str(&execute_json(
         &serde_json::to_string(&serde_json::json!({
@@ -191,6 +204,18 @@ fn git_diff_worktree_snapshot_matches_selected_path_commit_semantics() {
     assert!(patch.contains("+worktree"), "{patch}");
     assert!(patch.contains("+changed"), "{patch}");
     assert!(!patch.contains("deleted file mode"), "{patch}");
+    assert_eq!(
+        fs::metadata(root.join(".git"))
+            .and_then(|metadata| metadata.modified())
+            .expect("Git directory timestamp should be readable"),
+        metadata_before,
+        "reading a snapshot must not generate repository metadata changes"
+    );
+    assert_eq!(
+        fs::read(root.join(".git/index")).expect("index should be readable"),
+        index_before,
+        "reading a snapshot must preserve the real index byte for byte"
+    );
     assert_eq!(run(&["diff", "--cached", "--binary"]).stdout, cached_before);
 
     let reference_response: Value = serde_json::from_str(&execute_json(
