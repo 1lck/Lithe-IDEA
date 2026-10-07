@@ -52,7 +52,9 @@ struct WorkbenchRenderingSafetyTests {
         let source = try String(contentsOf: workbenchURL, encoding: .utf8)
 
         #expect(source.contains(".litheDropdown(isPresented: instantProjectSwitcherPresentation)"))
-        #expect(source.contains(".litheDropdown(isPresented: instantBranchSwitcherPresentation, searchOnTyping: true)"))
+        #expect(source.contains(".litheDropdown(isPresented: instantBranchSwitcherPresentation, searchOnTyping: true,"))
+        #expect(source.contains("resizableWidth: Binding(get: { branchPopupWidth }"))
+        #expect(source.contains("resizableHeight: $branchPopupHeight"))
         // Native popup focus clears hover; its trigger must retain the same hover
         // color while open, instead of becoming a blue selected control.
         for state in ["isProjectSwitcherPresented", "isBranchSwitcherPresented"] {

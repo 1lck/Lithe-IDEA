@@ -473,10 +473,11 @@ struct ContextMenuCoverageTests {
         #expect(!committed)
     }
 
-    @Test func resizableDropdownCommitsWidthOnlyAfterResizeAndKeepsItOnContentChanges() throws {
+    @Test(arguments: [false, true])
+    func resizableDropdownCommitsWidthOnlyAfterResizeAndKeepsItOnContentChanges(nearRightEdge: Bool) throws {
         let presenter = LitheContextMenuPresenter()
         defer { presenter.dismiss() }
-        let screen = try #require(NSScreen.main).visibleFrame
+        let screen = try #require(NSScreen.main).visibleFrame.insetBy(dx: 6, dy: 6)
         let feature = GitFeatureModel(service: GitService(operations: RustGitOperations(core: RustCoreBridge())))
         let controller = LitheDropdownHostingController(rootView: AnyView(
             BranchSwitcherPopover(feature: feature, isPresented: .constant(true),
@@ -485,7 +486,8 @@ struct ContextMenuCoverageTests {
                 onCompareReferences: { _, _ in }).litheContextMenuSurface()
         ))
         var widths: [CGFloat] = []
-        presenter.show(contentController: controller, at: NSPoint(x: screen.midX, y: screen.midY),
+        let anchor = NSPoint(x: nearRightEdge ? screen.maxX - 500 : screen.minX, y: screen.midY)
+        presenter.show(contentController: controller, at: anchor,
                        appearance: nil, resizableWidth: 480, minimumWidth: 375,
                        onSizeChanged: { widths.append($0.width) }) {}
         let window = try #require(controller.view.window)
@@ -507,23 +509,28 @@ struct ContextMenuCoverageTests {
         #expect(window.frame.width == 480)
         #expect(window.contentMinSize.width == 375)
         #expect(window.contentMinSize.height == window.contentMaxSize.height)
+        let initialLeft = window.frame.minX
+        let expectedWidth = min(620, screen.maxX - initialLeft)
         window.sendEvent(try event(.leftMouseDown))
         window.sendEvent(try event(.leftMouseDragged, translation: 140))
         #expect(widths.isEmpty)
         window.sendEvent(try event(.leftMouseUp, translation: 140))
         window.layoutIfNeeded()
-        #expect(widths == [620])
+        // Resizing retains the left edge and must stop at the visible screen's
+        // right edge, including the smaller display used by the CI runner.
+        #expect(window.frame.minX == initialLeft)
+        #expect(widths == [expectedWidth])
         controller.rootView = AnyView(Text("Search result").frame(minWidth: 375, maxWidth: .infinity).frame(height: 160))
         presenter.resize(contentController: controller)
         window.layoutIfNeeded()
-        #expect(window.frame.width == 620)
+        #expect(window.frame.width == expectedWidth)
         #expect(screen.contains(window.frame))
         presenter.dismiss()
         #expect(controller.view.subviews.compactMap { $0 as? SplitHandleInteractionView }.isEmpty)
-        presenter.show(contentController: controller, at: NSPoint(x: screen.midX, y: screen.midY),
+        presenter.show(contentController: controller, at: anchor,
                        appearance: nil, resizableWidth: widths.last, minimumWidth: 375) {}
-        #expect(controller.view.window?.frame.width == 620)
-        #expect(widths == [620])
+        #expect(controller.view.window?.frame.width == expectedWidth)
+        #expect(widths == [expectedWidth])
     }
 
     @Test(arguments: [ProjectReplacePanelGeometry.Corner.topTrailing, .bottomTrailing], [false, true])
