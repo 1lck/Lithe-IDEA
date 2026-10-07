@@ -27,10 +27,7 @@ export async function sendDebugAdapterRequest(
   operationId?: string,
 ): Promise<DebugCommandResult> {
   return await invoke<DebugCommandResult>("debug_send_request", {
-    sessionId,
-    command,
-    arguments: argumentsPayload,
-    operationId,
+    request: { sessionId, command, arguments: argumentsPayload, operationId },
   });
 }
 
@@ -90,8 +87,10 @@ async function initializeDebugLaunchSession(
 ): Promise<DebugAdapterSessionInfo> {
   try {
     onSessionStarted?.(session);
-    // Rust Core owns DAP initialization and the configurationDone handshake;
-    // the host facade only queues the launch and breakpoint sets.
+    // Queue breakpoints before launch/attach can emit initialized and Core sends
+    // configurationDone. Otherwise a fast JVM can pass its first breakpoint.
+    await syncDebugBreakpoints(session.id, breakpoints);
+    // Rust Core owns initialization and configurationDone, not the frontend.
     await sendDebugAdapterRequest(session.id, config.request ?? "launch", {
       ...config.launchArguments,
       name: config.name,
@@ -103,7 +102,6 @@ async function initializeDebugLaunchSession(
       env: config.env ?? {},
     });
     await markDebugSessionReady(session.id);
-    await syncDebugBreakpoints(session.id, breakpoints);
   } catch (error) {
     await stopDebugAdapterSession(session.id).catch(() => {});
     throw error;

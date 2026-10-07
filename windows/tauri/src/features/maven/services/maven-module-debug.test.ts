@@ -284,3 +284,41 @@ for (const execution of ["service", "application"] as const) {
     });
   }
 }
+
+test("cancellation during Java preparation never launches a JVM", async () => {
+  const events: string[] = [];
+  const deps = dependencies(events);
+  const controller = new AbortController();
+  deps.prewarmJavaWorkspace = async () => {
+    controller.abort();
+    return { kind: "ready" };
+  };
+  const result = await startMavenModuleDebug(
+    { workspaceId: "test", root: "/workspace" },
+    configuration,
+    "/workspace/Main.java",
+    deps,
+    controller.signal,
+  );
+  expect(result.kind).toBe("stale");
+  expect(deps.startRunConfiguration).not.toHaveBeenCalled();
+});
+
+test("cancellation after JVM launch releases only that execution and never attaches an adapter", async () => {
+  const events: string[] = [];
+  const deps = dependencies(events);
+  const controller = new AbortController();
+  deps.waitForDebugPort = async () => {
+    controller.abort();
+  };
+  const result = await startMavenModuleDebug(
+    { workspaceId: "test", root: "/workspace" },
+    configuration,
+    "/workspace/Main.java",
+    deps,
+    controller.signal,
+  );
+  expect(result.kind).toBe("stale");
+  expect(deps.startAdapterSession).not.toHaveBeenCalled();
+  expect(deps.stopRunSession).toHaveBeenCalledWith("test", runInstance);
+});

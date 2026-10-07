@@ -1,3 +1,4 @@
+import { javaRunChinese, javaRunEnglish } from "./java-run-control";
 import { changelistsChinese, changelistsEnglish } from "./git-changelists";
 import { workspaceCommitChinese, workspaceCommitEnglish } from "./git-workspace-commit";
 import { aiCommitChinese, aiCommitEnglish } from "./ai-commit";
@@ -7,6 +8,7 @@ export type DisplayLanguage = (typeof DISPLAY_LANGUAGES)[number];
 
 const catalogs = {
   "en-US": {
+    ...javaRunEnglish,
     ...aiCommitEnglish,
     ...workspaceCommitEnglish,
     ...changelistsEnglish,
@@ -4587,6 +4589,7 @@ const catalogs = {
     "welcome.backToProjects": "Back to projects",
   },
   "zh-CN": {
+    ...javaRunChinese,
     ...aiCommitChinese,
     ...workspaceCommitChinese,
     ...changelistsChinese,

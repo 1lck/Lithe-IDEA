@@ -1,3 +1,4 @@
+import { stopOwnedDebugSession, sendActiveDebugThreadRequest } from "../services/debug-session-actions";
 import { JavaServiceUpdate } from "./java-service-update";
 import {
   ArrowDownIcon as StepIntoIcon,
@@ -13,7 +14,7 @@ import {
 } from "@/ui/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useBufferStore } from "@/features/editor/stores/buffer.store";
-import { useEditorStateStore } from "@/features/editor/stores/state.store";
+import { editorAPI } from "@/features/editor/extensions/api";
 import { readFileContent } from "@/features/file-system/controllers/file-operations";
 import { useFileSystemStore } from "@/features/file-system/stores/file-system.store";
 import { useProjectStore } from "@/features/window/stores/project.store";
@@ -29,7 +30,6 @@ import {
   createDebugOperationId,
   sendDebugAdapterRequest,
   startDebugLaunchSession,
-  stopDebugAdapterSession,
   syncDebugBreakpoints,
 } from "../services/debug-adapter-service";
 import { selectDebugThread } from "../services/debug-adapter-events";
@@ -308,7 +308,8 @@ export default function DebuggerView() {
 
   const stopDebugging = () => {
     if (activeSession && isAdapterSession) {
-      void stopDebugAdapterSession(activeSession.id).catch(() => {});
+      void stopOwnedDebugSession(activeSession).catch((error) => setStartError(String(error)));
+      return;
     } else {
       window.dispatchEvent(new CustomEvent("close-active-terminal"));
     }
@@ -322,8 +323,7 @@ export default function DebuggerView() {
 
     setStartError(null);
     try {
-      await sendDebugAdapterRequest(activeSession.id, command, { threadId: activeThreadId });
-      if (command !== "pause") debuggerActions.setSessionStatus("running");
+      await sendActiveDebugThreadRequest(command);
     } catch (error) {
       setStartError(error instanceof Error ? error.message : String(error));
     }
@@ -331,7 +331,7 @@ export default function DebuggerView() {
 
   const toggleCurrentLineBreakpoint = () => {
     if (!activeFile) return;
-    const cursorLine = useEditorStateStore.getState().cursorPosition.line;
+    const cursorLine = editorAPI.getCursorPosition().line;
     debuggerActions.toggleBreakpoint(activeFile.path, cursorLine);
   };
 

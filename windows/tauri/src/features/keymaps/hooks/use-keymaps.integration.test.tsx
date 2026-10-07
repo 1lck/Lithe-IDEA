@@ -4,6 +4,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { installHappyDom } from "@/test-utils/happy-dom";
 
 let nativeMenuBar = false;
+let keybindingPreset: "none" | "jetbrains" = "none";
+let vimMode = false;
 
 mock.module("@tauri-apps/plugin-os", () => ({
   arch: () => "x86_64",
@@ -18,9 +20,9 @@ mock.module("@/features/settings/stores/settings.store", () => ({
   useSettingsStore: {
     getState: () => ({
       settings: {
-        vimMode: false,
+        vimMode,
         nativeMenuBar,
-        keybindingPreset: "none",
+        keybindingPreset,
       },
     }),
   },
@@ -56,16 +58,22 @@ beforeAll(async () => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   nativeMenuBar = false;
+  keybindingPreset = "none";
+  vimMode = false;
   keymapRegistry.clear();
-  useKeymapStore.getState().actions.resetToDefaults();
-  useKeymapStore.getState().actions.setContexts({
-    editorFocus: false,
-    terminalFocus: false,
-    isRecordingKeybinding: false,
+  await act(async () => {
+    useKeymapStore.getState().actions.resetToDefaults();
+    useKeymapStore.getState().actions.setContexts({
+      editorFocus: false,
+      terminalFocus: false,
+      isRecordingKeybinding: false,
+    });
   });
-  document.body.querySelector(".monaco-editor")?.remove();
+  document.body
+    .querySelectorAll("[data-keymap-fixture], .monaco-editor")
+    .forEach((element) => element.remove());
 });
 
 afterAll(async () => {
@@ -273,4 +281,146 @@ describe("keymap input routing", () => {
     expect(editorPaste.defaultPrevented).toBe(true);
     expect(pasteIntoEditor).toHaveBeenCalledTimes(1);
   });
+});
+
+function inputFixture(kind: "editor" | "terminal" | "input") {
+  const wrapper = document.createElement("div");
+  wrapper.dataset.keymapFixture = "true";
+  wrapper.className =
+    kind === "editor" ? "monaco-editor" : kind === "terminal" ? "terminal-container" : "";
+  const input = document.createElement("textarea");
+  input.className =
+    kind === "editor" ? "inputarea" : kind === "terminal" ? "xterm-helper-textarea" : "";
+  wrapper.append(input);
+  document.body.append(wrapper);
+  input.focus();
+  return input;
+}
+async function press(
+  input: HTMLElement,
+  key: string,
+  modifiers: KeyboardEventInit = { ctrlKey: true },
+) {
+  const event = new KeyboardEvent("keydown", {
+    key,
+    code: key.length === 1 ? `Key${key.toUpperCase()}` : key,
+    bubbles: true,
+    cancelable: true,
+    ...modifiers,
+  });
+  await act(async () => {
+    input.dispatchEvent(event);
+  });
+  return event;
+}
+function action(id: string) {
+  const execute = mock(() => undefined);
+  keymapRegistry.registerCommand({ id, title: id, execute });
+  return execute;
+}
+
+test("switching to JetBrains takes effect immediately: Ctrl+D duplicate, Ctrl+Y delete, Ctrl+W expand without closing", async () => {
+  const duplicate = action("editor.duplicateLine");
+  const occurrence = action("editor.selectNextOccurrence");
+  const remove = action("editor.deleteLine");
+  const redo = action("editor.redo");
+  const expand = action("editor.expandSelection");
+  const shrink = action("editor.shrinkSelection");
+  const close = action("file.close");
+  const closeWindow = action("workbench.closeWindow");
+  registerDefaultKeymaps();
+  const input = inputFixture("editor");
+  await press(input, "d");
+  expect(occurrence).toHaveBeenCalledTimes(1);
+  keybindingPreset = "jetbrains";
+  expect((await press(input, "d")).defaultPrevented).toBe(true);
+  await press(input, "y");
+  await press(input, "w");
+  await press(input, "w", { ctrlKey: true, shiftKey: true });
+  expect(duplicate).toHaveBeenCalledTimes(1);
+  expect(remove).toHaveBeenCalledTimes(1);
+  expect(expand).toHaveBeenCalledTimes(1);
+  expect(shrink).toHaveBeenCalledTimes(1);
+  expect(close).not.toHaveBeenCalled();
+  expect(closeWindow).not.toHaveBeenCalled();
+  expect(redo).not.toHaveBeenCalled();
+  await press(input, "F4");
+  expect(close).toHaveBeenCalledTimes(1);
+  await press(input, "z", { ctrlKey: true, shiftKey: true });
+  expect(redo).toHaveBeenCalledTimes(1);
+});
+
+test("JetBrains navigation and aliases work with the Windows native-menu preference enabled", async () => {
+  keybindingPreset = "jetbrains";
+  nativeMenuBar = true;
+  const definition = action("editor.goToDefinition");
+  const refs = action("editor.goToReferences");
+  const files = action("file.quickOpen");
+  const project = action("workbench.showFileExplorer");
+  registerDefaultKeymaps();
+  const input = inputFixture("editor");
+  await press(input, "b");
+  await press(input, "F7", { altKey: true });
+  expect(definition).toHaveBeenCalledTimes(1);
+  expect(refs).toHaveBeenCalledTimes(1);
+  await press(input, "e");
+  await press(input, "n", { ctrlKey: true, shiftKey: true });
+  expect(files).toHaveBeenCalledTimes(2);
+  input.blur();
+  await press(document.body, "1", { altKey: true });
+  expect(project).toHaveBeenCalledTimes(1);
+});
+
+test("JetBrains leaves editor commands out of terminals and native inputs while preserving terminal bindings", async () => {
+  keybindingPreset = "jetbrains";
+  const duplicate = action("editor.duplicateLine");
+  const remove = action("editor.deleteLine");
+  const split = action("terminal.split");
+  registerDefaultKeymaps();
+  await act(async () => useKeymapStore.getState().actions.setContexts({ editorFocus: true }));
+  for (const kind of ["terminal", "input"] as const) {
+    const input = inputFixture(kind);
+    expect((await press(input, "d")).defaultPrevented).toBe(kind === "terminal");
+    expect((await press(input, "y")).defaultPrevented).toBe(false);
+  }
+  expect(split).toHaveBeenCalledTimes(1);
+  expect(duplicate).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+});
+
+test("user shortcut overrides take priority over the JetBrains preset", async () => {
+  keybindingPreset = "jetbrains";
+  const duplicate = action("editor.duplicateLine");
+  const occurrence = action("editor.selectNextOccurrence");
+  registerDefaultKeymaps();
+  await act(async () =>
+    useKeymapStore.getState().actions.addKeybinding({
+      key: "ctrl+d",
+      command: "editor.selectNextOccurrence",
+      source: "user",
+      when: "editorFocus",
+    }),
+  );
+  await press(inputFixture("editor"), "d");
+  expect(occurrence).toHaveBeenCalledTimes(1);
+  expect(duplicate).not.toHaveBeenCalled();
+});
+
+test("JetBrains Run/Debug/Stop and stepping shortcuts dispatch their shared actions", async () => {
+  keybindingPreset = "jetbrains";
+  const cases: [string, KeyboardEventInit, string][] = [
+    ["F10", { shiftKey: true }, "run.runSelectedConfiguration"],
+    ["F9", { shiftKey: true }, "debug.start"],
+    ["F2", { ctrlKey: true }, "run.stopSelectedConfiguration"],
+    ["F8", { ctrlKey: true }, "debug.toggleBreakpoint"],
+    ["F9", {}, "debug.continue"],
+    ["F8", {}, "debug.stepOver"],
+    ["F7", {}, "debug.stepInto"],
+    ["F8", { shiftKey: true }, "debug.stepOut"],
+  ];
+  const commands = cases.map(([, , id]) => action(id));
+  registerDefaultKeymaps();
+  for (const [key, modifiers] of cases)
+    expect((await press(document.body, key, modifiers)).defaultPrevented).toBe(true);
+  for (const command of commands) expect(command).toHaveBeenCalledTimes(1);
 });

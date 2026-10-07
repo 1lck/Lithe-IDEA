@@ -44,22 +44,24 @@ function createPresetDefinition({
   overrides?: Keybinding[];
   disabledCommands?: string[];
 }): KeybindingPresetDefinition {
-  const overrideByCommand = new Map(
-    overrides.map((binding) => [binding.command, { ...binding, source: "preset" as const }]),
-  );
-  const disabledCommandIds = new Set(disabledCommands);
-
+  const overridden = new Set(overrides.map((binding) => binding.command));
+  const disabled = new Set(disabledCommands);
   return {
     label,
     description,
-    overrides: defaultPresetCommandIds
-      .filter((commandId) => !disabledCommandIds.has(commandId))
-      .map((commandId) => overrideByCommand.get(commandId) ?? defaultPresetBindings.get(commandId)!)
-      .concat(
-        overrides
-          .map((binding) => ({ ...binding, source: "preset" as const }))
-          .filter((binding) => !defaultPresetBindings.has(binding.command)),
-      ),
+    // Explicit preset keys win over inherited defaults. Keep aliases and the
+    // original context (especially editor/terminal ownership), not a Map's last value.
+    overrides: [
+      ...overrides.map((binding) => ({
+        ...defaultPresetBindings.get(binding.command),
+        ...(binding.command.startsWith("editor.") ? { when: "editorFocus && !terminalFocus" } : {}),
+        ...binding,
+        source: "preset" as const,
+      })),
+      ...defaultKeymaps
+        .filter((binding) => !overridden.has(binding.command) && !disabled.has(binding.command))
+        .map((binding) => ({ ...binding, source: "preset" as const })),
+    ].filter((binding) => !disabled.has(binding.command)),
     disabledCommands,
   };
 }
@@ -84,7 +86,8 @@ export const keybindingPresetDefinitions: Record<KeybindingPreset, KeybindingPre
   }),
   jetbrains: createPresetDefinition({
     label: "JetBrains",
-    description: "Match common JetBrains IDE shortcuts.",
+    description:
+      "Common JetBrains Windows/Linux shortcuts for supported Lithe actions; other commands retain Lithe defaults.",
     disabledCommands: [
       "workbench.newWindow",
       "workbench.toggleActivitySidebar",
@@ -93,12 +96,38 @@ export const keybindingPresetDefinitions: Record<KeybindingPreset, KeybindingPre
     overrides: [
       { key: "cmd+shift+a", command: "workbench.commandPalette", source: "preset" },
       { key: "cmd+shift+n", command: "file.quickOpen", source: "preset" },
-      { key: "cmd+l", command: "editor.goToLine", source: "preset" },
-      { key: "cmd+1", command: "workbench.showFileExplorer", source: "preset" },
-      { key: "cmd+9", command: "workbench.showSourceControl", source: "preset" },
-      { key: "cmd+b", command: "editor.goToReferences", source: "preset" },
+      { key: "cmd+e", command: "file.quickOpen", source: "preset" },
+      { key: "cmd+g", command: "editor.goToLine", source: "preset" },
+      { key: "alt+1", command: "workbench.showFileExplorer", source: "preset" },
+      { key: "alt+9", command: "workbench.showSourceControl", source: "preset" },
+      { key: "cmd+b", command: "editor.goToDefinition", source: "preset" },
+      { key: "cmd+alt+b", command: "editor.goToImplementation", source: "preset" },
       { key: "alt+F7", command: "editor.goToReferences", source: "preset" },
-      { key: "cmd+e", command: "file.reopenClosed", source: "preset" },
+      { key: "shift+F6", command: "editor.renameSymbol", source: "preset" },
+      { key: "cmd+F12", command: "editor.showOutline", source: "preset" },
+      { key: "cmd+d", command: "editor.duplicateLine", source: "preset" },
+      { key: "cmd+y", command: "editor.deleteLine", source: "preset" },
+      { key: "cmd+shift+z", command: "editor.redo", source: "preset" },
+      { key: "alt+j", command: "editor.selectNextOccurrence", source: "preset" },
+      { key: "alt+shift+j", command: "editor.selectPreviousOccurrence", source: "preset" },
+      { key: "cmd+alt+shift+j", command: "editor.selectAllOccurrences", source: "preset" },
+      { key: "cmd+w", command: "editor.expandSelection", source: "preset" },
+      { key: "cmd+shift+w", command: "editor.shrinkSelection", source: "preset" },
+      { key: "cmd+F4", command: "file.close", source: "preset" },
+      { key: "cmd+F4", command: "terminal.close", source: "preset" },
+      { key: "alt+F4", command: "workbench.closeWindow", source: "preset" },
+      { key: "cmd+alt+l", command: "editor.formatDocument", source: "preset" },
+      { key: "cmd+r", command: "workbench.showFindReplace", source: "preset" },
+      { key: "cmd+shift+f", command: "workbench.showGlobalSearch", source: "preset" },
+      { key: "cmd+/", command: "editor.toggleComment", source: "preset" },
+      { key: "shift+F10", command: "run.runSelectedConfiguration", source: "preset" },
+      { key: "shift+F9", command: "debug.start", source: "preset" },
+      { key: "cmd+F2", command: "run.stopSelectedConfiguration", source: "preset" },
+      { key: "cmd+F8", command: "debug.toggleBreakpoint", source: "preset" },
+      { key: "F9", command: "debug.continue", source: "preset" },
+      { key: "F8", command: "debug.stepOver", source: "preset" },
+      { key: "F7", command: "debug.stepInto", source: "preset" },
+      { key: "shift+F8", command: "debug.stepOut", source: "preset" },
     ],
   }),
   sublime: createPresetDefinition({

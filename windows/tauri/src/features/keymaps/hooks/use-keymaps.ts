@@ -13,15 +13,14 @@ import { resolveEscapeGuard } from "@/utils/keyboard/escape-guard";
 import { isNativeTextInputTarget } from "@/utils/keyboard/text-input-target";
 import { isTerminalAltTextInput } from "@/features/terminal/utils/terminal-keyboard";
 import { useUIState } from "@/features/window/stores/ui-state.store";
-import { IS_LINUX } from "@/utils/platform";
+import { IS_LINUX, IS_MAC } from "@/utils/platform";
 import { useKeymapStore } from "../stores/keymaps.store";
 import { getEffectiveKeybindings } from "../utils/effective-keymaps";
 import { isEditorKeyboardTarget } from "../utils/editor-keyboard-target";
 import { resolveEffectiveKeymapContexts } from "../utils/effective-contexts";
 import { evaluateWhenClause } from "../utils/context";
-import { eventToKey, keysMatch, matchKeybinding } from "../utils/matcher";
+import { eventToKey, matchKeybinding } from "../utils/matcher";
 import { isNativeMenuAccelerator } from "../utils/native-menu-accelerators";
-import { parseKeybinding } from "../utils/parser";
 import type { ParsedKey } from "../utils/parser";
 import { keymapRegistry } from "../utils/registry";
 import { isVimOwnedShortcut } from "../utils/vim-shortcuts";
@@ -33,17 +32,12 @@ import {
 
 const CHORD_TIMEOUT = 1000; // 1 second to complete chord
 const CLOSE_TAB_CLOSE_REQUEST_WINDOW_MS = 1000;
-const closeTabShortcut = parseKeybinding("cmd+w").parts[0];
-const closeWindowShortcut = parseKeybinding("cmd+shift+w").parts[0];
-const INPUT_ALLOWED_COMMANDS = new Set(["file.quickOpen", "workbench.commandPalette"]);
-
-function isCloseTabShortcut(event: KeyboardEvent) {
-  return keysMatch(eventToKey(event), closeTabShortcut);
-}
-
-function isCloseWindowShortcut(event: KeyboardEvent) {
-  return keysMatch(eventToKey(event), closeWindowShortcut);
-}
+const INPUT_ALLOWED_COMMANDS = new Set([
+  "file.quickOpen",
+  "workbench.commandPalette",
+  "file.close",
+  "workbench.closeWindow",
+]);
 
 export function useKeymaps() {
   const contexts = useKeymapStore.use.contexts();
@@ -146,8 +140,8 @@ export function useKeymaps() {
         isEditorKeyboardTarget(target) ||
         isEditorKeyboardTarget(document.activeElement as HTMLElement | null);
       const isTerminalTarget =
-        target?.closest(".terminal-container") !== null ||
-        (document.activeElement as HTMLElement | null)?.closest(".terminal-container") !== null;
+        !!target?.closest(".terminal-container") ||
+        !!(document.activeElement as HTMLElement | null)?.closest(".terminal-container");
       const effectiveContexts = resolveEffectiveKeymapContexts(contexts, {
         isEditorTarget,
         isTerminalTarget,
@@ -163,30 +157,9 @@ export function useKeymaps() {
         return;
       }
 
-      if (isCloseWindowShortcut(e)) {
-        e.preventDefault();
-        e.stopPropagation();
-        keymapRegistry.executeCommand("workbench.closeWindow");
-        return;
-      }
-
-      if (isCloseTabShortcut(e)) {
-        lastCloseTabShortcutAtRef.current = Date.now();
-        e.preventDefault();
-        e.stopPropagation();
-        keymapRegistry.executeCommand(
-          effectiveContexts.terminalFocus ? "terminal.close" : "file.close",
-        );
-        return;
-      }
-
       // When the native menu bar is active, let Tauri's menu accelerators be the only source
       // of truth for overlapping shortcuts to avoid duplicate execution.
-      if (
-        useSettingsStore.getState().settings.nativeMenuBar &&
-        isNativeMenuAccelerator(e) &&
-        !isEditorTarget
-      ) {
+      if (IS_MAC && settings.nativeMenuBar && isNativeMenuAccelerator(e) && !isEditorTarget) {
         return;
       }
 
@@ -247,6 +220,7 @@ export function useKeymaps() {
           if (matchKeybinding(e, keybinding.key, chordState).matched) {
             e.preventDefault();
             e.stopPropagation();
+            if (keybinding.command === "file.close") lastCloseTabShortcutAtRef.current = Date.now();
             keymapRegistry.executeCommand(keybinding.command, keybinding.args);
             logger.debug(
               "Keymaps",
@@ -284,6 +258,10 @@ export function useKeymaps() {
             chordTimeoutRef.current = null;
           }
 
+          // The preset/user mapping, not a hard-coded Ctrl+W, owns closing.
+          if (keybinding.command === "file.close" || keybinding.command === "terminal.close") {
+            lastCloseTabShortcutAtRef.current = Date.now();
+          }
           // Execute command
           keymapRegistry.executeCommand(keybinding.command, keybinding.args);
           logger.debug("Keymaps", `Executed: ${keybinding.key} -> ${keybinding.command}`);

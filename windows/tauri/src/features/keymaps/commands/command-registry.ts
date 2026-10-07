@@ -724,6 +724,66 @@ const viewCommands: Command[] = [
     execute: toggleActiveBreakpoint,
   },
   {
+    id: "run.runSelectedConfiguration",
+    title: "Run / Rerun Selected Configuration",
+    category: "Run",
+    execute: async () => {
+      const { startSelectedRunConfiguration } =
+        await import("@/features/run/actions/selected-run-actions");
+      await startSelectedRunConfiguration("run");
+    },
+  },
+  {
+    id: "run.stopSelectedConfiguration",
+    title: "Stop Selected Configuration",
+    category: "Run",
+    execute: async () => {
+      const { stopSelectedRunConfiguration } =
+        await import("@/features/run/actions/selected-run-actions");
+      await stopSelectedRunConfiguration();
+    },
+  },
+  {
+    id: "debug.continue",
+    title: "Resume Program",
+    category: "Debug",
+    execute: async () => {
+      const { sendActiveDebugThreadRequest } =
+        await import("@/features/debugger/services/debug-session-actions");
+      await sendActiveDebugThreadRequest("continue");
+    },
+  },
+  {
+    id: "debug.stepOver",
+    title: "Step Over",
+    category: "Debug",
+    execute: async () => {
+      const { sendActiveDebugThreadRequest } =
+        await import("@/features/debugger/services/debug-session-actions");
+      await sendActiveDebugThreadRequest("next");
+    },
+  },
+  {
+    id: "debug.stepInto",
+    title: "Step Into",
+    category: "Debug",
+    execute: async () => {
+      const { sendActiveDebugThreadRequest } =
+        await import("@/features/debugger/services/debug-session-actions");
+      await sendActiveDebugThreadRequest("stepIn");
+    },
+  },
+  {
+    id: "debug.stepOut",
+    title: "Step Out",
+    category: "Debug",
+    execute: async () => {
+      const { sendActiveDebugThreadRequest } =
+        await import("@/features/debugger/services/debug-session-actions");
+      await sendActiveDebugThreadRequest("stepOut");
+    },
+  },
+  {
     id: "run.runContextConfiguration",
     title: "Run Context Configuration",
     category: "Java",
@@ -731,9 +791,8 @@ const viewCommands: Command[] = [
     // Loaded on use so the global registry does not pull the Run and Maven
     // stores into startup; the module keeps the focused editor's registration.
     execute: async () => {
-      const { runJavaContextConfiguration } = await import(
-        "@/features/run/services/java-run-marker-actions"
-      );
+      const { runJavaContextConfiguration } =
+        await import("@/features/run/services/java-run-marker-actions");
       runJavaContextConfiguration();
     },
   },

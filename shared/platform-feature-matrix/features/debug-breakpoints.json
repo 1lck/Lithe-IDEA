@@ -4,22 +4,22 @@
   "group": "调试器",
   "capability": "启动调试与断点",
   "macos": {
-    "evidence": [
-      "macos/Sources/Lithe/Views/Debug",
-      "shared/fixtures/debug"
-    ],
+    "evidence": ["macos/Sources/Lithe/Views/Debug", "shared/fixtures/debug"],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "windows": {
     "evidence": [
       "windows/tauri/src/features/debugger",
-      "shared/fixtures/debug"
+      "shared/fixtures/debug",
+      "windows/tauri/src/features/debugger/services/debug-session-actions.test.ts",
+      "windows/tauri/src/features/debugger/services/monaco-debug-decorations.test.ts",
+      "windows/tauri/src/features/maven/services/maven-module-debug.test.ts"
     ],
     "implementationStatus": "partial",
     "verificationStatus": "pending"
   },
   "owner": "Debug",
-  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。",
-  "notes": "Windows 真实调试产品链路仍在 #466 跟进。"
+  "verification": "设置、命中、禁用和重新定位断点，确认调试会话生命周期。 Windows验证Java gutter增删断点、禁用断点和暂停行装饰；只读编辑器不增删断点，切换/销毁编辑器后订阅与装饰均释放。",
+  "notes": "Windows 真实调试产品链路仍在 #466 跟进。 本次Windows改动保留Core/JDT的DAP及Java目标所有权，仅修复前端事件、请求和资源生命周期；完整界面及跨平台验收保持pending。"
 }

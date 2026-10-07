@@ -16,12 +16,20 @@
       "windows/tauri/src/features/keymaps",
       "windows/tauri/src/features/settings/components/macos-settings-panels.tsx",
       "windows/tauri/src/features/settings/components/tabs/keyboard-settings.tsx",
-      "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx"
+      "windows/tauri/src/features/settings/components/keyboard-settings-routing.test.tsx",
+      "windows/tauri/src/features/keymaps/commands/command-registry.ts",
+      "windows/tauri/src/features/keymaps/commands/debug-command-actions.ts",
+      "windows/tauri/src/features/keymaps/defaults/keybinding-presets.ts",
+      "windows/tauri/src/features/keymaps/hooks/use-keymaps.integration.test.tsx",
+      "windows/tauri/src/features/keymaps/hooks/use-keymaps.ts",
+      "windows/tauri/src/features/keymaps/utils/effective-contexts.ts",
+      "windows/tauri/src/features/keymaps/utils/effective-keymaps.ts",
+      "windows/tauri/src/features/window/components/window-menu-bar.tsx"
     ],
     "implementationStatus": "implemented",
     "verificationStatus": "pending"
   },
   "owner": "Settings",
-  "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。",
-  "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。"
+  "verification": "macOS 从设置 → 快捷键依次选择 macOS、IntelliJ IDEA Classic、Eclipse，核对运行、调试、查找等操作在界面和实际监听器中的绑定；IDEA Classic 的 Stop Run 应为 Control-F2，Eclipse 的 Resume 应为 F8，继承父 keymap 的命令应使用上游绑定，Find、Replace、GotoImplementation 等显式清空的命令应无绑定；检查分类树初始折叠、全部展开和折叠、分类展开、搜索时自动显示匹配操作、选中行高亮、右侧紧凑键帽及工具栏编辑菜单；通过键帽、工具栏或右键菜单新增、删除与恢复默认，并检查键盘辅助功能；分别修改两套预设的同一命令，切换与重启后确认自定义绑定互不覆盖，并验证旧版单套覆盖迁移到 macOS；按命令名称、ID 和按键搜索，制造冲突并恢复当前预设或应用全部默认；导出再导入 keybindings.json，确认预设与自定义绑定恢复且命令实际执行。Windows 保持现有快捷键编辑、导出和导入验证。 Windows使用JetBrains预设验证Ctrl+D复制、Ctrl+Y删除、Ctrl+Shift+Z重做、Alt+J相关出现选择、Ctrl+W扩选及Ctrl+F4关闭；检查Run/Debug/Stop/单步作用于选中配置与会话，并验证菜单标签、用户覆盖、多别名、输入框/终端上下文和nativeMenuBar设置。",
+  "notes": "Windows 已接入现有快捷键编辑器，修复 #718 的占位入口；Linux 前端回归验证不替代 Windows WebView2、原生文件对话框和快捷键实际执行验收。 仅映射Lithe已有动作；保留用户覆盖和未显式映射的默认动作，不宣称完整IDEA或macOS快捷键对等。"
 }

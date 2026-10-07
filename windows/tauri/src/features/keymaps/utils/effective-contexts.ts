@@ -11,7 +11,7 @@ export function resolveEffectiveKeymapContexts(
 ): Partial<KeymapContext> {
   return {
     ...contexts,
-    editorFocus: isEditorTarget || contexts.editorFocus,
-    terminalFocus: isTerminalTarget || contexts.terminalFocus,
+    editorFocus: isEditorTarget && !isTerminalTarget,
+    terminalFocus: isTerminalTarget,
   };
 }

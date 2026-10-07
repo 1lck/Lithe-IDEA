@@ -1,3 +1,4 @@
+import { TitleRunControl } from "@/features/run/components/title-run-control";
 import { getCurrentWindow, type Window as TauriWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -113,7 +114,10 @@ export const TitleBar = ({
       try {
         await syncWindowState();
         // A window opened in the background starts inactive without a focus event.
-        document.documentElement.toggleAttribute("data-window-inactive", !(await window.isFocused()));
+        document.documentElement.toggleAttribute(
+          "data-window-inactive",
+          !(await window.isFocused()),
+        );
         const unlistenResize = await window.onResized(() => {
           void syncWindowState();
         });
@@ -387,9 +391,7 @@ export const TitleBar = ({
             {!showCompactMenuBar ? projectControls : null}
           </ChromeGroup>
 
-          <ChromeGroup className="h-full">
-            {workbenchActions}
-          </ChromeGroup>
+          <ChromeGroup className="h-full">{workbenchActions}</ChromeGroup>
         </ContextMenuTrigger>
         {titleBarContextMenuContent}
       </ContextMenu>
@@ -414,6 +416,7 @@ export const TitleBar = ({
           </ChromeGroup>
         </ChromeGroup>
         <ChromeGroup className="pointer-events-auto z-20">
+          <TitleRunControl />
           {quickOpenAction}
           {settingsAction}
           {isWindows ? <TitleBarUpdateControl visible={showUpdateControl} /> : null}

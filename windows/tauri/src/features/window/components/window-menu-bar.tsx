@@ -1,3 +1,4 @@
+import { useCommandShortcut } from "@/features/keymaps/hooks/use-command-shortcut";
 import { invoke } from "@/platform/tauri-core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -30,6 +31,15 @@ interface Props {
   setActiveMenu: React.Dispatch<React.SetStateAction<string | null>>;
   compactExpanded?: boolean;
   onCompactClose?: () => void;
+}
+
+/** Labels follow the effective preset/user binding; actions keep their existing owner. */
+function CommandMenuItem({
+  commandId,
+  ...props
+}: React.ComponentProps<typeof MenubarItem> & { commandId: string }) {
+  const shortcut = useCommandShortcut(commandId);
+  return <MenubarItem {...props} shortcut={shortcut} />;
 }
 
 const WindowMenuBar = ({
@@ -135,9 +145,12 @@ const WindowMenuBar = ({
     () => ({
       File: (
         <MenubarContent>
-          <MenubarItem shortcut="mod+n" onClick={() => handleCommand("workbench.newTab")}>
+          <CommandMenuItem
+            commandId="workbench.newTab"
+            onClick={() => handleCommand("workbench.newTab")}
+          >
             {t("menu.newTab")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarItem shortcut="mod+shift+n" onClick={handleNewWindow}>
             {t("menu.newWindow")}
           </MenubarItem>
@@ -157,43 +170,61 @@ const WindowMenuBar = ({
           <MenubarItem shortcut="mod+shift+s" onClick={() => handleClickEmit("menu_save_as")}>
             {t("menu.saveAs")}
           </MenubarItem>
-          <MenubarItem shortcut="mod+alt+s" onClick={() => handleCommand("file.saveAll")}>
+          <CommandMenuItem commandId="file.saveAll" onClick={() => handleCommand("file.saveAll")}>
             {t("menu.saveAll")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.revert")}>
+          </CommandMenuItem>
+          <CommandMenuItem commandId="file.revert" onClick={() => handleCommand("file.revert")}>
             {t("menu.revertFile")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.localHistory")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.localHistory"
+            onClick={() => handleCommand("file.localHistory")}
+          >
             {t("menu.showLocalHistory")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+w" onClick={() => handleClickEmit("menu_close_tab")}>
+          <CommandMenuItem commandId="file.close" onClick={() => handleClickEmit("menu_close_tab")}>
             {t("menu.closeTab")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+shift+w"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.closeWindow"
             onClick={() => handleCommand("workbench.closeWindow")}
           >
             {t("menu.closeWindow")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.closeAll")}>
+          </CommandMenuItem>
+          <CommandMenuItem commandId="file.closeAll" onClick={() => handleCommand("file.closeAll")}>
             {t("menu.closeAllTabs")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.closeOthers")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.closeOthers"
+            onClick={() => handleCommand("file.closeOthers")}
+          >
             {t("menu.closeOtherTabs")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.closeSaved")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.closeSaved"
+            onClick={() => handleCommand("file.closeSaved")}
+          >
             {t("menu.closeSavedTabs")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.closeTabsToLeft")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.closeTabsToLeft"
+            onClick={() => handleCommand("file.closeTabsToLeft")}
+          >
             {t("menu.closeTabsToLeft")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("file.closeTabsToRight")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.closeTabsToRight"
+            onClick={() => handleCommand("file.closeTabsToRight")}
+          >
             {t("menu.closeTabsToRight")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+shift+t" onClick={() => handleCommand("file.reopenClosed")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="file.reopenClosed"
+            onClick={() => handleCommand("file.reopenClosed")}
+          >
             {t("menu.reopenClosedTab")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem shortcut="mod+q" onClick={async () => await exit(0)}>
             {t("menu.quit")}
@@ -205,69 +236,96 @@ const WindowMenuBar = ({
           <MenubarItem shortcut="mod+z" onClick={() => handleClickEmit("menu_undo")}>
             {t("menu.undo")}
           </MenubarItem>
-          <MenubarItem shortcut="mod+shift+z" onClick={() => handleClickEmit("menu_redo")}>
+          <CommandMenuItem commandId="editor.redo" onClick={() => handleClickEmit("menu_redo")}>
             {t("menu.redo")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+x" onClick={() => handleCommand("editor.cut")}>
+          <CommandMenuItem commandId="editor.cut" onClick={() => handleCommand("editor.cut")}>
             {t("menu.cut")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+c" onClick={() => handleCommand("editor.copy")}>
+          </CommandMenuItem>
+          <CommandMenuItem commandId="editor.copy" onClick={() => handleCommand("editor.copy")}>
             {t("menu.copy")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+v" onClick={() => handleCommand("editor.paste")}>
+          </CommandMenuItem>
+          <CommandMenuItem commandId="editor.paste" onClick={() => handleCommand("editor.paste")}>
             {t("menu.paste")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+a" onClick={() => handleCommand("editor.selectAll")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.selectAll"
+            onClick={() => handleCommand("editor.selectAll")}
+          >
             {t("menu.selectAll")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem shortcut="mod+f" onClick={() => handleClickEmit("menu_find")}>
             {t("menu.find")}
           </MenubarItem>
-          <MenubarItem shortcut="mod+alt+f" onClick={() => handleClickEmit("menu_find_replace")}>
+          <CommandMenuItem
+            commandId="workbench.showFindReplace"
+            onClick={() => handleClickEmit("menu_find_replace")}
+          >
             {t("menu.findAndReplace")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+/" onClick={() => handleClickEmit("menu_toggle_comment")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.toggleComment"
+            onClick={() => handleClickEmit("menu_toggle_comment")}
+          >
             {t("menu.toggleComment")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+." onClick={() => handleCommand("editor.quickFix")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.quickFix"
+            onClick={() => handleCommand("editor.quickFix")}
+          >
             {t("menu.quickFix")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+shift+space"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.triggerParameterHints"
             onClick={() => handleCommand("editor.triggerParameterHints")}
           >
             {t("menu.triggerParameterHints")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+k mod+i" onClick={() => handleCommand("editor.showHover")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.showHover"
+            onClick={() => handleCommand("editor.showHover")}
+          >
             {t("menu.showHover")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+d" onClick={() => handleCommand("editor.duplicateLine")}>
+          <CommandMenuItem
+            commandId="editor.duplicateLine"
+            onClick={() => handleCommand("editor.duplicateLine")}
+          >
             {t("menu.duplicateLine")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+shift+k" onClick={() => handleCommand("editor.deleteLine")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.deleteLine"
+            onClick={() => handleCommand("editor.deleteLine")}
+          >
             {t("menu.deleteLine")}
-          </MenubarItem>
-          <MenubarItem shortcut="alt+up" onClick={() => handleCommand("editor.moveLineUp")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.moveLineUp"
+            onClick={() => handleCommand("editor.moveLineUp")}
+          >
             {t("menu.moveLineUp")}
-          </MenubarItem>
-          <MenubarItem shortcut="alt+down" onClick={() => handleCommand("editor.moveLineDown")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.moveLineDown"
+            onClick={() => handleCommand("editor.moveLineDown")}
+          >
             {t("menu.moveLineDown")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+alt+l"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.formatDocument"
             onClick={() => handleCommand("editor.formatDocument")}
           >
             {t("menu.formatDocument")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+k mod+f"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.formatSelection"
             onClick={() => handleCommand("editor.formatSelection")}
           >
             {t("menu.formatSelection")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem
             shortcut="mod+shift+p"
@@ -292,63 +350,90 @@ const WindowMenuBar = ({
             {t("menu.toggleTerminal")}
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarItem
-            shortcut="mod+shift+f"
+          <CommandMenuItem
+            commandId="workbench.showGlobalSearch"
             onClick={() => handleCommand("workbench.showGlobalSearch")}
           >
             {t("menu.globalSearch")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+shift+j"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.toggleDiagnostics"
             onClick={() => handleCommand("workbench.toggleDiagnostics")}
           >
             {t("menu.diagnostics")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem
-            shortcut="mod+shift+e"
+          <CommandMenuItem
+            commandId="workbench.showFileExplorer"
             onClick={() => handleCommand("workbench.showFileExplorer")}
           >
             {t("menu.fileExplorer")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+shift+g"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.showSourceControl"
             onClick={() => handleCommand("workbench.showSourceControl")}
           >
             {t("menu.sourceControl")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("workbench.showGitHub")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.showGitHub"
+            onClick={() => handleCommand("workbench.showGitHub")}
+          >
             {t("menu.github")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("workbench.showDebugger")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.showDebugger"
+            onClick={() => handleCommand("workbench.showDebugger")}
+          >
             {t("menu.runAndDebug")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem onClick={() => handleClickEmit("menu_split_editor")}>
             {t("menu.splitEditor")}
           </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("workbench.toggleMinimap")}>
+          <CommandMenuItem
+            commandId="workbench.toggleMinimap"
+            onClick={() => handleCommand("workbench.toggleMinimap")}
+          >
             {t("menu.toggleMinimap")}
-          </MenubarItem>
-          <MenubarItem shortcut="alt+z" onClick={() => handleCommand("editor.toggleWordWrap")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.toggleWordWrap"
+            onClick={() => handleCommand("editor.toggleWordWrap")}
+          >
             {t("menu.toggleWordWrap")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("editor.toggleLineNumbers")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.toggleLineNumbers"
+            onClick={() => handleCommand("editor.toggleLineNumbers")}
+          >
             {t("menu.toggleLineNumbers")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("editor.toggleRenderWhitespace")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.toggleRenderWhitespace"
+            onClick={() => handleCommand("editor.toggleRenderWhitespace")}
+          >
             {t("menu.toggleRenderWhitespace")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="mod+=" onClick={() => handleCommand("workbench.zoomIn")}>
+          <CommandMenuItem
+            commandId="workbench.zoomIn"
+            onClick={() => handleCommand("workbench.zoomIn")}
+          >
             {t("menu.zoomIn")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+-" onClick={() => handleCommand("workbench.zoomOut")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.zoomOut"
+            onClick={() => handleCommand("workbench.zoomOut")}
+          >
             {t("menu.zoomOut")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+0" onClick={() => handleCommand("workbench.zoomReset")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="workbench.zoomReset"
+            onClick={() => handleCommand("workbench.zoomReset")}
+          >
             {t("menu.resetZoom")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarSub>
             <MenubarSubTrigger>{t("menu.theme")}</MenubarSubTrigger>
@@ -374,34 +459,49 @@ const WindowMenuBar = ({
             {t("menu.goToLine")}
           </MenubarItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="ctrl+alt+left" onClick={() => handleCommand("navigation.goBack")}>
+          <CommandMenuItem
+            commandId="navigation.goBack"
+            onClick={() => handleCommand("navigation.goBack")}
+          >
             {t("menu.goBack")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="ctrl+alt+right"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="navigation.goForward"
             onClick={() => handleCommand("navigation.goForward")}
           >
             {t("menu.goForward")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
-          <MenubarItem shortcut="f12" onClick={() => handleCommand("editor.goToDefinition")}>
+          <CommandMenuItem
+            commandId="editor.goToDefinition"
+            onClick={() => handleCommand("editor.goToDefinition")}
+          >
             {t("menu.goToDefinition")}
-          </MenubarItem>
-          <MenubarItem
-            shortcut="mod+f12"
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.goToImplementation"
             onClick={() => handleCommand("editor.goToImplementation")}
           >
             {t("menu.goToImplementation")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("editor.goToTypeDefinition")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.goToTypeDefinition"
+            onClick={() => handleCommand("editor.goToTypeDefinition")}
+          >
             {t("menu.goToTypeDefinition")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+b" onClick={() => handleCommand("editor.goToReferences")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.goToReferences"
+            onClick={() => handleCommand("editor.goToReferences")}
+          >
             {t("menu.goToReferences")}
-          </MenubarItem>
-          <MenubarItem shortcut="f2" onClick={() => handleCommand("editor.renameSymbol")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="editor.renameSymbol"
+            onClick={() => handleCommand("editor.renameSymbol")}
+          >
             {t("menu.renameSymbol")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem shortcut="mod+alt+right" onClick={() => handleClickEmit("menu_next_tab")}>
             {t("menu.nextTab")}
@@ -413,42 +513,68 @@ const WindowMenuBar = ({
       ),
       Terminal: (
         <MenubarContent>
-          <MenubarItem onClick={() => handleCommand("terminal.new")}>
+          <CommandMenuItem commandId="terminal.new" onClick={() => handleCommand("terminal.new")}>
             {t("menu.newTerminal")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+d" onClick={() => handleCommand("terminal.split")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="terminal.split"
+            onClick={() => handleCommand("terminal.split")}
+          >
             {t("menu.splitTerminalRight")}
-          </MenubarItem>
-          <MenubarItem shortcut="mod+shift+d" onClick={() => handleCommand("terminal.splitDown")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="terminal.splitDown"
+            onClick={() => handleCommand("terminal.splitDown")}
+          >
             {t("menu.splitTerminalDown")}
-          </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("terminal.close")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="terminal.close"
+            onClick={() => handleCommand("terminal.close")}
+          >
             {t("menu.closeTerminal")}
-          </MenubarItem>
+          </CommandMenuItem>
         </MenubarContent>
       ),
       Run: (
         <MenubarContent>
-          <MenubarItem shortcut="f5" onClick={() => handleCommand("debug.start")}>
+          <CommandMenuItem
+            commandId="run.runSelectedConfiguration"
+            onClick={() => handleCommand("run.runSelectedConfiguration")}
+          >
+            {t("run.run")}
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="run.stopSelectedConfiguration"
+            onClick={() => handleCommand("run.stopSelectedConfiguration")}
+          >
+            {t("run.stop")}
+          </CommandMenuItem>
+          <MenubarSeparator />
+          <CommandMenuItem commandId="debug.start" onClick={() => handleCommand("debug.start")}>
             {t("menu.startDebugging")}
-          </MenubarItem>
-          <MenubarItem shortcut="shift+f5" onClick={() => handleCommand("debug.stop")}>
+          </CommandMenuItem>
+          <CommandMenuItem commandId="debug.stop" onClick={() => handleCommand("debug.stop")}>
             {t("menu.stopDebugging")}
-          </MenubarItem>
-          <MenubarItem shortcut="f9" onClick={() => handleCommand("debug.toggleBreakpoint")}>
+          </CommandMenuItem>
+          <CommandMenuItem
+            commandId="debug.toggleBreakpoint"
+            onClick={() => handleCommand("debug.toggleBreakpoint")}
+          >
             {t("menu.toggleBreakpoint")}
-          </MenubarItem>
+          </CommandMenuItem>
         </MenubarContent>
       ),
       Tools: (
         <MenubarContent>
-          <MenubarItem
+          <CommandMenuItem
+            commandId="database.connect"
             onClick={() => handleCommand("database.connect")}
             disabled={!isBackendCapabilityAvailable("database")}
             title={BACKEND_UNAVAILABLE_TOOLTIP}
           >
             {t("menu.databases")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarSeparator />
           <MenubarItem shortcut="mod+alt+i" onClick={handleOpenWebInspector}>
             {t("menu.webInspector")}
@@ -457,9 +583,12 @@ const WindowMenuBar = ({
           <MenubarItem onClick={() => handleClickEmit("menu_open_settings")}>
             {t("menu.preferences")}
           </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("workbench.openKeyboardShortcuts")}>
+          <CommandMenuItem
+            commandId="workbench.openKeyboardShortcuts"
+            onClick={() => handleCommand("workbench.openKeyboardShortcuts")}
+          >
             {t("menu.keyboardShortcuts")}
-          </MenubarItem>
+          </CommandMenuItem>
         </MenubarContent>
       ),
       Window: (
@@ -509,9 +638,12 @@ const WindowMenuBar = ({
           <MenubarItem onClick={() => handleClickEmit("menu_documentation")}>
             {t("menu.documentation")}
           </MenubarItem>
-          <MenubarItem onClick={() => handleCommand("workbench.openKeyboardShortcuts")}>
+          <CommandMenuItem
+            commandId="workbench.openKeyboardShortcuts"
+            onClick={() => handleCommand("workbench.openKeyboardShortcuts")}
+          >
             {t("menu.keyboardShortcuts")}
-          </MenubarItem>
+          </CommandMenuItem>
           <MenubarItem onClick={() => handleClickEmit("menu_whats_new")}>
             {t("menu.whatsNew")}
           </MenubarItem>

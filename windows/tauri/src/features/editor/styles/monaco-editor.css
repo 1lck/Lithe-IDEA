@@ -617,3 +617,20 @@
   outline: 1px solid var(--primary);
   outline-offset: -1px;
 }
+
+/* Debug state comes from the existing DAP/breakpoint store. */
+.monaco-editor-shell .lithe-debug-breakpoint,
+.monaco-editor-shell .lithe-debug-breakpoint-disabled {
+  cursor: pointer;
+  background: radial-gradient(
+    circle at center,
+    var(--color-destructive, #e5534b) 0 5px,
+    transparent 6px
+  );
+}
+.monaco-editor-shell .lithe-debug-breakpoint-disabled {
+  opacity: 0.35;
+}
+.monaco-editor-shell .lithe-debug-paused-line {
+  background: color-mix(in srgb, var(--color-primary, #6b9fff) 18%, transparent);
+}
